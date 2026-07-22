@@ -3,20 +3,47 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Daybook digital planner platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: admin
+    description: Admin console
+  - name: themes
+    description: Theme catalog
+  - name: stickerPacks
+    description: Sticker pack catalog
+  - name: inserts
+    description: Insert catalog
+  - name: products
+    description: Related product catalog
+  - name: editions
+    description: Edition management
+  - name: plans
+    description: Subscription plans
+  - name: users
+    description: User management
+  - name: plannerConfig
+    description: Planner configuration
+  - name: generation
+    description: PDF generation
+  - name: googleSync
+    description: Google sync
+  - name: ai
+    description: AI proxy
+  - name: billing
+    description: Stripe billing
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +51,1358 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ── AUTH ────────────────────────────────────────────────────────────────────
+  /auth/google:
+    get:
+      operationId: googleAuthStart
+      tags: [auth]
+      summary: Redirect to Google OAuth
+      responses:
+        "302":
+          description: Redirect
+
+  /auth/google/callback:
+    get:
+      operationId: googleAuthCallback
+      tags: [auth]
+      summary: Google OAuth callback
+      parameters:
+        - in: query
+          name: code
+          schema: { type: string }
+        - in: query
+          name: state
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to app
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current session user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+
+  /auth/staff/login:
+    post:
+      operationId: staffLogin
+      tags: [auth]
+      summary: Staff / owner login with password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffLoginInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+
+  # ── ADMIN STATS ──────────────────────────────────────────────────────────────
+  /admin/stats:
+    get:
+      operationId: getAdminStats
+      tags: [admin]
+      summary: Dashboard live / draft counts and totals
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /admin/trend-research:
+    post:
+      operationId: trendResearch
+      tags: [admin]
+      summary: AI-powered trend research for planner niches
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrendResearchInput"
+      responses:
+        "200":
+          description: Trend research result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrendResearchResult"
+
+  # ── THEMES ───────────────────────────────────────────────────────────────────
+  /themes:
+    get:
+      operationId: listThemes
+      tags: [themes]
+      summary: List themes
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, live, all]
+      responses:
+        "200":
+          description: Themes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Theme"
+    post:
+      operationId: createTheme
+      tags: [themes]
+      summary: Create theme
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ThemeInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Theme"
+
+  /themes/{id}:
+    get:
+      operationId: getTheme
+      tags: [themes]
+      summary: Get theme
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Theme
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Theme"
+    patch:
+      operationId: updateTheme
+      tags: [themes]
+      summary: Update theme
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ThemeUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Theme"
+    delete:
+      operationId: deleteTheme
+      tags: [themes]
+      summary: Delete theme
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
+  /themes/{id}/publish:
+    post:
+      operationId: publishTheme
+      tags: [themes]
+      summary: Publish theme
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Theme"
+
+  /themes/{id}/unpublish:
+    post:
+      operationId: unpublishTheme
+      tags: [themes]
+      summary: Unpublish theme
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Unpublished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Theme"
+
+  /themes/ai-draft:
+    post:
+      operationId: aiDraftTheme
+      tags: [themes]
+      summary: AI-draft palette and copy for a new theme
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiDraftThemeInput"
+      responses:
+        "200":
+          description: AI draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiDraftThemeResult"
+
+  # ── STICKER PACKS ────────────────────────────────────────────────────────────
+  /sticker-packs:
+    get:
+      operationId: listStickerPacks
+      tags: [stickerPacks]
+      summary: List sticker packs
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, live, all]
+      responses:
+        "200":
+          description: Sticker packs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StickerPack"
+    post:
+      operationId: createStickerPack
+      tags: [stickerPacks]
+      summary: Create sticker pack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StickerPackInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StickerPack"
+
+  /sticker-packs/{id}:
+    get:
+      operationId: getStickerPack
+      tags: [stickerPacks]
+      summary: Get sticker pack
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Sticker pack
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StickerPack"
+    patch:
+      operationId: updateStickerPack
+      tags: [stickerPacks]
+      summary: Update sticker pack
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StickerPackUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StickerPack"
+    delete:
+      operationId: deleteStickerPack
+      tags: [stickerPacks]
+      summary: Delete sticker pack
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
+  /sticker-packs/{id}/publish:
+    post:
+      operationId: publishStickerPack
+      tags: [stickerPacks]
+      summary: Publish sticker pack
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StickerPack"
+
+  /sticker-packs/{id}/unpublish:
+    post:
+      operationId: unpublishStickerPack
+      tags: [stickerPacks]
+      summary: Unpublish sticker pack
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Unpublished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StickerPack"
+
+  /sticker-packs/ai-draft:
+    post:
+      operationId: aiDraftStickerPack
+      tags: [stickerPacks]
+      summary: AI-draft sticker pack concepts and copy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiDraftPackInput"
+      responses:
+        "200":
+          description: AI draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiDraftPackResult"
+
+  # ── INSERTS ──────────────────────────────────────────────────────────────────
+  /inserts:
+    get:
+      operationId: listInserts
+      tags: [inserts]
+      summary: List inserts
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, live, all]
+        - in: query
+          name: category
+          schema: { type: string }
+      responses:
+        "200":
+          description: Inserts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Insert"
+    post:
+      operationId: createInsert
+      tags: [inserts]
+      summary: Create insert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Insert"
+
+  /inserts/{id}:
+    get:
+      operationId: getInsert
+      tags: [inserts]
+      summary: Get insert
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Insert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Insert"
+    patch:
+      operationId: updateInsert
+      tags: [inserts]
+      summary: Update insert
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Insert"
+    delete:
+      operationId: deleteInsert
+      tags: [inserts]
+      summary: Delete insert
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
+  /inserts/{id}/publish:
+    post:
+      operationId: publishInsert
+      tags: [inserts]
+      summary: Publish insert
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Insert"
+
+  /inserts/{id}/unpublish:
+    post:
+      operationId: unpublishInsert
+      tags: [inserts]
+      summary: Unpublish insert
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Unpublished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Insert"
+
+  # ── RELATED PRODUCTS ─────────────────────────────────────────────────────────
+  /products:
+    get:
+      operationId: listProducts
+      tags: [products]
+      summary: List related products
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, live, all]
+      responses:
+        "200":
+          description: Products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RelatedProduct"
+    post:
+      operationId: createProduct
+      tags: [products]
+      summary: Create related product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelatedProductInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelatedProduct"
+
+  /products/{id}:
+    get:
+      operationId: getProduct
+      tags: [products]
+      summary: Get related product
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelatedProduct"
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Update related product
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelatedProductUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelatedProduct"
+    delete:
+      operationId: deleteProduct
+      tags: [products]
+      summary: Delete related product
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
+  /products/{id}/publish:
+    post:
+      operationId: publishProduct
+      tags: [products]
+      summary: Publish product
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelatedProduct"
+
+  /products/{id}/unpublish:
+    post:
+      operationId: unpublishProduct
+      tags: [products]
+      summary: Unpublish product
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Unpublished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelatedProduct"
+
+  # ── EDITIONS ─────────────────────────────────────────────────────────────────
+  /editions:
+    get:
+      operationId: listEditions
+      tags: [editions]
+      summary: List editions
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, live, all]
+      responses:
+        "200":
+          description: Editions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Edition"
+    post:
+      operationId: createEdition
+      tags: [editions]
+      summary: Create edition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditionInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Edition"
+
+  /editions/{id}:
+    get:
+      operationId: getEdition
+      tags: [editions]
+      summary: Get edition
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Edition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Edition"
+    patch:
+      operationId: updateEdition
+      tags: [editions]
+      summary: Update edition
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditionUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Edition"
+    delete:
+      operationId: deleteEdition
+      tags: [editions]
+      summary: Delete edition
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
+  /editions/{id}/publish:
+    post:
+      operationId: publishEdition
+      tags: [editions]
+      summary: Publish edition
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Edition"
+
+  /editions/{id}/unpublish:
+    post:
+      operationId: unpublishEdition
+      tags: [editions]
+      summary: Unpublish edition
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Unpublished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Edition"
+
+  /editions/{id}/art:
+    get:
+      operationId: getEditionArt
+      tags: [editions]
+      summary: List per-page art files for an edition
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Art files
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ArtFile"
+    put:
+      operationId: updateEditionArt
+      tags: [editions]
+      summary: Set per-page art file ids for an edition
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditionArtUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ArtFile"
+
+  /editions/ai-draft:
+    post:
+      operationId: aiDraftEdition
+      tags: [editions]
+      summary: AI-draft section list and price ranges for an edition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiDraftEditionInput"
+      responses:
+        "200":
+          description: AI draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiDraftEditionResult"
+
+  # ── PLANS ────────────────────────────────────────────────────────────────────
+  /plans:
+    get:
+      operationId: listPlans
+      tags: [plans]
+      summary: List subscription plans
+      responses:
+        "200":
+          description: Plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+    post:
+      operationId: createPlan
+      tags: [plans]
+      summary: Create plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+
+  /plans/{id}:
+    get:
+      operationId: getPlan
+      tags: [plans]
+      summary: Get plan
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+    patch:
+      operationId: updatePlan
+      tags: [plans]
+      summary: Update plan
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+    delete:
+      operationId: deletePlan
+      tags: [plans]
+      summary: Delete plan
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
+  # ── USERS ────────────────────────────────────────────────────────────────────
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List users (admin)
+      parameters:
+        - in: query
+          name: role
+          schema:
+            type: string
+            enum: [user, staff, owner]
+        - in: query
+          name: planId
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: "Update user (admin: role, planId)"
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}/purchases:
+    get:
+      operationId: getUserPurchases
+      tags: [users]
+      summary: Get a user's owned catalog items
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Purchases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPurchases"
+
+  # ── PLANNER CONFIG ────────────────────────────────────────────────────────────
+  /planner-configs:
+    get:
+      operationId: listPlannerConfigs
+      tags: [plannerConfig]
+      summary: List planner configs for current user
+      responses:
+        "200":
+          description: Configs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlannerConfig"
+    post:
+      operationId: createPlannerConfig
+      tags: [plannerConfig]
+      summary: Create planner config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlannerConfigInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlannerConfig"
+
+  /planner-configs/{id}:
+    get:
+      operationId: getPlannerConfig
+      tags: [plannerConfig]
+      summary: Get planner config
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlannerConfig"
+    patch:
+      operationId: updatePlannerConfig
+      tags: [plannerConfig]
+      summary: Update style / output fields (setup fields lock after generation)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlannerConfigUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlannerConfig"
+    delete:
+      operationId: deletePlannerConfig
+      tags: [plannerConfig]
+      summary: Delete planner config
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
+  # ── PDF GENERATION ───────────────────────────────────────────────────────────
+  /generation:
+    post:
+      operationId: generatePlanner
+      tags: [generation]
+      summary: Generate a PDF planner from a config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerationInput"
+      responses:
+        "202":
+          description: Generation started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerationJob"
+
+  /generation/{jobId}:
+    get:
+      operationId: getGenerationJob
+      tags: [generation]
+      summary: Poll generation job status
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerationJob"
+
+  /generation/history:
+    get:
+      operationId: listGenerations
+      tags: [generation]
+      summary: List past generation jobs for current user
+      responses:
+        "200":
+          description: Jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GenerationJob"
+
+  # ── GOOGLE SYNC ───────────────────────────────────────────────────────────────
+  /sync/status:
+    get:
+      operationId: getSyncStatus
+      tags: [googleSync]
+      summary: Google sync status with last-synced timestamps
+      responses:
+        "200":
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncStatus"
+
+  /sync/calendar/pull:
+    post:
+      operationId: pullCalendarEvents
+      tags: [googleSync]
+      summary: Pull Google Calendar events into planner day/week views
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarSyncInput"
+      responses:
+        "200":
+          description: Pulled events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResult"
+
+  /sync/calendar/push:
+    post:
+      operationId: pushPlannerToCalendar
+      tags: [googleSync]
+      summary: Push planner blocks to Google Calendar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarPushInput"
+      responses:
+        "200":
+          description: Push result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResult"
+
+  /sync/tasks:
+    post:
+      operationId: syncGoogleTasks
+      tags: [googleSync]
+      summary: Two-way sync Google Tasks
+      responses:
+        "200":
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResult"
+
+  /sync/docs/push:
+    post:
+      operationId: pushNotesToDocs
+      tags: [googleSync]
+      summary: Push notes / brain-dump to Google Docs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocsPushInput"
+      responses:
+        "200":
+          description: Push result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResult"
+
+  /sync/drive/backup:
+    post:
+      operationId: driveBackup
+      tags: [googleSync]
+      summary: Backup generated PDFs and configs to Google Drive
+      responses:
+        "200":
+          description: Backup result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResult"
+
+  # ── AI PROXY ──────────────────────────────────────────────────────────────────
+  /ai/chat:
+    post:
+      operationId: aiChat
+      tags: [ai]
+      summary: AI proxy — routes to Claude, ChatGPT, or Gemini
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiChatInput"
+      responses:
+        "200":
+          description: AI response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiChatResult"
+
+  /ai/settings:
+    get:
+      operationId: getAiSettings
+      tags: [ai]
+      summary: Get AI provider settings
+      responses:
+        "200":
+          description: AI settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSettings"
+    patch:
+      operationId: updateAiSettings
+      tags: [ai]
+      summary: Update AI provider settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiSettingsUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSettings"
+
+  # ── BILLING ───────────────────────────────────────────────────────────────────
+  /billing/checkout:
+    post:
+      operationId: createCheckoutSession
+      tags: [billing]
+      summary: Create a Stripe checkout session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutInput"
+      responses:
+        "200":
+          description: Checkout session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+
+  /billing/portal:
+    post:
+      operationId: createBillingPortal
+      tags: [billing]
+      summary: Create Stripe billing portal session
+      responses:
+        "200":
+          description: Portal URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingPortal"
+
+  /billing/webhook:
+    post:
+      operationId: stripeWebhook
+      tags: [billing]
+      summary: Stripe webhook handler
+      responses:
+        "200":
+          description: OK
+
+  /billing/subscriptions:
+    get:
+      operationId: getSubscription
+      tags: [billing]
+      summary: Get current user subscription and owned items
+      responses:
+        "200":
+          description: Subscription info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionInfo"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +1410,741 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    # ── COMMON ────────────────────────────────────────────────────────────────
+    CatalogStatus:
+      type: string
+      enum: [draft, live]
+
+    # ── USER ──────────────────────────────────────────────────────────────────
+    User:
+      type: object
+      required: [id, email, name, role, createdAt]
+      properties:
+        id:           { type: integer }
+        googleId:     { type: ["string", "null"] }
+        email:        { type: string }
+        name:         { type: string }
+        avatarUrl:    { type: ["string", "null"] }
+        role:
+          type: string
+          enum: [user, staff, owner]
+        planId:       { type: ["integer", "null"] }
+        stripeCustomerId: { type: ["string", "null"] }
+        notionToken:  { type: ["string", "null"] }
+        createdAt:    { type: string, format: date-time }
+        updatedAt:    { type: string, format: date-time }
+
+    UserUpdate:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, staff, owner]
+        planId:       { type: ["integer", "null"] }
+        name:         { type: string }
+
+    UserPurchases:
+      type: object
+      required: [themeIds, stickerPackIds, insertIds, productIds, editionIds]
+      properties:
+        themeIds:       { type: array, items: { type: integer } }
+        stickerPackIds: { type: array, items: { type: integer } }
+        insertIds:      { type: array, items: { type: integer } }
+        productIds:     { type: array, items: { type: integer } }
+        editionIds:     { type: array, items: { type: integer } }
+
+    StaffLoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:    { type: string }
+        password: { type: string }
+
+    # ── THEME ─────────────────────────────────────────────────────────────────
+    Theme:
+      type: object
+      required: [id, name, slug, status, createdAt]
+      properties:
+        id:             { type: integer }
+        name:           { type: string }
+        slug:           { type: string }
+        description:    { type: ["string", "null"] }
+        status:         { $ref: "#/components/schemas/CatalogStatus" }
+        category:       { type: ["string", "null"] }
+        coverColor:     { type: ["string", "null"] }
+        accentColor:    { type: ["string", "null"] }
+        palette:        { type: object, nullable: true, additionalProperties: true }
+        previewImageUrl: { type: ["string", "null"] }
+        driveFileId:    { type: ["string", "null"] }
+        createdAt:      { type: string, format: date-time }
+        updatedAt:      { type: string, format: date-time }
+
+    ThemeInput:
+      type: object
+      required: [name]
+      properties:
+        name:           { type: string, minLength: 1 }
+        slug:           { type: string }
+        description:    { type: string }
+        category:       { type: string }
+        coverColor:     { type: string }
+        accentColor:    { type: string }
+        palette:        { type: object, additionalProperties: true }
+        previewImageUrl: { type: string }
+
+    ThemeUpdate:
+      type: object
+      properties:
+        name:           { type: string, minLength: 1 }
+        description:    { type: string }
+        category:       { type: string }
+        coverColor:     { type: string }
+        accentColor:    { type: string }
+        palette:        { type: object, additionalProperties: true }
+        previewImageUrl: { type: string }
+        driveFileId:    { type: string }
+
+    AiDraftThemeInput:
+      type: object
+      required: [concept]
+      properties:
+        concept:  { type: string }
+        season:   { type: string }
+        audience: { type: string }
+
+    AiDraftThemeResult:
+      type: object
+      required: [name, description, palette, coverColor, accentColor]
+      properties:
+        name:        { type: string }
+        description: { type: string }
+        palette:     { type: object, additionalProperties: true }
+        coverColor:  { type: string }
+        accentColor: { type: string }
+        tags:        { type: array, items: { type: string } }
+
+    # ── STICKER PACK ─────────────────────────────────────────────────────────
+    StickerPack:
+      type: object
+      required: [id, name, slug, status, createdAt]
+      properties:
+        id:             { type: integer }
+        name:           { type: string }
+        slug:           { type: string }
+        description:    { type: ["string", "null"] }
+        status:         { $ref: "#/components/schemas/CatalogStatus" }
+        category:       { type: ["string", "null"] }
+        previewImageUrl: { type: ["string", "null"] }
+        stickerCount:   { type: ["integer", "null"] }
+        driveFileId:    { type: ["string", "null"] }
+        createdAt:      { type: string, format: date-time }
+        updatedAt:      { type: string, format: date-time }
+
+    StickerPackInput:
+      type: object
+      required: [name]
+      properties:
+        name:           { type: string, minLength: 1 }
+        slug:           { type: string }
+        description:    { type: string }
+        category:       { type: string }
+        previewImageUrl: { type: string }
+        stickerCount:   { type: integer }
+
+    StickerPackUpdate:
+      type: object
+      properties:
+        name:           { type: string, minLength: 1 }
+        description:    { type: string }
+        category:       { type: string }
+        previewImageUrl: { type: string }
+        stickerCount:   { type: integer }
+        driveFileId:    { type: string }
+
+    AiDraftPackInput:
+      type: object
+      required: [concept]
+      properties:
+        concept:  { type: string }
+        style:    { type: string }
+        audience: { type: string }
+
+    AiDraftPackResult:
+      type: object
+      required: [name, description, suggestedCount, concepts]
+      properties:
+        name:           { type: string }
+        description:    { type: string }
+        suggestedCount: { type: integer }
+        concepts:       { type: array, items: { type: string } }
+
+    # ── INSERT ────────────────────────────────────────────────────────────────
+    Insert:
+      type: object
+      required: [id, name, slug, status, createdAt]
+      properties:
+        id:             { type: integer }
+        name:           { type: string }
+        slug:           { type: string }
+        description:    { type: ["string", "null"] }
+        status:         { $ref: "#/components/schemas/CatalogStatus" }
+        category:       { type: ["string", "null"] }
+        imageUrl:       { type: ["string", "null"] }
+        isTransparent:  { type: boolean }
+        driveFileId:    { type: ["string", "null"] }
+        createdAt:      { type: string, format: date-time }
+        updatedAt:      { type: string, format: date-time }
+
+    InsertInput:
+      type: object
+      required: [name]
+      properties:
+        name:           { type: string, minLength: 1 }
+        slug:           { type: string }
+        description:    { type: string }
+        category:       { type: string }
+        imageUrl:       { type: string }
+        isTransparent:  { type: boolean }
+
+    InsertUpdate:
+      type: object
+      properties:
+        name:           { type: string, minLength: 1 }
+        description:    { type: string }
+        category:       { type: string }
+        imageUrl:       { type: string }
+        isTransparent:  { type: boolean }
+        driveFileId:    { type: string }
+
+    # ── RELATED PRODUCT ──────────────────────────────────────────────────────
+    RelatedProduct:
+      type: object
+      required: [id, name, slug, type, status, createdAt]
+      properties:
+        id:             { type: integer }
+        name:           { type: string }
+        slug:           { type: string }
+        description:    { type: ["string", "null"] }
+        status:         { $ref: "#/components/schemas/CatalogStatus" }
+        type:
+          type: string
+          enum: [notes-only, to-do, tracker, mixed]
+        previewImageUrl: { type: ["string", "null"] }
+        price:          { type: ["number", "null"] }
+        driveFileId:    { type: ["string", "null"] }
+        createdAt:      { type: string, format: date-time }
+        updatedAt:      { type: string, format: date-time }
+
+    RelatedProductInput:
+      type: object
+      required: [name, type]
+      properties:
+        name:           { type: string, minLength: 1 }
+        slug:           { type: string }
+        description:    { type: string }
+        type:
+          type: string
+          enum: [notes-only, to-do, tracker, mixed]
+        previewImageUrl: { type: string }
+        price:          { type: number }
+
+    RelatedProductUpdate:
+      type: object
+      properties:
+        name:           { type: string, minLength: 1 }
+        description:    { type: string }
+        type:
+          type: string
+          enum: [notes-only, to-do, tracker, mixed]
+        previewImageUrl: { type: string }
+        price:          { type: number }
+        driveFileId:    { type: string }
+
+    # ── EDITION ───────────────────────────────────────────────────────────────
+    Edition:
+      type: object
+      required: [id, name, slug, tier, status, createdAt]
+      properties:
+        id:             { type: integer }
+        name:           { type: string }
+        slug:           { type: string }
+        description:    { type: ["string", "null"] }
+        status:         { $ref: "#/components/schemas/CatalogStatus" }
+        tier:
+          type: string
+          enum: [basic, advanced]
+        themeId:        { type: ["integer", "null"] }
+        stickerPackIds: { type: array, items: { type: integer } }
+        insertIds:      { type: array, items: { type: integer } }
+        productIds:     { type: array, items: { type: integer } }
+        planIds:        { type: array, items: { type: integer } }
+        oneTimePrice:   { type: ["number", "null"] }
+        yearlyPrice:    { type: ["number", "null"] }
+        lifetimePrice:  { type: ["number", "null"] }
+        stripeProductId: { type: ["string", "null"] }
+        previewImageUrl: { type: ["string", "null"] }
+        perPageArtFileIds: { type: object, nullable: true, additionalProperties: true }
+        createdAt:      { type: string, format: date-time }
+        updatedAt:      { type: string, format: date-time }
+
+    EditionInput:
+      type: object
+      required: [name, tier]
+      properties:
+        name:           { type: string, minLength: 1 }
+        slug:           { type: string }
+        description:    { type: string }
+        tier:
+          type: string
+          enum: [basic, advanced]
+        themeId:        { type: integer }
+        stickerPackIds: { type: array, items: { type: integer } }
+        insertIds:      { type: array, items: { type: integer } }
+        productIds:     { type: array, items: { type: integer } }
+        planIds:        { type: array, items: { type: integer } }
+        oneTimePrice:   { type: number }
+        yearlyPrice:    { type: number }
+        lifetimePrice:  { type: number }
+        previewImageUrl: { type: string }
+
+    EditionUpdate:
+      type: object
+      properties:
+        name:           { type: string, minLength: 1 }
+        description:    { type: string }
+        tier:
+          type: string
+          enum: [basic, advanced]
+        themeId:        { type: ["integer", "null"] }
+        stickerPackIds: { type: array, items: { type: integer } }
+        insertIds:      { type: array, items: { type: integer } }
+        productIds:     { type: array, items: { type: integer } }
+        planIds:        { type: array, items: { type: integer } }
+        oneTimePrice:   { type: ["number", "null"] }
+        yearlyPrice:    { type: ["number", "null"] }
+        lifetimePrice:  { type: ["number", "null"] }
+        previewImageUrl: { type: string }
+        perPageArtFileIds: { type: object, additionalProperties: true }
+
+    ArtFile:
+      type: object
+      required: [pageId, driveFileId]
+      properties:
+        pageId:      { type: string }
+        driveFileId: { type: string }
+        filename:    { type: ["string", "null"] }
+        source:      { type: ["string", "null"] }
+
+    EditionArtUpdate:
+      type: object
+      required: [artFiles]
+      properties:
+        artFiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtFile"
+
+    AiDraftEditionInput:
+      type: object
+      required: [concept]
+      properties:
+        concept:  { type: string }
+        audience: { type: string }
+        tier:
+          type: string
+          enum: [basic, advanced]
+
+    AiDraftEditionResult:
+      type: object
+      required: [name, description, suggestedSections, priceRange]
+      properties:
+        name:              { type: string }
+        description:       { type: string }
+        suggestedSections: { type: array, items: { type: string } }
+        priceRange:
+          type: object
+          required: [oneTime, yearly, lifetime]
+          properties:
+            oneTime:  { type: number }
+            yearly:   { type: number }
+            lifetime: { type: number }
+        marketingCopy: { type: string }
+
+    # ── PLAN ──────────────────────────────────────────────────────────────────
+    Plan:
+      type: object
+      required: [id, name, slug, tier, status, createdAt]
+      properties:
+        id:           { type: integer }
+        name:         { type: string }
+        slug:         { type: string }
+        description:  { type: ["string", "null"] }
+        status:       { $ref: "#/components/schemas/CatalogStatus" }
+        tier:
+          type: string
+          enum: [basic, advanced]
+        oneTimePrice: { type: ["number", "null"] }
+        yearlyPrice:  { type: ["number", "null"] }
+        lifetimePrice: { type: ["number", "null"] }
+        features:     { type: object, nullable: true, additionalProperties: true }
+        stripeProductId: { type: ["string", "null"] }
+        createdAt:    { type: string, format: date-time }
+        updatedAt:    { type: string, format: date-time }
+
+    PlanInput:
+      type: object
+      required: [name, tier]
+      properties:
+        name:         { type: string, minLength: 1 }
+        slug:         { type: string }
+        description:  { type: string }
+        tier:
+          type: string
+          enum: [basic, advanced]
+        oneTimePrice: { type: number }
+        yearlyPrice:  { type: number }
+        lifetimePrice: { type: number }
+        features:     { type: object, additionalProperties: true }
+
+    PlanUpdate:
+      type: object
+      properties:
+        name:         { type: string, minLength: 1 }
+        description:  { type: string }
+        tier:
+          type: string
+          enum: [basic, advanced]
+        oneTimePrice: { type: ["number", "null"] }
+        yearlyPrice:  { type: ["number", "null"] }
+        lifetimePrice: { type: ["number", "null"] }
+        features:     { type: object, nullable: true, additionalProperties: true }
+        status:       { $ref: "#/components/schemas/CatalogStatus" }
+
+    # ── PLANNER CONFIG ────────────────────────────────────────────────────────
+    PlannerConfig:
+      type: object
+      required: [id, userId, weekStart, layout, rangeType, createdAt]
+      properties:
+        id:             { type: integer }
+        userId:         { type: integer }
+        editionId:      { type: ["integer", "null"] }
+        name:           { type: ["string", "null"] }
+        # Setup fields (locked after generation)
+        weekStart:
+          type: string
+          enum: [sunday, monday]
+        layout:
+          type: string
+          enum: [2page-landscape, vertical]
+        rangeType:
+          type: string
+          enum: [90day, 12month, monthly, custom]
+        startMonth:     { type: ["integer", "null"] }
+        startYear:      { type: ["integer", "null"] }
+        monthCount:     { type: ["integer", "null"] }
+        # Style fields (re-exportable)
+        coverColor:     { type: ["string", "null"] }
+        coverTexture:   { type: ["string", "null"] }
+        accentColor:    { type: ["string", "null"] }
+        headingFont:    { type: ["string", "null"] }
+        subheadingFont: { type: ["string", "null"] }
+        scriptFont:     { type: ["string", "null"] }
+        notesSections:
+          type: array
+          items: { type: string }
+        notePaperStyle: { type: ["string", "null"] }
+        tabPosition:
+          type: ["string", "null"]
+          enum: [right, top, bottom, home-only, null]
+        calendarLinkType:
+          type: ["string", "null"]
+          enum: [google, apple-ics, none, null]
+        aiPromptBlocks: { type: boolean }
+        generatedAt:    { type: ["string", "null"], format: date-time }
+        driveUrl:       { type: ["string", "null"] }
+        createdAt:      { type: string, format: date-time }
+        updatedAt:      { type: string, format: date-time }
+
+    PlannerConfigInput:
+      type: object
+      required: [weekStart, layout, rangeType]
+      properties:
+        editionId:      { type: integer }
+        name:           { type: string }
+        weekStart:
+          type: string
+          enum: [sunday, monday]
+        layout:
+          type: string
+          enum: [2page-landscape, vertical]
+        rangeType:
+          type: string
+          enum: [90day, 12month, monthly, custom]
+        startMonth:     { type: integer, minimum: 1, maximum: 12 }
+        startYear:      { type: integer }
+        monthCount:     { type: integer, minimum: 1 }
+        coverColor:     { type: string }
+        coverTexture:   { type: string }
+        accentColor:    { type: string }
+        headingFont:    { type: string }
+        subheadingFont: { type: string }
+        scriptFont:     { type: string }
+        notesSections:
+          type: array
+          items: { type: string }
+          maxItems: 10
+        notePaperStyle: { type: string }
+        tabPosition:
+          type: string
+          enum: [right, top, bottom, home-only]
+        calendarLinkType:
+          type: string
+          enum: [google, apple-ics, none]
+        aiPromptBlocks: { type: boolean }
+
+    PlannerConfigUpdate:
+      type: object
+      properties:
+        name:           { type: string }
+        coverColor:     { type: string }
+        coverTexture:   { type: string }
+        accentColor:    { type: string }
+        headingFont:    { type: string }
+        subheadingFont: { type: string }
+        scriptFont:     { type: string }
+        notesSections:
+          type: array
+          items: { type: string }
+          maxItems: 10
+        notePaperStyle: { type: string }
+        tabPosition:
+          type: string
+          enum: [right, top, bottom, home-only]
+        calendarLinkType:
+          type: string
+          enum: [google, apple-ics, none]
+        aiPromptBlocks: { type: boolean }
+
+    # ── GENERATION ───────────────────────────────────────────────────────────
+    GenerationInput:
+      type: object
+      required: [configId]
+      properties:
+        configId: { type: integer }
+
+    GenerationJob:
+      type: object
+      required: [jobId, status, createdAt]
+      properties:
+        jobId:        { type: string }
+        userId:       { type: integer }
+        configId:     { type: integer }
+        status:
+          type: string
+          enum: [pending, processing, complete, failed]
+        pdfUrl:       { type: ["string", "null"] }
+        configJsonUrl: { type: ["string", "null"] }
+        driveFileId:  { type: ["string", "null"] }
+        errorMessage: { type: ["string", "null"] }
+        pageCount:    { type: ["integer", "null"] }
+        createdAt:    { type: string, format: date-time }
+        completedAt:  { type: ["string", "null"], format: date-time }
+
+    # ── GOOGLE SYNC ──────────────────────────────────────────────────────────
+    SyncStatus:
+      type: object
+      required: [connected]
+      properties:
+        connected:         { type: boolean }
+        calendarLastSynced: { type: ["string", "null"], format: date-time }
+        tasksLastSynced:   { type: ["string", "null"], format: date-time }
+        docsLastSynced:    { type: ["string", "null"], format: date-time }
+        driveLastSynced:   { type: ["string", "null"], format: date-time }
+        driveFolder:       { type: ["string", "null"] }
+
+    CalendarSyncInput:
+      type: object
+      required: [plannerConfigId]
+      properties:
+        plannerConfigId: { type: integer }
+        dateFrom:        { type: string, format: date }
+        dateTo:          { type: string, format: date }
+
+    CalendarPushInput:
+      type: object
+      required: [plannerConfigId]
+      properties:
+        plannerConfigId: { type: integer }
+        blocks:
+          type: array
+          items:
+            type: object
+            required: [title, startDate, endDate]
+            properties:
+              title:     { type: string }
+              startDate: { type: string, format: date }
+              endDate:   { type: string, format: date }
+
+    DocsPushInput:
+      type: object
+      required: [title, content]
+      properties:
+        title:   { type: string }
+        content: { type: string }
+
+    SyncResult:
+      type: object
+      required: [success, syncedAt]
+      properties:
+        success:   { type: boolean }
+        syncedAt:  { type: string, format: date-time }
+        itemCount: { type: ["integer", "null"] }
+        message:   { type: ["string", "null"] }
+
+    # ── AI PROXY ─────────────────────────────────────────────────────────────
+    AiChatInput:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role:    { type: string, enum: [user, assistant, system] }
+              content: { type: string }
+        provider:
+          type: string
+          enum: [claude, chatgpt, gemini]
+        systemPrompt: { type: string }
+        context:      { type: string }
+
+    AiChatResult:
+      type: object
+      required: [content, provider]
+      properties:
+        content:  { type: string }
+        provider: { type: string }
+        model:    { type: ["string", "null"] }
+        usage:    { type: object, nullable: true, additionalProperties: true }
+
+    AiSettings:
+      type: object
+      required: [enabled, provider]
+      properties:
+        enabled:  { type: boolean }
+        provider: { type: string, enum: [claude, chatgpt, gemini] }
+
+    AiSettingsUpdate:
+      type: object
+      properties:
+        enabled:  { type: boolean }
+        provider: { type: string, enum: [claude, chatgpt, gemini] }
+
+    # ── BILLING ───────────────────────────────────────────────────────────────
+    CheckoutInput:
+      type: object
+      required: [priceType]
+      properties:
+        priceType:
+          type: string
+          enum: [one-time, yearly, lifetime]
+        editionId:   { type: integer }
+        planId:      { type: integer }
+        successUrl:  { type: string }
+        cancelUrl:   { type: string }
+
+    CheckoutSession:
+      type: object
+      required: [sessionId, url]
+      properties:
+        sessionId: { type: string }
+        url:       { type: string }
+
+    BillingPortal:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string }
+
+    SubscriptionInfo:
+      type: object
+      required: [hasActiveSubscription]
+      properties:
+        hasActiveSubscription: { type: boolean }
+        subscriptionType:
+          type: ["string", "null"]
+          enum: [one-time, yearly, lifetime, null]
+        currentPeriodEnd: { type: ["string", "null"], format: date-time }
+        ownedEditionIds:  { type: array, items: { type: integer } }
+        ownedPlanIds:     { type: array, items: { type: integer } }
+
+    # ── ADMIN STATS ───────────────────────────────────────────────────────────
+    AdminStats:
+      type: object
+      required: [themes, stickerPacks, inserts, products, editions, plans, users, generations]
+      properties:
+        themes:
+          $ref: "#/components/schemas/CatalogCounts"
+        stickerPacks:
+          $ref: "#/components/schemas/CatalogCounts"
+        inserts:
+          $ref: "#/components/schemas/CatalogCounts"
+        products:
+          $ref: "#/components/schemas/CatalogCounts"
+        editions:
+          $ref: "#/components/schemas/CatalogCounts"
+        plans:
+          $ref: "#/components/schemas/CatalogCounts"
+        users:
+          type: object
+          required: [total, staff, owner]
+          properties:
+            total: { type: integer }
+            staff: { type: integer }
+            owner: { type: integer }
+        generations:
+          type: object
+          required: [total, thisMonth, complete, failed]
+          properties:
+            total:     { type: integer }
+            thisMonth: { type: integer }
+            complete:  { type: integer }
+            failed:    { type: integer }
+
+    CatalogCounts:
+      type: object
+      required: [total, live, draft]
+      properties:
+        total: { type: integer }
+        live:  { type: integer }
+        draft: { type: integer }
+
+    TrendResearchInput:
+      type: object
+      required: [query]
+      properties:
+        query:    { type: string }
+        audience: { type: string }
+        season:   { type: string }
+
+    TrendResearchResult:
+      type: object
+      required: [trends, suggestedThemes, suggestedEditions]
+      properties:
+        trends:
+          type: array
+          items: { type: string }
+        suggestedThemes:
+          type: array
+          items: { type: string }
+        suggestedEditions:
+          type: array
+          items: { type: string }
+        marketingAngles:
+          type: array
+          items: { type: string }
+        summary: { type: string }

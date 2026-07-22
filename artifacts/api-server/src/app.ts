@@ -1,8 +1,12 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import session from "express-session";
+import passport from "passport";
+import cookieParser from "cookie-parser";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import "./lib/passport"; // configure passport strategies
 
 const app: Express = express();
 
@@ -25,9 +29,34 @@ app.use(
     },
   }),
 );
-app.use(cors());
+
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+const sessionSecret = process.env.SESSION_SECRET ?? "daybook-dev-secret-change-me";
+
+app.use(
+  session({
+    secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    },
+  }),
+);
+
+app.use(passport.initialize());
+app.use(passport.session());
 
 app.use("/api", router);
 

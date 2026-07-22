@@ -1,0 +1,3 @@
+- [Daybook seed credentials](daybook-seed.md) — owner@daybook.app / daybook-owner-2025; re-run `pnpm --filter @workspace/scripts run seed` to repopulate
+- [Daybook Zod schema naming](daybook-zod-names.md) — generated schema names don't always match intuition; consult api.ts before writing routes
+- [DB build requirement](db-build.md) — lib/db has composite:true tsconfig; run `npx tsc -b lib/db` before api-server typecheck or changes won't be picked up

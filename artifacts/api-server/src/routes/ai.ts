@@ -1,59 +1,43 @@
+/**
+ * AI proxy — POST /ai/complete {system, messages, provider}
+ * Routes to Claude/ChatGPT/Gemini per user.aiProvider; honors user.aiEnabled.
+ * Server holds all API keys.
+ */
 import { Router, type IRouter } from "express";
-import { db } from "@workspace/db";
-import { aiSettingsTable, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
-import { AiChatBody, UpdateAiSettingsBody } from "@workspace/api-zod";
 import { callAi } from "../lib/ai-proxy";
+import type { User } from "@workspace/db";
 
 const router: IRouter = Router();
 
-async function ensureAiSettings(userId: number) {
-  const [existing] = await db.select().from(aiSettingsTable).where(eq(aiSettingsTable.userId, userId));
-  if (existing) return existing;
-  const [created] = await db.insert(aiSettingsTable).values({ userId, enabled: true, provider: "claude" }).returning();
-  return created;
-}
+router.post("/ai/complete", requireAuth, async (req, res): Promise<void> => {
+  const user = req.user as User;
 
-router.post("/ai/chat", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as typeof usersTable.$inferSelect;
-  const settings = await ensureAiSettings(user.id);
-
-  if (!settings.enabled) {
-    res.status(403).json({ error: "AI features are disabled" });
+  if (!user.aiEnabled) {
+    res.status(403).json({ error: "AI features are disabled for your account" });
     return;
   }
 
-  const parsed = AiChatBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  const body = req.body as {
+    system?: string;
+    messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+    provider?: string;
+  };
 
-  const provider = parsed.data.provider ?? settings.provider;
+  if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
+    res.status(400).json({ error: "messages array is required" });
+    return;
+  }
+
+  const provider = body.provider ?? user.aiProvider ?? "claude";
+
   try {
-    const result = await callAi(parsed.data.messages as { role: "user" | "assistant" | "system"; content: string }[], provider, parsed.data.systemPrompt);
-    res.json(result);
+    const result = await callAi(body.messages, provider, body.system);
+    res.json({ text: result.content, provider: result.provider, model: result.model });
   } catch (err) {
-    req.log.error({ err }, "AI chat failed");
+    req.log.error({ err }, "AI complete failed");
     res.status(502).json({ error: `AI provider error: ${String(err)}` });
   }
-});
-
-router.get("/ai/settings", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as typeof usersTable.$inferSelect;
-  const settings = await ensureAiSettings(user.id);
-  res.json({ enabled: settings.enabled, provider: settings.provider });
-});
-
-router.patch("/ai/settings", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as typeof usersTable.$inferSelect;
-  const parsed = UpdateAiSettingsBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
-  await ensureAiSettings(user.id);
-  const [settings] = await db
-    .update(aiSettingsTable)
-    .set(parsed.data)
-    .where(eq(aiSettingsTable.userId, user.id))
-    .returning();
-  res.json({ enabled: settings.enabled, provider: settings.provider });
 });
 
 export default router;

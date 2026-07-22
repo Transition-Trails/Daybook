@@ -1,17 +1,18 @@
 ---
-name: Daybook seed credentials
-description: Default owner login created by the seed script and how to re-run it
+name: Daybook seed script
+description: How to repopulate the Daybook database with canonical seed data
 ---
 
-## Owner credentials (dev)
-- Email: `owner@daybook.app`
-- Password: `daybook-owner-2025`
-- Configurable via env vars: `OWNER_EMAIL` / `OWNER_PASSWORD`
+# Daybook seed script
 
-## Re-seeding
+## Rule
+To repopulate the database, run:
 ```
 pnpm --filter @workspace/scripts run seed
 ```
-The seed is idempotent (`onConflictDoNothing`) for all entities except the owner user row — if the email already exists it silently skips.
 
-**Why:** Future agents need this to test the admin console login without searching the seed file.
+This seeds 6 themes (t1-t6), 3 packs (p1-p3), 6 inserts (i1-i6), 4 products (r1-r4), 4 editions (e1-e4), 2 plans (yearly/lifetime), and an owner user.
+
+**Why:** Seed data matches `spec/seed-data.json` exactly. Staff/owner login credentials are stored in environment secrets and in the app's users table — never in memory files.
+
+**How to apply:** After any schema wipe (`push --force`), run seed again. Uses `onConflictDoNothing` so safe to run multiple times.

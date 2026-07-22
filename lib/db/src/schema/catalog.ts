@@ -1,30 +1,25 @@
 import {
   pgTable,
   text,
-  serial,
   integer,
   boolean,
   timestamp,
   jsonb,
   real,
 } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod/v4";
+import { assetsTable } from "./assets";
 
-// ─── THEMES ─────────────────────────────────────────────────────────────────
+// ─── THEMES ──────────────────────────────────────────────────────────────────
+// colors: [accent, accent-dark, secondary, tertiary, ink, paper]
 
 export const themesTable = pgTable("themes", {
-  id: serial("id").primaryKey(),
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  description: text("description"),
+  desc: text("desc"),
+  colors: jsonb("colors").notNull().$type<string[]>(),
+  price: real("price").notNull().default(0),
   status: text("status").notNull().default("draft"), // draft | live
-  category: text("category"),
-  coverColor: text("cover_color"),
-  accentColor: text("accent_color"),
-  palette: jsonb("palette"),
-  previewImageUrl: text("preview_image_url"),
-  driveFileId: text("drive_file_id"),
+  createdBy: text("created_by").notNull().default("admin"), // seed | claude | admin
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -34,26 +29,19 @@ export const themesTable = pgTable("themes", {
     .$onUpdate(() => new Date()),
 });
 
-export const insertThemeSchema = createInsertSchema(themesTable).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-export type InsertTheme = z.infer<typeof insertThemeSchema>;
 export type Theme = typeof themesTable.$inferSelect;
+export type InsertTheme = typeof themesTable.$inferInsert;
 
 // ─── STICKER PACKS ───────────────────────────────────────────────────────────
 
 export const stickerPacksTable = pgTable("sticker_packs", {
-  id: serial("id").primaryKey(),
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  description: text("description"),
-  status: text("status").notNull().default("draft"),
-  category: text("category"),
-  previewImageUrl: text("preview_image_url"),
-  stickerCount: integer("sticker_count"),
-  driveFileId: text("drive_file_id"),
+  tags: text("tags").array().notNull().default([]),
+  price: real("price").notNull().default(0),
+  status: text("status").notNull().default("draft"), // draft | live
+  coverDriveFileId: text("cover_drive_file_id"),
+  planners: jsonb("planners").notNull().default(["all"]).$type<string[]>(), // edition ids or ["all"]
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -63,24 +51,38 @@ export const stickerPacksTable = pgTable("sticker_packs", {
     .$onUpdate(() => new Date()),
 });
 
-export const insertStickerPackSchema = createInsertSchema(
-  stickerPacksTable,
-).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertStickerPack = z.infer<typeof insertStickerPackSchema>;
 export type StickerPack = typeof stickerPacksTable.$inferSelect;
+export type InsertStickerPack = typeof stickerPacksTable.$inferInsert;
+
+// ─── STICKERS (assets inside a pack) ─────────────────────────────────────────
+
+export const stickersTable = pgTable("stickers", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  packId: text("pack_id")
+    .notNull()
+    .references(() => stickerPacksTable.id, { onDelete: "cascade" }),
+  assetId: text("asset_id")
+    .notNull()
+    .references(() => assetsTable.id, { onDelete: "cascade" }),
+  name: text("name"),
+  position: integer("position").notNull().default(0),
+});
+
+export type Sticker = typeof stickersTable.$inferSelect;
+export type InsertSticker = typeof stickersTable.$inferInsert;
 
 // ─── INSERTS ─────────────────────────────────────────────────────────────────
 
 export const insertsTable = pgTable("inserts", {
-  id: serial("id").primaryKey(),
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  description: text("description"),
-  status: text("status").notNull().default("draft"),
-  category: text("category"),
-  imageUrl: text("image_url"),
-  isTransparent: boolean("is_transparent").notNull().default(true),
-  driveFileId: text("drive_file_id"),
+  cat: text("cat").notNull(), // Functional | Decorative | Trackers | Seasonal | Cover art
+  collection: text("collection"),
+  assetId: text("asset_id").references(() => assetsTable.id),
+  planners: jsonb("planners").notNull().default(["all"]).$type<string[]>(), // edition ids or ["all"]
+  status: text("status").notNull().default("draft"), // draft | live
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -90,26 +92,18 @@ export const insertsTable = pgTable("inserts", {
     .$onUpdate(() => new Date()),
 });
 
-export const insertInsertSchema = createInsertSchema(insertsTable).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-export type InsertInsert = z.infer<typeof insertInsertSchema>;
 export type Insert = typeof insertsTable.$inferSelect;
+export type InsertInsert = typeof insertsTable.$inferInsert;
 
 // ─── RELATED PRODUCTS ────────────────────────────────────────────────────────
 
 export const relatedProductsTable = pgTable("related_products", {
-  id: serial("id").primaryKey(),
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  description: text("description"),
-  status: text("status").notNull().default("draft"),
-  type: text("type").notNull().default("notes-only"), // notes-only | to-do | tracker | mixed
-  previewImageUrl: text("preview_image_url"),
-  price: real("price"),
-  driveFileId: text("drive_file_id"),
+  kind: text("kind").notNull(), // e.g. "Notebook · notes"
+  status: text("status").notNull().default("draft"), // draft | live
+  price: real("price").notNull().default(0),
+  matches: jsonb("matches").notNull().default([]).$type<string[]>(), // edition ids
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -119,8 +113,5 @@ export const relatedProductsTable = pgTable("related_products", {
     .$onUpdate(() => new Date()),
 });
 
-export const insertRelatedProductSchema = createInsertSchema(
-  relatedProductsTable,
-).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertRelatedProduct = z.infer<typeof insertRelatedProductSchema>;
 export type RelatedProduct = typeof relatedProductsTable.$inferSelect;
+export type InsertRelatedProduct = typeof relatedProductsTable.$inferInsert;

@@ -1,3 +1,4 @@
-- [Daybook seed credentials](daybook-seed.md) — owner@daybook.app / daybook-owner-2025; re-run `pnpm --filter @workspace/scripts run seed` to repopulate
+- [Daybook seed script](daybook-seed.md) — re-run `pnpm --filter @workspace/scripts run seed` to repopulate; credentials stored in environment secrets only
 - [Daybook Zod schema naming](daybook-zod-names.md) — generated schema names don't always match intuition; consult api.ts before writing routes
 - [DB build requirement](db-build.md) — lib/db has composite:true tsconfig; run `npx tsc -b lib/db` before api-server typecheck or changes won't be picked up
+- [Spec-driven backend rebuild](spec-backend-rebuild.md) — new schema uses text PKs, JSONB arrays replace junction tables; all four spec files live in spec/; catalog visibility rule: unauth=live only, admin=all

@@ -1,3 +1,4 @@
+export * from "./assets";
 export * from "./users";
 export * from "./catalog";
 export * from "./editions";

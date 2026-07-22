@@ -1,20 +1,15 @@
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { db } from "@workspace/db";
-import {
-  usersTable,
-  syncStatusTable,
-  aiSettingsTable,
-} from "@workspace/db";
+import { usersTable, type UserConnections } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 
-// Serialize / deserialize
 passport.serializeUser((user: Express.User, done) => {
-  done(null, (user as { id: number }).id);
+  done(null, (user as { id: string }).id);
 });
 
-passport.deserializeUser(async (id: number, done) => {
+passport.deserializeUser(async (id: string, done) => {
   try {
     const [user] = await db
       .select()
@@ -26,14 +21,13 @@ passport.deserializeUser(async (id: number, done) => {
   }
 });
 
-// Google OAuth strategy — only registered if credentials are present
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
 if (googleClientId && googleClientSecret) {
   const callbackUrl =
     process.env.GOOGLE_CALLBACK_URL ??
-    `${process.env.APP_URL ?? "http://localhost:5000"}/api/auth/google/callback`;
+    `${process.env.APP_URL ?? "http://localhost:5000"}/api/auth/callback`;
 
   passport.use(
     new GoogleStrategy(
@@ -50,59 +44,61 @@ if (googleClientId && googleClientSecret) {
           "https://www.googleapis.com/auth/documents",
         ],
       },
-      async (_accessToken, refreshToken, profile, done) => {
+      async (accessToken, refreshToken, profile, done) => {
         try {
           const email =
             profile.emails?.[0]?.value ?? `${profile.id}@google.oauth`;
           const name = profile.displayName ?? email;
           const avatarUrl = profile.photos?.[0]?.value ?? null;
 
-          // Upsert user
           const [existing] = await db
             .select()
             .from(usersTable)
             .where(eq(usersTable.googleId, profile.id));
 
-          let user = existing;
-          if (!user) {
+          if (existing) {
+            await db
+              .update(usersTable)
+              .set({
+                googleAccessToken: accessToken,
+                googleRefreshToken: refreshToken ?? undefined,
+                avatarUrl,
+                connections: {
+                  notion: (existing.connections as { notion?: boolean }).notion ?? false,
+                  googleDrive: true,
+                  googleCalendar: true,
+                  googleTasks: true,
+                  googleDocs: true,
+                } as UserConnections,
+              })
+              .where(eq(usersTable.id, existing.id));
+            const [updated] = await db
+              .select()
+              .from(usersTable)
+              .where(eq(usersTable.id, existing.id));
+            done(null, updated);
+          } else {
             const [created] = await db
               .insert(usersTable)
               .values({
+                provider: "google",
                 googleId: profile.id,
                 email,
                 name,
                 avatarUrl,
-                googleAccessToken: _accessToken,
+                googleAccessToken: accessToken,
                 googleRefreshToken: refreshToken ?? null,
+                connections: {
+                  googleDrive: true,
+                  googleCalendar: true,
+                  googleTasks: true,
+                  googleDocs: true,
+                  notion: false,
+                },
               })
               .returning();
-            user = created;
-
-            // Create default sync status + AI settings for new user
-            await db
-              .insert(syncStatusTable)
-              .values({ userId: user.id, connected: true });
-            await db
-              .insert(aiSettingsTable)
-              .values({ userId: user.id, enabled: true, provider: "claude" });
-          } else {
-            await db
-              .update(usersTable)
-              .set({
-                googleAccessToken: _accessToken,
-                googleRefreshToken: refreshToken ?? undefined,
-                avatarUrl,
-              })
-              .where(eq(usersTable.id, user.id));
-
-            // Update sync connection status
-            await db
-              .update(syncStatusTable)
-              .set({ connected: true })
-              .where(eq(syncStatusTable.userId, user.id));
+            done(null, created);
           }
-
-          done(null, user);
         } catch (err) {
           logger.error({ err }, "Google OAuth error");
           done(err as Error, undefined);
@@ -110,12 +106,9 @@ if (googleClientId && googleClientSecret) {
       },
     ),
   );
-
   logger.info("Google OAuth strategy registered");
 } else {
-  logger.warn(
-    "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set — Google OAuth disabled",
-  );
+  logger.warn("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set — Google OAuth disabled");
 }
 
 export default passport;

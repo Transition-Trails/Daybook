@@ -1,40 +1,60 @@
-import {
-  pgTable,
-  text,
-  serial,
-  integer,
-  boolean,
-  timestamp,
-} from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod/v4";
+import { pgTable, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+
+// ── SETUP (locked after first generation) ─────────────────────────────────────
+export type PlannerSetup = {
+  weekStart: "sun" | "mon";
+  orientation: "landscape" | "vertical";
+  startMonth: number; // 0-11
+  startYear: number;
+  monthCount: number; // 1-24
+};
+
+// ── STYLE (re-exportable) ──────────────────────────────────────────────────────
+export type PlannerStyle = {
+  cover?: string;
+  texture?: "leather" | "linen" | "smooth";
+  accent?: string;
+  themeId?: string | null;
+  tabTheme?: "neutral" | "accent";
+  tabPos?: "right" | "top" | "bottom" | "none";
+  fonts?: { heading: string; subheading: string; script: string };
+  notePaper?: "dot" | "graph" | "lined" | "mixed";
+  sections?: string[]; // 0-10 section names
+  includedItems?: string[]; // pack/insert/product ids
+};
+
+// ── OUTPUT ────────────────────────────────────────────────────────────────────
+export type PlannerOutput = {
+  calMode: "google" | "apple" | "none";
+  eventMins: 30 | 60 | 90;
+  aiInPdf: boolean;
+};
+
+// ── DRIVE REFERENCES ──────────────────────────────────────────────────────────
+export type PlannerDrive = {
+  folderId?: string;
+  pdfFileId?: string | null;
+  configFileId?: string | null;
+};
 
 export const plannerConfigsTable = pgTable("planner_configs", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
-  editionId: integer("edition_id"),
-  name: text("name"),
-  // Setup fields — locked after first generation
-  weekStart: text("week_start").notNull().default("sunday"), // sunday | monday
-  layout: text("layout").notNull().default("vertical"), // 2page-landscape | vertical
-  rangeType: text("range_type").notNull().default("12month"), // 90day | 12month | monthly | custom
-  startMonth: integer("start_month"),
-  startYear: integer("start_year"),
-  monthCount: integer("month_count"),
-  // Style fields — re-exportable
-  coverColor: text("cover_color"),
-  coverTexture: text("cover_texture"),
-  accentColor: text("accent_color"),
-  headingFont: text("heading_font"),
-  subheadingFont: text("subheading_font"),
-  scriptFont: text("script_font"),
-  notesSections: text("notes_sections").array().notNull().default([]),
-  notePaperStyle: text("note_paper_style"),
-  tabPosition: text("tab_position"),
-  calendarLinkType: text("calendar_link_type").default("none"),
-  aiPromptBlocks: boolean("ai_prompt_blocks").notNull().default(false),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull(),
+  editionId: text("edition_id"),
+  year: integer("year"),
+  setup: jsonb("setup").notNull().$type<PlannerSetup>(),
+  style: jsonb("style").notNull().default({}).$type<PlannerStyle>(),
+  output: jsonb("output")
+    .notNull()
+    .default({ calMode: "none", eventMins: 60, aiInPdf: false })
+    .$type<PlannerOutput>(),
+  drive: jsonb("drive")
+    .notNull()
+    .default({ pdfFileId: null, configFileId: null })
+    .$type<PlannerDrive>(),
   generatedAt: timestamp("generated_at", { withTimezone: true }),
-  driveUrl: text("drive_url"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -44,31 +64,22 @@ export const plannerConfigsTable = pgTable("planner_configs", {
     .$onUpdate(() => new Date()),
 });
 
-export const insertPlannerConfigSchema = createInsertSchema(
-  plannerConfigsTable,
-).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertPlannerConfig = z.infer<typeof insertPlannerConfigSchema>;
 export type PlannerConfig = typeof plannerConfigsTable.$inferSelect;
+export type InsertPlannerConfig = typeof plannerConfigsTable.$inferInsert;
 
 export const generationJobsTable = pgTable("generation_jobs", {
-  id: serial("id").primaryKey(),
-  jobId: text("job_id").notNull().unique(),
-  userId: integer("user_id").notNull(),
-  configId: integer("config_id").notNull(),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull(),
+  plannerId: text("planner_id").notNull(),
   status: text("status").notNull().default("pending"), // pending | processing | complete | failed
-  pdfUrl: text("pdf_url"),
-  configJsonUrl: text("config_json_url"),
-  driveFileId: text("drive_file_id"),
   errorMessage: text("error_message"),
-  pageCount: integer("page_count"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
-export const insertGenerationJobSchema = createInsertSchema(
-  generationJobsTable,
-).omit({ id: true, createdAt: true });
-export type InsertGenerationJob = z.infer<typeof insertGenerationJobSchema>;
 export type GenerationJob = typeof generationJobsTable.$inferSelect;
+export type InsertGenerationJob = typeof generationJobsTable.$inferInsert;

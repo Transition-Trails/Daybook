@@ -42,14 +42,13 @@ router.get(
 // ── Notion OAuth (stub) ──────────────────────────────────────────────────────
 
 router.get("/auth/notion", (_req, res) => {
-  // TODO: implement Notion OAuth when ready
   res.status(501).json({ error: "Notion OAuth not yet implemented" });
 });
 
-// ── /me ─────────────────────────────────────────────────────────────────────
-// Returns User + connections + plan (per spec/API-CONTRACT.md)
+// ── /me  (spec path) + /auth/me (alias for generated API client) ─────────────
+// Returns User without sensitive token fields.
 
-router.get("/me", async (req, res): Promise<void> => {
+async function getMeHandler(req: Parameters<IRouter["get"]>[1] extends (req: infer R, ...a: unknown[]) => unknown ? R : never, res: import("express").Response): Promise<void> {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Not authenticated" });
     return;
@@ -57,7 +56,10 @@ router.get("/me", async (req, res): Promise<void> => {
   const user = req.user as User;
   const { passwordHash, googleAccessToken, googleRefreshToken, notionToken, ...safe } = user;
   res.json(safe);
-});
+}
+
+router.get("/me", getMeHandler);
+router.get("/auth/me", getMeHandler); // backward-compat alias — generated client calls /auth/me
 
 // ── Logout ───────────────────────────────────────────────────────────────────
 

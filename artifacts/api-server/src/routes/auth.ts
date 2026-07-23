@@ -35,7 +35,10 @@ router.get(
     })(req, res, next);
   },
   (req, res) => {
-    res.redirect(process.env.APP_URL ?? "/");
+    // Explicitly save session before redirect so cookie is persisted before browser follows it
+    req.session.save(() => {
+      res.redirect(process.env.APP_URL ?? "/");
+    });
   },
 );
 

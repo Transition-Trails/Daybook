@@ -10,6 +10,9 @@ import "./lib/passport"; // configure passport strategies
 
 const app: Express = express();
 
+// Trust Replit's reverse proxy — required for secure cookies and correct req.protocol
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,
@@ -51,8 +54,9 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure: "auto", // let express-session decide based on the connection (works with trust proxy)
       httpOnly: true,
+      sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     },
   }),

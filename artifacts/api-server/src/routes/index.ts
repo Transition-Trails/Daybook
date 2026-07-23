@@ -12,6 +12,7 @@ import plansRouter from "./plans";
 import aiSettingsRouter from "./ai-settings";
 import storesRouter from "./stores";
 import platformRouter from "./platform";
+import meRouter from "./me";
 
 const router: IRouter = Router();
 
@@ -29,5 +30,6 @@ router.use(aiSettingsRouter);
 // Multi-tenant store platform
 router.use(storesRouter);
 router.use(platformRouter);
+router.use(meRouter);
 
 export default router;

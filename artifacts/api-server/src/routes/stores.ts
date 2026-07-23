@@ -162,10 +162,11 @@ router.patch("/stores/:storeId", resolveStoreActor, async (req: Request, res: Re
 });
 
 // ── GET /stores/:storeId/members ──────────────────────────────────────────────
+// All store roles (including support) can read the member list; writes stay at store_owner.
 
 router.get(
   "/stores/:storeId/members",
-  requireStoreAccess("store_owner"),
+  requireStoreAccess("support"),
   async (req: Request, res: Response): Promise<void> => {
     const storeId = req.params.storeId as string;
     const members = await db

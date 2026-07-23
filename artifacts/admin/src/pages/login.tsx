@@ -1,10 +1,16 @@
-import { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { useLocation } from 'wouter';
-import { useStaffLogin } from '@workspace/api-client-react';
-import { Layers3, Loader2 } from 'lucide-react';
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useLocation } from "wouter";
+import { useStaffLogin } from "@workspace/api-client-react";
+import { Loader2, BookMarked } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Form, FormControl, FormField, FormItem, FormMessage,
+} from "@/components/ui/form";
+import { useToast } from "@/hooks/use-toast";
 
 function GoogleIcon() {
   return (
@@ -17,16 +23,9 @@ function GoogleIcon() {
   );
 }
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useToast } from '@/hooks/use-toast';
-
 const loginSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
-  password: z.string().min(1, 'Password is required'),
+  email:    z.string().email("Please enter a valid email address"),
+  password: z.string().min(1, "Password is required"),
 });
 
 export default function Login() {
@@ -37,131 +36,153 @@ export default function Login() {
   function handleGoogleSignIn() {
     const w = 500, h = 620;
     const left = Math.round(window.screenX + (window.outerWidth - w) / 2);
-    const top = Math.round(window.screenY + (window.outerHeight - h) / 2);
+    const top  = Math.round(window.screenY + (window.outerHeight - h) / 2);
     const popup = window.open(
-      '/api/auth/google',
-      'daybook-google-auth',
+      "/api/auth/google",
+      "daybook-google-auth",
       `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no`,
     );
-
     function onMessage(ev: MessageEvent) {
-      if (ev.data?.type === 'daybook:auth_success') {
-        window.removeEventListener('message', onMessage);
+      if (ev.data?.type === "daybook:auth_success") {
+        window.removeEventListener("message", onMessage);
         popup?.close();
-        setLocation('/');
+        setLocation("/");
       }
     }
-    window.addEventListener('message', onMessage);
-
-    // Clean up listener if popup is closed without completing auth
+    window.addEventListener("message", onMessage);
     const timer = setInterval(() => {
-      if (popup?.closed) {
-        clearInterval(timer);
-        window.removeEventListener('message', onMessage);
-      }
+      if (popup?.closed) { clearInterval(timer); window.removeEventListener("message", onMessage); }
     }, 500);
   }
-  
+
   const form = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: '', password: '' },
+    defaultValues: { email: "", password: "" },
   });
 
   function onSubmit(data: z.infer<typeof loginSchema>) {
     loginMutation.mutate({ data }, {
       onSuccess: () => {
-        toast({ title: 'Welcome back', description: 'Login successful' });
-        setLocation('/');
+        toast({ title: "Welcome back", description: "Signed in successfully." });
+        setLocation("/");
       },
       onError: (err) => {
-        toast({ 
-          title: 'Login failed', 
-          description: err.message || 'Invalid credentials', 
-          variant: 'destructive' 
-        });
-      }
+        toast({ title: "Sign-in failed", description: err.message || "Check your credentials and try again.", variant: "destructive" });
+      },
     });
   }
 
   return (
-    <div className="min-h-screen w-full flex bg-background items-center justify-center p-4">
-      <div className="w-full max-w-[400px]">
-        <div className="flex flex-col items-center mb-8 text-center">
-          <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center mb-4 shadow-lg shadow-primary/20">
-            <Layers3 className="w-6 h-6 text-primary-foreground" />
+    <div
+      className="min-h-screen w-full flex items-center justify-center p-6"
+      style={{ background: "hsl(35 52% 94%)" }}
+    >
+      <div className="w-full max-w-sm">
+        {/* Logo mark */}
+        <div className="flex flex-col items-center mb-10 text-center">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5 shadow-md"
+            style={{ background: "hsl(221 46% 17%)" }}
+          >
+            <BookMarked className="w-7 h-7 text-[#C87560]" />
           </div>
-          <h1 className="text-2xl font-display font-bold">Daybook Studio</h1>
-          <p className="text-muted-foreground mt-2">Sign in to the admin console</p>
+          <h1 className="font-display text-3xl font-semibold" style={{ color: "hsl(221 46% 17%)" }}>
+            Daybook Studio
+          </h1>
+          <p className="text-sm mt-2" style={{ color: "hsl(216 15% 46%)" }}>
+            Sign in to your admin console
+          </p>
         </div>
 
-        <Card className="border-border/50 shadow-xl shadow-black/5">
-          <CardHeader>
-            <CardTitle>Staff Login</CardTitle>
-            <CardDescription>Enter your credentials to continue</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {/* Google SSO */}
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full flex items-center gap-2 mb-4"
-              onClick={handleGoogleSignIn}
-            >
-              <GoogleIcon />
-              Sign in with Google
-            </Button>
+        {/* Card */}
+        <div
+          className="rounded-2xl border p-8 shadow-sm"
+          style={{
+            background: "hsl(40 100% 99%)",
+            borderColor: "hsl(37 37% 85%)",
+          }}
+        >
+          {/* Google */}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full flex items-center gap-2 mb-6 h-10"
+            style={{ borderColor: "hsl(37 37% 82%)", background: "hsl(35 52% 97%)" }}
+            onClick={handleGoogleSignIn}
+          >
+            <GoogleIcon />
+            Sign in with Google
+          </Button>
 
-            <div className="relative mb-4">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-border" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="bg-card px-2 text-muted-foreground">or continue with email</span>
-              </div>
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" style={{ borderColor: "hsl(37 37% 88%)" }} />
             </div>
+            <div className="relative flex justify-center text-xs">
+              <span
+                className="px-3"
+                style={{ background: "hsl(40 100% 99%)", color: "hsl(216 15% 55%)" }}
+              >
+                or continue with email
+              </span>
+            </div>
+          </div>
 
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <Label>Email</Label>
-                      <FormControl>
-                        <Input placeholder="staff@daybook.com" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <Label>Password</Label>
-                      <FormControl>
-                        <Input type="password" placeholder="••••••••" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button 
-                  type="submit" 
-                  className="w-full mt-6" 
-                  disabled={loginMutation.isPending}
-                >
-                  {loginMutation.isPending ? (
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  ) : null}
-                  Sign In
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <Label className="text-sm" style={{ color: "hsl(221 46% 20%)" }}>Email</Label>
+                    <FormControl>
+                      <Input
+                        placeholder="you@daybook.com"
+                        style={{ borderColor: "hsl(37 37% 82%)", background: "hsl(35 52% 97%)" }}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <Label className="text-sm" style={{ color: "hsl(221 46% 20%)" }}>Password</Label>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        placeholder="••••••••"
+                        style={{ borderColor: "hsl(37 37% 82%)", background: "hsl(35 52% 97%)" }}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button
+                type="submit"
+                className="w-full h-10 mt-2 font-medium"
+                style={{ background: "hsl(12 49% 58%)", color: "#fff" }}
+                disabled={loginMutation.isPending}
+              >
+                {loginMutation.isPending && (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                )}
+                Sign in
+              </Button>
+            </form>
+          </Form>
+        </div>
+
+        <p className="text-center text-xs mt-6" style={{ color: "hsl(216 15% 55%)" }}>
+          Access is restricted to authorised staff and store admins.
+        </p>
       </div>
     </div>
   );

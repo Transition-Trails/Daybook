@@ -1,0 +1,295 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { helpApi, type HelpArticle } from "@/lib/api";
+import { PageHeader, StatusPill, SkeletonRows, ErrorState, EmptyState } from "@/components/shared";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { Plus, Pencil, Trash2, Globe } from "lucide-react";
+
+interface Props {
+  storeId: string;
+  role: string;
+}
+
+function makeId(prefix: string) {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export default function StoreHelp({ storeId, role }: Props) {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<HelpArticle | null>(null);
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const canWrite = role === "store_owner" || role === "store_staff" || role === "super_admin";
+
+  const { data: articles = [], isLoading, error, refetch } = useQuery({
+    queryKey: ["help/store", storeId],
+    queryFn: () => helpApi.list(),
+  });
+
+  const platformArticles = articles.filter((a) => a.scope === "platform");
+  const storeArticles    = articles.filter((a) => a.scope === storeId);
+
+  const toggleMutation = useMutation({
+    mutationFn: (a: HelpArticle) =>
+      helpApi.update(a.id, { status: a.status === "live" ? "draft" : "live" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["help/store", storeId] }),
+    onError: (err: Error) =>
+      toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => helpApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["help/store", storeId] });
+      toast({ title: "Article deleted" });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
+  });
+
+  function ArticleTable({
+    items,
+    editable,
+  }: {
+    items: HelpArticle[];
+    editable: boolean;
+  }) {
+    if (items.length === 0) {
+      return <EmptyState title="No articles yet" description={editable ? "Create one above." : "No platform articles published yet."} />;
+    }
+    return (
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
+              <th className="px-5 py-3 font-medium">Title</th>
+              <th className="px-4 py-3 font-medium">Category</th>
+              <th className="px-4 py-3 font-medium">Status</th>
+              {editable && <th className="px-4 py-3 font-medium text-right">Published</th>}
+              {editable && <th className="px-4 py-3 font-medium text-right">Actions</th>}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {items.map((a) => (
+              <tr key={a.id} className="hover:bg-muted/20 transition-colors">
+                <td className="px-5 py-3 font-medium text-foreground">{a.title}</td>
+                <td className="px-4 py-3 text-muted-foreground">{a.category}</td>
+                <td className="px-4 py-3"><StatusPill status={a.status} /></td>
+                {editable && (
+                  <td className="px-4 py-3 text-right">
+                    <Switch
+                      checked={a.status === "live"}
+                      onCheckedChange={() => toggleMutation.mutate(a)}
+                      disabled={toggleMutation.isPending}
+                    />
+                  </td>
+                )}
+                {editable && (
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => { setEditing(a); setOpen(true); }}
+                        className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button className="p-1 rounded hover:bg-red-50 transition-colors text-muted-foreground hover:text-destructive">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete article?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This removes "{a.title}" from your store's help.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => deleteMutation.mutate(a.id)}
+                              className="bg-destructive text-white hover:bg-destructive/90"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-300">
+      <PageHeader
+        title="Help"
+        description="Support articles for your store's customers."
+        actions={
+          canWrite && (
+            <Sheet open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
+              <SheetTrigger asChild>
+                <Button size="sm" style={{ background: "hsl(12 49% 58%)", color: "#fff" }}>
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  New article
+                </Button>
+              </SheetTrigger>
+              <SheetContent className="overflow-y-auto">
+                <SheetHeader>
+                  <SheetTitle>{editing ? "Edit article" : "New article"}</SheetTitle>
+                </SheetHeader>
+                <StoreHelpForm
+                  storeId={storeId}
+                  initial={editing ?? undefined}
+                  onDone={() => {
+                    setOpen(false);
+                    setEditing(null);
+                    qc.invalidateQueries({ queryKey: ["help/store", storeId] });
+                  }}
+                />
+              </SheetContent>
+            </Sheet>
+          )
+        }
+      />
+
+      {isLoading ? (
+        <SkeletonRows rows={5} cols={4} />
+      ) : error ? (
+        <ErrorState onRetry={() => refetch()} />
+      ) : (
+        <>
+          {/* Store articles */}
+          <section>
+            <h2 className="font-display font-semibold text-sm mb-3 text-foreground">
+              Your store articles
+              <span className="ml-2 text-xs text-muted-foreground font-sans font-normal">
+                ({storeArticles.length})
+              </span>
+            </h2>
+            <ArticleTable items={storeArticles} editable={canWrite} />
+          </section>
+
+          {/* Platform articles (read-only) */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Globe className="w-4 h-4 text-muted-foreground" />
+              <h2 className="font-display font-semibold text-sm text-foreground">
+                Platform articles
+                <span className="ml-2 text-xs text-muted-foreground font-sans font-normal">
+                  ({platformArticles.filter((a) => a.status === "live").length} live)
+                </span>
+              </h2>
+              <span className="text-xs text-muted-foreground">— read only</span>
+            </div>
+            <ArticleTable items={platformArticles.filter((a) => a.status === "live")} editable={false} />
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+function StoreHelpForm({
+  storeId,
+  initial,
+  onDone,
+}: {
+  storeId: string;
+  initial?: HelpArticle;
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const [form, setForm] = useState({
+    id:       initial?.id ?? makeId("sh"),
+    title:    initial?.title ?? "",
+    body:     initial?.body ?? "",
+    category: initial?.category ?? "general",
+    kind:     initial?.kind ?? ("article" as "article" | "faq"),
+    scope:    storeId,
+    status:   initial?.status ?? ("draft" as "draft" | "live"),
+  });
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      if (initial) {
+        await helpApi.update(initial.id, form);
+        toast({ title: "Article updated" });
+      } else {
+        await helpApi.create(form);
+        toast({ title: "Article created" });
+      }
+      onDone();
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+      <div className="space-y-1.5">
+        <Label>Title</Label>
+        <Input
+          required
+          value={form.title}
+          onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Body</Label>
+        <Textarea
+          required
+          rows={6}
+          value={form.body}
+          onChange={(e) => setForm((p) => ({ ...p, body: e.target.value }))}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Category</Label>
+        <Input
+          value={form.category}
+          onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Kind</Label>
+        <Select value={form.kind} onValueChange={(v) => setForm((p) => ({ ...p, kind: v as any }))}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="article">Article</SelectItem>
+            <SelectItem value="faq">FAQ</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <Button type="submit" className="w-full" style={{ background: "hsl(12 49% 58%)", color: "#fff" }}>
+        {initial ? "Save changes" : "Create article"}
+      </Button>
+    </form>
+  );
+}

@@ -1,72 +1,261 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Toaster } from '@/components/ui/toaster';
-import { TooltipProvider } from '@/components/ui/tooltip';
-import NotFound from '@/pages/not-found';
-import { Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
-import { SidebarProvider } from '@/components/ui/sidebar';
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  Route,
+  Switch,
+  Router as WouterRouter,
+  useLocation,
+  Redirect,
+} from "wouter";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { useEffect } from "react";
+import { Shell } from "@/components/layout/Shell";
+import { SuperAdminShell } from "@/components/layout/SuperAdminShell";
+import { StoreAdminShell } from "@/components/layout/StoreAdminShell";
+import { useConsole } from "@/lib/useConsole";
+import { resolveStoreId } from "@/lib/api";
+import Login from "@/pages/login";
+import Unauthorized from "@/pages/unauthorized";
+import NotFound from "@/pages/not-found";
 
-import { useEffect } from 'react';
-import { useGetMe, getGetMeQueryKey } from '@workspace/api-client-react';
-import { Shell } from '@/components/layout/Shell';
-import Login from '@/pages/login';
+// ── Daybook Admin (existing catalog pages) ────────────────────────────────────
+import { routes as daybookRoutes } from "@/pages/routes";
 
-import { routes } from '@/pages/routes';
+// ── Super Admin pages ─────────────────────────────────────────────────────────
+import SuperDashboard from "@/pages/super/Dashboard";
+import SuperStores from "@/pages/super/Stores";
+import SuperCatalog from "@/pages/super/GlobalCatalog";
+import SuperRevenue from "@/pages/super/Revenue";
+import SuperHelp from "@/pages/super/HelpCenter";
+import SuperFlags from "@/pages/super/FeatureFlags";
+import SuperAudit from "@/pages/super/AuditLog";
 
-const queryClient = new QueryClient();
+// ── Store Admin pages ─────────────────────────────────────────────────────────
+import StoreDashboard from "@/pages/store/Dashboard";
+import StoreShopCatalog from "@/pages/store/ShopCatalog";
+import StorePlannerBuilds from "@/pages/store/PlannerBuilds";
+import StoreCustomers from "@/pages/store/Customers";
+import StoreStaff from "@/pages/store/StaffRoles";
+import StoreHelp from "@/pages/store/StoreHelp";
 
-// A wrapper to protect routes
-function ProtectedRoute({ component: Component }: { component: any }) {
-  const { data: user, isLoading, error } = useGetMe({ query: { retry: false, queryKey: getGetMeQueryKey() }});
-  const [, setLocation] = useLocation();
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 30_000 } },
+});
 
-  // Redirect to login after render — never call setLocation during render
+// ── Root router: determines which console to show ────────────────────────────
+function RootRouter() {
+  const [location, setLocation] = useLocation();
+  const state = useConsole();
+
+  // Redirect root "/" to the appropriate console
   useEffect(() => {
-    if (!isLoading && (error || !user)) {
-      setLocation('/login');
+    if (state.kind === "loading") return;
+    if (state.kind === "unauthenticated") {
+      setLocation("/login");
+      return;
     }
-  }, [isLoading, error, user, setLocation]);
+    if (location !== "/") return;
+    if (state.kind === "super") { setLocation("/super"); return; }
+    if (state.kind === "store" && state.primaryStore) {
+      setLocation(`/store/${resolveStoreId(state.primaryStore)}`);
+      return;
+    }
+    if (state.kind === "unauthorized") { setLocation("/unauthorized"); return; }
+  }, [state.kind, location, setLocation, state.primaryStore]);
 
-  if (isLoading) {
-    return <div className="min-h-screen bg-background" />;
+  if (state.kind === "loading") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
   }
 
-  if (error || !user) {
-    return null; // useEffect above will redirect
-  }
+  if (state.kind === "unauthenticated") return null; // redirect in effect
 
-  return <Component />;
-}
-
-// Convert elements from routes list back to components inside ProtectedRoute
-function AppRouter() {
   return (
     <Switch>
-      <Route path="/login" component={Login} />
-      
-      {/* Protected Routes wrapped in Shell */}
-      <Route path="*">
-        <SidebarProvider>
-          <Shell>
-            <Switch>
-              {routes.map(r => (
-                <Route key={r.path} path={r.path}>
-                  <ProtectedRoute component={r.component} />
-                </Route>
-              ))}
-              <Route component={NotFound} />
-            </Switch>
-          </Shell>
-        </SidebarProvider>
+      {/* ── Super Admin console ────────────────────────────────── */}
+      <Route path="/super">
+        <RequireSuperAdmin state={state}>
+          <SuperAdminShell>
+            <SuperDashboard />
+          </SuperAdminShell>
+        </RequireSuperAdmin>
       </Route>
+      <Route path="/super/stores">
+        <RequireSuperAdmin state={state}><SuperAdminShell><SuperStores /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/catalog">
+        <RequireSuperAdmin state={state}><SuperAdminShell><SuperCatalog /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/revenue">
+        <RequireSuperAdmin state={state}><SuperAdminShell><SuperRevenue /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/help">
+        <RequireSuperAdmin state={state}><SuperAdminShell><SuperHelp /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/flags">
+        <RequireSuperAdmin state={state}><SuperAdminShell><SuperFlags /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/audit">
+        <RequireSuperAdmin state={state}><SuperAdminShell><SuperAudit /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+
+      {/* ── Store Admin console ────────────────────────────────── */}
+      <Route path="/store/:storeId">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreDashboard storeId={p.storeId!} role={store.role as string} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/catalog">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreShopCatalog storeId={p.storeId!} role={store.role as string} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/builds">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StorePlannerBuilds storeId={p.storeId!} role={store.role as string} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/customers">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreCustomers storeId={p.storeId!} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/staff">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreStaff storeId={p.storeId!} role={store.role as string} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/help">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreHelp storeId={p.storeId!} role={store.role as string} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
+      {/* ── Daybook Admin (catalog authoring, super_admin only) ───── */}
+      <Route path="/daybook/:rest*">
+        <RequireSuperAdmin state={state}>
+          <WouterRouter base="/daybook">
+            <SidebarProvider>
+              <Shell>
+                <Switch>
+                  {daybookRoutes.map((r) => (
+                    <Route key={r.path} path={r.path} component={r.component} />
+                  ))}
+                  <Route component={NotFound} />
+                </Switch>
+              </Shell>
+            </SidebarProvider>
+          </WouterRouter>
+        </RequireSuperAdmin>
+      </Route>
+
+      {/* ── Root redirect ──────────────────────────────────────── */}
+      <Route path="/">
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        </div>
+      </Route>
+
+      <Route component={NotFound} />
     </Switch>
   );
 }
 
-function App() {
+// ── Guards ────────────────────────────────────────────────────────────────────
+function RequireSuperAdmin({
+  state,
+  children,
+}: {
+  state: ReturnType<typeof useConsole>;
+  children: React.ReactNode;
+}) {
+  if (state.kind === "super") return <>{children}</>;
+  return <Redirect to="/unauthorized" />;
+}
+
+function RequireStore({
+  state,
+  storeId,
+  children,
+}: {
+  state: ReturnType<typeof useConsole>;
+  storeId: string | undefined;
+  children: (store: ReturnType<typeof useConsole>["stores"][number]) => React.ReactNode;
+}) {
+  // super_admin can access any store
+  if (state.kind === "super" && storeId) {
+    const store = state.stores.find(
+      (s) => (s.storeId ?? (s as any).id) === storeId,
+    ) ?? { storeId, id: storeId, name: storeId, role: "super_admin" } as any;
+    return <>{children(store)}</>;
+  }
+
+  if (state.kind === "store") {
+    const store = state.stores.find(
+      (s) => (s.storeId ?? (s as any).id) === storeId,
+    );
+    if (store) return <>{children(store)}</>;
+  }
+
+  return <Redirect to="/unauthorized" />;
+}
+
+// ── Top-level App ─────────────────────────────────────────────────────────────
+function AppRouter() {
+  return (
+    <Switch>
+      <Route path="/login" component={Login} />
+      <Route path="/unauthorized" component={Unauthorized} />
+      <Route path="/:rest*" component={RootRouter} />
+    </Switch>
+  );
+}
+
+export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
           <AppRouter />
         </WouterRouter>
         <Toaster />
@@ -74,5 +263,3 @@ function App() {
     </QueryClientProvider>
   );
 }
-
-export default App;

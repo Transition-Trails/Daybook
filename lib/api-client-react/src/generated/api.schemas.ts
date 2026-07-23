@@ -27,23 +27,25 @@ export const UserRole = {
 } as const;
 
 export interface User {
-  id: number;
-  /** @nullable */
-  googleId?: string | null;
-  email: string;
-  name: string;
-  /** @nullable */
-  avatarUrl?: string | null;
-  role: UserRole;
-  /** @nullable */
-  planId?: number | null;
-  /** @nullable */
-  stripeCustomerId?: string | null;
-  /** @nullable */
-  notionToken?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-}
+    id: string;
+    /** @nullable */
+    googleId?: string | null;
+    email: string;
+    name: string;
+    /** @nullable */
+    avatarUrl?: string | null;
+    role: UserRole;
+    /** @nullable */
+    plan?: string | null;
+    owned: string[];
+    aiEnabled: boolean;
+    aiProvider: string;
+    connections?: Record<string, boolean>;
+    /** @nullable */
+    stripeCustomerId?: string | null;
+    createdAt: string;
+    updatedAt?: string;
+    }
 
 export type UserUpdateRole = typeof UserUpdateRole[keyof typeof UserUpdateRole];
 
@@ -62,11 +64,11 @@ export interface UserUpdate {
 }
 
 export interface UserPurchases {
-  themeIds: number[];
-  stickerPackIds: number[];
-  insertIds: number[];
-  productIds: number[];
-  editionIds: number[];
+  themeIds: string[];
+  stickerPackIds: string[];
+  insertIds: string[];
+  productIds: string[];
+  editionIds: string[];
 }
 
 export interface StaffLoginInput {
@@ -77,54 +79,39 @@ export interface StaffLoginInput {
 export type ThemePalette = { [key: string]: unknown } | null;
 
 export interface Theme {
-  id: number;
-  name: string;
-  slug: string;
-  /** @nullable */
-  description?: string | null;
-  status: CatalogStatus;
-  /** @nullable */
-  category?: string | null;
-  /** @nullable */
-  coverColor?: string | null;
-  /** @nullable */
-  accentColor?: string | null;
-  palette?: ThemePalette;
-  /** @nullable */
-  previewImageUrl?: string | null;
-  /** @nullable */
-  driveFileId?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-}
+    id: string;
+    name: string;
+    /** @nullable */
+    desc?: string | null;
+    colors: string[];
+    price: number;
+    status: CatalogStatus;
+    createdBy?: string;
+    createdAt: string;
+    updatedAt?: string;
+    }
 
 export type ThemeInputPalette = { [key: string]: unknown };
 
 export interface ThemeInput {
-  /** @minLength 1 */
-  name: string;
-  slug?: string;
-  description?: string;
-  category?: string;
-  coverColor?: string;
-  accentColor?: string;
-  palette?: ThemeInputPalette;
-  previewImageUrl?: string;
-}
+    id: string;
+    /** @minLength 1 */
+    name: string;
+    desc?: string;
+    colors: string[];
+    price?: number;
+    }
 
 export type ThemeUpdatePalette = { [key: string]: unknown };
 
 export interface ThemeUpdate {
-  /** @minLength 1 */
-  name?: string;
-  description?: string;
-  category?: string;
-  coverColor?: string;
-  accentColor?: string;
-  palette?: ThemeUpdatePalette;
-  previewImageUrl?: string;
-  driveFileId?: string;
-}
+    /** @minLength 1 */
+    name?: string;
+    desc?: string;
+    colors?: string[];
+    price?: number;
+    status?: CatalogStatus;
+    }
 
 export interface AiDraftThemeInput {
   concept: string;
@@ -144,43 +131,37 @@ export interface AiDraftThemeResult {
 }
 
 export interface StickerPack {
-  id: number;
-  name: string;
-  slug: string;
-  /** @nullable */
-  description?: string | null;
-  status: CatalogStatus;
-  /** @nullable */
-  category?: string | null;
-  /** @nullable */
-  previewImageUrl?: string | null;
-  /** @nullable */
-  stickerCount?: number | null;
-  /** @nullable */
-  driveFileId?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-}
+    id: string;
+    name: string;
+    tags: string[];
+    price: number;
+    status: CatalogStatus;
+    /** @nullable */
+    coverDriveFileId?: string | null;
+    planners: string[];
+    createdAt: string;
+    updatedAt?: string;
+    }
 
 export interface StickerPackInput {
-  /** @minLength 1 */
-  name: string;
-  slug?: string;
-  description?: string;
-  category?: string;
-  previewImageUrl?: string;
-  stickerCount?: number;
-}
+    id: string;
+    /** @minLength 1 */
+    name: string;
+    tags?: string[];
+    price?: number;
+    planners?: string[];
+    coverDriveFileId?: string;
+    }
 
 export interface StickerPackUpdate {
-  /** @minLength 1 */
-  name?: string;
-  description?: string;
-  category?: string;
-  previewImageUrl?: string;
-  stickerCount?: number;
-  driveFileId?: string;
-}
+    /** @minLength 1 */
+    name?: string;
+    tags?: string[];
+    price?: number;
+    planners?: string[];
+    coverDriveFileId?: string;
+    status?: CatalogStatus;
+    }
 
 export interface AiDraftPackInput {
   concept: string;
@@ -196,42 +177,33 @@ export interface AiDraftPackResult {
 }
 
 export interface Insert {
-  id: number;
-  name: string;
-  slug: string;
-  /** @nullable */
-  description?: string | null;
-  status: CatalogStatus;
-  /** @nullable */
-  category?: string | null;
-  /** @nullable */
-  imageUrl?: string | null;
-  isTransparent?: boolean;
-  /** @nullable */
-  driveFileId?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-}
+    id: string;
+    name: string;
+    /** @nullable */
+    collection?: string | null;
+    /** @nullable */
+    assetId?: string | null;
+    planners: string[];
+    status: CatalogStatus;
+    createdAt: string;
+    updatedAt?: string;
+    }
 
 export interface InsertInput {
-  /** @minLength 1 */
-  name: string;
-  slug?: string;
-  description?: string;
-  category?: string;
-  imageUrl?: string;
-  isTransparent?: boolean;
-}
+    id: string;
+    /** @minLength 1 */
+    name: string;
+    collection?: string;
+    planners?: string[];
+    }
 
 export interface InsertUpdate {
-  /** @minLength 1 */
-  name?: string;
-  description?: string;
-  category?: string;
-  imageUrl?: string;
-  isTransparent?: boolean;
-  driveFileId?: string;
-}
+    /** @minLength 1 */
+    name?: string;
+    collection?: string;
+    planners?: string[];
+    status?: CatalogStatus;
+    }
 
 export type RelatedProductType = typeof RelatedProductType[keyof typeof RelatedProductType];
 
@@ -244,22 +216,15 @@ export const RelatedProductType = {
 } as const;
 
 export interface RelatedProduct {
-  id: number;
-  name: string;
-  slug: string;
-  /** @nullable */
-  description?: string | null;
-  status: CatalogStatus;
-  type: RelatedProductType;
-  /** @nullable */
-  previewImageUrl?: string | null;
-  /** @nullable */
-  price?: number | null;
-  /** @nullable */
-  driveFileId?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-}
+    id: string;
+    name: string;
+    kind: string;
+    price: number;
+    status: CatalogStatus;
+    matches: string[];
+    createdAt: string;
+    updatedAt?: string;
+    }
 
 export type RelatedProductInputType = typeof RelatedProductInputType[keyof typeof RelatedProductInputType];
 
@@ -272,14 +237,13 @@ export const RelatedProductInputType = {
 } as const;
 
 export interface RelatedProductInput {
-  /** @minLength 1 */
-  name: string;
-  slug?: string;
-  description?: string;
-  type: RelatedProductInputType;
-  previewImageUrl?: string;
-  price?: number;
-}
+    id: string;
+    /** @minLength 1 */
+    name: string;
+    kind: string;
+    price?: number;
+    matches?: string[];
+    }
 
 export type RelatedProductUpdateType = typeof RelatedProductUpdateType[keyof typeof RelatedProductUpdateType];
 
@@ -292,14 +256,13 @@ export const RelatedProductUpdateType = {
 } as const;
 
 export interface RelatedProductUpdate {
-  /** @minLength 1 */
-  name?: string;
-  description?: string;
-  type?: RelatedProductUpdateType;
-  previewImageUrl?: string;
-  price?: number;
-  driveFileId?: string;
-}
+    /** @minLength 1 */
+    name?: string;
+    kind?: string;
+    price?: number;
+    matches?: string[];
+    status?: CatalogStatus;
+    }
 
 export type EditionTier = typeof EditionTier[keyof typeof EditionTier];
 
@@ -312,33 +275,26 @@ export const EditionTier = {
 export type EditionPerPageArtFileIds = { [key: string]: unknown } | null;
 
 export interface Edition {
-  id: number;
-  name: string;
-  slug: string;
-  /** @nullable */
-  description?: string | null;
-  status: CatalogStatus;
-  tier: EditionTier;
-  /** @nullable */
-  themeId?: number | null;
-  stickerPackIds?: number[];
-  insertIds?: number[];
-  productIds?: number[];
-  planIds?: number[];
-  /** @nullable */
-  oneTimePrice?: number | null;
-  /** @nullable */
-  yearlyPrice?: number | null;
-  /** @nullable */
-  lifetimePrice?: number | null;
-  /** @nullable */
-  stripeProductId?: string | null;
-  /** @nullable */
-  previewImageUrl?: string | null;
-  perPageArtFileIds?: EditionPerPageArtFileIds;
-  createdAt: string;
-  updatedAt?: string;
-}
+    id: string;
+    name: string;
+    status: CatalogStatus;
+    tier: EditionTier;
+    sections: string[];
+    /** @nullable */
+    priceLow?: number | null;
+    /** @nullable */
+    priceHigh?: number | null;
+    themes: string[];
+    packs: string[];
+    inserts: string[];
+    products: string[];
+    /** @nullable */
+    revisionOf?: string | null;
+    /** @nullable */
+    year?: number | null;
+    createdAt: string;
+    updatedAt?: string;
+    }
 
 export type EditionInputTier = typeof EditionInputTier[keyof typeof EditionInputTier];
 
@@ -349,21 +305,18 @@ export const EditionInputTier = {
 } as const;
 
 export interface EditionInput {
-  /** @minLength 1 */
-  name: string;
-  slug?: string;
-  description?: string;
-  tier: EditionInputTier;
-  themeId?: number;
-  stickerPackIds?: number[];
-  insertIds?: number[];
-  productIds?: number[];
-  planIds?: number[];
-  oneTimePrice?: number;
-  yearlyPrice?: number;
-  lifetimePrice?: number;
-  previewImageUrl?: string;
-}
+    id: string;
+    /** @minLength 1 */
+    name: string;
+    tier: EditionInputTier;
+    sections?: string[];
+    priceLow?: number;
+    priceHigh?: number;
+    themes?: string[];
+    packs?: string[];
+    inserts?: string[];
+    products?: string[];
+    }
 
 export type EditionUpdateTier = typeof EditionUpdateTier[keyof typeof EditionUpdateTier];
 
@@ -376,25 +329,18 @@ export const EditionUpdateTier = {
 export type EditionUpdatePerPageArtFileIds = { [key: string]: unknown };
 
 export interface EditionUpdate {
-  /** @minLength 1 */
-  name?: string;
-  description?: string;
-  tier?: EditionUpdateTier;
-  /** @nullable */
-  themeId?: number | null;
-  stickerPackIds?: number[];
-  insertIds?: number[];
-  productIds?: number[];
-  planIds?: number[];
-  /** @nullable */
-  oneTimePrice?: number | null;
-  /** @nullable */
-  yearlyPrice?: number | null;
-  /** @nullable */
-  lifetimePrice?: number | null;
-  previewImageUrl?: string;
-  perPageArtFileIds?: EditionUpdatePerPageArtFileIds;
-}
+    /** @minLength 1 */
+    name?: string;
+    tier?: EditionUpdateTier;
+    sections?: string[];
+    priceLow?: number | null;
+    priceHigh?: number | null;
+    themes?: string[];
+    packs?: string[];
+    inserts?: string[];
+    products?: string[];
+    status?: CatalogStatus;
+    }
 
 export interface ArtFile {
   pageId: string;
@@ -448,25 +394,17 @@ export const PlanTier = {
 export type PlanFeatures = { [key: string]: unknown } | null;
 
 export interface Plan {
-  id: number;
-  name: string;
-  slug: string;
-  /** @nullable */
-  description?: string | null;
-  status: CatalogStatus;
-  tier: PlanTier;
-  /** @nullable */
-  oneTimePrice?: number | null;
-  /** @nullable */
-  yearlyPrice?: number | null;
-  /** @nullable */
-  lifetimePrice?: number | null;
-  features?: PlanFeatures;
-  /** @nullable */
-  stripeProductId?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-}
+    id: string;
+    name: string;
+    /** @nullable */
+    description?: string | null;
+    /** @nullable */
+    oneTimePrice?: number | null;
+    /** @nullable */
+    yearlyPrice?: number | null;
+    createdAt: string;
+    updatedAt?: string;
+    }
 
 export type PlanInputTier = typeof PlanInputTier[keyof typeof PlanInputTier];
 
@@ -567,7 +505,7 @@ export const PlannerConfigCalendarLinkType = {
 } as const;
 
 export interface PlannerConfig {
-  id: number;
+  id: string;
   userId: number;
   /** @nullable */
   editionId?: number | null;
@@ -830,7 +768,7 @@ export interface AiChatInput {
 export type AiChatResultUsage = { [key: string]: unknown } | null;
 
 export interface AiChatResult {
-  content: string;
+  text: string;
   provider: string;
   /** @nullable */
   model?: string | null;

@@ -1,4 +1,4 @@
-import { useListInserts, usePublishInsert, useUnpublishInsert, getListInsertsQueryKey } from '@workspace/api-client-react';
+import { useListInserts, useUpdateInsert, getListInsertsQueryKey, type Insert, type CatalogStatus } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Card } from '@/components/ui/card';
@@ -13,12 +13,11 @@ export default function InsertsList() {
   const { toast } = useToast();
   const { data: inserts, isLoading } = useListInserts();
   
-  const publish = usePublishInsert();
-  const unpublish = useUnpublishInsert();
+  const updateInsert = useUpdateInsert();
 
-  const togglePublish = (id: number, status: string) => {
-    const action = status === 'live' ? unpublish : publish;
-    action.mutate({ id }, {
+  const togglePublish = (id: string, status: string) => {
+    const newStatus = status === 'live' ? 'draft' : 'live';
+    updateInsert.mutate({ id, data: { status: newStatus as CatalogStatus } }, {
       onSuccess: () => {
         toast({ title: 'Status updated' });
         queryClient.invalidateQueries({ queryKey: getListInsertsQueryKey() });
@@ -48,8 +47,8 @@ export default function InsertsList() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-[300px]">Insert</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Transparent</TableHead>
+              <TableHead>Collection</TableHead>
+              <TableHead>Planners</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -57,29 +56,27 @@ export default function InsertsList() {
           <TableBody>
             {isLoading ? (
               <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
-            ) : inserts?.length === 0 ? (
+            ) : (inserts as Insert[])?.length === 0 ? (
               <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No inserts found.</TableCell></TableRow>
             ) : (
-              inserts?.map(insert => (
+              (inserts as Insert[])?.map(insert => (
                 <TableRow key={insert.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      {insert.imageUrl ? (
-                        <img src={insert.imageUrl} alt={insert.name} className="w-10 h-10 rounded-md object-cover border bg-muted" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center border"><FileImage className="w-5 h-5 text-muted-foreground" /></div>
-                      )}
+                      <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center border"><FileImage className="w-5 h-5 text-muted-foreground" /></div>
                       <div>
                         <div className="font-medium text-foreground">{insert.name}</div>
-                        <div className="text-xs text-muted-foreground">{insert.slug}</div>
+                        <div className="text-xs text-muted-foreground font-mono">{insert.id}</div>
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>
-                    {insert.category ? <Badge variant="outline">{insert.category}</Badge> : <span className="text-muted-foreground">-</span>}
+                    {insert.collection ? <Badge variant="outline">{insert.collection}</Badge> : <span className="text-muted-foreground text-sm">—</span>}
                   </TableCell>
                   <TableCell>
-                    {insert.isTransparent ? <Badge variant="secondary">Yes</Badge> : <span className="text-muted-foreground text-sm">No</span>}
+                    <span className="text-xs text-muted-foreground">
+                      {(insert.planners as string[] || ['all']).join(', ')}
+                    </span>
                   </TableCell>
                   <TableCell>
                     <Badge variant={insert.status === 'live' ? 'default' : 'secondary'} className={insert.status === 'live' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : ''}>

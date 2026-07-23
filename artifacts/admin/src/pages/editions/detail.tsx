@@ -1,6 +1,12 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
-import { useGetEdition, useCreateEdition, useUpdateEdition, useDeleteEdition, getListEditionsQueryKey, getGetEditionQueryKey } from '@workspace/api-client-react';
+import {
+  useGetEdition, useCreateEdition, useUpdateEdition, useDeleteEdition,
+  useListThemes, useListStickerPacks, useListInserts, useListProducts,
+  getListEditionsQueryKey, getGetEditionQueryKey,
+  type Edition, type EditionInput, type EditionUpdate,
+  type Theme, type StickerPack, type Insert, type RelatedProduct
+} from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,25 +14,87 @@ import { z } from 'zod';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ArrowLeft, Trash2 } from 'lucide-react';
+import { Loader2, ArrowLeft, Trash2, Save } from 'lucide-react';
 import { Link } from 'wouter';
+import { type EditionInputTier } from '@workspace/api-client-react';
 
 const editionSchema = z.object({
+  id: z.string().min(1, 'ID is required'),
   name: z.string().min(1, 'Name is required'),
-  slug: z.string().optional(),
-  description: z.string().optional(),
   tier: z.enum(['basic', 'advanced']),
-  oneTimePrice: z.coerce.number().optional(),
-  yearlyPrice: z.coerce.number().optional(),
-  lifetimePrice: z.coerce.number().optional(),
-  previewImageUrl: z.string().url().optional().or(z.literal('')),
+  sections: z.string().default(''),
+  priceLow: z.coerce.number().optional(),
+  priceHigh: z.coerce.number().optional(),
 });
+
+type EditionFormValues = z.infer<typeof editionSchema>;
+
+function MultiSelectPicker({
+  title,
+  items,
+  selected,
+  onSave,
+  isSaving,
+}: {
+  title: string;
+  items: { id: string; name: string }[];
+  selected: string[];
+  onSave: (ids: string[]) => void;
+  isSaving: boolean;
+}) {
+  const [local, setLocal] = useState<string[]>(selected);
+  useEffect(() => { setLocal(selected); }, [selected]);
+
+  const toggle = (id: string) => {
+    setLocal(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <Button size="sm" variant="outline" onClick={() => onSave(local)} disabled={isSaving}>
+          {isSaving ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
+          Save
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No {title.toLowerCase()} available.</p>
+        ) : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {items.map(item => (
+              <label key={item.id} className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 rounded-md p-2">
+                <Checkbox
+                  checked={local.includes(item.id)}
+                  onCheckedChange={() => toggle(item.id)}
+                />
+                <div>
+                  <div className="text-sm font-medium">{item.name}</div>
+                  <div className="text-xs text-muted-foreground font-mono">{item.id}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        )}
+        {local.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1">
+            {local.map(id => (
+              <Badge key={id} variant="secondary" className="text-xs font-mono">{id}</Badge>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function EditionDetail() {
   const params = useParams();
@@ -35,54 +103,76 @@ export default function EditionDetail() {
   const queryClient = useQueryClient();
   
   const isNew = !params.id || params.id === 'new';
-  const id = isNew ? 0 : parseInt(params.id!);
+  const id = isNew ? '' : params.id!;
 
   const { data: edition, isLoading } = useGetEdition(id, { query: { enabled: !isNew, queryKey: getGetEditionQueryKey(id) } });
+  
+  const { data: themesData } = useListThemes();
+  const { data: packsData } = useListStickerPacks();
+  const { data: insertsData } = useListInserts();
+  const { data: productsData } = useListProducts();
+  
+  const themes = (themesData || []) as Theme[];
+  const packs = (packsData || []) as StickerPack[];
+  const inserts = (insertsData || []) as Insert[];
+  const products = (productsData || []) as RelatedProduct[];
   
   const createEdition = useCreateEdition();
   const updateEdition = useUpdateEdition();
   const deleteEdition = useDeleteEdition();
+  
+  const [savingSection, setSavingSection] = useState<string | null>(null);
 
-  const form = useForm<z.infer<typeof editionSchema>>({
+  const form = useForm<EditionFormValues>({
     resolver: zodResolver(editionSchema),
-    defaultValues: { name: '', slug: '', description: '', tier: 'basic', oneTimePrice: 0, yearlyPrice: 0, lifetimePrice: 0, previewImageUrl: '' }
+    defaultValues: { id: '', name: '', tier: 'basic', sections: '', priceLow: 0, priceHigh: 0 }
   });
 
-  const initializedForId = useRef<number | null>(null);
+  const initializedForId = useRef<string | null>(null);
 
   useEffect(() => {
     if (edition && initializedForId.current !== id) {
       initializedForId.current = id;
       form.reset({
+        id: edition.id,
         name: edition.name,
-        slug: edition.slug,
-        description: edition.description || '',
-        tier: edition.tier,
-        oneTimePrice: edition.oneTimePrice ? edition.oneTimePrice / 100 : 0,
-        yearlyPrice: edition.yearlyPrice ? edition.yearlyPrice / 100 : 0,
-        lifetimePrice: edition.lifetimePrice ? edition.lifetimePrice / 100 : 0,
-        previewImageUrl: edition.previewImageUrl || ''
+        tier: edition.tier as 'basic' | 'advanced',
+        sections: (edition.sections || []).join(', '),
+        priceLow: edition.priceLow ?? 0,
+        priceHigh: edition.priceHigh ?? 0,
       });
     }
   }, [edition, id, form]);
 
-  const onSubmit = (data: z.infer<typeof editionSchema>) => {
-    const payload = {
-      ...data,
-      oneTimePrice: data.oneTimePrice ? Math.round(data.oneTimePrice * 100) : undefined,
-      yearlyPrice: data.yearlyPrice ? Math.round(data.yearlyPrice * 100) : undefined,
-      lifetimePrice: data.lifetimePrice ? Math.round(data.lifetimePrice * 100) : undefined,
-    };
+  const onSubmit = (data: EditionFormValues) => {
+    const sections = data.sections ? data.sections.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const tier = data.tier as EditionInputTier;
 
     if (isNew) {
+      const payload: EditionInput = {
+        id: data.id,
+        name: data.name,
+        tier,
+        sections,
+        priceLow: data.priceLow || undefined,
+        priceHigh: data.priceHigh || undefined,
+      };
       createEdition.mutate({ data: payload }, {
         onSuccess: (res) => {
           toast({ title: 'Edition created' });
           queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
           setLocation(`/editions/${res.id}`);
-        }
+        },
+        onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
       });
     } else {
+      const payload: EditionUpdate = {
+        name: data.name,
+        tier,
+        sections,
+        priceLow: data.priceLow ?? null,
+        priceHigh: data.priceHigh ?? null,
+      };
       updateEdition.mutate({ id, data: payload }, {
         onSuccess: () => {
           toast({ title: 'Edition updated' });
@@ -105,6 +195,22 @@ export default function EditionDetail() {
     }
   };
 
+  const patchArray = (field: keyof Pick<EditionUpdate, 'themes' | 'packs' | 'inserts' | 'products'>, ids: string[]) => {
+    setSavingSection(field);
+    const payload: EditionUpdate = { [field]: ids };
+    updateEdition.mutate({ id, data: payload }, {
+      onSuccess: () => {
+        toast({ title: `${field} updated` });
+        queryClient.invalidateQueries({ queryKey: getGetEditionQueryKey(id) });
+        setSavingSection(null);
+      },
+      onError: (err: Error) => {
+        toast({ title: 'Error', description: err.message, variant: 'destructive' });
+        setSavingSection(null);
+      }
+    });
+  };
+
   if (!isNew && isLoading) {
     return <div className="flex h-64 items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
   }
@@ -112,7 +218,7 @@ export default function EditionDetail() {
   const isSaving = createEdition.isPending || updateEdition.isPending;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
+    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
@@ -120,6 +226,7 @@ export default function EditionDetail() {
           </Button>
           <div>
             <h1 className="text-2xl font-display font-bold tracking-tight">{isNew ? 'New Edition' : edition?.name}</h1>
+            {!isNew && <p className="text-xs text-muted-foreground font-mono">{id}</p>}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -136,68 +243,57 @@ export default function EditionDetail() {
       </div>
 
       <Form {...form}>
-        <form className="space-y-6">
-          <Tabs defaultValue="general">
-            <TabsList className="mb-4">
-              <TabsTrigger value="general">General</TabsTrigger>
+        <form>
+          <Tabs defaultValue="details" className="space-y-6">
+            <TabsList>
+              <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="pricing">Pricing</TabsTrigger>
-              {!isNew && <TabsTrigger value="assets">Assets</TabsTrigger>}
+              {!isNew && <TabsTrigger value="content">Content</TabsTrigger>}
             </TabsList>
 
-            <TabsContent value="general" className="space-y-6">
+            <TabsContent value="details" className="space-y-6">
               <Card>
-                <CardHeader>
-                  <CardTitle>Edition Details</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle>Edition Details</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField control={form.control} name="name" render={({ field }) => (
+                  {isNew && (
+                    <FormField control={form.control} name="id" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Name</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
+                        <FormLabel>ID <span className="text-xs text-muted-foreground">(e.g. e-student-2024)</span></FormLabel>
+                        <FormControl><Input {...field} placeholder="e-my-edition" className="font-mono" /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
-                    <FormField control={form.control} name="slug" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Slug</FormLabel>
-                        <FormControl><Input {...field} placeholder="auto-generated" /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  </div>
-                  
-                  <FormField control={form.control} name="description" render={({ field }) => (
+                  )}
+                  <FormField control={form.control} name="name" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Description</FormLabel>
-                      <FormControl><Textarea className="resize-none h-24" {...field} /></FormControl>
+                      <FormLabel>Name</FormLabel>
+                      <FormControl><Input {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField control={form.control} name="tier" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Tier</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger><SelectValue placeholder="Select tier" /></SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="basic">Basic (PDF only)</SelectItem>
-                            <SelectItem value="advanced">Advanced (Live items)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  </div>
-
-                  <FormField control={form.control} name="previewImageUrl" render={({ field }) => (
+                  <FormField control={form.control} name="tier" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Preview Image URL</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
-                      {field.value && <img src={field.value} alt="Preview" className="w-48 h-48 object-cover rounded-md mt-2 border bg-muted" />}
+                      <FormLabel>Tier</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select tier" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="basic">Basic — PDF only</SelectItem>
+                          <SelectItem value="advanced">Advanced — Full live item</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="sections" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Sections</FormLabel>
+                      <FormControl><Input {...field} placeholder="weekly, daily, notes, habit-tracker" /></FormControl>
+                      <FormDescription>Comma-separated section names.</FormDescription>
+                      <FormMessage />
                     </FormItem>
                   )} />
                 </CardContent>
@@ -206,29 +302,20 @@ export default function EditionDetail() {
 
             <TabsContent value="pricing" className="space-y-6">
               <Card>
-                <CardHeader>
-                  <CardTitle>Pricing (USD)</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle>Pricing (USD)</CardTitle></CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <FormField control={form.control} name="oneTimePrice" render={({ field }) => (
+                  <div className="grid grid-cols-2 gap-6">
+                    <FormField control={form.control} name="priceLow" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>One-Time Price</FormLabel>
-                        <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                        <FormLabel>Price Low</FormLabel>
+                        <FormControl><Input type="number" step="0.01" min="0" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
-                    <FormField control={form.control} name="yearlyPrice" render={({ field }) => (
+                    <FormField control={form.control} name="priceHigh" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Yearly Subscription</FormLabel>
-                        <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={form.control} name="lifetimePrice" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Lifetime Access</FormLabel>
-                        <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                        <FormLabel>Price High</FormLabel>
+                        <FormControl><Input type="number" step="0.01" min="0" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
@@ -238,17 +325,38 @@ export default function EditionDetail() {
             </TabsContent>
 
             {!isNew && (
-              <TabsContent value="assets" className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Attached Assets</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-muted-foreground text-sm">
-                      Attach themes, sticker packs, inserts, and related products here. (UI omitted for brevity - to be wired up later).
-                    </p>
-                  </CardContent>
-                </Card>
+              <TabsContent value="content" className="space-y-4">
+                <p className="text-sm text-muted-foreground">Attach catalog items to this edition. Changes are saved per section.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <MultiSelectPicker
+                    title="Themes"
+                    items={themes.map(t => ({ id: t.id, name: t.name }))}
+                    selected={edition?.themes || []}
+                    onSave={(ids) => patchArray('themes', ids)}
+                    isSaving={savingSection === 'themes'}
+                  />
+                  <MultiSelectPicker
+                    title="Sticker Packs"
+                    items={packs.map(p => ({ id: p.id, name: p.name }))}
+                    selected={edition?.packs || []}
+                    onSave={(ids) => patchArray('packs', ids)}
+                    isSaving={savingSection === 'packs'}
+                  />
+                  <MultiSelectPicker
+                    title="Inserts"
+                    items={inserts.map(i => ({ id: i.id, name: i.name }))}
+                    selected={edition?.inserts || []}
+                    onSave={(ids) => patchArray('inserts', ids)}
+                    isSaving={savingSection === 'inserts'}
+                  />
+                  <MultiSelectPicker
+                    title="Related Products"
+                    items={products.map(p => ({ id: p.id, name: p.name }))}
+                    selected={edition?.products || []}
+                    onSave={(ids) => patchArray('products', ids)}
+                    isSaving={savingSection === 'products'}
+                  />
+                </div>
               </TabsContent>
             )}
           </Tabs>

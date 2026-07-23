@@ -12,6 +12,7 @@ import {
   editionsTable,
   usersTable,
   generationJobsTable,
+  plansTable,
 } from "@workspace/db";
 import { count, sql } from "drizzle-orm";
 import { requireStaff } from "../lib/auth-middleware";
@@ -30,12 +31,13 @@ router.get("/admin/stats", requireStaff, async (req, res): Promise<void> => {
     return { total: live + draft, live, draft };
   }
 
-  const [themes, packs, inserts, products, editions] = await Promise.all([
+  const [themes, packs, inserts, products, editions, planCount] = await Promise.all([
     countByStatus(themesTable),
     countByStatus(stickerPacksTable),
     countByStatus(insertsTable),
     countByStatus(relatedProductsTable),
     countByStatus(editionsTable),
+    db.select({ cnt: count() }).from(plansTable).then(r => Number(r[0]?.cnt ?? 0)),
   ]);
 
   const userRows = await db
@@ -62,10 +64,11 @@ router.get("/admin/stats", requireStaff, async (req, res): Promise<void> => {
 
   res.json({
     themes,
-    packs,
+    stickerPacks: packs,
     inserts,
     products,
     editions,
+    plans: { total: planCount, live: planCount, draft: 0 },
     users: { total: totalUsers, staff, owner },
     generations: { total: totalGen, thisMonth, complete: completeGen, failed: failedGen },
   });

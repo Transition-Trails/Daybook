@@ -1,4 +1,4 @@
-import { useListProducts, usePublishProduct, useUnpublishProduct, getListProductsQueryKey } from '@workspace/api-client-react';
+import { useListProducts, useUpdateProduct, getListProductsQueryKey, type RelatedProduct, type CatalogStatus } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Card } from '@/components/ui/card';
@@ -13,12 +13,11 @@ export default function ProductsList() {
   const { toast } = useToast();
   const { data: products, isLoading } = useListProducts();
   
-  const publish = usePublishProduct();
-  const unpublish = useUnpublishProduct();
+  const updateProduct = useUpdateProduct();
 
-  const togglePublish = (id: number, status: string) => {
-    const action = status === 'live' ? unpublish : publish;
-    action.mutate({ id }, {
+  const togglePublish = (id: string, status: string) => {
+    const newStatus = status === 'live' ? 'draft' : 'live';
+    updateProduct.mutate({ id, data: { status: newStatus as CatalogStatus } }, {
       onSuccess: () => {
         toast({ title: 'Status updated' });
         queryClient.invalidateQueries({ queryKey: getListProductsQueryKey() });
@@ -48,7 +47,7 @@ export default function ProductsList() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-[300px]">Product</TableHead>
-              <TableHead>Type</TableHead>
+              <TableHead>Kind</TableHead>
               <TableHead>Price</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -57,29 +56,25 @@ export default function ProductsList() {
           <TableBody>
             {isLoading ? (
               <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
-            ) : products?.length === 0 ? (
+            ) : (products as RelatedProduct[])?.length === 0 ? (
               <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No products found.</TableCell></TableRow>
             ) : (
-              products?.map(product => (
+              (products as RelatedProduct[])?.map(product => (
                 <TableRow key={product.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      {product.previewImageUrl ? (
-                        <img src={product.previewImageUrl} alt={product.name} className="w-10 h-10 rounded-md object-cover border bg-muted" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center border"><Package2 className="w-5 h-5 text-muted-foreground" /></div>
-                      )}
+                      <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center border"><Package2 className="w-5 h-5 text-muted-foreground" /></div>
                       <div>
                         <div className="font-medium text-foreground">{product.name}</div>
-                        <div className="text-xs text-muted-foreground">{product.slug}</div>
+                        <div className="text-xs text-muted-foreground font-mono">{product.id}</div>
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="uppercase tracking-wider text-[10px]">{product.type}</Badge>
+                    <Badge variant="outline" className="uppercase tracking-wider text-[10px]">{product.kind}</Badge>
                   </TableCell>
                   <TableCell>
-                    <div className="font-mono text-sm">{product.price ? `$${(product.price / 100).toFixed(2)}` : 'Free'}</div>
+                    <div className="font-mono text-sm">{product.price ? `$${product.price.toFixed(2)}` : 'Free'}</div>
                   </TableCell>
                   <TableCell>
                     <Badge variant={product.status === 'live' ? 'default' : 'secondary'} className={product.status === 'live' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : ''}>

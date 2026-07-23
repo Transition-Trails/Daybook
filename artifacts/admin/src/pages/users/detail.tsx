@@ -1,5 +1,5 @@
-import { useRoute, useParams, Link } from 'wouter';
-import { useGetUser, useGetUserPurchases, getGetUserQueryKey, getGetUserPurchasesQueryKey } from '@workspace/api-client-react';
+import { useParams, Link } from 'wouter';
+import { useGetUser, getGetUserQueryKey } from '@workspace/api-client-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,16 +7,22 @@ import { Loader2, ArrowLeft } from 'lucide-react';
 
 export default function UserDetail() {
   const params = useParams();
-  const id = parseInt(params.id!);
+  const id = params.id!;
 
-  const { data: user, isLoading: isUserLoading } = useGetUser(id, { query: { enabled: !!id, queryKey: getGetUserQueryKey(id) } });
-  const { data: purchases, isLoading: isPurchasesLoading } = useGetUserPurchases(id, { query: { enabled: !!id, queryKey: getGetUserPurchasesQueryKey(id) } });
+  const { data: userData, isLoading } = useGetUser(id as any, { query: { enabled: !!id, queryKey: getGetUserQueryKey(id as any) } });
+  const user = userData as any;
 
-  if (isUserLoading || isPurchasesLoading) {
+  if (isLoading) {
     return <div className="flex h-64 items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
   }
 
   if (!user) return <div className="text-center py-12">User not found.</div>;
+
+  const owned: string[] = user.owned || [];
+  const ownedEditions = owned.filter((id: string) => id.startsWith('e-') || id.startsWith('e'));
+  const ownedThemes = owned.filter((id: string) => id.startsWith('t-') || id.startsWith('t'));
+  const ownedPacks = owned.filter((id: string) => id.startsWith('p-') || id.startsWith('p'));
+  const ownedInserts = owned.filter((id: string) => id.startsWith('i-') || id.startsWith('i'));
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
@@ -54,8 +60,16 @@ export default function UserDetail() {
               <span className="font-mono">{new Date(user.createdAt).toLocaleDateString()}</span>
             </div>
             <div className="flex justify-between border-b pb-2">
-              <span className="text-muted-foreground">Plan ID</span>
-              <span className="font-mono">{user.planId || 'None'}</span>
+              <span className="text-muted-foreground">Plan</span>
+              <span className="font-mono capitalize">{user.plan || 'Free'}</span>
+            </div>
+            <div className="flex justify-between border-b pb-2">
+              <span className="text-muted-foreground">AI Enabled</span>
+              <Badge variant={user.aiEnabled ? 'default' : 'secondary'}>{user.aiEnabled ? 'Yes' : 'No'}</Badge>
+            </div>
+            <div className="flex justify-between pb-2">
+              <span className="text-muted-foreground">AI Provider</span>
+              <span className="font-mono capitalize">{user.aiProvider || 'claude'}</span>
             </div>
           </CardContent>
         </Card>
@@ -66,21 +80,32 @@ export default function UserDetail() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
+              <span className="text-sm">All Owned</span>
+              <Badge>{owned.length}</Badge>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
               <span className="text-sm">Editions</span>
-              <Badge>{purchases?.editionIds.length || 0}</Badge>
+              <Badge>{ownedEditions.length}</Badge>
             </div>
             <div className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
               <span className="text-sm">Themes</span>
-              <Badge>{purchases?.themeIds.length || 0}</Badge>
+              <Badge>{ownedThemes.length}</Badge>
             </div>
             <div className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
               <span className="text-sm">Packs</span>
-              <Badge>{purchases?.stickerPackIds.length || 0}</Badge>
+              <Badge>{ownedPacks.length}</Badge>
             </div>
             <div className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
               <span className="text-sm">Inserts</span>
-              <Badge>{purchases?.insertIds.length || 0}</Badge>
+              <Badge>{ownedInserts.length}</Badge>
             </div>
+            {owned.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1">
+                {owned.map((itemId: string) => (
+                  <Badge key={itemId} variant="outline" className="text-xs font-mono">{itemId}</Badge>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

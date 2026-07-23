@@ -16,8 +16,8 @@ export default function UsersList() {
   const { data: users, isLoading } = useListUsers();
   const updateUser = useUpdateUser();
 
-  const handleRoleChange = (id: number, role: 'user' | 'staff' | 'owner') => {
-    updateUser.mutate({ id, data: { role } }, {
+  const handleRoleChange = (id: string, role: 'user' | 'staff' | 'owner') => {
+    updateUser.mutate({ id: id as any, data: { role } }, {
       onSuccess: () => {
         toast({ title: 'Role updated' });
         queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
@@ -40,17 +40,18 @@ export default function UsersList() {
             <TableRow>
               <TableHead>User</TableHead>
               <TableHead>Role</TableHead>
+              <TableHead>Plan</TableHead>
               <TableHead>Joined</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
-            ) : users?.length === 0 ? (
-              <TableRow><TableCell colSpan={4} className="h-24 text-center text-muted-foreground">No users found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+            ) : (users as any[])?.length === 0 ? (
+              <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No users found.</TableCell></TableRow>
             ) : (
-              users?.map(user => (
+              (users as any[])?.map(user => (
                 <TableRow key={user.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
@@ -80,12 +81,18 @@ export default function UsersList() {
                     </Select>
                   </TableCell>
                   <TableCell>
-                    <span className="text-sm text-muted-foreground">{format(new Date(user.createdAt), 'MMM d, yyyy')}</span>
+                    {user.plan ? <Badge variant="secondary" className="capitalize">{user.plan}</Badge> : <span className="text-muted-foreground text-sm">Free</span>}
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm text-muted-foreground">
+                      {user.createdAt ? format(new Date(user.createdAt), 'MMM d, yyyy') : '—'}
+                    </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" asChild>
+                    <Button variant="ghost" size="sm" asChild>
                       <Link href={`/users/${user.id}`}>
-                        <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                        <ExternalLink className="w-3 h-3 mr-1" />
+                        View
                       </Link>
                     </Button>
                   </TableCell>

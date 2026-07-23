@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useLocation, useParams } from 'wouter';
-import { useGetProduct, useCreateProduct, useUpdateProduct, useDeleteProduct, getListProductsQueryKey, getGetProductQueryKey } from '@workspace/api-client-react';
+import {
+  useGetProduct, useCreateProduct, useUpdateProduct, useDeleteProduct,
+  useListEditions, getListProductsQueryKey, getGetProductQueryKey,
+  type RelatedProductInput, type RelatedProductUpdate, type Edition
+} from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,22 +12,21 @@ import { z } from 'zod';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, ArrowLeft, Trash2 } from 'lucide-react';
 import { Link } from 'wouter';
 
 const productSchema = z.object({
+  id: z.string().min(1, 'ID is required'),
   name: z.string().min(1, 'Name is required'),
-  slug: z.string().optional(),
-  description: z.string().optional(),
-  type: z.enum(['notes-only', 'to-do', 'tracker', 'mixed']),
-  price: z.coerce.number().min(0).optional(),
-  previewImageUrl: z.string().url().optional().or(z.literal('')),
+  kind: z.string().min(1, 'Kind is required'),
+  price: z.coerce.number().min(0).default(0),
+  matches: z.string().default(''),
 });
+
+type ProductFormValues = z.infer<typeof productSchema>;
 
 export default function ProductDetail() {
   const params = useParams();
@@ -32,50 +35,50 @@ export default function ProductDetail() {
   const queryClient = useQueryClient();
   
   const isNew = !params.id || params.id === 'new';
-  const id = isNew ? 0 : parseInt(params.id!);
+  const id = isNew ? '' : params.id!;
 
   const { data: product, isLoading } = useGetProduct(id, { query: { enabled: !isNew, queryKey: getGetProductQueryKey(id) } });
+  const { data: editions } = useListEditions();
   
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
 
-  const form = useForm<z.infer<typeof productSchema>>({
+  const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
-    defaultValues: { name: '', slug: '', description: '', type: 'notes-only', price: 0, previewImageUrl: '' }
+    defaultValues: { id: '', name: '', kind: '', price: 0, matches: '' }
   });
 
-  const initializedForId = useRef<number | null>(null);
+  const initializedForId = useRef<string | null>(null);
 
   useEffect(() => {
     if (product && initializedForId.current !== id) {
       initializedForId.current = id;
       form.reset({
+        id: product.id,
         name: product.name,
-        slug: product.slug,
-        description: product.description || '',
-        type: product.type,
-        price: product.price ? product.price / 100 : 0,
-        previewImageUrl: product.previewImageUrl || ''
+        kind: product.kind || '',
+        price: product.price || 0,
+        matches: (product.matches || []).join(', '),
       });
     }
   }, [product, id, form]);
 
-  const onSubmit = (data: z.infer<typeof productSchema>) => {
-    const payload = {
-      ...data,
-      price: data.price ? Math.round(data.price * 100) : 0,
-    };
+  const onSubmit = (data: ProductFormValues) => {
+    const matches = data.matches ? data.matches.split(',').map(t => t.trim()).filter(Boolean) : [];
 
     if (isNew) {
+      const payload: RelatedProductInput = { id: data.id, name: data.name, kind: data.kind, price: data.price, matches };
       createProduct.mutate({ data: payload }, {
         onSuccess: (res) => {
           toast({ title: 'Product created' });
           queryClient.invalidateQueries({ queryKey: getListProductsQueryKey() });
           setLocation(`/catalog/products/${res.id}`);
-        }
+        },
+        onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
       });
     } else {
+      const payload: RelatedProductUpdate = { name: data.name, kind: data.kind, price: data.price, matches };
       updateProduct.mutate({ id, data: payload }, {
         onSuccess: () => {
           toast({ title: 'Product updated' });
@@ -103,6 +106,7 @@ export default function ProductDetail() {
   }
 
   const isSaving = createProduct.isPending || updateProduct.isPending;
+  const editionList = (editions || []) as Edition[];
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -113,6 +117,7 @@ export default function ProductDetail() {
           </Button>
           <div>
             <h1 className="text-2xl font-display font-bold tracking-tight">{isNew ? 'New Product' : product?.name}</h1>
+            {!isNew && <p className="text-xs text-muted-foreground font-mono">{id}</p>}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -131,68 +136,49 @@ export default function ProductDetail() {
       <Form {...form}>
         <form className="space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Product Details</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Product Details</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="name" render={({ field }) => (
+              {isNew && (
+                <FormField control={form.control} name="id" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
+                    <FormLabel>ID <span className="text-xs text-muted-foreground">(e.g. r-notes-companion)</span></FormLabel>
+                    <FormControl><Input {...field} placeholder="r-my-product" className="font-mono" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
-                <FormField control={form.control} name="slug" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Slug</FormLabel>
-                    <FormControl><Input {...field} placeholder="auto-generated" /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
-              
-              <FormField control={form.control} name="description" render={({ field }) => (
+              )}
+              <FormField control={form.control} name="name" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl><Textarea className="resize-none h-24" {...field} /></FormControl>
+                  <FormLabel>Name</FormLabel>
+                  <FormControl><Input {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
-              
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="type" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Type</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="notes-only">Notes Only</SelectItem>
-                        <SelectItem value="to-do">To-Do</SelectItem>
-                        <SelectItem value="tracker">Tracker</SelectItem>
-                        <SelectItem value="mixed">Mixed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                
-                <FormField control={form.control} name="price" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Price (USD)</FormLabel>
-                    <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
-
-              <FormField control={form.control} name="previewImageUrl" render={({ field }) => (
+              <FormField control={form.control} name="kind" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Preview Image URL</FormLabel>
-                  <FormControl><Input {...field} /></FormControl>
-                  {field.value && <img src={field.value} alt="Preview" className="w-48 h-48 object-cover rounded-md mt-2 border bg-muted" />}
+                  <FormLabel>Kind</FormLabel>
+                  <FormControl><Input {...field} placeholder="e.g. Notebook · notes" /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="price" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Price (USD)</FormLabel>
+                  <FormControl><Input type="number" step="0.01" min="0" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="matches" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Matches (Edition IDs)</FormLabel>
+                  <FormControl><Input {...field} placeholder="e-student-2024, e-pro" /></FormControl>
+                  <FormDescription>
+                    Comma-separated edition IDs this product works best with.
+                    {editionList.length > 0 && (
+                      <span className="block mt-1 text-xs">Available: {editionList.map(e => e.id).join(', ')}</span>
+                    )}
+                  </FormDescription>
+                  <FormMessage />
                 </FormItem>
               )} />
             </CardContent>

@@ -20,7 +20,7 @@ export default function AiSettingsPage() {
   const chat = useAiChat();
 
   const [enabled, setEnabled] = useState(false);
-  const [provider, setProvider] = useState<'claude'|'chatgpt'|'gemini'>('claude');
+  const [provider, setProvider] = useState<'claude' | 'chatgpt' | 'gemini'>('claude');
 
   const [prompt, setPrompt] = useState('');
   const [chatResponse, setChatResponse] = useState('');
@@ -28,7 +28,7 @@ export default function AiSettingsPage() {
   useEffect(() => {
     if (settings) {
       setEnabled(settings.enabled);
-      setProvider(settings.provider);
+      setProvider(settings.provider as any);
     }
   }, [settings]);
 
@@ -37,6 +37,9 @@ export default function AiSettingsPage() {
       onSuccess: () => {
         toast({ title: 'Settings saved' });
         queryClient.invalidateQueries({ queryKey: getGetAiSettingsQueryKey() });
+      },
+      onError: (err: any) => {
+        toast({ title: 'Save failed', description: err.message, variant: 'destructive' });
       }
     });
   };
@@ -50,10 +53,10 @@ export default function AiSettingsPage() {
       } 
     }, {
       onSuccess: (res) => {
-        setChatResponse(res.content);
+        setChatResponse(res.text);
         setPrompt('');
       },
-      onError: (err) => {
+      onError: (err: any) => {
         toast({ title: 'Chat failed', description: err.message, variant: 'destructive' });
       }
     });

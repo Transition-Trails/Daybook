@@ -1,4 +1,4 @@
-import { useListEditions, usePublishEdition, useUnpublishEdition, useAiDraftEdition, getListEditionsQueryKey } from '@workspace/api-client-react';
+import { useListEditions, useUpdateEdition, useAiChat, getListEditionsQueryKey, type Edition, type CatalogStatus } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Card } from '@/components/ui/card';
@@ -13,22 +13,33 @@ import { Loader2, Plus, Sparkles, Globe, EyeOff, BookOpen } from 'lucide-react';
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
+const EDITION_SYSTEM_PROMPT = `You are a product designer for a digital planner app. When given a concept, respond with a JSON object describing a planner edition. Example:
+{
+  "id": "e-student-2024",
+  "name": "Student Planner 2024",
+  "tier": "basic",
+  "sections": ["weekly", "daily", "notes", "habit-tracker"],
+  "priceLow": 0,
+  "priceHigh": 9.99
+}
+Tiers: "basic" = PDF-only, "advanced" = full live item. Respond ONLY with the JSON object.`;
+
 export default function EditionsList() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: editions, isLoading } = useListEditions();
   
-  const publish = usePublishEdition();
-  const unpublish = useUnpublishEdition();
-  const aiDraft = useAiDraftEdition();
+  const updateEdition = useUpdateEdition();
+  const aiChat = useAiChat();
 
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
-  const [aiTier, setAiTier] = useState<'basic'|'advanced'>('basic');
+  const [aiTier, setAiTier] = useState<'basic' | 'advanced'>('basic');
+  const [aiResult, setAiResult] = useState('');
 
-  const togglePublish = (id: number, status: string) => {
-    const action = status === 'live' ? unpublish : publish;
-    action.mutate({ id }, {
+  const togglePublish = (id: string, status: string) => {
+    const newStatus = status === 'live' ? 'draft' : 'live';
+    updateEdition.mutate({ id, data: { status: newStatus as CatalogStatus } }, {
       onSuccess: () => {
         toast({ title: 'Status updated' });
         queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
@@ -37,16 +48,12 @@ export default function EditionsList() {
   };
 
   const handleAiDraft = () => {
-    aiDraft.mutate({ data: { concept: aiPrompt, tier: aiTier } }, {
-      onSuccess: (result) => {
-        toast({ title: 'Edition Generated', description: `Drafted: ${result.name}` });
-        setIsAiModalOpen(false);
-        setAiPrompt('');
-        queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
-      },
-      onError: (err) => {
-        toast({ title: 'Generation Failed', description: err.message, variant: 'destructive' });
-      }
+    if (!aiPrompt.trim()) return;
+    setAiResult('');
+    const prompt = `${aiPrompt} (tier: ${aiTier})`;
+    aiChat.mutate({ data: { systemPrompt: EDITION_SYSTEM_PROMPT, messages: [{ role: 'user', content: prompt }] } }, {
+      onSuccess: (res) => setAiResult(res.text),
+      onError: (err) => toast({ title: 'Generation Failed', description: (err as any).message, variant: 'destructive' })
     });
   };
 
@@ -58,7 +65,7 @@ export default function EditionsList() {
           <p className="text-muted-foreground mt-1">Manage planner editions and their assets.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Dialog open={isAiModalOpen} onOpenChange={setIsAiModalOpen}>
+          <Dialog open={isAiModalOpen} onOpenChange={(open) => { setIsAiModalOpen(open); if (!open) { setAiResult(''); setAiPrompt(''); } }}>
             <DialogTrigger asChild>
               <Button variant="secondary" className="bg-indigo-100 text-indigo-900 hover:bg-indigo-200 dark:bg-indigo-900 dark:text-indigo-100">
                 <Sparkles className="w-4 h-4 mr-2" />
@@ -82,7 +89,7 @@ export default function EditionsList() {
                 </div>
                 <div>
                   <Label>Tier</Label>
-                  <Select value={aiTier} onValueChange={(v: 'basic'|'advanced') => setAiTier(v)}>
+                  <Select value={aiTier} onValueChange={(v: 'basic' | 'advanced') => setAiTier(v)}>
                     <SelectTrigger className="mt-2"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="basic">Basic (PDF only)</SelectItem>
@@ -90,10 +97,18 @@ export default function EditionsList() {
                     </SelectContent>
                   </Select>
                 </div>
+                {aiResult && (
+                  <div className="bg-muted/50 rounded-md p-3 font-mono text-xs whitespace-pre-wrap border max-h-48 overflow-auto">{aiResult}</div>
+                )}
               </div>
               <DialogFooter>
-                <Button disabled={aiDraft.isPending} onClick={handleAiDraft}>
-                  {aiDraft.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {aiResult && (
+                  <Button variant="outline" asChild onClick={() => setIsAiModalOpen(false)}>
+                    <Link href="/editions/new">Use to Create</Link>
+                  </Button>
+                )}
+                <Button disabled={aiChat.isPending || !aiPrompt.trim()} onClick={handleAiDraft}>
+                  {aiChat.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   Generate
                 </Button>
               </DialogFooter>
@@ -115,7 +130,7 @@ export default function EditionsList() {
             <TableRow>
               <TableHead className="w-[300px]">Edition</TableHead>
               <TableHead>Tier</TableHead>
-              <TableHead>Prices</TableHead>
+              <TableHead>Price Range</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -123,21 +138,17 @@ export default function EditionsList() {
           <TableBody>
             {isLoading ? (
               <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
-            ) : editions?.length === 0 ? (
+            ) : (editions as Edition[])?.length === 0 ? (
               <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No editions found.</TableCell></TableRow>
             ) : (
-              editions?.map(edition => (
+              (editions as Edition[])?.map(edition => (
                 <TableRow key={edition.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      {edition.previewImageUrl ? (
-                        <img src={edition.previewImageUrl} alt={edition.name} className="w-10 h-10 rounded-md object-cover border bg-muted" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center border"><BookOpen className="w-5 h-5 text-muted-foreground" /></div>
-                      )}
+                      <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center border"><BookOpen className="w-5 h-5 text-muted-foreground" /></div>
                       <div>
                         <div className="font-medium text-foreground">{edition.name}</div>
-                        <div className="text-xs text-muted-foreground">{edition.slug}</div>
+                        <div className="text-xs text-muted-foreground font-mono">{edition.id}</div>
                       </div>
                     </div>
                   </TableCell>
@@ -147,11 +158,11 @@ export default function EditionsList() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-col text-xs text-muted-foreground">
-                      {edition.oneTimePrice ? <span>One-time: ${(edition.oneTimePrice/100).toFixed(2)}</span> : null}
-                      {edition.yearlyPrice ? <span>Yearly: ${(edition.yearlyPrice/100).toFixed(2)}</span> : null}
-                      {edition.lifetimePrice ? <span>Lifetime: ${(edition.lifetimePrice/100).toFixed(2)}</span> : null}
-                      {!edition.oneTimePrice && !edition.yearlyPrice && !edition.lifetimePrice && <span>Free</span>}
+                    <div className="text-xs text-muted-foreground font-mono">
+                      {edition.priceLow != null && edition.priceHigh != null
+                        ? `$${edition.priceLow.toFixed(2)}–$${edition.priceHigh.toFixed(2)}`
+                        : edition.priceLow != null ? `$${edition.priceLow.toFixed(2)}`
+                        : 'Free'}
                     </div>
                   </TableCell>
                   <TableCell>

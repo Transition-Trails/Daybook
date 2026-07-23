@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useLocation, useParams } from 'wouter';
-import { useGetInsert, useCreateInsert, useUpdateInsert, useDeleteInsert, getListInsertsQueryKey, getGetInsertQueryKey } from '@workspace/api-client-react';
+import {
+  useGetInsert, useCreateInsert, useUpdateInsert, useDeleteInsert,
+  useListEditions, getListInsertsQueryKey, getGetInsertQueryKey,
+  type InsertInput, type InsertUpdate, type Edition
+} from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,8 +12,6 @@ import { z } from 'zod';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
@@ -17,13 +19,13 @@ import { Loader2, ArrowLeft, Trash2 } from 'lucide-react';
 import { Link } from 'wouter';
 
 const insertSchema = z.object({
+  id: z.string().min(1, 'ID is required'),
   name: z.string().min(1, 'Name is required'),
-  slug: z.string().optional(),
-  description: z.string().optional(),
-  category: z.string().optional(),
-  isTransparent: z.boolean().default(false),
-  imageUrl: z.string().url().optional().or(z.literal('')),
+  collection: z.string().optional(),
+  planners: z.string().default('all'),
 });
+
+type InsertFormValues = z.infer<typeof insertSchema>;
 
 export default function InsertDetail() {
   const params = useParams();
@@ -32,46 +34,53 @@ export default function InsertDetail() {
   const queryClient = useQueryClient();
   
   const isNew = !params.id || params.id === 'new';
-  const id = isNew ? 0 : parseInt(params.id!);
+  const id = isNew ? '' : params.id!;
 
   const { data: insert, isLoading } = useGetInsert(id, { query: { enabled: !isNew, queryKey: getGetInsertQueryKey(id) } });
+  const { data: editions } = useListEditions();
   
   const createInsert = useCreateInsert();
   const updateInsert = useUpdateInsert();
   const deleteInsert = useDeleteInsert();
 
-  const form = useForm<z.infer<typeof insertSchema>>({
+  const form = useForm<InsertFormValues>({
     resolver: zodResolver(insertSchema),
-    defaultValues: { name: '', slug: '', description: '', category: '', isTransparent: false, imageUrl: '' }
+    defaultValues: { id: '', name: '', collection: '', planners: 'all' }
   });
 
-  const initializedForId = useRef<number | null>(null);
+  const initializedForId = useRef<string | null>(null);
 
   useEffect(() => {
     if (insert && initializedForId.current !== id) {
       initializedForId.current = id;
       form.reset({
+        id: insert.id,
         name: insert.name,
-        slug: insert.slug,
-        description: insert.description || '',
-        category: insert.category || '',
-        isTransparent: insert.isTransparent || false,
-        imageUrl: insert.imageUrl || ''
+        collection: insert.collection || '',
+        planners: (insert.planners || ['all']).join(', '),
       });
     }
   }, [insert, id, form]);
 
-  const onSubmit = (data: z.infer<typeof insertSchema>) => {
+  const parsePlanners = (val: string): string[] =>
+    val.toLowerCase().trim() === 'all' ? ['all'] : val.split(',').map(t => t.trim()).filter(Boolean);
+
+  const onSubmit = (data: InsertFormValues) => {
+    const planners = parsePlanners(data.planners || 'all');
+
     if (isNew) {
-      createInsert.mutate({ data }, {
+      const payload: InsertInput = { id: data.id, name: data.name, collection: data.collection, planners };
+      createInsert.mutate({ data: payload }, {
         onSuccess: (res) => {
           toast({ title: 'Insert created' });
           queryClient.invalidateQueries({ queryKey: getListInsertsQueryKey() });
           setLocation(`/catalog/inserts/${res.id}`);
-        }
+        },
+        onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
       });
     } else {
-      updateInsert.mutate({ id, data }, {
+      const payload: InsertUpdate = { name: data.name, collection: data.collection, planners };
+      updateInsert.mutate({ id, data: payload }, {
         onSuccess: () => {
           toast({ title: 'Insert updated' });
           queryClient.invalidateQueries({ queryKey: getGetInsertQueryKey(id) });
@@ -98,6 +107,7 @@ export default function InsertDetail() {
   }
 
   const isSaving = createInsert.isPending || updateInsert.isPending;
+  const editionList = (editions || []) as Edition[];
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -108,6 +118,7 @@ export default function InsertDetail() {
           </Button>
           <div>
             <h1 className="text-2xl font-display font-bold tracking-tight">{isNew ? 'New Insert' : insert?.name}</h1>
+            {!isNew && <p className="text-xs text-muted-foreground font-mono">{id}</p>}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -126,60 +137,42 @@ export default function InsertDetail() {
       <Form {...form}>
         <form className="space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Insert Details</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Insert Details</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="name" render={({ field }) => (
+              {isNew && (
+                <FormField control={form.control} name="id" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
+                    <FormLabel>ID <span className="text-xs text-muted-foreground">(e.g. i-habit-tracker)</span></FormLabel>
+                    <FormControl><Input {...field} placeholder="i-my-insert" className="font-mono" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
-                <FormField control={form.control} name="slug" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Slug</FormLabel>
-                    <FormControl><Input {...field} placeholder="auto-generated" /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
-              <FormField control={form.control} name="description" render={({ field }) => (
+              )}
+              <FormField control={form.control} name="name" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl><Textarea className="resize-none h-24" {...field} /></FormControl>
+                  <FormLabel>Name</FormLabel>
+                  <FormControl><Input {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="category" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Category</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
-              
-              <FormField control={form.control} name="isTransparent" render={({ field }) => (
-                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                  <FormControl>
-                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                  <div className="space-y-1 leading-none">
-                    <FormLabel>Transparent Background</FormLabel>
-                    <FormDescription>Check this if the insert is a transparent PNG meant to be overlaid.</FormDescription>
-                  </div>
+              <FormField control={form.control} name="collection" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Collection</FormLabel>
+                  <FormControl><Input {...field} placeholder="e.g. productivity, wellness" /></FormControl>
+                  <FormMessage />
                 </FormItem>
               )} />
-
-              <FormField control={form.control} name="imageUrl" render={({ field }) => (
+              <FormField control={form.control} name="planners" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Image URL</FormLabel>
-                  <FormControl><Input {...field} /></FormControl>
-                  {field.value && <img src={field.value} alt="Preview" className="w-full max-w-sm h-auto rounded-md mt-2 border bg-muted" />}
+                  <FormLabel>Planners</FormLabel>
+                  <FormControl><Input {...field} placeholder="all" /></FormControl>
+                  <FormDescription>
+                    Enter "all" for all editions, or comma-separated edition IDs.
+                    {editionList.length > 0 && (
+                      <span className="block mt-1 text-xs">Available: {editionList.map(e => e.id).join(', ')}</span>
+                    )}
+                  </FormDescription>
+                  <FormMessage />
                 </FormItem>
               )} />
             </CardContent>

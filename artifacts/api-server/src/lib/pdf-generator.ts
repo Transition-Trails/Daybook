@@ -409,17 +409,17 @@ export async function buildPdf(
     addGoToAnnotation(pdfDoc, sp, tr, [x, y - 2, x + w, y - 2 + h]);
   }
 
-  // COVER → HOME
+  // COVER -> HOME
   {
     const sp = getPage("cover");
     if (sp) {
       sp.drawText("Daybook", { x: MARGIN, y: pageHeight / 2 + 40, size: 32, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
       sp.drawText("Your planner, your way.", { x: MARGIN, y: pageHeight / 2, size: 14, font, color: rgb(ink.r, ink.g, ink.b) });
     }
-    addLink("cover", "home", "→ Get started", MARGIN, pageHeight / 2 - 40, 120, 20);
+    addLink("cover", "home", "-> Get started", MARGIN, pageHeight / 2 - 40, 120, 20);
   }
 
-  // HOME → year, todo, notes, each ns{i}
+  // HOME -> year, todo, notes, each ns{i}
   {
     const sp = getPage("home");
     if (sp) {
@@ -436,7 +436,7 @@ export async function buildPdf(
     }
   }
 
-  // YEAR → each mdiv{i}
+  // YEAR -> each mdiv{i}
   {
     const sp = getPage("year");
     if (sp) {
@@ -453,7 +453,7 @@ export async function buildPdf(
     }
   }
 
-  // MONTH DIVIDER → MONTH CALENDAR; MONTH CALENDAR day cells → dailies
+  // MONTH DIVIDER -> MONTH CALENDAR; MONTH CALENDAR day cells -> dailies
   for (let i = 0; i < map.monthDividers.length; i++) {
     const mdivId = map.monthDividers[i];
     const mId = map.monthCalendars[i];
@@ -465,9 +465,9 @@ export async function buildPdf(
       mdivPage.drawText(monthName, { x: MARGIN, y: pageHeight / 2, size: 36, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
       mdivPage.drawText(String(year), { x: MARGIN, y: pageHeight / 2 - 44, size: 18, font, color: rgb(ink.r, ink.g, ink.b) });
     }
-    addLink(mdivId, mId, "→ Month view", pageWidth - 120, MARGIN, 100, 18);
+    addLink(mdivId, mId, "-> Month view", pageWidth - 120, MARGIN, 100, 18);
 
-    // Month calendar → each day
+    // Month calendar -> each day
     const mPage = getPage(mId);
     if (mPage) {
       mPage.drawText(`${monthName} ${year}`, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
@@ -483,12 +483,12 @@ export async function buildPdf(
       addLink(mId, dayId, String(d), cx, cy, 60, 18);
     }
 
-    // Month calendar → previous mdiv (tab rail)
-    if (i > 0) addLink(mId, map.monthDividers[i - 1], "◀ Prev", MARGIN, MARGIN, 60, 18);
-    if (i < map.monthDividers.length - 1) addLink(mId, map.monthDividers[i + 1], "Next ▶", pageWidth - 80, MARGIN, 60, 18);
+    // Month calendar -> previous mdiv (tab rail)
+    if (i > 0) addLink(mId, map.monthDividers[i - 1], "<< Prev", MARGIN, MARGIN, 60, 18);
+    if (i < map.monthDividers.length - 1) addLink(mId, map.monthDividers[i + 1], "Next >>", pageWidth - 80, MARGIN, 60, 18);
   }
 
-  // Tab rail → each m{i} (on daily/weekly pages if tabPos !== "none")
+  // Tab rail -> each m{i} (on daily/weekly pages if tabPos !== "none")
   if (tabPos !== "none") {
     const tabPages = [...map.weeklies, ...map.dailies, "todo", "notes", ...map.sectionDividers, ...map.notePaper];
     for (const sourceId of tabPages) {
@@ -504,7 +504,7 @@ export async function buildPdf(
     // tabPos === "none": ONLY home tab
     const tabPages = [...map.weeklies, ...map.dailies, "todo", "notes", ...map.sectionDividers, ...map.notePaper];
     for (const sourceId of tabPages) {
-      addLink(sourceId, "home", "⌂", MARGIN, pageHeight - 50, 24, 18);
+      addLink(sourceId, "home", "Home", MARGIN, pageHeight - 50, 24, 18);
     }
   }
 
@@ -542,12 +542,12 @@ export async function buildPdf(
             MARGIN + d * 70, pageHeight - 120, MARGIN + d * 70 + 65, pageHeight - 102,
           ];
           if (calMode === "google") {
-            addUriAnnotation(pdfDoc, lp, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "＋Cal", font, accent);
+            addUriAnnotation(pdfDoc, lp, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Cal", font, accent);
           } else {
             // apple: .ics data URI (all-day event for weekly day cells)
             const startDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
             const endDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, output.eventMins ?? 60, 0);
-            addUriAnnotation(pdfDoc, lp, icsDataUri(startDt, endDt, `Week ${weekNum} — Day ${d + 1}`), calRect, "＋Cal", font, accent);
+            addUriAnnotation(pdfDoc, lp, icsDataUri(startDt, endDt, `Week ${weekNum} — Day ${d + 1}`), calRect, "+Cal", font, accent);
           }
         }
       }
@@ -566,11 +566,11 @@ export async function buildPdf(
     // AI block — clickable link to user assistant (spec: output.aiInPdf = true)
     if (output.aiInPdf) {
       const aiUrl = `${process.env.APP_URL ?? "https://daybook.app"}/assistant?context=weekly&page=${weekId}`;
-      addUriAnnotation(pdfDoc, wPage, aiUrl, [MARGIN, MARGIN + 22, MARGIN + 130, MARGIN + 40], "✦ Ask AI about this week", font, accent);
+      addUriAnnotation(pdfDoc, wPage, aiUrl, [MARGIN, MARGIN + 22, MARGIN + 130, MARGIN + 40], "* Ask AI about this week", font, accent);
     }
   }
 
-  // DAILIES → month + prev/next day
+  // DAILIES -> month + prev/next day
   const dailyList = map.dailies;
   for (let i = 0; i < dailyList.length; i++) {
     const dayId = dailyList[i];
@@ -587,7 +587,7 @@ export async function buildPdf(
       x: MARGIN, y: pageHeight - 50, size: 14, font: fontBold, color: rgb(ink.r, ink.g, ink.b),
     });
 
-    // → month calendar
+    // -> month calendar
     const monthIdx = (() => {
       for (let j = 0; j < monthCount; j++) {
         const m = addMonths(startYear, startMonth, j);
@@ -598,8 +598,8 @@ export async function buildPdf(
     addLink(dayId, map.monthCalendars[monthIdx], "Month", MARGIN, MARGIN, 60, 18);
 
     // prev/next day
-    if (i > 0) addLink(dayId, dailyList[i - 1], "◀ Prev", MARGIN + 70, MARGIN, 60, 18);
-    if (i < dailyList.length - 1) addLink(dayId, dailyList[i + 1], "Next ▶", MARGIN + 140, MARGIN, 60, 18);
+    if (i > 0) addLink(dayId, dailyList[i - 1], "<< Prev", MARGIN + 70, MARGIN, 60, 18);
+    if (i < dailyList.length - 1) addLink(dayId, dailyList[i + 1], "Next >>", MARGIN + 140, MARGIN, 60, 18);
 
     // Calendar link (per spec/LINK-SCHEME.md)
     if (calMode === "google" || calMode === "apple") {
@@ -607,23 +607,23 @@ export async function buildPdf(
       nextDay.setDate(date.getDate() + 1);
       const calRect: [number, number, number, number] = [pageWidth - 120, pageHeight - 50, pageWidth - MARGIN, pageHeight - 34];
       if (calMode === "google") {
-        addUriAnnotation(pdfDoc, dPage, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "＋Google Cal", font, accent);
+        addUriAnnotation(pdfDoc, dPage, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Google Cal", font, accent);
       } else {
         // apple: timed event per output.eventMins
         const startDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
         const endDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, output.eventMins ?? 60, 0);
-        addUriAnnotation(pdfDoc, dPage, icsDataUri(startDt, endDt, date.toLocaleDateString("en-US", { month: "long", day: "numeric" })), calRect, "＋Apple Cal", font, accent);
+        addUriAnnotation(pdfDoc, dPage, icsDataUri(startDt, endDt, date.toLocaleDateString("en-US", { month: "long", day: "numeric" })), calRect, "+Apple Cal", font, accent);
       }
     }
 
     // AI block — clickable link with context (spec: output.aiInPdf = true)
     if (output.aiInPdf) {
       const aiUrl = `${process.env.APP_URL ?? "https://daybook.app"}/assistant?context=daily&page=${dayId}`;
-      addUriAnnotation(pdfDoc, dPage, aiUrl, [pageWidth - MARGIN - 70, MARGIN + 22, pageWidth - MARGIN, MARGIN + 40], "✦ Ask AI", font, accent);
+      addUriAnnotation(pdfDoc, dPage, aiUrl, [pageWidth - MARGIN - 70, MARGIN + 22, pageWidth - MARGIN, MARGIN + 40], "* Ask AI", font, accent);
     }
   }
 
-  // NOTES → each ns{i}; each ns{i} → notes
+  // NOTES -> each ns{i}; each ns{i} -> notes
   {
     const np = getPage("notes");
     if (np) {
@@ -718,7 +718,7 @@ export async function buildPreviewPdf(
     // Decorative accent block
     cp.drawRectangle({ x: 0, y: 0, width: 8, height: pageHeight, color: rgb(accent.r, accent.g, accent.b) });
   }
-  addLink("cover", "home", "→ Get started", MARGIN, pageHeight / 2 - 40, 120, 20);
+  addLink("cover", "home", "-> Get started", MARGIN, pageHeight / 2 - 40, 120, 20);
 
   // ── HOME ──
   const homeP = getPage("home");
@@ -759,7 +759,7 @@ export async function buildPreviewPdf(
     mdivP.drawText(monthNameFull, { x: MARGIN, y: pageHeight / 2 + 20, size: 36, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
     mdivP.drawText(String(startYear), { x: MARGIN, y: pageHeight / 2 - 24, size: 18, font, color: rgb(ink.r, ink.g, ink.b) });
   }
-  addLink("mdiv0", "m0", "→ Month view", pageWidth - 120, MARGIN, 100, 18);
+  addLink("mdiv0", "m0", "-> Month view", pageWidth - 120, MARGIN, 100, 18);
 
   // ── MONTH CALENDAR ──
   const mcp = getPage("m0");
@@ -790,7 +790,7 @@ export async function buildPreviewPdf(
       }
     }
   }
-  addLink("m0", "mdiv0", "◀ Back", MARGIN, MARGIN, 60, 18);
+  addLink("m0", "mdiv0", "<< Back", MARGIN, MARGIN, 60, 18);
 
   // ── WEEKLY ──
   const wp = getPage(firstWeeklyId);

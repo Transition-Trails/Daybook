@@ -207,7 +207,7 @@ function RootRouter() {
           </WouterRouter>
         </RequireSuperAdmin>
       </Route>
-      <Route path="/daybook/:rest*">
+      <Route path="/daybook/(.*)">
         <RequireSuperAdmin state={state}>
           <WouterRouter base="/daybook">
             <SidebarProvider>
@@ -281,8 +281,8 @@ function AppRouter() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/unauthorized" component={Unauthorized} />
-      <Route path="/" component={RootRouter} />
-      <Route path="/:rest*" component={RootRouter} />
+      {/* /(.*) matches all paths at any depth — /:rest* only matches 1 segment */}
+      <Route path="/(.*)" component={RootRouter} />
     </Switch>
   );
 }

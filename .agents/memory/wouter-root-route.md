@@ -1,22 +1,31 @@
 ---
 name: Wouter root-path routing
-description: Why /:rest* does not match bare / in Wouter 3 + regexparam 3
+description: regexparam 3 wildcard limitations and the correct catch-all pattern for Wouter v3
 ---
 
 ## Rule
-Always add an explicit `<Route path="/" component={...} />` alongside any `/:rest*` catch-all in Wouter v3.
+Never use `/:rest*` as a catch-all in Wouter v3. Use `/(.*)`  instead.
 
 ## Why
-Wouter 3 uses regexparam 3.0.0. For the pattern `/:rest*` it generates the regex
-`/^\/([^/]+?)\/?$/i` — this requires **at least one segment after the slash** and returns
-`null` when exec'd on `/`.
+Wouter 3 uses regexparam 3.0.0. Its wildcard patterns are severely limited:
 
-A `<Switch>` with only `/:rest*` renders **blank** at the root path — no error, no warning.
+| Pattern | Generated regex | Matches |
+|---------|----------------|---------|
+| `/:rest*` | `/^\/([^/]+?)\/?$/i` | Only bare `/` — NO (returns null), `/foo` — YES, `/foo/bar` — **NO** |
+| `/base/:rest*` | `/^\/base\/([^/]+?)\/?$/i` | `/base/foo` — YES, `/base/foo/bar` — **NO** |
+| `/(.*)`  | `/^\/(.*)\/?$/i` | `/` — YES, `/foo` — YES, `/foo/bar/baz` — YES |
+| `/base/(.*)` | `/^\/base\/(.*)\/?$/i` | `/base/` — YES, `/base/foo/bar` — YES, bare `/base` — **NO** |
+
+So `/:rest*` only matches single-segment paths. Any multi-segment path like `/super/stores`
+silently falls through the Switch and renders blank — no error, no warning.
 
 ## How to apply
-In every top-level Switch that uses `/:rest*` as a catch-all, precede it with:
-```jsx
-<Route path="/" component={SameComponent} />
-<Route path="/:rest*" component={SameComponent} />
-```
-Or use a no-path Route `<Route component={SameComponent} />` as the last entry instead of `/:rest*`.
+- **Top-level catch-all**: Use `<Route path="/(.*)" component={RootRouter} />` — matches
+  everything including `/`, `/foo`, and `/foo/bar/baz`.
+- **Section catch-all** (e.g. daybook): Use **two** routes:
+  ```jsx
+  <Route path="/daybook">...</Route>        {/* bare /daybook */}
+  <Route path="/daybook/(.*)">...</Route>   {/* all sub-paths */}
+  ```
+  Because `/daybook/(.*)` requires the trailing slash, bare `/daybook` needs its own explicit route.
+- **Never use `/:rest*` or `/base/:rest*`** for catch-alls — they silently miss deep paths.

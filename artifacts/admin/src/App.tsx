@@ -189,8 +189,21 @@ function RootRouter() {
         )}
       </Route>
 
-      {/* ── Daybook Admin (catalog authoring, super_admin only) ───── */}
-      {/* Explicit base route so bare /daybook matches (regexparam /:rest* requires ≥1 segment) */}
+      {/*
+       * ── Daybook Admin (catalog authoring, super_admin only) ──────────────
+       *
+       * IMPORTANT — regexparam 3 constraint (wouter uses regexparam internally):
+       * The pattern `/:rest*` generates a regex that requires AT LEAST ONE path
+       * segment after the base, so `/:rest*` never matches the bare `/` and
+       * `/daybook/:rest*` never matches the bare `/daybook`.
+       *
+       * Rule: whenever you add a `/:rest*` (or `/:param*`) wildcard route, you
+       * MUST also add an explicit bare-base <Route> for the same prefix so that
+       * navigating to the base path doesn't produce a blank screen.
+       *
+       * The two routes below (`/daybook` and `/daybook/:rest*`) are intentionally
+       * duplicated for this reason.
+       */}
       <Route path="/daybook">
         <RequireSuperAdmin state={state}>
           <WouterRouter base="/daybook">

@@ -23,7 +23,9 @@ const NAV_ITEMS = [
   { label: "Related products",icon: Package2,    href: "/catalog/products", group: "Catalog" },
   { label: "Editions",        icon: BookOpen,    href: "/editions",         group: "Products" },
   { label: "Planner builder", icon: Wand2,       href: "/planners/builder", group: "Products" },
-  { label: "Ink ✦",          icon: Layers3,     href: "/planners/ink",     group: "Products" },
+  // NOTE: "Ink ✦" was removed — the InkEditor requires a specific planner ID
+  // (/daybook/planners/:id/ink) and has no standalone listing route. Launch it
+  // from the Planner builder page instead.
   { label: "Theme Studio",    icon: Palette,     href: "/studios/theme",    group: "AI Studios" },
   { label: "Pack Studio",     icon: Sticker,     href: "/studios/pack",     group: "AI Studios" },
   { label: "Edition Studio",  icon: BookOpen,    href: "/studios/edition",  group: "AI Studios" },

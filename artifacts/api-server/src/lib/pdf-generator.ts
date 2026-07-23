@@ -644,3 +644,254 @@ export async function buildPdf(
   const pdfBytes = await pdfDoc.save();
   return { buffer: pdfBytes, pageCount: flat.length };
 }
+
+// ── Preview PDF ───────────────────────────────────────────────────────────────
+// Renders a representative 8-9 page sample using the SAME drawing primitives
+// as buildPdf but skipping DB writes, Drive uploads, and large month ranges.
+// Pages: cover · home · year · month-divider · month-calendar · weekly · daily
+//        · notes hub · (optional) first section divider
+
+export async function buildPreviewPdf(
+  config: GeneratorConfig,
+  themeColors?: string[],
+): Promise<{ buffer: Uint8Array; pageCount: number }> {
+  const { setup, style, output, sections } = config;
+  const { startMonth, startYear, weekStart, orientation } = setup;
+
+  const colors = themeColors ?? ["#6366f1", "#4f46e5", "#a5b4fc", "#c7d2fe", "#1e1b4b", "#fafafa"];
+  const accent = hexToRgb(colors[0] ?? "#6366f1");
+  const ink = hexToRgb(colors[4] ?? "#1e1b4b");
+  const paper = hexToRgb(colors[5] ?? "#fafafa");
+
+  const pdfDoc = await PDFDocument.create();
+  const pageWidth = orientation === "landscape" ? PAGE_HEIGHT : PAGE_WIDTH;
+  const pageHeight = orientation === "landscape" ? PAGE_WIDTH : PAGE_HEIGHT;
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  // Representative page IDs
+  const firstDate = new Date(startYear, startMonth, 1);
+  const firstDayId = `d${yyyymmdd(firstDate)}`;
+  const firstWeeklyId = getISOWeekId(firstDate);
+  const monthNameFull = firstDate.toLocaleString("en-US", { month: "long" });
+  const monthNameShort = firstDate.toLocaleString("en-US", { month: "short" });
+
+  const previewIds: string[] = [
+    "cover",
+    "home",
+    "year",
+    "mdiv0",
+    "m0",
+    firstWeeklyId,
+    firstDayId,
+    "notes",
+    ...(sections.length > 0 ? ["ns1"] : []),
+  ];
+
+  // Create pages with shared base styling
+  const pageMap = new Map<string, PageWithId>();
+  for (const id of previewIds) {
+    const page = pdfDoc.addPage([pageWidth, pageHeight]);
+    pageMap.set(id, { id, page, pageRef: page.ref });
+    page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(paper.r, paper.g, paper.b) });
+    page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: rgb(accent.r, accent.g, accent.b) });
+    page.drawText(id, { x: MARGIN, y: pageHeight - 14, size: 7, font, color: rgb(1, 1, 1) });
+  }
+
+  const getRef = (id: string): PDFRef | null => pageMap.get(id)?.pageRef ?? null;
+  const getPage = (id: string): PDFPage | null => pageMap.get(id)?.page ?? null;
+
+  function addLink(srcId: string, tgtId: string, label: string, x: number, y: number, w = 80, h = 16) {
+    const sp = getPage(srcId);
+    const tr = getRef(tgtId);
+    if (!sp || !tr) return;
+    sp.drawRectangle({ x, y: y - 2, width: w, height: h, color: rgb(accent.r, accent.g, accent.b), opacity: 0.15 });
+    sp.drawText(label, { x: x + 4, y: y + 2, size: 8, font, color: rgb(ink.r, ink.g, ink.b) });
+    addGoToAnnotation(pdfDoc, sp, tr, [x, y - 2, x + w, y - 2 + h]);
+  }
+
+  // ── COVER ──
+  const cp = getPage("cover");
+  if (cp) {
+    cp.drawText("Daybook", { x: MARGIN, y: pageHeight / 2 + 40, size: 32, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
+    cp.drawText("Your planner, your way.", { x: MARGIN, y: pageHeight / 2, size: 14, font, color: rgb(ink.r, ink.g, ink.b) });
+    // Decorative accent block
+    cp.drawRectangle({ x: 0, y: 0, width: 8, height: pageHeight, color: rgb(accent.r, accent.g, accent.b) });
+  }
+  addLink("cover", "home", "→ Get started", MARGIN, pageHeight / 2 - 40, 120, 20);
+
+  // ── HOME ──
+  const homeP = getPage("home");
+  if (homeP) homeP.drawText("Home", { x: MARGIN, y: pageHeight - 50, size: 20, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+  let hy = pageHeight - 90;
+  addLink("home", "year", "Year at a Glance", MARGIN, hy, 140, 18); hy -= 28;
+  addLink("home", "m0", monthNameShort, MARGIN, hy, 80, 18); hy -= 28;
+  addLink("home", "notes", "Notes", MARGIN, hy, 80, 18); hy -= 28;
+  for (let i = 0; i < Math.min(sections.length, 1); i++) {
+    addLink("home", "ns1", sections[i], MARGIN, hy, 160, 18);
+  }
+
+  // ── YEAR ──
+  const yp = getPage("year");
+  if (yp) {
+    yp.drawText(`${startYear} Year Overview`, { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+    yp.drawText("(preview shows first month)", { x: MARGIN, y: pageHeight - 68, size: 9, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.4 });
+    // Mini 3×4 month grid
+    const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    for (let m = 0; m < 12; m++) {
+      const col = m % 4;
+      const row = Math.floor(m / 4);
+      const mx = MARGIN + col * 120;
+      const my = pageHeight - 100 - row * 40;
+      const isFirst = m === startMonth;
+      if (isFirst) {
+        yp.drawRectangle({ x: mx - 2, y: my - 4, width: 110, height: 24, color: rgb(accent.r, accent.g, accent.b), opacity: 0.12 });
+      }
+      yp.drawText(MONTH_NAMES[m] + " " + startYear, { x: mx, y: my + 6, size: 9, font: isFirst ? fontBold : font, color: rgb(ink.r, ink.g, ink.b) });
+    }
+  }
+  addLink("year", "mdiv0", `${monthNameShort} ${startYear}`, MARGIN, pageHeight - 240, 140, 18);
+
+  // ── MONTH DIVIDER ──
+  const mdivP = getPage("mdiv0");
+  if (mdivP) {
+    mdivP.drawRectangle({ x: 0, y: pageHeight / 2 - 20, width: 6, height: 80, color: rgb(accent.r, accent.g, accent.b) });
+    mdivP.drawText(monthNameFull, { x: MARGIN, y: pageHeight / 2 + 20, size: 36, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
+    mdivP.drawText(String(startYear), { x: MARGIN, y: pageHeight / 2 - 24, size: 18, font, color: rgb(ink.r, ink.g, ink.b) });
+  }
+  addLink("mdiv0", "m0", "→ Month view", pageWidth - 120, MARGIN, 100, 18);
+
+  // ── MONTH CALENDAR ──
+  const mcp = getPage("m0");
+  if (mcp) {
+    mcp.drawText(`${monthNameFull} ${startYear}`, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+    // Day-of-week header
+    const DOW = weekStart === "mon" ? ["Mo","Tu","We","Th","Fr","Sa","Su"] : ["Su","Mo","Tu","We","Th","Fr","Sa"];
+    const colW = (pageWidth - 2 * MARGIN) / 7;
+    for (let c = 0; c < 7; c++) {
+      mcp.drawText(DOW[c], { x: MARGIN + c * colW + colW / 2 - 6, y: pageHeight - 72, size: 8, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
+    }
+    // Day cells
+    const days = daysInMonth(startYear, startMonth);
+    const firstDow = new Date(startYear, startMonth, 1).getDay();
+    const offset = weekStart === "mon" ? (firstDow + 6) % 7 : firstDow;
+    for (let d = 1; d <= days; d++) {
+      const slot = d - 1 + offset;
+      const col = slot % 7;
+      const row = Math.floor(slot / 7);
+      const cx = MARGIN + col * colW;
+      const cy = pageHeight - 95 - row * 40;
+      const isFirst = d === 1;
+      if (isFirst) {
+        mcp.drawRectangle({ x: cx, y: cy - 4, width: colW - 2, height: 28, color: rgb(accent.r, accent.g, accent.b), opacity: 0.15 });
+        addLink("m0", firstDayId, String(d), cx + 2, cy, colW - 6, 18);
+      } else {
+        mcp.drawText(String(d), { x: cx + 6, y: cy + 4, size: 9, font, color: rgb(ink.r, ink.g, ink.b) });
+      }
+    }
+  }
+  addLink("m0", "mdiv0", "◀ Back", MARGIN, MARGIN, 60, 18);
+
+  // ── WEEKLY ──
+  const wp = getPage(firstWeeklyId);
+  const weekMatch = firstWeeklyId.match(/^w(\d{4})W(\d{2})$/);
+  if (wp && weekMatch) {
+    const weekYear = parseInt(weekMatch[1]);
+    const weekNum = parseInt(weekMatch[2]);
+    wp.drawText(`Week ${weekNum} — ${weekYear}`, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+
+    // Find the Monday of this ISO week
+    const jan4 = new Date(weekYear, 0, 4);
+    const monday = new Date(jan4);
+    monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (weekNum - 1) * 7);
+
+    const colW = (pageWidth - 2 * MARGIN) / 7;
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + d);
+      const label = date.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      const cx = MARGIN + d * colW;
+      // Column header
+      const isFirstDay = yyyymmdd(date) === yyyymmdd(firstDate);
+      if (isFirstDay) {
+        wp.drawRectangle({ x: cx, y: pageHeight - 97, width: colW - 2, height: 28, color: rgb(accent.r, accent.g, accent.b), opacity: 0.12 });
+        addLink(firstWeeklyId, firstDayId, label, cx + 2, pageHeight - 92, colW - 6, 18);
+      } else {
+        wp.drawText(label, { x: cx + 4, y: pageHeight - 88, size: 7, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+      }
+      // Column separator line
+      if (d > 0) {
+        wp.drawLine({ start: { x: cx, y: pageHeight - 100 }, end: { x: cx, y: MARGIN + 30 }, thickness: 0.4, color: rgb(ink.r, ink.g, ink.b), opacity: 0.1 });
+      }
+      // Hourly slots
+      for (let h = 8; h <= 18; h++) {
+        const hy2 = pageHeight - 110 - (h - 8) * 26;
+        if (hy2 < MARGIN + 30) break;
+        if (d === 0) {
+          wp.drawText(`${h}:00`, { x: MARGIN - 2, y: hy2, size: 6, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.3 });
+        }
+        wp.drawLine({ start: { x: cx + 1, y: hy2 + 4 }, end: { x: cx + colW - 2, y: hy2 + 4 }, thickness: 0.3, color: rgb(ink.r, ink.g, ink.b), opacity: 0.08 });
+      }
+    }
+  }
+  addLink(firstWeeklyId, "m0", "Month", MARGIN, MARGIN, 60, 18);
+
+  // ── DAILY ──
+  const dp = getPage(firstDayId);
+  if (dp) {
+    dp.drawText(
+      firstDate.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
+      { x: MARGIN, y: pageHeight - 50, size: 14, font: fontBold, color: rgb(ink.r, ink.g, ink.b) },
+    );
+    // Divider under title
+    dp.drawLine({ start: { x: MARGIN, y: pageHeight - 60 }, end: { x: pageWidth - MARGIN, y: pageHeight - 60 }, thickness: 0.5, color: rgb(accent.r, accent.g, accent.b), opacity: 0.3 });
+    // Time grid
+    for (let h = 6; h <= 21; h++) {
+      const hy2 = pageHeight - 80 - (h - 6) * ((pageHeight - 80 - MARGIN - 30) / 16);
+      if (hy2 < MARGIN + 30) break;
+      dp.drawText(`${String(h).padStart(2, "0")}:00`, { x: MARGIN, y: hy2, size: 8, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.4 });
+      dp.drawLine({ start: { x: MARGIN + 34, y: hy2 + 4 }, end: { x: pageWidth - MARGIN, y: hy2 + 4 }, thickness: 0.3, color: rgb(ink.r, ink.g, ink.b), opacity: h % 4 === 0 ? 0.2 : 0.07 });
+    }
+  }
+  addLink(firstDayId, firstWeeklyId, "Week", MARGIN, MARGIN, 60, 18);
+  addLink(firstDayId, "m0", "Month", MARGIN + 68, MARGIN, 60, 18);
+
+  // ── NOTES ──
+  const np = getPage("notes");
+  if (np) {
+    np.drawText("Notes", { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+    // Dot-grid pattern
+    const dotGap = 18;
+    for (let px = MARGIN; px < pageWidth - MARGIN; px += dotGap) {
+      for (let py = MARGIN + 10; py < pageHeight - 80; py += dotGap) {
+        np.drawCircle({ x: px, y: py, size: 0.8, color: rgb(ink.r, ink.g, ink.b), opacity: 0.15 });
+      }
+    }
+    if (sections.length > 0) addLink("notes", "ns1", sections[0], MARGIN, pageHeight - 90, 200, 18);
+  }
+
+  // ── SECTION DIVIDER ns1 ──
+  if (sections.length > 0) {
+    const nsp = getPage("ns1");
+    if (nsp) {
+      nsp.drawRectangle({ x: 0, y: 0, width: pageWidth, height: 8, color: rgb(accent.r, accent.g, accent.b) });
+      nsp.drawText(sections[0], { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+      nsp.drawText("section divider", { x: MARGIN, y: pageHeight - 70, size: 10, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.4 });
+    }
+    addLink("ns1", "notes", "← Notes", MARGIN, MARGIN, 60, 18);
+  }
+
+  // ── PREVIEW FOOTER on every page ──
+  for (const id of previewIds) {
+    const p = getPage(id);
+    if (p) {
+      p.drawText("PREVIEW — representative pages only, not the final output", {
+        x: pageWidth / 2 - 130, y: 6, size: 7, font,
+        color: rgb(accent.r, accent.g, accent.b), opacity: 0.45,
+      });
+    }
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  return { buffer: pdfBytes, pageCount: previewIds.length };
+}

@@ -11,7 +11,7 @@ import {
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
-import { buildPdf, generatePageIds, validatePageIds } from "../lib/pdf-generator";
+import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } from "@workspace/db";
 
@@ -72,6 +72,68 @@ async function runGeneration(
 
   return { pdfFileId, configFileId, pageCount };
 }
+
+// ── POST /planners/preview ────────────────────────────────────────────────────
+// Returns a representative ~8-page PDF sample using the same engine as full
+// generation. No DB writes, no Drive upload, no Google token required.
+// Phase 1: builder is new-planner-only — reexport lives at /planners/:id/reexport
+// and is NOT surfaced in any builder UI.
+
+router.post("/planners/preview", requireAuth, async (req, res): Promise<void> => {
+  const body = req.body as {
+    editionId?: string;
+    setup: PlannerSetup;
+    style?: PlannerStyle & { themeId?: string };
+    output?: PlannerOutput;
+  };
+
+  if (!body.setup) { res.status(400).json({ error: "setup is required" }); return; }
+  const { weekStart, orientation, startMonth, startYear, monthCount } = body.setup;
+  if (!["sun", "mon"].includes(weekStart) || !["landscape", "vertical"].includes(orientation) ||
+      startMonth < 0 || startMonth > 11 || !startYear || monthCount < 1) {
+    res.status(400).json({ error: "Invalid setup fields" }); return;
+  }
+
+  try {
+    // Resolve theme colors — prefer explicit themeId in style, then first theme of edition
+    let themeColors: string[] | undefined;
+    const themeId = body.style?.themeId;
+    if (themeId) {
+      const [theme] = await db.select().from(themesTable).where(eq(themesTable.id, themeId));
+      if (theme) themeColors = theme.colors as string[];
+    } else if (body.editionId) {
+      const [edition] = await db.select().from(editionsTable).where(eq(editionsTable.id, body.editionId));
+      if (edition) {
+        const firstThemeId = (edition.themes as string[])?.[0];
+        if (firstThemeId) {
+          const [theme] = await db.select().from(themesTable).where(eq(themesTable.id, firstThemeId));
+          if (theme) themeColors = theme.colors as string[];
+        }
+      }
+    }
+
+    const sections = (body.style as PlannerStyle | undefined)?.sections ?? [];
+    const { buffer, pageCount } = await buildPreviewPdf(
+      {
+        setup: body.setup,
+        style: body.style ?? {},
+        output: body.output ?? { calMode: "none", eventMins: 60, aiInPdf: false },
+        sections,
+        editionId: body.editionId,
+      },
+      themeColors,
+    );
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline; filename=preview.pdf");
+    res.setHeader("Cache-Control", "no-store, no-cache");
+    res.setHeader("X-Preview-Pages", String(pageCount));
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    req.log.error({ err }, "Preview generation failed");
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 // ── POST /planners ────────────────────────────────────────────────────────────
 

@@ -5,6 +5,7 @@ import NotFound from '@/pages/not-found';
 import { Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import { SidebarProvider } from '@/components/ui/sidebar';
 
+import { useEffect } from 'react';
 import { useGetMe, getGetMeQueryKey } from '@workspace/api-client-react';
 import { Shell } from '@/components/layout/Shell';
 import Login from '@/pages/login';
@@ -18,13 +19,19 @@ function ProtectedRoute({ component: Component }: { component: any }) {
   const { data: user, isLoading, error } = useGetMe({ query: { retry: false, queryKey: getGetMeQueryKey() }});
   const [, setLocation] = useLocation();
 
+  // Redirect to login after render — never call setLocation during render
+  useEffect(() => {
+    if (!isLoading && (error || !user)) {
+      setLocation('/login');
+    }
+  }, [isLoading, error, user, setLocation]);
+
   if (isLoading) {
     return <div className="min-h-screen bg-background" />;
   }
 
   if (error || !user) {
-    setLocation('/login');
-    return null;
+    return null; // useEffect above will redirect
   }
 
   return <Component />;

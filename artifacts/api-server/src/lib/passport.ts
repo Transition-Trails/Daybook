@@ -25,9 +25,11 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
 if (googleClientId && googleClientSecret) {
-  const callbackUrl =
-    process.env.GOOGLE_CALLBACK_URL ??
-    `${process.env.APP_URL ?? "http://localhost:5000"}/api/auth/callback`;
+  const host =
+    process.env.APP_URL ??
+    (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "http://localhost:5000");
+  const callbackUrl = process.env.GOOGLE_CALLBACK_URL ?? `${host}/api/auth/callback`;
+  logger.info({ callbackUrl }, "Google OAuth callback URL");
 
   passport.use(
     new GoogleStrategy(

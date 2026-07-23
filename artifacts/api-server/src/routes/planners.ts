@@ -12,6 +12,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
 import { buildPdf, generatePageIds, validatePageIds } from "../lib/pdf-generator";
+import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -20,6 +21,7 @@ const router: IRouter = Router();
 
 async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
+  googleAccessToken?: string | null,
 ): Promise<{ pdfFileId: string; configFileId: string; pageCount: number }> {
   // Resolve edition + theme for art/colors
   let themeColors: string[] | undefined;
@@ -53,12 +55,22 @@ async function runGeneration(
     themeColors,
   );
 
-  // TODO: upload buffer to Google Drive when credentials are available
-  // For now, store as a stub Drive file ID
-  const mockPdfFileId = `pdf-${config.id}-${Date.now()}`;
-  const mockConfigFileId = `cfg-${config.id}-${Date.now()}`;
+  // Upload PDF to Google Drive when the user has a token; fall back to a local stub ID
+  const pdfFileId =
+    (await uploadPlannerPdf(googleAccessToken, config.id as string, buffer)) ??
+    `pdf-${config.id}-${Date.now()}`;
 
-  return { pdfFileId: mockPdfFileId, configFileId: mockConfigFileId, pageCount };
+  // Upload config JSON to Drive alongside the PDF
+  const configFileId =
+    (await uploadPlannerConfig(googleAccessToken, config.id as string, {
+      setup: config.setup,
+      style: config.style,
+      output: config.output,
+      editionId: config.editionId,
+      generatedAt: new Date().toISOString(),
+    })) ?? `cfg-${config.id}-${Date.now()}`;
+
+  return { pdfFileId, configFileId, pageCount };
 }
 
 // ── POST /planners ────────────────────────────────────────────────────────────
@@ -104,8 +116,8 @@ router.post("/planners", requireAuth, async (req, res): Promise<void> => {
       })
       .returning();
 
-    // Generate PDF
-    const { pdfFileId, configFileId, pageCount } = await runGeneration(config);
+    // Generate PDF and upload to Drive if the user has a Google token
+    const { pdfFileId, configFileId, pageCount } = await runGeneration(config, user.googleAccessToken);
 
     // Update drive references
     const [updated] = await db
@@ -167,7 +179,7 @@ router.post("/planners/:id/reexport", requireAuth, async (req, res): Promise<voi
       .where(eq(plannerConfigsTable.id, id as string))
       .returning();
 
-    const { pdfFileId, configFileId, pageCount } = await runGeneration(updated);
+    const { pdfFileId, configFileId, pageCount } = await runGeneration(updated, user.googleAccessToken);
 
     const [final] = await db
       .update(plannerConfigsTable)

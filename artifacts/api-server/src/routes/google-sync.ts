@@ -10,6 +10,7 @@ import { db } from "@workspace/db";
 import { usersTable, assetsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
+import { uploadPlannerConfig } from "../lib/drive-upload";
 import type { User } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -89,16 +90,38 @@ router.get("/drive/status", requireAuth, async (req, res): Promise<void> => {
 });
 
 // POST /drive/backup
+// Body: { plannerId: string, config: unknown }
 router.post("/drive/backup", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
   if (!hasGoogleToken(user)) {
     res.status(400).json({ error: "Google account not connected" });
     return;
   }
-  // TODO: upload planner config to Drive
-  const conn2 = { ...(user.connections as Record<string, boolean>), googleDrive: true };
-  await db.update(usersTable).set({ connections: conn2 as typeof usersTable.$inferInsert["connections"] }).where(eq(usersTable.id, user.id));
-  res.json({ success: true, message: "TODO: real Drive backup" });
+
+  const body = req.body as { plannerId?: string; config?: unknown };
+  if (!body.plannerId) {
+    res.status(400).json({ error: "plannerId is required" });
+    return;
+  }
+
+  try {
+    const configFileId = await uploadPlannerConfig(
+      user.googleAccessToken,
+      body.plannerId,
+      body.config ?? {},
+    );
+
+    // Mark googleDrive connection as active
+    const conn2 = { ...(user.connections as Record<string, boolean>), googleDrive: true };
+    await db
+      .update(usersTable)
+      .set({ connections: conn2 as typeof usersTable.$inferInsert["connections"] })
+      .where(eq(usersTable.id, user.id));
+
+    res.json({ success: true, configFileId });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // POST /drive/art — upload or Canva import → Asset

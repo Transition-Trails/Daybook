@@ -17,6 +17,10 @@ import SyncDashboard from '@/pages/sync';
 import TrendsResearch from '@/pages/trends';
 import PlannerBuilder from '@/pages/planners/builder';
 import CalendarPage from '@/pages/calendar';
+import ThemeStudio from '@/pages/studios/ThemeStudio';
+import PackStudio from '@/pages/studios/PackStudio';
+import EditionStudio from '@/pages/studios/EditionStudio';
+import StudioTrendResearch from '@/pages/studios/TrendResearch';
 
 export const routes = [
   { path: "/", component: Dashboard },
@@ -38,4 +42,9 @@ export const routes = [
   { path: "/trends", component: TrendsResearch },
   { path: "/planners/builder", component: PlannerBuilder },
   { path: "/calendar", component: CalendarPage },
+  // AI Studios (super_admin, Daybook console)
+  { path: "/studios/theme", component: ThemeStudio },
+  { path: "/studios/pack", component: PackStudio },
+  { path: "/studios/edition", component: EditionStudio },
+  { path: "/studios/trends", component: StudioTrendResearch },
 ];

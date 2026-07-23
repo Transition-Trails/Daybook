@@ -10,7 +10,7 @@ import {
 import {
   Home, Palette, Sticker, FileImage, Layers3, BookOpen,
   Users, Settings, RefreshCw, BarChart2, Package2, LogOut,
-  Wand2, CalendarDays, ArrowLeft,
+  Wand2, CalendarDays, ArrowLeft, Sparkles, TrendingUp,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
@@ -23,11 +23,14 @@ const NAV_ITEMS = [
   { label: "Related products",icon: Package2,    href: "/catalog/products", group: "Catalog" },
   { label: "Editions",        icon: BookOpen,    href: "/editions",         group: "Products" },
   { label: "Planner builder", icon: Wand2,       href: "/planners/builder", group: "Products" },
+  { label: "Theme Studio",    icon: Palette,     href: "/studios/theme",    group: "AI Studios" },
+  { label: "Pack Studio",     icon: Sticker,     href: "/studios/pack",     group: "AI Studios" },
+  { label: "Edition Studio",  icon: BookOpen,    href: "/studios/edition",  group: "AI Studios" },
+  { label: "Trend Research",  icon: TrendingUp,  href: "/studios/trends",   group: "AI Studios" },
   { label: "Users",           icon: Users,       href: "/users",            group: "System" },
   { label: "AI settings",     icon: Settings,    href: "/ai-settings",      group: "System" },
   { label: "Google sync",     icon: RefreshCw,   href: "/sync",             group: "System" },
   { label: "Calendar",        icon: CalendarDays,href: "/calendar",         group: "System" },
-  { label: "Trend research",  icon: BarChart2,   href: "/trends",           group: "System" },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {

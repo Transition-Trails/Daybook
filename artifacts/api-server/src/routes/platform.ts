@@ -270,9 +270,23 @@ router.get("/audit", resolveStoreActor, async (req: Request, res: Response): Pro
   let rows: any[];
 
   if (actor.isSuperAdmin) {
-    rows = await db.select().from(auditLogTable).orderBy(desc(auditLogTable.createdAt)).limit(limit);
-    if (filterStoreId) rows = rows.filter((r: { scope: string }) => r.scope === filterStoreId);
-    if (filterAction)  rows = rows.filter((r: { action: string }) => r.action === filterAction);
+    // Build DB-level filters for super_admin (avoids fetching all rows then JS-filtering)
+    const saConditions: SQL<unknown>[] = [];
+    if (filterStoreId) saConditions.push(eq(auditLogTable.scope, filterStoreId));
+    if (filterAction)  saConditions.push(eq(auditLogTable.action, filterAction));
+    const saWhere =
+      saConditions.length === 0
+        ? undefined
+        : saConditions.length === 1
+          ? saConditions[0]
+          : and(...(saConditions as [SQL<unknown>, ...SQL<unknown>[]]));
+
+    rows = await db
+      .select()
+      .from(auditLogTable)
+      .where(saWhere)
+      .orderBy(desc(auditLogTable.createdAt))
+      .limit(limit);
   } else {
     // store_owner: only their own stores
     const membership = await db

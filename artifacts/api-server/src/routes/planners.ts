@@ -23,20 +23,33 @@ const router: IRouter = Router();
 async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
 ): Promise<{ pdfFileId: string; configFileId: string; pageCount: number }> {
-  // Resolve edition + theme for art/colors
+  // Resolve edition + theme for art/colors.
+  // Priority: style.themeId (user's explicit pick) → edition.themes[0] → undefined.
+  // Must match the same logic used by POST /planners/preview so preview and
+  // full-build always render identical colours for the same config.
   let themeColors: string[] | undefined;
-  if (config.editionId) {
+  const styleThemeId = (config.style as PlannerStyle & { themeId?: string }).themeId;
+
+  if (styleThemeId) {
+    // User explicitly chose a theme — look it up directly.
+    const [theme] = await db
+      .select()
+      .from(themesTable)
+      .where(eq(themesTable.id, styleThemeId));
+    if (theme) themeColors = theme.colors as string[];
+  } else if (config.editionId) {
+    // Fall back to the first theme listed on the edition.
     const [edition] = await db
       .select()
       .from(editionsTable)
       .where(eq(editionsTable.id, config.editionId));
     if (edition) {
-      const themeId = (edition.themes as string[])?.[0];
-      if (themeId) {
+      const firstThemeId = (edition.themes as string[])?.[0];
+      if (firstThemeId) {
         const [theme] = await db
           .select()
           .from(themesTable)
-          .where(eq(themesTable.id, themeId));
+          .where(eq(themesTable.id, firstThemeId));
         if (theme) themeColors = theme.colors as string[];
       }
     }

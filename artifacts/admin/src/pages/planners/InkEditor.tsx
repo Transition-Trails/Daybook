@@ -181,15 +181,39 @@ export default function InkEditor() {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [plannerName, setPlannerName] = useState("Planner");
 
-  // Layer state (React state so stickers re-render)
-  const [objects, setObjects] = useState<InkObject[]>([]);
+  // Layer state — wrapped setter keeps objectsRef in sync for stale-closure-safe callbacks
+  const [objects, _setObjects] = useState<InkObject[]>([]);
+  const objectsRef = useRef<InkObject[]>([]);
+  const setObjects = useCallback(
+    (val: InkObject[] | ((prev: InkObject[]) => InkObject[])) => {
+      const next = typeof val === "function" ? val(objectsRef.current) : val;
+      objectsRef.current = next;
+      _setObjects(next);
+    },
+    [],
+  );
+
   const [selectedObjId, setSelectedObjId] = useState<string | null>(null);
+  const selectedObjIdRef = useRef<string | null>(null);
+  const setSelectedObjIdSync = (id: string | null) => {
+    selectedObjIdRef.current = id;
+    setSelectedObjId(id);
+  };
 
   // Ink strokes live in a ref (updated on every pointer event, no re-renders)
   const strokesRef = useRef<InkStroke[]>([]);
-  const prevStrokesRef = useRef<InkStroke[]>([]); // for undo
   const activeStrokeRef = useRef<InkStroke | null>(null);
   const isDrawingRef = useRef(false);
+
+  // ── Undo / redo history (per page, cleared on page change) ───────────────
+  type LayerSnapshot = { strokes: InkStroke[]; objects: InkObject[] };
+  const undoStackRef = useRef<LayerSnapshot[]>([]);
+  const redoStackRef = useRef<LayerSnapshot[]>([]);
+  const [undoCount, setUndoCount] = useState(0);
+  const [redoCount, setRedoCount] = useState(0);
+
+  // Pre-drag snapshot used to push a single history entry for a sticker move
+  const preDragObjectsRef = useRef<InkObject[] | null>(null);
 
   // Autosave
   const [saveState, setSaveState] = useState<"saved" | "unsaved" | "saving">("saved");
@@ -320,6 +344,11 @@ export default function InkEditor() {
 
   const loadLayer = useCallback(async (pageId: string) => {
     if (!plannerId) return;
+    // Clear history whenever we load a new page
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setUndoCount(0);
+    setRedoCount(0);
     try {
       const layer = await apiFetch<{ strokes: InkStroke[]; objects: InkObject[] }>(
         `/planners/${plannerId}/pages/${pageId}/layer`,
@@ -333,7 +362,7 @@ export default function InkEditor() {
       strokesRef.current = [];
       setObjects([]);
     }
-  }, [plannerId]);
+  }, [plannerId, setObjects]);
 
   useEffect(() => {
     const pageId = pageIds[currentIdx];
@@ -364,6 +393,67 @@ export default function InkEditor() {
     [plannerId, pageIds, currentIdx],
   );
 
+  // ── Undo / redo helpers ───────────────────────────────────────────────────
+
+  // Push current state onto undo stack and clear redo — call BEFORE mutating
+  const pushHistory = useCallback(
+    (strokes: InkStroke[], objs: InkObject[]) => {
+      undoStackRef.current = [...undoStackRef.current, { strokes: [...strokes], objects: [...objs] }];
+      redoStackRef.current = [];
+      setUndoCount(undoStackRef.current.length);
+      setRedoCount(0);
+    },
+    [],
+  );
+
+  const handleUndo = useCallback(() => {
+    if (undoStackRef.current.length === 0) return;
+    // Push current state to redo before restoring
+    redoStackRef.current = [
+      ...redoStackRef.current,
+      { strokes: [...strokesRef.current], objects: [...objectsRef.current] },
+    ];
+    const prev = undoStackRef.current[undoStackRef.current.length - 1];
+    undoStackRef.current = undoStackRef.current.slice(0, -1);
+    strokesRef.current = prev.strokes;
+    setObjects(prev.objects);
+    const canvas = inkCanvasRef.current;
+    if (canvas) redrawInkCanvas(canvas, strokesRef.current, null);
+    triggerSave(strokesRef.current, prev.objects);
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(redoStackRef.current.length);
+  }, [triggerSave, setObjects]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStackRef.current.length === 0) return;
+    // Push current state to undo before re-applying
+    undoStackRef.current = [
+      ...undoStackRef.current,
+      { strokes: [...strokesRef.current], objects: [...objectsRef.current] },
+    ];
+    const next = redoStackRef.current[redoStackRef.current.length - 1];
+    redoStackRef.current = redoStackRef.current.slice(0, -1);
+    strokesRef.current = next.strokes;
+    setObjects(next.objects);
+    const canvas = inkCanvasRef.current;
+    if (canvas) redrawInkCanvas(canvas, strokesRef.current, null);
+    triggerSave(strokesRef.current, next.objects);
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(redoStackRef.current.length);
+  }, [triggerSave, setObjects]);
+
+  const deleteSelectedSticker = useCallback(() => {
+    const id = selectedObjIdRef.current;
+    if (!id) return;
+    pushHistory(strokesRef.current, objectsRef.current);
+    const next = objectsRef.current.filter((o) => o.id !== id);
+    setObjects(next);
+    setSelectedObjIdSync(null);
+    const canvas = inkCanvasRef.current;
+    if (canvas) redrawInkCanvas(canvas, strokesRef.current, null);
+    triggerSave(strokesRef.current, next);
+  }, [pushHistory, triggerSave, setObjects]);
+
   // ── Pointer drawing handlers ──────────────────────────────────────────────
 
   const onPointerDown = useCallback(
@@ -389,11 +479,10 @@ export default function InkEditor() {
           scale: 1,
           z: 0,
         };
-        setObjects((prev) => {
-          const next = [...prev, newObj];
-          triggerSave(strokesRef.current, next);
-          return next;
-        });
+        pushHistory(strokesRef.current, objectsRef.current);
+        const next = [...objectsRef.current, newObj];
+        setObjects(next);
+        triggerSave(strokesRef.current, next);
         setPlacingSticker(null);
         return;
       }
@@ -411,11 +500,10 @@ export default function InkEditor() {
         points: [{ x: px / canvas.width, y: py / canvas.height, p: pressure }],
       };
 
-      prevStrokesRef.current = [...strokesRef.current];
       activeStrokeRef.current = newStroke;
       isDrawingRef.current = true;
     },
-    [tool, color, strokeWidth, palmRejection, placingSticker, triggerSave],
+    [tool, color, strokeWidth, palmRejection, placingSticker, triggerSave, pushHistory],
   );
 
   const onPointerMove = useCallback(
@@ -452,6 +540,9 @@ export default function InkEditor() {
     const finished = activeStrokeRef.current;
     activeStrokeRef.current = null;
 
+    // Snapshot before mutating so undo can restore to pre-stroke state
+    pushHistory(strokesRef.current, objectsRef.current);
+
     if (finished.tool === "eraser") {
       // Vector eraser: remove strokes that intersect the eraser path
       const remaining = strokesRef.current.filter(
@@ -465,23 +556,32 @@ export default function InkEditor() {
     const canvas = inkCanvasRef.current;
     if (canvas) redrawInkCanvas(canvas, strokesRef.current, null);
 
-    triggerSave(strokesRef.current, objects);
-  }, [objects, triggerSave]);
+    triggerSave(strokesRef.current, objectsRef.current);
+  }, [triggerSave, pushHistory]);
 
-  // ── Undo ──────────────────────────────────────────────────────────────────
+  // ── Keyboard: undo / redo / sticker delete ────────────────────────────────
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
-        strokesRef.current = prevStrokesRef.current;
-        const canvas = inkCanvasRef.current;
-        if (canvas) redrawInkCanvas(canvas, strokesRef.current, null);
-        triggerSave(strokesRef.current, objects);
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if (mod && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        // Only fires when a sticker is selected and focus isn't in a text field
+        const tag = (document.activeElement as HTMLElement)?.tagName;
+        if (selectedObjIdRef.current && tag !== "INPUT" && tag !== "TEXTAREA") {
+          e.preventDefault();
+          deleteSelectedSticker();
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [objects, triggerSave]);
+  }, [handleUndo, handleRedo, deleteSelectedSticker]);
 
   // ── Sticker drag ──────────────────────────────────────────────────────────
 
@@ -489,7 +589,9 @@ export default function InkEditor() {
     (e: React.PointerEvent<HTMLDivElement>, objId: string, objX: number, objY: number) => {
       e.stopPropagation();
       e.currentTarget.setPointerCapture(e.pointerId);
-      setSelectedObjId(objId);
+      setSelectedObjIdSync(objId);
+      // Capture pre-drag state so we push one history entry on drop
+      preDragObjectsRef.current = [...objectsRef.current];
       stickerDragRef.current = {
         id: objId,
         startPx: e.clientX,
@@ -524,9 +626,14 @@ export default function InkEditor() {
   const onStickerPointerUp = useCallback(() => {
     if (stickerDragRef.current) {
       stickerDragRef.current = null;
-      triggerSave(strokesRef.current, objects);
+      // Push pre-drag snapshot so undo restores sticker to where it started
+      if (preDragObjectsRef.current !== null) {
+        pushHistory(strokesRef.current, preDragObjectsRef.current);
+        preDragObjectsRef.current = null;
+      }
+      triggerSave(strokesRef.current, objectsRef.current);
     }
-  }, [objects, triggerSave]);
+  }, [triggerSave, pushHistory]);
 
   // ── Page navigation ───────────────────────────────────────────────────────
 
@@ -651,6 +758,34 @@ export default function InkEditor() {
           >
             <ChevronRight style={{ width: 14, height: 14 }} />
           </button>
+        </div>
+
+        {/* Undo / redo */}
+        <div style={{ display: "flex", gap: 2 }}>
+          {(["undo", "redo"] as const).map((action) => {
+            const disabled = action === "undo" ? undoCount === 0 : redoCount === 0;
+            return (
+              <button
+                key={action}
+                onClick={action === "undo" ? handleUndo : handleRedo}
+                disabled={disabled}
+                title={action === "undo" ? "Undo (⌘Z)" : "Redo (⌘⇧Z)"}
+                style={{
+                  background: "rgba(255,255,255,0.08)",
+                  border: "none",
+                  color: disabled ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.75)",
+                  cursor: disabled ? "not-allowed" : "pointer",
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  lineHeight: 1,
+                }}
+              >
+                {action === "undo" ? "↩" : "↪"}
+              </button>
+            );
+          })}
         </div>
 
         {/* Save indicator */}
@@ -946,6 +1081,7 @@ export default function InkEditor() {
               const px = obj.x * cw;
               const py = obj.y * ch;
               const sz = 32 * obj.scale;
+              const isSelected = selectedObjId === obj.id;
               return (
                 <div
                   key={obj.id}
@@ -964,15 +1100,44 @@ export default function InkEditor() {
                     justifyContent: "center",
                     cursor: "grab",
                     userSelect: "none",
-                    outline:
-                      selectedObjId === obj.id
-                        ? "2px solid #C87560"
-                        : "none",
+                    outline: isSelected ? "2px solid #C87560" : "none",
                     borderRadius: 6,
                     touchAction: "none",
                   }}
                 >
                   {obj.ref}
+                  {/* Floating × delete button — only on selected sticker */}
+                  {isSelected && (
+                    <button
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); deleteSelectedSticker(); }}
+                      title="Delete sticker"
+                      style={{
+                        position: "absolute",
+                        top: -10,
+                        right: -10,
+                        width: 18,
+                        height: 18,
+                        borderRadius: "50%",
+                        background: "#C87560",
+                        border: "none",
+                        color: "#fff",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        lineHeight: "18px",
+                        textAlign: "center",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: 0,
+                        zIndex: 10,
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
               );
             })}

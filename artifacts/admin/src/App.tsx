@@ -190,6 +190,23 @@ function RootRouter() {
       </Route>
 
       {/* ── Daybook Admin (catalog authoring, super_admin only) ───── */}
+      {/* Explicit base route so bare /daybook matches (regexparam /:rest* requires ≥1 segment) */}
+      <Route path="/daybook">
+        <RequireSuperAdmin state={state}>
+          <WouterRouter base="/daybook">
+            <SidebarProvider>
+              <Shell>
+                <Switch>
+                  {daybookRoutes.map((r) => (
+                    <Route key={r.path} path={r.path} component={r.component} />
+                  ))}
+                  <Route component={NotFound} />
+                </Switch>
+              </Shell>
+            </SidebarProvider>
+          </WouterRouter>
+        </RequireSuperAdmin>
+      </Route>
       <Route path="/daybook/:rest*">
         <RequireSuperAdmin state={state}>
           <WouterRouter base="/daybook">

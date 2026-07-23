@@ -28,9 +28,16 @@ router.get(
     })(req, res, next);
   },
   (req, res) => {
-    // Explicitly save session before redirect so cookie is persisted before browser follows it
     req.session.save(() => {
-      res.redirect(process.env.APP_URL ?? "/");
+      // If opened as a popup, notify the opener and close; otherwise do a full redirect
+      res.send(`<!DOCTYPE html><html><body><script>
+        if (window.opener) {
+          window.opener.postMessage({ type: 'daybook:auth_success' }, '*');
+          window.close();
+        } else {
+          window.location.href = '/';
+        }
+      </script></body></html>`);
     });
   },
 );

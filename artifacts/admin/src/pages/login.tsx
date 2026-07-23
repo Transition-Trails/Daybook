@@ -33,6 +33,34 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const loginMutation = useStaffLogin();
+
+  function handleGoogleSignIn() {
+    const w = 500, h = 620;
+    const left = Math.round(window.screenX + (window.outerWidth - w) / 2);
+    const top = Math.round(window.screenY + (window.outerHeight - h) / 2);
+    const popup = window.open(
+      '/api/auth/google',
+      'daybook-google-auth',
+      `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no`,
+    );
+
+    function onMessage(ev: MessageEvent) {
+      if (ev.data?.type === 'daybook:auth_success') {
+        window.removeEventListener('message', onMessage);
+        popup?.close();
+        setLocation('/');
+      }
+    }
+    window.addEventListener('message', onMessage);
+
+    // Clean up listener if popup is closed without completing auth
+    const timer = setInterval(() => {
+      if (popup?.closed) {
+        clearInterval(timer);
+        window.removeEventListener('message', onMessage);
+      }
+    }, 500);
+  }
   
   const form = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
@@ -77,7 +105,7 @@ export default function Login() {
               type="button"
               variant="outline"
               className="w-full flex items-center gap-2 mb-4"
-              onClick={() => { window.location.href = '/api/auth/google'; }}
+              onClick={handleGoogleSignIn}
             >
               <GoogleIcon />
               Sign in with Google

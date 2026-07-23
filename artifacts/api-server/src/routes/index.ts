@@ -8,6 +8,7 @@ import googleSyncRouter from "./google-sync";
 import aiRouter from "./ai";
 import billingRouter from "./billing";
 import usersRouter from "./users";
+import plansRouter from "./plans";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(googleSyncRouter);
 router.use(aiRouter);
 router.use(billingRouter);
 router.use(usersRouter);
+router.use(plansRouter);
 
 export default router;

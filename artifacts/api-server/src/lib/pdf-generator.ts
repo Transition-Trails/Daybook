@@ -2,6 +2,9 @@
  * Daybook PDF Generator
  * Implements spec/LINK-SCHEME.md — deterministic page IDs, all cross-links resolved,
  * CI determinism check before every export.
+ *
+ * Link annotation placement is fully data-driven via PlannerTemplate.
+ * See pdf-template.ts for the type system, DEFAULT_TEMPLATE, and stampPageZones.
  */
 import {
   PDFDocument,
@@ -16,22 +19,21 @@ import {
   PDFNumber,
 } from "pdf-lib";
 import type { PlannerSetup, PlannerStyle, PlannerOutput } from "@workspace/db";
+import {
+  type PageIdMap,
+  type PageRole,
+  type PlannerTemplate,
+  type StampContext,
+  DEFAULT_TEMPLATE,
+  addGoToAnnotation,
+  addUriAnnotation,
+  stampPageZones,
+  validateTemplate,
+} from "./pdf-template";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface PageIdMap {
-  cover: string;
-  home: string;
-  year: string;
-  monthDividers: string[]; // mdiv0, mdiv1, ...
-  monthCalendars: string[]; // m0, m1, ...
-  weeklies: string[]; // w{year}W{ww}
-  dailies: string[]; // d{YYYYMMDD}
-  todo: string;
-  notes: string;
-  sectionDividers: string[]; // ns1, ns2, ...
-  notePaper: string[]; // notes-p0, notes-p1, ...
-}
+export type { PageIdMap } from "./pdf-template";
 
 export interface GeneratorConfig {
   setup: PlannerSetup;
@@ -46,8 +48,8 @@ export interface GeneratorConfig {
 
 function getISOWeekId(date: Date): string {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const day = d.getUTCDay() || 7; // Monday = 1, Sunday = 7
-  d.setUTCDate(d.getUTCDate() + 4 - day); // Thursday of the week
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   const weekNum = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return `w${d.getUTCFullYear()}W${String(weekNum).padStart(2, "0")}`;
@@ -92,13 +94,11 @@ export function generatePageIds(config: GeneratorConfig): PageIdMap {
     notePaper: [],
   };
 
-  // Month dividers + month calendars
   for (let i = 0; i < monthCount; i++) {
     map.monthDividers.push(`mdiv${i}`);
     map.monthCalendars.push(`m${i}`);
   }
 
-  // Dailies: every day in the range
   const seen = new Set<string>();
   for (let i = 0; i < monthCount; i++) {
     const { year, month } = addMonths(startYear, startMonth, i);
@@ -106,40 +106,30 @@ export function generatePageIds(config: GeneratorConfig): PageIdMap {
     for (let d = 1; d <= days; d++) {
       const date = new Date(year, month, d);
       const id = `d${yyyymmdd(date)}`;
-      if (!seen.has(id)) {
-        seen.add(id);
-        map.dailies.push(id);
-      }
+      if (!seen.has(id)) { seen.add(id); map.dailies.push(id); }
     }
   }
 
-  // Weeklies: ISO weeks that overlap the date range
   const startDate = new Date(startYear, startMonth, 1);
   const { year: endYear, month: endMonth } = addMonths(startYear, startMonth, monthCount - 1);
   const endDate = new Date(endYear, endMonth, daysInMonth(endYear, endMonth));
 
   const weeksSeen = new Set<string>();
   const cursor = new Date(startDate);
-  // Rewind to Monday (or Sunday per weekStart)
   const wdOffset = weekStart === "mon" ? 1 : 0;
   while ((cursor.getDay() !== wdOffset) && cursor.getTime() >= startDate.getTime()) {
     cursor.setDate(cursor.getDate() - 1);
   }
   while (cursor.getTime() <= endDate.getTime()) {
     const weekId = getISOWeekId(cursor);
-    if (!weeksSeen.has(weekId)) {
-      weeksSeen.add(weekId);
-      map.weeklies.push(weekId);
-    }
+    if (!weeksSeen.has(weekId)) { weeksSeen.add(weekId); map.weeklies.push(weekId); }
     cursor.setDate(cursor.getDate() + 7);
   }
 
-  // Section dividers: ns1..nsN
   for (let i = 1; i <= sections.length; i++) {
     map.sectionDividers.push(`ns${i}`);
   }
 
-  // Notes paper: 1 page, or 3 if notePaper === "mixed"
   const paperCount = notePaper === "mixed" ? 3 : 1;
   for (let i = 0; i < paperCount; i++) {
     map.notePaper.push(`notes-p${i}`);
@@ -148,13 +138,11 @@ export function generatePageIds(config: GeneratorConfig): PageIdMap {
   return map;
 }
 
-/** Returns a flat ordered list of all page IDs, in page-number order */
 export function flattenPageIds(map: PageIdMap): string[] {
   const ids: string[] = [map.cover, map.home, map.year];
   for (let i = 0; i < map.monthDividers.length; i++) {
     ids.push(map.monthDividers[i]);
     ids.push(map.monthCalendars[i]);
-    // Insert weeklies + dailies that fall in this month? Keep them grouped after month pages
   }
   ids.push(...map.weeklies);
   ids.push(...map.dailies);
@@ -171,85 +159,57 @@ export function validatePageIds(map: PageIdMap, sections: string[]): void {
   const flat = flattenPageIds(map);
   const idSet = new Set<string>();
 
-  // 1. No duplicate IDs
   for (const id of flat) {
-    if (idSet.has(id)) {
-      throw new Error(`CI FAIL: Duplicate page id "${id}"`);
-    }
+    if (idSet.has(id)) throw new Error(`CI FAIL: Duplicate page id "${id}"`);
     idSet.add(id);
   }
-
-  // 2. Required pages always exist
   if (!idSet.has("home")) throw new Error("CI FAIL: Missing required page id 'home'");
   if (!idSet.has("year")) throw new Error("CI FAIL: Missing required page id 'year'");
-
-  // 3. ns* count equals sections.length
   if (map.sectionDividers.length !== sections.length) {
     throw new Error(
       `CI FAIL: ns* count (${map.sectionDividers.length}) != sections.length (${sections.length})`,
     );
   }
 
-  // 4. Cross-link targets: every link must resolve
   const crossLinks: Array<[string, string]> = [
-    ["cover", "home"],
-    ["home", "year"],
-    ["home", "todo"],
-    ["home", "notes"],
+    ["cover", "home"], ["home", "year"], ["home", "todo"], ["home", "notes"],
     ...map.sectionDividers.map((ns): [string, string] => ["home", ns]),
     ...map.monthDividers.map((mdiv, i): [string, string] => [mdiv, `m${i}`]),
     ...map.monthCalendars.map((m, i): [string, string] => [m, map.monthDividers[i]]),
     ...map.sectionDividers.map((ns): [string, string] => [ns, "notes"]),
   ];
-
   for (const [src, tgt] of crossLinks) {
-    if (!idSet.has(tgt)) {
-      throw new Error(`CI FAIL: Page "${src}" links to missing target "${tgt}"`);
-    }
+    if (!idSet.has(tgt)) throw new Error(`CI FAIL: Page "${src}" links to missing target "${tgt}"`);
   }
 
-  // 5. Calendar URL format check (just validates our generation is correct — no network call)
-  // Weeklies follow w{year}W{ww} pattern
+  // Calendar URL format check
   for (const w of map.weeklies) {
-    if (!/^w\d{4}W\d{2}$/.test(w)) {
-      throw new Error(`CI FAIL: Weekly id "${w}" does not match w{year}W{ww}`);
-    }
+    if (!/^w\d{4}W\d{2}$/.test(w)) throw new Error(`CI FAIL: Weekly id "${w}" does not match w{year}W{ww}`);
   }
-
-  // Dailies follow d{YYYYMMDD}
   for (const d of map.dailies) {
-    if (!/^d\d{8}$/.test(d)) {
-      throw new Error(`CI FAIL: Daily id "${d}" does not match d{YYYYMMDD}`);
-    }
+    if (!/^d\d{8}$/.test(d)) throw new Error(`CI FAIL: Daily id "${d}" does not match d{YYYYMMDD}`);
   }
 }
 
 // ── Calendar link helpers ─────────────────────────────────────────────────────
 
 function googleCalendarLink(start: string, end: string): string {
-  // all-day uses YYYYMMDD/YYYYMMDD; timed uses local datetime
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&dates=${start}/${end}`;
 }
 
 function icsDataUri(startDate: Date, endDate: Date, title: string): string {
-  const fmt = (d: Date) =>
-    d.toISOString().replace(/[-:]/g, "").replace(".000Z", "Z");
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(".000Z", "Z");
   const ics = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "BEGIN:VEVENT",
-    `DTSTART:${fmt(startDate)}`,
-    `DTEND:${fmt(endDate)}`,
-    `SUMMARY:${title}`,
-    "END:VEVENT",
-    "END:VCALENDAR",
+    "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT",
+    `DTSTART:${fmt(startDate)}`, `DTEND:${fmt(endDate)}`, `SUMMARY:${title}`,
+    "END:VEVENT", "END:VCALENDAR",
   ].join("\r\n");
   return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
 }
 
 // ── PDF builder ───────────────────────────────────────────────────────────────
 
-const PAGE_WIDTH = 595; // A4 pts
+const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
 const MARGIN = 40;
 
@@ -268,85 +228,32 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
   };
 }
 
-function addUriAnnotation(
-  pdfDoc: PDFDocument,
-  page: PDFPage,
-  url: string,
-  rect: [number, number, number, number],
-  label?: string,
-  font?: Awaited<ReturnType<typeof pdfDoc.embedFont>>,
-  textColor?: { r: number; g: number; b: number },
-): void {
-  if (label && font && textColor) {
-    page.drawText(label, {
-      x: rect[0] + 3,
-      y: rect[1] + 3,
-      size: 8,
-      font,
-      color: rgb(textColor.r, textColor.g, textColor.b),
-    });
-  }
-  const annot = pdfDoc.context.obj({
-    Type: PDFName.of("Annot"),
-    Subtype: PDFName.of("Link"),
-    Rect: rect,
-    Border: [0, 0, 0],
-    A: pdfDoc.context.obj({ Type: PDFName.of("Action"), S: PDFName.of("URI"), URI: url }),
-  });
-  const annotRef = pdfDoc.context.register(annot);
-  const annotsKey = PDFName.of("Annots");
-  const existing = page.node.lookupMaybe(annotsKey, PDFArray);
-  if (existing) existing.push(annotRef);
-  else page.node.set(annotsKey, pdfDoc.context.obj([annotRef]));
-}
-
-function addGoToAnnotation(
-  pdfDoc: PDFDocument,
-  sourcePage: PDFPage,
-  targetPageRef: PDFRef,
-  rect: [number, number, number, number],
-): void {
-  const annot = pdfDoc.context.obj({
-    Type: PDFName.of("Annot"),
-    Subtype: PDFName.of("Link"),
-    Rect: rect,
-    Border: [0, 0, 0],
-    Dest: [targetPageRef, PDFName.of("Fit")],
-  });
-  const annotRef = pdfDoc.context.register(annot);
-  const annotsKey = PDFName.of("Annots");
-  const existing = sourcePage.node.lookupMaybe(annotsKey, PDFArray);
-  if (existing) {
-    existing.push(annotRef);
-  } else {
-    sourcePage.node.set(annotsKey, pdfDoc.context.obj([annotRef]));
-  }
-}
-
 export async function buildPdf(
   config: GeneratorConfig,
-  themeColors?: string[], // 6 hex: [accent, accent-dark, secondary, tertiary, ink, paper]
+  themeColors?: string[],
+  template: PlannerTemplate = DEFAULT_TEMPLATE,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, monthCount, weekStart, orientation } = setup;
-  const tabPos = style.tabPos ?? "right";
+  const tabPos = (style.tabPos ?? "right") as "right" | "top" | "none";
   const calMode = output.calMode ?? "none";
 
-  // 1. Generate & validate page IDs
+  // 1. Generate & validate page IDs + template
   const map = generatePageIds(config);
   validatePageIds(map, sections);
+  validateTemplate(template, map, sections);
 
   // 2. Resolve theme colors
   const colors = themeColors ?? ["#6366f1", "#4f46e5", "#a5b4fc", "#c7d2fe", "#1e1b4b", "#fafafa"];
   const accent = hexToRgb(colors[0] ?? "#6366f1");
-  const ink = hexToRgb(colors[4] ?? "#1e1b4b");
-  const paper = hexToRgb(colors[5] ?? "#fafafa");
+  const ink    = hexToRgb(colors[4] ?? "#1e1b4b");
+  const paper  = hexToRgb(colors[5] ?? "#fafafa");
 
   // 3. Create PDF
   const pdfDoc = await PDFDocument.create();
-  const pageWidth = orientation === "landscape" ? PAGE_HEIGHT : PAGE_WIDTH;
-  const pageHeight = orientation === "landscape" ? PAGE_WIDTH : PAGE_HEIGHT;
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const pageWidth  = orientation === "landscape" ? PAGE_HEIGHT : PAGE_WIDTH;
+  const pageHeight = orientation === "landscape" ? PAGE_WIDTH  : PAGE_HEIGHT;
+  const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
   // 4. Build ordered ID list and create pages
@@ -358,202 +265,150 @@ export async function buildPdf(
     const pageRef = page.ref;
     pageMap.set(id, { id, page, pageRef });
 
-    // Base background
-    page.drawRectangle({
-      x: 0,
-      y: 0,
-      width: pageWidth,
-      height: pageHeight,
-      color: rgb(paper.r, paper.g, paper.b),
-    });
-
-    // Accent header strip (20pt)
-    page.drawRectangle({
-      x: 0,
-      y: pageHeight - 20,
-      width: pageWidth,
-      height: 20,
-      color: rgb(accent.r, accent.g, accent.b),
-    });
-
-    // Page role label
-    page.drawText(id, {
-      x: MARGIN,
-      y: pageHeight - 14,
-      size: 7,
-      font,
-      color: rgb(1, 1, 1),
-    });
+    page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(paper.r, paper.g, paper.b) });
+    page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: rgb(accent.r, accent.g, accent.b) });
+    page.drawText(id, { x: MARGIN, y: pageHeight - 14, size: 7, font, color: rgb(1, 1, 1) });
   }
 
-  // 5. Add content + cross-links
-
-  const getRef = (id: string): PDFRef | null => pageMap.get(id)?.pageRef ?? null;
+  // 5. Convenience accessors
+  const getRef  = (id: string): PDFRef | null => pageMap.get(id)?.pageRef ?? null;
   const getPage = (id: string): PDFPage | null => pageMap.get(id)?.page ?? null;
 
-  // Helper: add a labeled link button on sourcePage pointing to targetId
-  function addLink(
-    sourceId: string,
-    targetId: string,
-    label: string,
-    x: number,
-    y: number,
-    w = 80,
-    h = 16,
-  ) {
-    const sp = getPage(sourceId);
-    const tr = getRef(targetId);
-    if (!sp || !tr) return;
-    sp.drawRectangle({ x, y: y - 2, width: w, height: h, color: rgb(accent.r, accent.g, accent.b), opacity: 0.15 });
-    sp.drawText(label, { x: x + 4, y: y + 2, size: 8, font, color: rgb(ink.r, ink.g, ink.b) });
-    addGoToAnnotation(pdfDoc, sp, tr, [x, y - 2, x + w, y - 2 + h]);
+  // 6. Build month list + StampContext factory
+  const monthList = Array.from({ length: monthCount }, (_, i) => addMonths(startYear, startMonth, i));
+
+  function makeCtx(
+    pageId: string,
+    role: PageRole,
+    extra: Partial<StampContext> = {},
+  ): StampContext {
+    const pw = pageMap.get(pageId);
+    if (!pw) throw new Error(`makeCtx: page "${pageId}" not in pageMap`);
+    return {
+      pageId,
+      page: pw.page,
+      role,
+      pageWidth,
+      pageHeight,
+      pdfDoc,
+      pageMap,
+      accent,
+      ink,
+      font,
+      map,
+      sections,
+      monthList,
+      tabPos,
+      includeTabRail: false,
+      template,
+      ...extra,
+    };
   }
 
-  // COVER -> HOME
+  // 7. Content drawing + link stamping
+  //    Content (drawText / drawRectangle / drawLine) is exactly as before.
+  //    Link annotation placement is delegated to stampPageZones.
+
+  // ── COVER ──
   {
     const sp = getPage("cover");
     if (sp) {
       sp.drawText("Daybook", { x: MARGIN, y: pageHeight / 2 + 40, size: 32, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
       sp.drawText("Your planner, your way.", { x: MARGIN, y: pageHeight / 2, size: 14, font, color: rgb(ink.r, ink.g, ink.b) });
     }
-    addLink("cover", "home", "-> Get started", MARGIN, pageHeight / 2 - 40, 120, 20);
+    stampPageZones(makeCtx("cover", "cover"));
   }
 
-  // HOME -> year, todo, notes, each ns{i}
+  // ── HOME ──
   {
     const sp = getPage("home");
     if (sp) {
       sp.drawText("Home", { x: MARGIN, y: pageHeight - 50, size: 20, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
     }
-    let y = pageHeight - 90;
-    addLink("home", "year", "Year at a Glance", MARGIN, y, 140, 18); y -= 28;
-    addLink("home", "todo", "To-Do", MARGIN, y, 80, 18); y -= 28;
-    addLink("home", "notes", "Notes", MARGIN, y, 80, 18); y -= 28;
-    for (const nsId of map.sectionDividers) {
-      const idx = parseInt(nsId.replace("ns", "")) - 1;
-      addLink("home", nsId, sections[idx] ?? nsId, MARGIN, y, 160, 18);
-      y -= 28;
-    }
+    stampPageZones(makeCtx("home", "home"));
   }
 
-  // YEAR -> each mdiv{i}
+  // ── YEAR ──
   {
     const sp = getPage("year");
     if (sp) {
       sp.drawText("Year Overview", { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
     }
-    let col = 0;
-    for (let i = 0; i < map.monthDividers.length; i++) {
-      const { year, month } = addMonths(startYear, startMonth, i);
-      const monthName = new Date(year, month, 1).toLocaleString("en-US", { month: "short" });
-      const x = MARGIN + (col % 3) * 160;
-      const y = pageHeight - 90 - Math.floor(col / 3) * 40;
-      addLink("year", map.monthDividers[i], `${monthName} ${year}`, x, y, 140, 18);
-      col++;
-    }
+    stampPageZones(makeCtx("year", "year"));
   }
 
-  // MONTH DIVIDER -> MONTH CALENDAR; MONTH CALENDAR day cells -> dailies
+  // ── MONTH DIVIDERS + MONTH CALENDARS ──
   for (let i = 0; i < map.monthDividers.length; i++) {
     const mdivId = map.monthDividers[i];
-    const mId = map.monthCalendars[i];
-    const { year, month } = addMonths(startYear, startMonth, i);
+    const mId    = map.monthCalendars[i];
+    const { year, month } = monthList[i];
     const monthName = new Date(year, month, 1).toLocaleString("en-US", { month: "long" });
 
+    // Month divider: content
     const mdivPage = getPage(mdivId);
     if (mdivPage) {
       mdivPage.drawText(monthName, { x: MARGIN, y: pageHeight / 2, size: 36, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
       mdivPage.drawText(String(year), { x: MARGIN, y: pageHeight / 2 - 44, size: 18, font, color: rgb(ink.r, ink.g, ink.b) });
     }
-    addLink(mdivId, mId, "-> Month view", pageWidth - 120, MARGIN, 100, 18);
+    // Month divider: links
+    stampPageZones(makeCtx(mdivId, "month-divider", { monthIndex: i }));
 
-    // Month calendar -> each day
+    // Month calendar: content
     const mPage = getPage(mId);
     if (mPage) {
       mPage.drawText(`${monthName} ${year}`, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
     }
-    const days = daysInMonth(year, month);
-    for (let d = 1; d <= days; d++) {
-      const date = new Date(year, month, d);
-      const dayId = `d${yyyymmdd(date)}`;
-      const col = (d - 1) % 7;
-      const row = Math.floor((d - 1) / 7);
-      const cx = MARGIN + col * 72;
-      const cy = pageHeight - 80 - row * 50;
-      addLink(mId, dayId, String(d), cx, cy, 60, 18);
-    }
 
-    // Month calendar -> previous mdiv (tab rail)
-    if (i > 0) addLink(mId, map.monthDividers[i - 1], "<< Prev", MARGIN, MARGIN, 60, 18);
-    if (i < map.monthDividers.length - 1) addLink(mId, map.monthDividers[i + 1], "Next >>", pageWidth - 80, MARGIN, 60, 18);
+    // Month calendar: links (prev-mdiv, next-mdiv + day cells via dayCells spec)
+    // weekStartOffset=0 matches the current code's (d-1)%7 layout (no weekday alignment)
+    stampPageZones(makeCtx(mId, "month-calendar", {
+      monthIndex: i,
+      dayOfMonthContext: { year, month, weekStartOffset: 0 },
+    }));
   }
 
-  // Tab rail -> each m{i} (on daily/weekly pages if tabPos !== "none")
-  if (tabPos !== "none") {
-    const tabPages = [...map.weeklies, ...map.dailies, "todo", "notes", ...map.sectionDividers, ...map.notePaper];
-    for (const sourceId of tabPages) {
-      for (let i = 0; i < map.monthCalendars.length; i++) {
-        const { year, month } = addMonths(startYear, startMonth, i);
-        const label = new Date(year, month, 1).toLocaleString("en-US", { month: "short" });
-        const tx = tabPos === "right" ? pageWidth - 24 : MARGIN + i * 30;
-        const ty = tabPos === "right" ? pageHeight - 60 - i * 30 : pageHeight - 20;
-        addLink(sourceId, map.monthCalendars[i], label, tx, ty, 20, 16);
-      }
-    }
-  } else {
-    // tabPos === "none": ONLY home tab
-    const tabPages = [...map.weeklies, ...map.dailies, "todo", "notes", ...map.sectionDividers, ...map.notePaper];
-    for (const sourceId of tabPages) {
-      addLink(sourceId, "home", "Home", MARGIN, pageHeight - 50, 24, 18);
-    }
-  }
-
-  // WEEKLIES ↔ dailies + back to m{n}
+  // ── WEEKLIES ──
   for (const weekId of map.weeklies) {
     const wPage = getPage(weekId);
     if (!wPage) continue;
     const weekMatch = weekId.match(/^w(\d{4})W(\d{2})$/);
     if (!weekMatch) continue;
     const weekYear = parseInt(weekMatch[1]);
-    const weekNum = parseInt(weekMatch[2]);
+    const weekNum  = parseInt(weekMatch[2]);
 
-    // Find Monday of this ISO week
     const jan4 = new Date(weekYear, 0, 4);
     const monday = new Date(jan4);
     monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (weekNum - 1) * 7);
 
     wPage.drawText(`Week ${weekNum} — ${weekYear}`, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
 
-    // Weekly ↔ 7 days
+    // Calendar links per day (remains imperative — driven by output.calMode)
     for (let d = 0; d < 7; d++) {
       const date = new Date(monday);
       date.setDate(monday.getDate() + d);
-      const dayId = `d${yyyymmdd(date)}`;
-      const label = date.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric" });
-      addLink(weekId, dayId, label, MARGIN + d * 70, pageHeight - 90, 65, 18);
-
-      // Calendar link on weekly page (per spec: google or apple; none = no link)
       if (calMode === "google" || calMode === "apple") {
         const nextDay = new Date(date);
         nextDay.setDate(date.getDate() + 1);
-        const lp = getPage(weekId);
-        if (lp) {
-          const calRect: [number, number, number, number] = [
-            MARGIN + d * 70, pageHeight - 120, MARGIN + d * 70 + 65, pageHeight - 102,
-          ];
-          if (calMode === "google") {
-            addUriAnnotation(pdfDoc, lp, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Cal", font, accent);
-          } else {
-            // apple: .ics data URI (all-day event for weekly day cells)
-            const startDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
-            const endDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, output.eventMins ?? 60, 0);
-            addUriAnnotation(pdfDoc, lp, icsDataUri(startDt, endDt, `Week ${weekNum} — Day ${d + 1}`), calRect, "+Cal", font, accent);
-          }
+        const calRect: [number, number, number, number] = [
+          MARGIN + d * 70, pageHeight - 120, MARGIN + d * 70 + 65, pageHeight - 102,
+        ];
+        if (calMode === "google") {
+          addUriAnnotation(pdfDoc, wPage, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Cal", font, accent);
+        } else {
+          const startDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
+          const endDt   = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, output.eventMins ?? 60, 0);
+          addUriAnnotation(pdfDoc, wPage, icsDataUri(startDt, endDt, `Week ${weekNum} Day ${d + 1}`), calRect, "+Cal", font, accent);
         }
       }
     }
 
-    // Back to month: find which month this week falls in
+    // AI block
+    if (output.aiInPdf) {
+      const aiUrl = `${process.env.APP_URL ?? "https://daybook.app"}/assistant?context=weekly&page=${weekId}`;
+      addUriAnnotation(pdfDoc, wPage, aiUrl, [MARGIN, MARGIN + 22, MARGIN + 130, MARGIN + 40], "* Ask AI about this week", font, accent);
+    }
+
+    // Find which month this weekly falls in
     const monthIdx = (() => {
       for (let i = 0; i < monthCount; i++) {
         const { year, month } = addMonths(startYear, startMonth, i);
@@ -561,16 +416,16 @@ export async function buildPdf(
       }
       return 0;
     })();
-    addLink(weekId, map.monthCalendars[monthIdx], "Month", MARGIN, MARGIN, 60, 18);
 
-    // AI block — clickable link to user assistant (spec: output.aiInPdf = true)
-    if (output.aiInPdf) {
-      const aiUrl = `${process.env.APP_URL ?? "https://daybook.app"}/assistant?context=weekly&page=${weekId}`;
-      addUriAnnotation(pdfDoc, wPage, aiUrl, [MARGIN, MARGIN + 22, MARGIN + 130, MARGIN + 40], "* Ask AI about this week", font, accent);
-    }
+    // Links: month-for-week + 7 day columns via template
+    stampPageZones(makeCtx(weekId, "weekly", {
+      weeklyMonthIndex: monthIdx,
+      weekMonday: monday,
+      includeTabRail: true,
+    }));
   }
 
-  // DAILIES -> month + prev/next day
+  // ── DAILIES ──
   const dailyList = map.dailies;
   for (let i = 0; i < dailyList.length; i++) {
     const dayId = dailyList[i];
@@ -578,30 +433,17 @@ export async function buildPdf(
     if (!dPage) continue;
 
     const dateStr = dayId.replace("d", "");
-    const year = parseInt(dateStr.substring(0, 4));
+    const year  = parseInt(dateStr.substring(0, 4));
     const month = parseInt(dateStr.substring(4, 6)) - 1;
-    const day = parseInt(dateStr.substring(6, 8));
-    const date = new Date(year, month, day);
+    const day   = parseInt(dateStr.substring(6, 8));
+    const date  = new Date(year, month, day);
 
-    dPage.drawText(date.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }), {
-      x: MARGIN, y: pageHeight - 50, size: 14, font: fontBold, color: rgb(ink.r, ink.g, ink.b),
-    });
+    dPage.drawText(
+      date.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
+      { x: MARGIN, y: pageHeight - 50, size: 14, font: fontBold, color: rgb(ink.r, ink.g, ink.b) },
+    );
 
-    // -> month calendar
-    const monthIdx = (() => {
-      for (let j = 0; j < monthCount; j++) {
-        const m = addMonths(startYear, startMonth, j);
-        if (m.year === year && m.month === month) return j;
-      }
-      return 0;
-    })();
-    addLink(dayId, map.monthCalendars[monthIdx], "Month", MARGIN, MARGIN, 60, 18);
-
-    // prev/next day
-    if (i > 0) addLink(dayId, dailyList[i - 1], "<< Prev", MARGIN + 70, MARGIN, 60, 18);
-    if (i < dailyList.length - 1) addLink(dayId, dailyList[i + 1], "Next >>", MARGIN + 140, MARGIN, 60, 18);
-
-    // Calendar link (per spec/LINK-SCHEME.md)
+    // Calendar link
     if (calMode === "google" || calMode === "apple") {
       const nextDay = new Date(date);
       nextDay.setDate(date.getDate() + 1);
@@ -609,38 +451,64 @@ export async function buildPdf(
       if (calMode === "google") {
         addUriAnnotation(pdfDoc, dPage, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Google Cal", font, accent);
       } else {
-        // apple: timed event per output.eventMins
         const startDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
-        const endDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, output.eventMins ?? 60, 0);
+        const endDt   = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, output.eventMins ?? 60, 0);
         addUriAnnotation(pdfDoc, dPage, icsDataUri(startDt, endDt, date.toLocaleDateString("en-US", { month: "long", day: "numeric" })), calRect, "+Apple Cal", font, accent);
       }
     }
 
-    // AI block — clickable link with context (spec: output.aiInPdf = true)
+    // AI block
     if (output.aiInPdf) {
       const aiUrl = `${process.env.APP_URL ?? "https://daybook.app"}/assistant?context=daily&page=${dayId}`;
       addUriAnnotation(pdfDoc, dPage, aiUrl, [pageWidth - MARGIN - 70, MARGIN + 22, pageWidth - MARGIN, MARGIN + 40], "* Ask AI", font, accent);
     }
+
+    const monthIdx = (() => {
+      for (let j = 0; j < monthCount; j++) {
+        const m = addMonths(startYear, startMonth, j);
+        if (m.year === year && m.month === month) return j;
+      }
+      return 0;
+    })();
+
+    // Links: month-for-day, prev-day, next-day via template
+    stampPageZones(makeCtx(dayId, "daily", {
+      monthIndex: monthIdx,
+      dailyIndex: i,
+      includeTabRail: true,
+    }));
   }
 
-  // NOTES -> each ns{i}; each ns{i} -> notes
+  // ── TODO ──
+  stampPageZones(makeCtx("todo", "todo", { includeTabRail: true }));
+
+  // ── NOTES + SECTION DIVIDERS ──
   {
     const np = getPage("notes");
     if (np) {
       np.drawText("Notes", { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
     }
+    stampPageZones(makeCtx("notes", "notes", { includeTabRail: true }));
+
     for (let i = 0; i < map.sectionDividers.length; i++) {
       const nsId = map.sectionDividers[i];
-      addLink("notes", nsId, sections[i] ?? nsId, MARGIN, pageHeight - 90 - i * 28, 200, 18);
-      addLink(nsId, "notes", "← Notes", MARGIN, MARGIN, 60, 18);
       const nsp = getPage(nsId);
       if (nsp) {
         nsp.drawText(sections[i] ?? nsId, { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
       }
+      stampPageZones(makeCtx(nsId, "section-divider", {
+        sectionIndex: i,
+        includeTabRail: true,
+      }));
     }
   }
 
-  // 6. Serialize
+  // ── NOTE PAPER ──
+  for (const npId of map.notePaper) {
+    stampPageZones(makeCtx(npId, "note-paper", { includeTabRail: true }));
+  }
+
+  // 8. Serialize
   const pdfBytes = await pdfDoc.save();
   return { buffer: pdfBytes, pageCount: flat.length };
 }
@@ -654,41 +522,35 @@ export async function buildPdf(
 export async function buildPreviewPdf(
   config: GeneratorConfig,
   themeColors?: string[],
+  template: PlannerTemplate = DEFAULT_TEMPLATE,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, weekStart, orientation } = setup;
+  const tabPos = (style.tabPos ?? "right") as "right" | "top" | "none";
 
   const colors = themeColors ?? ["#6366f1", "#4f46e5", "#a5b4fc", "#c7d2fe", "#1e1b4b", "#fafafa"];
   const accent = hexToRgb(colors[0] ?? "#6366f1");
-  const ink = hexToRgb(colors[4] ?? "#1e1b4b");
-  const paper = hexToRgb(colors[5] ?? "#fafafa");
+  const ink    = hexToRgb(colors[4] ?? "#1e1b4b");
+  const paper  = hexToRgb(colors[5] ?? "#fafafa");
 
   const pdfDoc = await PDFDocument.create();
-  const pageWidth = orientation === "landscape" ? PAGE_HEIGHT : PAGE_WIDTH;
-  const pageHeight = orientation === "landscape" ? PAGE_WIDTH : PAGE_HEIGHT;
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const pageWidth  = orientation === "landscape" ? PAGE_HEIGHT : PAGE_WIDTH;
+  const pageHeight = orientation === "landscape" ? PAGE_WIDTH  : PAGE_HEIGHT;
+  const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-  // Representative page IDs
-  const firstDate = new Date(startYear, startMonth, 1);
-  const firstDayId = `d${yyyymmdd(firstDate)}`;
+  const firstDate     = new Date(startYear, startMonth, 1);
+  const firstDayId    = `d${yyyymmdd(firstDate)}`;
   const firstWeeklyId = getISOWeekId(firstDate);
-  const monthNameFull = firstDate.toLocaleString("en-US", { month: "long" });
+  const monthNameFull  = firstDate.toLocaleString("en-US", { month: "long" });
   const monthNameShort = firstDate.toLocaleString("en-US", { month: "short" });
 
   const previewIds: string[] = [
-    "cover",
-    "home",
-    "year",
-    "mdiv0",
-    "m0",
-    firstWeeklyId,
-    firstDayId,
-    "notes",
+    "cover", "home", "year", "mdiv0", "m0",
+    firstWeeklyId, firstDayId, "notes",
     ...(sections.length > 0 ? ["ns1"] : []),
   ];
 
-  // Create pages with shared base styling
   const pageMap = new Map<string, PageWithId>();
   for (const id of previewIds) {
     const page = pdfDoc.addPage([pageWidth, pageHeight]);
@@ -698,10 +560,11 @@ export async function buildPreviewPdf(
     page.drawText(id, { x: MARGIN, y: pageHeight - 14, size: 7, font, color: rgb(1, 1, 1) });
   }
 
-  const getRef = (id: string): PDFRef | null => pageMap.get(id)?.pageRef ?? null;
+  const getRef  = (id: string): PDFRef | null => pageMap.get(id)?.pageRef ?? null;
   const getPage = (id: string): PDFPage | null => pageMap.get(id)?.page ?? null;
 
-  function addLink(srcId: string, tgtId: string, label: string, x: number, y: number, w = 80, h = 16) {
+  // Preview-specific addLink (for links that aren't in the DEFAULT_TEMPLATE)
+  function addLinkPreview(srcId: string, tgtId: string, label: string, x: number, y: number, w = 80, h = 16) {
     const sp = getPage(srcId);
     const tr = getRef(tgtId);
     if (!sp || !tr) return;
@@ -710,33 +573,65 @@ export async function buildPreviewPdf(
     addGoToAnnotation(pdfDoc, sp, tr, [x, y - 2, x + w, y - 2 + h]);
   }
 
+  // Preview PageIdMap (minimal — only preview pages)
+  const previewMap: PageIdMap = {
+    cover: "cover",
+    home: "home",
+    year: "year",
+    monthDividers: ["mdiv0"],
+    monthCalendars: ["m0"],
+    weeklies: [firstWeeklyId],
+    dailies: [firstDayId],
+    todo: "todo",
+    notes: "notes",
+    sectionDividers: sections.length > 0 ? ["ns1"] : [],
+    notePaper: [],
+  };
+  const previewMonthList = [{ year: startYear, month: startMonth }];
+
+  function makePreviewCtx(
+    pageId: string,
+    role: PageRole,
+    extra: Partial<StampContext> = {},
+  ): StampContext {
+    const pw = pageMap.get(pageId);
+    if (!pw) throw new Error(`makePreviewCtx: "${pageId}" not in preview pageMap`);
+    return {
+      pageId, page: pw.page, role, pageWidth, pageHeight,
+      pdfDoc, pageMap, accent, ink, font,
+      map: previewMap, sections,
+      monthList: previewMonthList,
+      tabPos, includeTabRail: false,
+      template,
+      ...extra,
+    };
+  }
+
   // ── COVER ──
   const cp = getPage("cover");
   if (cp) {
     cp.drawText("Daybook", { x: MARGIN, y: pageHeight / 2 + 40, size: 32, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
     cp.drawText("Your planner, your way.", { x: MARGIN, y: pageHeight / 2, size: 14, font, color: rgb(ink.r, ink.g, ink.b) });
-    // Decorative accent block
     cp.drawRectangle({ x: 0, y: 0, width: 8, height: pageHeight, color: rgb(accent.r, accent.g, accent.b) });
   }
-  addLink("cover", "home", "-> Get started", MARGIN, pageHeight / 2 - 40, 120, 20);
+  stampPageZones(makePreviewCtx("cover", "cover"));
 
   // ── HOME ──
   const homeP = getPage("home");
-  if (homeP) homeP.drawText("Home", { x: MARGIN, y: pageHeight - 50, size: 20, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
-  let hy = pageHeight - 90;
-  addLink("home", "year", "Year at a Glance", MARGIN, hy, 140, 18); hy -= 28;
-  addLink("home", "m0", monthNameShort, MARGIN, hy, 80, 18); hy -= 28;
-  addLink("home", "notes", "Notes", MARGIN, hy, 80, 18); hy -= 28;
-  for (let i = 0; i < Math.min(sections.length, 1); i++) {
-    addLink("home", "ns1", sections[i], MARGIN, hy, 160, 18);
+  if (homeP) {
+    homeP.drawText("Home", { x: MARGIN, y: pageHeight - 50, size: 20, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
   }
+  // Standard home links (year, todo→skipped, notes, sections)
+  stampPageZones(makePreviewCtx("home", "home"));
+  // Preview-specific shortcut: direct link to first month calendar
+  let hy = pageHeight - 90 - 28; // slot below "Year at a Glance"
+  addLinkPreview("home", "m0", monthNameShort, MARGIN, hy, 80, 18);
 
   // ── YEAR ──
   const yp = getPage("year");
   if (yp) {
     yp.drawText(`${startYear} Year Overview`, { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
     yp.drawText("(preview shows first month)", { x: MARGIN, y: pageHeight - 68, size: 9, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.4 });
-    // Mini 3×4 month grid
     const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     for (let m = 0; m < 12; m++) {
       const col = m % 4;
@@ -744,13 +639,12 @@ export async function buildPreviewPdf(
       const mx = MARGIN + col * 120;
       const my = pageHeight - 100 - row * 40;
       const isFirst = m === startMonth;
-      if (isFirst) {
-        yp.drawRectangle({ x: mx - 2, y: my - 4, width: 110, height: 24, color: rgb(accent.r, accent.g, accent.b), opacity: 0.12 });
-      }
+      if (isFirst) yp.drawRectangle({ x: mx - 2, y: my - 4, width: 110, height: 24, color: rgb(accent.r, accent.g, accent.b), opacity: 0.12 });
       yp.drawText(MONTH_NAMES[m] + " " + startYear, { x: mx, y: my + 6, size: 9, font: isFirst ? fontBold : font, color: rgb(ink.r, ink.g, ink.b) });
     }
   }
-  addLink("year", "mdiv0", `${monthNameShort} ${startYear}`, MARGIN, pageHeight - 240, 140, 18);
+  // Year → mdiv0 (template repeating zone stamps this; gracefully skips mdiv1..N not in preview)
+  stampPageZones(makePreviewCtx("year", "year"));
 
   // ── MONTH DIVIDER ──
   const mdivP = getPage("mdiv0");
@@ -759,48 +653,45 @@ export async function buildPreviewPdf(
     mdivP.drawText(monthNameFull, { x: MARGIN, y: pageHeight / 2 + 20, size: 36, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
     mdivP.drawText(String(startYear), { x: MARGIN, y: pageHeight / 2 - 24, size: 18, font, color: rgb(ink.r, ink.g, ink.b) });
   }
-  addLink("mdiv0", "m0", "-> Month view", pageWidth - 120, MARGIN, 100, 18);
+  stampPageZones(makePreviewCtx("mdiv0", "month-divider", { monthIndex: 0 }));
 
   // ── MONTH CALENDAR ──
   const mcp = getPage("m0");
   if (mcp) {
     mcp.drawText(`${monthNameFull} ${startYear}`, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
-    // Day-of-week header
-    const DOW = weekStart === "mon" ? ["Mo","Tu","We","Th","Fr","Sa","Su"] : ["Su","Mo","Tu","We","Th","Fr","Sa"];
+    const DOW = weekStart === "mon"
+      ? ["Mo","Tu","We","Th","Fr","Sa","Su"]
+      : ["Su","Mo","Tu","We","Th","Fr","Sa"];
     const colW = (pageWidth - 2 * MARGIN) / 7;
     for (let c = 0; c < 7; c++) {
       mcp.drawText(DOW[c], { x: MARGIN + c * colW + colW / 2 - 6, y: pageHeight - 72, size: 8, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
     }
-    // Day cells
+    // Draw day number text (links are handled by template dayCells)
     const days = daysInMonth(startYear, startMonth);
     const firstDow = new Date(startYear, startMonth, 1).getDay();
-    const offset = weekStart === "mon" ? (firstDow + 6) % 7 : firstDow;
+    // weekStartOffset=0 keeps consistency with main buildPdf's (d-1)%7 grid layout
     for (let d = 1; d <= days; d++) {
-      const slot = d - 1 + offset;
+      const slot = d - 1; // weekStartOffset=0
       const col = slot % 7;
       const row = Math.floor(slot / 7);
-      const cx = MARGIN + col * colW;
-      const cy = pageHeight - 95 - row * 40;
-      const isFirst = d === 1;
-      if (isFirst) {
-        mcp.drawRectangle({ x: cx, y: cy - 4, width: colW - 2, height: 28, color: rgb(accent.r, accent.g, accent.b), opacity: 0.15 });
-        addLink("m0", firstDayId, String(d), cx + 2, cy, colW - 6, 18);
-      } else {
-        mcp.drawText(String(d), { x: cx + 6, y: cy + 4, size: 9, font, color: rgb(ink.r, ink.g, ink.b) });
-      }
+      const cx = MARGIN + col * 72;
+      const cy = pageHeight - 80 - row * 50;
+      mcp.drawText(String(d), { x: cx + 6, y: cy + 4, size: 9, font, color: rgb(ink.r, ink.g, ink.b) });
     }
   }
-  addLink("m0", "mdiv0", "<< Back", MARGIN, MARGIN, 60, 18);
+  stampPageZones(makePreviewCtx("m0", "month-calendar", {
+    monthIndex: 0,
+    dayOfMonthContext: { year: startYear, month: startMonth, weekStartOffset: 0 },
+  }));
 
   // ── WEEKLY ──
   const wp = getPage(firstWeeklyId);
   const weekMatch = firstWeeklyId.match(/^w(\d{4})W(\d{2})$/);
   if (wp && weekMatch) {
     const weekYear = parseInt(weekMatch[1]);
-    const weekNum = parseInt(weekMatch[2]);
+    const weekNum  = parseInt(weekMatch[2]);
     wp.drawText(`Week ${weekNum} — ${weekYear}`, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
 
-    // Find the Monday of this ISO week
     const jan4 = new Date(weekYear, 0, 4);
     const monday = new Date(jan4);
     monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (weekNum - 1) * 7);
@@ -811,30 +702,30 @@ export async function buildPreviewPdf(
       date.setDate(monday.getDate() + d);
       const label = date.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric" });
       const cx = MARGIN + d * colW;
-      // Column header
       const isFirstDay = yyyymmdd(date) === yyyymmdd(firstDate);
       if (isFirstDay) {
         wp.drawRectangle({ x: cx, y: pageHeight - 97, width: colW - 2, height: 28, color: rgb(accent.r, accent.g, accent.b), opacity: 0.12 });
-        addLink(firstWeeklyId, firstDayId, label, cx + 2, pageHeight - 92, colW - 6, 18);
       } else {
         wp.drawText(label, { x: cx + 4, y: pageHeight - 88, size: 7, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
       }
-      // Column separator line
       if (d > 0) {
         wp.drawLine({ start: { x: cx, y: pageHeight - 100 }, end: { x: cx, y: MARGIN + 30 }, thickness: 0.4, color: rgb(ink.r, ink.g, ink.b), opacity: 0.1 });
       }
-      // Hourly slots
       for (let h = 8; h <= 18; h++) {
         const hy2 = pageHeight - 110 - (h - 8) * 26;
         if (hy2 < MARGIN + 30) break;
-        if (d === 0) {
-          wp.drawText(`${h}:00`, { x: MARGIN - 2, y: hy2, size: 6, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.3 });
-        }
+        if (d === 0) wp.drawText(`${h}:00`, { x: MARGIN - 2, y: hy2, size: 6, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.3 });
         wp.drawLine({ start: { x: cx + 1, y: hy2 + 4 }, end: { x: cx + colW - 2, y: hy2 + 4 }, thickness: 0.3, color: rgb(ink.r, ink.g, ink.b), opacity: 0.08 });
       }
     }
+
+    // Links via template (month-for-week + week-day columns; tab rail)
+    stampPageZones(makePreviewCtx(firstWeeklyId, "weekly", {
+      weeklyMonthIndex: 0,
+      weekMonday: monday,
+      includeTabRail: true,
+    }));
   }
-  addLink(firstWeeklyId, "m0", "Month", MARGIN, MARGIN, 60, 18);
 
   // ── DAILY ──
   const dp = getPage(firstDayId);
@@ -843,9 +734,7 @@ export async function buildPreviewPdf(
       firstDate.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
       { x: MARGIN, y: pageHeight - 50, size: 14, font: fontBold, color: rgb(ink.r, ink.g, ink.b) },
     );
-    // Divider under title
     dp.drawLine({ start: { x: MARGIN, y: pageHeight - 60 }, end: { x: pageWidth - MARGIN, y: pageHeight - 60 }, thickness: 0.5, color: rgb(accent.r, accent.g, accent.b), opacity: 0.3 });
-    // Time grid
     for (let h = 6; h <= 21; h++) {
       const hy2 = pageHeight - 80 - (h - 6) * ((pageHeight - 80 - MARGIN - 30) / 16);
       if (hy2 < MARGIN + 30) break;
@@ -853,22 +742,27 @@ export async function buildPreviewPdf(
       dp.drawLine({ start: { x: MARGIN + 34, y: hy2 + 4 }, end: { x: pageWidth - MARGIN, y: hy2 + 4 }, thickness: 0.3, color: rgb(ink.r, ink.g, ink.b), opacity: h % 4 === 0 ? 0.2 : 0.07 });
     }
   }
-  addLink(firstDayId, firstWeeklyId, "Week", MARGIN, MARGIN, 60, 18);
-  addLink(firstDayId, "m0", "Month", MARGIN + 68, MARGIN, 60, 18);
+  // Standard daily links (month-for-day, prev-day→null, next-day→null for preview)
+  stampPageZones(makePreviewCtx(firstDayId, "daily", {
+    monthIndex: 0,
+    dailyIndex: 0,
+    includeTabRail: true,
+  }));
+  // Preview-specific: link back to weekly
+  addLinkPreview(firstDayId, firstWeeklyId, "Week", MARGIN, MARGIN, 60, 18);
 
   // ── NOTES ──
   const np = getPage("notes");
   if (np) {
     np.drawText("Notes", { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
-    // Dot-grid pattern
     const dotGap = 18;
     for (let px = MARGIN; px < pageWidth - MARGIN; px += dotGap) {
       for (let py = MARGIN + 10; py < pageHeight - 80; py += dotGap) {
         np.drawCircle({ x: px, y: py, size: 0.8, color: rgb(ink.r, ink.g, ink.b), opacity: 0.15 });
       }
     }
-    if (sections.length > 0) addLink("notes", "ns1", sections[0], MARGIN, pageHeight - 90, 200, 18);
   }
+  stampPageZones(makePreviewCtx("notes", "notes", { includeTabRail: true }));
 
   // ── SECTION DIVIDER ns1 ──
   if (sections.length > 0) {
@@ -878,14 +772,17 @@ export async function buildPreviewPdf(
       nsp.drawText(sections[0], { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
       nsp.drawText("section divider", { x: MARGIN, y: pageHeight - 70, size: 10, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.4 });
     }
-    addLink("ns1", "notes", "← Notes", MARGIN, MARGIN, 60, 18);
+    stampPageZones(makePreviewCtx("ns1", "section-divider", {
+      sectionIndex: 0,
+      includeTabRail: true,
+    }));
   }
 
-  // ── PREVIEW FOOTER on every page ──
+  // ── Preview footer on every page ──
   for (const id of previewIds) {
     const p = getPage(id);
     if (p) {
-      p.drawText("PREVIEW — representative pages only, not the final output", {
+      p.drawText("PREVIEW -- representative pages only, not the final output", {
         x: pageWidth / 2 - 130, y: 6, size: 7, font,
         color: rgb(accent.r, accent.g, accent.b), opacity: 0.45,
       });

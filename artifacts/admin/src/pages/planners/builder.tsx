@@ -16,7 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, FileText, CheckCircle2, AlertCircle, Wand2, Eye } from 'lucide-react';
+import { Loader2, FileText, CheckCircle2, AlertCircle, Wand2, Eye, PenLine } from 'lucide-react';
+import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 
 type CalMode = 'none' | 'overlay' | 'link';
@@ -55,6 +56,7 @@ function buildBody(params: {
 
 export default function PlannerBuilder() {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   // Catalog data
   const { data: allEditions = [] } = useListEditions();
@@ -396,7 +398,7 @@ export default function PlannerBuilder() {
             <Card className="border-emerald-500/30 bg-emerald-500/5">
               <CardContent className="pt-4 pb-4 flex items-start gap-3">
                 <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5 shrink-0" />
-                <div className="space-y-1">
+                <div className="space-y-2 flex-1">
                   <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
                     Saved — {result.pageCount} pages
                   </p>
@@ -404,6 +406,15 @@ export default function PlannerBuilder() {
                     <div>ID: {result.id}</div>
                     <div>PDF: {result.drive.pdfFileId}</div>
                   </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-1 gap-2 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
+                    onClick={() => navigate(`/planners/${result.id}/ink`)}
+                  >
+                    <PenLine className="w-3.5 h-3.5" />
+                    Open in Ink ✦
+                  </Button>
                 </div>
               </CardContent>
             </Card>

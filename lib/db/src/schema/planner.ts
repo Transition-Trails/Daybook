@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, jsonb, unique } from "drizzle-orm/pg-core";
 
 // ── SETUP (locked after first generation) ─────────────────────────────────────
 export type PlannerSetup = {
@@ -83,3 +83,52 @@ export const generationJobsTable = pgTable("generation_jobs", {
 
 export type GenerationJob = typeof generationJobsTable.$inferSelect;
 export type InsertGenerationJob = typeof generationJobsTable.$inferInsert;
+
+// ── Ink annotation types ───────────────────────────────────────────────────────
+
+export type InkPoint = { x: number; y: number; p: number };
+
+export type InkStroke = {
+  id: string;
+  tool: "pen" | "highlighter" | "eraser";
+  color: string;
+  baseWidth: number;
+  points: InkPoint[];
+};
+
+export type InkObject = {
+  id: string;
+  kind: "sticker";
+  ref: string;   // emoji glyph or catalog sticker id
+  x: number;    // normalized 0..1
+  y: number;    // normalized 0..1
+  scale: number;
+  z: number;
+};
+
+// ── annotation_layers ─────────────────────────────────────────────────────────
+
+export const annotationLayersTable = pgTable(
+  "annotation_layers",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    plannerId: text("planner_id").notNull(),
+    pageId: text("page_id").notNull(),
+    userId: text("user_id").notNull(),
+    strokes: jsonb("strokes").notNull().default([]).$type<InkStroke[]>(),
+    objects: jsonb("objects").notNull().default([]).$type<InkObject[]>(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    schemaVersion: integer("schema_version").notNull().default(1),
+  },
+  (t) => ({
+    uniqueLayer: unique().on(t.plannerId, t.pageId, t.userId),
+  }),
+);
+
+export type AnnotationLayer = typeof annotationLayersTable.$inferSelect;
+export type InsertAnnotationLayer = typeof annotationLayersTable.$inferInsert;

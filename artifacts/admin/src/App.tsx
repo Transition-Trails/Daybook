@@ -22,6 +22,9 @@ import NotFound from "@/pages/not-found";
 // ── Daybook Admin (existing catalog pages) ────────────────────────────────────
 import { routes as daybookRoutes } from "@/pages/routes";
 
+// ── Daybook Ink (standalone, no Shell) ───────────────────────────────────────
+import InkEditor from "@/pages/planners/InkEditor";
+
 // ── Super Admin pages ─────────────────────────────────────────────────────────
 import SuperDashboard from "@/pages/super/Dashboard";
 import SuperStores from "@/pages/super/Stores";
@@ -168,6 +171,15 @@ function RootRouter() {
               </StoreAdminShell>
             )}
           </RequireStore>
+        )}
+      </Route>
+
+      {/* ── Daybook Ink — full-screen editor, no Shell ───────────── */}
+      <Route path="/daybook/planners/:id/ink">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <InkEditor key={p.id} />
+          </RequireSuperAdmin>
         )}
       </Route>
 

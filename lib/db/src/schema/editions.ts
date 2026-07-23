@@ -2,6 +2,7 @@ import {
   pgTable,
   text,
   integer,
+  boolean,
   timestamp,
   jsonb,
   real,
@@ -39,6 +40,7 @@ export const editionsTable = pgTable("editions", {
       notes: null,
     })
     .$type<EditionArt>(),
+  globalAvailable: boolean("global_available").notNull().default(true),
   revisionOf: text("revision_of"), // edition id | null
   year: integer("year"),
   createdAt: timestamp("created_at", { withTimezone: true })

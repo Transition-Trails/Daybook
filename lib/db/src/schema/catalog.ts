@@ -23,6 +23,8 @@ export const themesTable = pgTable("themes", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+  // Controls whether stores may enable this item in their shop.
+  globalAvailable: boolean("global_available").notNull().default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -45,6 +47,7 @@ export const stickerPacksTable = pgTable("sticker_packs", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+  globalAvailable: boolean("global_available").notNull().default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -83,6 +86,7 @@ export const insertsTable = pgTable("inserts", {
   assetId: text("asset_id").references(() => assetsTable.id),
   planners: jsonb("planners").notNull().default(["all"]).$type<string[]>(), // edition ids or ["all"]
   status: text("status").notNull().default("draft"), // draft | live
+  globalAvailable: boolean("global_available").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -104,6 +108,7 @@ export const relatedProductsTable = pgTable("related_products", {
   status: text("status").notNull().default("draft"), // draft | live
   price: real("price").notNull().default(0),
   matches: jsonb("matches").notNull().default([]).$type<string[]>(), // edition ids
+  globalAvailable: boolean("global_available").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

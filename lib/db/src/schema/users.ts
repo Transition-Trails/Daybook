@@ -37,6 +37,9 @@ export const usersTable = pgTable("users", {
   googleTokenExpiry: timestamp("google_token_expiry", { withTimezone: true }),
   notionToken: text("notion_token"),
   passwordHash: text("password_hash"),
+  // Platform-level role. null = no platform privilege.
+  // super_admin: full platform access, bypasses all store scoping.
+  platformRole: text("platform_role"), // "super_admin" | null
   stripeCustomerId: text("stripe_customer_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

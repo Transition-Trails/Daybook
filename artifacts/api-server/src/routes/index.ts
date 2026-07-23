@@ -10,6 +10,8 @@ import billingRouter from "./billing";
 import usersRouter from "./users";
 import plansRouter from "./plans";
 import aiSettingsRouter from "./ai-settings";
+import storesRouter from "./stores";
+import platformRouter from "./platform";
 
 const router: IRouter = Router();
 
@@ -24,5 +26,8 @@ router.use(billingRouter);
 router.use(usersRouter);
 router.use(plansRouter);
 router.use(aiSettingsRouter);
+// Multi-tenant store platform
+router.use(storesRouter);
+router.use(platformRouter);
 
 export default router;

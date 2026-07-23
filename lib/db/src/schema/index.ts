@@ -4,3 +4,4 @@ export * from "./catalog";
 export * from "./editions";
 export * from "./plans";
 export * from "./planner";
+export * from "./stores";

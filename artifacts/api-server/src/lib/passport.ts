@@ -37,7 +37,7 @@ if (googleClientId && googleClientSecret) {
         clientID: googleClientId,
         clientSecret: googleClientSecret,
         callbackURL: callbackUrl,
-        scope: ["profile", "email", "https://www.googleapis.com/auth/drive.file"],
+        scope: ["profile", "email", "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/calendar.events"],
       },
       async (accessToken, refreshToken, profile, done) => {
         try {

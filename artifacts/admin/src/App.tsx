@@ -62,13 +62,10 @@ function RootRouter() {
   const [location, setLocation] = useLocation();
   const state = useConsole();
 
-  // Redirect root "/" to the appropriate console
+  // Once auth resolves to an authenticated role, navigate to the right console.
+  // We do NOT redirect to /login here — Login renders inline below instead.
   useEffect(() => {
-    if (state.kind === "loading") return;
-    if (state.kind === "unauthenticated") {
-      setLocation("/login");
-      return;
-    }
+    if (state.kind === "loading" || state.kind === "unauthenticated") return;
     if (location !== "/") return;
     if (state.kind === "super") { setLocation("/super"); return; }
     if (state.kind === "store" && state.primaryStore) {
@@ -78,15 +75,11 @@ function RootRouter() {
     if (state.kind === "unauthorized") { setLocation("/unauthorized"); return; }
   }, [state.kind, location, setLocation, state.primaryStore]);
 
-  if (state.kind === "loading") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    );
+  // Show Login immediately while loading or when unauthenticated.
+  // This eliminates the blank→spinner→redirect cycle entirely.
+  if (state.kind === "loading" || state.kind === "unauthenticated") {
+    return <Login />;
   }
-
-  if (state.kind === "unauthenticated") return <Redirect to="/login" />;
 
   return (
     <Switch>

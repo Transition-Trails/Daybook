@@ -195,7 +195,7 @@ export default function TrendsPage() {
               <CardContent>
                 <div className="flex flex-wrap gap-2">
                   {results.suggestedThemes?.map((theme, i) => (
-                    <Badge key={i} variant="secondary" className="px-3 py-1 text-sm bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/20">{theme}</Badge>
+                    <Badge key={i} variant="secondary" className="px-3 py-1 text-sm bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/20 whitespace-normal break-words h-auto">{theme}</Badge>
                   ))}
                 </div>
               </CardContent>

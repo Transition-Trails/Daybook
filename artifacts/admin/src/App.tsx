@@ -22,8 +22,9 @@ import NotFound from "@/pages/not-found";
 // ── Daybook Admin (existing catalog pages) ────────────────────────────────────
 import { routes as daybookRoutes } from "@/pages/routes";
 
-// ── Daybook Ink (standalone, no Shell) ───────────────────────────────────────
-import InkEditor from "@/pages/planners/InkEditor";
+// ── Daybook Ink (standalone, no Shell — lazy to keep initial bundle small) ───
+import { lazy, Suspense } from "react";
+const InkEditor = lazy(() => import("@/pages/planners/InkEditor"));
 
 // ── Super Admin pages ─────────────────────────────────────────────────────────
 import SuperDashboard from "@/pages/super/Dashboard";
@@ -178,7 +179,9 @@ function RootRouter() {
       <Route path="/daybook/planners/:id/ink">
         {(p) => (
           <RequireSuperAdmin state={state}>
-            <InkEditor key={p.id} />
+            <Suspense fallback={<div style={{ minHeight: "100vh", background: "#F7F0E6" }} />}>
+              <InkEditor key={p.id} />
+            </Suspense>
           </RequireSuperAdmin>
         )}
       </Route>

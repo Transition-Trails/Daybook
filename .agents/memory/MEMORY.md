@@ -2,3 +2,4 @@
 - [Daybook Zod schema naming](daybook-zod-names.md) — generated schema names don't always match intuition; consult api.ts before writing routes
 - [DB build requirement](db-build.md) — lib/db has composite:true tsconfig; run `npx tsc -b lib/db` before api-server typecheck or changes won't be picked up
 - [Spec-driven backend rebuild](spec-backend-rebuild.md) — new schema uses text PKs, JSONB arrays replace junction tables; all four spec files live in spec/; catalog visibility rule: unauth=live only, admin=all
+- [pdfjs-dist Vite compatibility](pdfjs-vite-compat.md) — never npm-install pdfjs-dist; use CDN `/* @vite-ignore */` import instead or it silently corrupts Vite's dep graph

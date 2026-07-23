@@ -235,12 +235,16 @@ export default function InkEditor() {
     let cancelled = false;
     setPdfStatus("loading");
 
-    import("pdfjs-dist").then(async (pdfjsLib) => {
-      if (cancelled) return;
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+    // Load pdf.js from CDN — keeps it out of Vite's dep-optimizer graph.
+    const PDFJS_BASE = "https://unpkg.com/pdfjs-dist@6.1.200/build";
 
+    (async () => {
       try {
+        // @vite-ignore: intentional external CDN import, not bundled by Vite
+        const pdfjsLib = await import(/* @vite-ignore */ `${PDFJS_BASE}/pdf.min.mjs`);
+        if (cancelled) return;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.mjs`;
+
         const pdfDoc = await pdfjsLib.getDocument({
           url: `/api/planners/${plannerId}/pdf-proxy`,
           withCredentials: true,
@@ -256,7 +260,7 @@ export default function InkEditor() {
           setPdfStatus("error");
         }
       }
-    });
+    })();
 
     return () => { cancelled = true; };
   }, [plannerId]);

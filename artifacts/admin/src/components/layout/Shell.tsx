@@ -1,5 +1,5 @@
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarFooter } from '@/components/ui/sidebar';
-import { Home, Palette, Sticker, FileImage, Layers3, BookOpen, Crown, Users, Settings, RefreshCw, BarChart2, Package2, LogOut, Wand2 } from 'lucide-react';
+import { Home, Palette, Sticker, FileImage, Layers3, BookOpen, Crown, Users, Settings, RefreshCw, BarChart2, Package2, LogOut, Wand2, CalendarDays } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { useLogout, useGetMe } from '@workspace/api-client-react';
 
@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { label: 'Users', icon: Users, href: '/users', group: 'System' },
   { label: 'AI Settings', icon: Settings, href: '/ai-settings', group: 'System' },
   { label: 'Google Sync', icon: RefreshCw, href: '/sync', group: 'System' },
+  { label: 'Calendar', icon: CalendarDays, href: '/calendar', group: 'System' },
   { label: 'Trend Research', icon: BarChart2, href: '/trends', group: 'System' },
 ];
 

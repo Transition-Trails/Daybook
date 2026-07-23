@@ -386,13 +386,13 @@ export async function buildPdf(
     for (let d = 0; d < 7; d++) {
       const date = new Date(monday);
       date.setDate(monday.getDate() + d);
-      if (calMode === "google" || calMode === "apple") {
+      if (calMode === "link" || calMode === "overlay") {
         const nextDay = new Date(date);
         nextDay.setDate(date.getDate() + 1);
         const calRect: [number, number, number, number] = [
           MARGIN + d * 70, pageHeight - 120, MARGIN + d * 70 + 65, pageHeight - 102,
         ];
-        if (calMode === "google") {
+        if (calMode === "link") {
           addUriAnnotation(pdfDoc, wPage, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Cal", font, accent);
         } else {
           const startDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
@@ -444,16 +444,16 @@ export async function buildPdf(
     );
 
     // Calendar link
-    if (calMode === "google" || calMode === "apple") {
+    if (calMode === "link" || calMode === "overlay") {
       const nextDay = new Date(date);
       nextDay.setDate(date.getDate() + 1);
       const calRect: [number, number, number, number] = [pageWidth - 120, pageHeight - 50, pageWidth - MARGIN, pageHeight - 34];
-      if (calMode === "google") {
+      if (calMode === "link") {
         addUriAnnotation(pdfDoc, dPage, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Google Cal", font, accent);
       } else {
         const startDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
         const endDt   = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, output.eventMins ?? 60, 0);
-        addUriAnnotation(pdfDoc, dPage, icsDataUri(startDt, endDt, date.toLocaleDateString("en-US", { month: "long", day: "numeric" })), calRect, "+Apple Cal", font, accent);
+        addUriAnnotation(pdfDoc, dPage, icsDataUri(startDt, endDt, date.toLocaleDateString("en-US", { month: "long", day: "numeric" })), calRect, "+Cal", font, accent);
       }
     }
 
@@ -719,6 +719,26 @@ export async function buildPreviewPdf(
       }
     }
 
+    // Calendar links per day column (preview — driven by output.calMode)
+    const previewCalMode = output.calMode ?? "none";
+    if (previewCalMode === "link" || previewCalMode === "overlay") {
+      for (let d = 0; d < 7; d++) {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + d);
+        const nextDay = new Date(date);
+        nextDay.setDate(date.getDate() + 1);
+        const cx = MARGIN + d * colW;
+        const calRect: [number, number, number, number] = [cx + 1, pageHeight - 120, cx + colW - 3, pageHeight - 104];
+        if (previewCalMode === "link") {
+          addUriAnnotation(pdfDoc, wp, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Cal", font, accent);
+        } else {
+          const startDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
+          const endDt   = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, output.eventMins ?? 60, 0);
+          addUriAnnotation(pdfDoc, wp, icsDataUri(startDt, endDt, `Day ${d + 1}`), calRect, "+Cal", font, accent);
+        }
+      }
+    }
+
     // Links via template (month-for-week + week-day columns; tab rail)
     stampPageZones(makePreviewCtx(firstWeeklyId, "weekly", {
       weeklyMonthIndex: 0,
@@ -740,6 +760,21 @@ export async function buildPreviewPdf(
       if (hy2 < MARGIN + 30) break;
       dp.drawText(`${String(h).padStart(2, "0")}:00`, { x: MARGIN, y: hy2, size: 8, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.4 });
       dp.drawLine({ start: { x: MARGIN + 34, y: hy2 + 4 }, end: { x: pageWidth - MARGIN, y: hy2 + 4 }, thickness: 0.3, color: rgb(ink.r, ink.g, ink.b), opacity: h % 4 === 0 ? 0.2 : 0.07 });
+    }
+
+    // Calendar link on daily preview (driven by output.calMode)
+    const previewCalModeDaily = output.calMode ?? "none";
+    if (previewCalModeDaily === "link" || previewCalModeDaily === "overlay") {
+      const nextDay = new Date(firstDate);
+      nextDay.setDate(firstDate.getDate() + 1);
+      const calRect: [number, number, number, number] = [pageWidth - 120, pageHeight - 50, pageWidth - MARGIN, pageHeight - 34];
+      if (previewCalModeDaily === "link") {
+        addUriAnnotation(pdfDoc, dp, googleCalendarLink(yyyymmdd(firstDate), yyyymmdd(nextDay)), calRect, "+Google Cal", font, accent);
+      } else {
+        const startDt = new Date(firstDate.getFullYear(), firstDate.getMonth(), firstDate.getDate(), 9, 0, 0);
+        const endDt   = new Date(firstDate.getFullYear(), firstDate.getMonth(), firstDate.getDate(), 9, output.eventMins ?? 60, 0);
+        addUriAnnotation(pdfDoc, dp, icsDataUri(startDt, endDt, firstDate.toLocaleDateString("en-US", { month: "long", day: "numeric" })), calRect, "+Cal", font, accent);
+      }
     }
   }
   // Standard daily links (month-for-day, prev-day→null, next-day→null for preview)

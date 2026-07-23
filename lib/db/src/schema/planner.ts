@@ -25,7 +25,7 @@ export type PlannerStyle = {
 
 // ── OUTPUT ────────────────────────────────────────────────────────────────────
 export type PlannerOutput = {
-  calMode: "google" | "apple" | "none";
+  calMode: "link" | "overlay" | "none";
   eventMins: 30 | 60 | 90;
   aiInPdf: boolean;
 };

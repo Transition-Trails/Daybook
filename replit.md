@@ -1,6 +1,26 @@
-# [Project name]
+# Daybook Studio
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Config-driven digital planner SaaS — admin console and API for building, publishing, and generating personalised PDF planners.
+
+## Setup / Required Secrets
+
+See **[SETUP.md](./SETUP.md)** for the full setup guide. Quick reference:
+
+| Secret | Status | What it unlocks |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Add to activate | AI studios, trend research, planner assistant |
+| `OPENAI_API_KEY` | Optional | Alternative AI provider |
+| `GEMINI_API_KEY` | Optional | Alternative AI provider |
+| `GOOGLE_CLIENT_ID` | Already set | Google sign-in for admin console |
+| `GOOGLE_CLIENT_SECRET` | Already set | Google sign-in for admin console |
+| `SESSION_SECRET` | Already set | Session cookie signing |
+| `STRIPE_SECRET_KEY` | Later phase | Billing / checkout |
+| `STRIPE_WEBHOOK_SECRET` | Later phase | Stripe webhook verification |
+
+Callback URL to register in Google Cloud Console (logged at server startup):
+```
+https://<replit-dev-domain>/api/auth/callback
+```
 
 ## Run & Operate
 

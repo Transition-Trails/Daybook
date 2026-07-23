@@ -44,7 +44,17 @@ import StoreStaff from "@/pages/store/StaffRoles";
 import StoreHelp from "@/pages/store/StoreHelp";
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000 } },
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      // Don't retry on 401/403 — fail fast so auth redirects fire immediately
+      retry: (failureCount, error: any) => {
+        const status = error?.status ?? error?.response?.status;
+        if (status === 401 || status === 403) return false;
+        return failureCount < 2;
+      },
+    },
+  },
 });
 
 // ── Root router: determines which console to show ────────────────────────────
@@ -76,7 +86,7 @@ function RootRouter() {
     );
   }
 
-  if (state.kind === "unauthenticated") return null; // redirect in effect
+  if (state.kind === "unauthenticated") return <Redirect to="/login" />;
 
   return (
     <Switch>

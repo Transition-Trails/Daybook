@@ -77,15 +77,18 @@ router.post("/docs", requireAuth, async (req, res): Promise<void> => {
   res.json({ success: true, docId: null, message: "TODO: real Docs push" });
 });
 
-// GET /drive/status
+// GET /drive/status — shape matches SyncStatus type in the generated client
 router.get("/drive/status", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
+  const conn = (user.connections ?? {}) as Record<string, boolean | string | null>;
   res.json({
     connected: hasGoogleToken(user),
-    googleDrive: (user.connections as { googleDrive: boolean }).googleDrive ?? false,
-    googleCalendar: (user.connections as { googleCalendar: boolean }).googleCalendar ?? false,
-    googleTasks: (user.connections as { googleTasks: boolean }).googleTasks ?? false,
-    googleDocs: (user.connections as { googleDocs: boolean }).googleDocs ?? false,
+    // Last-synced timestamps — populated when sync actions complete
+    calendarLastSynced: (conn.calendarLastSynced as string | null) ?? null,
+    tasksLastSynced: (conn.tasksLastSynced as string | null) ?? null,
+    docsLastSynced: (conn.docsLastSynced as string | null) ?? null,
+    driveLastSynced: (conn.driveLastSynced as string | null) ?? null,
+    driveFolder: (conn.driveFolderId as string | null) ?? null,
   });
 });
 

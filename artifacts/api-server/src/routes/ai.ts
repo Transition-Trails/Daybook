@@ -20,6 +20,7 @@ router.post("/ai/complete", requireAuth, async (req, res): Promise<void> => {
 
   const body = req.body as {
     system?: string;
+    systemPrompt?: string; // alias accepted from generated client
     messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
     provider?: string;
   };
@@ -30,9 +31,10 @@ router.post("/ai/complete", requireAuth, async (req, res): Promise<void> => {
   }
 
   const provider = body.provider ?? user.aiProvider ?? "claude";
+  const systemPrompt = body.system ?? body.systemPrompt;
 
   try {
-    const result = await callAi(body.messages, provider, body.system);
+    const result = await callAi(body.messages, provider, systemPrompt);
     res.json({ text: result.content, provider: result.provider, model: result.model });
   } catch (err) {
     req.log.error({ err }, "AI complete failed");

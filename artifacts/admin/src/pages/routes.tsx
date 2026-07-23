@@ -15,6 +15,7 @@ import UserDetail from '@/pages/users/detail';
 import AiSettingsPage from '@/pages/ai-settings';
 import SyncDashboard from '@/pages/sync';
 import TrendsResearch from '@/pages/trends';
+import PlannerBuilder from '@/pages/planners/builder';
 
 export const routes = [
   { path: "/", component: Dashboard },
@@ -34,4 +35,5 @@ export const routes = [
   { path: "/ai-settings", component: AiSettingsPage },
   { path: "/sync", component: SyncDashboard },
   { path: "/trends", component: TrendsResearch },
+  { path: "/planners/builder", component: PlannerBuilder },
 ];

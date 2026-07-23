@@ -9,6 +9,7 @@ import aiRouter from "./ai";
 import billingRouter from "./billing";
 import usersRouter from "./users";
 import plansRouter from "./plans";
+import aiSettingsRouter from "./ai-settings";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(aiRouter);
 router.use(billingRouter);
 router.use(usersRouter);
 router.use(plansRouter);
+router.use(aiSettingsRouter);
 
 export default router;

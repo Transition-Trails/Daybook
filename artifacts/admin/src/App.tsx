@@ -264,6 +264,7 @@ function AppRouter() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/unauthorized" component={Unauthorized} />
+      <Route path="/" component={RootRouter} />
       <Route path="/:rest*" component={RootRouter} />
     </Switch>
   );

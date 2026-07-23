@@ -47,6 +47,22 @@ export default defineConfig({
         ]
       : []),
   ],
+  optimizeDeps: {
+    // Scan the entire app import tree at startup so ALL deps are pre-bundled
+    // before any browser connects. Without this, Vite lazy-discovers deps on
+    // the first request and forces repeated full-page reloads (the
+    // connect→disconnect loop) that prevent React from ever mounting.
+    entries: ['src/main.tsx'],
+    include: [
+      'react',
+      'react/jsx-dev-runtime',
+      'react-dom',
+      'react-dom/client',
+      '@tanstack/react-query',
+      'wouter',
+      'zod',
+    ],
+  },
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, 'src'),

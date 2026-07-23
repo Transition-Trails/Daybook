@@ -37,14 +37,9 @@ if (googleClientId && googleClientSecret) {
         clientID: googleClientId,
         clientSecret: googleClientSecret,
         callbackURL: callbackUrl,
-        scope: [
-          "profile",
-          "email",
-          "https://www.googleapis.com/auth/drive",
-          "https://www.googleapis.com/auth/calendar",
-          "https://www.googleapis.com/auth/tasks",
-          "https://www.googleapis.com/auth/documents",
-        ],
+        // Only request basic identity — Drive/Calendar/Tasks scopes require
+        // Workspace admin approval and are requested separately at connect time
+        scope: ["profile", "email"],
       },
       async (accessToken, refreshToken, profile, done) => {
         try {

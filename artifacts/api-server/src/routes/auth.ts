@@ -16,7 +16,12 @@ router.get("/auth/google", (req, res, next) => {
     return;
   }
   passport.authenticate("google", {
-    scope: ["profile", "email", "https://www.googleapis.com/auth/drive.file"],
+    scope: [
+      "profile",
+      "email",
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/calendar.events",
+    ],
     accessType: "offline",
     prompt: "consent",
   })(req, res, next);

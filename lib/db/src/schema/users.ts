@@ -34,6 +34,7 @@ export const usersTable = pgTable("users", {
   googleId: text("google_id").unique(),
   googleAccessToken: text("google_access_token"),
   googleRefreshToken: text("google_refresh_token"),
+  googleTokenExpiry: timestamp("google_token_expiry", { withTimezone: true }),
   notionToken: text("notion_token"),
   passwordHash: text("password_hash"),
   stripeCustomerId: text("stripe_customer_id"),

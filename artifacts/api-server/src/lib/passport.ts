@@ -51,12 +51,16 @@ if (googleClientId && googleClientSecret) {
             .from(usersTable)
             .where(eq(usersTable.googleId, profile.id));
 
+          // Google access tokens expire in 1 hour; store expiry so we can refresh proactively.
+          const tokenExpiry = new Date(Date.now() + 3600 * 1000);
+
           if (existing) {
             await db
               .update(usersTable)
               .set({
                 googleAccessToken: accessToken,
                 googleRefreshToken: refreshToken ?? undefined,
+                googleTokenExpiry: tokenExpiry,
                 avatarUrl,
                 connections: {
                   notion: (existing.connections as { notion?: boolean }).notion ?? false,
@@ -83,6 +87,7 @@ if (googleClientId && googleClientSecret) {
                 avatarUrl,
                 googleAccessToken: accessToken,
                 googleRefreshToken: refreshToken ?? null,
+                googleTokenExpiry: tokenExpiry,
                 connections: {
                   googleDrive: true,
                   googleCalendar: true,

@@ -13,6 +13,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
 import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
+import { getValidGoogleToken, GoogleAuthError } from "../lib/google-auth";
 import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -21,7 +22,6 @@ const router: IRouter = Router();
 
 async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
-  googleAccessToken?: string | null,
 ): Promise<{ pdfFileId: string; configFileId: string; pageCount: number }> {
   // Resolve edition + theme for art/colors
   let themeColors: string[] | undefined;
@@ -55,7 +55,16 @@ async function runGeneration(
     themeColors,
   );
 
-  // Upload PDF to Google Drive when the user has a token; fall back to a local stub ID
+  // Resolve a valid (possibly refreshed) Google token; fall back gracefully if unavailable.
+  let googleAccessToken: string | null = null;
+  try {
+    googleAccessToken = await getValidGoogleToken(config.userId);
+  } catch (err) {
+    if (!(err instanceof GoogleAuthError)) throw err;
+    // No Google connection or token revoked — Drive upload is skipped below.
+  }
+
+  // Upload PDF to Google Drive when the user has a valid token; fall back to a local stub ID
   const pdfFileId =
     (await uploadPlannerPdf(googleAccessToken, config.id as string, buffer)) ??
     `pdf-${config.id}-${Date.now()}`;
@@ -179,7 +188,7 @@ router.post("/planners", requireAuth, async (req, res): Promise<void> => {
       .returning();
 
     // Generate PDF and upload to Drive if the user has a Google token
-    const { pdfFileId, configFileId, pageCount } = await runGeneration(config, user.googleAccessToken);
+    const { pdfFileId, configFileId, pageCount } = await runGeneration(config);
 
     // Update drive references
     const [updated] = await db
@@ -241,7 +250,7 @@ router.post("/planners/:id/reexport", requireAuth, async (req, res): Promise<voi
       .where(eq(plannerConfigsTable.id, id as string))
       .returning();
 
-    const { pdfFileId, configFileId, pageCount } = await runGeneration(updated, user.googleAccessToken);
+    const { pdfFileId, configFileId, pageCount } = await runGeneration(updated);
 
     const [final] = await db
       .update(plannerConfigsTable)

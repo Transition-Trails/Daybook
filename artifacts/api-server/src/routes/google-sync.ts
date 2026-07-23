@@ -2,8 +2,6 @@
  * Google Sync routes — per spec/API-CONTRACT.md
  * GET /calendar/events, POST /calendar/push, GET+POST /tasks,
  * POST /docs, GET /drive/status, POST /drive/backup, POST /drive/art
- *
- * Real OAuth token exchange is stubbed — TODO when GOOGLE_CLIENT_ID is set.
  */
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
@@ -11,43 +9,101 @@ import { usersTable, assetsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
 import { uploadPlannerConfig } from "../lib/drive-upload";
+import { getValidGoogleToken, GoogleAuthError } from "../lib/google-auth";
 import type { User } from "@workspace/db";
 
 const router: IRouter = Router();
 
-function hasGoogleToken(user: User): boolean {
-  return !!user.googleAccessToken;
+/** Shape returned by Google Calendar API for a single event item. */
+interface GCalEventItem {
+  id: string;
+  summary?: string;
+  location?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
 }
 
-// GET /calendar/events?start&end
+/** Shared handler: resolve a valid token or reply with a reconnect response. */
+async function resolveToken(
+  user: User,
+  res: import("express").Response,
+): Promise<string | null> {
+  try {
+    return await getValidGoogleToken(user.id);
+  } catch (err) {
+    if (err instanceof GoogleAuthError) {
+      res.status(401).json({
+        error: "reconnect_required",
+        reason: err.reason,
+        message: err.message,
+        reconnectUrl: "/api/auth/google",
+      });
+      return null;
+    }
+    throw err;
+  }
+}
+
+// GET /calendar/events?start=<ISO>&end=<ISO>
 router.get("/calendar/events", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
-  if (!hasGoogleToken(user)) {
-    res.status(400).json({ error: "Google account not connected" });
+  const accessToken = await resolveToken(user, res);
+  if (!accessToken) return;
+
+  const { start, end } = req.query as { start?: string; end?: string };
+  const params = new URLSearchParams({ singleEvents: "true", orderBy: "startTime" });
+  if (start) params.set("timeMin", start);
+  if (end) params.set("timeMax", end);
+
+  const gcRes = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+
+  if (!gcRes.ok) {
+    const errText = await gcRes.text().catch(() => "");
+    res.status(gcRes.status).json({ error: `Google Calendar error: ${errText}` });
     return;
   }
-  // TODO: call Google Calendar API with user.googleAccessToken
-  res.json({ events: [], message: "TODO: real Google Calendar fetch" });
+
+  const data = (await gcRes.json()) as { items?: GCalEventItem[] };
+
+  const events = (data.items ?? []).map((item) => {
+    const allDay = Boolean(item.start?.date && !item.start?.dateTime);
+    return {
+      id: item.id,
+      title: item.summary ?? "(No title)",
+      start: item.start?.dateTime ?? item.start?.date ?? "",
+      end: item.end?.dateTime ?? item.end?.date ?? "",
+      allDay,
+      location: item.location ?? null,
+    };
+  });
+
+  // Stamp last-synced time
+  const conn = { ...(user.connections as Record<string, unknown>), calendarLastSynced: new Date().toISOString() };
+  await db.update(usersTable).set({ connections: conn as unknown as typeof usersTable.$inferInsert["connections"] }).where(eq(usersTable.id, user.id));
+
+  res.json({ events });
 });
 
 // POST /calendar/push
 router.post("/calendar/push", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
-  if (!hasGoogleToken(user)) {
-    res.status(400).json({ error: "Google account not connected" });
-    return;
-  }
+  const accessToken = await resolveToken(user, res);
+  if (!accessToken) return;
+
   // TODO: push planner blocks to Google Calendar
   const now = new Date();
-  const conn1 = { ...(user.connections as Record<string, boolean>), googleCalendar: true };
-  await db.update(usersTable).set({ connections: conn1 as typeof usersTable.$inferInsert["connections"] }).where(eq(usersTable.id, user.id));
+  const conn = { ...(user.connections as Record<string, unknown>), googleCalendar: true, calendarLastSynced: now.toISOString() };
+  await db.update(usersTable).set({ connections: conn as unknown as typeof usersTable.$inferInsert["connections"] }).where(eq(usersTable.id, user.id));
   res.json({ success: true, syncedAt: now.toISOString(), itemCount: 0, message: "TODO: real Calendar push" });
 });
 
 // GET /tasks
 router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
-  if (!hasGoogleToken(user)) {
+  if (!user.googleAccessToken) {
     res.status(400).json({ error: "Google account not connected" });
     return;
   }
@@ -58,7 +114,7 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
 // POST /tasks
 router.post("/tasks", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
-  if (!hasGoogleToken(user)) {
+  if (!user.googleAccessToken) {
     res.status(400).json({ error: "Google account not connected" });
     return;
   }
@@ -69,7 +125,7 @@ router.post("/tasks", requireAuth, async (req, res): Promise<void> => {
 // POST /docs
 router.post("/docs", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
-  if (!hasGoogleToken(user)) {
+  if (!user.googleAccessToken) {
     res.status(400).json({ error: "Google account not connected" });
     return;
   }
@@ -81,9 +137,14 @@ router.post("/docs", requireAuth, async (req, res): Promise<void> => {
 router.get("/drive/status", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
   const conn = (user.connections ?? {}) as Record<string, boolean | string | null>;
+  const connected = !!user.googleAccessToken;
+  // Check token freshness
+  const expiry = user.googleTokenExpiry;
+  const tokenExpired = expiry ? expiry.getTime() - Date.now() <= 0 : null;
   res.json({
-    connected: hasGoogleToken(user),
-    // Last-synced timestamps — populated when sync actions complete
+    connected,
+    tokenExpired: connected ? tokenExpired : null,
+    reconnectUrl: connected && tokenExpired ? "/api/auth/google" : null,
     calendarLastSynced: (conn.calendarLastSynced as string | null) ?? null,
     tasksLastSynced: (conn.tasksLastSynced as string | null) ?? null,
     docsLastSynced: (conn.docsLastSynced as string | null) ?? null,
@@ -96,10 +157,8 @@ router.get("/drive/status", requireAuth, async (req, res): Promise<void> => {
 // Body: { plannerId: string, config: unknown }
 router.post("/drive/backup", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
-  if (!hasGoogleToken(user)) {
-    res.status(400).json({ error: "Google account not connected" });
-    return;
-  }
+  const accessToken = await resolveToken(user, res);
+  if (!accessToken) return;
 
   const body = req.body as { plannerId?: string; config?: unknown };
   if (!body.plannerId) {
@@ -109,16 +168,20 @@ router.post("/drive/backup", requireAuth, async (req, res): Promise<void> => {
 
   try {
     const configFileId = await uploadPlannerConfig(
-      user.googleAccessToken,
+      accessToken,
       body.plannerId,
       body.config ?? {},
     );
 
-    // Mark googleDrive connection as active
-    const conn2 = { ...(user.connections as Record<string, boolean>), googleDrive: true };
+    const now = new Date();
+    const conn = {
+      ...(user.connections as Record<string, unknown>),
+      googleDrive: true,
+      driveLastSynced: now.toISOString(),
+    };
     await db
       .update(usersTable)
-      .set({ connections: conn2 as typeof usersTable.$inferInsert["connections"] })
+      .set({ connections: conn as unknown as typeof usersTable.$inferInsert["connections"] })
       .where(eq(usersTable.id, user.id));
 
     res.json({ success: true, configFileId });
@@ -155,7 +218,7 @@ router.post("/drive/art", requireAuth, async (req, res): Promise<void> => {
     source,
   }).returning();
 
-  res.status(201).json(asset);
+  res.json(asset);
 });
 
 export default router;

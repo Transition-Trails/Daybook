@@ -21,6 +21,7 @@ import {
 import { eq, ne } from "drizzle-orm";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { isSuperAdmin } from "../lib/roles";
+import { writeAudit } from "../lib/audit";
 import type { User } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -102,6 +103,15 @@ function buildCatalogRoutes(
         // Draft — upsert in place.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const [updated] = await db.update(table).set({ ...body, id: dup.id }).where(eq(table.id, dup.id)).returning() as any[];
+        await writeAudit(db, {
+          actorUserId: req.actor!.userId,
+          actorRole: req.actor!.effectiveRole,
+          scope: "platform",
+          action: `catalog.${entityLabel.toLowerCase()}.upsert`,
+          targetType: entityLabel.toLowerCase(),
+          targetId: dup.id,
+          metadata: { name: body.name, upserted: true },
+        });
         res.json({ ...updated, upserted: true });
         return;
       }

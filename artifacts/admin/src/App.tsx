@@ -59,6 +59,14 @@ import StoreCustomers from "@/pages/store/Customers";
 import StoreStaff from "@/pages/store/StaffRoles";
 import StoreHelp from "@/pages/store/StoreHelp";
 
+// ── Store AI Studios ──────────────────────────────────────────────────────────
+import StoreThemeStudio from "@/pages/store/studios/StoreThemeStudio";
+import StorePackStudio from "@/pages/store/studios/StorePackStudio";
+import StoreEditionStudio from "@/pages/store/studios/StoreEditionStudio";
+import StoreTrendResearch from "@/pages/store/studios/StoreTrendResearch";
+import { useQuery } from "@tanstack/react-query";
+import { storesApi, resolveStoreId as _resolveStoreId } from "@/lib/api";
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -194,6 +202,60 @@ function RootRouter() {
         )}
       </Route>
 
+      {/* ── Store AI Studios ─────────────────────────────────────── */}
+      <Route path="/store/:storeId/studios/theme">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreStudioLoader storeId={p.storeId!}>
+                  {(aiEnabled) => <StoreThemeStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
+                </StoreStudioLoader>
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/studios/pack">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreStudioLoader storeId={p.storeId!}>
+                  {(aiEnabled) => <StorePackStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
+                </StoreStudioLoader>
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/studios/edition">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreStudioLoader storeId={p.storeId!}>
+                  {(aiEnabled) => <StoreEditionStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
+                </StoreStudioLoader>
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/studios/trends">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreStudioLoader storeId={p.storeId!}>
+                  {(aiEnabled) => <StoreTrendResearch storeId={p.storeId!} aiEnabled={aiEnabled} />}
+                </StoreStudioLoader>
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
       {/* ── Daybook Ink — full-screen editor, no Shell ───────────── */}
       {/* Standalone entry: /daybook/ink/:id (from Planner Library) */}
       <Route path="/daybook/ink/:id">
@@ -274,6 +336,33 @@ function RootRouter() {
       <Route component={NotFound} />
     </Switch>
   );
+}
+
+// ── Store studio aiEnabled loader ─────────────────────────────────────────────
+// Fetches store flags once (cached by React Query) and passes aiEnabled to
+// the studio child. Keeps route definitions slim.
+function StoreStudioLoader({
+  storeId,
+  children,
+}: {
+  storeId: string;
+  children: (aiEnabled: boolean) => React.ReactNode;
+}) {
+  const { data: flags, isLoading } = useQuery({
+    queryKey: ["store-flags", storeId],
+    queryFn: () => storesApi.flags.get(storeId),
+    staleTime: 60_000,
+  });
+  // Wait until we know the real value — avoids a false→true flip that would
+  // violate React's rules of hooks inside the studio component.
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[300px]">
+        <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+  return <>{children(flags?.aiEnabled ?? false)}</>;
 }
 
 // ── Guards ────────────────────────────────────────────────────────────────────

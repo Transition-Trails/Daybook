@@ -477,7 +477,7 @@ router.patch(
 
 router.get(
   "/stores/:storeId/flags",
-  requireStoreAccess("store_owner"),
+  requireStoreAccess("store_staff"),
   async (req: Request, res: Response): Promise<void> => {
     const storeId = req.params.storeId as string;
     const rows = await db.select().from(storeFlagsTable).where(eq(storeFlagsTable.storeId, storeId));

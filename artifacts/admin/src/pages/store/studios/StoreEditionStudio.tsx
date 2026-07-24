@@ -1,0 +1,424 @@
+/**
+ * Store-Scoped Edition Studio
+ * Generates a full planner edition spec from a concept prompt.
+ * Attach picker uses the store's owned + entitled items (not global catalog).
+ * Creates owned edition + auto-palette draft theme. Always saves as draft.
+ * Supports "Revise existing edition" pre-fill.
+ */
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Loader2, RefreshCw, Save, BookOpen, ChevronDown, ChevronUp, Sparkles,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
+import { ErrorState, SkeletonRows } from "@/components/shared";
+import { aiApi, extractJson, isValidHex, PALETTE_LABELS } from "@/lib/ai";
+import { storeStudiosApi, type CatalogItem } from "@/lib/api";
+import { AiDisabledState } from "./AiDisabledState";
+
+interface EditionAiResult {
+  name: string;
+  description: string;
+  sections: string[];
+  palette: string[];
+  priceLow: number;
+  priceHigh: number;
+}
+
+interface AttachableItems {
+  themes: CatalogItem[];
+  packs: CatalogItem[];
+  inserts: CatalogItem[];
+  products: CatalogItem[];
+  editions: CatalogItem[];
+}
+
+interface Props {
+  storeId: string;
+  role: string;
+  aiEnabled: boolean;
+}
+
+const SYSTEM_PROMPT = `You are a product designer for a premium digital planner brand.
+When given a planner edition concept, respond ONLY with valid JSON — no markdown, no explanation.
+{
+  "name": "edition name (3-6 words, e.g. 'The Christmas 2026 Planner')",
+  "description": "2-sentence pitch that captures who it's for and what makes it special",
+  "sections": ["Section A","Section B","Section C","Section D","Section E"],
+  "palette": ["#hex1","#hex2","#hex3","#hex4","#hex5","#hex6"],
+  "priceLow": 12,
+  "priceHigh": 18
+}
+sections: 5–7 planner section names that make sense for this theme.
+palette 6 colors: accent, accent-dark, secondary, tertiary, ink, paper — cohesive and on-theme.
+priceLow/priceHigh: suggested USD retail price range (integers).`;
+
+function MultiChips({
+  items,
+  selected,
+  onToggle,
+  originBadge,
+}: {
+  items: CatalogItem[];
+  selected: string[];
+  onToggle: (id: string) => void;
+  originBadge?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+      {items.map((item) => {
+        const isOwned = item.origin === "owned";
+        return (
+          <Badge
+            key={item.id}
+            variant={selected.includes(item.id) ? "default" : "outline"}
+            className={
+              selected.includes(item.id)
+                ? "cursor-pointer bg-[#1B2A4A] text-white border-[#1B2A4A]"
+                : "cursor-pointer hover:border-[#C87560]"
+            }
+            onClick={() => onToggle(item.id)}
+          >
+            {item.name}
+            {originBadge && isOwned && (
+              <span className="ml-1 text-[9px] font-semibold opacity-70">★</span>
+            )}
+          </Badge>
+        );
+      })}
+      {items.length === 0 && (
+        <p className="text-xs text-muted-foreground">Nothing available yet</p>
+      )}
+    </div>
+  );
+}
+
+export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: Props) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const [prompt, setPrompt] = useState(() => {
+    const idea = sessionStorage.getItem(`studioIdea:${storeId}`) ?? "";
+    if (idea) sessionStorage.removeItem(`studioIdea:${storeId}`);
+    return idea;
+  });
+  const [reviseFromId, setReviseFromId] = useState<string>("");
+  const [showRevise, setShowRevise] = useState(false);
+  const [aiMeta, setAiMeta] = useState<{ model: string; provider: string } | null>(null);
+  const [result, setResult] = useState<EditionAiResult | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+
+  // Editable state
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [sections, setSections] = useState<string[]>([]);
+  const [palette, setPalette] = useState<string[]>([]);
+  const [priceLow, setPriceLow] = useState("12");
+  const [priceHigh, setPriceHigh] = useState("18");
+
+  // Catalog attachment state
+  const [selThemes, setSelThemes] = useState<string[]>([]);
+  const [selPacks, setSelPacks] = useState<string[]>([]);
+  const [selInserts, setSelInserts] = useState<string[]>([]);
+  const [selProducts, setSelProducts] = useState<string[]>([]);
+
+  // Attachable items from store-scoped endpoint (owned + entitled)
+  const attachable = useQuery<AttachableItems>({
+    queryKey: ["store-attachable", storeId],
+    queryFn: () => storeStudiosApi.attachable(storeId),
+  });
+
+  // Existing owned editions for the revise picker
+  const ownedEditions = (attachable.data?.editions ?? []).filter(
+    (e) => e.origin === "owned" && e.authoredByStoreId === storeId,
+  );
+
+  const handleReviseSelect = (id: string) => {
+    setReviseFromId(id);
+    const ed = ownedEditions.find((e) => e.id === id);
+    if (ed) {
+      setPrompt(
+        `Revise "${ed.name}" for next year. Keep the core identity but refresh the seasonal references, section names, and palette.`,
+      );
+    }
+  };
+
+  const generate = useMutation({
+    mutationFn: () => aiApi.complete(SYSTEM_PROMPT, prompt.trim()),
+    onSuccess: (res) => {
+      setParseError(null);
+      setAiMeta({ model: res.model, provider: res.provider });
+      try {
+        const parsed = extractJson<EditionAiResult>(res.text);
+        setResult(parsed);
+        setName(parsed.name ?? "");
+        setDescription(parsed.description ?? "");
+        setSections(Array.isArray(parsed.sections) ? parsed.sections : []);
+        setPalette(Array.isArray(parsed.palette) ? parsed.palette.slice(0, 6) : []);
+        setPriceLow(String(parsed.priceLow ?? 12));
+        setPriceHigh(String(parsed.priceHigh ?? 18));
+      } catch (e) {
+        setResult(null);
+        setParseError(
+          `Claude responded but the JSON couldn't be parsed. ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    },
+    onError: (err: Error) => setParseError(err.message),
+  });
+
+  const save = useMutation({
+    mutationFn: () =>
+      storeStudiosApi.editions.create(storeId, {
+        name,
+        description,
+        sections,
+        priceLow: parseFloat(priceLow) || 0,
+        priceHigh: parseFloat(priceHigh) || 0,
+        themeIds: selThemes,
+        packIds: selPacks,
+        insertIds: selInserts,
+        productIds: selProducts,
+        palette: palette.length === 6 && palette.every(isValidHex) ? palette : undefined,
+      }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
+      qc.invalidateQueries({ queryKey: ["store-attachable", storeId] });
+      const themeNote = data.autoThemeId ? " A matching draft theme was also created." : "";
+      toast({
+        title: "Edition saved as draft",
+        description: `"${name}" is ready to review.${themeNote}`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggle = (setter: React.Dispatch<React.SetStateAction<string[]>>) => (id: string) =>
+    setter((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const canSave = !!name;
+
+  // All hooks declared above — safe to return early now.
+  if (!aiEnabled) return <AiDisabledState />;
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-0 animate-in fade-in duration-300">
+      <ClaudeHeader
+        title="Edition Studio"
+        description="Describe a planner edition — Claude designs the full product spec. Attach your store's own items and entitled catalog content, then save as a draft edition."
+        model={aiMeta?.model}
+        provider={aiMeta?.provider}
+      />
+
+      {/* Owned-content badge */}
+      <div className="flex items-center gap-2 mb-6 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-700 font-medium">
+        <Sparkles className="w-3.5 h-3.5 shrink-0" />
+        Editions created here belong exclusively to your store (origin: Yours). Items marked ★ are yours.
+      </div>
+
+      {/* Prompt + Revise */}
+      <Card className="mb-6">
+        <CardContent className="pt-6 space-y-4">
+          {/* Revise existing */}
+          <div>
+            <button
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setShowRevise(!showRevise)}
+            >
+              {showRevise ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              Revise one of your existing editions
+            </button>
+            {showRevise && (
+              <div className="mt-2">
+                {ownedEditions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No owned editions yet — create one first.</p>
+                ) : (
+                  <Select value={reviseFromId} onValueChange={handleReviseSelect}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Pick an edition to iterate on…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ownedEditions.map((ed) => (
+                        <SelectItem key={ed.id} value={ed.id}>{ed.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="edition-prompt">Describe the edition</Label>
+            <Textarea
+              id="edition-prompt"
+              rows={3}
+              placeholder={"e.g. \"A Christmas planner for 2026 — cosy December daily logs, gift tracker, holiday recipe pages, warm cranberry and gold palette\""}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              className="resize-none font-sans"
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) generate.mutate(); }}
+            />
+            <p className="text-xs text-muted-foreground">⌘ + Enter to generate</p>
+          </div>
+          <Button
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending || !prompt.trim()}
+            className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
+          >
+            {generate.isPending ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Claude is thinking…</>
+            ) : (
+              <><BookOpen className="w-4 h-4 mr-2" />Generate edition spec</>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {parseError && !generate.isPending && (
+        <div className="mb-6">
+          <ErrorState message={parseError} onRetry={() => generate.mutate()} />
+        </div>
+      )}
+
+      {result && !generate.isPending && (
+        <div className="space-y-4 mb-6">
+          {/* Spec card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Edition spec</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {/* Palette */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Palette</p>
+                <div className="grid grid-cols-6 gap-2">
+                  {palette.map((hex, i) => (
+                    <div key={i} className="flex flex-col items-center gap-1.5">
+                      <div
+                        className="w-full aspect-square rounded-lg border border-border shadow-sm"
+                        style={{ backgroundColor: isValidHex(hex) ? hex : "#ccc" }}
+                      />
+                      <span className="text-[10px] text-muted-foreground text-center leading-tight">{PALETTE_LABELS[i]}</span>
+                      <Input
+                        value={hex}
+                        onChange={(e) => { const next = [...palette]; next[i] = e.target.value; setPalette(next); }}
+                        className="h-6 text-[10px] text-center px-1 font-mono"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sections */}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Sections</p>
+                <div className="flex flex-wrap gap-2">
+                  {sections.map((s, i) => (
+                    <Badge key={i} variant="secondary" className="px-3 py-1 bg-[#F7F0E6] text-[#1B2A4A] border-[#E7DCCB]">
+                      {s}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+
+              {/* Name + Description */}
+              <div className="grid grid-cols-1 gap-4">
+                <div className="space-y-2">
+                  <Label>Edition name</Label>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Description</Label>
+                  <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} className="resize-none" />
+                </div>
+              </div>
+
+              {/* Price range */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Price low (USD)</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                    <Input type="number" min="0" value={priceLow} onChange={(e) => setPriceLow(e.target.value)} className="pl-6" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Price high (USD)</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                    <Input type="number" min="0" value={priceHigh} onChange={(e) => setPriceHigh(e.target.value)} className="pl-6" />
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Catalog attachment */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Attach catalog items</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Choose from your store's owned items (★) and any entitled catalog content.
+                The auto-palette will also be saved as a draft theme.
+              </p>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              {attachable.isLoading ? (
+                <div className="col-span-2"><SkeletonRows rows={3} cols={1} /></div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Themes</Label>
+                    <MultiChips items={attachable.data?.themes ?? []} selected={selThemes} onToggle={toggle(setSelThemes)} originBadge />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Sticker packs</Label>
+                    <MultiChips items={attachable.data?.packs ?? []} selected={selPacks} onToggle={toggle(setSelPacks)} originBadge />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Inserts</Label>
+                    <MultiChips items={attachable.data?.inserts ?? []} selected={selInserts} onToggle={toggle(setSelInserts)} originBadge />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Related products</Label>
+                    <MultiChips items={attachable.data?.products ?? []} selected={selProducts} onToggle={toggle(setSelProducts)} originBadge />
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Actions */}
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={() => generate.mutate()} disabled={generate.isPending}>
+              <RefreshCw className="w-3.5 h-3.5 mr-2" />Regenerate
+            </Button>
+            <div className="flex-1" />
+            <Button
+              size="sm"
+              className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
+              onClick={() => save.mutate()}
+              disabled={!canSave || save.isPending}
+            >
+              {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-2" />}
+              Save as draft edition
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

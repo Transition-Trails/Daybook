@@ -11,6 +11,7 @@ import usersRouter from "./users";
 import plansRouter from "./plans";
 import aiSettingsRouter from "./ai-settings";
 import storesRouter from "./stores";
+import ownedCatalogRouter from "./owned-catalog";
 import platformRouter from "./platform";
 import meRouter from "./me";
 import inkRouter from "./ink";
@@ -31,6 +32,7 @@ router.use(plansRouter);
 router.use(aiSettingsRouter);
 // Multi-tenant store platform
 router.use(storesRouter);
+router.use(ownedCatalogRouter);
 router.use(platformRouter);
 router.use(meRouter);
 router.use(inkRouter);

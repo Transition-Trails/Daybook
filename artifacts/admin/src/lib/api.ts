@@ -246,6 +246,70 @@ export const helpApi = {
     apiFetch<void>(`/help/${id}`, { method: "DELETE" }),
 };
 
+// ── Store Studios API (store-scoped owned catalog creation) ─────────────────
+
+export interface AttachableItems {
+  themes: CatalogItem[];
+  packs: CatalogItem[];
+  inserts: CatalogItem[];
+  products: CatalogItem[];
+  editions: CatalogItem[];
+}
+
+export const storeStudiosApi = {
+  themes: {
+    create: (
+      storeId: string,
+      data: { name: string; description?: string; colors: string[]; status: "draft" | "live" },
+    ) =>
+      apiFetch<CatalogItem>(`/stores/${storeId}/owned/themes`, {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+  },
+
+  packs: {
+    create: (
+      storeId: string,
+      data: { name: string; tags?: string[]; price?: number; status: "draft" | "live" },
+    ) =>
+      apiFetch<CatalogItem>(`/stores/${storeId}/owned/sticker-packs`, {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+  },
+
+  editions: {
+    create: (
+      storeId: string,
+      data: {
+        name: string;
+        description?: string;
+        sections?: string[];
+        priceLow?: number;
+        priceHigh?: number;
+        themeIds?: string[];
+        packIds?: string[];
+        insertIds?: string[];
+        productIds?: string[];
+        palette?: string[];
+      },
+    ) =>
+      apiFetch<CatalogItem & { autoThemeId?: string }>(`/stores/${storeId}/owned/editions`, {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+  },
+
+  attachable: (storeId: string) =>
+    apiFetch<AttachableItems>(`/stores/${storeId}/owned/attachable`, {
+      headers: { "x-store-id": storeId },
+    }),
+};
+
 // ── Catalog (global) endpoints ──────────────────────────────────────────────
 
 export const catalogApi = {

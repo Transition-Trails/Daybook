@@ -4,6 +4,7 @@
  */
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -15,8 +16,13 @@ import {
   BookMarked,
   ChevronRight,
   ArrowLeft,
+  Sparkles,
+  Palette,
+  Sticker,
+  BookOpen,
+  TrendingUp,
 } from "lucide-react";
-import { resolveStoreId, type MeStore } from "@/lib/api";
+import { resolveStoreId, storesApi, type MeStore } from "@/lib/api";
 
 interface StoreAdminShellProps {
   children: React.ReactNode;
@@ -34,6 +40,16 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
 
   const base = `/store/${resolveStoreId(store)}`;
 
+  const storeId = resolveStoreId(store);
+
+  // Fetch flags to determine if AI studios should be shown
+  const { data: flags } = useQuery({
+    queryKey: ["store-flags", storeId],
+    queryFn: () => storesApi.flags.get(storeId),
+    staleTime: 60_000,
+  });
+  const aiEnabled = flags?.aiEnabled ?? false;
+
   const NAV = [
     { label: "Dashboard",    icon: LayoutDashboard, href: base },
     { label: "Shop catalog", icon: ShoppingBag,     href: `${base}/catalog` },
@@ -41,6 +57,13 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     { label: "Customers",    icon: Users,            href: `${base}/customers` },
     { label: "Staff & roles", icon: UserCog,        href: `${base}/staff` },
     { label: "Help",         icon: HelpCircle,       href: `${base}/help` },
+  ];
+
+  const STUDIO_NAV = [
+    { label: "Theme Studio",   icon: Palette,     href: `${base}/studios/theme` },
+    { label: "Pack Studio",    icon: Sticker,     href: `${base}/studios/pack` },
+    { label: "Edition Studio", icon: BookOpen,    href: `${base}/studios/edition` },
+    { label: "Trend Research", icon: TrendingUp,  href: `${base}/studios/trends` },
   ];
 
   const isActive = (href: string) =>
@@ -80,7 +103,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 py-3 px-2 space-y-0.5">
+        <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
           {NAV.map(({ label, icon: Icon, href }) => {
             const active = isActive(href);
             return (
@@ -108,6 +131,54 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
               </Link>
             );
           })}
+
+          {/* AI Studios section */}
+          <div className="pt-3 pb-1">
+            <div className="flex items-center gap-1.5 px-3 mb-1">
+              <Sparkles className="w-3 h-3" style={{ color: "hsl(35 20% 45%)" }} />
+              <p className="text-[10px] uppercase tracking-wider" style={{ color: "hsl(35 20% 45%)" }}>
+                AI Studios
+              </p>
+            </div>
+            {aiEnabled ? (
+              STUDIO_NAV.map(({ label, icon: Icon, href }) => {
+                const active = isActive(href);
+                return (
+                  <Link key={href} href={href}>
+                    <span
+                      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors"
+                      style={
+                        active
+                          ? { background: "hsl(12 49% 58% / 0.2)", color: "hsl(12 70% 80%)" }
+                          : { color: "hsl(35 30% 70%)" }
+                      }
+                      onMouseEnter={e => {
+                        if (!active) (e.currentTarget as HTMLElement).style.background = "hsl(221 46% 23%)";
+                        if (!active) (e.currentTarget as HTMLElement).style.color = "hsl(35 50% 88%)";
+                      }}
+                      onMouseLeave={e => {
+                        if (!active) (e.currentTarget as HTMLElement).style.background = "";
+                        if (!active) (e.currentTarget as HTMLElement).style.color = "hsl(35 30% 70%)";
+                      }}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span>{label}</span>
+                      {active && <ChevronRight className="w-3 h-3 ml-auto opacity-60" />}
+                    </span>
+                  </Link>
+                );
+              })
+            ) : (
+              <span
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm opacity-40 cursor-default"
+                style={{ color: "hsl(35 30% 70%)" }}
+                title="AI studios aren't enabled for your plan"
+              >
+                <Sparkles className="w-4 h-4 shrink-0" />
+                <span>Studios (not enabled)</span>
+              </span>
+            )}
+          </div>
         </nav>
 
         {/* Store switcher (if member of multiple stores) */}

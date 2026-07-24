@@ -12,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Users } from "lucide-react";
+import { Plus, Users, ExternalLink } from "lucide-react";
 import type { StorePlan, StoreStatus } from "@/lib/api";
 import { Link } from "wouter";
 
@@ -157,6 +157,17 @@ export default function SuperStores() {
                       <Link href={`/store/${s.id}`}>
                         <span className="text-xs text-primary hover:underline cursor-pointer">View</span>
                       </Link>
+                      {s.status !== "suspended" && (
+                        <a
+                          href={`/s/${s.slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          Storefront
+                        </a>
+                      )}
                     </div>
                   </td>
                 </tr>

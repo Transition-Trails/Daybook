@@ -14,6 +14,7 @@ import storesRouter from "./stores";
 import platformRouter from "./platform";
 import meRouter from "./me";
 import inkRouter from "./ink";
+import shopRouter from "./shop";
 
 const router: IRouter = Router();
 
@@ -33,5 +34,7 @@ router.use(storesRouter);
 router.use(platformRouter);
 router.use(meRouter);
 router.use(inkRouter);
+// Public storefront API (no auth required)
+router.use(shopRouter);
 
 export default router;

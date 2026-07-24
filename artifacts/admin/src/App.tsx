@@ -26,6 +26,11 @@ import { routes as daybookRoutes } from "@/pages/routes";
 import { lazy, Suspense } from "react";
 const InkEditor = lazy(() => import("@/pages/planners/InkEditor"));
 
+// ── Customer-facing storefront (public, no auth required) ────────────────────
+const StorefrontHome  = lazy(() => import("@/pages/shop/StorefrontHome"));
+const ShopEditionDetail = lazy(() => import("@/pages/shop/EditionDetail"));
+const StoreBuilder    = lazy(() => import("@/pages/shop/StoreBuilder"));
+
 // ── Super Admin pages ─────────────────────────────────────────────────────────
 import SuperDashboard from "@/pages/super/Dashboard";
 import SuperStores from "@/pages/super/Stores";
@@ -300,11 +305,60 @@ function RequireStore({
 }
 
 // ── Top-level App ─────────────────────────────────────────────────────────────
+// Ink shell for shop-generated planners — requires only authentication, not super_admin.
+// Placed in AppRouter (before RootRouter) so it renders without the admin auth guard.
+const ShopInkFallback = <div style={{ minHeight: "100vh", background: "#F7F0E6" }} />;
+
 function AppRouter() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/unauthorized" component={Unauthorized} />
+
+      {/* ── Public customer storefront (/s/:storeSlug) ─────────────────────
+       *  These routes are intentionally BEFORE the /(.*) → RootRouter catch-all
+       *  so they render without any auth guard. Each page handles its own auth
+       *  state (sign-in prompt on the builder page, public browsing elsewhere).
+       *  Wouter regexparam note: we add explicit bare routes alongside wildcards
+       *  for the same reason as the /daybook routes above.
+       */}
+
+      {/* Storefront home */}
+      <Route path="/s/:storeSlug">
+        {(p) => (
+          <Suspense fallback={ShopInkFallback}>
+            <StorefrontHome key={p.storeSlug} />
+          </Suspense>
+        )}
+      </Route>
+
+      {/* Edition detail */}
+      <Route path="/s/:storeSlug/edition/:editionId">
+        {(p) => (
+          <Suspense fallback={ShopInkFallback}>
+            <ShopEditionDetail key={`${p.storeSlug}/${p.editionId}`} />
+          </Suspense>
+        )}
+      </Route>
+
+      {/* Store-scoped builder */}
+      <Route path="/s/:storeSlug/edition/:editionId/build">
+        {(p) => (
+          <Suspense fallback={ShopInkFallback}>
+            <StoreBuilder key={`${p.storeSlug}/${p.editionId}`} />
+          </Suspense>
+        )}
+      </Route>
+
+      {/* Shop-facing Ink editor — auth-only (not super_admin) */}
+      <Route path="/s/:storeSlug/ink/:id">
+        {(p) => (
+          <Suspense fallback={ShopInkFallback}>
+            <InkEditor key={p.id} />
+          </Suspense>
+        )}
+      </Route>
+
       {/* /(.*) matches all paths at any depth — /:rest* only matches 1 segment */}
       <Route path="/(.*)" component={RootRouter} />
     </Switch>

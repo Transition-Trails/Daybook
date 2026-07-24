@@ -635,7 +635,7 @@ router.post("/docs", requireAuth, async (req, res): Promise<void> => {
     docUrl:  docData.webViewLink,
   });
 
-  await stampSynced(user.id, user.connections as Record<string, unknown>, "docsLastSynced");
+  await stampSynced(user.id, { ...(user.connections as Record<string, unknown>), googleDocs: true }, "docsLastSynced");
 
   await writeAudit(db, {
     actorUserId: user.id,

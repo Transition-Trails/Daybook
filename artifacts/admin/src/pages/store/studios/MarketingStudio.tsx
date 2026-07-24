@@ -32,6 +32,7 @@ import {
   marketingApi,
   storeProfileApi,
   storeStudiosApi,
+  copilotApi,
   type MarketingListingResult,
   type MarketingSocialPost,
   type MarketingMockupFrame,
@@ -262,34 +263,40 @@ export default function MarketingStudio({ storeId, role, aiEnabled }: Props) {
     onError: (err: Error) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
   });
 
-  // Copilot send
+  // Copilot send — grounded real Claude
+  const copilotMutation = useMutation({
+    mutationFn: (userMsg: string) =>
+      copilotApi.send(storeId, {
+        messages: [...copilotMessages, { role: "user", content: userMsg }],
+        context: { activeTool, selectedProduct: product },
+      }),
+    onSuccess: (res) => {
+      addCopilotMessage({ role: "assistant", content: res.message });
+      if (res.action?.type === "draft_all") {
+        draftAll.mutate();
+      } else if (res.action?.type === "generate_listing") {
+        setActiveTool("listing");
+        generateListing.mutate();
+      } else if (res.action?.type === "generate_social") {
+        setActiveTool("social");
+        generateSocial.mutate();
+      } else if (res.action?.type === "generate_mockup") {
+        setActiveTool("mockup");
+        generateMockup.mutate();
+      }
+    },
+    onError: (err: Error) => {
+      addCopilotMessage({ role: "assistant", content: `Sorry, I hit an error: ${err.message}` });
+    },
+  });
+
   const sendCopilot = useCallback(() => {
     if (!copilotInput.trim()) return;
     const userMsg = copilotInput.trim();
     setCopilotInput("");
     addCopilotMessage({ role: "user", content: userMsg });
-
-    // Simple response heuristics — in v1 the copilot is guided, not free-form AI
-    const lower = userMsg.toLowerCase();
-    if (lower.includes("draft") || lower.includes("write") || lower.includes("go") || lower.includes("all")) {
-      addCopilotMessage({ role: "assistant", content: "Great — running Draft it all now!" });
-      draftAll.mutate();
-    } else if (lower.includes("listing") || lower.includes("etsy")) {
-      setActiveTool("listing");
-      generateListing.mutate();
-      addCopilotMessage({ role: "assistant", content: "Drafting your listing now…" });
-    } else if (lower.includes("social") || lower.includes("instagram") || lower.includes("caption")) {
-      setActiveTool("social");
-      generateSocial.mutate();
-      addCopilotMessage({ role: "assistant", content: "Drafting social posts…" });
-    } else if (lower.includes("mockup") || lower.includes("scene") || lower.includes("image")) {
-      setActiveTool("mockup");
-      generateMockup.mutate();
-      addCopilotMessage({ role: "assistant", content: "Generating mockup frames…" });
-    } else {
-      addCopilotMessage({ role: "assistant", content: "Tell me what you'd like — type **draft listing**, **draft social**, **draft mockup**, or **draft all** and I'll get started." });
-    }
-  }, [copilotInput, addCopilotMessage, draftAll, generateListing, generateSocial, generateMockup]);
+    copilotMutation.mutate(userMsg);
+  }, [copilotInput, addCopilotMessage, copilotMutation]);
 
   const guideMe = () => {
     setIsGuiding(true);
@@ -301,7 +308,7 @@ export default function MarketingStudio({ storeId, role, aiEnabled }: Props) {
     });
   };
 
-  const isGenerating = generateListing.isPending || generateSocial.isPending || generateMockup.isPending || draftAll.isPending;
+  const isGenerating = generateListing.isPending || generateSocial.isPending || generateMockup.isPending || draftAll.isPending || copilotMutation.isPending;
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 

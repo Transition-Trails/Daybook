@@ -846,6 +846,59 @@ export const catalogApi = {
   updateProduct: (id: string, data: Partial<CatalogItem>) => apiFetch<CatalogItem>(`/related-products/${id}`,{ method: "PATCH", body: JSON.stringify(data) }),
 };
 
+// ── Studio grounded-generate endpoints (server-side, profile-injected) ────────
+
+export interface ThemeGenerateResult {
+  name: string; description: string; colors: string[]; model: string; provider: string;
+}
+export interface PackGenerateResult {
+  name: string; tags: string[]; ideas: string[]; model: string; provider: string;
+}
+export interface EditionGenerateResult {
+  name: string; description: string; sections: string[]; palette: string[];
+  priceLow: number; priceHigh: number; model: string; provider: string;
+}
+export interface TrendCard { trend: string; insight: string; idea: string; }
+export interface TrendsGenerateResult {
+  trends: TrendCard[]; model: string; provider: string;
+}
+export interface CopilotAction {
+  type: "generate_listing" | "generate_social" | "generate_mockup" | "draft_all";
+}
+export interface CopilotResult { message: string; action?: CopilotAction; }
+
+export const studioGenerateApi = {
+  generateTheme: (storeId: string, data: { prompt: string }) =>
+    apiFetch<ThemeGenerateResult>(`/stores/${storeId}/studios/theme/generate`, {
+      method: "POST", body: JSON.stringify(data), headers: { "x-store-id": storeId },
+    }),
+  generatePack: (storeId: string, data: { prompt: string }) =>
+    apiFetch<PackGenerateResult>(`/stores/${storeId}/studios/pack/generate`, {
+      method: "POST", body: JSON.stringify(data), headers: { "x-store-id": storeId },
+    }),
+  generateEdition: (storeId: string, data: { prompt: string }) =>
+    apiFetch<EditionGenerateResult>(`/stores/${storeId}/studios/edition/generate`, {
+      method: "POST", body: JSON.stringify(data), headers: { "x-store-id": storeId },
+    }),
+  generateTrends: (storeId: string, data: { prompt: string }) =>
+    apiFetch<TrendsGenerateResult>(`/stores/${storeId}/studios/trends/generate`, {
+      method: "POST", body: JSON.stringify(data), headers: { "x-store-id": storeId },
+    }),
+};
+
+export const copilotApi = {
+  send: (
+    storeId: string,
+    data: {
+      messages: { role: "user" | "assistant"; content: string }[];
+      context?: { activeTool?: string; selectedProduct?: { type: string; id: string; name: string } | null; brief?: string };
+    },
+  ) =>
+    apiFetch<CopilotResult>(`/stores/${storeId}/marketing/copilot`, {
+      method: "POST", body: JSON.stringify(data), headers: { "x-store-id": storeId },
+    }),
+};
+
 // ── Store Profile & Voice ─────────────────────────────────────────────────────
 
 export interface StoreProfileFacts {

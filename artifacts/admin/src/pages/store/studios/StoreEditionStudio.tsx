@@ -24,8 +24,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState, SkeletonRows } from "@/components/shared";
-import { aiApi, extractJson, isValidHex, PALETTE_LABELS } from "@/lib/ai";
-import { storeStudiosApi, type CatalogItem, type OwnedList } from "@/lib/api";
+import { isValidHex, PALETTE_LABELS } from "@/lib/ai";
+import { storeStudiosApi, studioGenerateApi, type CatalogItem, type OwnedList } from "@/lib/api";
 import { AiDisabledState } from "./AiDisabledState";
 
 interface EditionAiResult {
@@ -50,20 +50,6 @@ interface Props {
   role: string;
   aiEnabled: boolean;
 }
-
-const SYSTEM_PROMPT = `You are a product designer for a premium digital planner brand.
-When given a planner edition concept, respond ONLY with valid JSON — no markdown, no explanation.
-{
-  "name": "edition name (3-6 words, e.g. 'The Christmas 2026 Planner')",
-  "description": "2-sentence pitch that captures who it's for and what makes it special",
-  "sections": ["Section A","Section B","Section C","Section D","Section E"],
-  "palette": ["#hex1","#hex2","#hex3","#hex4","#hex5","#hex6"],
-  "priceLow": 12,
-  "priceHigh": 18
-}
-sections: 5–7 planner section names that make sense for this theme.
-palette 6 colors: accent, accent-dark, secondary, tertiary, ink, paper — cohesive and on-theme.
-priceLow/priceHigh: suggested USD retail price range (integers).`;
 
 function MultiChips({
   items,
@@ -197,25 +183,17 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
   };
 
   const generate = useMutation({
-    mutationFn: () => aiApi.complete(SYSTEM_PROMPT, prompt.trim()),
+    mutationFn: () => studioGenerateApi.generateEdition(storeId, { prompt: prompt.trim() }),
     onSuccess: (res) => {
       setParseError(null);
       setAiMeta({ model: res.model, provider: res.provider });
-      try {
-        const parsed = extractJson<EditionAiResult>(res.text);
-        setResult(parsed);
-        setName(parsed.name ?? "");
-        setDescription(parsed.description ?? "");
-        setSections(Array.isArray(parsed.sections) ? parsed.sections : []);
-        setPalette(Array.isArray(parsed.palette) ? parsed.palette.slice(0, 6) : []);
-        setPriceLow(String(parsed.priceLow ?? 12));
-        setPriceHigh(String(parsed.priceHigh ?? 18));
-      } catch (e) {
-        setResult(null);
-        setParseError(
-          `Claude responded but the JSON couldn't be parsed. ${e instanceof Error ? e.message : String(e)}`,
-        );
-      }
+      setResult({ name: res.name, description: res.description, sections: res.sections, palette: res.palette, priceLow: res.priceLow, priceHigh: res.priceHigh });
+      setName(res.name ?? "");
+      setDescription(res.description ?? "");
+      setSections(Array.isArray(res.sections) ? res.sections : []);
+      setPalette(Array.isArray(res.palette) ? res.palette.slice(0, 6) : []);
+      setPriceLow(String(res.priceLow ?? 12));
+      setPriceHigh(String(res.priceHigh ?? 18));
     },
     onError: (err: Error) => setParseError(err.message),
   });

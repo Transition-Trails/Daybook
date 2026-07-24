@@ -14,7 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
-import { aiApi, extractJson } from "@/lib/ai";
+import { studioGenerateApi } from "@/lib/api";
 import { AiDisabledState } from "./AiDisabledState";
 
 interface TrendCard {
@@ -28,14 +28,6 @@ interface Props {
   aiEnabled: boolean;
 }
 
-const SYSTEM_PROMPT = `You are a trend analyst for a premium digital planner brand.
-When given a research focus, respond ONLY with a valid JSON array — no markdown, no explanation.
-[
-  { "trend": "short trend name", "insight": "1-2 sentences on why this is relevant now", "idea": "specific planner product idea that capitalises on this trend" },
-  ...
-]
-Return exactly 5 objects. Be specific and actionable — the "idea" should be a concrete product concept a designer can work from immediately.`;
-
 export default function StoreTrendResearch({ storeId, aiEnabled }: Props) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -46,18 +38,11 @@ export default function StoreTrendResearch({ storeId, aiEnabled }: Props) {
   const [parseError, setParseError] = useState<string | null>(null);
 
   const generate = useMutation({
-    mutationFn: () => aiApi.complete(SYSTEM_PROMPT, prompt.trim()),
+    mutationFn: () => studioGenerateApi.generateTrends(storeId, { prompt: prompt.trim() }),
     onSuccess: (res) => {
       setParseError(null);
       setAiMeta({ model: res.model, provider: res.provider });
-      try {
-        const parsed = extractJson<TrendCard[]>(res.text);
-        if (!Array.isArray(parsed)) throw new Error("Expected an array");
-        setTrends(parsed.slice(0, 5));
-      } catch (e) {
-        setTrends([]);
-        setParseError(`Claude responded but the JSON couldn't be parsed. ${e instanceof Error ? e.message : String(e)}`);
-      }
+      setTrends(res.trends);
     },
     onError: (err: Error) => {
       setParseError(err.message);

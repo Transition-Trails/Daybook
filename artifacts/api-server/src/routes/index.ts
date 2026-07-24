@@ -20,6 +20,7 @@ import inkRouter from "./ink";
 import shopRouter from "./shop";
 import storeProfileRouter from "./store-profile";
 import marketingRouter from "./marketing";
+import storeStudiosRouter from "./store-studios";
 
 const router: IRouter = Router();
 
@@ -43,6 +44,7 @@ router.use(platformStickersRouter);
 router.use(meRouter);
 router.use(inkRouter);
 router.use(storeProfileRouter);
+router.use(storeStudiosRouter);
 router.use(marketingRouter);
 // Public storefront API (no auth required)
 router.use(shopRouter);

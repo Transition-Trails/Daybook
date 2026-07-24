@@ -14,8 +14,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
-import { aiApi, extractJson, isValidHex, PALETTE_LABELS } from "@/lib/ai";
-import { storeStudiosApi } from "@/lib/api";
+import { isValidHex, PALETTE_LABELS } from "@/lib/ai";
+import { storeStudiosApi, studioGenerateApi } from "@/lib/api";
 import { AiDisabledState } from "./AiDisabledState";
 
 interface ThemeAiResult {
@@ -29,16 +29,6 @@ interface Props {
   role: string;
   aiEnabled: boolean;
 }
-
-const SYSTEM_PROMPT = `You are a professional color palette designer for a premium digital planner brand.
-When given a mood, season, or brand feel, respond ONLY with valid JSON — no markdown, no explanation.
-{
-  "name": "short evocative theme name (2-4 words)",
-  "description": "one sentence that captures the mood and use case",
-  "colors": ["#hex1","#hex2","#hex3","#hex4","#hex5","#hex6"]
-}
-The 6 colors in order: accent (primary brand color), accent-dark (deepened accent for hover/text), secondary (complementary mid-tone), tertiary (soft supporting tone), ink (dark text color), paper (lightest background).
-Choose colors that feel cohesive, premium, and work well on screen.`;
 
 export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   const { toast } = useToast();
@@ -61,20 +51,14 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   const [savedId, setSavedId] = useState<string | null>(null);
 
   const generate = useMutation({
-    mutationFn: () => aiApi.complete(SYSTEM_PROMPT, prompt.trim()),
+    mutationFn: () => studioGenerateApi.generateTheme(storeId, { prompt: prompt.trim() }),
     onSuccess: (res) => {
       setParseError(null);
       setAiMeta({ model: res.model, provider: res.provider });
-      try {
-        const parsed = extractJson<ThemeAiResult>(res.text);
-        setResult(parsed);
-        setName(parsed.name ?? "");
-        setDescription(parsed.description ?? "");
-        setColors(Array.isArray(parsed.colors) ? parsed.colors.slice(0, 6) : []);
-      } catch (e) {
-        setResult(null);
-        setParseError(`Claude responded but the JSON couldn't be parsed. ${e instanceof Error ? e.message : String(e)}`);
-      }
+      setResult({ name: res.name, description: res.description, colors: res.colors });
+      setName(res.name ?? "");
+      setDescription(res.description ?? "");
+      setColors(Array.isArray(res.colors) ? res.colors.slice(0, 6) : []);
     },
     onError: (err: Error) => setParseError(err.message),
   });

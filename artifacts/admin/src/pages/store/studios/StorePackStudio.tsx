@@ -15,8 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
-import { aiApi, extractJson } from "@/lib/ai";
-import { storeStudiosApi } from "@/lib/api";
+import { storeStudiosApi, studioGenerateApi } from "@/lib/api";
 import { AiDisabledState } from "./AiDisabledState";
 
 interface PackAiResult {
@@ -30,19 +29,6 @@ interface Props {
   role: string;
   aiEnabled: boolean;
 }
-
-const SYSTEM_PROMPT = `You are a creative director for a premium digital planner brand.
-When given a sticker pack concept, respond ONLY with valid JSON — no markdown, no explanation.
-{
-  "name": "punchy pack name (2-5 words)",
-  "tags": ["tag1","tag2","tag3","tag4"],
-  "ideas": [
-    "brief sticker idea (e.g. 'a coffee cup with Monday energy text')",
-    "...", "...", "..."
-  ]
-}
-tags: 4 short keywords describing the vibe/audience (e.g. "cosy", "productivity", "ADHD-friendly").
-ideas: exactly 4 sticker concepts — be specific about the illustration and any text overlay.`;
 
 export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
   const { toast } = useToast();
@@ -66,20 +52,14 @@ export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
   const [savedId, setSavedId] = useState<string | null>(null);
 
   const generate = useMutation({
-    mutationFn: () => aiApi.complete(SYSTEM_PROMPT, prompt.trim()),
+    mutationFn: () => studioGenerateApi.generatePack(storeId, { prompt: prompt.trim() }),
     onSuccess: (res) => {
       setParseError(null);
       setAiMeta({ model: res.model, provider: res.provider });
-      try {
-        const parsed = extractJson<PackAiResult>(res.text);
-        setResult(parsed);
-        setName(parsed.name ?? "");
-        setTags(Array.isArray(parsed.tags) ? parsed.tags.slice(0, 4) : []);
-        setIdeas(Array.isArray(parsed.ideas) ? parsed.ideas.slice(0, 4) : []);
-      } catch (e) {
-        setResult(null);
-        setParseError(`Claude responded but the JSON couldn't be parsed. ${e instanceof Error ? e.message : String(e)}`);
-      }
+      setResult({ name: res.name, tags: res.tags, ideas: res.ideas });
+      setName(res.name ?? "");
+      setTags(Array.isArray(res.tags) ? res.tags.slice(0, 4) : []);
+      setIdeas(Array.isArray(res.ideas) ? res.ideas.slice(0, 4) : []);
     },
     onError: (err: Error) => setParseError(err.message),
   });

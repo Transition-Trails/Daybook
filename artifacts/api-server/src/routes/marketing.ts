@@ -123,6 +123,39 @@ async function buildProductBrief(
   return "";
 }
 
+/**
+ * Validate that an edition/pack belongs to the requesting store.
+ * Platform items (authoredByStoreId = null) are always allowed.
+ * Returns { status, message } if rejected, null if OK.
+ */
+async function validateProductOwnership(
+  storeId: string,
+  editionId?: string,
+  packId?: string,
+): Promise<{ status: number; message: string } | null> {
+  if (editionId) {
+    const [ed] = await db
+      .select({ authoredByStoreId: editionsTable.authoredByStoreId })
+      .from(editionsTable)
+      .where(eq(editionsTable.id, editionId));
+    if (!ed) return { status: 404, message: `Edition ${editionId} not found` };
+    if (ed.authoredByStoreId !== null && ed.authoredByStoreId !== storeId) {
+      return { status: 403, message: `Edition ${editionId} does not belong to this store` };
+    }
+  }
+  if (packId) {
+    const [pack] = await db
+      .select({ authoredByStoreId: stickerPacksTable.authoredByStoreId })
+      .from(stickerPacksTable)
+      .where(eq(stickerPacksTable.id, packId));
+    if (!pack) return { status: 404, message: `Pack ${packId} not found` };
+    if (pack.authoredByStoreId !== null && pack.authoredByStoreId !== storeId) {
+      return { status: 403, message: `Pack ${packId} does not belong to this store` };
+    }
+  }
+  return null;
+}
+
 // ── POST /stores/:storeId/marketing/generate/listing ─────────────────────────
 
 router.post(
@@ -147,6 +180,9 @@ router.post(
       voiceOverride?: Partial<StoreProfileVoice>;
       channel?: "etsy" | "tiktok" | "storefront";
     };
+
+    const ownershipError = await validateProductOwnership(storeId, editionId, packId);
+    if (ownershipError) { res.status(ownershipError.status).json({ error: ownershipError.message }); return; }
 
     const grounding = await getGrounding(storeId, voiceOverride);
     const productBrief = await buildProductBrief(editionId, packId);
@@ -235,6 +271,9 @@ router.post(
       channels?: ("instagram" | "pinterest" | "tiktok")[];
     };
 
+    const ownershipError = await validateProductOwnership(storeId, editionId, packId);
+    if (ownershipError) { res.status(ownershipError.status).json({ error: ownershipError.message }); return; }
+
     const grounding = await getGrounding(storeId, voiceOverride);
     const productBrief = await buildProductBrief(editionId, packId);
 
@@ -320,6 +359,9 @@ router.post(
       sceneDescription?: string;
     };
 
+    const ownershipError2 = await validateProductOwnership(storeId, editionId, packId);
+    if (ownershipError2) { res.status(ownershipError2.status).json({ error: ownershipError2.message }); return; }
+
     const productBrief = await buildProductBrief(editionId, packId);
     const productName = editionId || packId
       ? (productBrief.match(/Name: (.+)/)?.[1] ?? "Product")
@@ -390,29 +432,14 @@ router.get(
     const { storeId } = req.params as { storeId: string };
     const { type, status } = req.query as { type?: string; status?: string };
 
-    let query = db
-      .select()
-      .from(marketingAssetsTable)
-      .where(eq(marketingAssetsTable.storeId, storeId))
-      .$dynamic();
-
-    if (type) {
-      query = query.where(and(
-        eq(marketingAssetsTable.storeId, storeId),
-        eq(marketingAssetsTable.assetType, type),
-      ));
-    }
-    if (status) {
-      query = query.where(and(
-        eq(marketingAssetsTable.storeId, storeId),
-        eq(marketingAssetsTable.status, status),
-      ));
-    }
+    const conditions = [eq(marketingAssetsTable.storeId, storeId)];
+    if (type)   conditions.push(eq(marketingAssetsTable.assetType, type));
+    if (status) conditions.push(eq(marketingAssetsTable.status, status));
 
     const assets = await db
       .select()
       .from(marketingAssetsTable)
-      .where(eq(marketingAssetsTable.storeId, storeId))
+      .where(and(...conditions))
       .orderBy(desc(marketingAssetsTable.createdAt));
 
     res.json(assets);
@@ -520,6 +547,96 @@ router.delete(
     });
 
     res.sendStatus(204);
+  },
+);
+
+// ── POST /stores/:storeId/marketing/copilot ───────────────────────────────────
+
+router.post(
+  "/stores/:storeId/marketing/copilot",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId } = req.params as { storeId: string };
+
+    if (!(await assertAiEnabled(storeId, res))) return;
+
+    const { messages, context } = req.body as {
+      messages: { role: "user" | "assistant"; content: string }[];
+      context?: {
+        activeTool?: string;
+        selectedProduct?: { type: string; id: string; name: string } | null;
+      };
+    };
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      res.status(400).json({ error: "messages array is required" });
+      return;
+    }
+    // Safety cap — don't send more than 20 messages to avoid context blow-out
+    const safeMessages = messages.slice(-20);
+
+    const grounding = await getGrounding(storeId);
+    const systemPrompt = [
+      grounding,
+      "",
+      "## Marketing Copilot",
+      "You are a marketing copilot for a digital planner store. Help the owner create on-brand marketing content.",
+      "",
+      "## Available actions",
+      'Include an "action" field ONLY when the user\'s message clearly requests generation:',
+      "- generate_listing: Generate a product listing (Etsy / TikTok Shop / Storefront)",
+      "- generate_social: Generate social media captions + hashtags",
+      "- generate_mockup: Generate product mockup scene descriptions",
+      "- draft_all: Generate all three at once",
+      "",
+      context?.selectedProduct
+        ? `Currently selected product: ${context.selectedProduct.name} (${context.selectedProduct.type})`
+        : "No product selected yet.",
+      context?.activeTool ? `Active tool: ${context.activeTool}` : "",
+      "",
+      "## Rules",
+      "1. Keep responses concise and helpful (2–4 sentences max)",
+      "2. If the user asks to write, draft, create, or generate marketing content, include the matching action",
+      "3. For guidance questions or general conversation, answer without an action",
+      "4. Respond ONLY with valid JSON — no markdown, no explanation:",
+      '   With action:    { "message": "...", "action": { "type": "..." } }',
+      '   Without action: { "message": "..." }',
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    try {
+      const result = await callAi(safeMessages, "claude", systemPrompt);
+
+      const parsed = tryParseJson<{ message: string; action?: { type: string } }>(result.content);
+      if (!parsed?.message) {
+        // Claude returned something but not valid JSON — surface raw text gracefully
+        res.json({ message: result.content.slice(0, 500) });
+        return;
+      }
+
+      // Whitelist action types
+      const validActions = ["generate_listing", "generate_social", "generate_mockup", "draft_all"];
+      const action =
+        parsed.action?.type && validActions.includes(parsed.action.type)
+          ? { type: parsed.action.type }
+          : undefined;
+
+      await writeAudit(db, {
+        actorUserId: actor.userId,
+        actorRole: actor.effectiveRole,
+        scope: storeId,
+        action: "marketing.copilot.send",
+        targetType: "marketing",
+        metadata: { model: result.model, actionTriggered: action?.type ?? null },
+      });
+
+      res.json({ message: parsed.message, action, model: result.model, provider: result.provider });
+    } catch (err) {
+      req.log.error({ err }, "marketing copilot failed");
+      res.status(502).json({ error: `AI error: ${String(err)}` });
+    }
   },
 );
 

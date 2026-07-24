@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { storesApi, platformApi, type DefaultMode } from "@/lib/api";
+import { storesApi, platformApi, storeProfileApi, type DefaultMode } from "@/lib/api";
 import { PageHeader, StatTile, SkeletonRows, ErrorState, EmptyState } from "@/components/shared";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Users, ShoppingBag, Clock, BookCopy, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Users, ShoppingBag, Clock, BookCopy, ShieldCheck, AlertTriangle, Sparkles, ArrowRight } from "lucide-react";
+import { Link } from "wouter";
 
 interface Props {
   storeId: string;
@@ -106,6 +107,46 @@ function EntitlementPanel({ storeId }: { storeId: string }) {
   );
 }
 
+// ── Profile setup banner ─────────────────────────────────────────────────────
+
+function ProfileSetupBanner({ storeId }: { storeId: string }) {
+  const { data: flags } = useQuery({
+    queryKey: ["store-flags", storeId],
+    queryFn: () => storesApi.flags.get(storeId),
+    staleTime: 60_000,
+  });
+  const { data: profile } = useQuery({
+    queryKey: ["store-profile", storeId],
+    queryFn: () => storeProfileApi.get(storeId),
+    staleTime: 60_000,
+    enabled: flags?.aiEnabled === true,
+  });
+
+  if (!flags?.aiEnabled) return null;
+
+  // "Reasonably complete" = both pitch and whatTheySell are set
+  const complete = !!(profile?.facts?.pitch && profile?.facts?.whatTheySell);
+  if (complete) return null;
+
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-[#C87560]/30 bg-[#FDF6F1] px-5 py-4">
+      <Sparkles className="w-5 h-5 text-[#C87560] mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-[#1B2A4A]">Set up your brand voice</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          AI studios write in your brand voice and state only your facts — once you fill in your store profile.
+        </p>
+      </div>
+      <Link href={`/store/${storeId}/settings/profile`}>
+        <button className="shrink-0 flex items-center gap-1 text-xs font-medium text-[#C87560] hover:text-[#A85E4E] transition-colors">
+          Set up now
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      </Link>
+    </div>
+  );
+}
+
 // ── Main dashboard ──────────────────────────────────────────────────────────
 
 export default function StoreDashboard({ storeId, role }: Props) {
@@ -134,6 +175,7 @@ export default function StoreDashboard({ storeId, role }: Props) {
         title="Dashboard"
         description="Your store at a glance."
       />
+      <ProfileSetupBanner storeId={storeId} />
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-3">

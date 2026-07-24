@@ -90,10 +90,15 @@ export type InkPoint = { x: number; y: number; p: number };
 
 export type InkStroke = {
   id: string;
-  tool: "pen" | "highlighter" | "eraser";
+  /** v1: "pen"|"highlighter"|"eraser"  v2: also fineliner/fountain/marker + shape kinds */
+  tool: string;
   color: string;
   baseWidth: number;
   points: InkPoint[];
+  /** v2 optional — line style; undefined / "solid" = solid */
+  variant?: "solid" | "dashed" | "dotted";
+  /** v2 optional — shape geometry; undefined = freehand stroke */
+  shape?: { kind: "line" | "rect" | "ellipse" | "arrow"; x1: number; y1: number; x2: number; y2: number };
 };
 
 export type InkObject = {

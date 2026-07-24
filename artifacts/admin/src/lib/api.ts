@@ -26,9 +26,12 @@ async function apiFetch<T = unknown>(
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type StoreStatus = "active" | "trial" | "suspended";
-export type StorePlan   = "starter" | "pro";
-export type StoreRole   = "store_owner" | "store_staff" | "support" | "customer";
+export type StoreStatus  = "active" | "trial" | "suspended";
+export type StorePlan    = "starter" | "pro";
+export type StoreRole    = "store_owner" | "store_staff" | "support" | "customer";
+export type DefaultMode  = "curated" | "independent";
+export type ItemOrigin   = "starter" | "licensed" | "owned";
+export type EntitlementStatus = "entitled" | "gated-license-lapsed" | "not-yours";
 
 export interface Store {
   id: string;
@@ -38,6 +41,8 @@ export interface Store {
   ownerUserId: string;
   plan: StorePlan;
   status: StoreStatus;
+  defaultMode: DefaultMode;
+  subscriptionActive: boolean;
   createdAt: string;
   updatedAt: string;
   memberCount?: number;
@@ -85,7 +90,14 @@ export interface StoreCatalogEntry {
   storeId: string;
   itemType: string;
   itemId: string;
+  origin: ItemOrigin;
+  entitlementStatus: EntitlementStatus;
   createdAt: string;
+}
+
+export interface CatalogItemWithOrigin extends CatalogItem {
+  origin: ItemOrigin;
+  authoredByStoreId: string | null;
 }
 
 export interface PlatformStats {
@@ -125,6 +137,8 @@ export interface CatalogItem {
   name: string;
   status: string;
   globalAvailable: boolean;
+  origin?: ItemOrigin;
+  authoredByStoreId?: string | null;
   [key: string]: unknown;
 }
 
@@ -204,6 +218,14 @@ export const storesApi = {
         method: "PUT",
         body: JSON.stringify(data),
       }),
+  },
+
+  entitlement: {
+    update: (storeId: string, data: { subscriptionActive?: boolean; defaultMode?: DefaultMode }) =>
+      apiFetch<{ id: string; subscriptionActive: boolean; defaultMode: DefaultMode }>(
+        `/stores/${storeId}/entitlement`,
+        { method: "PATCH", body: JSON.stringify(data) },
+      ),
   },
 };
 

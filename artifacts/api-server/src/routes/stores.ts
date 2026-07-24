@@ -20,13 +20,14 @@ import {
   relatedProductsTable,
   editionsTable,
 } from "@workspace/db";
-import { eq, and, count } from "drizzle-orm";
+import { eq, and, count, inArray } from "drizzle-orm";
 import {
   requireSuperAdmin,
   requireStoreAccess,
   resolveStoreActor,
 } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
+import { annotateWithEntitlement, type EntitlementContext } from "../lib/entitlement";
 
 const router: IRouter = Router();
 
@@ -260,18 +261,66 @@ router.delete(
 );
 
 // ── GET /stores/:storeId/catalog ──────────────────────────────────────────────
+// Returns the store's enabled items enriched with origin + entitlementStatus.
 
 router.get(
   "/stores/:storeId/catalog",
   requireStoreAccess("support"),
   async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    const items = await db
+
+    const [store] = await db.select().from(storesTable).where(eq(storesTable.id, storeId));
+    if (!store) { res.status(404).json({ error: "Store not found" }); return; }
+
+    const rows = await db
       .select()
       .from(storeCatalogTable)
       .where(eq(storeCatalogTable.storeId, storeId))
       .orderBy(storeCatalogTable.itemType, storeCatalogTable.itemId);
-    res.json(items);
+
+    // Group enabled item IDs by type so we can fetch their origin in batch.
+    const byType: Record<string, string[]> = {};
+    for (const r of rows) {
+      (byType[r.itemType] ??= []).push(r.itemId);
+    }
+
+    // Fetch origin for each type where the store has enabled items.
+    const originMaps: Record<string, Record<string, { origin: string; authoredByStoreId: string | null }>> = {};
+    const fetchBatch = [
+      { type: "theme",   table: themesTable },
+      { type: "pack",    table: stickerPacksTable },
+      { type: "insert",  table: insertsTable },
+      { type: "product", table: relatedProductsTable },
+      { type: "edition", table: editionsTable },
+    ];
+    await Promise.all(
+      fetchBatch.map(async ({ type, table }) => {
+        const ids = byType[type];
+        if (!ids?.length) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const catalogRows = await db.select().from(table as any).where(inArray((table as any).id, ids));
+        originMaps[type] = Object.fromEntries(
+          catalogRows.map((r: any) => [r.id, { origin: r.origin ?? "licensed", authoredByStoreId: r.authoredByStoreId ?? null }]),
+        );
+      }),
+    );
+
+    const ctx: EntitlementContext = {
+      storeId,
+      subscriptionActive: store.subscriptionActive ?? true,
+      isSuperAdmin: actor.isSuperAdmin,
+    };
+
+    const enriched = rows.map((row) => {
+      const meta = originMaps[row.itemType]?.[row.itemId];
+      const origin = (meta?.origin ?? "licensed") as "starter" | "licensed" | "owned";
+      const authoredByStoreId = meta?.authoredByStoreId ?? null;
+      const [annotated] = annotateWithEntitlement([{ origin, authoredByStoreId }], ctx);
+      return { ...row, origin: annotated.origin, entitlementStatus: annotated.entitlementStatus };
+    });
+
+    res.json(enriched);
   },
 );
 
@@ -368,6 +417,59 @@ router.delete(
     });
 
     res.sendStatus(204);
+  },
+);
+
+// ── PATCH /stores/:storeId/entitlement ───────────────────────────────────────
+// Super-admin only. Sets subscriptionActive and/or defaultMode.
+// This is the manual gate lever; Stripe will call this path automatically later.
+
+router.patch(
+  "/stores/:storeId/entitlement",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const storeId = req.params.storeId as string;
+    const { subscriptionActive, defaultMode } = req.body as {
+      subscriptionActive?: boolean;
+      defaultMode?: "curated" | "independent";
+    };
+
+    if (subscriptionActive === undefined && defaultMode === undefined) {
+      res.status(400).json({ error: "Provide subscriptionActive and/or defaultMode" });
+      return;
+    }
+    if (defaultMode !== undefined && !["curated", "independent"].includes(defaultMode)) {
+      res.status(400).json({ error: "defaultMode must be 'curated' or 'independent'" });
+      return;
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (subscriptionActive !== undefined) patch.subscriptionActive = subscriptionActive;
+    if (defaultMode !== undefined) patch.defaultMode = defaultMode;
+
+    const [updated] = await db
+      .update(storesTable)
+      .set(patch)
+      .where(eq(storesTable.id, storeId))
+      .returning();
+    if (!updated) { res.status(404).json({ error: "Store not found" }); return; }
+
+    await writeAudit(db, {
+      actorUserId: actor.userId,
+      actorRole: actor.effectiveRole,
+      scope: "platform",
+      action: "store.entitlement.update",
+      targetType: "store",
+      targetId: storeId,
+      metadata: patch,
+    });
+
+    res.json({
+      id: updated.id,
+      subscriptionActive: updated.subscriptionActive,
+      defaultMode: updated.defaultMode,
+    });
   },
 );
 

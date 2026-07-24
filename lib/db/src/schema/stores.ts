@@ -23,6 +23,13 @@ export const storesTable = pgTable("stores", {
     .references(() => usersTable.id),
   plan: text("plan").notNull().default("starter"), // starter | pro
   status: text("status").notNull().default("trial"), // active | trial | suspended
+  // Content mode — seeds UI defaults; entitlement is still enforced per-item by origin.
+  // curated    = licensed-first: store uses platform catalog items (licensed origin).
+  // independent = own-IP: store only uses starter set + what it authors (owned origin).
+  defaultMode: text("default_mode").notNull().default("curated"), // curated | independent
+  // License gate for licensed-origin items. Starter + owned items are never gated.
+  // Stripe will flip this on subscription events (wired later); togglable by super_admin now.
+  subscriptionActive: boolean("subscription_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

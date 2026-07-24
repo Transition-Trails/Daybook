@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { storesApi, catalogApi, type CatalogItem, type StoreCatalogEntry } from "@/lib/api";
+import { storesApi, catalogApi, type CatalogItem, type ItemOrigin, type EntitlementStatus } from "@/lib/api";
 import { PageHeader, StatusPill, SkeletonRows, ErrorState, EmptyState } from "@/components/shared";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Lock } from "lucide-react";
+import { Lock, AlertTriangle } from "lucide-react";
 
 interface Props {
   storeId: string;
@@ -20,6 +20,42 @@ const TABS: { key: Tab; label: string; type: string; fetcher: () => Promise<Cata
   { key: "products", label: "Related products", type: "product", fetcher: catalogApi.products },
   { key: "editions", label: "Editions",         type: "edition", fetcher: catalogApi.editions },
 ];
+
+// ── Origin badge ────────────────────────────────────────────────────────────
+
+function OriginBadge({ origin }: { origin?: ItemOrigin }) {
+  if (!origin) return null;
+  const styles: Record<ItemOrigin, { label: string; cls: string }> = {
+    starter:  { label: "Starter",  cls: "bg-blue-50 text-blue-700 border-blue-200" },
+    licensed: { label: "Licensed", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+    owned:    { label: "Yours",    cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  };
+  const { label, cls } = styles[origin];
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+// ── Entitlement status chip ─────────────────────────────────────────────────
+
+function EntitlementChip({ status }: { status?: EntitlementStatus }) {
+  if (!status || status === "entitled") return null;
+  if (status === "gated-license-lapsed") {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200">
+        <AlertTriangle className="w-2.5 h-2.5" />
+        License inactive
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+      Not yours
+    </span>
+  );
+}
 
 export default function StoreShopCatalog({ storeId, role }: Props) {
   const [tab, setTab] = useState<Tab>("themes");
@@ -39,10 +75,19 @@ export default function StoreShopCatalog({ storeId, role }: Props) {
     queryFn: () => storesApi.catalog.list(storeId),
   });
 
-  const enabledSet = new Set(
-    enabled
-      .filter((e) => e.itemType === current.type)
-      .map((e) => e.itemId),
+  // Build a map from itemId → entitlement status for the current tab's type.
+  const enabledSet = new Set<string>();
+  const entitlementMap = new Map<string, EntitlementStatus>();
+  for (const e of enabled) {
+    if (e.itemType === current.type) {
+      enabledSet.add(e.itemId);
+      if (e.entitlementStatus) entitlementMap.set(e.itemId, e.entitlementStatus);
+    }
+  }
+
+  // Check if any licensed items are lapsed so we can show the top banner.
+  const hasLapsedItems = enabled.some(
+    (e) => e.entitlementStatus === "gated-license-lapsed",
   );
 
   const enableMutation = useMutation<void, Error, { itemId: string; enabled: boolean }>({
@@ -70,6 +115,21 @@ export default function StoreShopCatalog({ storeId, role }: Props) {
             : "Enable items from the global catalog for your storefront."
         }
       />
+
+      {/* Subscription-inactive warning banner */}
+      {hasLapsedItems && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <div>
+            <p className="font-semibold">Content license inactive</p>
+            <p className="text-xs mt-0.5 text-amber-700">
+              This store's subscription is paused. Licensed items shown in the catalog cannot be used to
+              generate new planners. Starter items remain fully available. Reactivate the subscription to
+              restore access.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border overflow-x-auto">
@@ -101,6 +161,7 @@ export default function StoreShopCatalog({ storeId, role }: Props) {
             <thead>
               <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
                 <th className="px-5 py-3 font-medium">Item</th>
+                <th className="px-4 py-3 font-medium">Origin</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Availability</th>
                 {!isReadOnly && (
@@ -110,13 +171,24 @@ export default function StoreShopCatalog({ storeId, role }: Props) {
             </thead>
             <tbody className="divide-y divide-border">
               {globalItems.map((item) => {
-                const isEnabled = enabledSet.has(item.id);
-                const isLocked = !item.globalAvailable;
+                const isEnabled   = enabledSet.has(item.id);
+                const isLocked    = !item.globalAvailable;
+                const entiStatus  = isEnabled ? entitlementMap.get(item.id) : undefined;
+                const isLapsed    = entiStatus === "gated-license-lapsed";
                 return (
-                  <tr key={item.id} className={`hover:bg-muted/20 transition-colors ${isLocked ? "opacity-60" : ""}`}>
+                  <tr
+                    key={item.id}
+                    className={`hover:bg-muted/20 transition-colors ${isLocked ? "opacity-60" : ""} ${isLapsed ? "bg-red-50/30" : ""}`}
+                  >
                     <td className="px-5 py-3">
                       <p className="font-medium text-foreground">{item.name}</p>
                       <p className="text-xs text-muted-foreground font-mono">{item.id}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <OriginBadge origin={item.origin as ItemOrigin | undefined} />
+                        {isEnabled && <EntitlementChip status={entiStatus} />}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <StatusPill status={item.status} />

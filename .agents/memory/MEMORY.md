@@ -2,6 +2,7 @@
 - [Daybook Zod schema naming](daybook-zod-names.md) — generated schema names don't always match intuition; consult api.ts before writing routes
 - [DB build requirement](db-build.md) — lib/db has composite:true tsconfig; run `npx tsc -b lib/db` before api-server typecheck or changes won't be picked up
 - [Spec-driven backend rebuild](spec-backend-rebuild.md) — new schema uses text PKs, JSONB arrays replace junction tables; all four spec files live in spec/; catalog visibility rule: unauth=live only, admin=all
+- [Entitlement engine](entitlement-engine.md) — origin-based gating for all catalog items; engine lives in api-server/src/lib/entitlement.ts; gate fires at generation time only (offboarding guarantee)
 - [pdfjs-dist Vite compatibility](pdfjs-vite-compat.md) — never npm-install pdfjs-dist; use CDN `/* @vite-ignore */` import instead or it silently corrupts Vite's dep graph
 - [InkStroke v2 schema](inkstroke-v2-schema.md) — DB InkStroke.tool widened to string; optional variant+shape fields added; rebuild lib/db after any schema change
 - [Wouter root-path routing](wouter-root-route.md) — regexparam 3's /:rest* regex won't match bare /; always add explicit <Route path="/" /> alongside any /:rest* catch-all

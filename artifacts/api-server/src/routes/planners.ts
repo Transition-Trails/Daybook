@@ -8,12 +8,14 @@ import {
   plannerConfigsTable,
   editionsTable,
   themesTable,
+  storesTable,
 } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
 import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError } from "../lib/google-auth";
+import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
 import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -175,6 +177,8 @@ router.post("/planners", requireAuth, async (req, res): Promise<void> => {
     setup: PlannerSetup;
     style?: PlannerStyle;
     output?: PlannerOutput;
+    /** Optional store context — when present, entitlement is enforced for the store. */
+    storeContext?: { storeId: string };
   };
 
   if (!body.setup) {
@@ -191,6 +195,56 @@ router.post("/planners", requireAuth, async (req, res): Promise<void> => {
   ) {
     res.status(400).json({ error: "Invalid setup fields" });
     return;
+  }
+
+  // ── Entitlement gate (generation-time only) ──────────────────────────────
+  // Only fires when a storeContext is provided (i.e. generation from a storefront).
+  // Already-generated planners are NEVER re-checked — this path only runs for NEW ones.
+  if (body.storeContext?.storeId) {
+    const storeId = body.storeContext.storeId;
+    const [store] = await db.select().from(storesTable).where(eq(storesTable.id, storeId));
+    if (!store) {
+      res.status(400).json({ error: "Unknown storeContext.storeId" });
+      return;
+    }
+    const ctx = {
+      storeId,
+      subscriptionActive: store.subscriptionActive ?? true,
+      isSuperAdmin: false, // storefront generation always uses the store's real subscription state
+    };
+    try {
+      // Check the edition.
+      if (body.editionId) {
+        const [edition] = await db.select().from(editionsTable).where(eq(editionsTable.id, body.editionId));
+        if (edition) {
+          assertEntitled(
+            edition.id, "edition",
+            (edition.origin ?? "licensed") as "starter" | "licensed" | "owned",
+            edition.authoredByStoreId ?? null,
+            ctx,
+          );
+        }
+      }
+      // Check the theme (stored in style.themeId).
+      const themeId = (body.style as Record<string, unknown> | undefined)?.themeId as string | undefined;
+      if (themeId) {
+        const [theme] = await db.select().from(themesTable).where(eq(themesTable.id, themeId));
+        if (theme) {
+          assertEntitled(
+            theme.id, "theme",
+            (theme.origin ?? "licensed") as "starter" | "licensed" | "owned",
+            theme.authoredByStoreId ?? null,
+            ctx,
+          );
+        }
+      }
+    } catch (err) {
+      if (err instanceof EntitlementError) {
+        res.status(403).json({ error: err.message, reason: err.status, itemId: err.itemId, itemType: err.itemType });
+        return;
+      }
+      throw err;
+    }
   }
 
   try {

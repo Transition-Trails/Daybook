@@ -8,6 +8,13 @@ import {
   real,
 } from "drizzle-orm/pg-core";
 import { assetsTable } from "./assets";
+import { storesTable } from "./stores";
+
+// Origin of a catalog item — drives entitlement rules everywhere.
+// starter  → always entitled; every store gets it regardless of subscription.
+// licensed → platform catalog; entitled only while store.subscriptionActive is true.
+// owned    → authored by a specific store; only that store (+ super_admin) can use/see it.
+export type ItemOrigin = "starter" | "licensed" | "owned";
 
 // ─── THEMES ──────────────────────────────────────────────────────────────────
 // colors: [accent, accent-dark, secondary, tertiary, ink, paper]
@@ -25,6 +32,10 @@ export const themesTable = pgTable("themes", {
     .defaultNow(),
   // Controls whether stores may enable this item in their shop.
   globalAvailable: boolean("global_available").notNull().default(true),
+  // Entitlement origin — drives gating logic everywhere.
+  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  // Set only for owned items; the store that authored this item.
+  authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -48,6 +59,8 @@ export const stickerPacksTable = pgTable("sticker_packs", {
     .notNull()
     .defaultNow(),
   globalAvailable: boolean("global_available").notNull().default(true),
+  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -87,6 +100,8 @@ export const insertsTable = pgTable("inserts", {
   planners: jsonb("planners").notNull().default(["all"]).$type<string[]>(), // edition ids or ["all"]
   status: text("status").notNull().default("draft"), // draft | live
   globalAvailable: boolean("global_available").notNull().default(true),
+  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -109,6 +124,8 @@ export const relatedProductsTable = pgTable("related_products", {
   price: real("price").notNull().default(0),
   matches: jsonb("matches").notNull().default([]).$type<string[]>(), // edition ids
   globalAvailable: boolean("global_available").notNull().default(true),
+  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

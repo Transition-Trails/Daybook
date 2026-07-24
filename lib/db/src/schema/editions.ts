@@ -7,6 +7,8 @@ import {
   jsonb,
   real,
 } from "drizzle-orm/pg-core";
+import type { ItemOrigin } from "./catalog";
+import { storesTable } from "./stores";
 
 export type EditionArt = {
   cover: string | null;
@@ -41,6 +43,8 @@ export const editionsTable = pgTable("editions", {
     })
     .$type<EditionArt>(),
   globalAvailable: boolean("global_available").notNull().default(true),
+  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
   revisionOf: text("revision_of"), // edition id | null
   year: integer("year"),
   createdAt: timestamp("created_at", { withTimezone: true })

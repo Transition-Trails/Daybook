@@ -58,14 +58,27 @@ const STICKER_GLYPHS = ["✦", "★", "♥", "✓", "✗", "→", "!", "?", "�
 
 // ── Canvas helpers ─────────────────────────────────────────────────────────────
 
+// Clamp raw pointer pressure into a stable range.
+// pointerdown on many devices fires pressure=1.0 even for a light tap;
+// clamping to 0.15–0.85 prevents first-point spikes from blowing up the width.
+function clampPressure(raw: number): number {
+  return Math.max(0.15, Math.min(0.85, raw));
+}
+
 function drawStroke(
   ctx: CanvasRenderingContext2D,
   stroke: InkStroke,
   cw: number,
   ch: number,
 ) {
-  if (stroke.points.length < 2) return;
-  const pts = stroke.points.map((p) => ({ x: p.x * cw, y: p.y * ch, p: p.p }));
+  if (stroke.points.length === 0) return;
+
+  // Map to canvas pixels with clamped pressure
+  const pts = stroke.points.map((p) => ({
+    x: p.x * cw,
+    y: p.y * ch,
+    p: clampPressure(p.p),
+  }));
 
   ctx.save();
   ctx.lineCap = "round";
@@ -74,14 +87,35 @@ function drawStroke(
   if (stroke.tool === "highlighter") {
     ctx.globalCompositeOperation = "multiply";
     ctx.globalAlpha = 0.38;
-    ctx.strokeStyle = "#FFC107"; // bright amber always for highlighter
+    ctx.strokeStyle = "#FFC107";
   } else {
     ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = 1;
     ctx.strokeStyle = stroke.color;
   }
 
-  // Catmull-Rom: draw per-segment for pressure-varying width
+  // Detect single-point taps or near-coincident points (all within 2 canvas px).
+  // These must be rendered as a small round dot — NOT as a stroked bezier, which
+  // collapses to a degenerate zero-length curve whose round end-caps produce a blob.
+  const isCoincident =
+    pts.length === 1 ||
+    pts.every((pt) => Math.hypot(pt.x - pts[0].x, pt.y - pts[0].y) < 2.0);
+
+  if (isCoincident) {
+    if (stroke.tool !== "highlighter") {
+      // Small dot: radius = half the base stroke width, minimum 1px
+      const r = Math.max(stroke.baseWidth * 0.5, 1);
+      ctx.beginPath();
+      ctx.arc(pts[0].x, pts[0].y, r, 0, Math.PI * 2);
+      ctx.fillStyle = stroke.color;
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
+
+  // Catmull-Rom: draw per-segment with pressure-varying width.
+  // Width is capped at 2× baseWidth so a pressure spike can't balloon.
   for (let i = 0; i < pts.length - 1; i++) {
     const p0 = pts[Math.max(0, i - 1)];
     const p1 = pts[i];
@@ -90,6 +124,7 @@ function drawStroke(
 
     const avgP = (p1.p + p2.p) / 2;
     let lw = stroke.baseWidth * (0.5 + avgP * 1.5);
+    lw = Math.min(lw, stroke.baseWidth * 2.0); // pressure spike cap
     if (stroke.tool === "highlighter") lw = stroke.baseWidth * 3.5;
     ctx.lineWidth = lw;
 
@@ -101,7 +136,7 @@ function drawStroke(
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
     ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-    ctx.stroke();
+    ctx.stroke(); // STROKE only — never fill the bezier path
   }
 
   ctx.restore();

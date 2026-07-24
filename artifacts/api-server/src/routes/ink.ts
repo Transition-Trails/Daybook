@@ -309,12 +309,42 @@ router.post("/planners/:id/export", requireAuth, async (req, res): Promise<void>
     const page = pdfDoc.getPage(pageIdx);
     const { width: pw, height: ph } = page.getSize();
 
-    // Draw strokes using Catmull-Rom → cubic bezier SVG path
-    // pdf-lib drawSvgPath with y=ph sets SVG origin at top-left (SVG y-down)
-    // so normalized (nx, ny) → SVG (nx*pw, ny*ph) ✓
+    // Clamp pressure to the same range used by the canvas renderer.
+    const clampP = (p: number) => Math.max(0.15, Math.min(0.85, p));
+
+    // Draw strokes using Catmull-Rom → cubic bezier SVG path.
+    // Mirrors the canvas drawStroke() logic so exported PDF matches on-screen ink.
     for (const stroke of (layer.strokes as InkStroke[])) {
-      if (!stroke.points || stroke.points.length < 2) continue;
+      if (!stroke.points || stroke.points.length === 0) continue;
       const pts = stroke.points;
+      const { r, g, b } = hexToRgb01(stroke.color);
+      const isHighlighter = stroke.tool === "highlighter";
+
+      // Detect single-point taps or near-coincident points (all within 0.003 normalised ≈ 2px).
+      // A degenerate zero-length bezier stroked with round caps becomes a blob; draw a dot instead.
+      const isCoincident =
+        pts.length === 1 ||
+        pts.every((pt) =>
+          Math.hypot(pt.x - pts[0].x, pt.y - pts[0].y) < 0.003,
+        );
+
+      if (isCoincident) {
+        if (!isHighlighter) {
+          // Small filled circle at the tap point — matches canvas dot rendering
+          const dotR = Math.max(stroke.baseWidth * 0.5, 1);
+          const sx = pts[0].x * pw;
+          const sy = (1 - pts[0].y) * ph; // PDF y-up
+          page.drawEllipse({
+            x: sx,
+            y: sy,
+            xScale: dotR,
+            yScale: dotR,
+            color: rgb(r, g, b),
+            opacity: 1,
+          });
+        }
+        continue;
+      }
 
       let d = `M ${pts[0].x * pw} ${pts[0].y * ph}`;
       for (let i = 0; i < pts.length - 1; i++) {
@@ -331,16 +361,21 @@ router.post("/planners/:id/export", requireAuth, async (req, res): Promise<void>
         d += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${p2.x * pw} ${p2.y * ph}`;
       }
 
-      const { r, g, b } = hexToRgb01(stroke.color);
-      const isHighlighter = stroke.tool === "highlighter";
+      // Pressure-averaged borderWidth, same cap as canvas (2× baseWidth)
+      const avgPressure =
+        pts.reduce((sum, pt) => sum + clampP(pt.p), 0) / pts.length;
+      const rawBw = stroke.baseWidth * (0.5 + avgPressure * 1.5);
+      const bw = isHighlighter
+        ? stroke.baseWidth * 2.5
+        : Math.min(rawBw, stroke.baseWidth * 2.0);
 
       page.drawSvgPath(d, {
         x: 0,
-        y: ph, // SVG origin at page top
+        y: ph,           // SVG origin at page top-left
+        color: undefined, // explicit: no fill — stroke only
         borderColor: rgb(r, g, b),
-        borderWidth: isHighlighter ? stroke.baseWidth * 2.5 : stroke.baseWidth,
+        borderWidth: bw,
         opacity: isHighlighter ? 0.35 : 1,
-        // No fill
       });
     }
 

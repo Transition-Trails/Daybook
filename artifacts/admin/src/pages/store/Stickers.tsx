@@ -11,6 +11,7 @@
  *   • Duplicate (clone as draft)
  */
 import { useState, useRef, useCallback } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -59,7 +60,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { ErrorState, SkeletonRows } from "@/components/shared";
-import { stickersApi, type LibrarySticker, type StickerFunctionType, STICKER_FUNCTION_TYPES } from "@/lib/api";
+import { stickersApi, storesApi, type LibrarySticker, type StickerFunctionType, STICKER_FUNCTION_TYPES } from "@/lib/api";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -851,7 +852,15 @@ interface Props {
 export default function Stickers({ storeId, role }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [, setLocation] = useLocation();
   const isOwner = role === "store_owner" || role === "super_admin";
+
+  const { data: flags } = useQuery({
+    queryKey: ["store-flags", storeId],
+    queryFn: () => storesApi.flags.get(storeId),
+    staleTime: 60_000,
+  });
+  const aiEnabled = flags?.aiEnabled ?? false;
 
   // Filters
   const [search, setSearch] = useState("");
@@ -1036,23 +1045,34 @@ export default function Stickers({ storeId, role }: Props) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-semibold">Sticker Library</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Manage your store's sticker assets. Editing or deleting a sticker never alters planners already generated for customers.
           </p>
         </div>
-        {isOwner && (
-          <Button
-            size="sm"
-            className="bg-[#C87560] hover:bg-[#A85E4E] text-white shrink-0"
-            onClick={() => setShowCreate(true)}
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            New sticker
-          </Button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {isOwner && aiEnabled && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setLocation(`/store/${storeId}/studios/pack`)}
+            >
+              Pack Studio →
+            </Button>
+          )}
+          {isOwner && (
+            <Button
+              size="sm"
+              className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
+              onClick={() => setShowCreate(true)}
+            >
+              <Plus className="w-4 h-4 mr-1.5" />
+              New sticker
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filter bar */}
@@ -1145,16 +1165,27 @@ export default function Stickers({ storeId, role }: Props) {
         />
       )}
       {!isLoading && !error && stickers && stickers.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground border border-dashed rounded-lg">
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground border border-dashed rounded-lg gap-1">
           <ImageOff className="w-8 h-8 mb-2 opacity-40" />
-          <p className="text-sm">No stickers yet</p>
-          {isOwner && (
-            <Button
-              size="sm" variant="link" className="mt-1 text-[#C87560]"
-              onClick={() => setShowCreate(true)}
-            >
-              Create your first sticker
-            </Button>
+          <p className="text-sm font-medium text-foreground/70">
+            You haven't created any stickers yet
+          </p>
+          {isOwner ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Upload an image — background removal and export files are generated automatically.
+              </p>
+              <Button
+                size="sm" variant="link" className="mt-1 text-[#C87560]"
+                onClick={() => setShowCreate(true)}
+              >
+                Create your first sticker
+              </Button>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-1">
+              Ask your store owner to create stickers.
+            </p>
           )}
         </div>
       )}

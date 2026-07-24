@@ -495,7 +495,7 @@ export const storeStudiosApi = {
         body: JSON.stringify(data),
         headers: { "x-store-id": storeId },
       }),
-    update: (storeId: string, id: string, data: { name?: string; type?: "color" | "texture" | "image"; assetRef?: string; status?: "draft" | "live" }) =>
+    update: (storeId: string, id: string, data: { name?: string; type?: "color" | "texture" | "image"; assetRef?: string | null; status?: "draft" | "live" }) =>
       apiFetch<OwnedBackground>(`/stores/${storeId}/owned/backgrounds/${id}`, {
         method: "PATCH",
         body: JSON.stringify(data),
@@ -507,6 +507,11 @@ export const storeStudiosApi = {
       apiFetch<{ count: number }>(`/stores/${storeId}/owned/themes/${themeId}/backgrounds`, {
         method: "PUT",
         body: JSON.stringify({ backgroundIds }),
+        headers: { "x-store-id": storeId },
+      }),
+    /** Get backgrounds currently linked to a theme */
+    getForTheme: (storeId: string, themeId: string) =>
+      apiFetch<OwnedBackground[]>(`/stores/${storeId}/owned/themes/${themeId}/backgrounds`, {
         headers: { "x-store-id": storeId },
       }),
   },

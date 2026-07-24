@@ -1197,6 +1197,30 @@ router.put(
   },
 );
 
+// ── GET /stores/:storeId/owned/themes/:id/backgrounds ────────────────────
+
+router.get(
+  "/stores/:storeId/owned/themes/:id/backgrounds",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const theme = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
+    if (!theme) return;
+
+    const rows = await db
+      .select({ background: backgroundsTable })
+      .from(themeBackgroundsTable)
+      .innerJoin(backgroundsTable, eq(themeBackgroundsTable.backgroundId, backgroundsTable.id))
+      .where(eq(themeBackgroundsTable.themeId, id))
+      .orderBy(asc(themeBackgroundsTable.position));
+
+    res.json(rows.map(r => r.background));
+  },
+);
+
 // ── PUT /stores/:storeId/owned/themes/:id/backgrounds ────────────────────
 
 router.put(

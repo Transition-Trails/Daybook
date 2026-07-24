@@ -20,6 +20,7 @@ import {
   FileText,
   BookOpen,
   AlertTriangle,
+  ImageIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +53,7 @@ import {
   type OwnedEdition,
   type OwnedList,
   type OwnedPalette,
+  type OwnedBackground,
 } from "@/lib/api";
 
 interface Props {
@@ -394,6 +396,269 @@ function ManageThemePalettesModal({
   );
 }
 
+// ── Edit background modal ─────────────────────────────────────────────────
+
+function EditBackgroundModal({
+  storeId,
+  background,
+  onClose,
+}: {
+  storeId: string;
+  background: OwnedBackground | null; // null = create mode
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [name, setName] = useState(background?.name ?? "");
+  const [type, setType] = useState<"color" | "texture" | "image">(
+    (background?.type as "color" | "texture" | "image") ?? "color",
+  );
+  const [hex, setHex] = useState(
+    background?.type === "color" ? (background.assetRef ?? "#C87560") : "#C87560",
+  );
+  const [assetDataUrl, setAssetDataUrl] = useState<string | null>(
+    background && background.type !== "color" ? (background.assetRef ?? null) : null,
+  );
+  const [uploading, setUploading] = useState(false);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onload = (ev) => { setAssetDataUrl(ev.target?.result as string); setUploading(false); };
+    reader.onerror = () => { toast({ title: "File read failed", variant: "destructive" }); setUploading(false); };
+    reader.readAsDataURL(file);
+  }
+
+  const assetRef = type === "color" ? hex : (assetDataUrl ?? undefined);
+
+  const save = useMutation({
+    mutationFn: () =>
+      background
+        ? storeStudiosApi.backgrounds.update(storeId, background.id, { name, type, assetRef: assetRef ?? null })
+        : storeStudiosApi.backgrounds.create(storeId, { name, type, assetRef }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["store-backgrounds", storeId] });
+      toast({ title: background ? "Background updated" : "Background created" });
+      onClose();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const isValid =
+    name.trim() !== "" && (type === "color" ? hex.startsWith("#") && hex.length >= 4 : assetDataUrl !== null);
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{background ? "Edit background" : "New background"}</DialogTitle>
+          <DialogDescription>
+            Appears as the base layer of every page in the generated planner.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Warm Linen" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <select
+              value={type}
+              onChange={(e) => {
+                setType(e.target.value as "color" | "texture" | "image");
+                setAssetDataUrl(null); // clear image when switching types
+              }}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="color">Color — solid paper tint</option>
+              <option value="texture">Texture — seamless pattern</option>
+              <option value="image">Image — full-page graphic</option>
+            </select>
+          </div>
+
+          {type === "color" ? (
+            <div className="space-y-1.5">
+              <Label>Hex color</Label>
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-8 h-8 rounded border border-border shrink-0"
+                  style={{ background: hex.startsWith("#") ? hex : "#ccc" }}
+                />
+                <Input
+                  value={hex}
+                  onChange={(e) => setHex(e.target.value)}
+                  placeholder="#C87560"
+                  className="font-mono"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label>{type === "texture" ? "Texture image" : "Background image"}</Label>
+              {assetDataUrl && (
+                <div className="relative w-full h-28 rounded-lg border border-border overflow-hidden bg-muted mb-2">
+                  <img src={assetDataUrl} className="w-full h-full object-cover" alt="preview" />
+                  <button
+                    className="absolute top-1.5 right-1.5 bg-black/50 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-black/70"
+                    onClick={() => setAssetDataUrl(null)}
+                    aria-label="Remove image"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+                <Button size="sm" variant="outline" className="pointer-events-none" asChild={false}>
+                  {uploading && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+                  {assetDataUrl ? "Replace image" : "Upload image"}
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  PNG, JPG or WebP · 1920 × 1080+ recommended
+                </span>
+              </label>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
+            onClick={() => save.mutate()}
+            disabled={!isValid || save.isPending}
+          >
+            {save.isPending && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
+            {background ? "Save changes" : "Create background"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Manage theme backgrounds modal ────────────────────────────────────────
+
+function ManageThemeBackgroundsModal({
+  storeId,
+  theme,
+  allBackgrounds,
+  onClose,
+}: {
+  storeId: string;
+  theme: OwnedTheme;
+  allBackgrounds: OwnedBackground[];
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data: linked, isLoading } = useQuery<OwnedBackground[]>({
+    queryKey: ["theme-backgrounds", storeId, theme.id],
+    queryFn: () => storeStudiosApi.backgrounds.getForTheme(storeId, theme.id),
+  });
+
+  const linkedIds = new Set((linked ?? []).map((b) => b.id));
+
+  const save = useMutation({
+    mutationFn: (ids: string[]) => storeStudiosApi.backgrounds.setForTheme(storeId, theme.id, ids),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["theme-backgrounds", storeId, theme.id] });
+      qc.invalidateQueries({ queryKey: ["store-owned-list", storeId] });
+      toast({ title: "Background links updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  function toggle(bgId: string) {
+    const next = linkedIds.has(bgId)
+      ? [...linkedIds].filter((id) => id !== bgId)
+      : [...linkedIds, bgId];
+    save.mutate(next);
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Backgrounds for "{theme.name}"</DialogTitle>
+          <DialogDescription className="pt-1 text-sm text-muted-foreground">
+            Linked backgrounds appear as page-background options in the builder. The first linked
+            background is the default when a buyer picks this theme.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="py-4 flex justify-center">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : allBackgrounds.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">
+            No backgrounds yet. Create one in the Background library section below, then return here
+            to link it.
+          </p>
+        ) : (
+          <div className="space-y-2 py-2 max-h-72 overflow-y-auto">
+            {allBackgrounds.map((bg) => {
+              const isLinked = linkedIds.has(bg.id);
+              return (
+                <button
+                  key={bg.id}
+                  onClick={() => toggle(bg.id)}
+                  disabled={save.isPending}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors ${
+                    isLinked
+                      ? "border-[#C87560] bg-[#FFF6F3]"
+                      : "border-border bg-card hover:bg-muted/30"
+                  }`}
+                >
+                  {/* Swatch */}
+                  <div className="w-8 h-8 rounded shrink-0 border border-border overflow-hidden">
+                    {bg.type === "color" ? (
+                      <div className="w-full h-full" style={{ background: bg.assetRef ?? "#ccc" }} />
+                    ) : bg.assetRef?.startsWith("data:image/") ? (
+                      <img src={bg.assetRef} className="w-full h-full object-cover" alt={bg.name} />
+                    ) : (
+                      <div className="w-full h-full bg-muted flex items-center justify-center">
+                        <ImageIcon className="w-3 h-3 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <span className="flex-1 text-sm font-medium">{bg.name}</span>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize shrink-0">
+                    {bg.type}
+                  </Badge>
+                  {isLinked && (
+                    <Badge className="bg-[#C87560] text-white border-none text-[10px] px-1.5 py-0">
+                      Linked
+                    </Badge>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button size="sm" onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Edit theme modal ───────────────────────────────────────────────────────
 
 function EditThemeModal({
@@ -675,6 +940,11 @@ export default function MyContent({ storeId, role }: Props) {
   const [managePaletteTheme, setManagePaletteTheme] = useState<OwnedTheme | null>(null);
   const [deletingPaletteId, setDeletingPaletteId] = useState<string | null>(null);
 
+  // Background management
+  const [editBackground, setEditBackground] = useState<OwnedBackground | "new" | null>(null);
+  const [manageBackgroundTheme, setManageBackgroundTheme] = useState<OwnedTheme | null>(null);
+  const [deletingBackgroundId, setDeletingBackgroundId] = useState<string | null>(null);
+
   const { data, isLoading, error, refetch } = useQuery<OwnedList>({
     queryKey: ["store-owned-list", storeId],
     queryFn: () => storeStudiosApi.list(storeId),
@@ -685,15 +955,25 @@ export default function MyContent({ storeId, role }: Props) {
     queryFn: () => storeStudiosApi.palettes.list(storeId),
   });
 
+  const { data: backgrounds = [], refetch: refetchBackgrounds } = useQuery<OwnedBackground[]>({
+    queryKey: ["store-backgrounds", storeId],
+    queryFn: () => storeStudiosApi.backgrounds.list(storeId),
+  });
+
   function deletePalette(p: OwnedPalette) {
     setDeletingPaletteId(p.id);
     storeStudiosApi.palettes.delete(storeId, p.id)
-      .then(() => {
-        refetchPalettes();
-        toast({ title: `"${p.name}" deleted` });
-      })
+      .then(() => { refetchPalettes(); toast({ title: `"${p.name}" deleted` }); })
       .catch((err: Error) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }))
       .finally(() => setDeletingPaletteId(null));
+  }
+
+  function deleteBackground(bg: OwnedBackground) {
+    setDeletingBackgroundId(bg.id);
+    storeStudiosApi.backgrounds.delete(storeId, bg.id)
+      .then(() => { refetchBackgrounds(); toast({ title: `"${bg.name}" deleted` }); })
+      .catch((err: Error) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }))
+      .finally(() => setDeletingBackgroundId(null));
   }
 
   // ── Status toggle ──────────────────────────────────────────────────────
@@ -857,6 +1137,16 @@ export default function MyContent({ storeId, role }: Props) {
                   <Palette className="w-3 h-3" />
                   Palettes
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0 text-xs gap-1.5 text-muted-foreground"
+                  title="Manage backgrounds for this theme"
+                  onClick={() => setManageBackgroundTheme(t)}
+                >
+                  <ImageIcon className="w-3 h-3" />
+                  Backgrounds
+                </Button>
               </div>
             ))}
           </Section>
@@ -925,6 +1215,85 @@ export default function MyContent({ storeId, role }: Props) {
                         title="Delete"
                       >
                         {deletingPaletteId === p.id
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Trash2 className="w-3.5 h-3.5" />}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </Section>
+
+          {/* Backgrounds */}
+          <Section icon={ImageIcon} title="Background library" empty={backgrounds.length === 0}>
+            {isOwner && (
+              <div className="mb-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1.5"
+                  onClick={() => setEditBackground("new")}
+                >
+                  + New background
+                </Button>
+              </div>
+            )}
+            {backgrounds.map((bg) => (
+              <div
+                key={bg.id}
+                className="flex items-center gap-3 px-4 py-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors"
+              >
+                {/* Swatch / thumbnail */}
+                <div className="w-9 h-9 rounded shrink-0 border border-border overflow-hidden">
+                  {bg.type === "color" ? (
+                    <div className="w-full h-full" style={{ background: bg.assetRef ?? "#ccc" }} />
+                  ) : bg.assetRef?.startsWith("data:image/") ? (
+                    <img src={bg.assetRef} className="w-full h-full object-cover" alt={bg.name} />
+                  ) : (
+                    <div className="w-full h-full bg-muted flex items-center justify-center">
+                      <ImageIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0 flex items-center gap-2">
+                  <span className="font-medium text-sm truncate">{bg.name}</span>
+                  <YoursBadge />
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">{bg.type}</Badge>
+                  <StatusBadge status={bg.status} />
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Button
+                    size="sm" variant="ghost"
+                    className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setEditBackground(bg)}
+                    title="Edit"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
+                  {isOwner && (
+                    <>
+                      <Button
+                        size="sm" variant="ghost"
+                        className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          const newStatus = bg.status === "live" ? "draft" : "live";
+                          storeStudiosApi.backgrounds.update(storeId, bg.id, { status: newStatus })
+                            .then(() => refetchBackgrounds())
+                            .catch((err: Error) => toast({ title: "Failed", description: err.message, variant: "destructive" }));
+                        }}
+                        title={bg.status === "live" ? "Unpublish" : "Publish"}
+                      >
+                        {bg.status === "live" ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </Button>
+                      <Button
+                        size="sm" variant="ghost"
+                        className="h-7 px-2 text-red-400 hover:text-red-600 hover:bg-red-50"
+                        onClick={() => deleteBackground(bg)}
+                        disabled={deletingBackgroundId === bg.id}
+                        title="Delete"
+                      >
+                        {deletingBackgroundId === bg.id
                           ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                           : <Trash2 className="w-3.5 h-3.5" />}
                       </Button>
@@ -1012,6 +1381,23 @@ export default function MyContent({ storeId, role }: Props) {
           theme={managePaletteTheme}
           allPalettes={palettes}
           onClose={() => setManagePaletteTheme(null)}
+        />
+      )}
+
+      {/* ── Background modals ───────────────────────────────────────────── */}
+      {editBackground !== null && (
+        <EditBackgroundModal
+          storeId={storeId}
+          background={editBackground === "new" ? null : editBackground}
+          onClose={() => setEditBackground(null)}
+        />
+      )}
+      {manageBackgroundTheme && (
+        <ManageThemeBackgroundsModal
+          storeId={storeId}
+          theme={manageBackgroundTheme}
+          allBackgrounds={backgrounds}
+          onClose={() => setManageBackgroundTheme(null)}
         />
       )}
 

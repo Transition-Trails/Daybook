@@ -56,6 +56,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     { label: "Shop catalog",    icon: ShoppingBag,     href: `${base}/catalog` },
     { label: "Planner builds",  icon: BookCopy,        href: `${base}/builds` },
     { label: "My content",      icon: LibraryBig,      href: `${base}/my-content` },
+    { label: "Sticker library", icon: Sticker,         href: `${base}/stickers` },
     { label: "Customers",       icon: Users,           href: `${base}/customers` },
     { label: "Staff & roles",   icon: UserCog,         href: `${base}/staff` },
     { label: "Help",            icon: HelpCircle,      href: `${base}/help` },

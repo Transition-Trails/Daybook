@@ -460,6 +460,173 @@ export const storeStudiosApi = {
     }),
 };
 
+// ── Sticker Library ─────────────────────────────────────────────────────────
+
+export const STICKER_FUNCTION_TYPES = [
+  "checkbox",
+  "flag",
+  "habit",
+  "time-block",
+  "tab",
+  "date",
+  "banner",
+  "decorative",
+] as const;
+
+export type StickerFunctionType = (typeof STICKER_FUNCTION_TYPES)[number];
+
+export interface StickerExportTargets {
+  goodnotes: boolean;
+  ink: boolean;
+  cricut: boolean;
+}
+
+/** A sticker from the library (GET /stores/:storeId/stickers) */
+export interface LibrarySticker {
+  id: string;
+  name: string;
+  tags: string[];
+  functionType: string;
+  status: string;
+  origin: ItemOrigin;
+  authoredByStoreId: string | null;
+  borderStyle: string;
+  borderWidth: number | null;
+  borderColor: string | null;
+  sizeInMm: number | null;
+  exportTargets: StickerExportTargets;
+  processedImageData: string | null;
+  cutlineSvg: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Attached pack count — present in list responses */
+  packCount?: number;
+}
+
+export interface StickerUsage {
+  stickerId: string;
+  packs: { packId: string; packName: string | null; packStatus: string | null; position: number }[];
+  editions: { editionId: string; editionName: string; packId: string }[];
+}
+
+export interface BulkResult {
+  updated?: number;
+  deleted?: number;
+  added?: number;
+  skipped: number;
+}
+
+export const stickersApi = {
+  list: (
+    storeId: string,
+    params?: { q?: string; functionType?: string; scope?: string },
+  ) => {
+    const q = new URLSearchParams();
+    if (params?.q) q.set("q", params.q);
+    if (params?.functionType) q.set("functionType", params.functionType);
+    if (params?.scope) q.set("scope", params.scope);
+    return apiFetch<LibrarySticker[]>(
+      `/stores/${storeId}/stickers${q.size ? `?${q}` : ""}`,
+      { headers: { "x-store-id": storeId } },
+    );
+  },
+
+  get: (storeId: string, id: string) =>
+    apiFetch<LibrarySticker & { packs: { packId: string; position: number }[] }>(
+      `/stores/${storeId}/stickers/${id}`,
+      { headers: { "x-store-id": storeId } },
+    ),
+
+  create: (
+    storeId: string,
+    data: {
+      name: string;
+      tags?: string[];
+      functionType: string;
+      imageBase64: string;
+      borderStyle?: string;
+      borderWidth?: number;
+      borderColor?: string;
+      sizeInMm?: number;
+      exportTargets?: StickerExportTargets;
+      status?: "draft" | "live";
+    },
+  ) =>
+    apiFetch<LibrarySticker>(`/stores/${storeId}/stickers`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  update: (
+    storeId: string,
+    id: string,
+    data: {
+      name?: string;
+      tags?: string[];
+      functionType?: string;
+      imageBase64?: string;
+      borderStyle?: string;
+      borderWidth?: number | null;
+      borderColor?: string | null;
+      sizeInMm?: number | null;
+      exportTargets?: StickerExportTargets;
+      status?: "draft" | "live";
+    },
+  ) =>
+    apiFetch<LibrarySticker>(`/stores/${storeId}/stickers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  duplicate: (storeId: string, id: string) =>
+    apiFetch<LibrarySticker>(`/stores/${storeId}/stickers/${id}/duplicate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "x-store-id": storeId },
+    }),
+
+  usage: (storeId: string, id: string) =>
+    apiFetch<StickerUsage>(`/stores/${storeId}/stickers/${id}/usage`, {
+      headers: { "x-store-id": storeId },
+    }),
+
+  delete: (storeId: string, id: string, force = false) =>
+    apiFetchDelete(
+      `/stores/${storeId}/stickers/${id}${force ? "?force=true" : ""}`,
+      { "x-store-id": storeId },
+    ),
+
+  bulkSetFunctionType: (storeId: string, ids: string[], functionType: string) =>
+    apiFetch<BulkResult>(`/stores/${storeId}/stickers/bulk/function-type`, {
+      method: "POST",
+      body: JSON.stringify({ ids, functionType }),
+      headers: { "x-store-id": storeId },
+    }),
+
+  bulkAddToPack: (storeId: string, ids: string[], packId: string) =>
+    apiFetch<BulkResult>(`/stores/${storeId}/stickers/bulk/add-to-pack`, {
+      method: "POST",
+      body: JSON.stringify({ ids, packId }),
+      headers: { "x-store-id": storeId },
+    }),
+
+  bulkPublish: (storeId: string, ids: string[], publish: boolean) =>
+    apiFetch<BulkResult>(`/stores/${storeId}/stickers/bulk/publish`, {
+      method: "POST",
+      body: JSON.stringify({ ids, publish }),
+      headers: { "x-store-id": storeId },
+    }),
+
+  bulkDelete: (storeId: string, ids: string[]) =>
+    apiFetch<BulkResult>(`/stores/${storeId}/stickers/bulk`, {
+      method: "DELETE",
+      body: JSON.stringify({ ids }),
+      headers: { "x-store-id": storeId },
+    }),
+};
+
 // ── Catalog (global) endpoints ──────────────────────────────────────────────
 
 export const catalogApi = {

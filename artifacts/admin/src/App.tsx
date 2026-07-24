@@ -62,6 +62,9 @@ import StoreHelp from "@/pages/store/StoreHelp";
 // ── Store: Manage Owned Content ───────────────────────────────────────────────
 import MyContent from "@/pages/store/MyContent";
 
+// ── Store: Sticker Library ────────────────────────────────────────────────────
+import Stickers from "@/pages/store/Stickers";
+
 // ── Store AI Studios ──────────────────────────────────────────────────────────
 import StoreThemeStudio from "@/pages/store/studios/StoreThemeStudio";
 import StorePackStudio from "@/pages/store/studios/StorePackStudio";
@@ -212,6 +215,19 @@ function RootRouter() {
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
                 <MyContent storeId={p.storeId!} role={store.role as string} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
+      {/* ── Store: Sticker Library ──────────────────────────────── */}
+      <Route path="/store/:storeId/stickers">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <Stickers storeId={p.storeId!} role={store.role as string} />
               </StoreAdminShell>
             )}
           </RequireStore>

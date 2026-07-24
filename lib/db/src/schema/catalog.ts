@@ -6,6 +6,8 @@ import {
   timestamp,
   jsonb,
   real,
+  serial,
+  unique,
 } from "drizzle-orm/pg-core";
 import { assetsTable } from "./assets";
 import { storesTable } from "./stores";
@@ -137,3 +139,90 @@ export const relatedProductsTable = pgTable("related_products", {
 
 export type RelatedProduct = typeof relatedProductsTable.$inferSelect;
 export type InsertRelatedProduct = typeof relatedProductsTable.$inferInsert;
+
+// ─── STICKER LIBRARY ─────────────────────────────────────────────────────────
+// Central sticker library — one row per image asset. A sticker can be assigned
+// to many packs via the packStickersTable join (M:N).
+
+export const STICKER_FUNCTION_TYPES = [
+  "checkbox",
+  "flag",
+  "habit",
+  "time-block",
+  "tab",
+  "date",
+  "banner",
+  "decorative",
+] as const;
+
+export type StickerFunctionType = (typeof STICKER_FUNCTION_TYPES)[number];
+
+export interface StickerExportTargets {
+  goodnotes: boolean;
+  ink: boolean;
+  cricut: boolean;
+}
+
+export const stickersLibraryTable = pgTable("stickers_library", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  tags: text("tags").array().notNull().default([]),
+  // Validated against STICKER_FUNCTION_TYPES on write — reject unknown values.
+  functionType: text("function_type").notNull(),
+  status: text("status").notNull().default("draft"), // draft | live
+  origin: text("origin").notNull().default("owned").$type<ItemOrigin>(),
+  // Null for starter/licensed stickers; set for store-owned stickers.
+  authoredByStoreId: text("authored_by_store_id").references(
+    () => storesTable.id,
+    { onDelete: "set null" },
+  ),
+  // ── Creation-pipeline fields ───────────────────────────────────────────
+  borderStyle: text("border_style").notNull().default("none"), // none | thin | white
+  borderWidth: real("border_width"),
+  borderColor: text("border_color"),
+  sizeInMm: real("size_in_mm"),
+  exportTargets: jsonb("export_targets")
+    .notNull()
+    .default({ goodnotes: true, ink: true, cricut: false })
+    .$type<StickerExportTargets>(),
+  // ── Processed assets (stored as base64 data URLs) ──────────────────────
+  // The cutout PNG with transparent background; produced by the pipeline.
+  processedImageData: text("processed_image_data"),
+  // SVG cut-path for Cricut/Silhouette; set only when exportTargets.cricut=true.
+  cutlineSvg: text("cutline_svg"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type StickerLibraryItem = typeof stickersLibraryTable.$inferSelect;
+export type InsertStickerLibraryItem = typeof stickersLibraryTable.$inferInsert;
+
+// ─── PACK ↔ STICKER JOIN (M:N) ────────────────────────────────────────────────
+// One sticker can live in many packs without duplicating the image asset.
+
+export const packStickersTable = pgTable(
+  "pack_stickers",
+  {
+    id: serial("id").primaryKey(),
+    packId: text("pack_id")
+      .notNull()
+      .references(() => stickerPacksTable.id, { onDelete: "cascade" }),
+    stickerId: text("sticker_id")
+      .notNull()
+      .references(() => stickersLibraryTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({
+    packStickerUniq: unique("pack_sticker_uq").on(t.packId, t.stickerId),
+  }),
+);
+
+export type PackSticker = typeof packStickersTable.$inferSelect;
+export type InsertPackSticker = typeof packStickersTable.$inferInsert;

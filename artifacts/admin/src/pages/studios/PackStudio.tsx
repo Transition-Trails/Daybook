@@ -65,6 +65,25 @@ async function createPack(data: {
   return res.json();
 }
 
+async function updatePack(id: string, data: {
+  name: string;
+  tags: string[];
+  price: number;
+  status: "draft" | "live";
+}) {
+  const res = await fetch(`/api/sticker-packs/${id}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: data.name, tags: data.tags, price: data.price, status: data.status }),
+  });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b?.error ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export default function PackStudio() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -84,6 +103,9 @@ export default function PackStudio() {
   const [ideas, setIdeas] = useState<string[]>([]);
   const [price, setPrice] = useState<string>("4.99");
   const [selectedEditions, setSelectedEditions] = useState<string[]>([]);
+  // Track the id of the draft saved in this session so repeated saves update
+  // rather than insert. Cleared on unmount (navigate away) automatically.
+  const [savedId, setSavedId] = useState<string | null>(null);
 
   const editionsQuery = useQuery({
     queryKey: ["editions"],
@@ -115,17 +137,14 @@ export default function PackStudio() {
 
   const save = useMutation({
     mutationFn: (status: "draft" | "live") =>
-      createPack({
-        name,
-        tags,
-        price: parseFloat(price) || 0,
-        editionIds: selectedEditions,
-        status,
-      }),
-    onSuccess: (_, status) => {
+      savedId
+        ? updatePack(savedId, { name, tags, price: parseFloat(price) || 0, status })
+        : createPack({ name, tags, price: parseFloat(price) || 0, editionIds: selectedEditions, status }),
+    onSuccess: (data, status) => {
+      if (!savedId) setSavedId((data as { id: string }).id);
       qc.invalidateQueries({ queryKey: ["sticker-packs"] });
       toast({
-        title: status === "live" ? "Pack published!" : "Saved as draft",
+        title: status === "live" ? "Pack published!" : savedId ? "Draft updated" : "Saved as draft",
         description: `"${name}" has been added to the catalog.`,
       });
     },

@@ -57,6 +57,25 @@ async function createTheme(data: {
   return res.json();
 }
 
+async function updateTheme(id: string, data: {
+  name: string;
+  description: string;
+  colors: string[];
+  status: "draft" | "live";
+}) {
+  const res = await fetch(`/api/themes/${id}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: data.name, description: data.description, colors: data.colors, status: data.status }),
+  });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b?.error ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export default function ThemeStudio() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -74,6 +93,9 @@ export default function ThemeStudio() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [colors, setColors] = useState<string[]>([]);
+  // Track the id of the draft saved in this session so repeated saves update
+  // rather than insert. Cleared on unmount (navigate away) automatically.
+  const [savedId, setSavedId] = useState<string | null>(null);
 
   const generate = useMutation({
     mutationFn: () => aiApi.complete(SYSTEM_PROMPT, prompt.trim()),
@@ -100,11 +122,14 @@ export default function ThemeStudio() {
 
   const save = useMutation({
     mutationFn: (status: "draft" | "live") =>
-      createTheme({ name, description, colors, status }),
-    onSuccess: (_, status) => {
+      savedId
+        ? updateTheme(savedId, { name, description, colors, status })
+        : createTheme({ name, description, colors, status }),
+    onSuccess: (data, status) => {
+      if (!savedId) setSavedId((data as { id: string }).id);
       qc.invalidateQueries({ queryKey: ["themes"] });
       toast({
-        title: status === "live" ? "Theme published!" : "Saved as draft",
+        title: status === "live" ? "Theme published!" : savedId ? "Draft updated" : "Saved as draft",
         description: `"${name}" has been added to the catalog.`,
       });
     },

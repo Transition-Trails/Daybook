@@ -71,6 +71,32 @@ async function createEdition(data: {
   return res.json();
 }
 
+async function updateEdition(id: string, data: {
+  name: string;
+  description: string;
+  sections: string[];
+  priceLow: number;
+  priceHigh: number;
+}) {
+  const res = await fetch(`/api/editions/${id}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: data.name,
+      description: data.description,
+      sections: data.sections,
+      priceLow: data.priceLow,
+      priceHigh: data.priceHigh,
+    }),
+  });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b?.error ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 async function createTheme(data: {
   name: string;
   colors: string[];
@@ -149,6 +175,9 @@ export default function EditionStudio() {
   const [selPacks, setSelPacks] = useState<string[]>([]);
   const [selInserts, setSelInserts] = useState<string[]>([]);
   const [selProducts, setSelProducts] = useState<string[]>([]);
+  // Track the id of the draft saved in this session so repeated saves update
+  // rather than insert. Cleared on unmount (navigate away) automatically.
+  const [savedId, setSavedId] = useState<string | null>(null);
 
   const existingEditions = useQuery({ queryKey: ["editions"], queryFn: catalogApi.editions });
   const themes = useQuery({ queryKey: ["themes"], queryFn: catalogApi.themes });
@@ -194,7 +223,18 @@ export default function EditionStudio() {
 
   const save = useMutation({
     mutationFn: async () => {
-      // 1. Create a matching draft theme from the palette
+      // If a draft was already saved this session, update it instead of inserting.
+      if (savedId) {
+        return updateEdition(savedId, {
+          name,
+          description,
+          sections,
+          priceLow: parseFloat(priceLow) || 0,
+          priceHigh: parseFloat(priceHigh) || 0,
+        });
+      }
+
+      // 1. Create a matching draft theme from the palette (first save only)
       let autoThemeId: string | undefined;
       if (palette.length === 6 && palette.every(isValidHex)) {
         try {
@@ -219,12 +259,15 @@ export default function EditionStudio() {
         status: "draft",
       });
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (!savedId) setSavedId((data as { id: string }).id);
       qc.invalidateQueries({ queryKey: ["editions"] });
       qc.invalidateQueries({ queryKey: ["themes"] });
       toast({
-        title: "Edition saved as draft",
-        description: `"${name}" and its auto-palette theme are ready to review.`,
+        title: savedId ? "Draft updated" : "Edition saved as draft",
+        description: savedId
+          ? `"${name}" has been saved.`
+          : `"${name}" and its auto-palette theme are ready to review.`,
       });
     },
     onError: (err: Error) => {

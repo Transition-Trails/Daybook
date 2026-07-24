@@ -63,6 +63,34 @@ function genId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
 
+// ── Dedup helpers ──────────────────────────────────────────────────────────
+
+/** Normalize a name for duplicate detection: trim, collapse whitespace, lowercase. */
+function normalizeName(n: string): string {
+  return n.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Find any non-deleted owned row for this store with the same normalized name.
+ * Returns the first match (id, name, status) or null.
+ * Used by every owned POST route to prevent creating a second identical draft.
+ */
+async function findOwnedDup(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table: any,
+  storeId: string,
+  name: string,
+): Promise<{ id: string; name: string; status: string } | null> {
+  const rows = (await db
+    .select({ id: table.id, name: table.name, status: table.status })
+    .from(table)
+    .where(
+      and(eq(table.authoredByStoreId, storeId), eq(table.origin, "owned"), ne(table.status, "deleted")),
+    )) as { id: string; name: string; status: string }[];
+  const norm = normalizeName(name);
+  return rows.find((r) => normalizeName(r.name) === norm) ?? null;
+}
+
 // ── Helper: resolve store subscriptionActive ───────────────────────────────
 
 async function getStoreCtx(storeId: string): Promise<EntitlementContext> {
@@ -200,6 +228,32 @@ router.post(
     }
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
+    // ── Dedup guard ──────────────────────────────────────────────────────────
+    const dupTheme = await findOwnedDup(themesTable, storeId, name);
+    if (dupTheme) {
+      if (dupTheme.status === "live") {
+        res.status(409).json({
+          error: `A live theme named "${name}" already exists for this store — open it to edit instead.`,
+          existingId: dupTheme.id,
+        });
+        return;
+      }
+      // Existing draft — update it in place rather than inserting a second row.
+      const [updated] = await db
+        .update(themesTable)
+        .set({ name, desc: description ?? `Theme authored by store ${storeId}`, colors: colors as string[], status })
+        .where(eq(themesTable.id, dupTheme.id))
+        .returning();
+      await writeAudit(db, {
+        actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+        action: status === "live" ? "owned.theme.publish" : "owned.theme.edit",
+        targetType: "theme", targetId: dupTheme.id,
+        metadata: { name, status, storeId, upserted: true },
+      });
+      res.json({ ...updated, upserted: true });
+      return;
+    }
+
     try {
       const id = genId("th");
       const [row] = await db
@@ -266,6 +320,31 @@ router.post(
       return;
     }
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
+
+    // ── Dedup guard ──────────────────────────────────────────────────────────
+    const dupPack = await findOwnedDup(stickerPacksTable, storeId, name);
+    if (dupPack) {
+      if (dupPack.status === "live") {
+        res.status(409).json({
+          error: `A live sticker pack named "${name}" already exists for this store — open it to edit instead.`,
+          existingId: dupPack.id,
+        });
+        return;
+      }
+      const [updated] = await db
+        .update(stickerPacksTable)
+        .set({ name, tags: (tags ?? []) as string[], price: price ?? 0, status })
+        .where(eq(stickerPacksTable.id, dupPack.id))
+        .returning();
+      await writeAudit(db, {
+        actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+        action: status === "live" ? "owned.pack.publish" : "owned.pack.edit",
+        targetType: "pack", targetId: dupPack.id,
+        metadata: { name, status, storeId, upserted: true },
+      });
+      res.json({ ...updated, upserted: true });
+      return;
+    }
 
     try {
       const id = genId("pk");
@@ -355,6 +434,40 @@ router.post(
     for (const [table, ids, type] of attachChecks) {
       const err = await validateAttachEntitlement(table, ids, type, ctx);
       if (err) { res.status(403).json({ error: err }); return; }
+    }
+
+    // ── Dedup guard ──────────────────────────────────────────────────────────
+    const dupEdition = await findOwnedDup(editionsTable, storeId, name);
+    if (dupEdition) {
+      if (dupEdition.status === "live") {
+        res.status(409).json({
+          error: `A live edition named "${name}" already exists for this store — open it to edit instead.`,
+          existingId: dupEdition.id,
+        });
+        return;
+      }
+      // Draft exists — update in place; skip auto-palette (already created on first save).
+      const [updated] = await db
+        .update(editionsTable)
+        .set({
+          name,
+          sections: (sections ?? []) as string[],
+          priceLow: priceLow ?? 0,
+          priceHigh: priceHigh ?? 0,
+          themes: (themeIds ?? []) as string[],
+          packs: (packIds ?? []) as string[],
+          inserts: (insertIds ?? []) as string[],
+          products: (productIds ?? []) as string[],
+        })
+        .where(eq(editionsTable.id, dupEdition.id))
+        .returning();
+      await writeAudit(db, {
+        actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+        action: "owned.edition.edit", targetType: "edition", targetId: dupEdition.id,
+        metadata: { name, storeId, upserted: true },
+      });
+      res.json({ ...updated, autoThemeId: undefined, upserted: true });
+      return;
     }
 
     try {
@@ -896,6 +1009,31 @@ router.post(
     }
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
+    // ── Dedup guard ──────────────────────────────────────────────────────────
+    const dupPalette = await findOwnedDup(palettesTable, storeId, name);
+    if (dupPalette) {
+      if (dupPalette.status === "live") {
+        res.status(409).json({
+          error: `A live palette named "${name}" already exists for this store — open it to edit instead.`,
+          existingId: dupPalette.id,
+        });
+        return;
+      }
+      const [updated] = await db
+        .update(palettesTable)
+        .set({ name, colors: colors as string[], status })
+        .where(eq(palettesTable.id, dupPalette.id))
+        .returning();
+      await writeAudit(db, {
+        actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+        action: status === "live" ? "owned.palette.publish" : "owned.palette.edit",
+        targetType: "palette", targetId: dupPalette.id,
+        metadata: { name, status, storeId, upserted: true },
+      });
+      res.json({ ...updated, upserted: true });
+      return;
+    }
+
     const id = genId("pal");
     const [row] = await db
       .insert(palettesTable)
@@ -1038,6 +1176,30 @@ router.post(
       res.status(403).json({ error: "Publishing requires store_owner role", savedAsDraft: true }); return;
     }
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
+
+    // ── Dedup guard ──────────────────────────────────────────────────────────
+    const dupBg = await findOwnedDup(backgroundsTable, storeId, name);
+    if (dupBg) {
+      if (dupBg.status === "live") {
+        res.status(409).json({
+          error: `A live background named "${name}" already exists for this store — open it to edit instead.`,
+          existingId: dupBg.id,
+        });
+        return;
+      }
+      const [updated] = await db
+        .update(backgroundsTable)
+        .set({ name, type, assetRef: assetRef ?? null, status })
+        .where(eq(backgroundsTable.id, dupBg.id))
+        .returning();
+      await writeAudit(db, {
+        actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+        action: "owned.background.edit", targetType: "background", targetId: dupBg.id,
+        metadata: { name, type, status, storeId, upserted: true },
+      });
+      res.json({ ...updated, upserted: true });
+      return;
+    }
 
     const id = genId("bg");
     const [row] = await db

@@ -61,6 +61,9 @@ export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
   const [tags, setTags] = useState<string[]>([]);
   const [ideas, setIdeas] = useState<string[]>([]);
   const [price, setPrice] = useState<string>("4.99");
+  // Track the id of the draft saved in this session so repeated saves update
+  // rather than insert. Cleared on unmount (navigate away) automatically.
+  const [savedId, setSavedId] = useState<string | null>(null);
 
   const generate = useMutation({
     mutationFn: () => aiApi.complete(SYSTEM_PROMPT, prompt.trim()),
@@ -83,16 +86,16 @@ export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
 
   const save = useMutation({
     mutationFn: (status: "draft" | "live") =>
-      storeStudiosApi.packs.create(storeId, {
-        name,
-        tags,
-        price: parseFloat(price) || 0,
-        status,
-      }),
-    onSuccess: (_, status) => {
+      savedId
+        ? storeStudiosApi.packs.update(storeId, savedId, { name, tags, price: parseFloat(price) || 0, status })
+        : storeStudiosApi.packs.create(storeId, { name, tags, price: parseFloat(price) || 0, status }),
+    onSuccess: (data, status) => {
+      // Capture the id from the first save (or a server-upserted row) so future
+      // saves in this session call PATCH instead of POST.
+      if (!savedId) setSavedId((data as { id: string }).id);
       qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
       toast({
-        title: status === "live" ? "Pack published!" : "Saved as draft",
+        title: status === "live" ? "Pack published!" : savedId ? "Draft updated" : "Saved as draft",
         description: `"${name}" is now part of your store's catalog.`,
       });
     },
@@ -237,7 +240,7 @@ export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
               disabled={!canSave || save.isPending}
             >
               {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-2" />}
-              Save as draft
+              {savedId ? "Update draft" : "Save as draft"}
             </Button>
             {isOwner ? (
               <Button

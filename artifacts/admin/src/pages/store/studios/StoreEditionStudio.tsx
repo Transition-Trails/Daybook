@@ -113,6 +113,9 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
 
   // Edit mode: ?edit=<editionId> pre-fills the form and switches save to PATCH
   const editId = new URLSearchParams(search).get("edit") ?? undefined;
+  // Track the id of the draft created in this session (create path only) so
+  // repeated saves update rather than insert. Cleared on unmount automatically.
+  const [savedId, setSavedId] = useState<string | null>(null);
 
   const [prompt, setPrompt] = useState(() => {
     const idea = sessionStorage.getItem(`studioIdea:${storeId}`) ?? "";
@@ -217,10 +220,13 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
     onError: (err: Error) => setParseError(err.message),
   });
 
+  // Resolved id for PATCH: URL edit param takes precedence, then session savedId.
+  const activeId = editId ?? savedId ?? null;
+
   const save = useMutation({
     mutationFn: () =>
-      editId
-        ? storeStudiosApi.editions.update(storeId, editId, {
+      activeId
+        ? storeStudiosApi.editions.update(storeId, activeId, {
             name,
             sections,
             priceLow: parseFloat(priceLow) || 0,
@@ -243,11 +249,15 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
             palette: palette.length === 6 && palette.every(isValidHex) ? palette : undefined,
           }),
     onSuccess: (data) => {
+      // Capture id from first create so subsequent saves in this session PATCH.
+      if (!editId && !savedId) setSavedId((data as { id: string }).id);
       qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
       qc.invalidateQueries({ queryKey: ["store-attachable", storeId] });
       qc.invalidateQueries({ queryKey: ["store-owned-list", storeId] });
       if (editId) {
         toast({ title: "Edition updated", description: `"${name}" has been saved.` });
+      } else if (savedId) {
+        toast({ title: "Draft updated", description: `"${name}" has been saved.` });
       } else {
         const themeNote = (data as any).autoThemeId
           ? " A matching draft theme was also created."

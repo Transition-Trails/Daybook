@@ -56,6 +56,9 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [colors, setColors] = useState<string[]>([]);
+  // Track the id of the draft saved in this session so repeated saves update
+  // rather than insert. Cleared on unmount (navigate away) automatically.
+  const [savedId, setSavedId] = useState<string | null>(null);
 
   const generate = useMutation({
     mutationFn: () => aiApi.complete(SYSTEM_PROMPT, prompt.trim()),
@@ -78,11 +81,14 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
 
   const save = useMutation({
     mutationFn: (status: "draft" | "live") =>
-      storeStudiosApi.themes.create(storeId, { name, description, colors, status }),
-    onSuccess: (_, status) => {
+      savedId
+        ? storeStudiosApi.themes.update(storeId, savedId, { name, description, colors, status })
+        : storeStudiosApi.themes.create(storeId, { name, description, colors, status }),
+    onSuccess: (data, status) => {
+      if (!savedId) setSavedId((data as { id: string }).id);
       qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
       toast({
-        title: status === "live" ? "Theme published!" : "Saved as draft",
+        title: status === "live" ? "Theme published!" : savedId ? "Draft updated" : "Saved as draft",
         description: `"${name}" is now part of your store's catalog.`,
       });
     },
@@ -196,7 +202,7 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
                 disabled={!canSave || save.isPending}
               >
                 {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-2" />}
-                Save as draft
+                {savedId ? "Update draft" : "Save as draft"}
               </Button>
               {isOwner ? (
                 <Button

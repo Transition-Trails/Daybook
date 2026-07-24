@@ -36,12 +36,17 @@ function isPublicCaller(req: Request): boolean {
 
 // ── Generic CRUD factory ─────────────────────────────────────────────────────
 
+function normalizeName(n: string): string {
+  return String(n).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 function buildCatalogRoutes(
   router: IRouter,
   path: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   table: any,
   entityLabel: string,
+  options: { dedupByName?: boolean } = {},
 ) {
   // GET /{entity} — public: live only; admin: all non-deleted
   router.get(path, async (req: Request, res: Response): Promise<void> => {
@@ -78,6 +83,31 @@ function buildCatalogRoutes(
       res.status(400).json({ error: "id and name are required" });
       return;
     }
+
+    // ── Name dedup guard (opt-in per entity) ─────────────────────────────
+    if (options.dedupByName && body.name) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const existing: any[] = await db.select().from(table).where(ne(table.status, "deleted"));
+      const norm = normalizeName(String(body.name));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dup: any = existing.find((r: any) => normalizeName(String(r.name)) === norm) ?? null;
+      if (dup) {
+        if (dup.status === "live") {
+          res.status(409).json({
+            error: `A live ${entityLabel.toLowerCase()} named "${body.name}" already exists — open it to edit instead.`,
+            existingId: dup.id,
+          });
+          return;
+        }
+        // Draft — upsert in place.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const [updated] = await db.update(table).set({ ...body, id: dup.id }).where(eq(table.id, dup.id)).returning() as any[];
+        res.json({ ...updated, upserted: true });
+        return;
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const [row] = await db.insert(table).values({ ...body, status: body.status ?? "draft" }).returning() as any[];
@@ -121,7 +151,7 @@ buildCatalogRoutes(router, "/themes",      themesTable,          "Theme");
 buildCatalogRoutes(router, "/palettes",   palettesTable,        "Palette");
 buildCatalogRoutes(router, "/backgrounds",backgroundsTable,     "Background");
 buildCatalogRoutes(router, "/packs",      stickerPacksTable,    "StickerPack");
-buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert");
+buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert",       { dedupByName: true });
 buildCatalogRoutes(router, "/products",   relatedProductsTable, "RelatedProduct");
 buildCatalogRoutes(router, "/editions",   editionsTable,        "Edition");
 

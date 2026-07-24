@@ -79,6 +79,33 @@ function isValidFunctionType(v: unknown): v is StickerFunctionType {
   return STICKER_FUNCTION_TYPES.includes(v as StickerFunctionType);
 }
 
+/** Normalize a name for duplicate detection: trim, collapse whitespace, lowercase. */
+function normalizeName(n: string): string {
+  return n.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Find any non-deleted owned sticker for this store with the same normalized name.
+ * Used by the create route to prevent duplicate drafts.
+ */
+async function findStoreStickerDup(
+  storeId: string,
+  name: string,
+): Promise<{ id: string; name: string; status: string } | null> {
+  const rows = (await db
+    .select({ id: stickersLibraryTable.id, name: stickersLibraryTable.name, status: stickersLibraryTable.status })
+    .from(stickersLibraryTable)
+    .where(
+      and(
+        eq(stickersLibraryTable.authoredByStoreId, storeId),
+        eq(stickersLibraryTable.origin, "owned"),
+        ne(stickersLibraryTable.status, "deleted"),
+      ),
+    )) as { id: string; name: string; status: string }[];
+  const norm = normalizeName(name);
+  return rows.find((r) => normalizeName(r.name) === norm) ?? null;
+}
+
 /** Fetch a single owned sticker, enforcing origin=owned and store ownership. */
 async function getOwnedSticker(
   id: string,
@@ -596,6 +623,17 @@ router.post(
     }
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
+    // ── Dedup guard — check before the expensive pipeline ──────────────────
+    const dup = await findStoreStickerDup(storeId, name);
+    if (dup && dup.status === "live") {
+      res.status(409).json({
+        error: `A live sticker named "${name}" already exists for this store — open it to edit instead.`,
+        existingId: dup.id,
+      });
+      return;
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const resolvedExportTargets = exportTargets ?? { goodnotes: true, ink: true, cricut: false };
     const resolvedBorderStyle = (borderStyle as string) ?? "none";
 
@@ -619,39 +657,61 @@ router.post(
       return;
     }
 
+    const stickerFields = {
+      name,
+      tags: (tags ?? []) as string[],
+      functionType: functionType as StickerFunctionType,
+      status,
+      borderStyle: resolvedBorderStyle,
+      borderWidth: borderWidth ?? null,
+      borderColor: borderColor ?? null,
+      sizeInMm: sizeInMm ?? null,
+      exportTargets: resolvedExportTargets,
+      processedImageData,
+      cutlineSvg,
+    };
+
     try {
-      const id = genId();
-      const [row] = await db
-        .insert(stickersLibraryTable)
-        .values({
-          id,
-          name,
-          tags: (tags ?? []) as string[],
-          functionType: functionType as StickerFunctionType,
-          status,
-          origin: "owned",
-          authoredByStoreId: storeId,
-          borderStyle: resolvedBorderStyle,
-          borderWidth: borderWidth ?? null,
-          borderColor: borderColor ?? null,
-          sizeInMm: sizeInMm ?? null,
-          exportTargets: resolvedExportTargets,
-          processedImageData,
-          cutlineSvg,
-        })
-        .returning();
-
-      await writeAudit(db, {
-        actorUserId: actor.userId,
-        actorRole: actor.effectiveRole,
-        scope: storeId,
-        action: status === "live" ? "sticker.publish" : "sticker.create",
-        targetType: "sticker",
-        targetId: id,
-        metadata: { name, functionType, status, storeId },
-      });
-
-      res.status(201).json(row);
+      if (dup) {
+        // Existing draft — update in place instead of inserting a second row.
+        const [updated] = await db
+          .update(stickersLibraryTable)
+          .set(stickerFields)
+          .where(eq(stickersLibraryTable.id, dup.id))
+          .returning();
+        await writeAudit(db, {
+          actorUserId: actor.userId,
+          actorRole: actor.effectiveRole,
+          scope: storeId,
+          action: "sticker.edit",
+          targetType: "sticker",
+          targetId: dup.id,
+          metadata: { name, functionType, status, storeId, upserted: true },
+        });
+        res.json({ ...updated, upserted: true });
+      } else {
+        // No collision — create a fresh row.
+        const id = genId();
+        const [row] = await db
+          .insert(stickersLibraryTable)
+          .values({
+            id,
+            origin: "owned",
+            authoredByStoreId: storeId,
+            ...stickerFields,
+          })
+          .returning();
+        await writeAudit(db, {
+          actorUserId: actor.userId,
+          actorRole: actor.effectiveRole,
+          scope: storeId,
+          action: status === "live" ? "sticker.publish" : "sticker.create",
+          targetType: "sticker",
+          targetId: id,
+          metadata: { name, functionType, status, storeId },
+        });
+        res.status(201).json(row);
+      }
     } catch (err) {
       req.log.error({ err }, "sticker create failed");
       res.status(500).json({ error: "Create failed" });

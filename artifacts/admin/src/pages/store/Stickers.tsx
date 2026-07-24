@@ -383,9 +383,15 @@ function CreateModal({
   const [form, setForm] = useState<StickerFormValues>(defaultForm());
   const [publishNow, setPublishNow] = useState(false);
 
+  // Track the id returned from the first save so that re-saving in the same
+  // session PATCHes the existing draft rather than triggering another POST.
+  // The server-side dedup guard is the authoritative protection; this is a
+  // session-level complement that avoids even sending a duplicate POST.
+  const savedIdRef = useRef<string | null>(null);
+
   const create = useMutation({
-    mutationFn: () =>
-      stickersApi.create(storeId, {
+    mutationFn: () => {
+      const payload = {
         name: form.name,
         tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
         functionType: form.functionType,
@@ -400,10 +406,24 @@ function CreateModal({
           cricut: form.exportCricut,
         },
         status: isOwner && publishNow ? "live" : "draft",
-      }),
-    onSuccess: () => {
+      } as const;
+      // If we already saved once in this session, PATCH the existing draft.
+      if (savedIdRef.current) {
+        return stickersApi.update(storeId, savedIdRef.current, payload);
+      }
+      return stickersApi.create(storeId, payload);
+    },
+    onSuccess: (data) => {
+      // Capture the id so subsequent saves in this session reuse the same row.
+      if (!savedIdRef.current) {
+        savedIdRef.current = (data as { id: string }).id;
+      }
       qc.invalidateQueries({ queryKey: ["store-stickers", storeId] });
-      toast({ title: "Sticker created", description: "Background removal complete." });
+      const wasDraft = !publishNow;
+      toast({
+        title: wasDraft ? (savedIdRef.current ? "Draft updated" : "Saved as draft") : "Sticker published",
+        description: "Background removal complete.",
+      });
       onClose();
     },
     onError: (err: Error) => {

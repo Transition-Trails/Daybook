@@ -1,20 +1,43 @@
 /**
  * Google Sync routes — per spec/API-CONTRACT.md
- * GET /calendar/events, POST /calendar/push, GET+POST /tasks,
- * POST /docs, GET /drive/status, POST /drive/backup, POST /drive/art
+ * GET  /calendar/events
+ * POST /calendar/push        — idempotent: creates or patches Google Calendar events
+ * GET  /tasks                — pull from Google Tasks + sync local mirror
+ * POST /tasks                — create a new task in Google Tasks
+ * PATCH /tasks/:googleTaskId — update / complete a task
+ * DELETE /tasks/:googleTaskId
+ * POST /docs                 — create a Google Doc from note content
+ * GET  /drive/status
+ * POST /drive/backup
+ * POST /drive/art
  */
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { usersTable, assetsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import {
+  usersTable,
+  assetsTable,
+  calendarPushMappingsTable,
+  googleTaskSyncTable,
+  googleDocLinksTable,
+} from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
-import { uploadPlannerConfig } from "../lib/drive-upload";
+import { uploadPlannerConfig, getOrCreateDaybookFolder, uploadFileToDrive } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError } from "../lib/google-auth";
+import { writeAudit } from "../lib/audit";
 import type { User } from "@workspace/db";
 
 const router: IRouter = Router();
 
-/** Shape returned by Google Calendar API for a single event item. */
+// ── Google API base URLs ──────────────────────────────────────────────────────
+
+const GCAL_BASE   = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+const GTASKS_BASE = "https://tasks.googleapis.com/tasks/v1/lists/@default/tasks";
+const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
+const DRIVE_FILES  = "https://www.googleapis.com/drive/v3/files";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 interface GCalEventItem {
   id: string;
   summary?: string;
@@ -23,11 +46,17 @@ interface GCalEventItem {
   end?: { dateTime?: string; date?: string };
 }
 
-/** Shared handler: resolve a valid token or reply with a reconnect response. */
-async function resolveToken(
-  user: User,
-  res: import("express").Response,
-): Promise<string | null> {
+interface GTaskItem {
+  id: string;
+  title?: string;
+  notes?: string;
+  due?: string;
+  status?: string;
+  completed?: string;
+}
+
+/** Resolve a valid Google access token or write a 401 reconnect response. */
+async function resolveToken(user: User, res: import("express").Response): Promise<string | null> {
   try {
     return await getValidGoogleToken(user.id);
   } catch (err) {
@@ -44,7 +73,21 @@ async function resolveToken(
   }
 }
 
-// GET /calendar/events?start=<ISO>&end=<ISO>
+/** Stamp a named last-synced timestamp into user.connections. */
+async function stampSynced(userId: string, existing: Record<string, unknown>, key: string): Promise<void> {
+  await db
+    .update(usersTable)
+    .set({
+      connections: {
+        ...existing,
+        [key]: new Date().toISOString(),
+      } as unknown as typeof usersTable.$inferInsert["connections"],
+    })
+    .where(eq(usersTable.id, userId));
+}
+
+// ── GET /calendar/events ──────────────────────────────────────────────────────
+
 router.get("/calendar/events", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
   const accessToken = await resolveToken(user, res);
@@ -53,12 +96,11 @@ router.get("/calendar/events", requireAuth, async (req, res): Promise<void> => {
   const { start, end } = req.query as { start?: string; end?: string };
   const params = new URLSearchParams({ singleEvents: "true", orderBy: "startTime" });
   if (start) params.set("timeMin", start);
-  if (end) params.set("timeMax", end);
+  if (end)   params.set("timeMax", end);
 
-  const gcRes = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
-  );
+  const gcRes = await fetch(`${GCAL_BASE}?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
 
   if (!gcRes.ok) {
     const errText = await gcRes.text().catch(() => "");
@@ -67,78 +109,535 @@ router.get("/calendar/events", requireAuth, async (req, res): Promise<void> => {
   }
 
   const data = (await gcRes.json()) as { items?: GCalEventItem[] };
-
   const events = (data.items ?? []).map((item) => {
     const allDay = Boolean(item.start?.date && !item.start?.dateTime);
     return {
-      id: item.id,
-      title: item.summary ?? "(No title)",
-      start: item.start?.dateTime ?? item.start?.date ?? "",
-      end: item.end?.dateTime ?? item.end?.date ?? "",
+      id:       item.id,
+      title:    item.summary ?? "(No title)",
+      start:    item.start?.dateTime ?? item.start?.date ?? "",
+      end:      item.end?.dateTime   ?? item.end?.date   ?? "",
       allDay,
       location: item.location ?? null,
     };
   });
 
-  // Stamp last-synced time
   const conn = { ...(user.connections as Record<string, unknown>), calendarLastSynced: new Date().toISOString() };
   await db.update(usersTable).set({ connections: conn as unknown as typeof usersTable.$inferInsert["connections"] }).where(eq(usersTable.id, user.id));
 
   res.json({ events });
 });
 
-// POST /calendar/push
+// ── POST /calendar/push ───────────────────────────────────────────────────────
+// Body: { plannerConfigId: string, blocks: [{ title, startDate, endDate, description? }] }
+// Idempotent: if a block was already pushed (same plannerConfigId + title+startDate key),
+// patches the existing Google Calendar event instead of creating a duplicate.
+
 router.post("/calendar/push", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
   const accessToken = await resolveToken(user, res);
   if (!accessToken) return;
 
-  // TODO: push planner blocks to Google Calendar
+  type Block = { title: string; startDate: string; endDate: string; description?: string };
+  const body = req.body as { plannerConfigId?: string; blocks?: Block[] };
+
+  if (!body.plannerConfigId) {
+    res.status(400).json({ error: "plannerConfigId is required" });
+    return;
+  }
+  if (!Array.isArray(body.blocks) || body.blocks.length === 0) {
+    res.status(400).json({ error: "blocks[] must be a non-empty array" });
+    return;
+  }
+
+  const results: { localBlockKey: string; googleEventId: string; action: "created" | "updated" }[] = [];
+  const plannerConfigId = String(body.plannerConfigId);
+
+  for (const block of body.blocks) {
+    const localBlockKey = `${block.title}|${block.startDate}`;
+
+    // Check for existing mapping
+    const [existing] = await db
+      .select()
+      .from(calendarPushMappingsTable)
+      .where(
+        and(
+          eq(calendarPushMappingsTable.userId, user.id),
+          eq(calendarPushMappingsTable.plannerConfigId, plannerConfigId),
+          eq(calendarPushMappingsTable.localBlockKey, localBlockKey),
+        ),
+      );
+
+    const eventBody = {
+      summary:     block.title,
+      description: block.description ?? "",
+      start: { date: block.startDate },
+      end:   { date: block.endDate   },
+    };
+
+    if (existing) {
+      // Patch existing event
+      const patchRes = await fetch(`${GCAL_BASE}/${existing.googleEventId}`, {
+        method:  "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(eventBody),
+      });
+      if (!patchRes.ok) {
+        const errText = await patchRes.text().catch(() => "");
+        // If event was deleted on Google's side, fall through and recreate below
+        if (patchRes.status !== 410 && patchRes.status !== 404) {
+          res.status(patchRes.status).json({ error: `Calendar PATCH failed: ${errText}` });
+          return;
+        }
+        // Event gone on Google — delete stale mapping and fall through to create
+        await db.delete(calendarPushMappingsTable).where(eq(calendarPushMappingsTable.id, existing.id));
+      } else {
+        await db
+          .update(calendarPushMappingsTable)
+          .set({ pushedAt: new Date(), eventTitle: block.title, startDate: block.startDate, endDate: block.endDate })
+          .where(eq(calendarPushMappingsTable.id, existing.id));
+        results.push({ localBlockKey, googleEventId: existing.googleEventId, action: "updated" });
+        continue;
+      }
+    }
+
+    // Create new event
+    const createRes = await fetch(`${GCAL_BASE}?fields=id`, {
+      method:  "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(eventBody),
+    });
+    if (!createRes.ok) {
+      const errText = await createRes.text().catch(() => "");
+      res.status(createRes.status).json({ error: `Calendar INSERT failed: ${errText}` });
+      return;
+    }
+
+    const created = (await createRes.json()) as { id: string };
+    await db.insert(calendarPushMappingsTable).values({
+      userId:          user.id,
+      plannerConfigId,
+      localBlockKey,
+      googleEventId:   created.id,
+      googleCalendarId: "primary",
+      eventTitle:      block.title,
+      startDate:       block.startDate,
+      endDate:         block.endDate,
+    });
+    results.push({ localBlockKey, googleEventId: created.id, action: "created" });
+  }
+
   const now = new Date();
-  const conn = { ...(user.connections as Record<string, unknown>), googleCalendar: true, calendarLastSynced: now.toISOString() };
-  await db.update(usersTable).set({ connections: conn as unknown as typeof usersTable.$inferInsert["connections"] }).where(eq(usersTable.id, user.id));
-  res.json({ success: true, syncedAt: now.toISOString(), itemCount: 0, message: "TODO: real Calendar push" });
+  await stampSynced(user.id, user.connections as Record<string, unknown>, "calendarLastSynced");
+
+  await writeAudit(db, {
+    actorUserId: user.id,
+    actorRole:   user.role,
+    scope:       "platform",
+    action:      "calendar.push",
+    metadata:    { plannerConfigId, itemCount: results.length },
+  });
+
+  res.json({ success: true, syncedAt: now.toISOString(), itemCount: results.length, results });
 });
 
-// GET /tasks
+// ── GET /tasks ────────────────────────────────────────────────────────────────
+// Pulls tasks from Google Tasks API, syncs local mirror, returns merged list.
+
 router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
-  if (!user.googleAccessToken) {
-    res.status(400).json({ error: "Google account not connected" });
+  const accessToken = await resolveToken(user, res);
+  if (!accessToken) return;
+
+  const showCompleted = (req.query.showCompleted as string) !== "false";
+  const params = new URLSearchParams({
+    showCompleted: String(showCompleted),
+    maxResults:    "100",
+    showHidden:    "true",
+  });
+
+  const gtRes = await fetch(`${GTASKS_BASE}?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!gtRes.ok) {
+    const errText = await gtRes.text().catch(() => "");
+    res.status(gtRes.status).json({ error: `Google Tasks error: ${errText}` });
     return;
   }
-  // TODO: fetch Google Tasks
-  res.json({ tasks: [], message: "TODO: real Google Tasks fetch" });
+
+  const data = (await gtRes.json()) as { items?: GTaskItem[] };
+  const items = (data.items ?? []).filter((t) => t.id);
+
+  // Upsert local mirror for each fetched task
+  for (const item of items) {
+    const completed = item.status === "completed";
+    await db
+      .insert(googleTaskSyncTable)
+      .values({
+        userId:          user.id,
+        googleTaskId:    item.id,
+        googleTaskListId: "@default",
+        title:           item.title ?? "(No title)",
+        notes:           item.notes ?? null,
+        completed,
+        dueDate:         item.due ? item.due.slice(0, 10) : null,
+        syncedAt:        new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [googleTaskSyncTable.userId, googleTaskSyncTable.googleTaskId],
+        set: {
+          title:     item.title ?? "(No title)",
+          notes:     item.notes ?? null,
+          completed,
+          dueDate:   item.due ? item.due.slice(0, 10) : null,
+          syncedAt:  new Date(),
+        },
+      });
+  }
+
+  await stampSynced(user.id, user.connections as Record<string, unknown>, "tasksLastSynced");
+
+  const tasks = items.map((item) => ({
+    googleTaskId: item.id,
+    title:        item.title ?? "(No title)",
+    notes:        item.notes ?? null,
+    completed:    item.status === "completed",
+    dueDate:      item.due ? item.due.slice(0, 10) : null,
+  }));
+
+  res.json({ tasks, syncedAt: new Date().toISOString() });
 });
 
-// POST /tasks
+// ── POST /tasks ───────────────────────────────────────────────────────────────
+// Create a new task in Google Tasks (and mirror locally).
+// Body: { title, notes?, dueDate? (YYYY-MM-DD) }
+
 router.post("/tasks", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
-  if (!user.googleAccessToken) {
-    res.status(400).json({ error: "Google account not connected" });
+  const accessToken = await resolveToken(user, res);
+  if (!accessToken) return;
+
+  const body = req.body as { title?: string; notes?: string; dueDate?: string };
+  if (!body.title?.trim()) {
+    res.status(400).json({ error: "title is required" });
     return;
   }
-  // TODO: sync tasks two-way
-  res.json({ success: true, message: "TODO: real Tasks sync" });
+
+  const taskPayload: Record<string, unknown> = {
+    title:  body.title.trim(),
+    status: "needsAction",
+  };
+  if (body.notes)   taskPayload.notes = body.notes;
+  if (body.dueDate) taskPayload.due   = `${body.dueDate}T00:00:00.000Z`;
+
+  const createRes = await fetch(GTASKS_BASE, {
+    method:  "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(taskPayload),
+  });
+
+  if (!createRes.ok) {
+    const errText = await createRes.text().catch(() => "");
+    res.status(createRes.status).json({ error: `Google Tasks create failed: ${errText}` });
+    return;
+  }
+
+  const created = (await createRes.json()) as GTaskItem;
+
+  await db.insert(googleTaskSyncTable).values({
+    userId:          user.id,
+    googleTaskId:    created.id,
+    googleTaskListId: "@default",
+    title:           created.title ?? body.title.trim(),
+    notes:           created.notes ?? body.notes ?? null,
+    completed:       false,
+    dueDate:         body.dueDate ?? null,
+    syncedAt:        new Date(),
+  }).onConflictDoUpdate({
+    target: [googleTaskSyncTable.userId, googleTaskSyncTable.googleTaskId],
+    set: { title: created.title ?? body.title.trim(), syncedAt: new Date() },
+  });
+
+  await stampSynced(user.id, user.connections as Record<string, unknown>, "tasksLastSynced");
+
+  await writeAudit(db, {
+    actorUserId: user.id,
+    actorRole:   user.role,
+    scope:       "platform",
+    action:      "tasks.create",
+    targetId:    created.id,
+    metadata:    { title: body.title },
+  });
+
+  res.status(201).json({
+    googleTaskId: created.id,
+    title:        created.title ?? body.title.trim(),
+    notes:        created.notes ?? null,
+    completed:    false,
+    dueDate:      body.dueDate ?? null,
+  });
 });
 
-// POST /docs
+// ── PATCH /tasks/:googleTaskId ────────────────────────────────────────────────
+// Update or complete a task. Body: { title?, notes?, dueDate?, completed? }
+
+router.patch("/tasks/:googleTaskId", requireAuth, async (req, res): Promise<void> => {
+  const user = req.user as User;
+  const accessToken = await resolveToken(user, res);
+  if (!accessToken) return;
+
+  const googleTaskId = String(req.params.googleTaskId);
+  const body = req.body as { title?: string; notes?: string; dueDate?: string; completed?: boolean };
+
+  const patch: Record<string, unknown> = {};
+  if (body.title !== undefined)   patch.title  = body.title;
+  if (body.notes !== undefined)   patch.notes  = body.notes;
+  if (body.dueDate !== undefined) patch.due    = `${body.dueDate}T00:00:00.000Z`;
+  if (body.completed !== undefined) {
+    patch.status    = body.completed ? "completed" : "needsAction";
+    if (body.completed) patch.completed = new Date().toISOString();
+  }
+
+  const patchRes = await fetch(`${GTASKS_BASE}/${encodeURIComponent(googleTaskId)}`, {
+    method:  "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(patch),
+  });
+
+  if (!patchRes.ok) {
+    const errText = await patchRes.text().catch(() => "");
+    res.status(patchRes.status).json({ error: `Google Tasks update failed: ${errText}` });
+    return;
+  }
+
+  const updated = (await patchRes.json()) as GTaskItem;
+
+  // Update local mirror
+  const localSet: Partial<typeof googleTaskSyncTable.$inferInsert> = { syncedAt: new Date() };
+  if (body.title !== undefined)     localSet.title     = body.title;
+  if (body.notes !== undefined)     localSet.notes     = body.notes;
+  if (body.dueDate !== undefined)   localSet.dueDate   = body.dueDate;
+  if (body.completed !== undefined) localSet.completed = body.completed;
+
+  await db
+    .update(googleTaskSyncTable)
+    .set(localSet)
+    .where(
+      and(
+        eq(googleTaskSyncTable.userId, user.id),
+        eq(googleTaskSyncTable.googleTaskId, googleTaskId),
+      ),
+    );
+
+  await writeAudit(db, {
+    actorUserId: user.id,
+    actorRole:   user.role,
+    scope:       "platform",
+    action:      body.completed ? "tasks.complete" : "tasks.update",
+    targetId:    googleTaskId,
+    metadata:    patch,
+  });
+
+  res.json({
+    googleTaskId: updated.id,
+    title:        updated.title ?? "",
+    notes:        updated.notes ?? null,
+    completed:    updated.status === "completed",
+    dueDate:      updated.due ? updated.due.slice(0, 10) : null,
+  });
+});
+
+// ── DELETE /tasks/:googleTaskId ───────────────────────────────────────────────
+
+router.delete("/tasks/:googleTaskId", requireAuth, async (req, res): Promise<void> => {
+  const user = req.user as User;
+  const accessToken = await resolveToken(user, res);
+  if (!accessToken) return;
+
+  const googleTaskId = String(req.params.googleTaskId);
+
+  const deleteRes = await fetch(`${GTASKS_BASE}/${encodeURIComponent(googleTaskId)}`, {
+    method:  "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!deleteRes.ok && deleteRes.status !== 404) {
+    const errText = await deleteRes.text().catch(() => "");
+    res.status(deleteRes.status).json({ error: `Google Tasks delete failed: ${errText}` });
+    return;
+  }
+
+  await db
+    .delete(googleTaskSyncTable)
+    .where(
+      and(
+        eq(googleTaskSyncTable.userId, user.id),
+        eq(googleTaskSyncTable.googleTaskId, googleTaskId),
+      ),
+    );
+
+  await writeAudit(db, {
+    actorUserId: user.id,
+    actorRole:   user.role,
+    scope:       "platform",
+    action:      "tasks.delete",
+    targetId:    googleTaskId,
+  });
+
+  res.json({ success: true });
+});
+
+// ── POST /docs ────────────────────────────────────────────────────────────────
+// Create a Google Doc from note content. Idempotent via noteKey.
+// Body: { title, content, noteKey? }
+
 router.post("/docs", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
-  if (!user.googleAccessToken) {
-    res.status(400).json({ error: "Google account not connected" });
+  const accessToken = await resolveToken(user, res);
+  if (!accessToken) return;
+
+  const body = req.body as { title?: string; content?: string; noteKey?: string };
+
+  if (!body.title?.trim()) {
+    res.status(400).json({ error: "title is required" });
     return;
   }
-  // TODO: create Google Doc in Drive/Daybook folder
-  res.json({ success: true, docId: null, message: "TODO: real Docs push" });
+  if (!body.content?.trim()) {
+    res.status(400).json({ error: "content is required" });
+    return;
+  }
+
+  const noteKey = body.noteKey ?? `${body.title.trim()}|${Date.now()}`;
+
+  // Check for existing doc mapping (idempotency on noteKey)
+  const [existing] = await db
+    .select()
+    .from(googleDocLinksTable)
+    .where(
+      and(
+        eq(googleDocLinksTable.userId, user.id),
+        eq(googleDocLinksTable.noteKey, noteKey),
+      ),
+    );
+
+  if (existing) {
+    res.json({ success: true, docId: existing.docId, docUrl: existing.docUrl, existing: true });
+    return;
+  }
+
+  // Get or create the Daybook Drive folder
+  let folderId: string;
+  try {
+    folderId = await getOrCreateDaybookFolder(accessToken);
+  } catch (err) {
+    res.status(500).json({ error: `Drive folder error: ${String(err)}` });
+    return;
+  }
+
+  // Create a Google Doc via Drive multipart upload.
+  // Using text/plain content with application/vnd.google-apps.document MIME causes
+  // Drive to import the content as a Google Doc — no Docs API scope required.
+  const boundary = "daybook_doc_boundary";
+  const metadata = JSON.stringify({
+    name:     body.title.trim(),
+    mimeType: "application/vnd.google-apps.document",
+    parents:  [folderId],
+  });
+  const textContent = Buffer.from(body.content.trim(), "utf-8");
+  const bodyParts = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n`),
+    textContent,
+    Buffer.from(`\r\n--${boundary}--`),
+  ]);
+
+  const uploadParams = new URLSearchParams({ uploadType: "multipart", fields: "id,webViewLink" });
+  const uploadRes = await fetch(`${DRIVE_UPLOAD}?${uploadParams}`, {
+    method:  "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": `multipart/related; boundary=${boundary}`,
+    },
+    body: bodyParts,
+  });
+
+  if (!uploadRes.ok) {
+    const errText = await uploadRes.text().catch(() => "");
+    res.status(uploadRes.status).json({ error: `Google Docs create failed: ${errText}` });
+    return;
+  }
+
+  const docData = (await uploadRes.json()) as { id?: string; webViewLink?: string };
+  if (!docData.id || !docData.webViewLink) {
+    res.status(500).json({ error: "Docs API returned no id or webViewLink" });
+    return;
+  }
+
+  // Store mapping
+  await db.insert(googleDocLinksTable).values({
+    userId:  user.id,
+    noteKey,
+    title:   body.title.trim(),
+    docId:   docData.id,
+    docUrl:  docData.webViewLink,
+  });
+
+  await stampSynced(user.id, user.connections as Record<string, unknown>, "docsLastSynced");
+
+  await writeAudit(db, {
+    actorUserId: user.id,
+    actorRole:   user.role,
+    scope:       "platform",
+    action:      "docs.create",
+    targetId:    docData.id,
+    metadata:    { title: body.title, noteKey },
+  });
+
+  res.status(201).json({ success: true, docId: docData.id, docUrl: docData.webViewLink, existing: false });
 });
 
-// GET /drive/status — shape matches SyncStatus type in the generated client
+// ── GET /docs ─────────────────────────────────────────────────────────────────
+// Return the user's created Google Doc links.
+
+router.get("/docs", requireAuth, async (req, res): Promise<void> => {
+  const user = req.user as User;
+  const docs = await db
+    .select()
+    .from(googleDocLinksTable)
+    .where(eq(googleDocLinksTable.userId, user.id));
+  res.json({ docs });
+});
+
+// ── GET /calendar/pushes ──────────────────────────────────────────────────────
+// Return recent calendar push mappings for a planner.
+
+router.get("/calendar/pushes", requireAuth, async (req, res): Promise<void> => {
+  const user = req.user as User;
+  const { plannerConfigId } = req.query as { plannerConfigId?: string };
+  const where = plannerConfigId
+    ? and(eq(calendarPushMappingsTable.userId, user.id), eq(calendarPushMappingsTable.plannerConfigId, plannerConfigId))
+    : eq(calendarPushMappingsTable.userId, user.id);
+  const pushes = await db.select().from(calendarPushMappingsTable).where(where);
+  res.json({ pushes });
+});
+
+// ── GET /drive/status ─────────────────────────────────────────────────────────
+
 router.get("/drive/status", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
   const conn = (user.connections ?? {}) as Record<string, boolean | string | null>;
   const connected = !!user.googleAccessToken;
-  // Check token freshness
   const expiry = user.googleTokenExpiry;
   const tokenExpired = expiry ? expiry.getTime() - Date.now() <= 0 : null;
   res.json({
@@ -146,15 +645,15 @@ router.get("/drive/status", requireAuth, async (req, res): Promise<void> => {
     tokenExpired: connected ? tokenExpired : null,
     reconnectUrl: connected && tokenExpired ? "/api/auth/google" : null,
     calendarLastSynced: (conn.calendarLastSynced as string | null) ?? null,
-    tasksLastSynced: (conn.tasksLastSynced as string | null) ?? null,
-    docsLastSynced: (conn.docsLastSynced as string | null) ?? null,
-    driveLastSynced: (conn.driveLastSynced as string | null) ?? null,
-    driveFolder: (conn.driveFolderId as string | null) ?? null,
+    tasksLastSynced:    (conn.tasksLastSynced    as string | null) ?? null,
+    docsLastSynced:     (conn.docsLastSynced     as string | null) ?? null,
+    driveLastSynced:    (conn.driveLastSynced    as string | null) ?? null,
+    driveFolder:        (conn.driveFolderId      as string | null) ?? null,
   });
 });
 
-// POST /drive/backup
-// Body: { plannerId: string, config: unknown }
+// ── POST /drive/backup ────────────────────────────────────────────────────────
+
 router.post("/drive/backup", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
   const accessToken = await resolveToken(user, res);
@@ -167,30 +666,16 @@ router.post("/drive/backup", requireAuth, async (req, res): Promise<void> => {
   }
 
   try {
-    const configFileId = await uploadPlannerConfig(
-      accessToken,
-      body.plannerId,
-      body.config ?? {},
-    );
-
-    const now = new Date();
-    const conn = {
-      ...(user.connections as Record<string, unknown>),
-      googleDrive: true,
-      driveLastSynced: now.toISOString(),
-    };
-    await db
-      .update(usersTable)
-      .set({ connections: conn as unknown as typeof usersTable.$inferInsert["connections"] })
-      .where(eq(usersTable.id, user.id));
-
+    const configFileId = await uploadPlannerConfig(accessToken, body.plannerId, body.config ?? {});
+    await stampSynced(user.id, { ...user.connections as Record<string, unknown>, googleDrive: true }, "driveLastSynced");
     res.json({ success: true, configFileId });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-// POST /drive/art — upload or Canva import → Asset
+// ── POST /drive/art ───────────────────────────────────────────────────────────
+
 router.post("/drive/art", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
   const body = req.body as {
@@ -206,15 +691,14 @@ router.post("/drive/art", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  // TODO: for canvaFileId, call Canva API to get the file then upload to Drive
   const driveFileId = body.driveFileId ?? `canva-import-${Date.now()}`;
   const source = body.canvaFileId ? "canva" : "upload";
 
   const [asset] = await db.insert(assetsTable).values({
     driveFileId,
-    kind: body.kind ?? "png",
+    kind:        body.kind ?? "png",
     transparent: body.transparent ?? true,
-    tags: body.tags ?? [],
+    tags:        body.tags ?? [],
     source,
   }).returning();
 

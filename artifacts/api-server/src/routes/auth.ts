@@ -21,6 +21,7 @@ router.get("/auth/google", (req, res, next) => {
       "email",
       "https://www.googleapis.com/auth/drive.file",
       "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/tasks",
     ],
     accessType: "offline",
     prompt: "consent",

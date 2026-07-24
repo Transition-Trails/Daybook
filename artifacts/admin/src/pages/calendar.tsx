@@ -1,13 +1,16 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customFetch } from '@workspace/api-client-react';
 import { useState } from 'react';
 import {
   format, startOfWeek, endOfWeek, addWeeks, addDays,
   parseISO, getHours, getMinutes, differenceInMinutes, isSameDay,
 } from 'date-fns';
-import { ChevronLeft, ChevronRight, Calendar, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Loader2, Plus, CheckCircle2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { GoogleReconnectBanner } from '@/components/GoogleReconnectBanner';
+import { useToast } from '@/hooks/use-toast';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,11 +23,19 @@ type CalEvent = {
   location: string | null;
 };
 
+type CalendarPush = {
+  id: string;
+  localBlockKey: string;
+  eventTitle: string;
+  startDate: string;
+  pushedAt: string;
+};
+
 // ── Layout constants ──────────────────────────────────────────────────────────
 
-const HOUR_HEIGHT = 56; // px per hour
-const DAY_START   = 6;  // 6 am
-const DAY_END     = 22; // 10 pm
+const HOUR_HEIGHT = 56;
+const DAY_START   = 6;
+const DAY_END     = 22;
 const HOURS       = Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i);
 
 function formatHourLabel(h: number) {
@@ -44,31 +55,101 @@ function eventHeight(start: Date, end: Date) {
   return Math.max((mins / 60) * HOUR_HEIGHT, 28);
 }
 
-// ── Error helpers (avoids needing to export ApiError from the package) ────────
-
-function isApiErrorWithStatus(err: unknown, status: number): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'status' in err &&
-    (err as { status: number }).status === status
-  );
-}
+// ── Error helpers ─────────────────────────────────────────────────────────────
 
 function isReconnectRequired(err: unknown): boolean {
-  if (!isApiErrorWithStatus(err, 401)) return false;
+  if (typeof err !== 'object' || err === null) return false;
+  if ((err as { status?: number }).status !== 401) return false;
   const data = (err as { data?: unknown }).data;
-  return typeof data === 'object' && data !== null && (data as Record<string, unknown>).error === 'reconnect_required';
+  return typeof data === 'object' && data !== null &&
+    (data as Record<string, unknown>).error === 'reconnect_required';
+}
+
+// ── Push form (per-day popover) ───────────────────────────────────────────────
+
+function DayPushForm({
+  day, onClose, onPushed,
+}: { day: Date; onClose: () => void; onPushed: () => void }) {
+  const { toast } = useToast();
+  const dateStr = format(day, 'yyyy-MM-dd');
+  const [title, setTitle] = useState('');
+  const [endDate, setEndDate] = useState(dateStr);
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      customFetch<{ success: boolean; itemCount: number }>('/api/sync/calendar/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plannerConfigId: 'calendar-view',
+          blocks: [{ title: title.trim(), startDate: dateStr, endDate }],
+        }),
+      }),
+    onSuccess: (data) => {
+      toast({ title: `Event pushed to Google Calendar` });
+      onPushed();
+      onClose();
+    },
+    onError: (err) => {
+      if (!isReconnectRequired(err)) {
+        toast({ title: 'Push failed', description: String(err), variant: 'destructive' });
+      }
+    },
+  });
+
+  return (
+    <div className="absolute top-full left-0 z-20 mt-1 w-64 bg-card border border-border rounded-lg shadow-lg p-3 space-y-2">
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs font-semibold">Push event — {format(day, 'MMM d')}</p>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div>
+        <Label className="text-[10px]">Event title</Label>
+        <Input
+          autoFocus
+          placeholder="e.g. Focus block"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="h-7 text-xs mt-0.5"
+          onKeyDown={(e) => { if (e.key === 'Enter' && title.trim()) mutation.mutate(); }}
+        />
+      </div>
+      <div>
+        <Label className="text-[10px]">End date</Label>
+        <Input
+          type="date"
+          value={endDate}
+          min={dateStr}
+          onChange={(e) => setEndDate(e.target.value)}
+          className="h-7 text-xs mt-0.5"
+        />
+      </div>
+      <Button
+        size="sm"
+        className="w-full h-7 text-xs"
+        disabled={!title.trim() || mutation.isPending}
+        onClick={() => mutation.mutate()}
+      >
+        {mutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
+        Push to Calendar
+      </Button>
+    </div>
+  );
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [weekOffset, setWeekOffset] = useState(0);
+  const [pushDay, setPushDay] = useState<Date | null>(null);
 
   const today    = new Date();
   const weekBase = addWeeks(today, weekOffset);
-  const wStart   = startOfWeek(weekBase, { weekStartsOn: 1 }); // Monday
+  const wStart   = startOfWeek(weekBase, { weekStartsOn: 1 });
   const wEnd     = endOfWeek(weekBase, { weekStartsOn: 1 });
   const days     = Array.from({ length: 7 }, (_, i) => addDays(wStart, i));
 
@@ -85,16 +166,29 @@ export default function CalendarPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const needsReconnect  = isReconnectRequired(error);
-  const notConnected    = !needsReconnect && !!error;
+  // Recent pushes — for synced badges on day headers
+  const { data: pushData, refetch: refetchPushes } = useQuery({
+    queryKey: ['calendar-pushes'],
+    queryFn: () => customFetch<{ pushes: CalendarPush[] }>('/api/sync/calendar/pushes'),
+    staleTime: 60_000,
+  });
+  const pushes = pushData?.pushes ?? [];
+
+  const needsReconnect = isReconnectRequired(error);
+  const notConnected   = !needsReconnect && !!error;
   const events: CalEvent[]  = data?.events ?? [];
-  const timedEvents         = events.filter((e: CalEvent) => !e.allDay);
-  const allDayEvents        = events.filter((e: CalEvent) => e.allDay);
-  const gridHeight      = HOURS.length * HOUR_HEIGHT;
+  const timedEvents         = events.filter((e) => !e.allDay);
+  const allDayEvents        = events.filter((e) => e.allDay);
+  const gridHeight          = HOURS.length * HOUR_HEIGHT;
+
+  /** Find pushes for a given day (YYYY-MM-DD) */
+  function dayPushes(day: Date): CalendarPush[] {
+    const d = format(day, 'yyyy-MM-dd');
+    return pushes.filter((p) => p.startDate === d);
+  }
 
   return (
     <div className="space-y-4 animate-in fade-in duration-500 max-w-6xl mx-auto">
-      {/* Reconnect banner */}
       <GoogleReconnectBanner visible={needsReconnect} />
 
       {/* Header */}
@@ -106,13 +200,13 @@ export default function CalendarPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => setWeekOffset(o => o - 1)}>
+          <Button variant="outline" size="icon" onClick={() => setWeekOffset((o) => o - 1)}>
             <ChevronLeft className="w-4 h-4" />
           </Button>
           <Button variant="outline" size="sm" onClick={() => setWeekOffset(0)}>
             Today
           </Button>
-          <Button variant="outline" size="icon" onClick={() => setWeekOffset(o => o + 1)}>
+          <Button variant="outline" size="icon" onClick={() => setWeekOffset((o) => o + 1)}>
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
@@ -141,40 +235,84 @@ export default function CalendarPage() {
 
       {/* Week grid */}
       {!isLoading && !error && (
-        <div className="border border-border rounded-lg overflow-hidden bg-card">
-
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events
+        <div
+          className="border border-border rounded-lg overflow-hidden bg-card"
+          onClick={() => setPushDay(null)}
+        >
           {/* Day header row */}
           <div className="grid grid-cols-[64px_repeat(7,1fr)] border-b border-border bg-muted/30">
             <div className="border-r border-border" />
-            {days.map(day => {
+            {days.map((day) => {
               const isToday = isSameDay(day, today);
+              const pushed  = dayPushes(day);
               return (
-                <div key={day.toISOString()} className="py-3 text-center border-r border-border last:border-r-0">
+                <div key={day.toISOString()} className="py-2 text-center border-r border-border last:border-r-0 relative">
                   <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     {format(day, 'EEE')}
                   </div>
                   <div className={[
-                    'text-sm font-semibold mt-1 w-7 h-7 mx-auto flex items-center justify-center rounded-full',
+                    'text-sm font-semibold mt-0.5 w-7 h-7 mx-auto flex items-center justify-center rounded-full',
                     isToday ? 'bg-primary text-primary-foreground' : '',
                   ].join(' ')}>
                     {format(day, 'd')}
                   </div>
+
+                  {/* Synced badges */}
+                  {pushed.length > 0 && (
+                    <div className="flex justify-center gap-0.5 mt-0.5 flex-wrap px-1">
+                      {pushed.slice(0, 2).map((p) => (
+                        <span
+                          key={p.id}
+                          title={`Pushed: ${p.eventTitle}`}
+                          className="inline-flex items-center gap-0.5 text-[9px] bg-green-500/10 text-green-600 border border-green-500/20 rounded px-1 py-0.5 leading-none"
+                        >
+                          <CheckCircle2 className="w-2 h-2" />
+                          synced
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Push button */}
+                  <button
+                    title={`Push event on ${format(day, 'MMM d')}`}
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 hover:opacity-100 text-muted-foreground/60 hover:text-primary transition-opacity"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPushDay(isSameDay(pushDay ?? new Date(0), day) ? null : day);
+                    }}
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+
+                  {/* Push form popover */}
+                  {pushDay && isSameDay(pushDay, day) && (
+                    <DayPushForm
+                      day={day}
+                      onClose={() => setPushDay(null)}
+                      onPushed={() => {
+                        refetchPushes();
+                        queryClient.invalidateQueries({ queryKey: ['calendar-events', startISO, endISO] });
+                      }}
+                    />
+                  )}
                 </div>
               );
             })}
           </div>
 
-          {/* All-day row (only when there are all-day events) */}
+          {/* All-day row */}
           {allDayEvents.length > 0 && (
             <div className="grid grid-cols-[64px_repeat(7,1fr)] border-b border-border bg-muted/10">
               <div className="border-r border-border flex items-center justify-end pr-2">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wide">all‑day</span>
               </div>
-              {days.map(day => {
-                const dayAll = allDayEvents.filter((e: CalEvent) => isSameDay(parseISO(e.start), day));
+              {days.map((day) => {
+                const dayAll = allDayEvents.filter((e) => isSameDay(parseISO(e.start), day));
                 return (
                   <div key={day.toISOString()} className="border-r border-border last:border-r-0 px-1 py-1 min-h-[32px]">
-                    {dayAll.map(e => (
+                    {dayAll.map((e) => (
                       <div
                         key={e.id}
                         className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary border-l-2 border-primary truncate mb-0.5"
@@ -194,7 +332,7 @@ export default function CalendarPage() {
             <div className="grid grid-cols-[64px_repeat(7,1fr)]">
               {/* Time labels */}
               <div className="border-r border-border" style={{ height: gridHeight }}>
-                {HOURS.map(h => (
+                {HOURS.map((h) => (
                   <div
                     key={h}
                     style={{ height: HOUR_HEIGHT }}
@@ -206,16 +344,15 @@ export default function CalendarPage() {
               </div>
 
               {/* Day columns */}
-              {days.map(day => {
-                const dayTimed = timedEvents.filter((e: CalEvent) => isSameDay(parseISO(e.start), day));
+              {days.map((day) => {
+                const dayTimed = timedEvents.filter((e) => isSameDay(parseISO(e.start), day));
                 return (
                   <div
                     key={day.toISOString()}
-                    className="relative border-r border-border last:border-r-0"
+                    className="relative border-r border-border last:border-r-0 group"
                     style={{ height: gridHeight }}
                   >
-                    {/* Hour lines */}
-                    {HOURS.map(h => (
+                    {HOURS.map((h) => (
                       <div
                         key={h}
                         className="absolute left-0 right-0 border-b border-border/40"
@@ -223,8 +360,7 @@ export default function CalendarPage() {
                       />
                     ))}
 
-                    {/* Events */}
-                    {dayTimed.map((e: CalEvent) => {
+                    {dayTimed.map((e) => {
                       const start  = parseISO(e.start);
                       const end    = parseISO(e.end);
                       const top    = eventTop(start);
@@ -232,7 +368,7 @@ export default function CalendarPage() {
                       return (
                         <div
                           key={e.id}
-                          className="absolute left-1 right-1 rounded bg-primary/10 border-l-2 border-primary px-1.5 py-0.5 overflow-hidden hover:bg-primary/20 transition-colors cursor-default group"
+                          className="absolute left-1 right-1 rounded bg-primary/10 border-l-2 border-primary px-1.5 py-0.5 overflow-hidden hover:bg-primary/20 transition-colors cursor-default"
                           style={{ top, height, zIndex: 1 }}
                           title={[e.title, e.location].filter(Boolean).join(' · ')}
                         >
@@ -261,6 +397,7 @@ export default function CalendarPage() {
             <div className="flex flex-col items-center justify-center py-8 border-t border-border text-muted-foreground/60">
               <Calendar className="w-6 h-6 mb-1.5" />
               <p className="text-sm">No events this week</p>
+              <p className="text-xs mt-1">Use the + buttons on each day to push a planner event</p>
             </div>
           )}
         </div>

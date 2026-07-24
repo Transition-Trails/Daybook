@@ -23,7 +23,7 @@ router.use(authRouter);
 router.use(adminRouter);
 router.use(catalogRouter);
 router.use(plannersRouter);
-router.use(googleSyncRouter);
+router.use("/sync", googleSyncRouter);
 router.use(aiRouter);
 router.use(billingRouter);
 router.use(usersRouter);

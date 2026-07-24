@@ -4,3 +4,4 @@
 - [Spec-driven backend rebuild](spec-backend-rebuild.md) — new schema uses text PKs, JSONB arrays replace junction tables; all four spec files live in spec/; catalog visibility rule: unauth=live only, admin=all
 - [pdfjs-dist Vite compatibility](pdfjs-vite-compat.md) — never npm-install pdfjs-dist; use CDN `/* @vite-ignore */` import instead or it silently corrupts Vite's dep graph
 - [Wouter root-path routing](wouter-root-route.md) — regexparam 3's /:rest* regex won't match bare /; always add explicit <Route path="/" /> alongside any /:rest* catch-all
+- [Google sync router mount](google-sync-mount.md) — google-sync routes must be mounted at /sync in routes/index.ts; without the prefix all routes 404 even though they're imported

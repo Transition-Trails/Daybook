@@ -170,6 +170,16 @@ export const platformApi = {
     if (params?.limit) q.set("limit", String(params.limit));
     return apiFetch<AuditEntry[]>(`/audit${q.size ? `?${q}` : ""}`);
   },
+  stickers: (params?: { q?: string; origin?: string; functionType?: string; status?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.q)            q.set("q", params.q);
+    if (params?.origin)       q.set("origin", params.origin);
+    if (params?.functionType) q.set("functionType", params.functionType);
+    if (params?.status)       q.set("status", params.status);
+    return apiFetch<(LibrarySticker & { authoredByStoreId: string | null })[]>(
+      `/platform/stickers${q.size ? `?${q}` : ""}`,
+    );
+  },
 };
 
 // ── Me endpoints ────────────────────────────────────────────────────────────

@@ -18,8 +18,9 @@ import {
   usersTable,
   generationJobsTable,
   plansTable,
+  stickersLibraryTable,
 } from "@workspace/db";
-import { eq, or, count, desc, and, inArray } from "drizzle-orm";
+import { eq, or, count, desc, and, inArray, ne, ilike, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import {
   requireSuperAdmin,
@@ -311,6 +312,54 @@ router.get("/audit", resolveStoreActor, async (req: Request, res: Response): Pro
 
     if (filterAction) rows = rows.filter((r: { action: string }) => r.action === filterAction);
   }
+
+  res.json(rows);
+});
+
+// ── GET /platform/stickers ────────────────────────────────────────────────────
+// Cross-store read-only sticker list for super_admin.
+// Query params: q, origin, functionType, storeId, status, limit, offset
+
+router.get("/platform/stickers", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const { q, origin, functionType, storeId, status, limit = "200", offset = "0" } = req.query as Record<string, string>;
+
+  const conditions: SQL[] = [ne(stickersLibraryTable.status, "deleted")];
+
+  if (origin) conditions.push(eq(stickersLibraryTable.origin, origin as "owned" | "licensed" | "starter"));
+  if (functionType) conditions.push(eq(stickersLibraryTable.functionType, functionType as any));
+  if (storeId) conditions.push(eq(stickersLibraryTable.authoredByStoreId, storeId));
+  if (status) conditions.push(eq(stickersLibraryTable.status, status as "draft" | "live"));
+  if (q) {
+    const pat = `%${q}%`;
+    conditions.push(
+      or(
+        ilike(stickersLibraryTable.name, pat),
+        sql`${stickersLibraryTable.tags}::text ilike ${pat}`,
+      )!,
+    );
+  }
+
+  const rows = await db
+    .select({
+      id: stickersLibraryTable.id,
+      name: stickersLibraryTable.name,
+      tags: stickersLibraryTable.tags,
+      functionType: stickersLibraryTable.functionType,
+      status: stickersLibraryTable.status,
+      origin: stickersLibraryTable.origin,
+      authoredByStoreId: stickersLibraryTable.authoredByStoreId,
+      borderStyle: stickersLibraryTable.borderStyle,
+      sizeInMm: stickersLibraryTable.sizeInMm,
+      exportTargets: stickersLibraryTable.exportTargets,
+      processedImageData: stickersLibraryTable.processedImageData,
+      createdAt: stickersLibraryTable.createdAt,
+      updatedAt: stickersLibraryTable.updatedAt,
+    })
+    .from(stickersLibraryTable)
+    .where(and(...conditions))
+    .orderBy(desc(stickersLibraryTable.createdAt))
+    .limit(Math.min(parseInt(limit, 10) || 200, 500))
+    .offset(parseInt(offset, 10) || 0);
 
   res.json(rows);
 });

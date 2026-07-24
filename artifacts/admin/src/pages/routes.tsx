@@ -3,6 +3,7 @@ import ThemesList from '@/pages/catalog/themes/list';
 import ThemeDetail from '@/pages/catalog/themes/detail';
 import PacksList from '@/pages/catalog/packs/list';
 import PackDetail from '@/pages/catalog/packs/detail';
+import PlatformStickersList from '@/pages/catalog/stickers/list';
 import InsertsList from '@/pages/catalog/inserts/list';
 import InsertDetail from '@/pages/catalog/inserts/detail';
 import ProductsList from '@/pages/catalog/products/list';
@@ -28,6 +29,7 @@ export const routes = [
   { path: "/ink", component: PlannerLibrary },
   { path: "/catalog/themes", component: ThemesList },
   { path: "/catalog/themes/:id", component: ThemeDetail },
+  { path: "/catalog/stickers", component: PlatformStickersList },
   { path: "/catalog/packs", component: PacksList },
   { path: "/catalog/packs/:id", component: PackDetail },
   { path: "/catalog/inserts", component: InsertsList },

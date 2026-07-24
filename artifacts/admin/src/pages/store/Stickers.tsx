@@ -529,7 +529,7 @@ function EditModal({
             size="sm"
             className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
             disabled={!form.name || save.isPending}
-            onClick={() => save.mutate()}
+            onClick={() => save.mutate(undefined as any)}
           >
             {save.isPending && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
             Save changes
@@ -1160,8 +1160,7 @@ export default function Stickers({ storeId, role }: Props) {
       {isLoading && <SkeletonRows rows={5} />}
       {error && (
         <ErrorState
-          title="Failed to load stickers"
-          description={(error as Error).message}
+          message={(error as Error).message}
         />
       )}
       {!isLoading && !error && stickers && stickers.length === 0 && (

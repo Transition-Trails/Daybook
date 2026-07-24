@@ -18,7 +18,8 @@ import { useLogout, useGetMe } from "@workspace/api-client-react";
 const NAV_ITEMS = [
   { label: "Dashboard",       icon: Home,        href: "/" },
   { label: "Themes",          icon: Palette,     href: "/catalog/themes",   group: "Catalog" },
-  { label: "Sticker packs",   icon: Sticker,     href: "/catalog/packs",    group: "Catalog" },
+  { label: "Stickers",         icon: Sticker,     href: "/catalog/stickers", group: "Catalog" },
+  { label: "Packs",            icon: Sticker,     href: "/catalog/packs",    group: "Catalog" },
   { label: "Inserts",         icon: FileImage,   href: "/catalog/inserts",  group: "Catalog" },
   { label: "Related products",icon: Package2,    href: "/catalog/products", group: "Catalog" },
   { label: "Editions",        icon: BookOpen,    href: "/editions",         group: "Products" },

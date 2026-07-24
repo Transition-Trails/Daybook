@@ -999,7 +999,7 @@ export default function MyContent({ storeId, role }: Props) {
       )}
 
       {/* ── Palette modals ──────────────────────────────────────────────── */}
-      {(editPalette === "new" || (editPalette && editPalette !== "new")) && (
+      {editPalette !== null && (
         <EditPaletteModal
           storeId={storeId}
           palette={editPalette === "new" ? null : editPalette}

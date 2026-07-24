@@ -7,7 +7,7 @@
  *   • Editions grid with tier badge + price range
  *   • Themes and sticker-pack browsing sections
  */
-import { useParams, useLocation } from "wouter";
+import { useParams, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { BookMarked, Sparkles, ChevronRight, Package, Palette } from "lucide-react";
 
@@ -85,7 +85,6 @@ function ThemeSwatch({ colors }: { colors: string[] }) {
 
 export default function StorefrontHome() {
   const { storeSlug } = useParams<{ storeSlug: string }>();
-  const [, navigate] = useLocation();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["shop", storeSlug],
@@ -184,22 +183,23 @@ export default function StorefrontHome() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 20 }}>
               {editions.map(ed => (
-                <button
+                <Link
                   key={ed.id}
-                  onClick={() => navigate(`/s/${storeSlug}/edition/${ed.id}`)}
+                  href={`/s/${storeSlug}/edition/${ed.id}`}
                   style={{
+                    display: "block", textDecoration: "none",
                     background: T.card, border: `1px solid ${T.border}`, borderRadius: 14,
-                    padding: 0, cursor: "pointer", textAlign: "left",
+                    cursor: "pointer",
                     boxShadow: "0 1px 4px rgba(27,42,74,0.06)",
                     transition: "box-shadow 0.15s, transform 0.15s",
                   }}
                   onMouseEnter={e => {
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 18px rgba(27,42,74,0.12)";
-                    (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-2px)";
+                    (e.currentTarget as HTMLAnchorElement).style.boxShadow = "0 4px 18px rgba(27,42,74,0.12)";
+                    (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(-2px)";
                   }}
                   onMouseLeave={e => {
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 1px 4px rgba(27,42,74,0.06)";
-                    (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
+                    (e.currentTarget as HTMLAnchorElement).style.boxShadow = "0 1px 4px rgba(27,42,74,0.06)";
+                    (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(0)";
                   }}
                 >
                   {/* Cover placeholder */}
@@ -230,7 +230,7 @@ export default function StorefrontHome() {
                       </span>
                     </div>
                   </div>
-                </button>
+                </Link>
               ))}
             </div>
           )}

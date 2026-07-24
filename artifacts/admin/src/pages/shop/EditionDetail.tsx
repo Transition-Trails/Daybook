@@ -4,7 +4,7 @@
  * Public (no auth required). Shows edition info, available themes/packs/inserts,
  * and a "Build this planner" CTA that routes to the store-scoped builder.
  */
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, BookMarked, CheckCircle2, Palette, Package, FileText, Sparkles } from "lucide-react";
 
@@ -301,19 +301,20 @@ export default function EditionDetail() {
                   ))}
                 </div>
 
-                <button
-                  onClick={() => navigate(`/s/${storeSlug}/edition/${editionId}/build`)}
+                <Link
+                  href={`/s/${storeSlug}/edition/${editionId}/build`}
                   style={{
-                    width: "100%", background: T.clay, color: "#fff", border: "none",
+                    display: "block", textDecoration: "none", textAlign: "center",
+                    width: "100%", background: T.clay, color: "#fff",
                     borderRadius: 10, padding: "13px 0", fontSize: 15, fontWeight: 700,
                     cursor: "pointer", letterSpacing: "-0.01em", fontFamily: "var(--app-font-sans)",
-                    transition: "background 0.15s",
+                    transition: "background 0.15s", boxSizing: "border-box",
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "#B86550")}
-                  onMouseLeave={e => (e.currentTarget.style.background = T.clay)}
+                  onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.background = "#B86550")}
+                  onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.background = T.clay)}
                 >
                   Build this planner →
-                </button>
+                </Link>
 
                 <p style={{ textAlign: "center", fontSize: 11, color: T.muted, marginTop: 12 }}>
                   Sign in with Google to build and save

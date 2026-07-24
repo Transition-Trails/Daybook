@@ -31,12 +31,15 @@ const StorefrontHome  = lazy(() => import("@/pages/shop/StorefrontHome"));
 const ShopEditionDetail = lazy(() => import("@/pages/shop/EditionDetail"));
 const StoreBuilder    = lazy(() => import("@/pages/shop/StoreBuilder"));
 
-// Eagerly preload the two secondary shop chunks so that the first client-side
-// navigation has no Suspense delay. Called in each shop route render (idempotent).
-function preloadShopChunks() {
-  import("@/pages/shop/EditionDetail");
-  import("@/pages/shop/StoreBuilder");
-  import("@/pages/shop/StorefrontHome");
+// Eagerly preload all shop chunks as soon as any shop route mounts so that
+// subsequent client-side navigations within the store have zero Suspense delay.
+// Called via useEffect (not during render) to keep render functions pure.
+function usePreloadShopChunks() {
+  useEffect(() => {
+    import("@/pages/shop/EditionDetail");
+    import("@/pages/shop/StoreBuilder");
+    import("@/pages/shop/StorefrontHome");
+  }, []);
 }
 
 // ── Super Admin pages ─────────────────────────────────────────────────────────
@@ -352,6 +355,17 @@ function ShopPageLoading() {
   );
 }
 
+/**
+ * Thin wrapper rendered by every /s/* route.
+ * Calls usePreloadShopChunks() inside a real component lifecycle (useEffect)
+ * so the import() side effects never run during render, and all lazy shop
+ * modules are fetched in parallel from the very first page visit.
+ */
+function ShopRouteShell({ children }: { children: React.ReactNode }) {
+  usePreloadShopChunks();
+  return <>{children}</>;
+}
+
 function AppRouter() {
   return (
     <Switch>
@@ -359,58 +373,56 @@ function AppRouter() {
       <Route path="/unauthorized" component={Unauthorized} />
 
       {/* ── Public customer storefront (/s/:storeSlug) ─────────────────────
-       *  These routes are intentionally BEFORE the /(.*) → RootRouter catch-all
-       *  so they render without any auth guard. Each page handles its own auth
-       *  state (sign-in prompt on the builder page, public browsing elsewhere).
+       *  Placed BEFORE the /(.*) → RootRouter catch-all so these routes
+       *  render without any auth guard.
        *
-       *  preloadShopChunks() is called in every shop route render so that all
-       *  three lazy modules are fetched in parallel on first visit. By the time
-       *  the user clicks through to a second page the chunk is already cached —
-       *  Suspense window collapses to near-zero after the first page load.
+       *  Navigation uses Wouter <Link href> (renders as real <a href>) rather
+       *  than <button onClick={navigate}> — native anchors are reliably
+       *  clickable in iframe preview contexts and provide proper browser
+       *  affordances (URL in status bar, right-click, keyboard nav).
        */}
 
       {/* Storefront home */}
       <Route path="/s/:storeSlug">
-        {(p) => {
-          preloadShopChunks();
-          return (
+        {(p) => (
+          <ShopRouteShell>
             <Suspense fallback={<ShopPageLoading />}>
               <StorefrontHome key={p.storeSlug} />
             </Suspense>
-          );
-        }}
+          </ShopRouteShell>
+        )}
       </Route>
 
       {/* Edition detail */}
       <Route path="/s/:storeSlug/edition/:editionId">
-        {(p) => {
-          preloadShopChunks();
-          return (
+        {(p) => (
+          <ShopRouteShell>
             <Suspense fallback={<ShopPageLoading />}>
               <ShopEditionDetail key={`${p.storeSlug}/${p.editionId}`} />
             </Suspense>
-          );
-        }}
+          </ShopRouteShell>
+        )}
       </Route>
 
       {/* Store-scoped builder */}
       <Route path="/s/:storeSlug/edition/:editionId/build">
-        {(p) => {
-          preloadShopChunks();
-          return (
+        {(p) => (
+          <ShopRouteShell>
             <Suspense fallback={<ShopPageLoading />}>
               <StoreBuilder key={`${p.storeSlug}/${p.editionId}`} />
             </Suspense>
-          );
-        }}
+          </ShopRouteShell>
+        )}
       </Route>
 
       {/* Shop-facing Ink editor — auth-only (not super_admin) */}
       <Route path="/s/:storeSlug/ink/:id">
         {(p) => (
-          <Suspense fallback={<ShopPageLoading />}>
-            <InkEditor key={p.id} />
-          </Suspense>
+          <ShopRouteShell>
+            <Suspense fallback={<ShopPageLoading />}>
+              <InkEditor key={p.id} />
+            </Suspense>
+          </ShopRouteShell>
         )}
       </Route>
 

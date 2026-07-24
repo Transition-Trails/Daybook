@@ -11,6 +11,8 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import {
   themesTable,
+  palettesTable,
+  backgroundsTable,
   stickerPacksTable,
   insertsTable,
   relatedProductsTable,
@@ -115,10 +117,12 @@ function buildCatalogRoutes(
 
 // ── Register all catalog entities ────────────────────────────────────────────
 
-buildCatalogRoutes(router, "/themes",   themesTable,          "Theme");
-buildCatalogRoutes(router, "/packs",    stickerPacksTable,    "StickerPack");
-buildCatalogRoutes(router, "/inserts",  insertsTable,         "Insert");
-buildCatalogRoutes(router, "/products", relatedProductsTable, "RelatedProduct");
-buildCatalogRoutes(router, "/editions", editionsTable,        "Edition");
+buildCatalogRoutes(router, "/themes",      themesTable,          "Theme");
+buildCatalogRoutes(router, "/palettes",   palettesTable,        "Palette");
+buildCatalogRoutes(router, "/backgrounds",backgroundsTable,     "Background");
+buildCatalogRoutes(router, "/packs",      stickerPacksTable,    "StickerPack");
+buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert");
+buildCatalogRoutes(router, "/products",   relatedProductsTable, "RelatedProduct");
+buildCatalogRoutes(router, "/editions",   editionsTable,        "Edition");
 
 export default router;

@@ -273,6 +273,33 @@ export interface AttachableItems {
   editions: CatalogItem[];
 }
 
+/** A palette as returned by the API (platform catalog or owned) */
+export interface OwnedPalette {
+  id: string;
+  name: string;
+  colors: string[];
+  status: string;
+  origin: ItemOrigin;
+  authoredByStoreId: string | null;
+  globalAvailable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A background as returned by the API */
+export interface OwnedBackground {
+  id: string;
+  name: string;
+  type: "color" | "texture" | "image";
+  assetRef: string | null;
+  status: string;
+  origin: ItemOrigin;
+  authoredByStoreId: string | null;
+  globalAvailable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** An owned theme as returned by GET /stores/:storeId/owned */
 export interface OwnedTheme {
   id: string;
@@ -283,8 +310,11 @@ export interface OwnedTheme {
   status: string;
   origin: "owned";
   authoredByStoreId: string;
+  fontPairing?: { heading?: string; subheading?: string; body?: string; accent?: string } | null;
   createdAt: string;
   updatedAt: string;
+  /** Palettes linked to this theme — present when fetched with palette join */
+  palettes?: OwnedPalette[];
 }
 
 /** An owned sticker pack as returned by GET /stores/:storeId/owned */
@@ -325,6 +355,8 @@ export interface OwnedList {
   packs: OwnedPack[];
   inserts: Array<{ id: string; name: string; status: string; origin: "owned"; authoredByStoreId: string; createdAt: string; updatedAt: string; [key: string]: unknown }>;
   editions: OwnedEdition[];
+  palettes?: OwnedPalette[];
+  backgrounds?: OwnedBackground[];
 }
 
 export const storeStudiosApi = {
@@ -407,6 +439,66 @@ export const storeStudiosApi = {
         `/stores/${storeId}/owned/inserts/${id}${force ? "?force=true" : ""}`,
         { "x-store-id": storeId },
       ),
+  },
+
+  palettes: {
+    list: (storeId: string) =>
+      apiFetch<OwnedPalette[]>(`/stores/${storeId}/owned/palettes`, {
+        headers: { "x-store-id": storeId },
+      }),
+    create: (storeId: string, data: { name: string; colors: string[]; status?: "draft" | "live" }) =>
+      apiFetch<OwnedPalette>(`/stores/${storeId}/owned/palettes`, {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+    update: (storeId: string, id: string, data: { name?: string; colors?: string[]; status?: "draft" | "live" }) =>
+      apiFetch<OwnedPalette>(`/stores/${storeId}/owned/palettes/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+    delete: (storeId: string, id: string) =>
+      apiFetchDelete(`/stores/${storeId}/owned/palettes/${id}`, { "x-store-id": storeId }),
+    /** Replace the full palette list for a theme (ordered by position) */
+    setForTheme: (storeId: string, themeId: string, paletteIds: string[]) =>
+      apiFetch<{ count: number }>(`/stores/${storeId}/owned/themes/${themeId}/palettes`, {
+        method: "PUT",
+        body: JSON.stringify({ paletteIds }),
+        headers: { "x-store-id": storeId },
+      }),
+    /** Get palettes linked to a theme */
+    getForTheme: (storeId: string, themeId: string) =>
+      apiFetch<OwnedPalette[]>(`/stores/${storeId}/owned/themes/${themeId}/palettes`, {
+        headers: { "x-store-id": storeId },
+      }),
+  },
+
+  backgrounds: {
+    list: (storeId: string) =>
+      apiFetch<OwnedBackground[]>(`/stores/${storeId}/owned/backgrounds`, {
+        headers: { "x-store-id": storeId },
+      }),
+    create: (storeId: string, data: { name: string; type?: "color" | "texture" | "image"; assetRef?: string; status?: "draft" | "live" }) =>
+      apiFetch<OwnedBackground>(`/stores/${storeId}/owned/backgrounds`, {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+    update: (storeId: string, id: string, data: { name?: string; type?: "color" | "texture" | "image"; assetRef?: string; status?: "draft" | "live" }) =>
+      apiFetch<OwnedBackground>(`/stores/${storeId}/owned/backgrounds/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+    delete: (storeId: string, id: string) =>
+      apiFetchDelete(`/stores/${storeId}/owned/backgrounds/${id}`, { "x-store-id": storeId }),
+    setForTheme: (storeId: string, themeId: string, backgroundIds: string[]) =>
+      apiFetch<{ count: number }>(`/stores/${storeId}/owned/themes/${themeId}/backgrounds`, {
+        method: "PUT",
+        body: JSON.stringify({ backgroundIds }),
+        headers: { "x-store-id": storeId },
+      }),
   },
 
   editions: {

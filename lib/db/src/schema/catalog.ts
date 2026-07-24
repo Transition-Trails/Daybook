@@ -20,6 +20,14 @@ export type ItemOrigin = "starter" | "licensed" | "owned";
 
 // ─── THEMES ──────────────────────────────────────────────────────────────────
 // colors: [accent, accent-dark, secondary, tertiary, ink, paper]
+// fontPairing: optional named fonts for heading/subheading/body/accent slots.
+
+export interface ThemeFontPairing {
+  heading?: string;
+  subheading?: string;
+  body?: string;
+  accent?: string;
+}
 
 export const themesTable = pgTable("themes", {
   id: text("id").primaryKey(),
@@ -38,6 +46,7 @@ export const themesTable = pgTable("themes", {
   origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
   // Set only for owned items; the store that authored this item.
   authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
+  fontPairing: jsonb("font_pairing").$type<ThemeFontPairing>(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -226,3 +235,119 @@ export const packStickersTable = pgTable(
 
 export type PackSticker = typeof packStickersTable.$inferSelect;
 export type InsertPackSticker = typeof packStickersTable.$inferInsert;
+
+// ─── PALETTES ─────────────────────────────────────────────────────────────────
+// Reusable named color arrays: [accent, accent-dark, secondary, tertiary, ink, paper].
+// One palette can be linked to many themes; one theme can carry many palettes.
+// Buyer picks a theme, then picks a palette within that theme — palette.colors drives generation.
+
+export const palettesTable = pgTable("palettes", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  colors: jsonb("colors").notNull().$type<string[]>(),
+  status: text("status").notNull().default("draft"),
+  globalAvailable: boolean("global_available").notNull().default(true),
+  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  authoredByStoreId: text("authored_by_store_id").references(
+    () => storesTable.id,
+    { onDelete: "set null" },
+  ),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type Palette = typeof palettesTable.$inferSelect;
+export type InsertPalette = typeof palettesTable.$inferInsert;
+
+// ─── BACKGROUNDS ─────────────────────────────────────────────────────────────
+// Reusable background assets: solid color, named texture, or image ref.
+
+export const backgroundsTable = pgTable("backgrounds", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("color"), // color | texture | image
+  assetRef: text("asset_ref"),                   // hex, texture key, or file ref
+  status: text("status").notNull().default("draft"),
+  globalAvailable: boolean("global_available").notNull().default(true),
+  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  authoredByStoreId: text("authored_by_store_id").references(
+    () => storesTable.id,
+    { onDelete: "set null" },
+  ),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type Background = typeof backgroundsTable.$inferSelect;
+export type InsertBackground = typeof backgroundsTable.$inferInsert;
+
+// ─── THEME BUNDLE JOIN TABLES ─────────────────────────────────────────────────
+// theme_palettes  : theme ↔ palette  (M:N, ordered by position)
+// theme_backgrounds: theme ↔ background (M:N, ordered by position)
+// theme_packs     : theme ↔ sticker_pack (M:N, ordered by position — theme-level grouping)
+
+export const themePalettesTable = pgTable(
+  "theme_palettes",
+  {
+    id: serial("id").primaryKey(),
+    themeId: text("theme_id")
+      .notNull()
+      .references(() => themesTable.id, { onDelete: "cascade" }),
+    paletteId: text("palette_id")
+      .notNull()
+      .references(() => palettesTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({
+    themePaletteUniq: unique("theme_palette_uq").on(t.themeId, t.paletteId),
+  }),
+);
+
+export type ThemePaletteRow = typeof themePalettesTable.$inferSelect;
+export type InsertThemePalette = typeof themePalettesTable.$inferInsert;
+
+export const themeBackgroundsTable = pgTable(
+  "theme_backgrounds",
+  {
+    id: serial("id").primaryKey(),
+    themeId: text("theme_id")
+      .notNull()
+      .references(() => themesTable.id, { onDelete: "cascade" }),
+    backgroundId: text("background_id")
+      .notNull()
+      .references(() => backgroundsTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({
+    themeBackgroundUniq: unique("theme_background_uq").on(t.themeId, t.backgroundId),
+  }),
+);
+
+export type ThemeBackgroundRow = typeof themeBackgroundsTable.$inferSelect;
+export type InsertThemeBackground = typeof themeBackgroundsTable.$inferInsert;
+
+export const themePacksTable = pgTable(
+  "theme_packs",
+  {
+    id: serial("id").primaryKey(),
+    themeId: text("theme_id")
+      .notNull()
+      .references(() => themesTable.id, { onDelete: "cascade" }),
+    packId: text("pack_id")
+      .notNull()
+      .references(() => stickerPacksTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({
+    themePackUniq: unique("theme_pack_uq").on(t.themeId, t.packId),
+  }),
+);
+
+export type ThemePackRow = typeof themePacksTable.$inferSelect;
+export type InsertThemePack = typeof themePacksTable.$inferInsert;

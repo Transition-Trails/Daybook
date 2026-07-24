@@ -25,7 +25,8 @@ interface ShopEdition {
   priceLow?: number | null; priceHigh?: number | null;
   sections: string[];
 }
-interface ShopTheme  { id: string; name: string; colors: string[]; }
+interface ThemePalette { id: string; name: string; colors: string[]; }
+interface ShopTheme  { id: string; name: string; colors: string[]; palettes?: ThemePalette[]; }
 interface ShopPack   { id: string; name: string; }
 interface ShopInsert { id: string; name: string; cat: string; }
 interface StoreInfo  { id: string; name: string; slug: string; }
@@ -189,6 +190,31 @@ function ToggleChip({ label, selected, onClick }: { label: string; selected: boo
   );
 }
 
+function PaletteChip({ palette, selected, onClick }: { palette: ThemePalette; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: selected ? T.clay : T.bg,
+        color: selected ? "#fff" : T.slate,
+        border: `1.5px solid ${selected ? T.clay : T.border}`,
+        borderRadius: 8, padding: "5px 11px",
+        fontSize: 12, cursor: "pointer",
+        fontFamily: "var(--app-font-sans)", fontWeight: selected ? 600 : 400,
+        display: "flex", alignItems: "center", gap: 6,
+        transition: "all 0.12s",
+      }}
+    >
+      <span style={{ display: "flex", gap: 2 }}>
+        {palette.colors.slice(0, 4).map((c, i) => (
+          <span key={i} style={{ width: 9, height: 9, borderRadius: "50%", background: c, border: "1px solid rgba(0,0,0,0.1)" }} />
+        ))}
+      </span>
+      {palette.name}
+    </button>
+  );
+}
+
 function ThemeChip({ theme, selected, onClick }: { theme: ShopTheme; selected: boolean; onClick: () => void }) {
   return (
     <button
@@ -230,6 +256,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
   const [weekStart, setWeekStart]   = useState<"mon" | "sun">("mon");
   const [orientation, setOrientation] = useState<"vertical" | "landscape">("vertical");
   const [themeId, setThemeId]         = useState("");
+  const [paletteId, setPaletteId]     = useState("");
   const [selectedPacks, setSelectedPacks]     = useState<string[]>([]);
   const [selectedInserts, setSelectedInserts] = useState<string[]>([]);
   const [calMode, setCalMode] = useState<CalMode>("none");
@@ -250,6 +277,19 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
     setList(list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
   }
 
+  // Auto-select first palette when theme changes
+  function handleThemeClick(id: string) {
+    const next = themeId === id ? "" : id;
+    setThemeId(next);
+    if (next) {
+      const t = themes.find(t => t.id === next);
+      const firstPalette = t?.palettes?.[0]?.id ?? "";
+      setPaletteId(firstPalette);
+    } else {
+      setPaletteId("");
+    }
+  }
+
   function buildBody(includeStoreContext = false) {
     return {
       editionId: edition.id,
@@ -260,7 +300,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
         startYear: Number(startYear),
         monthCount: Number(monthCount),
       },
-      style: { themeId: themeId || undefined, packs: selectedPacks, inserts: selectedInserts },
+      style: { themeId: themeId || undefined, paletteId: paletteId || undefined, packs: selectedPacks, inserts: selectedInserts },
       output: { calMode, eventMins: 60, aiInPdf: false },
       // storeContext is included on the persisting generate call so the server can
       // enforce entitlement for this store (starter items always pass; licensed items
@@ -291,7 +331,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
     }, 600);
     return () => { clearTimeout(timer); controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startYear, startMonth, monthCount, weekStart, orientation, themeId, selectedPacks, selectedInserts, calMode]);
+  }, [startYear, startMonth, monthCount, weekStart, orientation, themeId, paletteId, selectedPacks, selectedInserts, calMode]);
 
   useEffect(() => () => { if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current); }, []);
 
@@ -385,10 +425,34 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
                   <ThemeChip
                     key={t.id} theme={t}
                     selected={themeId === t.id}
-                    onClick={() => setThemeId(themeId === t.id ? "" : t.id)}
+                    onClick={() => handleThemeClick(t.id)}
                   />
                 ))}
               </div>
+
+              {/* Palette picker — shown only when the selected theme has multiple palettes */}
+              {(() => {
+                const selectedTheme = themes.find(t => t.id === themeId);
+                const palettes = selectedTheme?.palettes ?? [];
+                if (!themeId || palettes.length < 2) return null;
+                return (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 7 }}>
+                      Color palette
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {palettes.map(p => (
+                        <PaletteChip
+                          key={p.id}
+                          palette={p}
+                          selected={paletteId === p.id}
+                          onClick={() => setPaletteId(paletteId === p.id ? (palettes[0]?.id ?? "") : p.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 

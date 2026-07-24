@@ -16,11 +16,36 @@ import {
   storeCatalogTable,
   editionsTable,
   themesTable,
+  palettesTable,
+  themePalettesTable,
   stickerPacksTable,
   insertsTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { filterEntitled, type EntitlementContext } from "../lib/entitlement";
+import type { Theme, Palette } from "@workspace/db";
+
+// ── Palette join helper ────────────────────────────────────────────────────────
+// Fetches live palettes for a set of themes and returns them grouped by themeId.
+async function loadThemePalettes(themeIds: string[]): Promise<Record<string, Palette[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({ themeId: themePalettesTable.themeId, palette: palettesTable })
+    .from(themePalettesTable)
+    .innerJoin(palettesTable, eq(themePalettesTable.paletteId, palettesTable.id))
+    .where(inArray(themePalettesTable.themeId, themeIds))
+    .orderBy(themePalettesTable.themeId, themePalettesTable.position);
+  const out: Record<string, Palette[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push(r.palette);
+  }
+  return out;
+}
+
+function withPalettes(themes: Theme[], palettesMap: Record<string, Palette[]>) {
+  return themes.map(t => ({ ...t, palettes: palettesMap[t.id] ?? [] }));
+}
 
 const router: IRouter = Router();
 
@@ -80,6 +105,8 @@ router.get("/shop/:storeSlug", async (req: Request, res: Response): Promise<void
   const packs    = filterEntitled(allPacks.filter(p => enabled.pack.has(p.id)), ctx);
   const inserts  = filterEntitled(allInserts.filter(i => enabled.insert.has(i.id)), ctx);
 
+  const palettesMap = await loadThemePalettes(themes.map(t => t.id));
+
   res.json({
     store: {
       id: store.id, name: store.name, slug: store.slug,
@@ -87,7 +114,7 @@ router.get("/shop/:storeSlug", async (req: Request, res: Response): Promise<void
       subscriptionActive: store.subscriptionActive,
       defaultMode: store.defaultMode,
     },
-    editions, themes, packs, inserts,
+    editions, themes: withPalettes(themes, palettesMap), packs, inserts,
   });
 });
 
@@ -136,10 +163,13 @@ router.get("/shop/:storeSlug/editions/:editionId", async (req: Request, res: Res
   const editionPackIds   = new Set(allPacks.filter(p => { const pl = p.planners as string[]; return pl.includes("all") || pl.includes(editionId); }).map(p => p.id));
   const editionInsertIds = new Set(allInserts.filter(i => { const pl = i.planners as string[]; return pl.includes("all") || pl.includes(editionId); }).map(i => i.id));
 
+  const entitledThemes = filterEntitled(allThemes.filter(t => editionThemeIds.has(t.id) && enabled.theme.has(t.id)), ctx);
+  const palettesMap = await loadThemePalettes(entitledThemes.map(t => t.id));
+
   res.json({
     store: { id: store.id, name: store.name, slug: store.slug },
     edition,
-    themes:  filterEntitled(allThemes.filter(t  => editionThemeIds.has(t.id)  && enabled.theme.has(t.id)),  ctx),
+    themes:  withPalettes(entitledThemes, palettesMap),
     packs:   filterEntitled(allPacks.filter(p   => editionPackIds.has(p.id)   && enabled.pack.has(p.id)),   ctx),
     inserts: filterEntitled(allInserts.filter(i  => editionInsertIds.has(i.id) && enabled.insert.has(i.id)), ctx),
   });

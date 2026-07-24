@@ -10,3 +10,4 @@
 - [isSuperAdmin legacy bug](is-super-admin-bug.md) — roles.ts had `role==="owner"` fallback making all store owners bypass store scoping; fixed to `platformRole==="super_admin"` only
 - [Cross-store guard pattern](cross-store-guard.md) — owned-catalog routes need explicit assertSameStore(); middleware storeId may resolve from x-store-id header when params aren't populated
 - [Sticker system](sticker-system.md) — stickers_library + pack_stickers tables; base64 image storage; BFS bg-removal + Moore-tracing SVG cutline; bulk routes before /:id
+- [Palette/theme migration](palette-theme-migration.md) — palettes+backgrounds+join tables added; themes.colors preserved; generation resolves paletteId > themeId > edition fallback

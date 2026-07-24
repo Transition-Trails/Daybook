@@ -8,6 +8,7 @@ import {
   plannerConfigsTable,
   editionsTable,
   themesTable,
+  palettesTable,
   storesTable,
 } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
@@ -25,22 +26,30 @@ const router: IRouter = Router();
 async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
 ): Promise<{ pdfFileId: string; configFileId: string; pageCount: number }> {
-  // Resolve edition + theme for art/colors.
-  // Priority: style.themeId (user's explicit pick) → edition.themes[0] → undefined.
-  // Must match the same logic used by POST /planners/preview so preview and
-  // full-build always render identical colours for the same config.
+  // Resolve colors for generation.
+  // Priority 1: explicit paletteId (buyer picked a palette within the theme)
+  // Priority 2: theme.colors for the explicit themeId (backward-compat)
+  // Priority 3: first theme on the edition → theme.colors
   let themeColors: string[] | undefined;
-  const styleThemeId = (config.style as PlannerStyle & { themeId?: string }).themeId;
+  const style = config.style as PlannerStyle & { themeId?: string; paletteId?: string };
 
-  if (styleThemeId) {
-    // User explicitly chose a theme — look it up directly.
+  if (style.paletteId) {
+    const [pal] = await db
+      .select()
+      .from(palettesTable)
+      .where(eq(palettesTable.id, style.paletteId));
+    if (pal) themeColors = pal.colors as string[];
+  }
+
+  if (!themeColors && style.themeId) {
     const [theme] = await db
       .select()
       .from(themesTable)
-      .where(eq(themesTable.id, styleThemeId));
+      .where(eq(themesTable.id, style.themeId));
     if (theme) themeColors = theme.colors as string[];
-  } else if (config.editionId) {
-    // Fall back to the first theme listed on the edition.
+  }
+
+  if (!themeColors && config.editionId) {
     const [edition] = await db
       .select()
       .from(editionsTable)
@@ -127,13 +136,19 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
   }
 
   try {
-    // Resolve theme colors — prefer explicit themeId in style, then first theme of edition
+    // Resolve colors — same priority chain as runGeneration (palette > theme.colors > edition fallback).
     let themeColors: string[] | undefined;
-    const themeId = body.style?.themeId;
-    if (themeId) {
-      const [theme] = await db.select().from(themesTable).where(eq(themesTable.id, themeId));
+    const previewStyle = body.style as (PlannerStyle & { themeId?: string; paletteId?: string }) | undefined;
+
+    if (previewStyle?.paletteId) {
+      const [pal] = await db.select().from(palettesTable).where(eq(palettesTable.id, previewStyle.paletteId));
+      if (pal) themeColors = pal.colors as string[];
+    }
+    if (!themeColors && previewStyle?.themeId) {
+      const [theme] = await db.select().from(themesTable).where(eq(themesTable.id, previewStyle.themeId));
       if (theme) themeColors = theme.colors as string[];
-    } else if (body.editionId) {
+    }
+    if (!themeColors && body.editionId) {
       const [edition] = await db.select().from(editionsTable).where(eq(editionsTable.id, body.editionId));
       if (edition) {
         const firstThemeId = (edition.themes as string[])?.[0];

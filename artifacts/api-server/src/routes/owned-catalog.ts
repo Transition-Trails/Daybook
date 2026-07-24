@@ -21,12 +21,17 @@ import {
   storesTable,
   storeFlagsTable,
   themesTable,
+  palettesTable,
+  backgroundsTable,
+  themePalettesTable,
+  themeBackgroundsTable,
   stickerPacksTable,
+  themePacksTable,
   insertsTable,
   relatedProductsTable,
   editionsTable,
 } from "@workspace/db";
-import { eq, and, or, ne, inArray, desc } from "drizzle-orm";
+import { eq, and, or, ne, inArray, desc, asc } from "drizzle-orm";
 import { requireStoreAccess } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
 import {
@@ -834,6 +839,446 @@ router.delete(
   "/stores/:storeId/owned/editions/:id",
   requireStoreAccess("store_staff"),
   (req, res) => handleOwnedDelete(req, res, editionsTable, null, "owned.edition.delete", "edition"),
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PALETTE CRUD (store-scoped owned palettes)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── GET /stores/:storeId/owned/palettes ───────────────────────────────────
+
+router.get(
+  "/stores/:storeId/owned/palettes",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const storeId = req.params.storeId as string;
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const rows = await db
+      .select()
+      .from(palettesTable)
+      .where(and(
+        eq(palettesTable.origin, "owned"),
+        eq(palettesTable.authoredByStoreId, storeId),
+        ne(palettesTable.status, "deleted"),
+      ))
+      .orderBy(desc(palettesTable.createdAt));
+    res.json(rows);
+  },
+);
+
+// ── POST /stores/:storeId/owned/palettes ──────────────────────────────────
+
+router.post(
+  "/stores/:storeId/owned/palettes",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const storeId = req.params.storeId as string;
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const { name, colors, status: reqStatus } = req.body as {
+      name: string;
+      colors: string[];
+      status?: "draft" | "live";
+    };
+
+    if (!name || !Array.isArray(colors) || colors.length === 0) {
+      res.status(400).json({ error: "name and colors (non-empty array) are required" });
+      return;
+    }
+
+    const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
+    if (reqStatus === "live" && !canPublish) {
+      res.status(403).json({ error: "Publishing requires store_owner role", savedAsDraft: true });
+      return;
+    }
+    const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
+
+    const id = genId("pal");
+    const [row] = await db
+      .insert(palettesTable)
+      .values({ id, name, colors: colors as string[], status, origin: "owned", globalAvailable: false, authoredByStoreId: storeId })
+      .returning();
+
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: status === "live" ? "owned.palette.publish" : "owned.palette.create",
+      targetType: "palette", targetId: id,
+      metadata: { name, status, storeId },
+    });
+
+    res.status(201).json(row);
+  },
+);
+
+// ── PATCH /stores/:storeId/owned/palettes/:id ─────────────────────────────
+
+router.patch(
+  "/stores/:storeId/owned/palettes/:id",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const row = await getOwnedItem(palettesTable, id, storeId, res, actor.isSuperAdmin);
+    if (!row) return;
+
+    const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
+    if (!canPublish && row.status !== "draft") {
+      res.status(403).json({ error: "Staff can only edit draft items" }); return;
+    }
+
+    const { name, colors, status } = req.body as { name?: string; colors?: string[]; status?: "draft" | "live" };
+    if (status !== undefined && !canPublish) {
+      res.status(403).json({ error: "Publishing/unpublishing requires store_owner role" }); return;
+    }
+    if (colors !== undefined && (!Array.isArray(colors) || colors.length === 0)) {
+      res.status(400).json({ error: "colors must be a non-empty array" }); return;
+    }
+
+    const upd: Partial<typeof palettesTable.$inferInsert> = {};
+    if (name !== undefined) upd.name = name;
+    if (colors !== undefined) upd.colors = colors as string[];
+    if (status !== undefined) upd.status = status;
+    if (!Object.keys(upd).length) { res.json(row); return; }
+
+    const [updated] = await db.update(palettesTable).set(upd).where(eq(palettesTable.id, id)).returning();
+
+    const prevStatus = row.status as string;
+    const auditAction = prevStatus !== updated.status
+      ? updated.status === "live" ? "owned.palette.publish" : "owned.palette.unpublish"
+      : "owned.palette.edit";
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: auditAction, targetType: "palette", targetId: id,
+      metadata: { storeId, ...(name !== undefined && { name }), ...(status !== undefined && { status }) },
+    });
+    res.json(updated);
+  },
+);
+
+// ── DELETE /stores/:storeId/owned/palettes/:id ────────────────────────────
+
+router.delete(
+  "/stores/:storeId/owned/palettes/:id",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    if (!(actor.isSuperAdmin || actor.storeRole === "store_owner")) {
+      res.status(403).json({ error: "Deleting owned items requires store_owner role" }); return;
+    }
+    const row = await getOwnedItem(palettesTable, id, storeId, res, actor.isSuperAdmin);
+    if (!row) return;
+
+    // Detach from all themes then soft-delete
+    await db.delete(themePalettesTable).where(eq(themePalettesTable.paletteId, id));
+    await db.update(palettesTable).set({ status: "deleted" }).where(eq(palettesTable.id, id));
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: "owned.palette.delete", targetType: "palette", targetId: id,
+      metadata: { storeId, name: row.name },
+    });
+    res.status(204).send();
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BACKGROUND CRUD (store-scoped owned backgrounds)
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get(
+  "/stores/:storeId/owned/backgrounds",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const storeId = req.params.storeId as string;
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const rows = await db
+      .select()
+      .from(backgroundsTable)
+      .where(and(
+        eq(backgroundsTable.origin, "owned"),
+        eq(backgroundsTable.authoredByStoreId, storeId),
+        ne(backgroundsTable.status, "deleted"),
+      ))
+      .orderBy(desc(backgroundsTable.createdAt));
+    res.json(rows);
+  },
+);
+
+router.post(
+  "/stores/:storeId/owned/backgrounds",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const storeId = req.params.storeId as string;
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const { name, type = "color", assetRef, status: reqStatus } = req.body as {
+      name: string;
+      type?: "color" | "texture" | "image";
+      assetRef?: string;
+      status?: "draft" | "live";
+    };
+
+    if (!name) { res.status(400).json({ error: "name is required" }); return; }
+    if (!["color", "texture", "image"].includes(type)) {
+      res.status(400).json({ error: "type must be color, texture, or image" }); return;
+    }
+
+    const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
+    if (reqStatus === "live" && !canPublish) {
+      res.status(403).json({ error: "Publishing requires store_owner role", savedAsDraft: true }); return;
+    }
+    const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
+
+    const id = genId("bg");
+    const [row] = await db
+      .insert(backgroundsTable)
+      .values({ id, name, type, assetRef: assetRef ?? null, status, origin: "owned", globalAvailable: false, authoredByStoreId: storeId })
+      .returning();
+
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: "owned.background.create", targetType: "background", targetId: id,
+      metadata: { name, type, status, storeId },
+    });
+    res.status(201).json(row);
+  },
+);
+
+router.patch(
+  "/stores/:storeId/owned/backgrounds/:id",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const row = await getOwnedItem(backgroundsTable, id, storeId, res, actor.isSuperAdmin);
+    if (!row) return;
+
+    const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
+    if (!canPublish && row.status !== "draft") {
+      res.status(403).json({ error: "Staff can only edit draft items" }); return;
+    }
+
+    const { name, type, assetRef, status } = req.body as {
+      name?: string; type?: "color" | "texture" | "image"; assetRef?: string | null; status?: "draft" | "live";
+    };
+    if (status !== undefined && !canPublish) {
+      res.status(403).json({ error: "Publishing/unpublishing requires store_owner role" }); return;
+    }
+
+    const upd: Partial<typeof backgroundsTable.$inferInsert> = {};
+    if (name !== undefined) upd.name = name;
+    if (type !== undefined) upd.type = type;
+    if (assetRef !== undefined) upd.assetRef = assetRef;
+    if (status !== undefined) upd.status = status;
+    if (!Object.keys(upd).length) { res.json(row); return; }
+
+    const [updated] = await db.update(backgroundsTable).set(upd).where(eq(backgroundsTable.id, id)).returning();
+
+    const prevStatus = row.status as string;
+    const auditAction = prevStatus !== updated.status
+      ? updated.status === "live" ? "owned.background.publish" : "owned.background.unpublish"
+      : "owned.background.edit";
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: auditAction, targetType: "background", targetId: id,
+      metadata: { storeId, ...(name !== undefined && { name }), ...(status !== undefined && { status }) },
+    });
+    res.json(updated);
+  },
+);
+
+router.delete(
+  "/stores/:storeId/owned/backgrounds/:id",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    if (!(actor.isSuperAdmin || actor.storeRole === "store_owner")) {
+      res.status(403).json({ error: "Deleting owned items requires store_owner role" }); return;
+    }
+    const row = await getOwnedItem(backgroundsTable, id, storeId, res, actor.isSuperAdmin);
+    if (!row) return;
+
+    await db.delete(themeBackgroundsTable).where(eq(themeBackgroundsTable.backgroundId, id));
+    await db.update(backgroundsTable).set({ status: "deleted" }).where(eq(backgroundsTable.id, id));
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: "owned.background.delete", targetType: "background", targetId: id,
+      metadata: { storeId, name: row.name },
+    });
+    res.status(204).send();
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THEME BUNDLE JOIN MANAGEMENT (palettes / backgrounds / packs per theme)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── GET /stores/:storeId/owned/themes/:id/palettes ────────────────────────
+
+router.get(
+  "/stores/:storeId/owned/themes/:id/palettes",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const theme = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
+    if (!theme) return;
+
+    const rows = await db
+      .select({ palette: palettesTable })
+      .from(themePalettesTable)
+      .innerJoin(palettesTable, eq(themePalettesTable.paletteId, palettesTable.id))
+      .where(eq(themePalettesTable.themeId, id))
+      .orderBy(asc(themePalettesTable.position));
+
+    res.json(rows.map(r => r.palette));
+  },
+);
+
+// ── PUT /stores/:storeId/owned/themes/:id/palettes ────────────────────────
+// Replaces the full palette list for a theme (position = array index).
+
+router.put(
+  "/stores/:storeId/owned/themes/:id/palettes",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const theme = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
+    if (!theme) return;
+
+    const { paletteIds } = req.body as { paletteIds: string[] };
+    if (!Array.isArray(paletteIds)) { res.status(400).json({ error: "paletteIds must be an array" }); return; }
+
+    // Validate all palette IDs exist and are accessible
+    if (paletteIds.length > 0) {
+      const found = await db.select({ id: palettesTable.id })
+        .from(palettesTable)
+        .where(and(inArray(palettesTable.id, paletteIds), ne(palettesTable.status, "deleted")));
+      const foundSet = new Set(found.map(r => r.id));
+      const missing = paletteIds.find(pid => !foundSet.has(pid));
+      if (missing) { res.status(400).json({ error: `Unknown palette ID: ${missing}` }); return; }
+    }
+
+    // Replace: delete existing, insert new
+    await db.delete(themePalettesTable).where(eq(themePalettesTable.themeId, id));
+    if (paletteIds.length > 0) {
+      await db.insert(themePalettesTable).values(
+        paletteIds.map((pid, pos) => ({ themeId: id, paletteId: pid, position: pos })),
+      );
+    }
+
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: "owned.theme.palettes.set", targetType: "theme", targetId: id,
+      metadata: { storeId, paletteIds },
+    });
+
+    res.json({ count: paletteIds.length });
+  },
+);
+
+// ── PUT /stores/:storeId/owned/themes/:id/backgrounds ────────────────────
+
+router.put(
+  "/stores/:storeId/owned/themes/:id/backgrounds",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const theme = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
+    if (!theme) return;
+
+    const { backgroundIds } = req.body as { backgroundIds: string[] };
+    if (!Array.isArray(backgroundIds)) { res.status(400).json({ error: "backgroundIds must be an array" }); return; }
+
+    if (backgroundIds.length > 0) {
+      const found = await db.select({ id: backgroundsTable.id })
+        .from(backgroundsTable)
+        .where(and(inArray(backgroundsTable.id, backgroundIds), ne(backgroundsTable.status, "deleted")));
+      const foundSet = new Set(found.map(r => r.id));
+      const missing = backgroundIds.find(bid => !foundSet.has(bid));
+      if (missing) { res.status(400).json({ error: `Unknown background ID: ${missing}` }); return; }
+    }
+
+    await db.delete(themeBackgroundsTable).where(eq(themeBackgroundsTable.themeId, id));
+    if (backgroundIds.length > 0) {
+      await db.insert(themeBackgroundsTable).values(
+        backgroundIds.map((bid, pos) => ({ themeId: id, backgroundId: bid, position: pos })),
+      );
+    }
+
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: "owned.theme.backgrounds.set", targetType: "theme", targetId: id,
+      metadata: { storeId, backgroundIds },
+    });
+
+    res.json({ count: backgroundIds.length });
+  },
+);
+
+// ── PUT /stores/:storeId/owned/themes/:id/packs ───────────────────────────
+
+router.put(
+  "/stores/:storeId/owned/themes/:id/packs",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const theme = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
+    if (!theme) return;
+
+    const { packIds } = req.body as { packIds: string[] };
+    if (!Array.isArray(packIds)) { res.status(400).json({ error: "packIds must be an array" }); return; }
+
+    if (packIds.length > 0) {
+      const found = await db.select({ id: stickerPacksTable.id })
+        .from(stickerPacksTable)
+        .where(and(inArray(stickerPacksTable.id, packIds), ne(stickerPacksTable.status, "deleted")));
+      const foundSet = new Set(found.map(r => r.id));
+      const missing = packIds.find(pid => !foundSet.has(pid));
+      if (missing) { res.status(400).json({ error: `Unknown pack ID: ${missing}` }); return; }
+    }
+
+    await db.delete(themePacksTable).where(eq(themePacksTable.themeId, id));
+    if (packIds.length > 0) {
+      await db.insert(themePacksTable).values(
+        packIds.map((pid, pos) => ({ themeId: id, packId: pid, position: pos })),
+      );
+    }
+
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: "owned.theme.packs.set", targetType: "theme", targetId: id,
+      metadata: { storeId, packIds },
+    });
+
+    res.json({ count: packIds.length });
+  },
 );
 
 export default router;

@@ -275,6 +275,8 @@ export default function InkEditor() {
   const [placingSticker, setPlacingSticker] = useState<string | null>(null);
   const [recentColors, setRecentColors]  = useState<string[]>([]);
   const [showPicker,   setShowPicker]    = useState(false);
+  const [pickerPos,    setPickerPos]     = useState<{ top: number; left: number } | null>(null);
+  const pickerBtnRef = useRef<HTMLButtonElement>(null);
 
   const [objects,      _setObjects]      = useState<InkObject[]>([]);
   const [selectedObjId,setSelectedObjId] = useState<string | null>(null);
@@ -919,17 +921,22 @@ export default function InkEditor() {
           {/* Custom color trigger */}
           <div style={{ position: "relative" }}>
             <button
+              ref={pickerBtnRef}
               title="Custom color"
-              onClick={() => setShowPicker((v) => !v)}
+              onClick={() => {
+                const rect = pickerBtnRef.current?.getBoundingClientRect();
+                if (rect) setPickerPos({ top: rect.top, left: rect.right + 8 });
+                setShowPicker((v) => !v);
+              }}
               style={{
                 width: 24, height: 24, borderRadius: "50%", flexShrink: 0,
                 background: "conic-gradient(red,yellow,lime,cyan,blue,magenta,red)",
                 border: showPicker ? "2.5px solid #C87560" : "2px solid #E7DCCB", cursor: "pointer",
               }}
             />
-            {showPicker && (
+            {showPicker && pickerPos && (
               <div style={{
-                position: "absolute", left: 30, top: -60, zIndex: 200,
+                position: "fixed", left: pickerPos.left, top: pickerPos.top, zIndex: 1000,
                 background: "#fff", border: "1px solid #E7DCCB", borderRadius: 10,
                 padding: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.15)", width: 168,
               }}>

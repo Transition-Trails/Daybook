@@ -19,6 +19,10 @@ import {
   generationJobsTable,
   plansTable,
   stickersLibraryTable,
+  packStickersTable,
+  stickerPacksTable,
+  STICKER_FUNCTION_TYPES,
+  type StickerFunctionType,
 } from "@workspace/db";
 import { eq, or, count, desc, and, inArray, ne, ilike, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
@@ -28,6 +32,11 @@ import {
   resolveStoreActorOptional,
 } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
+import {
+  removeBackground,
+  applyBorderAndSize,
+  generateCutlineSvg,
+} from "../lib/imageProcessing";
 
 const router: IRouter = Router();
 
@@ -349,9 +358,12 @@ router.get("/platform/stickers", requireSuperAdmin, async (req: Request, res: Re
       origin: stickersLibraryTable.origin,
       authoredByStoreId: stickersLibraryTable.authoredByStoreId,
       borderStyle: stickersLibraryTable.borderStyle,
+      borderWidth: stickersLibraryTable.borderWidth,
+      borderColor: stickersLibraryTable.borderColor,
       sizeInMm: stickersLibraryTable.sizeInMm,
       exportTargets: stickersLibraryTable.exportTargets,
       processedImageData: stickersLibraryTable.processedImageData,
+      cutlineSvg: stickersLibraryTable.cutlineSvg,
       createdAt: stickersLibraryTable.createdAt,
       updatedAt: stickersLibraryTable.updatedAt,
     })
@@ -363,5 +375,421 @@ router.get("/platform/stickers", requireSuperAdmin, async (req: Request, res: Re
 
   res.json(rows);
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PLATFORM STICKER AUTHORING  (super_admin only)
+// New stickers: origin='starter', authoredByStoreId=null.
+// PATCH/DELETE: any non-deleted sticker (support access for store-owned).
+// Bulk routes must appear BEFORE /:id to avoid param capture.
+// ═════════════════════════════════════════════════════════════════════════════
+
+function genStickerId(): string {
+  return `stk_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
+
+function isValidStickerFunctionType(v: unknown): v is StickerFunctionType {
+  return STICKER_FUNCTION_TYPES.includes(v as StickerFunctionType);
+}
+
+async function runStickerPipeline(params: {
+  imageBase64: string;
+  borderStyle?: string;
+  borderWidth?: number | null;
+  borderColor?: string | null;
+  sizeInMm?: number | null;
+  exportTargets?: { goodnotes: boolean; ink: boolean; cricut: boolean };
+}): Promise<{ processedImageData: string; cutlineSvg: string | null }> {
+  const {
+    imageBase64,
+    borderStyle = "none",
+    borderWidth,
+    borderColor,
+    sizeInMm,
+    exportTargets = { goodnotes: true, ink: true, cricut: false },
+  } = params;
+
+  let processed = await removeBackground(imageBase64);
+
+  if (borderStyle !== "none" || sizeInMm) {
+    processed = await applyBorderAndSize(
+      processed, borderStyle, borderWidth ?? null, borderColor ?? null, sizeInMm ?? null,
+    );
+  }
+
+  const cutlineSvg = exportTargets.cricut ? await generateCutlineSvg(processed) : null;
+  return { processedImageData: processed, cutlineSvg };
+}
+
+// ── POST /platform/stickers/bulk/function-type ────────────────────────────────
+
+router.post(
+  "/platform/stickers/bulk/function-type",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { ids, functionType } = req.body as { ids?: unknown; functionType?: unknown };
+    if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: "ids must be a non-empty array" }); return; }
+    if (!isValidStickerFunctionType(functionType)) {
+      res.status(400).json({ error: `functionType must be one of: ${STICKER_FUNCTION_TYPES.join(", ")}` }); return;
+    }
+    const rows = await db
+      .select({ id: stickersLibraryTable.id })
+      .from(stickersLibraryTable)
+      .where(and(inArray(stickersLibraryTable.id, ids as string[]), ne(stickersLibraryTable.status, "deleted")));
+    const valid = rows.map((r) => r.id);
+    if (!valid.length) { res.status(400).json({ error: "No valid stickers found" }); return; }
+    await db.update(stickersLibraryTable).set({ functionType }).where(inArray(stickersLibraryTable.id, valid));
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: "platform",
+      action: "platform.sticker.bulk.set-function-type", targetType: "sticker",
+      metadata: { functionType, count: valid.length },
+    });
+    res.json({ updated: valid.length, skipped: (ids as string[]).length - valid.length });
+  },
+);
+
+// ── POST /platform/stickers/bulk/publish ──────────────────────────────────────
+
+router.post(
+  "/platform/stickers/bulk/publish",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { ids, publish } = req.body as { ids?: unknown; publish?: unknown };
+    if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: "ids must be a non-empty array" }); return; }
+    if (typeof publish !== "boolean") { res.status(400).json({ error: "publish (boolean) is required" }); return; }
+    const rows = await db
+      .select({ id: stickersLibraryTable.id })
+      .from(stickersLibraryTable)
+      .where(and(inArray(stickersLibraryTable.id, ids as string[]), ne(stickersLibraryTable.status, "deleted")));
+    const valid = rows.map((r) => r.id);
+    if (!valid.length) { res.status(400).json({ error: "No valid stickers found" }); return; }
+    await db.update(stickersLibraryTable).set({ status: publish ? "live" : "draft" }).where(inArray(stickersLibraryTable.id, valid));
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: "platform",
+      action: publish ? "platform.sticker.bulk.publish" : "platform.sticker.bulk.unpublish",
+      targetType: "sticker", metadata: { count: valid.length },
+    });
+    res.json({ updated: valid.length, skipped: (ids as string[]).length - valid.length });
+  },
+);
+
+// ── POST /platform/stickers/bulk/add-to-pack ──────────────────────────────────
+
+router.post(
+  "/platform/stickers/bulk/add-to-pack",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { ids, packId } = req.body as { ids?: unknown; packId?: unknown };
+    if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: "ids must be a non-empty array" }); return; }
+    if (typeof packId !== "string" || !packId) { res.status(400).json({ error: "packId is required" }); return; }
+    const [pack] = await db
+      .select({ id: stickerPacksTable.id })
+      .from(stickerPacksTable)
+      .where(and(eq(stickerPacksTable.id, packId), ne(stickerPacksTable.status, "deleted")));
+    if (!pack) { res.status(404).json({ error: "Pack not found" }); return; }
+    const rows = await db
+      .select({ id: stickersLibraryTable.id })
+      .from(stickersLibraryTable)
+      .where(and(inArray(stickersLibraryTable.id, ids as string[]), ne(stickersLibraryTable.status, "deleted")));
+    const valid = rows.map((r) => r.id);
+    if (!valid.length) { res.status(400).json({ error: "No valid stickers found" }); return; }
+    const [posRow] = await db
+      .select({ maxPos: sql<number>`max(${packStickersTable.position})` })
+      .from(packStickersTable)
+      .where(eq(packStickersTable.packId, packId));
+    const basePos = (posRow?.maxPos ?? -1) + 1;
+    await db.insert(packStickersTable).values(valid.map((stickerId, i) => ({ packId, stickerId, position: basePos + i }))).onConflictDoNothing();
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: "platform",
+      action: "platform.sticker.bulk.add-to-pack", targetType: "pack", targetId: packId,
+      metadata: { count: valid.length, skipped: (ids as string[]).length - valid.length },
+    });
+    res.json({ added: valid.length, skipped: (ids as string[]).length - valid.length });
+  },
+);
+
+// ── DELETE /platform/stickers/bulk ────────────────────────────────────────────
+
+router.delete(
+  "/platform/stickers/bulk",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { ids } = req.body as { ids?: unknown };
+    if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: "ids must be a non-empty array" }); return; }
+    const rows = await db
+      .select({ id: stickersLibraryTable.id })
+      .from(stickersLibraryTable)
+      .where(and(inArray(stickersLibraryTable.id, ids as string[]), ne(stickersLibraryTable.status, "deleted")));
+    const valid = rows.map((r) => r.id);
+    if (!valid.length) { res.status(400).json({ error: "No valid stickers found" }); return; }
+    await db.delete(packStickersTable).where(inArray(packStickersTable.stickerId, valid));
+    await db.update(stickersLibraryTable).set({ status: "deleted" }).where(inArray(stickersLibraryTable.id, valid));
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: "platform",
+      action: "platform.sticker.bulk.delete", targetType: "sticker",
+      metadata: { count: valid.length },
+    });
+    res.json({ deleted: valid.length, skipped: (ids as string[]).length - valid.length });
+  },
+);
+
+// ── POST /platform/stickers ───────────────────────────────────────────────────
+
+router.post(
+  "/platform/stickers",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const {
+      name, tags, functionType, imageBase64,
+      borderStyle, borderWidth, borderColor, sizeInMm, exportTargets,
+      status: reqStatus,
+    } = req.body as {
+      name?: string; tags?: string[]; functionType?: string; imageBase64?: string;
+      borderStyle?: string; borderWidth?: number; borderColor?: string; sizeInMm?: number;
+      exportTargets?: { goodnotes: boolean; ink: boolean; cricut: boolean };
+      status?: "draft" | "live";
+    };
+
+    if (!name) { res.status(400).json({ error: "name is required" }); return; }
+    if (!isValidStickerFunctionType(functionType)) {
+      res.status(400).json({ error: `functionType must be one of: ${STICKER_FUNCTION_TYPES.join(", ")}` }); return;
+    }
+    if (!imageBase64 || !imageBase64.startsWith("data:image/")) {
+      res.status(400).json({ error: "imageBase64 must be a base64-encoded image data URL" }); return;
+    }
+
+    const status: "draft" | "live" = reqStatus === "live" ? "live" : "draft";
+    const resolvedExportTargets = exportTargets ?? { goodnotes: true, ink: true, cricut: false };
+    const resolvedBorderStyle = borderStyle ?? "none";
+
+    try {
+      const pipeline = await runStickerPipeline({
+        imageBase64, borderStyle: resolvedBorderStyle, borderWidth, borderColor, sizeInMm,
+        exportTargets: resolvedExportTargets,
+      });
+
+      const id = genStickerId();
+      const [row] = await db
+        .insert(stickersLibraryTable)
+        .values({
+          id, name,
+          tags: (tags ?? []) as string[],
+          functionType: functionType as StickerFunctionType,
+          status,
+          origin: "starter",
+          authoredByStoreId: null,
+          borderStyle: resolvedBorderStyle,
+          borderWidth: borderWidth ?? null,
+          borderColor: borderColor ?? null,
+          sizeInMm: sizeInMm ?? null,
+          exportTargets: resolvedExportTargets,
+          processedImageData: pipeline.processedImageData,
+          cutlineSvg: pipeline.cutlineSvg,
+        })
+        .returning();
+
+      await writeAudit(db, {
+        actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: "platform",
+        action: status === "live" ? "platform.sticker.publish" : "platform.sticker.create",
+        targetType: "sticker", targetId: id,
+        metadata: { name, functionType, status },
+      });
+
+      res.status(201).json(row);
+    } catch (err) {
+      req.log.error({ err }, "platform sticker create failed");
+      res.status(500).json({ error: "Create failed" });
+    }
+  },
+);
+
+// ── PATCH /platform/stickers/:id ─────────────────────────────────────────────
+
+router.patch(
+  "/platform/stickers/:id",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { id } = req.params as { id: string };
+
+    const [row] = await db
+      .select()
+      .from(stickersLibraryTable)
+      .where(and(eq(stickersLibraryTable.id, id), ne(stickersLibraryTable.status, "deleted")));
+
+    if (!row) { res.status(404).json({ error: "Sticker not found" }); return; }
+
+    const {
+      name, tags, functionType, imageBase64,
+      borderStyle, borderWidth, borderColor, sizeInMm, exportTargets, status,
+    } = req.body as {
+      name?: string; tags?: string[]; functionType?: string; imageBase64?: string;
+      borderStyle?: string; borderWidth?: number | null; borderColor?: string | null;
+      sizeInMm?: number | null; exportTargets?: { goodnotes: boolean; ink: boolean; cricut: boolean };
+      status?: "draft" | "live";
+    };
+
+    if (functionType !== undefined && !isValidStickerFunctionType(functionType)) {
+      res.status(400).json({ error: `functionType must be one of: ${STICKER_FUNCTION_TYPES.join(", ")}` }); return;
+    }
+
+    type UpdateData = Partial<typeof stickersLibraryTable.$inferInsert>;
+    const updateData: UpdateData = {};
+    if (name !== undefined)         updateData.name = name;
+    if (tags !== undefined)         updateData.tags = tags as string[];
+    if (functionType !== undefined) updateData.functionType = functionType as StickerFunctionType;
+    if (status !== undefined)       updateData.status = status;
+    if (borderStyle !== undefined)  updateData.borderStyle = borderStyle;
+    if (borderWidth !== undefined)  updateData.borderWidth = borderWidth;
+    if (borderColor !== undefined)  updateData.borderColor = borderColor;
+    if (sizeInMm !== undefined)     updateData.sizeInMm = sizeInMm;
+    if (exportTargets !== undefined) updateData.exportTargets = exportTargets;
+
+    const pipelineChanged = [imageBase64, borderStyle, borderWidth, borderColor, sizeInMm, exportTargets].some(
+      (f) => f !== undefined,
+    );
+
+    if (pipelineChanged) {
+      const effectiveImage = imageBase64 ?? row.processedImageData ?? "";
+      if (!effectiveImage.startsWith("data:image/")) {
+        res.status(400).json({ error: "No usable image data for pipeline re-run" }); return;
+      }
+      try {
+        const pipeline = await runStickerPipeline({
+          imageBase64: effectiveImage,
+          borderStyle: borderStyle ?? row.borderStyle,
+          borderWidth: borderWidth ?? row.borderWidth,
+          borderColor: borderColor ?? row.borderColor,
+          sizeInMm: sizeInMm ?? row.sizeInMm,
+          exportTargets: exportTargets ?? (row.exportTargets as { goodnotes: boolean; ink: boolean; cricut: boolean }),
+        });
+        updateData.processedImageData = pipeline.processedImageData;
+        updateData.cutlineSvg = pipeline.cutlineSvg;
+      } catch (pipelineErr) {
+        req.log.error({ err: pipelineErr }, "platform sticker pipeline re-run failed");
+        res.status(500).json({ error: "Image processing failed" }); return;
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) { res.json(row); return; }
+
+    const [updated] = await db
+      .update(stickersLibraryTable)
+      .set(updateData)
+      .where(eq(stickersLibraryTable.id, id))
+      .returning();
+
+    const auditAction =
+      row.status !== updated.status
+        ? updated.status === "live" ? "platform.sticker.publish" : "platform.sticker.unpublish"
+        : "platform.sticker.edit";
+
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: "platform",
+      action: auditAction, targetType: "sticker", targetId: id,
+      metadata: { ...(name !== undefined && { name }), ...(status !== undefined && { status }) },
+    });
+
+    res.json(updated);
+  },
+);
+
+// ── POST /platform/stickers/:id/duplicate ────────────────────────────────────
+
+router.post(
+  "/platform/stickers/:id/duplicate",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { id } = req.params as { id: string };
+
+    const [row] = await db
+      .select()
+      .from(stickersLibraryTable)
+      .where(and(eq(stickersLibraryTable.id, id), ne(stickersLibraryTable.status, "deleted")));
+
+    if (!row) { res.status(404).json({ error: "Sticker not found" }); return; }
+
+    const newId = genStickerId();
+    const [cloned] = await db
+      .insert(stickersLibraryTable)
+      .values({
+        id: newId,
+        name: `${row.name} copy`,
+        tags: row.tags as string[],
+        functionType: row.functionType as StickerFunctionType,
+        status: "draft",
+        origin: "starter",      // platform clone always lands as starter
+        authoredByStoreId: null,
+        borderStyle: row.borderStyle,
+        borderWidth: row.borderWidth,
+        borderColor: row.borderColor,
+        sizeInMm: row.sizeInMm,
+        exportTargets: row.exportTargets as { goodnotes: boolean; ink: boolean; cricut: boolean },
+        processedImageData: row.processedImageData,
+        cutlineSvg: row.cutlineSvg,
+      })
+      .returning();
+
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: "platform",
+      action: "platform.sticker.duplicate", targetType: "sticker", targetId: newId,
+      metadata: { sourceId: id, name: cloned.name },
+    });
+
+    res.status(201).json(cloned);
+  },
+);
+
+// ── DELETE /platform/stickers/:id ────────────────────────────────────────────
+
+router.delete(
+  "/platform/stickers/:id",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { id } = req.params as { id: string };
+
+    const [row] = await db
+      .select()
+      .from(stickersLibraryTable)
+      .where(and(eq(stickersLibraryTable.id, id), ne(stickersLibraryTable.status, "deleted")));
+
+    if (!row) { res.status(404).json({ error: "Sticker not found" }); return; }
+
+    const force = req.query.force === "true";
+
+    const packRefs = await db
+      .select({ packId: packStickersTable.packId, packName: stickerPacksTable.name })
+      .from(packStickersTable)
+      .leftJoin(stickerPacksTable, eq(packStickersTable.packId, stickerPacksTable.id))
+      .where(eq(packStickersTable.stickerId, id));
+
+    if (packRefs.length > 0 && !force) {
+      res.status(409).json({
+        error: `Sticker is used in ${packRefs.length} pack(s)`,
+        affectedPacks: packRefs.map((p) => ({ id: p.packId, name: p.packName })),
+      });
+      return;
+    }
+
+    if (packRefs.length > 0) {
+      await db.delete(packStickersTable).where(eq(packStickersTable.stickerId, id));
+    }
+    await db.update(stickersLibraryTable).set({ status: "deleted" }).where(eq(stickersLibraryTable.id, id));
+
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: "platform",
+      action: "platform.sticker.delete", targetType: "sticker", targetId: id,
+      metadata: { name: row.name, force, detachedFromPacks: packRefs.map((p) => p.packId) },
+    });
+
+    res.status(204).send();
+  },
+);
 
 export default router;

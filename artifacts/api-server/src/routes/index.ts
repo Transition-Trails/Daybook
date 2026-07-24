@@ -14,6 +14,7 @@ import storesRouter from "./stores";
 import ownedCatalogRouter from "./owned-catalog";
 import stickersRouter from "./stickers";
 import platformRouter from "./platform";
+import platformStickersRouter from "./platform-stickers";
 import meRouter from "./me";
 import inkRouter from "./ink";
 import shopRouter from "./shop";
@@ -36,6 +37,7 @@ router.use(storesRouter);
 router.use(ownedCatalogRouter);
 router.use(stickersRouter);
 router.use(platformRouter);
+router.use(platformStickersRouter);
 router.use(meRouter);
 router.use(inkRouter);
 // Public storefront API (no auth required)

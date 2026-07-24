@@ -182,6 +182,103 @@ export const platformApi = {
   },
 };
 
+// ── Platform sticker authoring endpoints (super_admin) ──────────────────────
+
+export interface PlatformStickerPack {
+  id: string;
+  name: string;
+  origin: string;
+  status: string;
+}
+
+export const platformStickersApi = {
+  create: (data: {
+    name: string;
+    tags?: string[];
+    functionType: string;
+    imageBase64: string;
+    borderStyle?: string;
+    borderWidth?: number;
+    borderColor?: string;
+    sizeInMm?: number;
+    exportTargets?: StickerExportTargets;
+    status?: "draft" | "live";
+  }) =>
+    apiFetch<LibrarySticker>("/platform/stickers", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  update: (
+    id: string,
+    data: {
+      name?: string;
+      tags?: string[];
+      functionType?: string;
+      imageBase64?: string;
+      borderStyle?: string;
+      borderWidth?: number | null;
+      borderColor?: string | null;
+      sizeInMm?: number | null;
+      exportTargets?: StickerExportTargets;
+      status?: "draft" | "live";
+    },
+  ) =>
+    apiFetch<LibrarySticker>(`/platform/stickers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  get: (id: string) =>
+    apiFetch<LibrarySticker & { packs: { packId: string; position: number }[] }>(
+      `/platform/stickers/${id}`,
+    ),
+
+  duplicate: (id: string) =>
+    apiFetch<LibrarySticker>(`/platform/stickers/${id}/duplicate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  usage: (id: string) =>
+    apiFetch<StickerUsage>(`/platform/stickers/${id}/usage`),
+
+  /** Raw delete — caller must handle 409 affectedPacks themselves. */
+  deleteRaw: (id: string, force = false): Promise<Response> =>
+    fetch(`/api/platform/stickers/${id}${force ? "?force=true" : ""}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    }),
+
+  listPacks: () =>
+    apiFetch<PlatformStickerPack[]>("/platform/sticker-packs"),
+
+  bulkSetFunctionType: (ids: string[], functionType: string) =>
+    apiFetch<BulkResult>("/platform/stickers/bulk/function-type", {
+      method: "POST",
+      body: JSON.stringify({ ids, functionType }),
+    }),
+
+  bulkAddToPack: (ids: string[], packId: string) =>
+    apiFetch<BulkResult>("/platform/stickers/bulk/add-to-pack", {
+      method: "POST",
+      body: JSON.stringify({ ids, packId }),
+    }),
+
+  bulkPublish: (ids: string[], publish: boolean) =>
+    apiFetch<BulkResult>("/platform/stickers/bulk/publish", {
+      method: "POST",
+      body: JSON.stringify({ ids, publish }),
+    }),
+
+  bulkDelete: (ids: string[]) =>
+    apiFetch<BulkResult>("/platform/stickers/bulk", {
+      method: "DELETE",
+      body: JSON.stringify({ ids }),
+    }),
+};
+
 // ── Me endpoints ────────────────────────────────────────────────────────────
 
 export const meApi = {

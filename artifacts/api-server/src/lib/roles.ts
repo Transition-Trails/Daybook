@@ -17,10 +17,9 @@ import type { User } from "@workspace/db";
 
 export type PlatformRole = "super_admin" | null;
 
-/** Returns true if the user has super_admin platform access.
- *  Falls back to the legacy role="owner" column for backward compatibility. */
+/** Returns true if the user has super_admin platform access. */
 export function isSuperAdmin(user: User): boolean {
-  return user.platformRole === "super_admin" || user.role === "owner";
+  return user.platformRole === "super_admin";
 }
 
 // ── Store-scoped roles ────────────────────────────────────────────────────────

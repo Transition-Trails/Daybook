@@ -59,6 +59,9 @@ import StoreCustomers from "@/pages/store/Customers";
 import StoreStaff from "@/pages/store/StaffRoles";
 import StoreHelp from "@/pages/store/StoreHelp";
 
+// ── Store: Manage Owned Content ───────────────────────────────────────────────
+import MyContent from "@/pages/store/MyContent";
+
 // ── Store AI Studios ──────────────────────────────────────────────────────────
 import StoreThemeStudio from "@/pages/store/studios/StoreThemeStudio";
 import StorePackStudio from "@/pages/store/studios/StorePackStudio";
@@ -196,6 +199,19 @@ function RootRouter() {
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
                 <StoreHelp storeId={p.storeId!} role={store.role as string} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
+      {/* ── Store: My Content ───────────────────────────────────── */}
+      <Route path="/store/:storeId/my-content">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <MyContent storeId={p.storeId!} role={store.role as string} />
               </StoreAdminShell>
             )}
           </RequireStore>

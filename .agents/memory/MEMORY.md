@@ -7,3 +7,5 @@
 - [InkStroke v2 schema](inkstroke-v2-schema.md) — DB InkStroke.tool widened to string; optional variant+shape fields added; rebuild lib/db after any schema change
 - [Wouter root-path routing](wouter-root-route.md) — regexparam 3's /:rest* regex won't match bare /; always add explicit <Route path="/" /> alongside any /:rest* catch-all
 - [Google sync router mount](google-sync-mount.md) — google-sync routes must be mounted at /sync in routes/index.ts; without the prefix all routes 404 even though they're imported
+- [isSuperAdmin legacy bug](is-super-admin-bug.md) — roles.ts had `role==="owner"` fallback making all store owners bypass store scoping; fixed to `platformRole==="super_admin"` only
+- [Cross-store guard pattern](cross-store-guard.md) — owned-catalog routes need explicit assertSameStore(); middleware storeId may resolve from x-store-id header when params aren't populated

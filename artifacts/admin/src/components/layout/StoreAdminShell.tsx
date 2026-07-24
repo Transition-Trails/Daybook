@@ -21,6 +21,7 @@ import {
   Sticker,
   BookOpen,
   TrendingUp,
+  LibraryBig,
 } from "lucide-react";
 import { resolveStoreId, storesApi, type MeStore } from "@/lib/api";
 
@@ -51,12 +52,13 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
   const aiEnabled = flags?.aiEnabled ?? false;
 
   const NAV = [
-    { label: "Dashboard",    icon: LayoutDashboard, href: base },
-    { label: "Shop catalog", icon: ShoppingBag,     href: `${base}/catalog` },
-    { label: "Planner builds", icon: BookCopy,      href: `${base}/builds` },
-    { label: "Customers",    icon: Users,            href: `${base}/customers` },
-    { label: "Staff & roles", icon: UserCog,        href: `${base}/staff` },
-    { label: "Help",         icon: HelpCircle,       href: `${base}/help` },
+    { label: "Dashboard",       icon: LayoutDashboard, href: base },
+    { label: "Shop catalog",    icon: ShoppingBag,     href: `${base}/catalog` },
+    { label: "Planner builds",  icon: BookCopy,        href: `${base}/builds` },
+    { label: "My content",      icon: LibraryBig,      href: `${base}/my-content` },
+    { label: "Customers",       icon: Users,           href: `${base}/customers` },
+    { label: "Staff & roles",   icon: UserCog,         href: `${base}/staff` },
+    { label: "Help",            icon: HelpCircle,      href: `${base}/help` },
   ];
 
   const STUDIO_NAV = [

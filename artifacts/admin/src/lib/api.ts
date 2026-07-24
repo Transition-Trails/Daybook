@@ -24,6 +24,23 @@ async function apiFetch<T = unknown>(
   return res.json();
 }
 
+// apiFetch variant for DELETE calls that may return 409 with structured body.
+// On 409, attaches affectedEditions to the thrown error.
+async function apiFetchDelete(path: string, headers: Record<string, string> = {}): Promise<void> {
+  const res = await fetch(`/api${path}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...headers },
+  });
+  if (res.ok || res.status === 204) return;
+  const body = await res.json().catch(() => ({}));
+  const err = new Error(body?.error ?? `HTTP ${res.status}`) as Error & {
+    affectedEditions?: { id: string; name: string }[];
+  };
+  if (res.status === 409) err.affectedEditions = body.affectedEditions ?? [];
+  throw err;
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type StoreStatus  = "active" | "trial" | "suspended";
@@ -246,7 +263,7 @@ export const helpApi = {
     apiFetch<void>(`/help/${id}`, { method: "DELETE" }),
 };
 
-// ── Store Studios API (store-scoped owned catalog creation) ─────────────────
+// ── Store Studios API (store-scoped owned catalog creation + management) ─────
 
 export interface AttachableItems {
   themes: CatalogItem[];
@@ -256,7 +273,67 @@ export interface AttachableItems {
   editions: CatalogItem[];
 }
 
+/** An owned theme as returned by GET /stores/:storeId/owned */
+export interface OwnedTheme {
+  id: string;
+  name: string;
+  desc: string | null;
+  colors: string[];
+  price: number;
+  status: string;
+  origin: "owned";
+  authoredByStoreId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** An owned sticker pack as returned by GET /stores/:storeId/owned */
+export interface OwnedPack {
+  id: string;
+  name: string;
+  tags: string[];
+  price: number;
+  status: string;
+  origin: "owned";
+  authoredByStoreId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** An owned edition as returned by GET /stores/:storeId/owned */
+export interface OwnedEdition {
+  id: string;
+  name: string;
+  status: string;
+  sections: string[];
+  priceLow: number | null;
+  priceHigh: number | null;
+  themes: string[];
+  packs: string[];
+  inserts: string[];
+  products: string[];
+  origin: "owned";
+  authoredByStoreId: string;
+  createdAt: string;
+  updatedAt: string;
+  [key: string]: unknown;
+}
+
+/** Grouped response from GET /stores/:storeId/owned */
+export interface OwnedList {
+  themes: OwnedTheme[];
+  packs: OwnedPack[];
+  inserts: Array<{ id: string; name: string; status: string; origin: "owned"; authoredByStoreId: string; createdAt: string; updatedAt: string; [key: string]: unknown }>;
+  editions: OwnedEdition[];
+}
+
 export const storeStudiosApi = {
+  /** List all non-deleted owned items for the store, grouped by type. */
+  list: (storeId: string) =>
+    apiFetch<OwnedList>(`/stores/${storeId}/owned`, {
+      headers: { "x-store-id": storeId },
+    }),
+
   themes: {
     create: (
       storeId: string,
@@ -267,6 +344,22 @@ export const storeStudiosApi = {
         body: JSON.stringify(data),
         headers: { "x-store-id": storeId },
       }),
+    update: (
+      storeId: string,
+      id: string,
+      data: { name?: string; description?: string; colors?: string[]; status?: "draft" | "live" },
+    ) =>
+      apiFetch<CatalogItem>(`/stores/${storeId}/owned/themes/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+    /** DELETE — throws with affectedEditions on 409 conflict */
+    delete: (storeId: string, id: string, force = false) =>
+      apiFetchDelete(
+        `/stores/${storeId}/owned/themes/${id}${force ? "?force=true" : ""}`,
+        { "x-store-id": storeId },
+      ),
   },
 
   packs: {
@@ -279,6 +372,41 @@ export const storeStudiosApi = {
         body: JSON.stringify(data),
         headers: { "x-store-id": storeId },
       }),
+    update: (
+      storeId: string,
+      id: string,
+      data: { name?: string; tags?: string[]; price?: number; status?: "draft" | "live" },
+    ) =>
+      apiFetch<CatalogItem>(`/stores/${storeId}/owned/sticker-packs/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+    /** DELETE — throws with affectedEditions on 409 conflict */
+    delete: (storeId: string, id: string, force = false) =>
+      apiFetchDelete(
+        `/stores/${storeId}/owned/sticker-packs/${id}${force ? "?force=true" : ""}`,
+        { "x-store-id": storeId },
+      ),
+  },
+
+  inserts: {
+    update: (
+      storeId: string,
+      id: string,
+      data: { name?: string; status?: "draft" | "live" },
+    ) =>
+      apiFetch<CatalogItem>(`/stores/${storeId}/owned/inserts/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+    /** DELETE — throws with affectedEditions on 409 conflict */
+    delete: (storeId: string, id: string, force = false) =>
+      apiFetchDelete(
+        `/stores/${storeId}/owned/inserts/${id}${force ? "?force=true" : ""}`,
+        { "x-store-id": storeId },
+      ),
   },
 
   editions: {
@@ -302,6 +430,28 @@ export const storeStudiosApi = {
         body: JSON.stringify(data),
         headers: { "x-store-id": storeId },
       }),
+    update: (
+      storeId: string,
+      id: string,
+      data: {
+        name?: string;
+        sections?: string[];
+        priceLow?: number;
+        priceHigh?: number;
+        themeIds?: string[];
+        packIds?: string[];
+        insertIds?: string[];
+        productIds?: string[];
+        status?: "draft" | "live";
+      },
+    ) =>
+      apiFetch<CatalogItem>(`/stores/${storeId}/owned/editions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      }),
+    delete: (storeId: string, id: string) =>
+      apiFetchDelete(`/stores/${storeId}/owned/editions/${id}`, { "x-store-id": storeId }),
   },
 
   attachable: (storeId: string) =>

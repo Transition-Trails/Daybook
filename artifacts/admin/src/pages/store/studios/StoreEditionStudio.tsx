@@ -4,11 +4,13 @@
  * Attach picker uses the store's owned + entitled items (not global catalog).
  * Creates owned edition + auto-palette draft theme. Always saves as draft.
  * Supports "Revise existing edition" pre-fill.
+ * Supports EDIT mode via ?edit=<id> URL param — pre-fills and saves via PATCH.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearch, useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Loader2, RefreshCw, Save, BookOpen, ChevronDown, ChevronUp, Sparkles,
+  Loader2, RefreshCw, Save, BookOpen, ChevronDown, ChevronUp, Sparkles, ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState, SkeletonRows } from "@/components/shared";
 import { aiApi, extractJson, isValidHex, PALETTE_LABELS } from "@/lib/ai";
-import { storeStudiosApi, type CatalogItem } from "@/lib/api";
+import { storeStudiosApi, type CatalogItem, type OwnedList } from "@/lib/api";
 import { AiDisabledState } from "./AiDisabledState";
 
 interface EditionAiResult {
@@ -106,6 +108,11 @@ function MultiChips({
 export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const search = useSearch();
+  const [, setLocation] = useLocation();
+
+  // Edit mode: ?edit=<editionId> pre-fills the form and switches save to PATCH
+  const editId = new URLSearchParams(search).get("edit") ?? undefined;
 
   const [prompt, setPrompt] = useState(() => {
     const idea = sessionStorage.getItem(`studioIdea:${storeId}`) ?? "";
@@ -137,6 +144,39 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
     queryKey: ["store-attachable", storeId],
     queryFn: () => storeStudiosApi.attachable(storeId),
   });
+
+  // Edit mode: fetch the existing owned list to pre-fill
+  const { data: ownedList } = useQuery<OwnedList>({
+    queryKey: ["store-owned-list", storeId],
+    queryFn: () => storeStudiosApi.list(storeId),
+    enabled: !!editId,
+  });
+  const existingEdition = editId
+    ? ownedList?.editions.find((e) => e.id === editId)
+    : undefined;
+  const [prefilled, setPrefilled] = useState(false);
+
+  useEffect(() => {
+    if (!existingEdition || prefilled) return;
+    setName(existingEdition.name);
+    setSections((existingEdition.sections as string[]) ?? []);
+    setPriceLow(String(existingEdition.priceLow ?? 12));
+    setPriceHigh(String(existingEdition.priceHigh ?? 18));
+    setSelThemes((existingEdition.themes as string[]) ?? []);
+    setSelPacks((existingEdition.packs as string[]) ?? []);
+    setSelInserts((existingEdition.inserts as string[]) ?? []);
+    setSelProducts((existingEdition.products as string[]) ?? []);
+    // Seed result so the form section appears immediately without requiring AI generation
+    setResult({
+      name: existingEdition.name,
+      description: "",
+      sections: (existingEdition.sections as string[]) ?? [],
+      palette: [],
+      priceLow: (existingEdition.priceLow as number) ?? 12,
+      priceHigh: (existingEdition.priceHigh as number) ?? 18,
+    });
+    setPrefilled(true);
+  }, [existingEdition, prefilled]);
 
   // Existing owned editions for the revise picker
   const ownedEditions = (attachable.data?.editions ?? []).filter(
@@ -179,26 +219,44 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
 
   const save = useMutation({
     mutationFn: () =>
-      storeStudiosApi.editions.create(storeId, {
-        name,
-        description,
-        sections,
-        priceLow: parseFloat(priceLow) || 0,
-        priceHigh: parseFloat(priceHigh) || 0,
-        themeIds: selThemes,
-        packIds: selPacks,
-        insertIds: selInserts,
-        productIds: selProducts,
-        palette: palette.length === 6 && palette.every(isValidHex) ? palette : undefined,
-      }),
+      editId
+        ? storeStudiosApi.editions.update(storeId, editId, {
+            name,
+            sections,
+            priceLow: parseFloat(priceLow) || 0,
+            priceHigh: parseFloat(priceHigh) || 0,
+            themeIds: selThemes,
+            packIds: selPacks,
+            insertIds: selInserts,
+            productIds: selProducts,
+          })
+        : storeStudiosApi.editions.create(storeId, {
+            name,
+            description,
+            sections,
+            priceLow: parseFloat(priceLow) || 0,
+            priceHigh: parseFloat(priceHigh) || 0,
+            themeIds: selThemes,
+            packIds: selPacks,
+            insertIds: selInserts,
+            productIds: selProducts,
+            palette: palette.length === 6 && palette.every(isValidHex) ? palette : undefined,
+          }),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
       qc.invalidateQueries({ queryKey: ["store-attachable", storeId] });
-      const themeNote = data.autoThemeId ? " A matching draft theme was also created." : "";
-      toast({
-        title: "Edition saved as draft",
-        description: `"${name}" is ready to review.${themeNote}`,
-      });
+      qc.invalidateQueries({ queryKey: ["store-owned-list", storeId] });
+      if (editId) {
+        toast({ title: "Edition updated", description: `"${name}" has been saved.` });
+      } else {
+        const themeNote = (data as any).autoThemeId
+          ? " A matching draft theme was also created."
+          : "";
+        toast({
+          title: "Edition saved as draft",
+          description: `"${name}" is ready to review.${themeNote}`,
+        });
+      }
     },
     onError: (err: Error) => {
       toast({ title: "Save failed", description: err.message, variant: "destructive" });
@@ -213,11 +271,49 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
   // All hooks declared above — safe to return early now.
   if (!aiEnabled) return <AiDisabledState />;
 
+  // Loading state for edit mode pre-fill
+  if (editId && !prefilled && !ownedList) {
+    return (
+      <div className="max-w-3xl mx-auto py-8">
+        <SkeletonRows rows={4} cols={1} />
+      </div>
+    );
+  }
+
+  if (editId && !existingEdition && ownedList) {
+    return (
+      <div className="max-w-3xl mx-auto py-8">
+        <ErrorState message="Edition not found or no longer available." />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-0 animate-in fade-in duration-300">
+      {/* Edit mode banner */}
+      {editId && (
+        <div className="flex items-center gap-3 mb-4 px-3 py-2.5 rounded-lg bg-[#1B2A4A]/10 border border-[#1B2A4A]/20">
+          <button
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => setLocation(`/store/${storeId}/my-content`)}
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            My content
+          </button>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-sm font-medium text-[#1B2A4A]">
+            Editing: {existingEdition?.name ?? "edition"}
+          </span>
+        </div>
+      )}
+
       <ClaudeHeader
-        title="Edition Studio"
-        description="Describe a planner edition — Claude designs the full product spec. Attach your store's own items and entitled catalog content, then save as a draft edition."
+        title={editId ? "Edit edition" : "Edition Studio"}
+        description={
+          editId
+            ? "Update the edition spec below. You can optionally regenerate fields with Claude, or edit directly and save."
+            : "Describe a planner edition — Claude designs the full product spec. Attach your store's own items and entitled catalog content, then save as a draft edition."
+        }
         model={aiMeta?.model}
         provider={aiMeta?.provider}
       />
@@ -231,37 +327,41 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
       {/* Prompt + Revise */}
       <Card className="mb-6">
         <CardContent className="pt-6 space-y-4">
-          {/* Revise existing */}
-          <div>
-            <button
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => setShowRevise(!showRevise)}
-            >
-              {showRevise ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              Revise one of your existing editions
-            </button>
-            {showRevise && (
-              <div className="mt-2">
-                {ownedEditions.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No owned editions yet — create one first.</p>
-                ) : (
-                  <Select value={reviseFromId} onValueChange={handleReviseSelect}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Pick an edition to iterate on…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ownedEditions.map((ed) => (
-                        <SelectItem key={ed.id} value={ed.id}>{ed.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            )}
-          </div>
+          {/* Revise existing (hidden in edit mode to keep it focused) */}
+          {!editId && (
+            <div>
+              <button
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setShowRevise(!showRevise)}
+              >
+                {showRevise ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                Revise one of your existing editions
+              </button>
+              {showRevise && (
+                <div className="mt-2">
+                  {ownedEditions.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No owned editions yet — create one first.</p>
+                  ) : (
+                    <Select value={reviseFromId} onValueChange={handleReviseSelect}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Pick an edition to iterate on…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ownedEditions.map((ed) => (
+                          <SelectItem key={ed.id} value={ed.id}>{ed.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
-            <Label htmlFor="edition-prompt">Describe the edition</Label>
+            <Label htmlFor="edition-prompt">
+              {editId ? "Regenerate with Claude (optional)" : "Describe the edition"}
+            </Label>
             <Textarea
               id="edition-prompt"
               rows={3}
@@ -281,7 +381,7 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
             {generate.isPending ? (
               <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Claude is thinking…</>
             ) : (
-              <><BookOpen className="w-4 h-4 mr-2" />Generate edition spec</>
+              <><BookOpen className="w-4 h-4 mr-2" />{editId ? "Regenerate spec" : "Generate edition spec"}</>
             )}
           </Button>
         </CardContent>
@@ -301,26 +401,28 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
               <CardTitle className="text-base">Edition spec</CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
-              {/* Palette */}
-              <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Palette</p>
-                <div className="grid grid-cols-6 gap-2">
-                  {palette.map((hex, i) => (
-                    <div key={i} className="flex flex-col items-center gap-1.5">
-                      <div
-                        className="w-full aspect-square rounded-lg border border-border shadow-sm"
-                        style={{ backgroundColor: isValidHex(hex) ? hex : "#ccc" }}
-                      />
-                      <span className="text-[10px] text-muted-foreground text-center leading-tight">{PALETTE_LABELS[i]}</span>
-                      <Input
-                        value={hex}
-                        onChange={(e) => { const next = [...palette]; next[i] = e.target.value; setPalette(next); }}
-                        className="h-6 text-[10px] text-center px-1 font-mono"
-                      />
-                    </div>
-                  ))}
+              {/* Palette (only shown when there is a palette) */}
+              {palette.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Palette</p>
+                  <div className="grid grid-cols-6 gap-2">
+                    {palette.map((hex, i) => (
+                      <div key={i} className="flex flex-col items-center gap-1.5">
+                        <div
+                          className="w-full aspect-square rounded-lg border border-border shadow-sm"
+                          style={{ backgroundColor: isValidHex(hex) ? hex : "#ccc" }}
+                        />
+                        <span className="text-[10px] text-muted-foreground text-center leading-tight">{PALETTE_LABELS[i]}</span>
+                        <Input
+                          value={hex}
+                          onChange={(e) => { const next = [...palette]; next[i] = e.target.value; setPalette(next); }}
+                          className="h-6 text-[10px] text-center px-1 font-mono"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Sections */}
               <div className="space-y-2">
@@ -331,6 +433,9 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
                       {s}
                     </Badge>
                   ))}
+                  {sections.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No sections yet — generate or add manually</p>
+                  )}
                 </div>
               </div>
 
@@ -340,10 +445,12 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
                   <Label>Edition name</Label>
                   <Input value={name} onChange={(e) => setName(e.target.value)} />
                 </div>
-                <div className="space-y-2">
-                  <Label>Description</Label>
-                  <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} className="resize-none" />
-                </div>
+                {!editId && (
+                  <div className="space-y-2">
+                    <Label>Description</Label>
+                    <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} className="resize-none" />
+                  </div>
+                )}
               </div>
 
               {/* Price range */}
@@ -372,7 +479,7 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
               <CardTitle className="text-base">Attach catalog items</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Choose from your store's owned items (★) and any entitled catalog content.
-                The auto-palette will also be saved as a draft theme.
+                {!editId && " The auto-palette will also be saved as a draft theme."}
               </p>
             </CardHeader>
             <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -403,10 +510,19 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
 
           {/* Actions */}
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" onClick={() => generate.mutate()} disabled={generate.isPending}>
+            <Button variant="outline" size="sm" onClick={() => generate.mutate()} disabled={generate.isPending || !prompt.trim()}>
               <RefreshCw className="w-3.5 h-3.5 mr-2" />Regenerate
             </Button>
             <div className="flex-1" />
+            {editId && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLocation(`/store/${storeId}/my-content`)}
+              >
+                Cancel
+              </Button>
+            )}
             <Button
               size="sm"
               className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
@@ -414,7 +530,7 @@ export default function StoreEditionStudio({ storeId, role: _role, aiEnabled }: 
               disabled={!canSave || save.isPending}
             >
               {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-2" />}
-              Save as draft edition
+              {editId ? "Save changes" : "Save as draft edition"}
             </Button>
           </div>
         </div>

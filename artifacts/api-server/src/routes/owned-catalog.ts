@@ -1,16 +1,19 @@
 /**
  * Store-Scoped Owned Catalog Routes
  *
- * Allows store_owner and store_staff to create catalog items with
- * origin='owned' and authoredByStoreId=<store>. These items are
- * exclusively visible to the authoring store (enforced by the
- * entitlement engine) and do NOT appear in the global catalog.
- *
- * POST /stores/:storeId/owned/themes          — staff+ can draft; owner can publish
- * POST /stores/:storeId/owned/sticker-packs   — staff+ can draft; owner can publish
- * POST /stores/:storeId/owned/editions        — staff+ can draft (always draft)
- * GET  /stores/:storeId/owned/attachable      — items available to attach in Edition Studio
- *                                               (store's owned + entitled licensed)
+ * POST   /stores/:storeId/owned/themes          — staff+ draft; owner can publish
+ * POST   /stores/:storeId/owned/sticker-packs
+ * POST   /stores/:storeId/owned/editions        — always draft
+ * GET    /stores/:storeId/owned/attachable      — items available to attach in Edition Studio
+ * GET    /stores/:storeId/owned                 — list non-deleted owned items by type
+ * PATCH  /stores/:storeId/owned/themes/:id      — edit; staff draft-only; owner any
+ * PATCH  /stores/:storeId/owned/sticker-packs/:id
+ * PATCH  /stores/:storeId/owned/inserts/:id
+ * PATCH  /stores/:storeId/owned/editions/:id
+ * DELETE /stores/:storeId/owned/themes/:id      — owner soft-delete; orphan guard
+ * DELETE /stores/:storeId/owned/sticker-packs/:id
+ * DELETE /stores/:storeId/owned/inserts/:id
+ * DELETE /stores/:storeId/owned/editions/:id
  */
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
@@ -23,19 +26,21 @@ import {
   relatedProductsTable,
   editionsTable,
 } from "@workspace/db";
-import { eq, and, or, ne, inArray } from "drizzle-orm";
+import { eq, and, or, ne, inArray, desc } from "drizzle-orm";
 import { requireStoreAccess } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
-import { filterEntitled, resolveEntitlement, type EntitlementContext, type ItemOrigin } from "../lib/entitlement";
+import {
+  filterEntitled,
+  resolveEntitlement,
+  type EntitlementContext,
+  type ItemOrigin,
+} from "../lib/entitlement";
 
 const router: IRouter = Router();
 
 // ── Helper: check aiEnabled for this store ─────────────────────────────────
 
-async function assertAiEnabled(
-  storeId: string,
-  res: Response,
-): Promise<boolean> {
+async function assertAiEnabled(storeId: string, res: Response): Promise<boolean> {
   const [flags] = await db
     .select()
     .from(storeFlagsTable)
@@ -56,7 +61,10 @@ function genId(prefix: string): string {
 // ── Helper: resolve store subscriptionActive ───────────────────────────────
 
 async function getStoreCtx(storeId: string): Promise<EntitlementContext> {
-  const [store] = await db.select().from(storesTable).where(eq(storesTable.id, storeId));
+  const [store] = await db
+    .select()
+    .from(storesTable)
+    .where(eq(storesTable.id, storeId));
   return {
     storeId,
     subscriptionActive: store?.subscriptionActive ?? true,
@@ -64,26 +72,26 @@ async function getStoreCtx(storeId: string): Promise<EntitlementContext> {
   };
 }
 
-// ── Helper: validate that all submitted attach IDs are entitled for this store ─
-// Returns an error string on the first violation, or null if all are valid.
+// ── Helper: validate that all submitted attach IDs are entitled ────────────
 
 async function validateAttachEntitlement(
-  table: typeof themesTable | typeof stickerPacksTable | typeof insertsTable | typeof relatedProductsTable,
+  table:
+    | typeof themesTable
+    | typeof stickerPacksTable
+    | typeof insertsTable
+    | typeof relatedProductsTable,
   ids: string[],
   type: string,
   ctx: EntitlementContext,
 ): Promise<string | null> {
   if (!ids.length) return null;
-
   const rows = await db
     .select({ id: table.id, origin: table.origin, authoredByStoreId: table.authoredByStoreId })
     .from(table)
     .where(inArray(table.id, ids));
-
   const foundIds = new Set(rows.map((r) => r.id));
   const missing = ids.find((id) => !foundIds.has(id));
   if (missing) return `Unknown ${type} ID: ${missing}`;
-
   for (const row of rows) {
     const status = resolveEntitlement(
       (row.origin ?? "licensed") as ItemOrigin,
@@ -97,6 +105,63 @@ async function validateAttachEntitlement(
   return null;
 }
 
+// ── Helper: cross-store guard (middleware may resolve storeId from header) ──
+
+function assertSameStore(actor: import("../lib/roles").ActorContext, urlStoreId: string, res: Response): boolean {
+  // Only platform super_admins bypass store scoping.
+  // Store owners also have isSuperAdmin=true via roles.ts (role==="owner"), so we
+  // must use platformRole directly to distinguish platform staff from store owners.
+  if (actor.platformRole === "super_admin") return true;
+  if (actor.storeId !== urlStoreId) {
+    res.status(403).json({ error: "Forbidden: cross-store access denied" });
+    return false;
+  }
+  return true;
+}
+
+// ── Helper: assert item is owned by this store ─────────────────────────────
+
+async function getOwnedItem(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table: any,
+  id: string,
+  storeId: string,
+  res: Response,
+  isSuperAdmin: boolean,
+): Promise<Record<string, unknown> | null> {
+  const rows = await db.select().from(table).where(eq(table.id, id));
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row || row.status === "deleted") {
+    res.status(404).json({ error: "Item not found" });
+    return null;
+  }
+  if (row.origin !== "owned") {
+    res.status(403).json({ error: "Only owned items can be managed here" });
+    return null;
+  }
+  if (!isSuperAdmin && row.authoredByStoreId !== storeId) {
+    res.status(403).json({ error: "This item belongs to another store" });
+    return null;
+  }
+  return row;
+}
+
+// ── Helper: find editions referencing an item in a given attachment field ───
+
+async function findOrphanEditions(
+  storeId: string,
+  field: "themes" | "packs" | "inserts" | "products",
+  itemId: string,
+): Promise<{ id: string; name: string }[]> {
+  const editions = await db
+    .select()
+    .from(editionsTable)
+    .where(and(eq(editionsTable.authoredByStoreId, storeId), ne(editionsTable.status, "deleted")));
+  return editions
+    .filter((ed) => (ed[field] as string[]).includes(itemId))
+    .map((ed) => ({ id: ed.id, name: ed.name }));
+}
+
 // ── POST /stores/:storeId/owned/themes ────────────────────────────────────
 
 router.post(
@@ -105,8 +170,8 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-
-    if (!await assertAiEnabled(storeId, res)) return;
+    if (!assertSameStore(actor, storeId, res)) return;
+    if (!(await assertAiEnabled(storeId, res))) return;
 
     const { name, description, colors, status: reqStatus } = req.body as {
       name: string;
@@ -120,10 +185,7 @@ router.post(
       return;
     }
 
-    // Only store_owner (or super_admin) may publish; staff always get draft.
     const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
-    const status: "draft" | "live" = (reqStatus === "live" && canPublish) ? "live" : "draft";
-
     if (reqStatus === "live" && !canPublish) {
       res.status(403).json({
         error: "Publishing requires store_owner role. Re-submit without status='live' to save as draft.",
@@ -131,6 +193,7 @@ router.post(
       });
       return;
     }
+    const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
     try {
       const id = genId("th");
@@ -174,8 +237,8 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-
-    if (!await assertAiEnabled(storeId, res)) return;
+    if (!assertSameStore(actor, storeId, res)) return;
+    if (!(await assertAiEnabled(storeId, res))) return;
 
     const { name, tags, price, status: reqStatus } = req.body as {
       name: string;
@@ -190,8 +253,6 @@ router.post(
     }
 
     const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
-    const status: "draft" | "live" = (reqStatus === "live" && canPublish) ? "live" : "draft";
-
     if (reqStatus === "live" && !canPublish) {
       res.status(403).json({
         error: "Publishing requires store_owner role. Re-submit without status='live' to save as draft.",
@@ -199,6 +260,7 @@ router.post(
       });
       return;
     }
+    const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
     try {
       const id = genId("pk");
@@ -235,8 +297,6 @@ router.post(
 );
 
 // ── POST /stores/:storeId/owned/editions ──────────────────────────────────
-// Editions created via this route are always draft (editions need review before going live).
-// An auto-palette theme is optionally created alongside when palette is provided.
 
 router.post(
   "/stores/:storeId/owned/editions",
@@ -244,8 +304,8 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-
-    if (!await assertAiEnabled(storeId, res)) return;
+    if (!assertSameStore(actor, storeId, res)) return;
+    if (!(await assertAiEnabled(storeId, res))) return;
 
     const {
       name,
@@ -268,7 +328,7 @@ router.post(
       packIds?: string[];
       insertIds?: string[];
       productIds?: string[];
-      palette?: string[]; // if provided, auto-create a matching draft theme
+      palette?: string[];
     };
 
     if (!name) {
@@ -276,27 +336,23 @@ router.post(
       return;
     }
 
-    // ── Validate attached IDs against store entitlement (server-side) ────────
-    // Prevents cross-store reference injection: every submitted ID must be
-    // either owned by this store or entitled via subscription.
     const ctx = await getStoreCtx(storeId);
-    const attachChecks: [typeof themesTable | typeof stickerPacksTable | typeof insertsTable | typeof relatedProductsTable, string[], string][] = [
-      [themesTable,         (themeIds   ?? []), "theme"],
-      [stickerPacksTable,   (packIds    ?? []), "sticker-pack"],
-      [insertsTable,        (insertIds  ?? []), "insert"],
-      [relatedProductsTable,(productIds ?? []), "product"],
+    const attachChecks: [
+      typeof themesTable | typeof stickerPacksTable | typeof insertsTable | typeof relatedProductsTable,
+      string[],
+      string,
+    ][] = [
+      [themesTable, themeIds ?? [], "theme"],
+      [stickerPacksTable, packIds ?? [], "sticker-pack"],
+      [insertsTable, insertIds ?? [], "insert"],
+      [relatedProductsTable, productIds ?? [], "product"],
     ];
     for (const [table, ids, type] of attachChecks) {
       const err = await validateAttachEntitlement(table, ids, type, ctx);
-      if (err) {
-        res.status(403).json({ error: err });
-        return;
-      }
+      if (err) { res.status(403).json({ error: err }); return; }
     }
-    // ────────────────────────────────────────────────────────────────────────
 
     try {
-      // Optionally create a matching draft theme from the palette
       let autoThemeId: string | undefined;
       if (Array.isArray(palette) && palette.length === 6) {
         const thId = genId("th");
@@ -312,7 +368,6 @@ router.post(
             authoredByStoreId: storeId,
           });
           autoThemeId = thId;
-
           await writeAudit(db, {
             actorUserId: actor.userId,
             actorRole: actor.effectiveRole,
@@ -323,7 +378,7 @@ router.post(
             metadata: { name: `${name} — Auto palette`, auto: true, storeId },
           });
         } catch {
-          // non-fatal — edition saves without auto-theme
+          // non-fatal
         }
       }
 
@@ -370,69 +425,48 @@ router.post(
 );
 
 // ── GET /stores/:storeId/owned/attachable ─────────────────────────────────
-// Returns catalog items the store can attach to an edition:
-//   - All items this store authored (origin='owned', authoredByStoreId=storeId)
-//   - Plus entitled items from the global catalog (starter + licensed if subscribed)
-// Each item is annotated with origin + entitlementStatus.
 
 router.get(
   "/stores/:storeId/owned/attachable",
   requireStoreAccess("store_staff"),
   async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
     const storeId = req.params.storeId as string;
-
+    if (!assertSameStore(actor, storeId, res)) return;
     if (!(await assertAiEnabled(storeId, res))) return;
 
     const ctx = await getStoreCtx(storeId);
 
-    // Fetch all non-deleted, non-owned-by-another-store items that are either:
-    // a) Owned by this store, or
-    // b) Globally available (starter/licensed) and live
     const [themes, packs, inserts, products, editions] = await Promise.all([
       db.select().from(themesTable).where(
-        and(
-          ne(themesTable.status, "deleted"),
-          or(
-            and(eq(themesTable.origin, "owned"), eq(themesTable.authoredByStoreId, storeId)),
-            and(ne(themesTable.origin, "owned"), eq(themesTable.globalAvailable, true), eq(themesTable.status, "live")),
-          ),
-        ),
+        and(ne(themesTable.status, "deleted"), or(
+          and(eq(themesTable.origin, "owned"), eq(themesTable.authoredByStoreId, storeId)),
+          and(ne(themesTable.origin, "owned"), eq(themesTable.globalAvailable, true), eq(themesTable.status, "live")),
+        )),
       ),
       db.select().from(stickerPacksTable).where(
-        and(
-          ne(stickerPacksTable.status, "deleted"),
-          or(
-            and(eq(stickerPacksTable.origin, "owned"), eq(stickerPacksTable.authoredByStoreId, storeId)),
-            and(ne(stickerPacksTable.origin, "owned"), eq(stickerPacksTable.globalAvailable, true), eq(stickerPacksTable.status, "live")),
-          ),
-        ),
+        and(ne(stickerPacksTable.status, "deleted"), or(
+          and(eq(stickerPacksTable.origin, "owned"), eq(stickerPacksTable.authoredByStoreId, storeId)),
+          and(ne(stickerPacksTable.origin, "owned"), eq(stickerPacksTable.globalAvailable, true), eq(stickerPacksTable.status, "live")),
+        )),
       ),
       db.select().from(insertsTable).where(
-        and(
-          ne(insertsTable.status, "deleted"),
-          or(
-            and(eq(insertsTable.origin, "owned"), eq(insertsTable.authoredByStoreId, storeId)),
-            and(ne(insertsTable.origin, "owned"), eq(insertsTable.globalAvailable, true), eq(insertsTable.status, "live")),
-          ),
-        ),
+        and(ne(insertsTable.status, "deleted"), or(
+          and(eq(insertsTable.origin, "owned"), eq(insertsTable.authoredByStoreId, storeId)),
+          and(ne(insertsTable.origin, "owned"), eq(insertsTable.globalAvailable, true), eq(insertsTable.status, "live")),
+        )),
       ),
       db.select().from(relatedProductsTable).where(
-        and(
-          ne(relatedProductsTable.status, "deleted"),
-          or(
-            and(eq(relatedProductsTable.origin, "owned"), eq(relatedProductsTable.authoredByStoreId, storeId)),
-            and(ne(relatedProductsTable.origin, "owned"), eq(relatedProductsTable.globalAvailable, true), eq(relatedProductsTable.status, "live")),
-          ),
-        ),
+        and(ne(relatedProductsTable.status, "deleted"), or(
+          and(eq(relatedProductsTable.origin, "owned"), eq(relatedProductsTable.authoredByStoreId, storeId)),
+          and(ne(relatedProductsTable.origin, "owned"), eq(relatedProductsTable.globalAvailable, true), eq(relatedProductsTable.status, "live")),
+        )),
       ),
       db.select().from(editionsTable).where(
-        and(
-          ne(editionsTable.status, "deleted"),
-          or(
-            and(eq(editionsTable.origin, "owned"), eq(editionsTable.authoredByStoreId, storeId)),
-            and(ne(editionsTable.origin, "owned"), eq(editionsTable.globalAvailable, true), eq(editionsTable.status, "live")),
-          ),
-        ),
+        and(ne(editionsTable.status, "deleted"), or(
+          and(eq(editionsTable.origin, "owned"), eq(editionsTable.authoredByStoreId, storeId)),
+          and(ne(editionsTable.origin, "owned"), eq(editionsTable.globalAvailable, true), eq(editionsTable.status, "live")),
+        )),
       ),
     ]);
 
@@ -444,6 +478,362 @@ router.get(
       editions: filterEntitled(editions, ctx),
     });
   },
+);
+
+// ── GET /stores/:storeId/owned ─────────────────────────────────────────────
+
+router.get(
+  "/stores/:storeId/owned",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const storeId = req.params.storeId as string;
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const [themes, packs, inserts, editions] = await Promise.all([
+      db.select().from(themesTable)
+        .where(and(eq(themesTable.origin, "owned"), eq(themesTable.authoredByStoreId, storeId), ne(themesTable.status, "deleted")))
+        .orderBy(desc(themesTable.createdAt)),
+      db.select().from(stickerPacksTable)
+        .where(and(eq(stickerPacksTable.origin, "owned"), eq(stickerPacksTable.authoredByStoreId, storeId), ne(stickerPacksTable.status, "deleted")))
+        .orderBy(desc(stickerPacksTable.createdAt)),
+      db.select().from(insertsTable)
+        .where(and(eq(insertsTable.origin, "owned"), eq(insertsTable.authoredByStoreId, storeId), ne(insertsTable.status, "deleted")))
+        .orderBy(desc(insertsTable.createdAt)),
+      db.select().from(editionsTable)
+        .where(and(eq(editionsTable.origin, "owned"), eq(editionsTable.authoredByStoreId, storeId), ne(editionsTable.status, "deleted")))
+        .orderBy(desc(editionsTable.createdAt)),
+    ]);
+
+    res.json({ themes, packs, inserts, editions });
+  },
+);
+
+// ── PATCH /stores/:storeId/owned/themes/:id ───────────────────────────────
+
+router.patch(
+  "/stores/:storeId/owned/themes/:id",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const row = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
+    if (!row) return;
+
+    const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
+    const isStaff = !canPublish;
+
+    if (isStaff && row.status !== "draft") {
+      res.status(403).json({ error: "Staff can only edit draft items" });
+      return;
+    }
+
+    const { name, description, colors, status } = req.body as {
+      name?: string;
+      description?: string;
+      colors?: string[];
+      status?: "draft" | "live";
+    };
+
+    if (status !== undefined && isStaff) {
+      res.status(403).json({ error: "Publishing/unpublishing requires store_owner role" });
+      return;
+    }
+    if (colors !== undefined && (!Array.isArray(colors) || colors.length === 0)) {
+      res.status(400).json({ error: "colors must be a non-empty array" });
+      return;
+    }
+
+    const updateData: Partial<typeof themesTable.$inferInsert> = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.desc = description;
+    if (colors !== undefined) updateData.colors = colors as string[];
+    if (status !== undefined) updateData.status = status;
+    if (Object.keys(updateData).length === 0) { res.json(row); return; }
+
+    const [updated] = await db.update(themesTable).set(updateData).where(eq(themesTable.id, id)).returning();
+
+    const prevStatus = row.status as string;
+    const auditAction =
+      prevStatus !== updated.status
+        ? updated.status === "live" ? "owned.theme.publish" : "owned.theme.unpublish"
+        : "owned.theme.edit";
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: auditAction, targetType: "theme", targetId: id,
+      metadata: { storeId, ...(name !== undefined && { name }), ...(status !== undefined && { status }) },
+    });
+
+    res.json(updated);
+  },
+);
+
+// ── PATCH /stores/:storeId/owned/sticker-packs/:id ────────────────────────
+
+router.patch(
+  "/stores/:storeId/owned/sticker-packs/:id",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const row = await getOwnedItem(stickerPacksTable, id, storeId, res, actor.isSuperAdmin);
+    if (!row) return;
+
+    const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
+    const isStaff = !canPublish;
+    if (isStaff && row.status !== "draft") {
+      res.status(403).json({ error: "Staff can only edit draft items" }); return;
+    }
+
+    const { name, tags, price, status } = req.body as {
+      name?: string; tags?: string[]; price?: number; status?: "draft" | "live";
+    };
+    if (status !== undefined && isStaff) {
+      res.status(403).json({ error: "Publishing/unpublishing requires store_owner role" }); return;
+    }
+
+    const updateData: Partial<typeof stickerPacksTable.$inferInsert> = {};
+    if (name !== undefined) updateData.name = name;
+    if (tags !== undefined) updateData.tags = tags as string[];
+    if (price !== undefined) updateData.price = price;
+    if (status !== undefined) updateData.status = status;
+    if (Object.keys(updateData).length === 0) { res.json(row); return; }
+
+    const [updated] = await db.update(stickerPacksTable).set(updateData).where(eq(stickerPacksTable.id, id)).returning();
+
+    const prevStatus = row.status as string;
+    const auditAction =
+      prevStatus !== updated.status
+        ? updated.status === "live" ? "owned.pack.publish" : "owned.pack.unpublish"
+        : "owned.pack.edit";
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: auditAction, targetType: "pack", targetId: id,
+      metadata: { storeId, ...(name !== undefined && { name }), ...(status !== undefined && { status }) },
+    });
+
+    res.json(updated);
+  },
+);
+
+// ── PATCH /stores/:storeId/owned/inserts/:id ──────────────────────────────
+
+router.patch(
+  "/stores/:storeId/owned/inserts/:id",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const row = await getOwnedItem(insertsTable, id, storeId, res, actor.isSuperAdmin);
+    if (!row) return;
+
+    const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
+    const isStaff = !canPublish;
+    if (isStaff && row.status !== "draft") {
+      res.status(403).json({ error: "Staff can only edit draft items" }); return;
+    }
+
+    const { name, status } = req.body as { name?: string; status?: "draft" | "live" };
+    if (status !== undefined && isStaff) {
+      res.status(403).json({ error: "Publishing/unpublishing requires store_owner role" }); return;
+    }
+
+    const updateData: Partial<typeof insertsTable.$inferInsert> = {};
+    if (name !== undefined) updateData.name = name;
+    if (status !== undefined) updateData.status = status;
+    if (Object.keys(updateData).length === 0) { res.json(row); return; }
+
+    const [updated] = await db.update(insertsTable).set(updateData).where(eq(insertsTable.id, id)).returning();
+
+    const prevStatus = row.status as string;
+    const auditAction =
+      prevStatus !== updated.status
+        ? updated.status === "live" ? "owned.insert.publish" : "owned.insert.unpublish"
+        : "owned.insert.edit";
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: auditAction, targetType: "insert", targetId: id,
+      metadata: { storeId, ...(name !== undefined && { name }), ...(status !== undefined && { status }) },
+    });
+
+    res.json(updated);
+  },
+);
+
+// ── PATCH /stores/:storeId/owned/editions/:id ─────────────────────────────
+
+router.patch(
+  "/stores/:storeId/owned/editions/:id",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const row = await getOwnedItem(editionsTable, id, storeId, res, actor.isSuperAdmin);
+    if (!row) return;
+
+    const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
+    const isStaff = !canPublish;
+    if (isStaff && row.status !== "draft") {
+      res.status(403).json({ error: "Staff can only edit draft items" }); return;
+    }
+
+    const { name, sections, priceLow, priceHigh, themeIds, packIds, insertIds, productIds, status } =
+      req.body as {
+        name?: string;
+        sections?: string[];
+        priceLow?: number;
+        priceHigh?: number;
+        themeIds?: string[];
+        packIds?: string[];
+        insertIds?: string[];
+        productIds?: string[];
+        status?: "draft" | "live";
+      };
+
+    if (status !== undefined && isStaff) {
+      res.status(403).json({ error: "Publishing/unpublishing requires store_owner role" }); return;
+    }
+
+    // Re-validate attach entitlements when attachment arrays change
+    const hasAttachChange = themeIds?.length || packIds?.length || insertIds?.length || productIds?.length;
+    if (hasAttachChange) {
+      const ctx = await getStoreCtx(storeId);
+      const attachChecks: [
+        typeof themesTable | typeof stickerPacksTable | typeof insertsTable | typeof relatedProductsTable,
+        string[],
+        string,
+      ][] = [
+        [themesTable, themeIds ?? [], "theme"],
+        [stickerPacksTable, packIds ?? [], "sticker-pack"],
+        [insertsTable, insertIds ?? [], "insert"],
+        [relatedProductsTable, productIds ?? [], "product"],
+      ];
+      for (const [table, ids, type] of attachChecks) {
+        if (!ids.length) continue;
+        const err = await validateAttachEntitlement(table, ids, type, ctx);
+        if (err) { res.status(403).json({ error: err }); return; }
+      }
+    }
+
+    const updateData: Partial<typeof editionsTable.$inferInsert> = {};
+    if (name !== undefined) updateData.name = name;
+    if (sections !== undefined) updateData.sections = sections as string[];
+    if (priceLow !== undefined) updateData.priceLow = priceLow;
+    if (priceHigh !== undefined) updateData.priceHigh = priceHigh;
+    if (themeIds !== undefined) updateData.themes = themeIds as string[];
+    if (packIds !== undefined) updateData.packs = packIds as string[];
+    if (insertIds !== undefined) updateData.inserts = insertIds as string[];
+    if (productIds !== undefined) updateData.products = productIds as string[];
+    if (status !== undefined) updateData.status = status;
+    if (Object.keys(updateData).length === 0) { res.json(row); return; }
+
+    const [updated] = await db.update(editionsTable).set(updateData).where(eq(editionsTable.id, id)).returning();
+
+    const prevStatus = row.status as string;
+    const auditAction =
+      prevStatus !== updated.status
+        ? updated.status === "live" ? "owned.edition.publish" : "owned.edition.unpublish"
+        : "owned.edition.edit";
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: auditAction, targetType: "edition", targetId: id,
+      metadata: { storeId, ...(name !== undefined && { name }), ...(status !== undefined && { status }) },
+    });
+
+    res.json(updated);
+  },
+);
+
+// ── DELETE helpers ─────────────────────────────────────────────────────────
+
+async function handleOwnedDelete(
+  req: Request,
+  res: Response,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table: any,
+  orphanField: "themes" | "packs" | "inserts" | "products" | null,
+  auditAction: string,
+  auditTargetType: string,
+): Promise<void> {
+  const actor = req.actor!;
+  const { storeId, id } = req.params as { storeId: string; id: string };
+  if (!assertSameStore(actor, storeId, res)) return;
+
+  const canDelete = actor.isSuperAdmin || actor.storeRole === "store_owner";
+  if (!canDelete) {
+    res.status(403).json({ error: "Deleting owned items requires store_owner role" });
+    return;
+  }
+
+  const row = await getOwnedItem(table, id, storeId, res, actor.isSuperAdmin);
+  if (!row) return;
+
+  const force = req.query.force === "true";
+
+  if (orphanField) {
+    const affected = await findOrphanEditions(storeId, orphanField, id);
+    if (affected.length > 0 && !force) {
+      res.status(409).json({ error: `Item is attached to ${affected.length} edition(s)`, affectedEditions: affected });
+      return;
+    }
+    // Detach from editions before deleting
+    for (const ed of affected) {
+      const [edRow] = await db.select().from(editionsTable).where(eq(editionsTable.id, ed.id));
+      if (edRow) {
+        await db
+          .update(editionsTable)
+          .set({ [orphanField]: (edRow[orphanField] as string[]).filter((x) => x !== id) })
+          .where(eq(editionsTable.id, ed.id));
+      }
+    }
+    await db.update(table).set({ status: "deleted" }).where(eq(table.id, id));
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: auditAction, targetType: auditTargetType, targetId: id,
+      metadata: { storeId, name: row.name, force, detachedFrom: affected.map((e) => e.id) },
+    });
+  } else {
+    await db.update(table).set({ status: "deleted" }).where(eq(table.id, id));
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
+      action: auditAction, targetType: auditTargetType, targetId: id,
+      metadata: { storeId, name: row.name },
+    });
+  }
+
+  res.status(204).send();
+}
+
+router.delete(
+  "/stores/:storeId/owned/themes/:id",
+  requireStoreAccess("store_staff"),
+  (req, res) => handleOwnedDelete(req, res, themesTable, "themes", "owned.theme.delete", "theme"),
+);
+
+router.delete(
+  "/stores/:storeId/owned/sticker-packs/:id",
+  requireStoreAccess("store_staff"),
+  (req, res) => handleOwnedDelete(req, res, stickerPacksTable, "packs", "owned.pack.delete", "pack"),
+);
+
+router.delete(
+  "/stores/:storeId/owned/inserts/:id",
+  requireStoreAccess("store_staff"),
+  (req, res) => handleOwnedDelete(req, res, insertsTable, "inserts", "owned.insert.delete", "insert"),
+);
+
+router.delete(
+  "/stores/:storeId/owned/editions/:id",
+  requireStoreAccess("store_staff"),
+  (req, res) => handleOwnedDelete(req, res, editionsTable, null, "owned.edition.delete", "edition"),
 );
 
 export default router;

@@ -177,6 +177,26 @@ function eraserHits(eraserPts: InkPoint[], stroke: InkStroke): boolean {
   );
 }
 
+// ── Sticker rasterization ─────────────────────────────────────────────────────
+
+/**
+ * Render a single emoji glyph to a PNG data URL using an offscreen canvas.
+ * The browser's emoji font stack draws the colour glyph correctly; we capture
+ * those exact pixels and send them to the server for PDF embedding.
+ */
+function rasterizeGlyph(glyph: string, size = 128): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, size, size);
+  ctx.font = `${Math.round(size * 0.80)}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(glyph, size / 2, size / 2);
+  return canvas.toDataURL("image/png");
+}
+
 // ── apiFetch ─────────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -685,9 +705,23 @@ export default function InkEditor() {
   const handleExport = async () => {
     setExporting(true);
     try {
+      // Rasterize each unique emoji glyph to a PNG data URL.
+      // The browser's colour-emoji font stack draws them correctly; we capture
+      // those exact pixels and send them so the server can embed them in the PDF
+      // instead of trying to render emoji glyphs via pdf-lib (which has no colour font).
+      const stickerPngs: Record<string, string> = {};
+      for (const obj of objects) {
+        if (obj.kind === "sticker" && !stickerPngs[obj.ref]) {
+          stickerPngs[obj.ref] = rasterizeGlyph(obj.ref);
+        }
+      }
+
       const result = await apiFetch<{ fileId: string; url: string }>(
         `/planners/${plannerId}/export`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify({ stickerPngs }),
+        },
       );
       toast({
         title: "Exported to Drive",

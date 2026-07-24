@@ -302,6 +302,11 @@ router.post("/planners/:id/export", requireAuth, async (req, res): Promise<void>
     );
 
   // 4. Flatten each layer onto the matching PDF page
+  // stickerPngs: map of glyph → "data:image/png;base64,..." sent by the client.
+  // embeddedImages: cache so each unique glyph is embedded into the PDF only once.
+  const stickerPngs: Record<string, string> = (req.body as any)?.stickerPngs ?? {};
+  const embeddedImages = new Map<string, Awaited<ReturnType<typeof pdfDoc.embedPng>>>();
+
   for (const layer of layers) {
     const pageIdx = pageIds.indexOf(layer.pageId);
     if (pageIdx < 0 || pageIdx >= pdfDoc.getPageCount()) continue;
@@ -379,20 +384,37 @@ router.post("/planners/:id/export", requireAuth, async (req, res): Promise<void>
       });
     }
 
-    // Draw sticker objects as colored marker circles
+    // Draw sticker objects as rasterized PNG images.
+    // The client sends stickerPngs: { [glyph]: "data:image/png;base64,..." }
+    // with the exact pixels the browser rendered (colour emoji, correct glyph).
     for (const obj of (layer.objects as InkObject[])) {
       if (obj.kind !== "sticker") continue;
-      const sx = obj.x * pw;
-      const sy = (1 - obj.y) * ph; // flip y for PDF coords
-      const size = 18 * (obj.scale ?? 1);
-      // Use a filled circle as placeholder (sticker images need image embedding)
-      page.drawEllipse({
+      const dataUrl: string | undefined = stickerPngs[obj.ref];
+      if (!dataUrl) continue; // no raster provided — skip rather than draw placeholder
+
+      // Retrieve or embed this glyph's PNG (cache within this export call)
+      if (!embeddedImages.has(obj.ref)) {
+        try {
+          const b64 = dataUrl.replace(/^data:image\/png;base64,/, "");
+          const bytes = Buffer.from(b64, "base64");
+          const img = await pdfDoc.embedPng(bytes);
+          embeddedImages.set(obj.ref, img);
+        } catch {
+          continue; // malformed PNG — skip
+        }
+      }
+
+      const img = embeddedImages.get(obj.ref)!;
+      // Size in PDF points: 40pt at scale 1 looks natural on a standard page
+      const sizeInPts = 40 * (obj.scale ?? 1);
+      // PDF origin is bottom-left; sticker is centred at (obj.x, obj.y) in 0..1
+      const sx = obj.x * pw - sizeInPts / 2;
+      const sy = (1 - obj.y) * ph - sizeInPts / 2;
+      page.drawImage(img, {
         x: sx,
         y: sy,
-        xScale: size,
-        yScale: size,
-        color: rgb(0.78, 0.46, 0.38), // clay
-        opacity: 0.75,
+        width: sizeInPts,
+        height: sizeInPts,
       });
     }
   }

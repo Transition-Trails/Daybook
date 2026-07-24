@@ -90,19 +90,33 @@ export default function PlannerBuilder() {
 
   // Derived catalog items for the selected edition
   const selectedEdition = (allEditions as Edition[]).find(e => e.id === editionId);
-  const editionThemes  = selectedEdition
-    ? (allThemes as Theme[]).filter(t => (selectedEdition.themes as string[])?.includes(t.id))
+
+  // Themes: live always; draft only if the edition explicitly lists this theme (admin preview).
+  const editionThemeIds = new Set<string>((selectedEdition?.themes as string[]) ?? []);
+  const editionThemes = selectedEdition
+    ? (allThemes as Theme[]).filter(t =>
+        editionThemeIds.has(t.id) && (t.status === 'live' || t.status === 'draft'),
+      )
     : [];
-  const editionPacks   = selectedEdition
+
+  // Packs: live if planners includes 'all' or this edition.
+  // Draft: ONLY if planners explicitly references this edition (not just "all") — show with badge.
+  const editionPacks = selectedEdition
     ? (allPacks as StickerPack[]).filter(p => {
-        const pl = p.planners as string[];
-        return pl?.includes('all') || pl?.includes(editionId);
+        const pl = (p.planners as string[]) ?? [];
+        if (p.status === 'live') return pl.includes('all') || pl.includes(editionId);
+        if (p.status === 'draft') return pl.includes(editionId); // explicit-only; "all" hides drafts
+        return false;
       })
     : [];
+
+  // Inserts: same rules as packs.
   const editionInserts = selectedEdition
     ? (allInserts as Insert[]).filter(i => {
-        const pl = i.planners as string[];
-        return pl?.includes('all') || pl?.includes(editionId);
+        const pl = (i.planners as string[]) ?? [];
+        if (i.status === 'live') return pl.includes('all') || pl.includes(editionId);
+        if (i.status === 'draft') return pl.includes(editionId);
+        return false;
       })
     : [];
 
@@ -305,6 +319,9 @@ export default function PlannerBuilder() {
                           ))}
                         </span>
                         {t.name}
+                        {t.status === 'draft' && (
+                          <Badge variant="outline" className="text-[9px] px-1 py-0 h-auto border-amber-400 text-amber-600 ml-0.5">Draft</Badge>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -319,9 +336,12 @@ export default function PlannerBuilder() {
                       <button
                         key={p.id}
                         onClick={() => toggleMulti(p.id, selectedPacks, setSelectedPacks)}
-                        className={`px-2.5 py-1 rounded-full border text-xs transition-all ${selectedPacks.includes(p.id) ? 'border-primary bg-primary/10 font-medium' : 'border-border hover:border-primary/50'}`}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs transition-all ${selectedPacks.includes(p.id) ? 'border-primary bg-primary/10 font-medium' : 'border-border hover:border-primary/50'}`}
                       >
                         {p.name}
+                        {p.status === 'draft' && (
+                          <Badge variant="outline" className="text-[9px] px-1 py-0 h-auto border-amber-400 text-amber-600">Draft</Badge>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -336,9 +356,12 @@ export default function PlannerBuilder() {
                       <button
                         key={ins.id}
                         onClick={() => toggleMulti(ins.id, selectedInserts, setSelectedInserts)}
-                        className={`px-2.5 py-1 rounded-full border text-xs transition-all ${selectedInserts.includes(ins.id) ? 'border-primary bg-primary/10 font-medium' : 'border-border hover:border-primary/50'}`}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs transition-all ${selectedInserts.includes(ins.id) ? 'border-primary bg-primary/10 font-medium' : 'border-border hover:border-primary/50'}`}
                       >
                         {ins.name}
+                        {ins.status === 'draft' && (
+                          <Badge variant="outline" className="text-[9px] px-1 py-0 h-auto border-amber-400 text-amber-600">Draft</Badge>
+                        )}
                       </button>
                     ))}
                   </div>

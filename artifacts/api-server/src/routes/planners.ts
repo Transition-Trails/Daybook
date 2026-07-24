@@ -9,7 +9,7 @@ import {
   editionsTable,
   themesTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
 import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
@@ -222,6 +222,18 @@ router.post("/planners", requireAuth, async (req, res): Promise<void> => {
     req.log.error({ err }, "Planner generation failed");
     res.status(500).json({ error: String(err) });
   }
+});
+
+// ── GET /planners ─────────────────────────────────────────────────────────────
+// Returns all planner configs for the authenticated user, newest first.
+router.get("/planners", requireAuth, async (req, res): Promise<void> => {
+  const user = req.user as User;
+  const configs = await db
+    .select()
+    .from(plannerConfigsTable)
+    .where(eq(plannerConfigsTable.userId, user.id as string))
+    .orderBy(desc(plannerConfigsTable.createdAt));
+  res.json(configs);
 });
 
 // ── GET /planners/:id ─────────────────────────────────────────────────────────

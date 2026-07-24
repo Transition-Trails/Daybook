@@ -166,7 +166,9 @@ export default function InkEditor() {
   const { toast } = useToast();
 
   // Navigate back to the planner builder (full path since InkEditor is outside the daybook base router)
-  const goBack = () => navigate("/daybook/planners/builder");
+  // Navigate back to the standalone Planner Library.
+  // InkEditor is rendered outside the daybook WouterRouter, so use the full path.
+  const goBack = () => navigate("/daybook/ink");
 
   // Tool state
   const [tool, setTool] = useState<Tool>("pen");

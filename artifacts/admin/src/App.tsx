@@ -179,6 +179,17 @@ function RootRouter() {
       </Route>
 
       {/* ── Daybook Ink — full-screen editor, no Shell ───────────── */}
+      {/* Standalone entry: /daybook/ink/:id (from Planner Library) */}
+      <Route path="/daybook/ink/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <Suspense fallback={<div style={{ minHeight: "100vh", background: "#F7F0E6" }} />}>
+              <InkEditor key={p.id} />
+            </Suspense>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      {/* Legacy deep-link from Planner Builder: /daybook/planners/:id/ink */}
       <Route path="/daybook/planners/:id/ink">
         {(p) => (
           <RequireSuperAdmin state={state}>

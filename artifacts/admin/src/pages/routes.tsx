@@ -21,9 +21,11 @@ import ThemeStudio from '@/pages/studios/ThemeStudio';
 import PackStudio from '@/pages/studios/PackStudio';
 import EditionStudio from '@/pages/studios/EditionStudio';
 import StudioTrendResearch from '@/pages/studios/TrendResearch';
+import PlannerLibrary from '@/pages/ink/PlannerLibrary';
 
 export const routes = [
   { path: "/", component: Dashboard },
+  { path: "/ink", component: PlannerLibrary },
   { path: "/catalog/themes", component: ThemesList },
   { path: "/catalog/themes/:id", component: ThemeDetail },
   { path: "/catalog/packs", component: PacksList },

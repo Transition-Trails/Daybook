@@ -128,8 +128,10 @@ async function markGoogleDisconnected(
       googleAccessToken: null,
       connections: {
         ...existing,
-        googleDrive: false,
-        googleCalendar: false,
+        googleDrive:     false,
+        googleCalendar:  false,
+        googleTasks:     false,
+        googleDocs:      false,
       },
     })
     .where(eq(usersTable.id, userId));

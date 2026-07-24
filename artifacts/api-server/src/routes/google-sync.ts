@@ -73,6 +73,40 @@ async function resolveToken(user: User, res: import("express").Response): Promis
   }
 }
 
+/**
+ * Check whether a failed Google API response is an insufficient-scope / permission-denied error.
+ * Google returns HTTP 403 with reason "insufficientPermissions" or status "PERMISSION_DENIED"
+ * when the access token is valid but is missing a scope (e.g. tasks scope added after auth).
+ * We treat this identically to a token failure: return reconnect_required so the banner fires
+ * and the user re-consents with the new scope.
+ *
+ * Returns true if the caller should stop processing (response already written).
+ */
+function replyIfScopeError(
+  res: import("express").Response,
+  status: number,
+  errText: string,
+): boolean {
+  if (status !== 403) return false;
+
+  // Google 403 for scope issues contains "insufficientPermissions" or "PERMISSION_DENIED"
+  const isScope =
+    errText.includes("insufficientPermissions") ||
+    errText.includes("PERMISSION_DENIED") ||
+    errText.includes("insufficient authentication scopes") ||
+    errText.includes("Request had insufficient");
+
+  if (!isScope) return false;
+
+  res.status(401).json({
+    error:        "reconnect_required",
+    reason:       "disconnected",
+    message:      "Insufficient Google permissions — please reconnect to grant the required scopes.",
+    reconnectUrl: "/api/auth/google",
+  });
+  return true;
+}
+
 /** Stamp a named last-synced timestamp into user.connections. */
 async function stampSynced(userId: string, existing: Record<string, unknown>, key: string): Promise<void> {
   await db
@@ -104,6 +138,7 @@ router.get("/calendar/events", requireAuth, async (req, res): Promise<void> => {
 
   if (!gcRes.ok) {
     const errText = await gcRes.text().catch(() => "");
+    if (replyIfScopeError(res, gcRes.status, errText)) return;
     res.status(gcRes.status).json({ error: `Google Calendar error: ${errText}` });
     return;
   }
@@ -188,6 +223,7 @@ router.post("/calendar/push", requireAuth, async (req, res): Promise<void> => {
         const errText = await patchRes.text().catch(() => "");
         // If event was deleted on Google's side, fall through and recreate below
         if (patchRes.status !== 410 && patchRes.status !== 404) {
+          if (replyIfScopeError(res, patchRes.status, errText)) return;
           res.status(patchRes.status).json({ error: `Calendar PATCH failed: ${errText}` });
           return;
         }
@@ -214,6 +250,7 @@ router.post("/calendar/push", requireAuth, async (req, res): Promise<void> => {
     });
     if (!createRes.ok) {
       const errText = await createRes.text().catch(() => "");
+      if (replyIfScopeError(res, createRes.status, errText)) return;
       res.status(createRes.status).json({ error: `Calendar INSERT failed: ${errText}` });
       return;
     }
@@ -267,6 +304,7 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
 
   if (!gtRes.ok) {
     const errText = await gtRes.text().catch(() => "");
+    if (replyIfScopeError(res, gtRes.status, errText)) return;
     res.status(gtRes.status).json({ error: `Google Tasks error: ${errText}` });
     return;
   }
@@ -347,6 +385,7 @@ router.post("/tasks", requireAuth, async (req, res): Promise<void> => {
 
   if (!createRes.ok) {
     const errText = await createRes.text().catch(() => "");
+    if (replyIfScopeError(res, createRes.status, errText)) return;
     res.status(createRes.status).json({ error: `Google Tasks create failed: ${errText}` });
     return;
   }
@@ -418,6 +457,7 @@ router.patch("/tasks/:googleTaskId", requireAuth, async (req, res): Promise<void
 
   if (!patchRes.ok) {
     const errText = await patchRes.text().catch(() => "");
+    if (replyIfScopeError(res, patchRes.status, errText)) return;
     res.status(patchRes.status).json({ error: `Google Tasks update failed: ${errText}` });
     return;
   }
@@ -475,6 +515,7 @@ router.delete("/tasks/:googleTaskId", requireAuth, async (req, res): Promise<voi
 
   if (!deleteRes.ok && deleteRes.status !== 404) {
     const errText = await deleteRes.text().catch(() => "");
+    if (replyIfScopeError(res, deleteRes.status, errText)) return;
     res.status(deleteRes.status).json({ error: `Google Tasks delete failed: ${errText}` });
     return;
   }
@@ -574,6 +615,7 @@ router.post("/docs", requireAuth, async (req, res): Promise<void> => {
 
   if (!uploadRes.ok) {
     const errText = await uploadRes.text().catch(() => "");
+    if (replyIfScopeError(res, uploadRes.status, errText)) return;
     res.status(uploadRes.status).json({ error: `Google Docs create failed: ${errText}` });
     return;
   }

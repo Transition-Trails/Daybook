@@ -238,6 +238,8 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [genError, setGenError] = useState("");
+  // Separate state for entitlement 403 so we can surface it with different UI
+  const [entitlementError, setEntitlementError] = useState<{ message: string; reason: string } | null>(null);
 
   // Preview
   const [previewUrl, setPreviewUrl]     = useState<string | null>(null);
@@ -248,7 +250,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
     setList(list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
   }
 
-  function buildBody() {
+  function buildBody(includeStoreContext = false) {
     return {
       editionId: edition.id,
       year: Number(startYear),
@@ -260,6 +262,10 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
       },
       style: { themeId: themeId || undefined, packs: selectedPacks, inserts: selectedInserts },
       output: { calMode, eventMins: 60, aiInPdf: false },
+      // storeContext is included on the persisting generate call so the server can
+      // enforce entitlement for this store (starter items always pass; licensed items
+      // require subscriptionActive=true). Preview is non-persisting — no context needed.
+      ...(includeStoreContext ? { storeContext: { storeId: store.id } } : {}),
     };
   }
 
@@ -290,15 +296,20 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
   useEffect(() => () => { if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current); }, []);
 
   async function handleGenerate() {
-    setIsGenerating(true); setResult(null); setGenError("");
+    setIsGenerating(true); setResult(null); setGenError(""); setEntitlementError(null);
     try {
       const res = await fetch("/api/planners", {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildBody()),
+        body: JSON.stringify(buildBody(true)), // true → include storeContext for gate
       });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
+        // 403 = entitlement gate fired — surface with dedicated UI, not a generic error
+        if (res.status === 403) {
+          setEntitlementError({ message: b?.error ?? "Content not available.", reason: b?.reason ?? "" });
+          return;
+        }
         throw new Error(b?.error ?? `HTTP ${res.status}`);
       }
       const json: GenerateResult = await res.json();
@@ -465,6 +476,23 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
                   <PenLine size={13} /> Open in Ink ✦
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {entitlementError && (
+          <div style={{ background: "#FFFBEA", border: "1px solid #F5C842", borderRadius: 12, padding: "16px", display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <AlertCircle size={18} color="#B45309" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#92400E", margin: "0 0 5px" }}>
+                Content not available
+              </p>
+              <p style={{ fontSize: 12, color: "#78350F", margin: "0 0 8px", lineHeight: 1.55 }}>
+                {entitlementError.message}
+              </p>
+              <p style={{ fontSize: 11, color: "#A16207", margin: 0, lineHeight: 1.5 }}>
+                Tip: if this edition or theme is marked as <strong>Starter</strong>, it is always available regardless of the store&apos;s subscription. Switch to a starter item and try again, or ask the store owner to reactivate their content license.
+              </p>
             </div>
           </div>
         )}

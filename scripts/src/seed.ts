@@ -162,18 +162,20 @@ async function main() {
     aiEnabled: true, aiProvider: "claude", owned: [], connections: defaultConnections,
   }).onConflictDoUpdate({ target: usersTable.email, set: { platformRole: "super_admin", role: "owner" } });
 
+  // Store owners use role="owner", store staff use role="staff"
+  // so the /api/auth/staff/login endpoint accepts them.
   await db.insert(usersTable).values([
-    { id: "u-alpha-owner", provider: "google", email: "owner@store-alpha.com", name: "Alpha Owner", role: "user", passwordHash: storeHash, aiEnabled: true,  aiProvider: "claude", owned: [], connections: defaultConnections },
-    { id: "u-beta-owner",  provider: "google", email: "owner@store-beta.com",  name: "Beta Owner",  role: "user", passwordHash: storeHash, aiEnabled: true,  aiProvider: "claude", owned: [], connections: defaultConnections },
-    { id: "u-gamma-owner", provider: "google", email: "owner@store-gamma.com", name: "Gamma Owner", role: "user", passwordHash: storeHash, aiEnabled: true,  aiProvider: "claude", owned: [], connections: defaultConnections },
-    { id: "u-delta-owner", provider: "google", email: "owner@store-delta.com", name: "Delta Owner", role: "user", passwordHash: storeHash, aiEnabled: false, aiProvider: "claude", owned: [], connections: defaultConnections },
-  ]).onConflictDoNothing();
+    { id: "u-alpha-owner", provider: "google", email: "owner@store-alpha.com", name: "Alpha Owner", role: "owner", passwordHash: storeHash, aiEnabled: true,  aiProvider: "claude", owned: [], connections: defaultConnections },
+    { id: "u-beta-owner",  provider: "google", email: "owner@store-beta.com",  name: "Beta Owner",  role: "owner", passwordHash: storeHash, aiEnabled: true,  aiProvider: "claude", owned: [], connections: defaultConnections },
+    { id: "u-gamma-owner", provider: "google", email: "owner@store-gamma.com", name: "Gamma Owner", role: "owner", passwordHash: storeHash, aiEnabled: true,  aiProvider: "claude", owned: [], connections: defaultConnections },
+    { id: "u-delta-owner", provider: "google", email: "owner@store-delta.com", name: "Delta Owner", role: "owner", passwordHash: storeHash, aiEnabled: false, aiProvider: "claude", owned: [], connections: defaultConnections },
+  ]).onConflictDoUpdate({ target: usersTable.id, set: { role: usersTable.role } });
 
   await db.insert(usersTable).values([
-    { id: "u-alpha-staff",  provider: "google", email: "staff@store-alpha.com",   name: "Alpha Staff",   role: "user", passwordHash: storeHash, aiEnabled: false, aiProvider: "claude", owned: [], connections: defaultConnections },
-    { id: "u-beta-staff",   provider: "google", email: "staff@store-beta.com",    name: "Beta Staff",    role: "user", passwordHash: storeHash, aiEnabled: false, aiProvider: "claude", owned: [], connections: defaultConnections },
-    { id: "u-beta-support", provider: "google", email: "support@store-beta.com",  name: "Beta Support",  role: "user", passwordHash: storeHash, aiEnabled: false, aiProvider: "claude", owned: [], connections: defaultConnections },
-  ]).onConflictDoNothing();
+    { id: "u-alpha-staff",  provider: "google", email: "staff@store-alpha.com",   name: "Alpha Staff",   role: "staff", passwordHash: storeHash, aiEnabled: false, aiProvider: "claude", owned: [], connections: defaultConnections },
+    { id: "u-beta-staff",   provider: "google", email: "staff@store-beta.com",    name: "Beta Staff",    role: "staff", passwordHash: storeHash, aiEnabled: false, aiProvider: "claude", owned: [], connections: defaultConnections },
+    { id: "u-beta-support", provider: "google", email: "support@store-beta.com",  name: "Beta Support",  role: "staff", passwordHash: storeHash, aiEnabled: false, aiProvider: "claude", owned: [], connections: defaultConnections },
+  ]).onConflictDoUpdate({ target: usersTable.id, set: { role: usersTable.role } });
 
   console.log("  ✓ users (owner, super_admin + 7 store users)");
 

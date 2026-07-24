@@ -87,7 +87,7 @@ function drawStroke(
   if (stroke.tool === "highlighter") {
     ctx.globalCompositeOperation = "multiply";
     ctx.globalAlpha = 0.38;
-    ctx.strokeStyle = "#FFC107";
+    ctx.strokeStyle = stroke.color; // use the stored colour (always #FFC107 for new strokes)
   } else {
     ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = 1;
@@ -549,10 +549,14 @@ export default function InkEditor() {
       const pressure = e.pressure > 0 ? e.pressure : 0.5;
 
       const strokeId = crypto.randomUUID();
+      // Highlighter always stores its own amber colour, independent of the pen
+      // colour selector. This ensures canvas rendering (which uses stroke.color)
+      // and the export flatten path (which also reads stroke.color) agree.
+      const strokeColor = tool === "highlighter" ? "#FFC107" : color;
       const newStroke: InkStroke = {
         id: strokeId,
         tool,
-        color,
+        color: strokeColor,
         baseWidth: strokeWidth,
         points: [{ x: px / canvas.width, y: py / canvas.height, p: pressure }],
       };

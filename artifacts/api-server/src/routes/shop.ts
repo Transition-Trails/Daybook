@@ -18,15 +18,16 @@ import {
   themesTable,
   palettesTable,
   themePalettesTable,
+  backgroundsTable,
+  themeBackgroundsTable,
   stickerPacksTable,
   insertsTable,
 } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, asc } from "drizzle-orm";
 import { filterEntitled, type EntitlementContext } from "../lib/entitlement";
-import type { Theme, Palette } from "@workspace/db";
+import type { Theme, Palette, Background } from "@workspace/db";
 
 // ── Palette join helper ────────────────────────────────────────────────────────
-// Fetches live palettes for a set of themes and returns them grouped by themeId.
 async function loadThemePalettes(themeIds: string[]): Promise<Record<string, Palette[]>> {
   if (!themeIds.length) return {};
   const rows = await db
@@ -43,8 +44,33 @@ async function loadThemePalettes(themeIds: string[]): Promise<Record<string, Pal
   return out;
 }
 
+// ── Background join helper ─────────────────────────────────────────────────────
+// Fetches live backgrounds for a set of themes, grouped by themeId, ordered by position.
+async function loadThemeBackgrounds(themeIds: string[]): Promise<Record<string, Background[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({ themeId: themeBackgroundsTable.themeId, background: backgroundsTable })
+    .from(themeBackgroundsTable)
+    .innerJoin(backgroundsTable, eq(themeBackgroundsTable.backgroundId, backgroundsTable.id))
+    .where(inArray(themeBackgroundsTable.themeId, themeIds))
+    .orderBy(themeBackgroundsTable.themeId, asc(themeBackgroundsTable.position));
+  const out: Record<string, Background[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push(r.background);
+  }
+  return out;
+}
+
 function withPalettes(themes: Theme[], palettesMap: Record<string, Palette[]>) {
   return themes.map(t => ({ ...t, palettes: palettesMap[t.id] ?? [] }));
+}
+
+function withBackgrounds<T extends Theme>(
+  themes: (T & { palettes: Palette[] })[],
+  backgroundsMap: Record<string, Background[]>,
+) {
+  return themes.map(t => ({ ...t, backgrounds: backgroundsMap[t.id] ?? [] }));
 }
 
 const router: IRouter = Router();
@@ -105,7 +131,10 @@ router.get("/shop/:storeSlug", async (req: Request, res: Response): Promise<void
   const packs    = filterEntitled(allPacks.filter(p => enabled.pack.has(p.id)), ctx);
   const inserts  = filterEntitled(allInserts.filter(i => enabled.insert.has(i.id)), ctx);
 
-  const palettesMap = await loadThemePalettes(themes.map(t => t.id));
+  const [palettesMap, backgroundsMap] = await Promise.all([
+    loadThemePalettes(themes.map(t => t.id)),
+    loadThemeBackgrounds(themes.map(t => t.id)),
+  ]);
 
   res.json({
     store: {
@@ -114,7 +143,7 @@ router.get("/shop/:storeSlug", async (req: Request, res: Response): Promise<void
       subscriptionActive: store.subscriptionActive,
       defaultMode: store.defaultMode,
     },
-    editions, themes: withPalettes(themes, palettesMap), packs, inserts,
+    editions, themes: withBackgrounds(withPalettes(themes, palettesMap), backgroundsMap), packs, inserts,
   });
 });
 
@@ -164,12 +193,15 @@ router.get("/shop/:storeSlug/editions/:editionId", async (req: Request, res: Res
   const editionInsertIds = new Set(allInserts.filter(i => { const pl = i.planners as string[]; return pl.includes("all") || pl.includes(editionId); }).map(i => i.id));
 
   const entitledThemes = filterEntitled(allThemes.filter(t => editionThemeIds.has(t.id) && enabled.theme.has(t.id)), ctx);
-  const palettesMap = await loadThemePalettes(entitledThemes.map(t => t.id));
+  const [palettesMap, backgroundsMap] = await Promise.all([
+    loadThemePalettes(entitledThemes.map(t => t.id)),
+    loadThemeBackgrounds(entitledThemes.map(t => t.id)),
+  ]);
 
   res.json({
     store: { id: store.id, name: store.name, slug: store.slug },
     edition,
-    themes:  withPalettes(entitledThemes, palettesMap),
+    themes:  withBackgrounds(withPalettes(entitledThemes, palettesMap), backgroundsMap),
     packs:   filterEntitled(allPacks.filter(p   => editionPackIds.has(p.id)   && enabled.pack.has(p.id)),   ctx),
     inserts: filterEntitled(allInserts.filter(i  => editionInsertIds.has(i.id) && enabled.insert.has(i.id)), ctx),
   });

@@ -9,11 +9,13 @@ import {
   editionsTable,
   themesTable,
   palettesTable,
+  backgroundsTable,
+  themeBackgroundsTable,
   storesTable,
 } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, asc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
-import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds } from "../lib/pdf-generator";
+import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError } from "../lib/google-auth";
 import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
@@ -31,7 +33,7 @@ async function runGeneration(
   // Priority 2: theme.colors for the explicit themeId (backward-compat)
   // Priority 3: first theme on the edition → theme.colors
   let themeColors: string[] | undefined;
-  const style = config.style as PlannerStyle & { themeId?: string; paletteId?: string };
+  const style = config.style as PlannerStyle & { themeId?: string; paletteId?: string; backgroundId?: string };
 
   if (style.paletteId) {
     const [pal] = await db
@@ -66,6 +68,29 @@ async function runGeneration(
     }
   }
 
+  // Background resolution: priority chain
+  //   1. style.backgroundId (explicit buyer selection)
+  //   2. theme's first linked background via theme_backgrounds
+  //   3. none → render as paper fill (blank page, backward-compat)
+  let background: BackgroundSpec | undefined;
+  if (style.backgroundId) {
+    const [bg] = await db
+      .select({ type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
+      .from(backgroundsTable)
+      .where(eq(backgroundsTable.id, style.backgroundId));
+    if (bg) background = bg;
+  }
+  if (!background && style.themeId) {
+    const [bgRow] = await db
+      .select({ type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
+      .from(themeBackgroundsTable)
+      .innerJoin(backgroundsTable, eq(themeBackgroundsTable.backgroundId, backgroundsTable.id))
+      .where(eq(themeBackgroundsTable.themeId, style.themeId))
+      .orderBy(asc(themeBackgroundsTable.position))
+      .limit(1);
+    if (bgRow) background = bgRow;
+  }
+
   const sections = (config.style as PlannerStyle).sections ?? [];
   const { buffer, pageCount } = await buildPdf(
     {
@@ -77,6 +102,8 @@ async function runGeneration(
       userId: config.userId,
     },
     themeColors,
+    undefined,   // use DEFAULT_TEMPLATE
+    background,
   );
 
   // Resolve a valid (possibly refreshed) Google token; fall back gracefully if unavailable.
@@ -138,7 +165,7 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
   try {
     // Resolve colors — same priority chain as runGeneration (palette > theme.colors > edition fallback).
     let themeColors: string[] | undefined;
-    const previewStyle = body.style as (PlannerStyle & { themeId?: string; paletteId?: string }) | undefined;
+    const previewStyle = body.style as (PlannerStyle & { themeId?: string; paletteId?: string; backgroundId?: string }) | undefined;
 
     if (previewStyle?.paletteId) {
       const [pal] = await db.select().from(palettesTable).where(eq(palettesTable.id, previewStyle.paletteId));
@@ -159,6 +186,26 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
       }
     }
 
+    // Background resolution for preview (same chain as runGeneration)
+    let previewBackground: BackgroundSpec | undefined;
+    if (previewStyle?.backgroundId) {
+      const [bg] = await db
+        .select({ type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
+        .from(backgroundsTable)
+        .where(eq(backgroundsTable.id, previewStyle.backgroundId));
+      if (bg) previewBackground = bg;
+    }
+    if (!previewBackground && previewStyle?.themeId) {
+      const [bgRow] = await db
+        .select({ type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
+        .from(themeBackgroundsTable)
+        .innerJoin(backgroundsTable, eq(themeBackgroundsTable.backgroundId, backgroundsTable.id))
+        .where(eq(themeBackgroundsTable.themeId, previewStyle.themeId))
+        .orderBy(asc(themeBackgroundsTable.position))
+        .limit(1);
+      if (bgRow) previewBackground = bgRow;
+    }
+
     const sections = (body.style as PlannerStyle | undefined)?.sections ?? [];
     const { buffer, pageCount } = await buildPreviewPdf(
       {
@@ -169,6 +216,8 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
         editionId: body.editionId,
       },
       themeColors,
+      undefined,          // use DEFAULT_TEMPLATE
+      previewBackground,
     );
 
     res.setHeader("Content-Type", "application/pdf");

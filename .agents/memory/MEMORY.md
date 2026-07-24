@@ -11,3 +11,5 @@
 - [Cross-store guard pattern](cross-store-guard.md) — owned-catalog routes need explicit assertSameStore(); middleware storeId may resolve from x-store-id header when params aren't populated
 - [Sticker system](sticker-system.md) — stickers_library + pack_stickers tables; base64 image storage; BFS bg-removal + Moore-tracing SVG cutline; bulk routes before /:id
 - [Palette/theme migration](palette-theme-migration.md) — palettes+backgrounds+join tables added; themes.colors preserved; generation resolves paletteId > themeId > edition fallback
+- [Background rendering](background-rendering.md) — BackgroundSpec wired into buildPdf/buildPreviewPdf; color overrides paper fill, image/texture embedded once per doc and drawn per page before content; resolution chain: backgroundId > theme_backgrounds[0] > none
+- [Starter sticker seed](starter-sticker-seed.md) — 8 starters + 3 packs seeded; run `pnpm --filter @workspace/scripts run seed-stickers`; store sticker list includes origin='starter' rows (read-only); shop themes response includes backgrounds[] field

@@ -25,8 +25,9 @@ interface ShopEdition {
   priceLow?: number | null; priceHigh?: number | null;
   sections: string[];
 }
-interface ThemePalette { id: string; name: string; colors: string[]; }
-interface ShopTheme  { id: string; name: string; colors: string[]; palettes?: ThemePalette[]; }
+interface ThemePalette    { id: string; name: string; colors: string[]; }
+interface ThemeBackground { id: string; name: string; type: string; assetRef?: string | null; }
+interface ShopTheme  { id: string; name: string; colors: string[]; palettes?: ThemePalette[]; backgrounds?: ThemeBackground[]; }
 interface ShopPack   { id: string; name: string; }
 interface ShopInsert { id: string; name: string; cat: string; }
 interface StoreInfo  { id: string; name: string; slug: string; }
@@ -190,6 +191,31 @@ function ToggleChip({ label, selected, onClick }: { label: string; selected: boo
   );
 }
 
+function BackgroundChip({ bg, selected, onClick }: { bg: ThemeBackground; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: selected ? T.clay : T.bg,
+        color: selected ? "#fff" : T.slate,
+        border: `1.5px solid ${selected ? T.clay : T.border}`,
+        borderRadius: 8, padding: "5px 11px",
+        fontSize: 12, cursor: "pointer",
+        fontFamily: "var(--app-font-sans)", fontWeight: selected ? 600 : 400,
+        display: "flex", alignItems: "center", gap: 7,
+        transition: "all 0.12s",
+      }}
+    >
+      {bg.type === "color" && bg.assetRef ? (
+        <span style={{ width: 12, height: 12, borderRadius: "50%", background: bg.assetRef, border: "1px solid rgba(0,0,0,0.15)", flexShrink: 0 }} />
+      ) : (
+        <span style={{ fontSize: 10, lineHeight: "1" }}>🖼</span>
+      )}
+      {bg.name}
+    </button>
+  );
+}
+
 function PaletteChip({ palette, selected, onClick }: { palette: ThemePalette; selected: boolean; onClick: () => void }) {
   return (
     <button
@@ -257,6 +283,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
   const [orientation, setOrientation] = useState<"vertical" | "landscape">("vertical");
   const [themeId, setThemeId]         = useState("");
   const [paletteId, setPaletteId]     = useState("");
+  const [backgroundId, setBackgroundId] = useState("");
   const [selectedPacks, setSelectedPacks]     = useState<string[]>([]);
   const [selectedInserts, setSelectedInserts] = useState<string[]>([]);
   const [calMode, setCalMode] = useState<CalMode>("none");
@@ -277,7 +304,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
     setList(list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
   }
 
-  // Auto-select first palette when theme changes
+  // Auto-select first palette when theme changes; reset background selection
   function handleThemeClick(id: string) {
     const next = themeId === id ? "" : id;
     setThemeId(next);
@@ -288,6 +315,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
     } else {
       setPaletteId("");
     }
+    setBackgroundId(""); // always reset background when theme changes
   }
 
   function buildBody(includeStoreContext = false) {
@@ -300,7 +328,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
         startYear: Number(startYear),
         monthCount: Number(monthCount),
       },
-      style: { themeId: themeId || undefined, paletteId: paletteId || undefined, packs: selectedPacks, inserts: selectedInserts },
+      style: { themeId: themeId || undefined, paletteId: paletteId || undefined, backgroundId: backgroundId || undefined, packs: selectedPacks, inserts: selectedInserts },
       output: { calMode, eventMins: 60, aiInPdf: false },
       // storeContext is included on the persisting generate call so the server can
       // enforce entitlement for this store (starter items always pass; licensed items
@@ -331,7 +359,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
     }, 600);
     return () => { clearTimeout(timer); controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startYear, startMonth, monthCount, weekStart, orientation, themeId, paletteId, selectedPacks, selectedInserts, calMode]);
+  }, [startYear, startMonth, monthCount, weekStart, orientation, themeId, paletteId, backgroundId, selectedPacks, selectedInserts, calMode]);
 
   useEffect(() => () => { if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current); }, []);
 
@@ -447,6 +475,43 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
                           palette={p}
                           selected={paletteId === p.id}
                           onClick={() => setPaletteId(paletteId === p.id ? (palettes[0]?.id ?? "") : p.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Background picker — shown when the selected theme has ≥ 1 linked background */}
+              {(() => {
+                const selectedTheme = themes.find(t => t.id === themeId);
+                const bgs = selectedTheme?.backgrounds ?? [];
+                if (!themeId || bgs.length === 0) return null;
+                return (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 7 }}>
+                      Page background
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      <button
+                        onClick={() => setBackgroundId("")}
+                        style={{
+                          background: !backgroundId ? T.navy : T.bg,
+                          color: !backgroundId ? "#fff" : T.slate,
+                          border: `1.5px solid ${!backgroundId ? T.navy : T.border}`,
+                          borderRadius: 8, padding: "5px 11px", fontSize: 12, cursor: "pointer",
+                          fontFamily: "var(--app-font-sans)", fontWeight: !backgroundId ? 600 : 400,
+                          transition: "all 0.12s",
+                        }}
+                      >
+                        None
+                      </button>
+                      {bgs.map(bg => (
+                        <BackgroundChip
+                          key={bg.id}
+                          bg={bg}
+                          selected={backgroundId === bg.id}
+                          onClick={() => setBackgroundId(backgroundId === bg.id ? "" : bg.id)}
                         />
                       ))}
                     </div>

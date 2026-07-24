@@ -446,12 +446,13 @@ router.get(
       scope?: string;
     };
 
-    // Base: owned by this store + not deleted
-    const conditions = [
-      eq(stickersLibraryTable.origin, "owned"),
-      eq(stickersLibraryTable.authoredByStoreId, storeId),
-      ne(stickersLibraryTable.status, "deleted"),
-    ];
+    // Show: owned stickers for this store + platform starter stickers (read-only)
+    const scopeFilter = or(
+      and(eq(stickersLibraryTable.origin, "owned"), eq(stickersLibraryTable.authoredByStoreId, storeId)),
+      eq(stickersLibraryTable.origin, "starter"),
+    )!;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conditions: any[] = [scopeFilter, ne(stickersLibraryTable.status, "deleted")];
 
     if (q) {
       conditions.push(ilike(stickersLibraryTable.name, `%${q}%`));
@@ -498,8 +499,7 @@ router.get(
         .from(stickersLibraryTable)
         .where(
           and(
-            eq(stickersLibraryTable.origin, "owned"),
-            eq(stickersLibraryTable.authoredByStoreId, storeId),
+            scopeFilter,
             ne(stickersLibraryTable.status, "deleted"),
             sql`${stickersLibraryTable.tags}::text ilike ${"%" + qLower + "%"}`,
           ),

@@ -15,6 +15,10 @@ export type PlannerStyle = {
   texture?: "leather" | "linen" | "smooth";
   accent?: string;
   themeId?: string | null;
+  /** Explicit palette selection within the theme — drives colors at generation time. */
+  paletteId?: string | null;
+  /** Explicit background selection within the theme — drawn as base layer at generation time. */
+  backgroundId?: string | null;
   tabTheme?: "neutral" | "accent";
   tabPos?: "right" | "top" | "bottom" | "none";
   fonts?: { heading: string; subheading: string; script: string };

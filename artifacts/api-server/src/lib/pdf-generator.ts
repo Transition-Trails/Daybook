@@ -18,6 +18,7 @@ import {
   PDFDict,
   PDFNumber,
 } from "pdf-lib";
+import { Buffer } from "node:buffer";
 import type { PlannerSetup, PlannerStyle, PlannerOutput } from "@workspace/db";
 import {
   type PageIdMap,
@@ -34,6 +35,18 @@ import {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type { PageIdMap } from "./pdf-template";
+
+/**
+ * Resolved background to render as the page base layer.
+ * Fetched from backgroundsTable before calling buildPdf/buildPreviewPdf.
+ * color  → assetRef is a hex string (#RRGGBB)
+ * image  → assetRef is a base64 PNG/JPG data URL
+ * texture→ assetRef is a base64 PNG/JPG data URL (tiled patterns handled as full-cover image)
+ */
+export interface BackgroundSpec {
+  type: string;      // "color" | "texture" | "image"
+  assetRef?: string | null;
+}
 
 export interface GeneratorConfig {
   setup: PlannerSetup;
@@ -232,6 +245,7 @@ export async function buildPdf(
   config: GeneratorConfig,
   themeColors?: string[],
   template: PlannerTemplate = DEFAULT_TEMPLATE,
+  background?: BackgroundSpec,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, monthCount, weekStart, orientation } = setup;
@@ -256,6 +270,31 @@ export async function buildPdf(
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
+  // 3a. Resolve background rendering spec (once, before the page loop).
+  // Gracefully falls back to paper fill on any error — never fails generation.
+  let bgColorOverride: { r: number; g: number; b: number } | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let bgEmbedded: any = null; // PDFImage, kept as any to avoid pdf-lib internals
+
+  if (background) {
+    if (background.type === "color" && background.assetRef) {
+      try { bgColorOverride = hexToRgb(background.assetRef); } catch { /* ignore malformed hex */ }
+    } else if (
+      (background.type === "image" || background.type === "texture") &&
+      background.assetRef?.startsWith("data:image/")
+    ) {
+      try {
+        const b64 = background.assetRef.replace(/^data:image\/[a-z+]+;base64,/, "");
+        const buf = Buffer.from(b64, "base64");
+        bgEmbedded = background.assetRef.startsWith("data:image/png")
+          ? await pdfDoc.embedPng(buf)
+          : await pdfDoc.embedJpg(buf);
+      } catch (err) {
+        console.warn("[pdf-generator] Background image embed failed — using paper fill:", (err as Error).message);
+      }
+    }
+  }
+
   // 4. Build ordered ID list and create pages
   const flat = flattenPageIds(map);
   const pageMap = new Map<string, PageWithId>();
@@ -265,7 +304,16 @@ export async function buildPdf(
     const pageRef = page.ref;
     pageMap.set(id, { id, page, pageRef });
 
-    page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(paper.r, paper.g, paper.b) });
+    // Layer 1: paper fill (color override when background type=color)
+    const paperFill = bgColorOverride ?? paper;
+    page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(paperFill.r, paperFill.g, paperFill.b) });
+
+    // Layer 2: background image (texture/image type) — drawn UNDER all content
+    if (bgEmbedded) {
+      page.drawImage(bgEmbedded, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+    }
+
+    // Layer 3: accent header + page ID (always on top of background, under content)
     page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: rgb(accent.r, accent.g, accent.b) });
     page.drawText(id, { x: MARGIN, y: pageHeight - 14, size: 7, font, color: rgb(1, 1, 1) });
   }
@@ -523,6 +571,7 @@ export async function buildPreviewPdf(
   config: GeneratorConfig,
   themeColors?: string[],
   template: PlannerTemplate = DEFAULT_TEMPLATE,
+  background?: BackgroundSpec,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, weekStart, orientation } = setup;
@@ -538,6 +587,29 @@ export async function buildPreviewPdf(
   const pageHeight = orientation === "landscape" ? PAGE_WIDTH  : PAGE_HEIGHT;
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  // Resolve background spec for preview (same logic as buildPdf)
+  let bgColorOverride: { r: number; g: number; b: number } | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let bgEmbedded: any = null;
+  if (background) {
+    if (background.type === "color" && background.assetRef) {
+      try { bgColorOverride = hexToRgb(background.assetRef); } catch { /* ignore */ }
+    } else if (
+      (background.type === "image" || background.type === "texture") &&
+      background.assetRef?.startsWith("data:image/")
+    ) {
+      try {
+        const b64 = background.assetRef.replace(/^data:image\/[a-z+]+;base64,/, "");
+        const buf = Buffer.from(b64, "base64");
+        bgEmbedded = background.assetRef.startsWith("data:image/png")
+          ? await pdfDoc.embedPng(buf)
+          : await pdfDoc.embedJpg(buf);
+      } catch (err) {
+        console.warn("[pdf-generator] Preview background embed failed:", (err as Error).message);
+      }
+    }
+  }
 
   const firstDate     = new Date(startYear, startMonth, 1);
   const firstDayId    = `d${yyyymmdd(firstDate)}`;
@@ -555,7 +627,11 @@ export async function buildPreviewPdf(
   for (const id of previewIds) {
     const page = pdfDoc.addPage([pageWidth, pageHeight]);
     pageMap.set(id, { id, page, pageRef: page.ref });
-    page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(paper.r, paper.g, paper.b) });
+    const paperFill = bgColorOverride ?? paper;
+    page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(paperFill.r, paperFill.g, paperFill.b) });
+    if (bgEmbedded) {
+      page.drawImage(bgEmbedded, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+    }
     page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: rgb(accent.r, accent.g, accent.b) });
     page.drawText(id, { x: MARGIN, y: pageHeight - 14, size: 7, font, color: rgb(1, 1, 1) });
   }

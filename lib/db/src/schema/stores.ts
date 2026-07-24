@@ -164,3 +164,74 @@ export const auditLogTable = pgTable("audit_log", {
 
 export type AuditLog = typeof auditLogTable.$inferSelect;
 export type InsertAuditLog = typeof auditLogTable.$inferInsert;
+
+// ─── STORE PROFILE & VOICE ────────────────────────────────────────────────────
+// One profile per store. Injected as grounding into every AI studio system prompt.
+
+export interface StoreProfileFacts {
+  storeName?: string;
+  pitch?: string;
+  whatTheySell?: string;
+  whoItsFor?: string;
+  differentiators?: string[];
+  links?: string[];
+}
+
+export interface StoreProfileVoice {
+  toneTags?: string[];
+  wordsWeLove?: string[];
+  wordsToAvoid?: string[];
+  formalityLevel?: "formal" | "balanced" | "casual" | "playful";
+  emojiLevel?: "none" | "light" | "heavy";
+  styleSample?: string;
+}
+
+export const storeProfilesTable = pgTable("store_profiles", {
+  storeId: text("store_id")
+    .primaryKey()
+    .references(() => storesTable.id, { onDelete: "cascade" }),
+  facts: jsonb("facts")
+    .$type<StoreProfileFacts>()
+    .notNull()
+    .default({}),
+  voice: jsonb("voice")
+    .$type<StoreProfileVoice>()
+    .notNull()
+    .default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type StoreProfile = typeof storeProfilesTable.$inferSelect;
+export type InsertStoreProfile = typeof storeProfilesTable.$inferInsert;
+
+// ─── MARKETING ASSETS ─────────────────────────────────────────────────────────
+// AI-generated marketing copy / mockup frames saved per store session.
+// assetType: "listing" | "social" | "mockup"
+// channelTarget: "etsy" | "tiktok" | "storefront" | null
+
+export const marketingAssetsTable = pgTable("marketing_assets", {
+  id: text("id").primaryKey(),
+  storeId: text("store_id")
+    .notNull()
+    .references(() => storesTable.id, { onDelete: "cascade" }),
+  assetType: text("asset_type").notNull(), // listing | social | mockup
+  title: text("title").notNull(),
+  data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+  status: text("status").notNull().default("draft"), // draft | saved
+  sourceEditionId: text("source_edition_id"),
+  sourcePackId: text("source_pack_id"),
+  channelTarget: text("channel_target"),
+  voiceSnapshot: jsonb("voice_snapshot").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type MarketingAsset = typeof marketingAssetsTable.$inferSelect;
+export type InsertMarketingAsset = typeof marketingAssetsTable.$inferInsert;

@@ -22,6 +22,9 @@ import {
   BookOpen,
   TrendingUp,
   LibraryBig,
+  Megaphone,
+  UserCircle2,
+  Settings2,
 } from "lucide-react";
 import { resolveStoreId, storesApi, type MeStore } from "@/lib/api";
 
@@ -63,10 +66,15 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
   ];
 
   const STUDIO_NAV = [
-    { label: "Theme Studio",   icon: Palette,     href: `${base}/studios/theme` },
-    { label: "Pack Studio",    icon: Sticker,     href: `${base}/studios/pack` },
-    { label: "Edition Studio", icon: BookOpen,    href: `${base}/studios/edition` },
-    { label: "Trend Research", icon: TrendingUp,  href: `${base}/studios/trends` },
+    { label: "Theme Studio",      icon: Palette,     href: `${base}/studios/theme` },
+    { label: "Pack Studio",       icon: Sticker,     href: `${base}/studios/pack` },
+    { label: "Edition Studio",    icon: BookOpen,    href: `${base}/studios/edition` },
+    { label: "Trend Research",    icon: TrendingUp,  href: `${base}/studios/trends` },
+    { label: "Marketing Studio",  icon: Megaphone,   href: `${base}/studios/marketing` },
+  ];
+
+  const SETTINGS_NAV = [
+    { label: "Store Profile & Voice", icon: UserCircle2, href: `${base}/settings/profile` },
   ];
 
   const isActive = (href: string) =>
@@ -134,6 +142,43 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
               </Link>
             );
           })}
+
+          {/* Settings section */}
+          <div className="pt-3 pb-1">
+            <div className="flex items-center gap-1.5 px-3 mb-1">
+              <Settings2 className="w-3 h-3" style={{ color: "hsl(35 20% 45%)" }} />
+              <p className="text-[10px] uppercase tracking-wider" style={{ color: "hsl(35 20% 45%)" }}>
+                Settings
+              </p>
+            </div>
+            {SETTINGS_NAV.map(({ label, icon: Icon, href }) => {
+              const active = isActive(href);
+              return (
+                <Link key={href} href={href}>
+                  <span
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors"
+                    style={
+                      active
+                        ? { background: "hsl(12 49% 58% / 0.2)", color: "hsl(12 70% 80%)" }
+                        : { color: "hsl(35 30% 70%)" }
+                    }
+                    onMouseEnter={e => {
+                      if (!active) (e.currentTarget as HTMLElement).style.background = "hsl(221 46% 23%)";
+                      if (!active) (e.currentTarget as HTMLElement).style.color = "hsl(35 50% 88%)";
+                    }}
+                    onMouseLeave={e => {
+                      if (!active) (e.currentTarget as HTMLElement).style.background = "";
+                      if (!active) (e.currentTarget as HTMLElement).style.color = "hsl(35 30% 70%)";
+                    }}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span>{label}</span>
+                    {active && <ChevronRight className="w-3 h-3 ml-auto opacity-60" />}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
 
           {/* AI Studios section */}
           <div className="pt-3 pb-1">

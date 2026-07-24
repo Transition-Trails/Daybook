@@ -70,6 +70,10 @@ import StoreThemeStudio from "@/pages/store/studios/StoreThemeStudio";
 import StorePackStudio from "@/pages/store/studios/StorePackStudio";
 import StoreEditionStudio from "@/pages/store/studios/StoreEditionStudio";
 import StoreTrendResearch from "@/pages/store/studios/StoreTrendResearch";
+import MarketingStudio from "@/pages/store/studios/MarketingStudio";
+
+// ── Store Settings ────────────────────────────────────────────────────────────
+import StoreProfile from "@/pages/store/settings/StoreProfile";
 import { useQuery } from "@tanstack/react-query";
 import { storesApi, resolveStoreId as _resolveStoreId } from "@/lib/api";
 
@@ -282,6 +286,38 @@ function RootRouter() {
                 <StoreStudioLoader storeId={p.storeId!}>
                   {(aiEnabled) => <StoreTrendResearch storeId={p.storeId!} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/studios/marketing">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreStudioLoader storeId={p.storeId!}>
+                  {(aiEnabled) => (
+                    <MarketingStudio
+                      storeId={p.storeId!}
+                      role={store.role as string}
+                      aiEnabled={aiEnabled}
+                    />
+                  )}
+                </StoreStudioLoader>
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/settings/profile">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <div className="p-8">
+                  <StoreProfile storeId={p.storeId!} role={store.role as string} />
+                </div>
               </StoreAdminShell>
             )}
           </RequireStore>

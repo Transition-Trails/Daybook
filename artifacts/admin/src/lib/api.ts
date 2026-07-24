@@ -845,3 +845,174 @@ export const catalogApi = {
   updateInsert:  (id: string, data: Partial<CatalogItem>) => apiFetch<CatalogItem>(`/inserts/${id}`,         { method: "PATCH", body: JSON.stringify(data) }),
   updateProduct: (id: string, data: Partial<CatalogItem>) => apiFetch<CatalogItem>(`/related-products/${id}`,{ method: "PATCH", body: JSON.stringify(data) }),
 };
+
+// ── Store Profile & Voice ─────────────────────────────────────────────────────
+
+export interface StoreProfileFacts {
+  storeName?: string;
+  pitch?: string;
+  whatTheySell?: string;
+  whoItsFor?: string;
+  differentiators?: string[];
+  links?: string[];
+}
+
+export interface StoreProfileVoice {
+  toneTags?: string[];
+  wordsWeLove?: string[];
+  wordsToAvoid?: string[];
+  formalityLevel?: "formal" | "balanced" | "casual" | "playful";
+  emojiLevel?: "none" | "light" | "heavy";
+  styleSample?: string;
+}
+
+export interface StoreProfile {
+  storeId: string;
+  facts: StoreProfileFacts;
+  voice: StoreProfileVoice;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const storeProfileApi = {
+  get: (storeId: string) =>
+    apiFetch<StoreProfile>(`/stores/${storeId}/profile`, {
+      headers: { "x-store-id": storeId },
+    }),
+  save: (storeId: string, data: { facts?: StoreProfileFacts; voice?: StoreProfileVoice }) =>
+    apiFetch<StoreProfile>(`/stores/${storeId}/profile`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+};
+
+// ── Marketing Studio ──────────────────────────────────────────────────────────
+
+export interface MarketingListingResult {
+  title: string;
+  description: string;
+  tags: string[];
+  channel: string;
+  model: string;
+  provider: string;
+}
+
+export interface MarketingSocialPost {
+  channel: string;
+  caption: string;
+  hashtags: string[];
+}
+
+export interface MarketingSocialResult {
+  posts: MarketingSocialPost[];
+  model: string;
+  provider: string;
+}
+
+export interface MarketingMockupFrame {
+  id: string;
+  label: string;
+  description: string;
+  imageSrc: string;
+  simulated: boolean;
+}
+
+export interface MarketingMockupResult {
+  frames: MarketingMockupFrame[];
+  simulated: boolean;
+  notice: string;
+}
+
+export interface MarketingAsset {
+  id: string;
+  storeId: string;
+  assetType: "listing" | "social" | "mockup";
+  title: string;
+  data: Record<string, unknown>;
+  status: string;
+  sourceEditionId: string | null;
+  sourcePackId: string | null;
+  channelTarget: string | null;
+  voiceSnapshot: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const marketingApi = {
+  generateListing: (
+    storeId: string,
+    data: {
+      editionId?: string;
+      packId?: string;
+      brief?: string;
+      voiceOverride?: Partial<StoreProfileVoice>;
+      channel?: "etsy" | "tiktok" | "storefront";
+    },
+  ) =>
+    apiFetch<MarketingListingResult>(`/stores/${storeId}/marketing/generate/listing`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  generateSocial: (
+    storeId: string,
+    data: {
+      editionId?: string;
+      packId?: string;
+      brief?: string;
+      voiceOverride?: Partial<StoreProfileVoice>;
+      channels?: string[];
+    },
+  ) =>
+    apiFetch<MarketingSocialResult>(`/stores/${storeId}/marketing/generate/social`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  generateMockup: (
+    storeId: string,
+    data: {
+      editionId?: string;
+      packId?: string;
+      brief?: string;
+      sceneDescription?: string;
+    },
+  ) =>
+    apiFetch<MarketingMockupResult>(`/stores/${storeId}/marketing/generate/mockup`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  listAssets: (storeId: string) =>
+    apiFetch<MarketingAsset[]>(`/stores/${storeId}/marketing/assets`, {
+      headers: { "x-store-id": storeId },
+    }),
+
+  saveAsset: (
+    storeId: string,
+    data: {
+      assetType: string;
+      title: string;
+      data: Record<string, unknown>;
+      sourceEditionId?: string;
+      sourcePackId?: string;
+      channelTarget?: string;
+      voiceSnapshot?: Record<string, unknown>;
+    },
+  ) =>
+    apiFetch<MarketingAsset>(`/stores/${storeId}/marketing/assets`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  deleteAsset: (storeId: string, id: string) =>
+    apiFetch<void>(`/stores/${storeId}/marketing/assets/${id}`, {
+      method: "DELETE",
+      headers: { "x-store-id": storeId },
+    }),
+};

@@ -13,3 +13,4 @@
 - [Palette/theme migration](palette-theme-migration.md) — palettes+backgrounds+join tables added; themes.colors preserved; generation resolves paletteId > themeId > edition fallback
 - [Background rendering](background-rendering.md) — BackgroundSpec wired into buildPdf/buildPreviewPdf; color overrides paper fill, image/texture embedded once per doc and drawn per page before content; resolution chain: backgroundId > theme_backgrounds[0] > none
 - [Starter sticker seed](starter-sticker-seed.md) — 8 starters + 3 packs seeded; run `pnpm --filter @workspace/scripts run seed-stickers`; store sticker list includes origin='starter' rows (read-only); shop themes response includes backgrounds[] field
+- [Marketing Studio](marketing-studio.md) — store profile grounding + 3-tool workbench (listing/social/mockup); profile injected server-side via profile-grounding.ts; mockup is stubbed with SVG placeholders

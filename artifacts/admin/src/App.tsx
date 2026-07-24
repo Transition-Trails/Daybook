@@ -31,6 +31,14 @@ const StorefrontHome  = lazy(() => import("@/pages/shop/StorefrontHome"));
 const ShopEditionDetail = lazy(() => import("@/pages/shop/EditionDetail"));
 const StoreBuilder    = lazy(() => import("@/pages/shop/StoreBuilder"));
 
+// Eagerly preload the two secondary shop chunks so that the first client-side
+// navigation has no Suspense delay. Called in each shop route render (idempotent).
+function preloadShopChunks() {
+  import("@/pages/shop/EditionDetail");
+  import("@/pages/shop/StoreBuilder");
+  import("@/pages/shop/StorefrontHome");
+}
+
 // ── Super Admin pages ─────────────────────────────────────────────────────────
 import SuperDashboard from "@/pages/super/Dashboard";
 import SuperStores from "@/pages/super/Stores";
@@ -305,9 +313,44 @@ function RequireStore({
 }
 
 // ── Top-level App ─────────────────────────────────────────────────────────────
-// Ink shell for shop-generated planners — requires only authentication, not super_admin.
-// Placed in AppRouter (before RootRouter) so it renders without the admin auth guard.
-const ShopInkFallback = <div style={{ minHeight: "100vh", background: "#F7F0E6" }} />;
+
+/**
+ * Visible loading screen shown while a lazy shop chunk is fetching.
+ *
+ * Root cause of "nothing is clickable": the previous fallback was a plain
+ * paper-cream <div> — identical to the storefront background — so when React
+ * suspended during the first client-side navigation the page appeared blank
+ * and there was literally nothing to click. Users interpreted this as the
+ * button not working. The spinner below makes the transition immediately
+ * visible and eliminates the perceived unresponsiveness.
+ */
+function ShopPageLoading() {
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "#F7F0E6",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 16,
+      fontFamily: "var(--app-font-sans)",
+    }}>
+      <div style={{
+        width: 40,
+        height: 40,
+        border: "3px solid #E7DCCB",
+        borderTopColor: "#C87560",
+        borderRadius: "50%",
+        animation: "shop-spin 0.8s linear infinite",
+      }} />
+      <span style={{ fontSize: 13, color: "#7A8FA6", letterSpacing: "0.01em" }}>
+        Loading…
+      </span>
+      <style>{`@keyframes shop-spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
 
 function AppRouter() {
   return (
@@ -319,41 +362,53 @@ function AppRouter() {
        *  These routes are intentionally BEFORE the /(.*) → RootRouter catch-all
        *  so they render without any auth guard. Each page handles its own auth
        *  state (sign-in prompt on the builder page, public browsing elsewhere).
-       *  Wouter regexparam note: we add explicit bare routes alongside wildcards
-       *  for the same reason as the /daybook routes above.
+       *
+       *  preloadShopChunks() is called in every shop route render so that all
+       *  three lazy modules are fetched in parallel on first visit. By the time
+       *  the user clicks through to a second page the chunk is already cached —
+       *  Suspense window collapses to near-zero after the first page load.
        */}
 
       {/* Storefront home */}
       <Route path="/s/:storeSlug">
-        {(p) => (
-          <Suspense fallback={ShopInkFallback}>
-            <StorefrontHome key={p.storeSlug} />
-          </Suspense>
-        )}
+        {(p) => {
+          preloadShopChunks();
+          return (
+            <Suspense fallback={<ShopPageLoading />}>
+              <StorefrontHome key={p.storeSlug} />
+            </Suspense>
+          );
+        }}
       </Route>
 
       {/* Edition detail */}
       <Route path="/s/:storeSlug/edition/:editionId">
-        {(p) => (
-          <Suspense fallback={ShopInkFallback}>
-            <ShopEditionDetail key={`${p.storeSlug}/${p.editionId}`} />
-          </Suspense>
-        )}
+        {(p) => {
+          preloadShopChunks();
+          return (
+            <Suspense fallback={<ShopPageLoading />}>
+              <ShopEditionDetail key={`${p.storeSlug}/${p.editionId}`} />
+            </Suspense>
+          );
+        }}
       </Route>
 
       {/* Store-scoped builder */}
       <Route path="/s/:storeSlug/edition/:editionId/build">
-        {(p) => (
-          <Suspense fallback={ShopInkFallback}>
-            <StoreBuilder key={`${p.storeSlug}/${p.editionId}`} />
-          </Suspense>
-        )}
+        {(p) => {
+          preloadShopChunks();
+          return (
+            <Suspense fallback={<ShopPageLoading />}>
+              <StoreBuilder key={`${p.storeSlug}/${p.editionId}`} />
+            </Suspense>
+          );
+        }}
       </Route>
 
       {/* Shop-facing Ink editor — auth-only (not super_admin) */}
       <Route path="/s/:storeSlug/ink/:id">
         {(p) => (
-          <Suspense fallback={ShopInkFallback}>
+          <Suspense fallback={<ShopPageLoading />}>
             <InkEditor key={p.id} />
           </Suspense>
         )}

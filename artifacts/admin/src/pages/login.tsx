@@ -46,7 +46,9 @@ export default function Login() {
       if (ev.data?.type === "daybook:auth_success") {
         window.removeEventListener("message", onMessage);
         popup?.close();
-        setLocation("/");
+        // Hard reload so React Query's stale 401 cache is cleared and
+        // the app re-fetches /auth/me with the new session cookie.
+        window.location.href = "/";
       }
     }
     window.addEventListener("message", onMessage);

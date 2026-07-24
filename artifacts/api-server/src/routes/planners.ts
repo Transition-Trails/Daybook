@@ -77,20 +77,28 @@ async function runGeneration(
     // No Google connection or token revoked — Drive upload is skipped below.
   }
 
-  // Upload PDF to Google Drive when the user has a valid token; fall back to a local stub ID
-  const pdfFileId =
-    (await uploadPlannerPdf(googleAccessToken, config.id as string, buffer)) ??
-    `pdf-${config.id}-${Date.now()}`;
-
-  // Upload config JSON to Drive alongside the PDF
-  const configFileId =
-    (await uploadPlannerConfig(googleAccessToken, config.id as string, {
-      setup: config.setup,
-      style: config.style,
-      output: config.output,
-      editionId: config.editionId,
-      generatedAt: new Date().toISOString(),
-    })) ?? `cfg-${config.id}-${Date.now()}`;
+  // Upload PDF + config to Google Drive when the user has a valid token.
+  // Fall back to local stub IDs on any Drive error (API disabled, quota, mid-flight revocation, etc.)
+  // so planner generation never fails solely because of Drive unavailability.
+  let pdfFileId: string;
+  let configFileId: string;
+  try {
+    pdfFileId =
+      (await uploadPlannerPdf(googleAccessToken, config.id as string, buffer)) ??
+      `pdf-${config.id}-${Date.now()}`;
+    configFileId =
+      (await uploadPlannerConfig(googleAccessToken, config.id as string, {
+        setup: config.setup,
+        style: config.style,
+        output: config.output,
+        editionId: config.editionId,
+        generatedAt: new Date().toISOString(),
+      })) ?? `cfg-${config.id}-${Date.now()}`;
+  } catch {
+    // Drive unavailable — planner is still saved; Drive IDs will be stub values.
+    pdfFileId = `pdf-${config.id}-${Date.now()}`;
+    configFileId = `cfg-${config.id}-${Date.now()}`;
+  }
 
   return { pdfFileId, configFileId, pageCount };
 }

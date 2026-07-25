@@ -14,6 +14,17 @@
  */
 import sharp from "sharp";
 
+/**
+ * Thrown when the source image has a user-fixable problem (corrupt bytes,
+ * wrong MIME, no detectable background).  Routes should translate this → 400.
+ */
+export class UserImageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserImageError";
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function b64ToBuffer(dataUrl: string): Buffer {
@@ -57,10 +68,18 @@ export async function removeBackground(
 ): Promise<string> {
   const input = b64ToBuffer(imageBase64);
 
-  const { data, info } = await sharp(input)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
+  let data: Buffer;
+  let info: sharp.OutputInfo;
+  try {
+    ({ data, info } = await sharp(input)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }));
+  } catch {
+    throw new UserImageError(
+      "Image could not be decoded — ensure you are sending a valid PNG, JPEG, or WebP.",
+    );
+  }
 
   const { width, height } = info;
   const px = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
@@ -97,6 +116,16 @@ export async function removeBackground(
   for (let y = 1; y < height - 1; y++) {
     seedEdge(y * width);
     seedEdge(y * width + width - 1);
+  }
+
+  // Guard: if no edge pixels matched the sampled background colour, there is
+  // no detectable uniform background — fail fast with an actionable message.
+  if (queue.length === 0) {
+    throw new UserImageError(
+      "Background could not be removed — the image does not appear to have a " +
+        "uniform background colour. Use an image with a solid background " +
+        "(white, cream, or a single consistent colour) around the subject.",
+    );
   }
 
   // BFS
@@ -184,11 +213,17 @@ export async function applyBorderAndSize(
 
   if (sizeInMm && sizeInMm > 0) {
     // 96 DPI (screen-friendly); Cricut/Silhouette use the SVG viewBox for actual cut size
-    const px = Math.max(32, Math.round((sizeInMm / 25.4) * 96));
-    img = img.resize(px, px, {
-      fit: "contain",
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    });
+    const pxSize = Math.max(32, Math.round((sizeInMm / 25.4) * 96));
+    // Materialize to PNG before resize so sharp starts with a concrete RGBA buffer.
+    // Keeping the lazy pipeline across ensureAlpha → resize loses the alpha channel
+    // in some sharp versions, resulting in a fully-opaque output.
+    const intermediate = await img.png().toBuffer();
+    img = sharp(intermediate)
+      .ensureAlpha()
+      .resize(pxSize, pxSize, {
+        fit: "contain",
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      });
   }
 
   const out = await img.png().toBuffer();
@@ -213,14 +248,22 @@ export async function applyBorderAndSize(
 export async function generateCutlineSvg(processedBase64: string): Promise<string> {
   const input = b64ToBuffer(processedBase64);
 
+  // Decode the image as raw RGBA (4 channels) to guarantee the alpha channel
+  // is accessible.  Relying on extractChannel("alpha") is fragile across sharp
+  // versions — it can silently return zeros on some builds.
   const { data, info } = await sharp(input)
     .ensureAlpha()
-    .extractChannel("alpha")
     .raw()
     .toBuffer({ resolveWithObject: true });
 
   const { width, height } = info;
-  const alpha = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  const rgba = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+
+  // Extract alpha into a flat, 1-channel array (index = y*width + x).
+  const alpha = new Uint8Array(width * height);
+  for (let i = 0; i < width * height; i++) {
+    alpha[i] = rgba[i * 4 + 3]; // A is the 4th byte of each RGBA pixel
+  }
 
   const filled = (x: number, y: number): boolean => {
     if (x < 0 || x >= width || y < 0 || y >= height) return false;
@@ -245,7 +288,13 @@ export async function generateCutlineSvg(processedBase64: string): Promise<strin
 
   const contour: [number, number][] = [[startX, startY]];
   let cx = startX, cy = startY;
-  let dir = 7; // look NW first (entry from left edge)
+  // dir = direction of the imaginary step that brought us to startX,startY —
+  // we treat it as if we stepped East (dir=3) from a hypothetical West neighbor.
+  // This makes lookFrom = (3+6)%8 = 1 (North), so the first neighbor checked is
+  // North, then clockwise: N, NE, E, SE, S, SW, W, NW.
+  // That correctly traces the top boundary of a blob whose topmost pixel was found
+  // by a top-to-bottom, left-to-right scan.
+  let dir = 3;
   const maxSteps = width * height * 2;
 
   for (let step = 0; step < maxSteps; step++) {
@@ -256,7 +305,6 @@ export async function generateCutlineSvg(processedBase64: string): Promise<strin
       const d = (lookFrom + i) % 8;
       const nx = cx + dx[d];
       const ny = cy + dy[d];
-
       if (filled(nx, ny)) {
         dir = d;
         cx = nx;

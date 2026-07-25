@@ -13,5 +13,6 @@
 - [Palette/theme migration](palette-theme-migration.md) — palettes+backgrounds+join tables added; themes.colors preserved; generation resolves paletteId > themeId > edition fallback
 - [Background rendering](background-rendering.md) — BackgroundSpec wired into buildPdf/buildPreviewPdf; color overrides paper fill, image/texture embedded once per doc and drawn per page before content; resolution chain: backgroundId > theme_backgrounds[0] > none
 - [Starter sticker seed](starter-sticker-seed.md) — 8 starters + 3 packs seeded; run `pnpm --filter @workspace/scripts run seed-stickers`; store sticker list includes origin='starter' rows (read-only); shop themes response includes backgrounds[] field
+- [Moore tracer init](moore-tracer-init.md) — initial dir=3 (East), NOT 7; also extractChannel("alpha") is unreliable — use manual rgba[i*4+3] extraction instead
 - [Marketing Studio](marketing-studio.md) — store profile grounding + 3-tool workbench (listing/social/mockup); profile injected server-side via profile-grounding.ts; mockup is stubbed with SVG placeholders
 - [Studio grounding pattern](studio-grounding.md) — all 4 studio generate calls moved server-side; validateProductOwnership guards cross-store editionId/packId; copilot endpoint uses conversation history + grounding

@@ -50,6 +50,7 @@ import {
   removeBackground,
   applyBorderAndSize,
   generateCutlineSvg,
+  UserImageError,
 } from "../lib/imageProcessing";
 import type { ActorContext } from "../lib/roles";
 
@@ -616,6 +617,14 @@ router.post(
       return;
     }
 
+    // Size guard — reject before the expensive pipeline (5 MB decoded ≈ 6.7 MB base64)
+    const b64Payload = imageBase64.replace(/^data:image\/[a-z+]+;base64,/, "");
+    const approxBytes = Math.ceil(b64Payload.length * 0.75);
+    if (approxBytes > 5 * 1024 * 1024) {
+      res.status(400).json({ error: "Image too large — maximum 5 MB per sticker" });
+      return;
+    }
+
     const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
     if (reqStatus === "live" && !canPublish) {
       res.status(403).json({ error: "Publishing requires store_owner role" });
@@ -652,8 +661,12 @@ router.post(
       processedImageData = result.processedImageData;
       cutlineSvg = result.cutlineSvg;
     } catch (pipelineErr) {
-      req.log.error({ err: pipelineErr }, "sticker pipeline failed");
-      res.status(500).json({ error: "Image processing failed" });
+      if (pipelineErr instanceof UserImageError) {
+        res.status(400).json({ error: pipelineErr.message });
+      } else {
+        req.log.error({ err: pipelineErr }, "sticker pipeline failed");
+        res.status(500).json({ error: "Image processing failed" });
+      }
       return;
     }
 
@@ -851,8 +864,12 @@ router.patch(
         updateData.processedImageData = result.processedImageData;
         updateData.cutlineSvg = result.cutlineSvg;
       } catch (pipelineErr) {
-        req.log.error({ err: pipelineErr }, "sticker pipeline re-run failed");
-        res.status(500).json({ error: "Image processing failed" });
+        if (pipelineErr instanceof UserImageError) {
+          res.status(400).json({ error: pipelineErr.message });
+        } else {
+          req.log.error({ err: pipelineErr }, "sticker pipeline re-run failed");
+          res.status(500).json({ error: "Image processing failed" });
+        }
         return;
       }
     }

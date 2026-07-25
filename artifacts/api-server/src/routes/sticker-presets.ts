@@ -12,7 +12,17 @@ import { Router, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { stylePresetsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { requireStoreAccess, assertSameStore } from "../lib/roles";
+import { requireStoreAccess } from "../middleware/requireRole";
+import type { ActorContext } from "../lib/roles";
+
+function assertSameStore(actor: ActorContext, urlStoreId: string, res: import("express").Response): boolean {
+  if (actor.isSuperAdmin) return true;
+  if (actor.storeId !== urlStoreId) {
+    res.status(403).json({ error: "Access denied: store mismatch" });
+    return false;
+  }
+  return true;
+}
 
 const router = Router();
 

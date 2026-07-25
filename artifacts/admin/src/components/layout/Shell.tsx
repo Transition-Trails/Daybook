@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { label: "Planner builder", icon: Wand2,       href: "/planners/builder", group: "Products" },
   { label: "Ink ✦",          icon: Pen,         href: "/ink",              group: "Products" },
   { label: "Theme Studio",    icon: Palette,     href: "/studios/theme",    group: "AI Studios" },
-  { label: "Pack Studio",     icon: Sticker,     href: "/studios/pack",     group: "AI Studios" },
+  { label: "Sticker Studio",  icon: Sticker,     href: "/studios/stickers", group: "AI Studios" },
   { label: "Edition Studio",  icon: BookOpen,    href: "/studios/edition",  group: "AI Studios" },
   { label: "Trend Research",  icon: TrendingUp,  href: "/studios/trends",   group: "AI Studios" },
   { label: "Users",           icon: Users,       href: "/users",            group: "System" },

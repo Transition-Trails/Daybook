@@ -1104,6 +1104,19 @@ router.post(
       for (let i = 1; i <= 12; i++) labelsAndTypes.push({ label: String(i).padStart(2, "0"), functionType: "date", defaultSizeMm: 12 });
     }
 
+    // ── Pack ownership guard ─────────────────────────────────────────────────
+    // Validate before the loop so we fail fast without creating orphaned stickers.
+    if (packId) {
+      const [ownedPack] = await db
+        .select({ id: stickerPacksTable.id })
+        .from(stickerPacksTable)
+        .where(and(eq(stickerPacksTable.id, packId), eq(stickerPacksTable.authoredByStoreId, storeId)));
+      if (!ownedPack) {
+        res.status(404).json({ error: "packId not found or does not belong to this store" });
+        return;
+      }
+    }
+
     const resolvedExportTargets = exportTargets ?? { goodnotes: true, ink: true, cricut: false };
     const createdIds: string[] = [];
 
@@ -1151,7 +1164,7 @@ router.post(
 
       createdIds.push(row.id);
 
-      // Optionally add to a pack immediately
+      // Optionally add to a pack immediately (ownership already verified before loop)
       if (packId) {
         const [posRow] = await db
           .select({ maxPos: sql<number>`max(${packStickersTable.position})` })

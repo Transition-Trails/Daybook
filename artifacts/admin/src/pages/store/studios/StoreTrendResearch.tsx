@@ -61,7 +61,7 @@ export default function StoreTrendResearch({ storeId, aiEnabled }: Props) {
 
   const goToPack = (idea: string) => {
     sessionStorage.setItem(`studioIdea:${storeId}`, idea);
-    navigate(`/store/${storeId}/studios/pack`);
+    navigate(`/store/${storeId}/studios/stickers`);
   };
 
   return (

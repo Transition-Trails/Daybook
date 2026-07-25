@@ -4,7 +4,7 @@
  * the standard /api prefix routed by the Replit path proxy.
  */
 
-async function apiFetch<T = unknown>(
+export async function apiFetch<T = unknown>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {

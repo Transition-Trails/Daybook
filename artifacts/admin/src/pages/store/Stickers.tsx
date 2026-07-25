@@ -1077,9 +1077,9 @@ export default function Stickers({ storeId, role }: Props) {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setLocation(`/store/${storeId}/studios/pack`)}
+              onClick={() => setLocation(`/store/${storeId}/studios/stickers`)}
             >
-              Pack Studio →
+              Sticker Studio →
             </Button>
           )}
           {isOwner && (

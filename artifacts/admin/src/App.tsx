@@ -67,7 +67,7 @@ import Stickers from "@/pages/store/Stickers";
 
 // ── Store AI Studios ──────────────────────────────────────────────────────────
 import StoreThemeStudio from "@/pages/store/studios/StoreThemeStudio";
-import StorePackStudio from "@/pages/store/studios/StorePackStudio";
+import StoreStudioPage from "@/pages/store/studios/StoreStudioPage";
 import StoreEditionStudio from "@/pages/store/studios/StoreEditionStudio";
 import StoreTrendResearch from "@/pages/store/studios/StoreTrendResearch";
 import MarketingStudio from "@/pages/store/studios/MarketingStudio";
@@ -252,13 +252,27 @@ function RootRouter() {
           </RequireStore>
         )}
       </Route>
+      <Route path="/store/:storeId/studios/stickers">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreStudioLoader storeId={p.storeId!}>
+                  {(aiEnabled) => <StoreStudioPage storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
+                </StoreStudioLoader>
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      {/* Legacy redirect — old /studios/pack path now served by StoreStudioPage */}
       <Route path="/store/:storeId/studios/pack">
         {(p) => (
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
                 <StoreStudioLoader storeId={p.storeId!}>
-                  {(aiEnabled) => <StorePackStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
+                  {(aiEnabled) => <StoreStudioPage storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
             )}

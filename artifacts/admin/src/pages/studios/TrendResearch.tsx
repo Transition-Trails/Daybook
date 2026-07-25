@@ -70,7 +70,7 @@ export default function TrendResearch() {
 
   const goToPack = (idea: string) => {
     sessionStorage.setItem("studioIdea", idea);
-    navigate("/studios/pack");
+    navigate("/studios/stickers");
   };
 
   return (

@@ -19,7 +19,7 @@ import TrendsResearch from '@/pages/trends';
 import PlannerBuilder from '@/pages/planners/builder';
 import CalendarPage from '@/pages/calendar';
 import ThemeStudio from '@/pages/studios/ThemeStudio';
-import PackStudio from '@/pages/studios/PackStudio';
+import StickerStudio from '@/pages/studios/StickerStudio';
 import EditionStudio from '@/pages/studios/EditionStudio';
 import StudioTrendResearch from '@/pages/studios/TrendResearch';
 import PlannerLibrary from '@/pages/ink/PlannerLibrary';
@@ -48,7 +48,8 @@ export const routes = [
   { path: "/calendar", component: CalendarPage },
   // AI Studios (super_admin, Daybook console)
   { path: "/studios/theme", component: ThemeStudio },
-  { path: "/studios/pack", component: PackStudio },
+  { path: "/studios/stickers", component: StickerStudio },
+  { path: "/studios/pack", component: StickerStudio }, // legacy redirect
   { path: "/studios/edition", component: EditionStudio },
   { path: "/studios/trends", component: StudioTrendResearch },
 ];

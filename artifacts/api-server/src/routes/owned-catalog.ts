@@ -299,11 +299,13 @@ router.post(
     if (!assertSameStore(actor, storeId, res)) return;
     if (!(await assertAiEnabled(storeId, res))) return;
 
-    const { name, tags, price, status: reqStatus } = req.body as {
+    const { name, tags, price, status: reqStatus, attestation, attestingTool } = req.body as {
       name: string;
       tags?: string[];
       price?: number;
       status?: "draft" | "live";
+      attestation?: "own-or-licensed" | "ai-generated";
+      attestingTool?: string;
     };
 
     if (!name) {
@@ -321,6 +323,15 @@ router.post(
     }
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
+    // ── Attestation gate — required before any publish ───────────────────────
+    if (status === "live" && !attestation) {
+      res.status(409).json({
+        error: "Pack cannot be published without attestation. Confirm intellectual property rights in the request body before publishing.",
+        code: "ATTESTATION_REQUIRED",
+      });
+      return;
+    }
+
     // ── Dedup guard ──────────────────────────────────────────────────────────
     const dupPack = await findOwnedDup(stickerPacksTable, storeId, name);
     if (dupPack) {
@@ -331,9 +342,14 @@ router.post(
         });
         return;
       }
+      const upsertData: Partial<typeof stickerPacksTable.$inferInsert> = {
+        name, tags: (tags ?? []) as string[], price: price ?? 0, status,
+      };
+      if (attestation !== undefined) upsertData.attestation = attestation;
+      if (attestingTool !== undefined) upsertData.attestingTool = attestingTool;
       const [updated] = await db
         .update(stickerPacksTable)
-        .set({ name, tags: (tags ?? []) as string[], price: price ?? 0, status })
+        .set(upsertData)
         .where(eq(stickerPacksTable.id, dupPack.id))
         .returning();
       await writeAudit(db, {
@@ -359,6 +375,8 @@ router.post(
           globalAvailable: false,
           origin: "owned",
           authoredByStoreId: storeId,
+          ...(attestation !== undefined && { attestation }),
+          ...(attestingTool !== undefined && { attestingTool }),
         })
         .returning();
 
@@ -707,11 +725,23 @@ router.patch(
       res.status(403).json({ error: "Staff can only edit draft items" }); return;
     }
 
-    const { name, tags, price, status } = req.body as {
+    const { name, tags, price, status, attestation, attestingTool } = req.body as {
       name?: string; tags?: string[]; price?: number; status?: "draft" | "live";
+      attestation?: "own-or-licensed" | "ai-generated";
+      attestingTool?: string;
     };
     if (status !== undefined && isStaff) {
       res.status(403).json({ error: "Publishing/unpublishing requires store_owner role" }); return;
+    }
+
+    // Attestation gate — a pack cannot go live without IP attestation
+    const resolvedAttestation = attestation ?? row.attestation;
+    if (status === "live" && !resolvedAttestation) {
+      res.status(409).json({
+        error: "Pack cannot be published without attestation. Confirm intellectual property rights in the request body before publishing.",
+        code: "ATTESTATION_REQUIRED",
+      });
+      return;
     }
 
     const updateData: Partial<typeof stickerPacksTable.$inferInsert> = {};
@@ -719,6 +749,8 @@ router.patch(
     if (tags !== undefined) updateData.tags = tags as string[];
     if (price !== undefined) updateData.price = price;
     if (status !== undefined) updateData.status = status;
+    if (attestation !== undefined) updateData.attestation = attestation;
+    if (attestingTool !== undefined) updateData.attestingTool = attestingTool;
     if (Object.keys(updateData).length === 0) { res.json(row); return; }
 
     const [updated] = await db.update(stickerPacksTable).set(updateData).where(eq(stickerPacksTable.id, id)).returning();

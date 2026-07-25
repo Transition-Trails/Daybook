@@ -25,6 +25,7 @@ import {
   stickersLibraryTable,
   packStickersTable,
   stickerPacksTable,
+  stylePresetsTable,
   auditLogTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -701,5 +702,204 @@ describe("5. Error paths", () => {
       .send({ name: `FT Error ${RUN}`, functionType: "invalid-type", imageBase64 });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/functionType/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sticker Studio — batch, text-set, presets (new routes added in Task #35)
+// ─────────────────────────────────────────────────────────────────────────────
+
+import stickerPresetsRouter from "../routes/sticker-presets.js";
+import type { StylePreset } from "@workspace/db";
+
+/** Combined app: stickersRouter + stickerPresetsRouter mounted under /api */
+function makeStudioApp(user: User | null) {
+  const app = express();
+  app.use(express.json({ limit: "10mb" }));
+  app.use((_req: Request, _res: Response, next: NextFunction) => {
+    (_req as unknown as Record<string, unknown>).log = {
+      error: () => {}, warn: () => {}, info: () => {}, debug: () => {},
+    };
+    next();
+  });
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    const r = req as unknown as Record<string, unknown>;
+    r.isAuthenticated = () => user !== null;
+    r.user = user ?? undefined;
+    next();
+  });
+  app.use("/api", stickersRouter);
+  app.use("/api", stickerPresetsRouter);
+  return app;
+}
+
+describe("Sticker Studio — batch create", () => {
+  let studioOwnerApp: ReturnType<typeof makeStudioApp>;
+
+  beforeAll(() => {
+    studioOwnerApp = makeStudioApp(ALPHA_OWNER);
+  });
+
+  it("batch: empty items array → 400", async () => {
+    const res = await request(studioOwnerApp)
+      .post(`/api/stores/${STORE_ID}/stickers/batch`)
+      .send({ items: [] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/non-empty/i);
+  });
+
+  it("batch: over-limit → 400", async () => {
+    const items = Array.from({ length: 51 }, (_, i) => ({ name: `sticker-${i}`, imageBase64: "data:image/png;base64,abc", functionType: "tab" }));
+    const res = await request(studioOwnerApp)
+      .post(`/api/stores/${STORE_ID}/stickers/batch`)
+      .send({ items });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/limit/i);
+  });
+
+  it("batch: one valid item + one item missing name → partial result", async () => {
+    const imageBase64 = await makeWhiteBackgroundImage();
+    const items = [
+      {
+        name: `BatchSmoke-${RUN}`,
+        imageBase64,
+        functionType: "decorative",
+        exportTargets: { goodnotes: true, ink: true, cricut: false },
+      },
+      {
+        // missing name — should fail gracefully
+        imageBase64,
+        functionType: "decorative",
+      },
+    ];
+
+    const res = await request(studioOwnerApp)
+      .post(`/api/stores/${STORE_ID}/stickers/batch`)
+      .send({ items });
+
+    expect(res.status).toBe(200);
+    expect(res.body.results).toHaveLength(2);
+    expect(res.body.succeeded).toBe(1);
+    expect(res.body.failed).toBe(1);
+
+    // Successful item has an id
+    const ok = res.body.results.find((r: { status: string }) => r.status === "ok");
+    expect(ok?.id).toBeTruthy();
+
+    // Failed item has a reason
+    const failed = res.body.results.find((r: { status: string }) => r.status === "failed");
+    expect(failed?.reason).toBeTruthy();
+  });
+});
+
+describe("Sticker Studio — text-set generate", () => {
+  let studioOwnerApp: ReturnType<typeof makeStudioApp>;
+
+  beforeAll(() => {
+    studioOwnerApp = makeStudioApp(ALPHA_OWNER);
+  });
+
+  it("text-set invalid setType → 400", async () => {
+    const res = await request(studioOwnerApp)
+      .post(`/api/stores/${STORE_ID}/stickers/generate/text-set`)
+      .send({ setType: "not-a-real-set" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/setType/i);
+  });
+
+  it("text-set dates-1-31 → creates 31 draft stickers", async () => {
+    const res = await request(studioOwnerApp)
+      .post(`/api/stores/${STORE_ID}/stickers/generate/text-set`)
+      .send({ setType: "dates-1-31", color: "#1A202C", sizeInMm: 12 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.created).toBe(31);
+    expect(Array.isArray(res.body.ids)).toBe(true);
+    expect(res.body.ids).toHaveLength(31);
+
+    // Verify the first sticker was actually persisted in the DB
+    const [row] = await db
+      .select({ id: stickersLibraryTable.id, name: stickersLibraryTable.name, status: stickersLibraryTable.status, generationType: stickersLibraryTable.generationType })
+      .from(stickersLibraryTable)
+      .where(eq(stickersLibraryTable.id, res.body.ids[0]));
+    expect(row).toBeTruthy();
+    expect(row.status).toBe("draft");
+    expect(row.generationType).toBe("text-set");
+    expect(row.name).toContain("dates-1-31");
+  }, 60_000);
+});
+
+describe("Sticker Studio — style presets CRUD", () => {
+  let studioOwnerApp: ReturnType<typeof makeStudioApp>;
+  let createdPresetId: string;
+
+  beforeAll(() => {
+    studioOwnerApp = makeStudioApp(ALPHA_OWNER);
+  });
+
+  afterAll(async () => {
+    // Clean up any presets created in this run
+    if (createdPresetId) {
+      await db.delete(stylePresetsTable).where(eq(stylePresetsTable.id, createdPresetId)).catch(() => {});
+    }
+  });
+
+  it("create style preset → 201 with correct fields", async () => {
+    const presetName = `Test Preset ${RUN}`;
+    const res = await request(studioOwnerApp)
+      .post(`/api/stores/${STORE_ID}/sticker-presets`)
+      .send({
+        name: presetName,
+        borderStyle: "thin",
+        borderWidth: 1.5,
+        borderColor: "#FFFFFF",
+        sizeInMm: 25,
+        shadowStyle: "soft",
+        shadowLiftPx: 4,
+        exportTargets: { goodnotes: true, ink: true, cricut: false },
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.name).toBe(presetName);
+    expect(res.body.borderStyle).toBe("thin");
+    expect(res.body.shadowStyle).toBe("soft");
+    expect(res.body.storeId).toBe(STORE_ID);
+    createdPresetId = res.body.id;
+  });
+
+  it("list style presets → includes created preset", async () => {
+    const res = await request(studioOwnerApp)
+      .get(`/api/stores/${STORE_ID}/sticker-presets`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    const found = res.body.find((p: StylePreset) => p.id === createdPresetId);
+    expect(found).toBeTruthy();
+  });
+
+  it("patch style preset → reflects update", async () => {
+    const res = await request(studioOwnerApp)
+      .patch(`/api/stores/${STORE_ID}/sticker-presets/${createdPresetId}`)
+      .send({ shadowStyle: "lifted", shadowLiftPx: 8 });
+    expect(res.status).toBe(200);
+    expect(res.body.shadowStyle).toBe("lifted");
+    expect(res.body.shadowLiftPx).toBe(8);
+  });
+
+  it("delete style preset → 204", async () => {
+    const res = await request(studioOwnerApp)
+      .delete(`/api/stores/${STORE_ID}/sticker-presets/${createdPresetId}`);
+    expect(res.status).toBe(204);
+    createdPresetId = ""; // don't double-delete in afterAll
+
+    // Verify it's gone
+    const check = await request(studioOwnerApp)
+      .get(`/api/stores/${STORE_ID}/sticker-presets/${createdPresetId || "nonexistent"}`);
+    expect(check.status).toBe(404);
+  });
+
+  it("get preset from another store → 403", async () => {
+    const res = await request(studioOwnerApp)
+      .get(`/api/stores/store-beta/sticker-presets`);
+    expect(res.status).toBe(403);
   });
 });

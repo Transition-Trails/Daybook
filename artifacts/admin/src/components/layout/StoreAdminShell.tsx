@@ -67,7 +67,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
 
   const STUDIO_NAV = [
     { label: "Theme Studio",      icon: Palette,     href: `${base}/studios/theme` },
-    { label: "Pack Studio",       icon: Sticker,     href: `${base}/studios/pack` },
+    { label: "Sticker Studio",    icon: Sticker,     href: `${base}/studios/stickers` },
     { label: "Edition Studio",    icon: BookOpen,    href: `${base}/studios/edition` },
     { label: "Trend Research",    icon: TrendingUp,  href: `${base}/studios/trends` },
     { label: "Marketing Studio",  icon: Megaphone,   href: `${base}/studios/marketing` },

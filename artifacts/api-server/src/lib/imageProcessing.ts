@@ -12,7 +12,7 @@
  * produce cleaner masks — swap removeBackground() to call that API when an API key is
  * available.
  */
-import sharp from "sharp";
+import sharp, { type OutputInfo } from "sharp";
 
 /**
  * Thrown when the source image has a user-fixable problem (corrupt bytes,
@@ -69,7 +69,7 @@ export async function removeBackground(
   const input = b64ToBuffer(imageBase64);
 
   let data: Buffer;
-  let info: sharp.OutputInfo;
+  let info: OutputInfo;
   try {
     ({ data, info } = await sharp(input)
       .ensureAlpha()

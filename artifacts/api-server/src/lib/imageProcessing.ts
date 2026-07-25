@@ -339,6 +339,141 @@ export async function generateCutlineSvg(processedBase64: string): Promise<strin
   ].join("\n");
 }
 
+// ── Edge feather ─────────────────────────────────────────────────────────────
+
+/**
+ * Applies a gaussian alpha-channel blur on the silhouette edge.
+ * Only softens existing edge pixels — does not expand the image bounds.
+ * Used for photo stickers to blend the cutout into the page.
+ */
+export async function edgeFeather(
+  processedBase64: string,
+  px: number,
+): Promise<string> {
+  if (!px || px <= 0) return processedBase64;
+  const input = b64ToBuffer(processedBase64);
+
+  // Decode as RGBA
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { width, height } = info;
+  const rgba = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+
+  // Extract alpha as single-channel grayscale buffer
+  const alphaBuf = Buffer.alloc(width * height);
+  for (let i = 0; i < width * height; i++) {
+    alphaBuf[i] = rgba[i * 4 + 3];
+  }
+
+  // Blur the alpha mask to get feathered edges
+  const blurredAlpha = await sharp(alphaBuf, { raw: { width, height, channels: 1 } })
+    .blur(Math.max(0.3, px / 2))
+    .raw()
+    .toBuffer();
+
+  // Multiply original alpha by blurred alpha (normalised 0–1)
+  // This keeps interior pixels opaque and fades the edges
+  const out = Buffer.from(rgba);
+  for (let i = 0; i < width * height; i++) {
+    const origA = rgba[i * 4 + 3];
+    if (origA > 0) {
+      out[i * 4 + 3] = Math.round((origA / 255) * blurredAlpha[i]);
+    }
+  }
+
+  const result = await sharp(out, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
+  return bufferToDataUrl(result);
+}
+
+// ── Drop shadow ───────────────────────────────────────────────────────────────
+
+/**
+ * Bakes an alpha-based drop shadow into the PNG.
+ *
+ * The canvas is expanded by the blur radius + offset so the shadow is never
+ * clipped. The cut-line must be generated from the PRE-shadow image (before
+ * calling this function) so the trace follows the subject silhouette, not the
+ * shadow halo.
+ *
+ * style:
+ *   flat       — 1 px offset, tight 2 px blur, 30% opacity
+ *   soft       — liftPx offset, 8 px blur, 40% opacity
+ *   lifted     — 1.5×liftPx offset, 12 px blur, 50% opacity
+ *   cut-paper  — 2 px offset, 3 px blur, 80% opacity (dense paper-cut look)
+ */
+export async function addDropShadow(
+  processedBase64: string,
+  style: string,
+  liftPx = 4,
+): Promise<string> {
+  const blurRadius =
+    style === "flat" ? 2 : style === "soft" ? 8 : style === "lifted" ? 12 : 3;
+  const offX =
+    style === "flat" ? 1 : style === "soft" ? liftPx : style === "lifted" ? Math.round(liftPx * 1.5) : 2;
+  const offY = offX; // uniform for now
+  const shadowOpacity =
+    style === "flat" ? 0.3 : style === "soft" ? 0.4 : style === "lifted" ? 0.5 : 0.8;
+
+  const input = b64ToBuffer(processedBase64);
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { width, height } = info;
+  const rgba = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+
+  // Expanded canvas dimensions
+  const pad = blurRadius * 2 + Math.max(Math.abs(offX), Math.abs(offY)) + 4;
+  const newW = width + pad * 2;
+  const newH = height + pad * 2;
+
+  // Build shadow layer: black mask shifted by offset
+  const shadowBuf = Buffer.alloc(newW * newH * 4, 0);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const srcA = rgba[(y * width + x) * 4 + 3];
+      if (srcA === 0) continue;
+      const dstX = x + pad + offX;
+      const dstY = y + pad + offY;
+      if (dstX < 0 || dstX >= newW || dstY < 0 || dstY >= newH) continue;
+      const idx = (dstY * newW + dstX) * 4;
+      shadowBuf[idx + 3] = Math.round(srcA * shadowOpacity);
+    }
+  }
+
+  // Blur the shadow
+  const shadowPng = await sharp(shadowBuf, { raw: { width: newW, height: newH, channels: 4 } })
+    .blur(blurRadius)
+    .png()
+    .toBuffer();
+
+  // Place the original on the expanded transparent canvas
+  const origPng = await sharp(input).ensureAlpha().png().toBuffer();
+  const expandedPng = await sharp({
+    create: { width: newW, height: newH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .png()
+    .toBuffer()
+    .then((blank) =>
+      sharp(blank)
+        .composite([{ input: origPng, top: pad, left: pad }])
+        .png()
+        .toBuffer(),
+    );
+
+  // Composite: shadow behind original
+  const result = await sharp(shadowPng)
+    .composite([{ input: expandedPng, blend: "over" }])
+    .png()
+    .toBuffer();
+
+  return bufferToDataUrl(result);
+}
+
 // ── Ramer-Douglas-Peucker polyline simplification ────────────────────────────
 
 function rdp(

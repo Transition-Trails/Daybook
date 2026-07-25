@@ -72,6 +72,13 @@ export const stickerPacksTable = pgTable("sticker_packs", {
   globalAvailable: boolean("global_available").notNull().default(true),
   origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
   authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
+  // ── Commercial resale attestation (Sticker Studio §J) ─────────────────
+  // Required before publishing. "own-or-licensed" | "ai-generated"
+  attestation: text("attestation"),
+  // Name of the AI tool used (only relevant when attestation = "ai-generated")
+  attestingTool: text("attesting_tool"),
+  // Optional seller-uploaded customer instruction PDF (base64 or ref)
+  instructionSheetFileId: text("instruction_sheet_file_id"),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -196,6 +203,20 @@ export const stickersLibraryTable = pgTable("stickers_library", {
     .notNull()
     .default({ goodnotes: true, ink: true, cricut: false })
     .$type<StickerExportTargets>(),
+  // ── Sticker Studio extended fields ────────────────────────────────────
+  // How this sticker was created: upload through pipeline, Claude SVG, text render, or AI-prompted art.
+  generationType: text("generation_type"), // upload | functional-svg | text-set | illustrative-prompt
+  // Nature of the source art; drives export and pipeline decisions.
+  sourceType: text("source_type"), // photo | flat-art | generated-text | generated-svg
+  // Drop shadow baked into the PNG at export time.
+  shadowStyle: text("shadow_style"), // flat | soft | lifted | cut-paper
+  shadowLiftPx: real("shadow_lift_px"),
+  // Gaussian alpha blur on the silhouette edge (photo stickers).
+  edgeFeatherPx: real("edge_feather_px"),
+  // Human-readable label within a set, e.g. "Monday" or "14" for text-set stickers.
+  setLabel: text("set_label"),
+  // Slug that drives download filename; default "set_function_label_size".
+  fileNamePattern: text("file_name_pattern"),
   // ── Processed assets (stored as base64 data URLs) ──────────────────────
   // The cutout PNG with transparent background; produced by the pipeline.
   processedImageData: text("processed_image_data"),
@@ -351,3 +372,43 @@ export const themePacksTable = pgTable(
 
 export type ThemePackRow = typeof themePacksTable.$inferSelect;
 export type InsertThemePack = typeof themePacksTable.$inferInsert;
+
+// ─── STYLE PRESETS ────────────────────────────────────────────────────────────
+// Reusable styling profiles for the Sticker Studio batch toolbar.
+// Owned by a store; applied to selected stickers in a batch.
+
+export interface StylePresetExportTargets {
+  goodnotes: boolean;
+  ink: boolean;
+  cricut: boolean;
+}
+
+export const stylePresetsTable = pgTable("style_presets", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  storeId: text("store_id")
+    .notNull()
+    .references(() => storesTable.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  borderStyle: text("border_style").notNull().default("none"), // none | thin | white
+  borderWidth: real("border_width"),
+  borderColor: text("border_color"),
+  sizeInMm: real("size_in_mm"),
+  shadowStyle: text("shadow_style"), // flat | soft | lifted | cut-paper
+  shadowLiftPx: real("shadow_lift_px"),
+  exportTargets: jsonb("export_targets")
+    .notNull()
+    .default({ goodnotes: true, ink: true, cricut: false })
+    .$type<StylePresetExportTargets>(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type StylePreset = typeof stylePresetsTable.$inferSelect;
+export type InsertStylePreset = typeof stylePresetsTable.$inferInsert;

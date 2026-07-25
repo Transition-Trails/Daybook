@@ -867,6 +867,9 @@ export interface CopilotAction {
 }
 export interface CopilotResult { message: string; action?: CopilotAction; }
 
+export interface InsertGenerateResult { svgData: string; hotspotMap: unknown; model: string; provider: string; }
+export interface WidgetGenerateResult { svgData: string; hotspotMap: unknown; model: string; provider: string; }
+
 export const studioGenerateApi = {
   generateTheme: (storeId: string, data: { prompt: string }) =>
     apiFetch<ThemeGenerateResult>(`/stores/${storeId}/studios/theme/generate`, {
@@ -882,6 +885,16 @@ export const studioGenerateApi = {
     }),
   generateTrends: (storeId: string, data: { prompt: string }) =>
     apiFetch<TrendsGenerateResult>(`/stores/${storeId}/studios/trends/generate`, {
+      method: "POST", body: JSON.stringify(data), headers: { "x-store-id": storeId },
+    }),
+  /** Generate a recolourable vector insert page SVG. */
+  insert: (storeId: string, data: { prompt: string; exampleImageBase64?: string }) =>
+    apiFetch<InsertGenerateResult>(`/stores/${storeId}/studios/insert/generate`, {
+      method: "POST", body: JSON.stringify(data), headers: { "x-store-id": storeId },
+    }),
+  /** Generate a functional widget SVG (tracker, grid, etc.). */
+  widget: (storeId: string, data: { prompt: string; sizeVariant?: "7-day" | "30-day" | "month" }) =>
+    apiFetch<WidgetGenerateResult>(`/stores/${storeId}/studios/widget/generate`, {
       method: "POST", body: JSON.stringify(data), headers: { "x-store-id": storeId },
     }),
 };
@@ -1069,3 +1082,151 @@ export const marketingApi = {
       headers: { "x-store-id": storeId },
     }),
 };
+
+// ── Store Planners ─────────────────────────────────────────────────────────────
+
+export type PlannerDatingMode = "dated" | "undated" | "perpetual";
+
+export interface StorePlannerSetup {
+  weekStart: "sun" | "mon";
+  orientation: "landscape" | "vertical";
+  startMonth: number;
+  startYear: number;
+  monthCount: number;
+  datingMode?: PlannerDatingMode;
+}
+
+export interface StorePlannerStyle {
+  themeId?: string | null;
+  paletteId?: string | null;
+  backgroundId?: string | null;
+  tabPos?: "right" | "top" | "bottom" | "none";
+  tabTheme?: "neutral" | "accent";
+  tabShape?: string;
+  notePaper?: "dot" | "graph" | "lined" | "mixed";
+  sections?: string[];
+  renderStyle?: "realistic" | "flat";
+  size?: "A5" | "B6" | "Personal" | "Half letter" | "Letter" | "iPad 4:3";
+  binding?: { type: "coil" | "twin-loop" | "discs" | "3-ring" | "none"; finish: "gold" | "rose gold" | "silver" | "matte black" | "white" };
+  paperColour?: "cream" | "white" | "ivory" | "kraft" | "slate";
+  coverType?: "texture" | "photo" | "pattern" | "solid";
+  coverTitle?: string;
+  coverSubtitle?: string;
+  coverYear?: number;
+}
+
+export interface StorePlannerOutput {
+  calMode?: "none" | "google" | "ics";
+  eventMins?: number;
+  aiInPdf?: boolean;
+}
+
+export interface StorePlannerConfig {
+  id: string;
+  userId: string;
+  storeId: string | null;
+  editionId: string | null;
+  year: number | null;
+  setup: StorePlannerSetup;
+  style: StorePlannerStyle;
+  output: StorePlannerOutput;
+  drive: { pdfFileId: string | null; configFileId: string | null };
+  generatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StorePlannerResult {
+  id: string;
+  drive: { pdfFileId: string | null; configFileId: string | null };
+  pageCount: number;
+  fileName: string;
+}
+
+export const storePlannersApi = {
+  list: (storeId: string) =>
+    apiFetch<StorePlannerConfig[]>(`/stores/${storeId}/planners`, {
+      headers: { "x-store-id": storeId },
+    }),
+
+  get: (storeId: string, id: string) =>
+    apiFetch<StorePlannerConfig>(`/stores/${storeId}/planners/${id}`, {
+      headers: { "x-store-id": storeId },
+    }),
+
+  create: (
+    storeId: string,
+    data: {
+      editionId?: string;
+      year?: number;
+      setup: StorePlannerSetup;
+      style?: StorePlannerStyle;
+      output?: StorePlannerOutput;
+    },
+  ) =>
+    apiFetch<StorePlannerResult>(`/stores/${storeId}/planners`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  patch: (
+    storeId: string,
+    id: string,
+    data: { setup?: Partial<StorePlannerSetup>; style?: Partial<StorePlannerStyle>; output?: Partial<StorePlannerOutput>; editionId?: string | null },
+  ) =>
+    apiFetch<StorePlannerConfig>(`/stores/${storeId}/planners/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  reexport: (storeId: string, id: string, data: { style?: Partial<StorePlannerStyle>; output?: Partial<StorePlannerOutput> }) =>
+    apiFetch<StorePlannerResult>(`/stores/${storeId}/planners/${id}/reexport`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+};
+
+// ── Widgets ───────────────────────────────────────────────────────────────────
+
+export interface Widget {
+  id: string;
+  name: string;
+  storeId: string | null;
+  sizeVariants: string[];
+  svgData: string | null;
+  paletteSlots: Record<string, string> | null;
+  status: "draft" | "live";
+  origin: "starter" | "licensed" | "owned";
+  authoredByStoreId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const widgetsApi = {
+  list: (storeId: string) =>
+    apiFetch<Widget[]>(`/stores/${storeId}/widgets`, {
+      headers: { "x-store-id": storeId },
+    }),
+
+  create: (storeId: string, data: { name: string; sizeVariants?: string[]; svgData?: string; paletteSlots?: Record<string, string>; status?: "draft" | "live" }) =>
+    apiFetch<Widget>(`/stores/${storeId}/widgets`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  patch: (storeId: string, id: string, data: Partial<{ name: string; sizeVariants: string[]; svgData: string; paletteSlots: Record<string, string>; status: "draft" | "live" }>) =>
+    apiFetch<Widget>(`/stores/${storeId}/widgets/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  delete: (storeId: string, id: string) =>
+    apiFetchDelete(`/stores/${storeId}/widgets/${id}`, { "x-store-id": storeId }),
+};
+
+// (insert + widget generate methods are part of studioGenerateApi above)

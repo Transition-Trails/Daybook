@@ -317,4 +317,227 @@ router.post(
   },
 );
 
+// ── POST /stores/:storeId/studios/planner/copilot ────────────────────────────
+// Conversational AI assistant grounded in store profile, aware of planner context.
+
+const PLANNER_COPILOT_SYSTEM = `You are a helpful planner-design assistant embedded in a store admin studio.
+You help store owners make decisions about their digital planners: styling, layout, cover copy, section naming, binding choices, and so on.
+Be concise (2-4 sentences max unless a list is genuinely needed), warm, and actionable.
+Do not make up specific product SKUs or prices. Do not suggest software tools other than what's in this studio.`;
+
+router.post(
+  "/stores/:storeId/studios/planner/copilot",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const { storeId } = req.params as { storeId: string };
+    if (!(await checkAiEnabled(storeId, res))) return;
+
+    const { message, context, history = [] } = req.body as {
+      message: string;
+      context?: string;
+      history?: Array<{ role: "user" | "assistant"; content: string }>;
+    };
+
+    if (!message?.trim()) {
+      res.status(400).json({ error: "message is required" });
+      return;
+    }
+
+    const grounding = await fetchGrounding(storeId);
+    const systemPrompt = [
+      grounding ? grounding + "\n\n" : "",
+      PLANNER_COPILOT_SYSTEM,
+      context ? `\n\nCurrent studio context: ${context}` : "",
+    ].join("");
+
+    // Build conversation history + new message
+    const messages: Array<{ role: "user" | "assistant"; content: string }> = [
+      ...(history.slice(-10) as Array<{ role: "user" | "assistant"; content: string }>),
+      { role: "user", content: message.trim() },
+    ];
+
+    try {
+      const result = await callAi(messages, "claude", systemPrompt);
+      const text = result.content?.trim() ?? "I couldn't generate a response. Please try again.";
+      res.json({ text, model: result.model, provider: result.provider });
+    } catch (err) {
+      req.log.error({ err }, "planner copilot failed");
+      res.status(502).json({ error: `AI error: ${String(err)}` });
+    }
+  },
+);
+
+// ── SVG sanitisation helper ───────────────────────────────────────────────────
+// Strips script tags, event handlers, foreignObject and javascript: URIs from
+// AI-generated SVG before it leaves the server. Defence-in-depth alongside
+// client-side sanitisation in the admin UI.
+
+function sanitizeSvgServerSide(svg: string): string {
+  // Remove <script> blocks (including async / type variants)
+  svg = svg.replace(/<script[\s\S]*?<\/script\s*>/gi, "");
+  // Remove <foreignObject> blocks (can embed arbitrary HTML)
+  svg = svg.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "");
+  svg = svg.replace(/<foreignObject[^>]*\/>/gi, "");
+  // Remove inline event handlers (on*= attributes)
+  svg = svg.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  // Replace javascript: URIs in href / xlink:href / src
+  svg = svg.replace(/((?:xlink:)?href|src)\s*=\s*["']javascript:[^"']*["']/gi, '$1="#"');
+  return svg;
+}
+
+// ── POST /stores/:storeId/studios/insert/generate ─────────────────────────────
+// Claude generates a recolourable vector SVG insert page in the store's palette.
+// Optionally accepts an exampleImageBase64 (vision) to rebuild as clean vector.
+
+const INSERT_SYSTEM_PROMPT = `You are a vector SVG designer for premium digital planner inserts.
+When given a design brief, emit ONLY a self-contained SVG element — no markdown, no explanation.
+Requirements:
+- Use palette slot placeholders: {{slot:accent}}, {{slot:ink}}, {{slot:paper}}, {{slot:secondary}} where appropriate.
+- Output must be a valid SVG string starting with <svg and ending with </svg>.
+- Include a JSON comment immediately after the opening <svg tag:
+  <!-- HOTSPOT_MAP: { "placeholders": [{"id":"slot1","x":0,"y":0,"w":100,"h":50,"label":"text"}] } -->
+- The SVG should be a full page layout (A5 portrait: 148mm × 210mm at 72 dpi = 419×595px).
+- Make it clean, functional, and recolourable — no raster images, pure vector only.`;
+
+router.post(
+  "/stores/:storeId/studios/insert/generate",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId } = req.params as { storeId: string };
+    if (!(await checkAiEnabled(storeId, res))) return;
+
+    const { prompt, exampleImageBase64 } = req.body as {
+      prompt: string;
+      exampleImageBase64?: string;
+    };
+    if (!prompt?.trim()) {
+      res.status(400).json({ error: "prompt is required" });
+      return;
+    }
+
+    const grounding = await fetchGrounding(storeId);
+    const systemPrompt = grounding ? `${grounding}\n\n${INSERT_SYSTEM_PROMPT}` : INSERT_SYSTEM_PROMPT;
+
+    try {
+      // Build messages — include example image if provided (vision)
+      const messages: Array<{ role: "user"; content: string | Array<{ type: string; [k: string]: unknown }> }> = [];
+      if (exampleImageBase64?.startsWith("data:image/")) {
+        const mimeMatch = exampleImageBase64.match(/^data:(image\/[a-z+]+);base64,/);
+        const mediaType = (mimeMatch?.[1] ?? "image/png") as "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+        const b64 = exampleImageBase64.replace(/^data:image\/[a-z+]+;base64,/, "");
+        messages.push({
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: b64 } },
+            { type: "text", text: `Rebuild this as a clean, fully vectorised SVG planner insert page in the store palette. Additional brief: ${prompt.trim()}` },
+          ],
+        });
+      } else {
+        messages.push({ role: "user", content: prompt.trim() });
+      }
+
+      const result = await callAi(messages as Parameters<typeof callAi>[0], "claude", systemPrompt);
+
+      // Validate SVG
+      const svgMatch = result.content?.match(/<svg[\s\S]*<\/svg>/i);
+      if (!svgMatch) {
+        res.status(502).json({ error: "Claude did not return a valid SVG", raw: result.content?.slice(0, 300) });
+        return;
+      }
+      const svgData = sanitizeSvgServerSide(svgMatch[0]);
+
+      // Extract hotspot map from comment if present
+      let hotspotMap: unknown = null;
+      const hotspotMatch = svgData.match(/<!--\s*HOTSPOT_MAP:\s*(\{[\s\S]*?\})\s*-->/);
+      if (hotspotMatch) {
+        try { hotspotMap = JSON.parse(hotspotMatch[1]); } catch { /* ignore */ }
+      }
+
+      await writeAudit(db, {
+        actorUserId: actor.userId,
+        actorRole: actor.effectiveRole,
+        scope: storeId,
+        action: "studio.insert.generate",
+        targetType: "studio",
+        metadata: { model: result.model, grounded: !!grounding, hasVision: !!exampleImageBase64 },
+      });
+
+      res.json({ svgData, hotspotMap, model: result.model, provider: result.provider });
+    } catch (err) {
+      req.log.error({ err }, "insert studio generation failed");
+      res.status(502).json({ error: `AI error: ${String(err)}` });
+    }
+  },
+);
+
+// ── POST /stores/:storeId/studios/widget/generate ─────────────────────────────
+// Claude generates a recolourable functional widget SVG (7-day tracker, 30-day habit grid, etc.)
+
+const WIDGET_SYSTEM_PROMPT = `You are a vector SVG designer for premium digital planner widgets.
+When given a widget brief, emit ONLY a self-contained SVG element — no markdown, no explanation.
+Requirements:
+- Use palette slot placeholders: {{slot:accent}}, {{slot:ink}}, {{slot:paper}}, {{slot:secondary}}.
+- Output must be a valid SVG string starting with <svg and ending with </svg>.
+- The SVG should be compact (e.g. 200×150px for a 7-day tracker, 300×200px for a month grid).
+- Include interactive hotspot hints as a comment:
+  <!-- HOTSPOT_MAP: { "slots": [{"id":"day1","x":0,"y":0,"w":25,"h":25}] } -->
+- Clean, functional vector — no raster images.`;
+
+router.post(
+  "/stores/:storeId/studios/widget/generate",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId } = req.params as { storeId: string };
+    if (!(await checkAiEnabled(storeId, res))) return;
+
+    const { prompt, sizeVariant } = req.body as {
+      prompt: string;
+      sizeVariant?: "7-day" | "30-day" | "month";
+    };
+    if (!prompt?.trim()) {
+      res.status(400).json({ error: "prompt is required" });
+      return;
+    }
+
+    const grounding = await fetchGrounding(storeId);
+    const systemPrompt = grounding ? `${grounding}\n\n${WIDGET_SYSTEM_PROMPT}` : WIDGET_SYSTEM_PROMPT;
+    const userMsg = sizeVariant
+      ? `${prompt.trim()} [size variant: ${sizeVariant}]`
+      : prompt.trim();
+
+    try {
+      const result = await callAi([{ role: "user", content: userMsg }], "claude", systemPrompt);
+
+      const svgMatch = result.content?.match(/<svg[\s\S]*<\/svg>/i);
+      if (!svgMatch) {
+        res.status(502).json({ error: "Claude did not return a valid SVG", raw: result.content?.slice(0, 300) });
+        return;
+      }
+      const svgData = sanitizeSvgServerSide(svgMatch[0]);
+
+      let hotspotMap: unknown = null;
+      const hotspotMatch = svgData.match(/<!--\s*HOTSPOT_MAP:\s*(\{[\s\S]*?\})\s*-->/);
+      if (hotspotMatch) {
+        try { hotspotMap = JSON.parse(hotspotMatch[1]); } catch { /* ignore */ }
+      }
+
+      await writeAudit(db, {
+        actorUserId: actor.userId,
+        actorRole: actor.effectiveRole,
+        scope: storeId,
+        action: "studio.widget.generate",
+        targetType: "studio",
+        metadata: { model: result.model, grounded: !!grounding, sizeVariant },
+      });
+
+      res.json({ svgData, hotspotMap, model: result.model, provider: result.provider });
+    } catch (err) {
+      req.log.error({ err }, "widget studio generation failed");
+      res.status(502).json({ error: `AI error: ${String(err)}` });
+    }
+  },
+);
+
 export default router;

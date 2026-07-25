@@ -7,9 +7,16 @@ export type PlannerSetup = {
   startMonth: number; // 0-11
   startYear: number;
   monthCount: number; // 1-24
+  /** Set-up-once: determines whether date links are emitted. */
+  datingMode?: "dated" | "undated" | "perpetual";
 };
 
 // ── STYLE (re-exportable) ──────────────────────────────────────────────────────
+export type PlannerBinding = {
+  type: "coil" | "twin-loop" | "discs" | "3-ring" | "none";
+  finish: "gold" | "rose gold" | "silver" | "matte black" | "white";
+};
+
 export type PlannerStyle = {
   cover?: string;
   texture?: "leather" | "linen" | "smooth";
@@ -25,6 +32,23 @@ export type PlannerStyle = {
   notePaper?: "dot" | "graph" | "lined" | "mixed";
   sections?: string[]; // 0-10 section names
   includedItems?: string[]; // pack/insert/product ids
+  // ── Planner Studio style fields (re-exportable) ──────────────────────────
+  /** Realistic bakes ring art + grain + gutter shading as reusable PDF XObjects. Flat is current behaviour. */
+  renderStyle?: "realistic" | "flat";
+  /** Physical page size — affects aspect ratio in exported PDF. */
+  size?: "A5" | "B6" | "Personal" | "Half letter" | "Letter" | "iPad 4:3";
+  /** Binding type + finish — only rendered on two-page landscape spreads. */
+  binding?: PlannerBinding;
+  /** Paper colour key — drives background fill colour. Contrast warning fires for slate/kraft. */
+  paperColour?: "cream" | "white" | "ivory" | "kraft" | "slate";
+  /** Tab shape — free text slug (e.g. "rounded", "chevron", "square"). */
+  tabShape?: string;
+  /** Cover art type. */
+  coverType?: "texture" | "photo" | "pattern" | "solid";
+  /** Cover title, subtitle, year. */
+  coverTitle?: string;
+  coverSubtitle?: string;
+  coverYear?: number;
 };
 
 // ── OUTPUT ────────────────────────────────────────────────────────────────────
@@ -46,6 +70,8 @@ export const plannerConfigsTable = pgTable("planner_configs", {
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").notNull(),
+  /** Nullable — set for store-owned planners; null for personal/legacy planners. */
+  storeId: text("store_id"),
   editionId: text("edition_id"),
   year: integer("year"),
   setup: jsonb("setup").notNull().$type<PlannerSetup>(),

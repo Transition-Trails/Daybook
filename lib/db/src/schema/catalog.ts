@@ -412,3 +412,37 @@ export const stylePresetsTable = pgTable("style_presets", {
 
 export type StylePreset = typeof stylePresetsTable.$inferSelect;
 export type InsertStylePreset = typeof stylePresetsTable.$inferInsert;
+
+// ─── WIDGETS ──────────────────────────────────────────────────────────────────
+// Widgets are functional placed overlays (e.g. 7-day tracker, 30-day habit grid)
+// that accept the planner palette for recolouring. They are NOT sticker function
+// types — they live in their own table and are generated as recolourable vector SVG.
+
+export const widgetsTable = pgTable("widgets", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  /** The store that owns this widget (null for platform-level widgets). */
+  storeId: text("store_id").references(() => storesTable.id, { onDelete: "set null" }),
+  /** Available size variants: e.g. ["7-day","30-day","month"]. */
+  sizeVariants: jsonb("size_variants").notNull().default([]).$type<string[]>(),
+  /** Raw SVG data with palette slot placeholders (e.g. {{slot:accent}}). */
+  svgData: text("svg_data"),
+  /** Named palette slot map: slot name → default hex. */
+  paletteSlots: jsonb("palette_slots").$type<Record<string, string>>(),
+  status: text("status").notNull().default("draft"), // draft | live
+  origin: text("origin").notNull().default("owned").$type<ItemOrigin>(),
+  authoredByStoreId: text("authored_by_store_id").references(
+    () => storesTable.id,
+    { onDelete: "set null" },
+  ),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type Widget = typeof widgetsTable.$inferSelect;
+export type InsertWidget = typeof widgetsTable.$inferInsert;

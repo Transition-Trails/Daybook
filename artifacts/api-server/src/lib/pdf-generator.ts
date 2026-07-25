@@ -19,6 +19,7 @@ import {
   PDFNumber,
 } from "pdf-lib";
 import { Buffer } from "node:buffer";
+import sharp from "sharp";
 import type { PlannerSetup, PlannerStyle, PlannerOutput } from "@workspace/db";
 import {
   type PageIdMap,
@@ -261,7 +262,18 @@ export async function buildPdf(
   const colors = themeColors ?? ["#6366f1", "#4f46e5", "#a5b4fc", "#c7d2fe", "#1e1b4b", "#fafafa"];
   const accent = hexToRgb(colors[0] ?? "#6366f1");
   const ink    = hexToRgb(colors[4] ?? "#1e1b4b");
-  const paper  = hexToRgb(colors[5] ?? "#fafafa");
+
+  // Paper colour — explicit paperColour in style overrides theme[5]
+  const PAPER_COLOUR_HEX: Record<string, string> = {
+    cream: "#FAFAF7", white: "#FFFFFF", ivory: "#FFFFF0",
+    kraft: "#B5926A", slate: "#94A3B8",
+  };
+  const paperColourKey = (style as PlannerStyle & { paperColour?: string }).paperColour;
+  if (paperColourKey === "kraft" || paperColourKey === "slate") {
+    console.warn(`[pdf-generator] Contrast warning: paperColour="${paperColourKey}" may reduce ink text readability`);
+  }
+  const paperHex = paperColourKey ? (PAPER_COLOUR_HEX[paperColourKey] ?? colors[5]) : (colors[5] ?? "#fafafa");
+  const paper = hexToRgb(paperHex as string);
 
   // 3. Create PDF
   const pdfDoc = await PDFDocument.create();
@@ -295,6 +307,78 @@ export async function buildPdf(
     }
   }
 
+  // 3b. Realistic render style: generate template overlays ONCE, embed as reusable XObjects.
+  // When renderStyle === "flat" (or undefined), skip entirely — current behaviour.
+  const renderStyle = (style as PlannerStyle & { renderStyle?: string }).renderStyle;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let realisticGutterImg: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let realisticGrainImg: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let realisticRingImg: any = null; // landscape + binding only
+
+  if (renderStyle === "realistic") {
+    try {
+      // 1. Gutter shading: a semi-transparent dark strip along the binding edge (left)
+      const gutterW = Math.max(12, Math.ceil(pageWidth * 0.05));
+      const gutterBuf = await sharp({
+        create: { width: gutterW, height: pageHeight, channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 0.12 } },
+      }).png().toBuffer();
+      realisticGutterImg = await pdfDoc.embedPng(gutterBuf);
+
+      // 2. Paper grain: tileable 128×128 noise overlay (subtle texture)
+      const grainSz = 128;
+      const grainPixels = Buffer.alloc(grainSz * grainSz * 4);
+      for (let gi = 0; gi < grainSz * grainSz; gi++) {
+        const v = Math.floor(Math.random() * 28);
+        grainPixels[gi * 4]     = v;
+        grainPixels[gi * 4 + 1] = v;
+        grainPixels[gi * 4 + 2] = v;
+        grainPixels[gi * 4 + 3] = 16; // very subtle alpha
+      }
+      const grainBuf = await sharp(grainPixels, {
+        raw: { width: grainSz, height: grainSz, channels: 4 },
+      }).png().toBuffer();
+      realisticGrainImg = await pdfDoc.embedPng(grainBuf);
+
+      // 3. Binding ring art: circles pattern (landscape only)
+      if (orientation === "landscape") {
+        const ringW = Math.max(20, Math.ceil(pageWidth * 0.05));
+        const ringH = pageHeight;
+        const ringBuf = await (async () => {
+          const pixels = Buffer.alloc(ringW * ringH * 4, 0);
+          const ringCount = 9;
+          const spacing = ringH / ringCount;
+          const cx = Math.floor(ringW / 2);
+          const outerR = Math.floor(spacing * 0.4);
+          const innerR = outerR - 4;
+          for (let ry = 0; ry < ringH; ry++) {
+            for (let rx = 0; rx < ringW; rx++) {
+              for (let ri = 0; ri < ringCount; ri++) {
+                const cy = Math.floor(spacing * ri + spacing / 2);
+                const dist = Math.sqrt((rx - cx) ** 2 + (ry - cy) ** 2);
+                if (dist <= outerR && dist >= innerR) {
+                  const idx = (ry * ringW + rx) * 4;
+                  pixels[idx] = 110; pixels[idx + 1] = 110; pixels[idx + 2] = 110;
+                  pixels[idx + 3] = 180;
+                }
+              }
+            }
+          }
+          return sharp(pixels, { raw: { width: ringW, height: ringH, channels: 4 } }).png().toBuffer();
+        })();
+        realisticRingImg = await pdfDoc.embedPng(ringBuf);
+      }
+
+      const flatSzKb = Math.round(await pdfDoc.save().then((b) => b.byteLength / 1024));
+      console.log(`[pdf-generator] Realistic overlays embedded; PDF pre-pages size: ~${flatSzKb}KB`);
+    } catch (err) {
+      console.warn("[pdf-generator] Realistic overlay gen failed, falling back to flat:", (err as Error).message);
+      realisticGutterImg = null; realisticGrainImg = null; realisticRingImg = null;
+    }
+  }
+
   // 4. Build ordered ID list and create pages
   const flat = flattenPageIds(map);
   const pageMap = new Map<string, PageWithId>();
@@ -311,6 +395,19 @@ export async function buildPdf(
     // Layer 2: background image (texture/image type) — drawn UNDER all content
     if (bgEmbedded) {
       page.drawImage(bgEmbedded, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+    }
+
+    // Layer 2b: realistic template overlays — grain + gutter, each embedded once and referenced per page
+    if (realisticGrainImg) {
+      // Draw grain at page scale (embedded once, XObject reference per page)
+      page.drawImage(realisticGrainImg, { x: 0, y: 0, width: pageWidth, height: pageHeight, opacity: 0.45 });
+    }
+    if (realisticRingImg && orientation === "landscape") {
+      const ringW = pageWidth * 0.05;
+      page.drawImage(realisticRingImg, { x: 0, y: 0, width: ringW, height: pageHeight });
+    } else if (realisticGutterImg) {
+      const gutterW = pageWidth * 0.05;
+      page.drawImage(realisticGutterImg, { x: 0, y: 0, width: gutterW, height: pageHeight });
     }
 
     // Layer 3: accent header + page ID (always on top of background, under content)

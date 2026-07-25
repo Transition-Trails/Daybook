@@ -25,7 +25,7 @@ const router: IRouter = Router();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function runGeneration(
+export async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
 ): Promise<{ pdfFileId: string; configFileId: string; pageCount: number }> {
   // Resolve colors for generation.

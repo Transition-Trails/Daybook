@@ -71,6 +71,7 @@ import StoreStudioPage from "@/pages/store/studios/StoreStudioPage";
 import StoreEditionStudio from "@/pages/store/studios/StoreEditionStudio";
 import StoreTrendResearch from "@/pages/store/studios/StoreTrendResearch";
 import MarketingStudio from "@/pages/store/studios/MarketingStudio";
+import PlannerStudio from "@/pages/store/studios/PlannerStudio";
 
 // ── Store Settings ────────────────────────────────────────────────────────────
 import StoreProfile from "@/pages/store/settings/StoreProfile";
@@ -318,6 +319,19 @@ function RootRouter() {
                       aiEnabled={aiEnabled}
                     />
                   )}
+                </StoreStudioLoader>
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/studios/planners">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreStudioLoader storeId={p.storeId!}>
+                  {(aiEnabled) => <PlannerStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
             )}

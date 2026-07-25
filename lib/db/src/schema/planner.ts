@@ -17,6 +17,16 @@ export type PlannerBinding = {
   finish: "gold" | "rose gold" | "silver" | "matte black" | "white";
 };
 
+/** One tab rail on a planner page edge.  Items are navigation target keys. */
+export interface TabGroup {
+  /** Navigation target identifiers in visual order (top → bottom or left → right). */
+  items: string[];
+  /** Optional display labels (parallel to items; falls back to auto-label from item key). */
+  labels?: string[];
+  /** Colour overrides for this rail; fallback to theme accent. */
+  style?: { bgColor?: string; textColor?: string; accentColor?: string };
+}
+
 export type PlannerStyle = {
   cover?: string;
   texture?: "leather" | "linen" | "smooth";
@@ -49,6 +59,28 @@ export type PlannerStyle = {
   coverTitle?: string;
   coverSubtitle?: string;
   coverYear?: number;
+  /**
+   * Tab groups — explicit multi-edge navigation rails (Item 6).
+   * When present, overrides `tabPos`.  Each group is an independent tab rail
+   * at the specified edge, listing navigation targets in display order.
+   *
+   * Standard items: 'todo' | 'notes' | 'year' | 'month-divider' | 'weekly' |
+   *                 'daily' | 'cover' | 'home' | 'section:{n}'
+   * The generator stamps each tab group as a coloured strip of clickable zones.
+   */
+  tabGroups?: {
+    /** Tab rail on the right edge of portrait pages (replaces tabPos:'right'). */
+    right?: TabGroup;
+    /** Tab rail across the top of pages. */
+    top?: TabGroup;
+    /** Tab rail across the bottom of pages. */
+    bottom?: TabGroup;
+    /**
+     * Spine/gutter strip — centre column on landscape spreads.
+     * Useful for disc-bound planners where the spine is accessible.
+     */
+    spine?: TabGroup;
+  };
 };
 
 // ── OUTPUT ────────────────────────────────────────────────────────────────────

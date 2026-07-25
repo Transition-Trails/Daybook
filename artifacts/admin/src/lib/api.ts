@@ -1229,4 +1229,99 @@ export const widgetsApi = {
     apiFetchDelete(`/stores/${storeId}/widgets/${id}`, { "x-store-id": storeId }),
 };
 
+// ── Planner Hotspot Maps ──────────────────────────────────────────────────────
+
+export interface PlannerHotspot {
+  id: string;
+  storeId: string;
+  templateKey: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  targetType: string;
+  targetRef?: string | null;
+  confidence?: number | null;
+  source: "auto" | "manual";
+  label?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HotspotInput {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  targetType: string;
+  targetRef?: string | null;
+  confidence?: number | null;
+  source?: "auto" | "manual";
+  label?: string | null;
+}
+
+export interface ProposedHotspot extends HotspotInput {
+  confidence: number;
+  source: "auto";
+}
+
+/** Summarises how many hotspots exist per templateKey for this store. */
+export interface HotspotTemplateSummary {
+  templateKey: string;
+  count: number;
+}
+
+export const plannerHotspotsApi = {
+  /** List all templateKeys with non-zero hotspot counts for this store. */
+  listTemplates: (storeId: string) =>
+    apiFetch<{ templates: HotspotTemplateSummary[] }>(
+      `/stores/${storeId}/planners/hotspots`,
+      { headers: { "x-store-id": storeId } },
+    ),
+
+  /** Get all hotspots for a single templateKey. */
+  get: (storeId: string, templateKey: string) =>
+    apiFetch<PlannerHotspot[]>(
+      `/stores/${storeId}/planners/hotspots/${templateKey}`,
+      { headers: { "x-store-id": storeId } },
+    ),
+
+  /** Replace the entire hotspot map for a templateKey (PUT semantics). */
+  save: (storeId: string, templateKey: string, hotspots: HotspotInput[]) =>
+    apiFetch<{ saved: PlannerHotspot[]; count: number }>(
+      `/stores/${storeId}/planners/hotspots/${templateKey}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ hotspots }),
+        headers: { "x-store-id": storeId },
+      },
+    ),
+
+  /** Delete a single hotspot by ID. */
+  deleteOne: (storeId: string, id: string) =>
+    apiFetch<void>(`/stores/${storeId}/planners/hotspots/${id}`, {
+      method: "DELETE",
+      headers: { "x-store-id": storeId },
+    }),
+
+  /**
+   * Submit a base64 page image to Claude Vision for hotspot auto-detection.
+   * Returns proposed hotspots for seller review — NOT saved automatically.
+   */
+  autoDetect: (
+    storeId: string,
+    templateKey: string,
+    imageBase64: string,
+    mediaType?: string,
+  ) =>
+    apiFetch<{ proposed: ProposedHotspot[]; model: string; provider: string }>(
+      `/stores/${storeId}/planners/hotspots/${templateKey}/auto-detect`,
+      {
+        method: "POST",
+        body: JSON.stringify({ imageBase64, mediaType }),
+        headers: { "x-store-id": storeId },
+      },
+    ),
+};
+
 // (insert + widget generate methods are part of studioGenerateApi above)

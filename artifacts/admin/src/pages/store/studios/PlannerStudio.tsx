@@ -14,6 +14,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import HotspotEditor from "./HotspotEditor";
 
 /**
  * Client-side SVG sanitizer: strips script tags, event handlers, foreignObject,
@@ -73,6 +74,7 @@ import {
   Layers,
   FileText,
   Printer,
+  MapPin,
   Bot,
   Eye,
   Plus,
@@ -102,7 +104,7 @@ interface Props {
   aiEnabled: boolean;
 }
 
-type StudioMode = "build" | "editions" | "inserts" | "cover" | "dividers" | "paper";
+type StudioMode = "build" | "editions" | "inserts" | "cover" | "dividers" | "paper" | "hotspots";
 type DockTab = "ai" | "preview";
 
 const MODES: { id: StudioMode; label: string; icon: React.ElementType; description: string }[] = [
@@ -112,6 +114,7 @@ const MODES: { id: StudioMode; label: string; icon: React.ElementType; descripti
   { id: "cover",     label: "Cover",              icon: Layout,       description: "Cover art, title & texture" },
   { id: "dividers",  label: "Dividers & tabs",    icon: FileText,     description: "Tab shape, position & sections" },
   { id: "paper",     label: "Paper & binding",    icon: Printer,      description: "Colour, size & hardware finish" },
+  { id: "hotspots",  label: "Hyperlink maps",     icon: MapPin,       description: "Define clickable zones that navigate readers between sections" },
 ];
 
 const MONTHS = [
@@ -1156,12 +1159,13 @@ export default function PlannerStudio({ storeId, role, aiEnabled }: Props) {
       <div className="flex flex-1 overflow-hidden">
         {/* Center content */}
         <div className="flex-1 overflow-y-auto">
-          {mode === "build"    && <BuildMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
-          {mode === "editions" && <EditionsMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
-          {mode === "inserts"  && <InsertsMode  storeId={storeId} aiEnabled={aiEnabled} />}
-          {mode === "cover"    && <CoverMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
-          {mode === "dividers" && <DividersMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
-          {mode === "paper"    && <PaperMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
+          {mode === "build"     && <BuildMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
+          {mode === "editions"  && <EditionsMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
+          {mode === "inserts"   && <InsertsMode  storeId={storeId} aiEnabled={aiEnabled} />}
+          {mode === "cover"     && <CoverMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
+          {mode === "dividers"  && <DividersMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
+          {mode === "paper"     && <PaperMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
+          {mode === "hotspots"  && <HotspotEditor storeId={storeId} />}
         </div>
 
         {/* Right dock */}

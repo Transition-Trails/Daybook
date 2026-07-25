@@ -483,6 +483,7 @@ export interface StaticResolutionCtx {
   map: PageIdMap;
   monthIndex?: number;     // current page's month index (month-divider, month-calendar)
   dailyIndex?: number;     // current daily's index in map.dailies
+  weeklyIndex?: number;    // 0-based position in map.weeklies (for next/prev-week)
   weeklyMonthIndex?: number; // which month this weekly falls in
   sectionIndex?: number;   // 0-based section index (section-divider)
 }
@@ -529,6 +530,17 @@ export function resolveStaticTarget(
         ? (map.dailies[i + 1] ?? null)
         : null;
     }
+    // ── Seller-hotspot-only patterns ─────────────────────────────────────────
+    case "prev-week": {
+      const i = ctx.weeklyIndex ?? 0;
+      return i > 0 ? (map.weeklies[i - 1] ?? null) : null;
+    }
+    case "next-week": {
+      const i = ctx.weeklyIndex ?? 0;
+      return i < map.weeklies.length - 1
+        ? (map.weeklies[i + 1] ?? null)
+        : null;
+    }
     case "month-for-day":
     case "month-for-week": {
       const idx = ctx.weeklyMonthIndex ?? ctx.monthIndex;
@@ -548,6 +560,103 @@ export function resolveStaticTarget(
         return pattern;
       }
       return null;
+  }
+}
+
+// ── Seller hotspot stamping ───────────────────────────────────────────────────
+// Stamps seller-defined normalized-rect hotspots onto a page after the standard
+// stampPageZones call. Uses the same StampContext for resolution so next-week,
+// prev-day etc. are computed correctly per page instance.
+
+export interface UserHotspot {
+  x: number;        // 0-1 fraction of page width  (left edge)
+  y: number;        // 0-1 fraction of page height (bottom edge — PDF origin)
+  w: number;
+  h: number;
+  targetType: string;   // see VALID_TARGET_TYPES in planner-hotspots.ts
+  targetRef?: string | null;
+  label?: string | null;
+}
+
+/** Map a seller hotspot targetType to a resolveStaticTarget pattern string. */
+function hotspotTypeToPattern(targetType: string, sectionRef: string | null | undefined): string | null {
+  switch (targetType) {
+    case "home":          return "home";
+    case "cover":         return "cover";
+    case "year":          return "year";
+    case "todo":          return "todo";
+    case "notes":         return "notes";
+    case "next-day":      return "next-day";
+    case "prev-day":      return "prev-day";
+    case "next-week":     return "next-week";
+    case "prev-week":     return "prev-week";
+    case "next-month":    return "next-mdiv";
+    case "prev-month":    return "prev-mdiv";
+    case "month-for-day": return "month-for-day";
+    case "month-for-week":return "month-for-week";
+    case "month-divider": return "mdiv{n}";
+    case "month-calendar":return "m{n}";
+    case "section-n": {
+      // targetRef is the 0-based section index as a string
+      return null; // handled separately
+    }
+    default: return null;
+  }
+}
+
+/**
+ * Stamp seller-defined hotspots for the given page context.
+ * Called after stampPageZones in the engine — completely separate from the
+ * stampPageZones mechanism; hotspots are an additive annotation layer.
+ *
+ * Template memory is implicit: hotspots are keyed by templateKey (= PageRole),
+ * not by generated page instance.  The engine passes the right StampContext,
+ * so next-week/prev-day/etc. resolve correctly per instance automatically.
+ */
+export function stampUserHotspots(ctx: StampContext, hotspots: UserHotspot[]): void {
+  if (!hotspots.length) return;
+
+  const resCtx: StaticResolutionCtx = {
+    map: ctx.map,
+    monthIndex:       ctx.monthIndex,
+    dailyIndex:       ctx.dailyIndex,
+    weeklyIndex:      ctx.weeklyIndex,
+    weeklyMonthIndex: ctx.weeklyMonthIndex,
+    sectionIndex:     ctx.sectionIndex,
+  };
+
+  for (const h of hotspots) {
+    const absX = h.x * ctx.pageWidth;
+    const absY = h.y * ctx.pageHeight;
+    const absW = h.w * ctx.pageWidth;
+    const absH = h.h * ctx.pageHeight;
+    const rect: [number, number, number, number] = [absX, absY - 2, absX + absW, absY - 2 + absH];
+
+    if (h.targetType === "url") {
+      if (h.targetRef) {
+        addUriAnnotation(ctx.pdfDoc, ctx.page, h.targetRef, rect, h.label ?? undefined);
+      }
+      continue;
+    }
+
+    if (h.targetType === "section-n") {
+      // targetRef = section index (0-based) as string; resolve to ns{n}
+      const idx = h.targetRef !== null && h.targetRef !== undefined ? parseInt(h.targetRef, 10) : NaN;
+      if (!Number.isNaN(idx) && idx >= 0 && idx < ctx.map.sectionDividers.length) {
+        const ref = ctx.pageMap.get(ctx.map.sectionDividers[idx]!)?.pageRef ?? null;
+        if (ref) addGoToAnnotation(ctx.pdfDoc, ctx.page, ref, rect);
+      }
+      continue;
+    }
+
+    const pattern = hotspotTypeToPattern(h.targetType, h.targetRef);
+    if (!pattern) continue;
+
+    const targetId = resolveStaticTarget(pattern, resCtx);
+    if (!targetId) continue;
+
+    const ref = ctx.pageMap.get(targetId)?.pageRef ?? null;
+    if (ref) addGoToAnnotation(ctx.pdfDoc, ctx.page, ref, rect);
   }
 }
 
@@ -676,6 +785,7 @@ export interface StampContext {
   // Per-page instance context (set by the engine for the current page)
   monthIndex?: number;        // month-divider / month-calendar
   dailyIndex?: number;        // daily (index in map.dailies)
+  weeklyIndex?: number;       // weekly (0-based position in map.weeklies — for next/prev-week)
   weeklyMonthIndex?: number;  // weekly (which month this week falls in)
   sectionIndex?: number;      // section-divider (0-based)
 

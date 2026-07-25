@@ -12,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Users, ExternalLink } from "lucide-react";
+import { Plus, Users, ExternalLink, Search, ArrowRight } from "lucide-react";
 import type { StorePlan, StoreStatus } from "@/lib/api";
 import { Link } from "wouter";
 
@@ -136,7 +136,19 @@ export default function SuperStores() {
                     <StatusPill status={s.status} />
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center flex-wrap">
+                      {/* Inspector — read-only support view */}
+                      <Link href={`/super/stores/${s.id}/inspect`}>
+                        <span className="flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer font-medium">
+                          <Search className="w-3 h-3" />Inspect
+                        </span>
+                      </Link>
+                      {/* Enter store — opens store admin console as super_admin */}
+                      <Link href={`/store/${s.id}`}>
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer">
+                          <ArrowRight className="w-3 h-3" />Enter store
+                        </span>
+                      </Link>
                       {s.status !== "suspended" ? (
                         <button
                           onClick={() => patchMutation.mutate({ id: s.id, data: { status: "suspended" } })}
@@ -154,10 +166,7 @@ export default function SuperStores() {
                           Activate
                         </button>
                       )}
-                      <Link href={`/store/${s.id}`}>
-                        <span className="text-xs text-primary hover:underline cursor-pointer">View</span>
-                      </Link>
-                      {s.status !== "suspended" && (
+                      {s.status !== "suspended" && s.slug && (
                         <a
                           href={`/s/${s.slug}`}
                           target="_blank"

@@ -22,11 +22,34 @@ export type ItemOrigin = "starter" | "licensed" | "owned";
 // colors: [accent, accent-dark, secondary, tertiary, ink, paper]
 // fontPairing: optional named fonts for heading/subheading/body/accent slots.
 
+/** Named font slots for a theme. Used by the admin UI and PDF generator to assign typefaces. */
 export interface ThemeFontPairing {
   heading?: string;
   subheading?: string;
   body?: string;
   accent?: string;
+  /** Fifth font role: button / label / caption text. */
+  button?: string;
+}
+
+/**
+ * Maps page roles to specific backgroundIds so a theme can use different
+ * background textures or photos on different page types.
+ * Omitted roles fall back to the theme's first linked background via theme_backgrounds.
+ */
+export interface ThemeBackgroundRoles {
+  /** Cover page (front) */
+  cover?: string;
+  /** Month and section divider pages */
+  divider?: string;
+  /** Blank note-paper pages */
+  notePaper?: string;
+  /** Monthly calendar grid pages */
+  calendar?: string;
+  /** Weekly spread pages */
+  weekly?: string;
+  /** Daily pages */
+  daily?: string;
 }
 
 export const themesTable = pgTable("themes", {
@@ -47,6 +70,11 @@ export const themesTable = pgTable("themes", {
   // Set only for owned items; the store that authored this item.
   authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
   fontPairing: jsonb("font_pairing").$type<ThemeFontPairing>(),
+  /**
+   * Per-page-role background overrides.  Omitted roles fall back to the
+   * theme's first linked background (theme_backgrounds join table).
+   */
+  backgroundRoles: jsonb("background_roles").$type<ThemeBackgroundRoles>(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -446,3 +474,41 @@ export const widgetsTable = pgTable("widgets", {
 
 export type Widget = typeof widgetsTable.$inferSelect;
 export type InsertWidget = typeof widgetsTable.$inferInsert;
+
+// ─── STORE INSERTS (full-page SVG pages authored by sellers) ─────────────────
+// "Insert" = a seller-authored page that participates in the planner's link graph
+// (gets a tab-rail entry and a contents entry, unlike widgetsTable overlays).
+// Separate from the platform insertsTable (pre-built PDF content) and widgetsTable.
+
+export const storeInsertsTable = pgTable("store_inserts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  storeId: text("store_id")
+    .notNull()
+    .references(() => storesTable.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /** Sanitized SVG source.  May contain {{slot:name}} palette placeholders. */
+  svgData: text("svg_data").notNull(),
+  /** Width in PDF points (should match the store's planner page size). */
+  widthPt: real("width_pt").notNull().default(420),
+  /** Height in PDF points. */
+  heightPt: real("height_pt").notNull().default(595),
+  /** Named palette slot map: slot name → default hex. */
+  paletteSlots: jsonb("palette_slots").$type<Record<string, string>>(),
+  /**
+   * Pre-computed hotspot map embedded at save time so exports don't need a
+   * second round-trip.  Array of normalized-rect hotspots (x/y/w/h as 0-1 fractions).
+   */
+  hotspotMap: jsonb("hotspot_map").$type<
+    Array<{ x: number; y: number; w: number; h: number; targetType: string; targetRef?: string }>
+  >(),
+  status: text("status").notNull().default("draft"), // draft | live
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type StoreInsert = typeof storeInsertsTable.$inferSelect;
+export type InsertStoreInsert = typeof storeInsertsTable.$inferInsert;

@@ -27,6 +27,7 @@ const router: IRouter = Router();
 
 export async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
+  hotspotsByTemplate?: Map<string, import("../lib/pdf-generator").UserHotspot[]>,
 ): Promise<{ pdfFileId: string; configFileId: string; pageCount: number }> {
   // Resolve colors for generation.
   // Priority 1: explicit paletteId (buyer picked a palette within the theme)
@@ -104,6 +105,7 @@ export async function runGeneration(
     themeColors,
     undefined,   // use DEFAULT_TEMPLATE
     background,
+    hotspotsByTemplate,
   );
 
   // Resolve a valid (possibly refreshed) Google token; fall back gracefully if unavailable.

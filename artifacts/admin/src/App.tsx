@@ -73,6 +73,12 @@ import StoreTrendResearch from "@/pages/store/studios/StoreTrendResearch";
 import MarketingStudio from "@/pages/store/studios/MarketingStudio";
 import PlannerStudio from "@/pages/store/studios/PlannerStudio";
 
+// ── Store: Widgets ────────────────────────────────────────────────────────────
+import StoreWidgets from "@/pages/store/Widgets";
+
+// ── Super Admin: Store Inspector ──────────────────────────────────────────────
+import StoreInspector from "@/pages/super/StoreInspector";
+
 // ── Store Settings ────────────────────────────────────────────────────────────
 import StoreProfile from "@/pages/store/settings/StoreProfile";
 import { useQuery } from "@tanstack/react-query";
@@ -349,6 +355,30 @@ function RootRouter() {
               </StoreAdminShell>
             )}
           </RequireStore>
+        )}
+      </Route>
+
+      {/* ── Store: Widgets ───────────────────────────────────────── */}
+      <Route path="/store/:storeId/widgets">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreWidgets storeId={p.storeId!} role={store.role as string} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
+      {/* ── Super Admin: Store Inspector ─────────────────────────── */}
+      <Route path="/super/stores/:storeId/inspect">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <SuperAdminShell>
+              <StoreInspector storeId={p.storeId!} />
+            </SuperAdminShell>
+          </RequireSuperAdmin>
         )}
       </Route>
 

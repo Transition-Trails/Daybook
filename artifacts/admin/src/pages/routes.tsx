@@ -1,6 +1,8 @@
 import Dashboard from '@/pages/dashboard';
 import ThemesList from '@/pages/catalog/themes/list';
 import ThemeDetail from '@/pages/catalog/themes/detail';
+import PalettesList from '@/pages/catalog/palettes/list';
+import BackgroundsList from '@/pages/catalog/backgrounds/list';
 import PacksList from '@/pages/catalog/packs/list';
 import PackDetail from '@/pages/catalog/packs/detail';
 import PlatformStickersList from '@/pages/catalog/stickers/list';
@@ -27,29 +29,37 @@ import PlannerLibrary from '@/pages/ink/PlannerLibrary';
 export const routes = [
   { path: "/", component: Dashboard },
   { path: "/ink", component: PlannerLibrary },
-  { path: "/catalog/themes", component: ThemesList },
-  { path: "/catalog/themes/:id", component: ThemeDetail },
-  { path: "/catalog/stickers", component: PlatformStickersList },
-  { path: "/catalog/packs", component: PacksList },
-  { path: "/catalog/packs/:id", component: PackDetail },
-  { path: "/catalog/inserts", component: InsertsList },
-  { path: "/catalog/inserts/:id", component: InsertDetail },
-  { path: "/catalog/products", component: ProductsList },
-  { path: "/catalog/products/:id", component: ProductDetail },
-  { path: "/editions", component: EditionsList },
-  { path: "/editions/:id", component: EditionDetail },
-  { path: "/plans", component: PlansList },
-  { path: "/users", component: UsersList },
-  { path: "/users/:id", component: UserDetail },
-  { path: "/ai-settings", component: AiSettingsPage },
-  { path: "/sync", component: SyncDashboard },
-  { path: "/trends", component: TrendsResearch },
-  { path: "/planners/builder", component: PlannerBuilder },
-  { path: "/calendar", component: CalendarPage },
-  // AI Studios (super_admin, Daybook console)
-  { path: "/studios/theme", component: ThemeStudio },
-  { path: "/studios/stickers", component: StickerStudio },
-  { path: "/studios/pack", component: StickerStudio }, // legacy redirect
-  { path: "/studios/edition", component: EditionStudio },
-  { path: "/studios/trends", component: StudioTrendResearch },
+  // ── Catalog ──────────────────────────────────────────────────────────────────
+  // Order: Themes → Palettes → Backgrounds → Stickers → Sticker packs → Inserts → Related products
+  { path: "/catalog/themes",          component: ThemesList },
+  { path: "/catalog/themes/:id",      component: ThemeDetail },
+  { path: "/catalog/palettes",        component: PalettesList },
+  { path: "/catalog/backgrounds",     component: BackgroundsList },
+  { path: "/catalog/stickers",        component: PlatformStickersList },
+  { path: "/catalog/packs",           component: PacksList },
+  { path: "/catalog/packs/:id",       component: PackDetail },
+  { path: "/catalog/inserts",         component: InsertsList },
+  { path: "/catalog/inserts/:id",     component: InsertDetail },
+  { path: "/catalog/products",        component: ProductsList },
+  { path: "/catalog/products/:id",    component: ProductDetail },
+  // ── Products ─────────────────────────────────────────────────────────────────
+  { path: "/editions",                component: EditionsList },
+  { path: "/editions/:id",            component: EditionDetail },
+  { path: "/plans",                   component: PlansList },
+  // ── System ───────────────────────────────────────────────────────────────────
+  { path: "/users",                   component: UsersList },
+  { path: "/users/:id",               component: UserDetail },
+  { path: "/ai-settings",             component: AiSettingsPage },
+  { path: "/sync",                    component: SyncDashboard },
+  { path: "/trends",                  component: TrendsResearch },
+  // NOTE: /planners/builder kept for backward-compat but no longer in the nav.
+  // Use the per-store Planner Studio (/store/:id/studios/planners) instead.
+  { path: "/planners/builder",        component: PlannerBuilder },
+  { path: "/calendar",               component: CalendarPage },
+  // ── AI Studios (platform / super_admin only) ──────────────────────────────
+  { path: "/studios/theme",           component: ThemeStudio },
+  { path: "/studios/stickers",        component: StickerStudio },
+  { path: "/studios/pack",            component: StickerStudio }, // legacy redirect
+  { path: "/studios/edition",         component: EditionStudio },
+  { path: "/studios/trends",          component: StudioTrendResearch },
 ];

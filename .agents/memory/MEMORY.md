@@ -16,3 +16,4 @@
 - [Moore tracer init](moore-tracer-init.md) — initial dir=3 (East), NOT 7; also extractChannel("alpha") is unreliable — use manual rgba[i*4+3] extraction instead
 - [Marketing Studio](marketing-studio.md) — store profile grounding + 3-tool workbench (listing/social/mockup); profile injected server-side via profile-grounding.ts; mockup is stubbed with SVG placeholders
 - [Studio grounding pattern](studio-grounding.md) — all 4 studio generate calls moved server-side; validateProductOwnership guards cross-store editionId/packId; copilot endpoint uses conversation history + grounding
+- [Planner gap closure](planner-gap-closure.md) — Items 1-4 fully done; Items 5-6 schema-only (no generator wiring yet); storeInsertsTable exists but has no routes

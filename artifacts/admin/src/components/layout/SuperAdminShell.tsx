@@ -1,6 +1,11 @@
 /**
  * SuperAdminShell — layout for the Super Admin console.
- * Ink Navy fixed sidebar, slim top bar, Clay primary accent.
+ * Scope: Platform operations (stores, revenue, flags, audit).
+ *
+ * Cross-console navigation:
+ *  • Daybook admin  → /daybook  (platform catalog authoring)
+ *  • Enter a store  → /super/stores → pick any store → /store/:id
+ *  • Store inspector → /super/stores/:id/inspect (read-only support view)
  */
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
@@ -15,6 +20,8 @@ import {
   LogOut,
   BookMarked,
   ChevronRight,
+  Layers3,
+  ArrowUpRight,
 } from "lucide-react";
 
 const NAV = [
@@ -48,29 +55,20 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
         className="w-60 shrink-0 flex flex-col"
         style={{ background: "hsl(221 46% 17%)" }}
       >
-        {/* Logo */}
+        {/* Scope identity */}
         <div
           className="h-14 flex items-center px-5 gap-2 border-b"
           style={{ borderColor: "hsl(221 46% 24%)" }}
         >
-          <BookMarked className="w-5 h-5 text-[#C87560]" />
-          <span className="font-display font-semibold text-[hsl(35_52%_88%)] text-base">
-            Daybook
-          </span>
-          <span
-            className="ml-auto text-[10px] font-medium rounded-full px-2 py-0.5 border"
-            style={{
-              background: "hsl(12 49% 58% / 0.15)",
-              borderColor: "hsl(12 49% 58% / 0.35)",
-              color: "hsl(12 70% 72%)",
-            }}
-          >
-            Super admin
-          </span>
+          <BookMarked className="w-5 h-5 text-[#C87560] shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-semibold text-[hsl(35_52%_88%)] text-sm leading-tight">Daybook</p>
+            <p className="text-[10px] leading-tight" style={{ color: "hsl(12 70% 72%)" }}>Super admin · Platform</p>
+          </div>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 py-3 px-2 space-y-0.5">
+        {/* Main nav */}
+        <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
           {NAV.map(({ label, icon: Icon, href }) => {
             const active = isActive(href);
             return (
@@ -98,28 +96,57 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-        </nav>
 
-        {/* Daybook Admin switcher */}
-        <div className="px-2 py-2 border-t" style={{ borderColor: "hsl(221 46% 24%)" }}>
-          <Link href="/daybook">
-            <span
-              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors"
-              style={{ color: "hsl(35 20% 55%)" }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.background = "hsl(221 46% 23%)";
-                (e.currentTarget as HTMLElement).style.color = "hsl(35 40% 78%)";
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLElement).style.background = "";
-                (e.currentTarget as HTMLElement).style.color = "hsl(35 20% 55%)";
-              }}
+          {/* ── Cross-console section ──────────────────────────────── */}
+          <div className="pt-4 pb-1">
+            <p
+              className="px-3 mb-1.5 text-[10px] uppercase tracking-wider"
+              style={{ color: "hsl(35 20% 40%)" }}
             >
-              <BookMarked className="w-4 h-4 shrink-0 opacity-60" />
-              <span>Daybook admin</span>
-            </span>
-          </Link>
-        </div>
+              Switch console
+            </p>
+
+            {/* Enter a store — links to Stores picker which has "Enter store" buttons */}
+            <Link href="/super/stores">
+              <span
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors"
+                style={{ color: "hsl(35 20% 55%)" }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.background = "hsl(221 46% 23%)";
+                  (e.currentTarget as HTMLElement).style.color = "hsl(35 40% 78%)";
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.background = "";
+                  (e.currentTarget as HTMLElement).style.color = "hsl(35 20% 55%)";
+                }}
+              >
+                <Store className="w-4 h-4 shrink-0 opacity-70" />
+                <span>Enter a store</span>
+                <ArrowUpRight className="w-3 h-3 ml-auto opacity-50" />
+              </span>
+            </Link>
+
+            {/* Daybook admin (platform catalog) */}
+            <Link href="/daybook">
+              <span
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors"
+                style={{ color: "hsl(35 20% 55%)" }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.background = "hsl(221 46% 23%)";
+                  (e.currentTarget as HTMLElement).style.color = "hsl(35 40% 78%)";
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.background = "";
+                  (e.currentTarget as HTMLElement).style.color = "hsl(35 20% 55%)";
+                }}
+              >
+                <Layers3 className="w-4 h-4 shrink-0 opacity-70" />
+                <span>Daybook admin</span>
+                <ArrowUpRight className="w-3 h-3 ml-auto opacity-50" />
+              </span>
+            </Link>
+          </div>
+        </nav>
 
         {/* User footer */}
         <div
@@ -161,7 +188,7 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
               color: "hsl(216 27% 40%)",
             }}
           >
-            Platform
+            Super admin · Platform
           </span>
         </header>
 

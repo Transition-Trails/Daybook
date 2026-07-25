@@ -26,16 +26,18 @@ import {
   type PageRole,
   type PlannerTemplate,
   type StampContext,
+  type UserHotspot,
   DEFAULT_TEMPLATE,
   addGoToAnnotation,
   addUriAnnotation,
   stampPageZones,
+  stampUserHotspots,
   validateTemplate,
 } from "./pdf-template";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type { PageIdMap } from "./pdf-template";
+export type { PageIdMap, UserHotspot } from "./pdf-template";
 
 /**
  * Resolved background to render as the page base layer.
@@ -223,9 +225,106 @@ function icsDataUri(startDate: Date, endDate: Date, title: string): string {
 
 // ── PDF builder ───────────────────────────────────────────────────────────────
 
-const PAGE_WIDTH = 595;
+/** Page dimensions in PDF points (1pt = 1/72 in) for each supported size key. */
+const PAGE_SIZES: Record<string, { w: number; h: number }> = {
+  "a4":          { w: 595, h: 842 },
+  "a5":          { w: 420, h: 595 },
+  "b6":          { w: 354, h: 499 },
+  "personal":    { w: 270, h: 485 },   // Filofax Personal 95×171mm
+  "half-letter": { w: 396, h: 612 },   // 5.5×8.5in
+  "letter":      { w: 612, h: 792 },   // 8.5×11in
+  "ipad-4-3":    { w: 576, h: 768 },   // 8×10.67in (iPad 4:3)
+};
+const PAGE_WIDTH  = 595;  // A4 default — kept for buildPreviewPdf fallback
 const PAGE_HEIGHT = 842;
 const MARGIN = 40;
+
+/** Finish colour lookup for binding hardware. */
+const BINDING_FINISH_RGB: Record<string, [number, number, number]> = {
+  gold:         [0.83, 0.69, 0.22],
+  "rose-gold":  [0.86, 0.66, 0.66],
+  silver:       [0.75, 0.75, 0.75],
+  bronze:       [0.55, 0.40, 0.27],
+  white:        [0.96, 0.96, 0.96],
+  "matte-black":[0.15, 0.15, 0.15],
+};
+
+/**
+ * Draw binding hardware on a page using pdf-lib vector primitives.
+ * Placement: left edge for portrait/single-page, centre gutter for landscape.
+ * bindingType: 'coil' | 'twin-loop' | 'disc' | '3-ring'
+ * bindingFinish: key in BINDING_FINISH_RGB
+ */
+function drawBindingHardware(
+  page: PDFPage,
+  pageWidth: number,
+  pageHeight: number,
+  bindingType: string,
+  bindingFinish: string,
+  isLandscape: boolean,
+): void {
+  const [fr, fg, fb] = BINDING_FINISH_RGB[bindingFinish] ?? BINDING_FINISH_RGB.silver!;
+  const hardwareColor = rgb(fr, fg, fb);
+  const shadowColor   = rgb(fr * 0.6, fg * 0.6, fb * 0.6);
+
+  // For portrait: hardware runs down the left edge.
+  // For landscape: hardware runs down the centre gutter.
+  const edgeX = isLandscape ? pageWidth / 2 : 0;
+
+  if (bindingType === "coil") {
+    // Spiral coil: series of ovals, alternating fore/aft pass.
+    const count   = Math.floor(pageHeight / 22);
+    const ovalW   = 14;
+    const ovalH   = 10;
+    for (let i = 0; i < count; i++) {
+      const cy = pageHeight - 10 - i * 22;
+      const cx = isLandscape ? edgeX : ovalW / 2 + 1;
+      // Shadow oval
+      page.drawEllipse({ x: cx + 1, y: cy - 1, xScale: ovalW / 2 + 1, yScale: ovalH / 2, color: shadowColor, opacity: 0.4 });
+      // Fore pass
+      page.drawEllipse({ x: cx, y: cy, xScale: ovalW / 2, yScale: ovalH / 2, color: hardwareColor, opacity: 0.9 });
+    }
+
+  } else if (bindingType === "twin-loop") {
+    // Twin-loop (double-O wire): pairs of small linked ovals.
+    const count = Math.floor(pageHeight / 16);
+    const ow = 10;
+    const oh = 6;
+    for (let i = 0; i < count; i++) {
+      const cy = pageHeight - 8 - i * 16;
+      const cx = isLandscape ? edgeX : ow / 2 + 2;
+      page.drawEllipse({ x: cx, y: cy + 3, xScale: ow / 2, yScale: oh / 2, color: hardwareColor, opacity: 0.85 });
+      page.drawEllipse({ x: cx, y: cy - 3, xScale: ow / 2, yScale: oh / 2, color: hardwareColor, opacity: 0.85 });
+    }
+
+  } else if (bindingType === "disc") {
+    // Disc binding: large circles with centre holes.
+    const count  = Math.min(12, Math.floor(pageHeight / 55));
+    const outerR = 14;
+    const innerR = 6;
+    const spacing = pageHeight / (count + 1);
+    for (let i = 1; i <= count; i++) {
+      const cy = pageHeight - i * spacing;
+      const cx = isLandscape ? edgeX : outerR + 3;
+      page.drawEllipse({ x: cx + 1, y: cy - 1, xScale: outerR + 1, yScale: outerR, color: shadowColor, opacity: 0.35 });
+      page.drawEllipse({ x: cx, y: cy, xScale: outerR, yScale: outerR, color: hardwareColor, opacity: 0.9 });
+      page.drawEllipse({ x: cx, y: cy, xScale: innerR, yScale: innerR, color: rgb(0.88, 0.88, 0.88), opacity: 1 });
+    }
+
+  } else {
+    // 3-ring (default for unknown types): 3 large rings.
+    const positions = [0.25, 0.5, 0.75];
+    const outerR = 18;
+    const innerR = 8;
+    for (const frac of positions) {
+      const cy = pageHeight * frac;
+      const cx = isLandscape ? edgeX : outerR + 4;
+      page.drawEllipse({ x: cx + 1, y: cy - 1, xScale: outerR + 1, yScale: outerR, color: shadowColor, opacity: 0.35 });
+      page.drawEllipse({ x: cx, y: cy, xScale: outerR, yScale: outerR, color: hardwareColor, opacity: 0.9 });
+      page.drawEllipse({ x: cx, y: cy, xScale: innerR, yScale: innerR, color: rgb(0.88, 0.88, 0.88), opacity: 1 });
+    }
+  }
+}
 
 interface PageWithId {
   id: string;
@@ -247,11 +346,20 @@ export async function buildPdf(
   themeColors?: string[],
   template: PlannerTemplate = DEFAULT_TEMPLATE,
   background?: BackgroundSpec,
+  hotspotsByTemplate?: Map<string, UserHotspot[]>,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, monthCount, weekStart, orientation } = setup;
-  const tabPos = (style.tabPos ?? "right") as "right" | "top" | "none";
-  const calMode = output.calMode ?? "none";
+  const tabPos      = (style.tabPos ?? "right") as "right" | "top" | "none";
+  const calMode     = output.calMode ?? "none";
+  // Dating mode + binding + cover — read from JSONB style/setup fields
+  const datingMode  = ((setup as Record<string, unknown>).datingMode as string | undefined) ?? "dated";
+  const bindingType = (((style as Record<string, unknown>).binding as Record<string, unknown> | undefined)?.type as string | undefined) ?? "coil";
+  const bindingFinish = (((style as Record<string, unknown>).binding as Record<string, unknown> | undefined)?.finish as string | undefined) ?? "silver";
+  const coverTitle    = (style as Record<string, unknown>).coverTitle as string | undefined;
+  const coverSubtitle = (style as Record<string, unknown>).coverSubtitle as string | undefined;
+  const coverYear     = (style as Record<string, unknown>).coverYear;  // false = suppress year
+  const showCoverYear = coverYear !== false && datingMode === "dated";
 
   // 1. Generate & validate page IDs + template
   const map = generatePageIds(config);
@@ -277,8 +385,11 @@ export async function buildPdf(
 
   // 3. Create PDF
   const pdfDoc = await PDFDocument.create();
-  const pageWidth  = orientation === "landscape" ? PAGE_HEIGHT : PAGE_WIDTH;
-  const pageHeight = orientation === "landscape" ? PAGE_WIDTH  : PAGE_HEIGHT;
+  // Page dimensions driven by style.size; fallback to A4
+  const sizeKey  = (style as Record<string, unknown>).size as string | undefined;
+  const baseSize = PAGE_SIZES[sizeKey ?? "a4"] ?? PAGE_SIZES.a4!;
+  const pageWidth  = orientation === "landscape" ? baseSize.h : baseSize.w;
+  const pageHeight = orientation === "landscape" ? baseSize.w : baseSize.h;
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
@@ -308,8 +419,8 @@ export async function buildPdf(
   }
 
   // 3b. Realistic render style: generate template overlays ONCE, embed as reusable XObjects.
-  // When renderStyle === "flat" (or undefined), skip entirely — current behaviour.
-  const renderStyle = (style as PlannerStyle & { renderStyle?: string }).renderStyle;
+  // Default is "realistic"; pass renderStyle:"flat" to opt out.
+  const renderStyle = (style as PlannerStyle & { renderStyle?: string }).renderStyle ?? "realistic";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let realisticGutterImg: any = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -409,6 +520,8 @@ export async function buildPdf(
       const gutterW = pageWidth * 0.05;
       page.drawImage(realisticGutterImg, { x: 0, y: 0, width: gutterW, height: pageHeight });
     }
+    // Layer 2c: binding hardware art (vector, rendered per page but is lightweight)
+    drawBindingHardware(page, pageWidth, pageHeight, bindingType, bindingFinish, orientation === "landscape");
 
     // Layer 3: accent header + page ID (always on top of background, under content)
     page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: rgb(accent.r, accent.g, accent.b) });
@@ -454,14 +567,27 @@ export async function buildPdf(
   //    Content (drawText / drawRectangle / drawLine) is exactly as before.
   //    Link annotation placement is delegated to stampPageZones.
 
+  // Convenience: stamp user hotspots after template zones (Item 1 stamp-once)
+  function hs(role: PageRole): UserHotspot[] {
+    return hotspotsByTemplate?.get(role) ?? [];
+  }
+
   // ── COVER ──
   {
     const sp = getPage("cover");
     if (sp) {
-      sp.drawText("Daybook", { x: MARGIN, y: pageHeight / 2 + 40, size: 32, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
-      sp.drawText("Your planner, your way.", { x: MARGIN, y: pageHeight / 2, size: 14, font, color: rgb(ink.r, ink.g, ink.b) });
+      sp.drawText(coverTitle ?? "Daybook", { x: MARGIN, y: pageHeight / 2 + 40, size: 32, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
+      sp.drawText(coverSubtitle ?? "Your planner, your way.", { x: MARGIN, y: pageHeight / 2, size: 14, font, color: rgb(ink.r, ink.g, ink.b) });
+      if (showCoverYear) {
+        sp.drawText(String(startYear), { x: MARGIN, y: pageHeight / 2 - 28, size: 22, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+      }
+      if (orientation !== "landscape") {
+        sp.drawRectangle({ x: 0, y: 0, width: 8, height: pageHeight, color: rgb(accent.r, accent.g, accent.b) });
+      }
     }
-    stampPageZones(makeCtx("cover", "cover"));
+    const coverCtx = makeCtx("cover", "cover");
+    stampPageZones(coverCtx);
+    stampUserHotspots(coverCtx, hs("cover"));
   }
 
   // ── HOME ──
@@ -470,16 +596,20 @@ export async function buildPdf(
     if (sp) {
       sp.drawText("Home", { x: MARGIN, y: pageHeight - 50, size: 20, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
     }
-    stampPageZones(makeCtx("home", "home"));
+    const homeCtx = makeCtx("home", "home");
+    stampPageZones(homeCtx);
+    stampUserHotspots(homeCtx, hs("home"));
   }
 
   // ── YEAR ──
   {
     const sp = getPage("year");
     if (sp) {
-      sp.drawText("Year Overview", { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+      sp.drawText(datingMode === "dated" ? `${startYear} Overview` : "Year Overview", { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
     }
-    stampPageZones(makeCtx("year", "year"));
+    const yearCtx = makeCtx("year", "year");
+    stampPageZones(yearCtx);
+    stampUserHotspots(yearCtx, hs("year"));
   }
 
   // ── MONTH DIVIDERS + MONTH CALENDARS ──
@@ -489,30 +619,42 @@ export async function buildPdf(
     const { year, month } = monthList[i];
     const monthName = new Date(year, month, 1).toLocaleString("en-US", { month: "long" });
 
-    // Month divider: content
+    // Month divider: content (undated → "Month N", perpetual → monthName only, dated → monthName + year)
     const mdivPage = getPage(mdivId);
     if (mdivPage) {
-      mdivPage.drawText(monthName, { x: MARGIN, y: pageHeight / 2, size: 36, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
-      mdivPage.drawText(String(year), { x: MARGIN, y: pageHeight / 2 - 44, size: 18, font, color: rgb(ink.r, ink.g, ink.b) });
+      const mdivHeading = datingMode === "undated" ? `Month ${i + 1}` : monthName;
+      mdivPage.drawText(mdivHeading, { x: MARGIN, y: pageHeight / 2, size: 36, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
+      if (datingMode === "dated") {
+        mdivPage.drawText(String(year), { x: MARGIN, y: pageHeight / 2 - 44, size: 18, font, color: rgb(ink.r, ink.g, ink.b) });
+      }
     }
-    // Month divider: links
-    stampPageZones(makeCtx(mdivId, "month-divider", { monthIndex: i }));
+    // Month divider: links + user hotspots
+    const mdivCtx = makeCtx(mdivId, "month-divider", { monthIndex: i });
+    stampPageZones(mdivCtx);
+    stampUserHotspots(mdivCtx, hs("month-divider"));
 
     // Month calendar: content
     const mPage = getPage(mId);
     if (mPage) {
-      mPage.drawText(`${monthName} ${year}`, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+      const calHeading = datingMode === "undated"
+        ? `Month ${i + 1}`
+        : datingMode === "perpetual"
+          ? monthName
+          : `${monthName} ${year}`;
+      mPage.drawText(calHeading, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
     }
 
-    // Month calendar: links (prev-mdiv, next-mdiv + day cells via dayCells spec)
-    // weekStartOffset=0 matches the current code's (d-1)%7 layout (no weekday alignment)
-    stampPageZones(makeCtx(mId, "month-calendar", {
+    // Month calendar: links + user hotspots
+    const mCtx = makeCtx(mId, "month-calendar", {
       monthIndex: i,
       dayOfMonthContext: { year, month, weekStartOffset: 0 },
-    }));
+    });
+    stampPageZones(mCtx);
+    stampUserHotspots(mCtx, hs("month-calendar"));
   }
 
   // ── WEEKLIES ──
+  let weeklyIndex = 0; // 0-based position in map.weeklies (used by next-week/prev-week hotspots)
   for (const weekId of map.weeklies) {
     const wPage = getPage(weekId);
     if (!wPage) continue;
@@ -525,7 +667,13 @@ export async function buildPdf(
     const monday = new Date(jan4);
     monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (weekNum - 1) * 7);
 
-    wPage.drawText(`Week ${weekNum} — ${weekYear}`, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+    // Heading adapts to datingMode
+    const weekHeading = datingMode === "undated"
+      ? `Week ${weeklyIndex + 1}`
+      : datingMode === "perpetual"
+        ? `Week ${weekNum}  ·  ${monday.toLocaleString("en-US", { weekday: "short" })}–${new Date(monday.getTime() + 6 * 86400000).toLocaleString("en-US", { weekday: "short" })}`
+        : `Week ${weekNum} — ${weekYear}`;
+    wPage.drawText(weekHeading, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
 
     // Calendar links per day (remains imperative — driven by output.calMode)
     for (let d = 0; d < 7; d++) {
@@ -562,12 +710,16 @@ export async function buildPdf(
       return 0;
     })();
 
-    // Links: month-for-week + 7 day columns via template
-    stampPageZones(makeCtx(weekId, "weekly", {
+    // Links: month-for-week + 7 day columns via template; stamp user hotspots after
+    const wCtx = makeCtx(weekId, "weekly", {
       weeklyMonthIndex: monthIdx,
+      weeklyIndex,
       weekMonday: monday,
       includeTabRail: true,
-    }));
+    });
+    stampPageZones(wCtx);
+    stampUserHotspots(wCtx, hs("weekly"));
+    weeklyIndex++;
   }
 
   // ── DAILIES ──
@@ -583,10 +735,13 @@ export async function buildPdf(
     const day   = parseInt(dateStr.substring(6, 8));
     const date  = new Date(year, month, day);
 
-    dPage.drawText(
-      date.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
-      { x: MARGIN, y: pageHeight - 50, size: 14, font: fontBold, color: rgb(ink.r, ink.g, ink.b) },
-    );
+    // Daily heading adapts to datingMode
+    const dayHeading = datingMode === "undated"
+      ? `Day ${i + 1}`
+      : datingMode === "perpetual"
+        ? date.toLocaleString("en-US", { weekday: "long" })
+        : date.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    dPage.drawText(dayHeading, { x: MARGIN, y: pageHeight - 50, size: 14, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
 
     // Calendar link
     if (calMode === "link" || calMode === "overlay") {
@@ -616,16 +771,14 @@ export async function buildPdf(
       return 0;
     })();
 
-    // Links: month-for-day, prev-day, next-day via template
-    stampPageZones(makeCtx(dayId, "daily", {
-      monthIndex: monthIdx,
-      dailyIndex: i,
-      includeTabRail: true,
-    }));
+    // Links: month-for-day, prev-day, next-day via template; stamp user hotspots after
+    const dCtx = makeCtx(dayId, "daily", { monthIndex: monthIdx, dailyIndex: i, includeTabRail: true });
+    stampPageZones(dCtx);
+    stampUserHotspots(dCtx, hs("daily"));
   }
 
   // ── TODO ──
-  stampPageZones(makeCtx("todo", "todo", { includeTabRail: true }));
+  { const todoCtx = makeCtx("todo", "todo", { includeTabRail: true }); stampPageZones(todoCtx); stampUserHotspots(todoCtx, hs("todo")); }
 
   // ── NOTES + SECTION DIVIDERS ──
   {
@@ -633,7 +786,9 @@ export async function buildPdf(
     if (np) {
       np.drawText("Notes", { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
     }
-    stampPageZones(makeCtx("notes", "notes", { includeTabRail: true }));
+    const notesCtx = makeCtx("notes", "notes", { includeTabRail: true });
+    stampPageZones(notesCtx);
+    stampUserHotspots(notesCtx, hs("notes"));
 
     for (let i = 0; i < map.sectionDividers.length; i++) {
       const nsId = map.sectionDividers[i];
@@ -641,16 +796,17 @@ export async function buildPdf(
       if (nsp) {
         nsp.drawText(sections[i] ?? nsId, { x: MARGIN, y: pageHeight - 50, size: 18, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
       }
-      stampPageZones(makeCtx(nsId, "section-divider", {
-        sectionIndex: i,
-        includeTabRail: true,
-      }));
+      const nsCtx = makeCtx(nsId, "section-divider", { sectionIndex: i, includeTabRail: true });
+      stampPageZones(nsCtx);
+      stampUserHotspots(nsCtx, hs("section-divider"));
     }
   }
 
   // ── NOTE PAPER ──
   for (const npId of map.notePaper) {
-    stampPageZones(makeCtx(npId, "note-paper", { includeTabRail: true }));
+    const npCtx = makeCtx(npId, "note-paper", { includeTabRail: true });
+    stampPageZones(npCtx);
+    stampUserHotspots(npCtx, hs("note-paper"));
   }
 
   // 8. Serialize
@@ -708,6 +864,23 @@ export async function buildPreviewPdf(
     }
   }
 
+  // Realistic grain overlay for preview (same XObject-once approach as buildPdf)
+  const previewRenderStyle = (style as Record<string, unknown>).renderStyle ?? "realistic";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let previewGrainImg: any = null;
+  if (previewRenderStyle === "realistic") {
+    try {
+      const grainSz = 128;
+      const px = Buffer.alloc(grainSz * grainSz * 4);
+      for (let gi = 0; gi < grainSz * grainSz; gi++) {
+        const v = Math.floor(Math.random() * 28);
+        px[gi * 4] = v; px[gi * 4 + 1] = v; px[gi * 4 + 2] = v; px[gi * 4 + 3] = 16;
+      }
+      const grainBuf = await sharp(px, { raw: { width: grainSz, height: grainSz, channels: 4 } }).png().toBuffer();
+      previewGrainImg = await pdfDoc.embedPng(grainBuf);
+    } catch { /* fall through to flat */ }
+  }
+
   const firstDate     = new Date(startYear, startMonth, 1);
   const firstDayId    = `d${yyyymmdd(firstDate)}`;
   const firstWeeklyId = getISOWeekId(firstDate);
@@ -728,6 +901,9 @@ export async function buildPreviewPdf(
     page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(paperFill.r, paperFill.g, paperFill.b) });
     if (bgEmbedded) {
       page.drawImage(bgEmbedded, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+    }
+    if (previewGrainImg) {
+      page.drawImage(previewGrainImg, { x: 0, y: 0, width: pageWidth, height: pageHeight, opacity: 0.45 });
     }
     page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: rgb(accent.r, accent.g, accent.b) });
     page.drawText(id, { x: MARGIN, y: pageHeight - 14, size: 7, font, color: rgb(1, 1, 1) });

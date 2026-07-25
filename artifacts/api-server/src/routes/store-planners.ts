@@ -14,6 +14,7 @@ import { Router, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import {
   plannerConfigsTable,
+  plannerHotspotsTable,
   editionsTable,
   themesTable,
   palettesTable,
@@ -22,6 +23,7 @@ import {
   storeProfilesTable,
   storeFlagsTable,
 } from "@workspace/db";
+import type { UserHotspot } from "../lib/pdf-generator";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { requireStoreAccess } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
@@ -205,7 +207,15 @@ router.post(
         })
         .returning();
 
-      const { pdfFileId, configFileId, pageCount } = await runGeneration(config);
+      // Load seller hotspot maps (stamp-once: keyed by templateKey, applied to every matching page)
+      const hotspotRows = await db.select().from(plannerHotspotsTable).where(eq(plannerHotspotsTable.storeId, storeId));
+      const hotspotsByTemplate = new Map<string, UserHotspot[]>();
+      for (const h of hotspotRows) {
+        const arr = hotspotsByTemplate.get(h.templateKey) ?? [];
+        arr.push({ x: h.x, y: h.y, w: h.w, h: h.h, targetType: h.targetType, targetRef: h.targetRef, label: h.label });
+        hotspotsByTemplate.set(h.templateKey, arr);
+      }
+      const { pdfFileId, configFileId, pageCount } = await runGeneration(config, hotspotsByTemplate.size ? hotspotsByTemplate : undefined);
 
       // Determine edition + theme names for bundle filename
       let editionName: string | null = null;
@@ -421,7 +431,15 @@ router.post(
         .where(and(eq(plannerConfigsTable.id, id), eq(plannerConfigsTable.storeId, storeId)))
         .returning();
 
-      const { pdfFileId, configFileId, pageCount } = await runGeneration(patched);
+      // Reload hotspot maps for re-export
+      const reexportHotspotRows = await db.select().from(plannerHotspotsTable).where(eq(plannerHotspotsTable.storeId, storeId));
+      const reexportHotspots = new Map<string, UserHotspot[]>();
+      for (const h of reexportHotspotRows) {
+        const arr = reexportHotspots.get(h.templateKey) ?? [];
+        arr.push({ x: h.x, y: h.y, w: h.w, h: h.h, targetType: h.targetType, targetRef: h.targetRef, label: h.label });
+        reexportHotspots.set(h.templateKey, arr);
+      }
+      const { pdfFileId, configFileId, pageCount } = await runGeneration(patched, reexportHotspots.size ? reexportHotspots : undefined);
 
       // Bundle filename
       let editionName: string | null = null;

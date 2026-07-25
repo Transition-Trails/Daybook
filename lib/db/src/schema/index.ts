@@ -6,3 +6,4 @@ export * from "./plans";
 export * from "./planner";
 export * from "./stores";
 export * from "./google-sync";
+export * from "./hotspots";

@@ -2,8 +2,22 @@
  * Shell — Daybook Admin layout (platform catalog authoring, super_admin only).
  *
  * Scope: Platform catalog. All routes here live under /daybook/... and are
- * accessible only to super_admin. Store-scoped studios (Planner, Marketing, etc.)
- * live under /store/:storeId/... — see the "Store console" section at the bottom.
+ * accessible only to super_admin.
+ *
+ * ── Nav structure ─────────────────────────────────────────────────────────────
+ *
+ * STUDIOS  (one workspace per product domain — AI generation is a dock inside
+ *           each studio, not a separate nav destination)
+ *   Planner Studio   — Build · Editions · Inserts & widgets · Cover · Dividers
+ *                      · Theme · Paper & binding · Quality check
+ *   Sticker Studio   — Library · Create a sticker · Assemble a pack
+ *   Marketing Studio — Trends · Listing generator · Social posts · Promo mockups
+ *
+ * CATALOG  (platform-level asset types shared across studios)
+ *   Themes · Palettes · Backgrounds · Inserts · Widgets · Related products
+ *
+ * PLATFORM
+ *   Plans · Users · Ink · AI settings · Google sync · Calendar
  */
 import {
   Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem,
@@ -13,43 +27,39 @@ import {
 import {
   Home, Palette, FileImage, Layers3, BookOpen,
   Users, Settings, RefreshCw, BarChart2, Package2, LogOut,
-  Wand2, CalendarDays, ArrowLeft, Sparkles, TrendingUp, Pen,
-  Image, Sticker, Store, ExternalLink,
+  CalendarDays, ArrowLeft, Pen, Image, Sticker, Store,
+  Megaphone, LayoutTemplate, Shapes,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
 
 // ── Nav definition ─────────────────────────────────────────────────────────────
-// Catalog group follows the canonical order:
-//   Themes → Palettes → Backgrounds → Stickers → Sticker packs → Inserts → Related products
-//
-// "Planner builder" removed — superseded by the per-store Planner Studio
-//   (Store console → AI Studios → Planner Studio).
-// "Editions" kept here because editions are PLATFORM catalog items that stores reference.
+// Studios = one entry per product domain. AI generation lives as a mode inside
+// each studio's dock — there is no separate "AI Studios" section.
+// Catalog = platform-level shared asset types.
+// Platform = system / ops / tooling entries.
 
 const NAV_ITEMS = [
-  { label: "Dashboard",        icon: Home,        href: "/" },
+  { label: "Dashboard",          icon: Home,           href: "/" },
+  // ── Studios ──────────────────────────────────────────────────────────────
+  { label: "Planner Studio",     icon: LayoutTemplate, href: "/studios/planner",    group: "Studios" },
+  { label: "Sticker Studio",     icon: Sticker,        href: "/studios/stickers",   group: "Studios" },
+  { label: "Marketing Studio",   icon: Megaphone,      href: "/studios/marketing",  group: "Studios" },
   // ── Catalog ──────────────────────────────────────────────────────────────
-  { label: "Themes",           icon: Palette,     href: "/catalog/themes",       group: "Catalog" },
-  { label: "Palettes",         icon: BarChart2,   href: "/catalog/palettes",     group: "Catalog" },
-  { label: "Backgrounds",      icon: Image,       href: "/catalog/backgrounds",  group: "Catalog" },
-  { label: "Stickers",         icon: Sticker,     href: "/catalog/stickers",     group: "Catalog" },
-  { label: "Sticker packs",    icon: Sticker,     href: "/catalog/packs",        group: "Catalog" },
-  { label: "Inserts",          icon: FileImage,   href: "/catalog/inserts",      group: "Catalog" },
-  { label: "Related products", icon: Package2,    href: "/catalog/products",     group: "Catalog" },
-  // ── Products ─────────────────────────────────────────────────────────────
-  { label: "Editions",         icon: BookOpen,    href: "/editions",             group: "Products" },
-  { label: "Ink ✦",           icon: Pen,         href: "/ink",                  group: "Products" },
-  // ── AI Studios (platform) ────────────────────────────────────────────────
-  { label: "Theme Studio",     icon: Palette,     href: "/studios/theme",        group: "AI Studios" },
-  { label: "Sticker Studio",   icon: Sticker,     href: "/studios/stickers",     group: "AI Studios" },
-  { label: "Edition Studio",   icon: BookOpen,    href: "/studios/edition",      group: "AI Studios" },
-  { label: "Trend Research",   icon: TrendingUp,  href: "/studios/trends",       group: "AI Studios" },
-  // ── System ───────────────────────────────────────────────────────────────
-  { label: "Users",            icon: Users,       href: "/users",                group: "System" },
-  { label: "AI settings",      icon: Settings,    href: "/ai-settings",          group: "System" },
-  { label: "Google sync",      icon: RefreshCw,   href: "/sync",                 group: "System" },
-  { label: "Calendar",         icon: CalendarDays,href: "/calendar",             group: "System" },
+  // Shared platform asset types referenced by the studios above.
+  { label: "Themes",             icon: Palette,        href: "/catalog/themes",     group: "Catalog" },
+  { label: "Palettes",           icon: BarChart2,      href: "/catalog/palettes",   group: "Catalog" },
+  { label: "Backgrounds",        icon: Image,          href: "/catalog/backgrounds",group: "Catalog" },
+  { label: "Inserts",            icon: FileImage,      href: "/catalog/inserts",    group: "Catalog" },
+  { label: "Widgets",            icon: Shapes,         href: "/catalog/widgets",    group: "Catalog" },
+  { label: "Related products",   icon: Package2,       href: "/catalog/products",   group: "Catalog" },
+  // ── Platform ─────────────────────────────────────────────────────────────
+  { label: "Plans",              icon: BookOpen,       href: "/plans",              group: "Platform" },
+  { label: "Users",              icon: Users,          href: "/users",              group: "Platform" },
+  { label: "Ink ✦",             icon: Pen,            href: "/ink",                group: "Platform" },
+  { label: "AI settings",        icon: Settings,       href: "/ai-settings",        group: "Platform" },
+  { label: "Google sync",        icon: RefreshCw,      href: "/sync",               group: "Platform" },
+  { label: "Calendar",           icon: CalendarDays,   href: "/calendar",           group: "Platform" },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -87,7 +97,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
           {/* Back to super admin — uses native <a> to escape the /daybook base router */}
           <div className="px-2 pb-2">
-            <a href="/super" className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent no-underline">
+            <a
+              href="/super"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent no-underline"
+            >
               <ArrowLeft className="w-3.5 h-3.5" />
               Back to super admin
             </a>
@@ -95,6 +108,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </SidebarHeader>
 
         <SidebarContent className="py-2">
+          {/* Dashboard (ungrouped, always first) */}
           <SidebarMenu>
             {groups["Main"]?.map(item => (
               <SidebarMenuItem key={item.href}>
@@ -108,49 +122,53 @@ export function Shell({ children }: { children: React.ReactNode }) {
             ))}
           </SidebarMenu>
 
-          {Object.entries(groups).filter(([key]) => key !== "Main").map(([groupName, items]) => (
-            <SidebarGroup key={groupName} className="mt-3">
-              <SidebarGroupLabel>{groupName}</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {items.map(item => (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={location.startsWith(item.href) && item.href !== "/"}
-                      >
-                        <Link href={item.href} className="flex items-center gap-3">
-                          <item.icon className="w-4 h-4" />
-                          <span>{item.label}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          ))}
+          {/* Grouped sections — Studios first, then Catalog, then Platform */}
+          {(["Studios", "Catalog", "Platform"] as const).map(groupName => {
+            const items = groups[groupName];
+            if (!items?.length) return null;
+            return (
+              <SidebarGroup key={groupName} className="mt-3">
+                <SidebarGroupLabel>{groupName}</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {items.map(item => (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={location.startsWith(item.href) && item.href !== "/"}
+                        >
+                          <Link href={item.href} className="flex items-center gap-3">
+                            <item.icon className="w-4 h-4" />
+                            <span>{item.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            );
+          })}
 
-          {/* Store console pointer ─────────────────────────────────────────
-              Planner Studio, Marketing Studio, and other per-store AI studios
-              live under the Store console (/store/:storeId/...).
-              Access them by entering a store from Super Admin → Stores.       */}
+          {/* Store console pointer */}
           <SidebarGroup className="mt-3">
             <SidebarGroupLabel>Store console</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
-                    <a href="/super/stores" className="flex items-center gap-3 text-sidebar-foreground/60 hover:text-sidebar-foreground">
+                    <a
+                      href="/super/stores"
+                      className="flex items-center gap-3 text-sidebar-foreground/60 hover:text-sidebar-foreground"
+                    >
                       <Store className="w-4 h-4" />
                       <span>Browse stores</span>
-                      <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
                     </a>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
               <p className="px-3 pt-1 pb-2 text-[10px] text-sidebar-foreground/40 leading-snug">
-                Planner Studio, Marketing Studio, and store-scoped AI studios are accessed by entering a store from Super Admin.
+                Per-store Planner, Sticker, and Marketing Studios are accessed by entering a store from Super Admin.
               </p>
             </SidebarGroupContent>
           </SidebarGroup>

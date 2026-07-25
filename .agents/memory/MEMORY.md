@@ -17,3 +17,6 @@
 - [Marketing Studio](marketing-studio.md) — store profile grounding + 3-tool workbench (listing/social/mockup); profile injected server-side via profile-grounding.ts; mockup is stubbed with SVG placeholders
 - [Studio grounding pattern](studio-grounding.md) — all 4 studio generate calls moved server-side; validateProductOwnership guards cross-store editionId/packId; copilot endpoint uses conversation history + grounding
 - [Planner gap closure](planner-gap-closure.md) — Items 1-4 fully done; Items 5-6 schema-only (no generator wiring yet); storeInsertsTable exists but has no routes
+- [Studio active-chip contrast](studio-chip-contrast.md) — --primary is clay #C87560 (~3.5:1 on white, FAILS); always use Ink Navy #1B2A4A for active chip/pill fills; CHIP_ACTIVE_BG + CHIP_ACTIVE_CLS constants in primitives.tsx
+- [Edition duplicate route](edition-duplicate.md) — POST /editions/:id/duplicate added to catalog.ts; req.params must be cast `as string` to fix TS; advances years in name via regex; carries jsonb arrays with explicit casts
+- [Studio rail scroll](studio-rail-scroll.md) — StudioLayout aside is overflow-hidden flex-col; each rail owns its scroll (flex-1 overflow-y-auto); build rail uses flex-col h-full + inner flex-1 + sticky bottom for pinned voice/tone

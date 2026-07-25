@@ -844,6 +844,31 @@ export const catalogApi = {
   updatePack:    (id: string, data: Partial<CatalogItem>) => apiFetch<CatalogItem>(`/sticker-packs/${id}`,   { method: "PATCH", body: JSON.stringify(data) }),
   updateInsert:  (id: string, data: Partial<CatalogItem>) => apiFetch<CatalogItem>(`/inserts/${id}`,         { method: "PATCH", body: JSON.stringify(data) }),
   updateProduct: (id: string, data: Partial<CatalogItem>) => apiFetch<CatalogItem>(`/related-products/${id}`,{ method: "PATCH", body: JSON.stringify(data) }),
+
+  /** Create a new platform edition (status="draft"). ID auto-generated from name. */
+  createEdition: (data: {
+    name: string;
+    tier?: string;
+    description?: string;
+    priceLow?: number;
+    priceHigh?: number;
+  }) => {
+    const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
+    const rand = Math.random().toString(36).slice(2, 7);
+    const id   = `ed-${slug}-${rand}`;
+    return apiFetch<CatalogItem>("/editions", {
+      method: "POST",
+      body: JSON.stringify({ id, status: "draft", globalAvailable: true, origin: "licensed", ...data }),
+    });
+  },
+
+  /** Duplicate an edition: carries over catalog attachments, bumps year in name, starts as draft. */
+  duplicateEdition: (id: string) =>
+    apiFetch<CatalogItem>(`/editions/${encodeURIComponent(id)}/duplicate`, { method: "POST" }),
+
+  /** Update any field on a platform edition. */
+  updateEdition: (id: string, data: Partial<CatalogItem>) =>
+    apiFetch<CatalogItem>(`/editions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
 };
 
 // ── Studio grounded-generate endpoints (server-side, profile-injected) ────────

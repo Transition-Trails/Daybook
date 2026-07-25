@@ -165,4 +165,82 @@ buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert",       
 buildCatalogRoutes(router, "/products",   relatedProductsTable, "RelatedProduct");
 buildCatalogRoutes(router, "/editions",   editionsTable,        "Edition");
 
+// ── Edition-specific: duplicate ───────────────────────────────────────────────
+// POST /editions/:id/duplicate
+// Creates a draft clone carrying over themes/packs/inserts/products,
+// auto-advancing any 20XX year in the name by 1, and setting revisionOf.
+// Never touches the source or anything generated from it.
+
+function advanceYearsInName(name: string): string {
+  // Bump every 4-digit year matching 20XX (e.g. 2026→2027, 2026–2027→2027–2028)
+  return name.replace(/\b(20\d{2})\b/g, (_, y) => String(Number(y) + 1));
+}
+
+function makeEditionId(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 32);
+  return `ed-${slug}-${Date.now().toString(36)}`;
+}
+
+router.post(
+  "/editions/:id/duplicate",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [src] = await db.select().from(editionsTable).where(eq(editionsTable.id, id)) as any[];
+    if (!src || src.status === "deleted") {
+      res.status(404).json({ error: "Edition not found" });
+      return;
+    }
+
+    const newName = advanceYearsInName(src.name);
+    const newId   = makeEditionId(newName);
+    const newYear = src.year ? src.year + 1 : null;
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const [row] = await db.insert(editionsTable).values({
+        id:              newId,
+        name:            newName,
+        status:          "draft" as const,
+        tier:            String(src.tier ?? "basic"),
+        sections:        (src.sections ?? []) as string[],
+        priceLow:        src.priceLow ?? null,
+        priceHigh:       src.priceHigh ?? null,
+        themes:          (src.themes ?? []) as string[],
+        packs:           (src.packs ?? []) as string[],
+        inserts:         (src.inserts ?? []) as string[],
+        products:        (src.products ?? []) as string[],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        art:             (src.art ?? { cover: null, first: null, divider: null, weekly: null, daily: null, notes: null }) as any,
+        globalAvailable: Boolean(src.globalAvailable ?? true),
+        origin:          "licensed" as const,
+        authoredByStoreId: null,
+        revisionOf:      id,
+        year:            newYear,
+      }).returning() as any[];
+
+      await writeAudit(db, {
+        actorUserId: req.actor!.userId,
+        actorRole:   req.actor!.effectiveRole,
+        scope:       "platform",
+        action:      "catalog.edition.duplicate",
+        targetType:  "edition",
+        targetId:    newId,
+        metadata:    { sourceId: id, sourceName: src.name, newName, autoAdvancedYear: true },
+      });
+
+      res.status(201).json(row);
+    } catch (err) {
+      req.log.error({ err }, "Edition duplicate failed");
+      res.status(500).json({ error: "Duplicate failed" });
+    }
+  },
+);
+
 export default router;

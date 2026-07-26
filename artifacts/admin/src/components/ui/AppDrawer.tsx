@@ -1,14 +1,37 @@
 /**
- * AppDrawer — reusable overlay drawer.
+ * AppDrawer — reusable overlay drawer used for AI Assistant, Preview, and
+ * any future right/left panel in the app.
  *
- * - Overlays the page on a scrim; body scroll is locked while open.
- * - Full window height, anchored left or right, configurable width (default 400px).
- * - Fits 100vw below 640px.
- * - Single scroll context inside — the caller provides content with no inner
- *   overflow containers (they would cause nested scrollbars).
- * - Slides in/out 220ms ease-out. Scrim fades.
- * - Dismissible by ×, scrim click, or Escape.
- * - Always mounted so content state (e.g. chat history) survives open/close.
+ * Geometry
+ * ────────
+ * position:fixed; top:0; right/left:0; height:100dvh — covers the full
+ * viewport including the app top bar, edge-to-edge vertically. dvh handles
+ * mobile browser chrome correctly (vh does not on iOS Safari).
+ *
+ * Visual separation
+ * ─────────────────
+ * Inner edge: 1px solid #E7DCCB (warm amber hairline, clearly visible).
+ * Shadow: two-layer —  close-in (-2px) + wide spread (-12px) both spilling
+ *   left/right so the panel reads as elevated, not floating.
+ * Background: #FFFDF9 warm paper. Square corners — flush to the viewport edge.
+ *
+ * Scroll
+ * ──────
+ * Body: display:flex; flex-direction:column; overflow:hidden — children manage
+ * their own scroll. DockAiAssistant has its own conversation-area scroll.
+ * Preview content is wrapped in an overflow-y:auto div by GlobalAiDrawer.
+ * → exactly one scrollable region visible at a time.
+ *
+ * Layout shift prevention
+ * ───────────────────────
+ * html { scrollbar-gutter: stable } (in index.css) reserves the scrollbar
+ * lane always, so setting body overflow:hidden never causes a horizontal jump.
+ * The effect also compensates dynamically in case the CSS isn't in effect.
+ *
+ * Motion
+ * ──────
+ * Panel slides 240ms ease-out. Scrim fades 240ms ease-out. Both use the
+ * same duration so they complete together. No page reflow during animation.
  */
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
@@ -18,10 +41,8 @@ export interface AppDrawerProps {
   onClose: () => void;
   side?: "left" | "right";
   title: string;
-  /** Optional chip / badge shown after the title */
+  /** Optional chip / badge shown after the title — must truncate gracefully */
   badge?: React.ReactNode;
-  /** Extra element(s) rendered before the × button (e.g. tab switcher) */
-  headerExtra?: React.ReactNode;
   children: React.ReactNode;
   /** Width in px at ≥ 640 px. Defaults to 400. */
   width?: number;
@@ -33,28 +54,40 @@ export function AppDrawer({
   side = "right",
   title,
   badge,
-  headerExtra,
   children,
   width = 400,
 }: AppDrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // ── Body scroll lock ────────────────────────────────────────────────────────
+  // ── Body scroll lock + layout-shift compensation ─────────────────────────────
+  // Measuring the scrollbar width before hiding overflow lets us add equal
+  // padding so the page content does not jump sideways.
+  // html { scrollbar-gutter: stable } in index.css handles this declaratively;
+  // this is a belt-and-suspenders fallback for environments where that rule
+  // hasn't loaded yet.
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
+    const scrollbarWidth =
+      window.innerWidth - document.documentElement.clientWidth;
+    const prevOverflow = document.body.style.overflow;
+    const prevPadding  = document.body.style.paddingRight;
     document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
     return () => {
-      document.body.style.overflow = prev;
+      document.body.style.overflow     = prevOverflow;
+      document.body.style.paddingRight = prevPadding;
     };
   }, [open]);
 
-  // ── ESC to close ────────────────────────────────────────────────────────────
+  // ── ESC to close (highest priority — capture phase) ──────────────────────────
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         onClose();
       }
     };
@@ -62,31 +95,37 @@ export function AppDrawer({
     return () => window.removeEventListener("keydown", handler, { capture: true });
   }, [open, onClose]);
 
-  // ── Move focus into panel when opened ───────────────────────────────────────
+  // ── Focus panel when opened ───────────────────────────────────────────────────
   useEffect(() => {
     if (open) panelRef.current?.focus();
   }, [open]);
 
-  const translateOut = side === "right" ? "translateX(100%)" : "translateX(-100%)";
+  const translateOut =
+    side === "right" ? "translateX(100%)" : "translateX(-100%)";
 
   return (
     <>
-      {/* ── Scrim ─────────────────────────────────────────────────────────── */}
+      {/* ── Scrim ─────────────────────────────────────────────────────────────
+          Warm navy at low opacity so page content keeps its colour, just dims.
+          Always mounted (pointer-events:none when closed) so the fade transition
+          plays on both open and close. */}
       <div
         aria-hidden="true"
         onClick={onClose}
         style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 200,
-          background: "rgba(27, 42, 74, 0.40)",
-          opacity: open ? 1 : 0,
+          position:      "fixed",
+          inset:         0,
+          zIndex:        9998,
+          background:    "rgba(27,42,74,0.28)",
+          opacity:       open ? 1 : 0,
           pointerEvents: open ? "auto" : "none",
-          transition: "opacity 220ms ease-out",
+          transition:    "opacity 240ms ease-out",
         }}
       />
 
-      {/* ── Panel — always mounted so chat history / state survives ───────── */}
+      {/* ── Panel ─────────────────────────────────────────────────────────────
+          Always mounted so chat history / scroll position / React state all
+          survive open → close → re-open. Hidden by translateX when closed. */}
       <div
         ref={panelRef}
         role="dialog"
@@ -94,111 +133,133 @@ export function AppDrawer({
         aria-label={title}
         tabIndex={-1}
         style={{
-          position: "fixed",
-          top: 0,
-          bottom: 0,
-          [side]: 0,
-          zIndex: 201,
-          width: `min(${width}px, 100vw)`,
-          background: "#FFFDF9",
-          border: side === "right"
-            ? "1px solid hsl(37 37% 84%) transparent transparent transparent"
-            : "1px solid transparent hsl(37 37% 84%) transparent transparent",
-          borderLeft: side === "right" ? "1px solid hsl(37 37% 84%)" : undefined,
-          borderRight: side === "left" ? "1px solid hsl(37 37% 84%)" : undefined,
-          boxShadow:
-            side === "right"
-              ? "-6px 0 32px rgba(27,42,74,0.13)"
-              : "6px 0 32px rgba(27,42,74,0.13)",
-          transform: open ? "translateX(0)" : translateOut,
-          transition: "transform 220ms ease-out",
-          display: "flex",
+          // ── Geometry ───────────────────────────────────────────────────────
+          position:      "fixed",
+          top:           0,
+          [side]:        0,
+          // height:100dvh is the primary constraint; bottom:0 is the fallback.
+          // Using both ensures coverage on browsers with varying dvh support.
+          height:        "100dvh",
+          bottom:        0,
+          zIndex:        9999,
+          width:         `min(${width}px, 100vw)`,
+
+          // ── Surface ────────────────────────────────────────────────────────
+          background:    "#FFFDF9",
+          // Warm hairline on the inner edge only — flush to viewport = no radius
+          borderLeft:    side === "right" ? "1px solid #E7DCCB" : undefined,
+          borderRight:   side === "left"  ? "1px solid #E7DCCB" : undefined,
+          borderRadius:  0,
+          // Two-layer shadow: close-in crispness + wide ambient spill
+          boxShadow:     side === "right"
+            ? "-2px 0 8px rgba(27,42,74,0.08), -12px 0 48px rgba(27,42,74,0.16)"
+            : "2px 0 8px rgba(27,42,74,0.08), 12px 0 48px rgba(27,42,74,0.16)",
+
+          // ── Layout ─────────────────────────────────────────────────────────
+          display:       "flex",
           flexDirection: "column",
-          outline: "none",
+          overflow:      "hidden",   // children manage their own scroll
+          outline:       "none",
+
+          // ── Motion ─────────────────────────────────────────────────────────
+          transform:     open ? "translateX(0)" : translateOut,
+          transition:    "transform 240ms ease-out",
         }}
       >
-        {/* Header ─────────────────────────────────────────────────────────── */}
+        {/* ── Header ──────────────────────────────────────────────────────── */}
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "0 8px 0 16px",
-            minHeight: 48,
-            borderBottom: "1px solid hsl(37 37% 85%)",
-            background: "#FFFDF9",
-            flexShrink: 0,
+            display:        "flex",
+            alignItems:     "center",
+            gap:            8,
+            padding:        "0 4px 0 16px",
+            minHeight:      52,
+            borderBottom:   "1px solid hsl(37 37% 85%)",
+            background:     "#FFFDF9",
+            flexShrink:     0,
           }}
         >
-          {/* Title + badge */}
+          {/* Title + badge — overflow:hidden so badge truncates, not wraps */}
           <div
             style={{
-              flex: 1,
-              minWidth: 0,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              overflow: "hidden",
+              flex:        1,
+              minWidth:    0,
+              display:     "flex",
+              alignItems:  "center",
+              gap:         8,
+              overflow:    "hidden",
             }}
           >
             <span
               style={{
-                fontWeight: 600,
-                fontSize: 13,
-                color: "#1B2A4A",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
+                fontWeight:    600,
+                fontSize:      13,
+                color:         "#1B2A4A",
+                whiteSpace:    "nowrap",
+                flexShrink:    0,
               }}
             >
               {title}
             </span>
-            {badge}
+            {/* Badge wrapper: min-width:0 + overflow:hidden enables ellipsis */}
+            {badge && (
+              <span
+                style={{
+                  minWidth:     0,
+                  overflow:     "hidden",
+                  flexShrink:   1,
+                  display:      "flex",
+                  alignItems:   "center",
+                }}
+              >
+                {badge}
+              </span>
+            )}
           </div>
 
-          {headerExtra}
-
-          {/* × close */}
+          {/* × close — 44 × 44 minimum touch target */}
           <button
             onClick={onClose}
             aria-label="Close drawer"
             style={{
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
+              cursor:         "pointer",
+              display:        "flex",
+              alignItems:     "center",
               justifyContent: "center",
-              width: 36,
-              height: 36,
-              borderRadius: 8,
-              color: "hsl(var(--muted-foreground, 215 16% 47%))",
-              flexShrink: 0,
-              background: "transparent",
-              border: "none",
-              transition: "background 140ms",
+              minWidth:       44,
+              minHeight:      44,
+              borderRadius:   8,
+              color:          "hsl(215 16% 48%)",
+              flexShrink:     0,
+              background:     "transparent",
+              border:         "none",
+              transition:     "background 140ms, color 140ms",
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background =
-                "rgba(27,42,74,0.06)";
+              const b = e.currentTarget as HTMLButtonElement;
+              b.style.background = "rgba(27,42,74,0.07)";
+              b.style.color      = "#1B2A4A";
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+              const b = e.currentTarget as HTMLButtonElement;
+              b.style.background = "transparent";
+              b.style.color      = "hsl(215 16% 48%)";
             }}
           >
             <X style={{ width: 16, height: 16 }} />
           </button>
         </div>
 
-        {/* Body — flex column, overflow hidden so children manage their own scroll.
-             DockAiAssistant uses flex-1 + overflow-y:auto internally. Preview
-             content is wrapped in an overflow-y:auto div by GlobalAiDrawer.
-             This ensures exactly ONE scrollable region is visible at a time. */}
+        {/* ── Body ────────────────────────────────────────────────────────────
+            flex-col + overflow:hidden — children own their scroll context.
+            min-height:0 makes flex-1 children shrink correctly in Safari. */}
         <div
           style={{
-            flex: 1,
-            display: "flex",
+            flex:          1,
+            display:       "flex",
             flexDirection: "column",
-            overflow: "hidden",
-            minHeight: 0,
+            overflow:      "hidden",
+            minHeight:     0,
           }}
         >
           {children}

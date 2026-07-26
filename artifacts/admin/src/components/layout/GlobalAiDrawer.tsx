@@ -238,8 +238,10 @@ export function GlobalAiDrawer() {
       badge={<ContextChip label={resolved.contextLabel} />}
     >
       {/* AppDrawer body is display:flex / flex-col / overflow:hidden.
-          This div fills it completely and manages tabs + content. */}
-      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          Use flex:1 + minHeight:0 (NOT height:100%) so the chain is entirely
+          flex-based — percentage-height resolution through a flex chain is
+          unreliable cross-browser and causes the dead-space bug. */}
+      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
 
         {/* Tab strip — only when preview content is registered */}
         {hasPreview && (

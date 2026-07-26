@@ -396,7 +396,7 @@ export function ActionChip({
 // Generic AI chat panel for the right dock. Receives a system prompt and
 // lets the user type a question; streams through aiApi.complete.
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Sparkles, Send } from "lucide-react";
 import { aiApi, type AiResult } from "@/lib/ai";
 
@@ -409,10 +409,25 @@ export function DockAiAssistant({
   placeholder?: string;
   examplePrompts?: string[];
 }) {
-  const [prompt, setPrompt] = useState("");
+  const [prompt,   setPrompt]   = useState("");
   const [response, setResponse] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
+
+  const taRef       = useRef<HTMLTextAreaElement>(null);
+  const scrollRef   = useRef<HTMLDivElement>(null);
+
+  // ── Auto-grow textarea ───────────────────────────────────────────────────────
+  // Resets height to auto so scrollHeight reflects content, then clamps at 140px
+  // (≈ 6 rows). overflowY toggles to show scrollbar only when clamped.
+  const autoGrow = () => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height    = "auto";
+    const next          = Math.min(el.scrollHeight, 140);
+    el.style.height    = `${next}px`;
+    el.style.overflowY = el.scrollHeight > 140 ? "auto" : "hidden";
+  };
 
   const submit = async (text: string) => {
     if (!text.trim() || loading) return;
@@ -422,6 +437,10 @@ export function DockAiAssistant({
     try {
       const result: AiResult = await aiApi.complete(systemPrompt, text.trim());
       setResponse(result.text);
+      // Scroll to show response
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      }, 50);
     } catch (e) {
       setError((e as Error).message ?? "Generation failed");
     } finally {
@@ -429,72 +448,151 @@ export function DockAiAssistant({
     }
   };
 
+  const hasInput = prompt.trim().length > 0 && !loading;
+
   return (
-    <div className="flex flex-col h-full p-4 gap-3">
-      {/* Response area */}
-      <div className="flex-1 overflow-y-auto">
+    // flex:1 + minHeight:0 (NOT height:100%) — the only reliable pattern for a
+    // nested scrollable flex child. height:100% through a flex chain resolves
+    // inconsistently across browsers and collapses the div to content size,
+    // which pushes the dead space outside the scroll container.
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+
+      {/* ── Scrollable conversation area ───────────────────────────────────── */}
+      {/* When empty: intro + chips at TOP; the flex:1 area IS the "dead space"
+          — the empty scroll area between chips and the composer below is
+          intentional layout, not a gap between components. */}
+      <div
+        ref={scrollRef}
+        style={{
+          flex:          1,
+          overflowY:     "auto",
+          minHeight:     0,
+          padding:       "20px 16px 12px",
+          scrollbarWidth:"thin",
+          scrollbarColor:"hsl(37 30% 78%) transparent",
+        } as React.CSSProperties}
+      >
+        {/* Empty state — intro + suggestion chips */}
         {!response && !loading && !error && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <Sparkles className="w-3.5 h-3.5 text-primary" />
+          <div>
+            {/* AI identity */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+              <div
+                style={{
+                  width: 32, height: 32, borderRadius: 16, flexShrink: 0,
+                  background: "rgba(200,117,96,0.12)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                <Sparkles style={{ width: 14, height: 14, color: "#C87560" }} />
               </div>
-              <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-                <p className="text-[12.5px] font-semibold text-foreground">AI Assistant</p>
-                <p className="text-[11px] text-muted-foreground">Ask anything or pick a suggestion</p>
+              <div>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1B2A4A", lineHeight: 1.3 }}>
+                  AI Assistant
+                </p>
+                <p style={{ margin: 0, fontSize: 11, color: "hsl(215 16% 52%)", lineHeight: 1.4 }}>
+                  Ask anything or pick a suggestion
+                </p>
               </div>
             </div>
-            {examplePrompts?.map((p) => (
-              <button
-                key={p}
-                onClick={() => { setPrompt(p); submit(p); }}
-                style={{ cursor: "pointer" }}
-                className="w-full text-left px-3 py-2.5 rounded-xl border bg-background text-[12px] text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-              >
-                {p}
-              </button>
-            ))}
+
+            {/* Suggestion chips */}
+            {examplePrompts && examplePrompts.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {examplePrompts.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => { setPrompt(p); submit(p); }}
+                    style={{
+                      cursor:      "pointer",
+                      textAlign:   "left",
+                      padding:     "10px 13px",
+                      borderRadius: 10,
+                      border:      "1px solid hsl(37 30% 82%)",
+                      background:  "#fff",
+                      fontSize:    12,
+                      lineHeight:  1.45,
+                      color:       "hsl(215 16% 42%)",
+                      transition:  "border-color 140ms, color 140ms, background 140ms",
+                    }}
+                    onMouseEnter={(e) => {
+                      const b = e.currentTarget as HTMLButtonElement;
+                      b.style.borderColor = "#C87560";
+                      b.style.color       = "#1B2A4A";
+                      b.style.background  = "rgba(200,117,96,0.04)";
+                    }}
+                    onMouseLeave={(e) => {
+                      const b = e.currentTarget as HTMLButtonElement;
+                      b.style.borderColor = "hsl(37 30% 82%)";
+                      b.style.color       = "hsl(215 16% 42%)";
+                      b.style.background  = "#fff";
+                    }}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
+        {/* Loading state */}
         {loading && (
-          <div className="flex flex-col items-center justify-center h-24 gap-2">
-            <div className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-            <p className="text-[11px] text-muted-foreground">Thinking…</p>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "40px 0" }}>
+            <div
+              className="animate-spin"
+              style={{
+                width: 20, height: 20, borderRadius: 10,
+                border: "2.5px solid rgba(200,117,96,0.25)",
+                borderTopColor: "#C87560",
+              }}
+            />
+            <p style={{ margin: 0, fontSize: 11, color: "hsl(215 16% 52%)" }}>Thinking…</p>
           </div>
         )}
 
+        {/* Error state */}
         {error && (
-          <div
-            className="rounded-xl p-3 text-[12px]"
-            style={{ background: "#fdf0f0", color: "#b23b3b" }}
-          >
-            <p className="font-semibold mb-0.5">Generation failed</p>
-            <p>{error}</p>
+          <div style={{ borderRadius: 12, padding: "12px 14px", background: "#fdf0f0", color: "#b23b3b", fontSize: 12 }}>
+            <p style={{ margin: "0 0 4px", fontWeight: 600 }}>Generation failed</p>
+            <p style={{ margin: 0 }}>{error}</p>
             <button
               onClick={() => submit(prompt)}
-              style={{ cursor: "pointer" }}
-              className="mt-2 text-[11px] font-semibold underline"
+              style={{
+                cursor: "pointer", marginTop: 8, fontSize: 11, fontWeight: 600,
+                textDecoration: "underline", background: "none", border: "none",
+                color: "#b23b3b", padding: 0,
+              }}
             >
               Retry
             </button>
           </div>
         )}
 
+        {/* Response */}
         {response && (
-          <div className="space-y-2">
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground mb-2">
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <p style={{
+              margin: 0, fontSize: 10.5, fontWeight: 700,
+              textTransform: "uppercase", letterSpacing: "0.12em",
+              color: "hsl(215 16% 52%)",
+            }}>
               Response
-            </div>
-            <div
-              className="rounded-xl border p-3 text-[12.5px] text-foreground bg-background leading-relaxed whitespace-pre-wrap"
-            >
+            </p>
+            <div style={{
+              borderRadius: 12, border: "1px solid hsl(37 30% 82%)",
+              padding: "12px 14px", fontSize: 12.5, lineHeight: 1.65,
+              whiteSpace: "pre-wrap", color: "#1B2A4A", background: "#fff",
+            }}>
               {response}
             </div>
             <button
               onClick={() => { setResponse(null); setPrompt(""); }}
-              style={{ cursor: "pointer" }}
-              className="text-[11px] text-muted-foreground hover:text-foreground underline"
+              style={{
+                cursor: "pointer", fontSize: 11, color: "hsl(215 16% 52%)",
+                textDecoration: "underline", background: "none", border: "none",
+                padding: 0, textAlign: "left",
+              }}
             >
               Start over
             </button>
@@ -502,27 +600,116 @@ export function DockAiAssistant({
         )}
       </div>
 
-      {/* Input area */}
-      <div className="border rounded-xl bg-background overflow-hidden shrink-0">
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(prompt); } }}
-          placeholder={placeholder}
-          rows={3}
-          className="w-full resize-none p-3 text-[12.5px] bg-transparent outline-none placeholder:text-muted-foreground text-foreground"
-        />
-        <div className="flex justify-end px-3 pb-2">
-          <button
-            onClick={() => submit(prompt)}
-            disabled={!prompt.trim() || loading}
-            style={{ cursor: !prompt.trim() || loading ? "not-allowed" : "pointer", background: CHIP_ACTIVE_BG, color: "#fff" }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
-          >
-            <Send className="w-3 h-3" />
-            Generate
-          </button>
+      {/* ── Composer — always pinned to bottom ─────────────────────────────── */}
+      {/* Separated from conversation area by a hairline. The composer card has
+          its own subtle shadow so it reads as elevated above the scroll area. */}
+      <div
+        style={{
+          flexShrink:  0,
+          padding:     "8px 12px 16px",
+          borderTop:   "1px solid hsl(37 37% 88%)",
+          background:  "#FFFDF9",
+        }}
+      >
+        <div
+          style={{
+            border:       "1px solid hsl(37 30% 78%)",
+            borderRadius: 12,
+            overflow:     "hidden",
+            background:   "#fff",
+            boxShadow:    "0 1px 4px rgba(27,42,74,0.06)",
+          }}
+        >
+          {/* Auto-growing textarea — starts at 2 rows, grows to ~6 */}
+          <textarea
+            ref={taRef}
+            value={prompt}
+            onChange={(e) => {
+              setPrompt(e.target.value);
+              autoGrow();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit(prompt);
+              }
+            }}
+            placeholder={placeholder}
+            rows={2}
+            style={{
+              display:     "block",
+              width:       "100%",
+              boxSizing:   "border-box",
+              resize:      "none",
+              padding:     "11px 13px 5px",
+              fontSize:    12.5,
+              lineHeight:  1.55,
+              background:  "transparent",
+              border:      "none",
+              outline:     "none",
+              color:       "#1B2A4A",
+              overflowY:   "hidden",  // toggled by autoGrow when clamped
+              minHeight:   44,
+              maxHeight:   140,
+              fontFamily:  "inherit",
+            }}
+          />
+          {/* Send row */}
+          <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 10px 9px" }}>
+            {/*
+              NOT using the HTML `disabled` attribute — browsers apply native
+              opacity (Safari ~0.3, others ~0.5) on top of our explicit styles,
+              making the button look gray even when styled clay.
+              Instead: aria-disabled for a11y + onClick guard + explicit opacity:1.
+            */}
+            <button
+              type="button"
+              aria-disabled={!hasInput}
+              onClick={() => { if (hasInput) submit(prompt); }}
+              style={{
+                cursor:         !hasInput ? "not-allowed" : "pointer",
+                display:        "flex",
+                alignItems:     "center",
+                gap:            5,
+                padding:        "5px 14px",
+                borderRadius:   20,
+                fontSize:       11.5,
+                fontWeight:     600,
+                border:         "none",
+                opacity:        1,           // always 1 — no browser override
+                // Clay (#C87560) when there is input; warm paper-muted when empty
+                background:     hasInput ? "#C87560" : "hsl(37 18% 87%)",
+                color:          hasInput ? "#fff"    : "hsl(215 10% 60%)",
+                transition:     "background 160ms, color 160ms",
+              }}
+              onMouseEnter={(e) => {
+                if (!hasInput) return;
+                (e.currentTarget as HTMLButtonElement).style.background = "#A85B48";
+              }}
+              onMouseLeave={(e) => {
+                if (!hasInput) return;
+                (e.currentTarget as HTMLButtonElement).style.background = "#C87560";
+              }}
+            >
+              {loading ? (
+                <span
+                  className="animate-spin"
+                  style={{
+                    display: "inline-block", width: 11, height: 11,
+                    borderRadius: 6, border: "1.5px solid currentColor",
+                    borderTopColor: "transparent",
+                  }}
+                />
+              ) : (
+                <Send style={{ width: 11, height: 11 }} />
+              )}
+              Generate
+            </button>
+          </div>
         </div>
+        <p style={{ margin: "6px 4px 0", fontSize: 10, color: "hsl(215 12% 62%)", lineHeight: 1.4 }}>
+          ↵ Enter to send · Shift+↵ for newline
+        </p>
       </div>
     </div>
   );

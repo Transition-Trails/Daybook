@@ -2,17 +2,19 @@
  * StudioLayout — the one shell used by all three studio hubs.
  *
  * Breakpoint behaviour (measured on the outer wrapper, not viewport):
- *   Wide   ≥ 1200 px  Rail (246) + Center + Dock (340) — static three columns
- *   Medium  900–1199   Rail (246) + Center; Dock collapses → toggle in top bar,
- *                      opens as right-anchored fixed overlay (340 px, z-50)
- *   Narrow   < 900     Center full-width; Rail collapses → ☰ toggle in top bar,
- *                      opens as left-anchored fixed overlay (280 px, z-50);
- *                      Dock overlay same as medium
+ *   Wide   ≥ 1200 px  Rail (246) + Center + Dock (340) — static three columns;
+ *                     dock defaults OPEN on first visit (no stored preference)
+ *   Medium  900–1199  Rail (246) + Center; Dock collapses inline (animated width)
+ *                     defaults CLOSED on first visit
+ *   Narrow   < 900    Center full-width; Rail collapses → ☰ overlay;
+ *                     Dock collapses → fixed full-height overlay (translateX)
+ *                     defaults CLOSED on first visit
  *
+ * Dock state persisted to localStorage under key "studio:dock:v1".
  * Hard rule: no horizontal page scroll at any width.
  */
 import { useState, useEffect, useRef } from "react";
-import { PanelLeft, X } from "lucide-react";
+import { PanelLeft, X, Bot, Eye, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -60,6 +62,36 @@ function getBand(w: number): Band {
   return "narrow";
 }
 
+// ── localStorage helpers ───────────────────────────────────────────────────────
+
+const DOCK_KEY = "studio:dock:v1";
+
+interface DockStorage {
+  /** null = not yet set by user; fall back to band default */
+  open: boolean | null;
+  tab: DockTab;
+}
+
+function readDock(): DockStorage {
+  try {
+    const raw = localStorage.getItem(DOCK_KEY);
+    if (!raw) return { open: null, tab: "assistant" };
+    const parsed = JSON.parse(raw) as Partial<DockStorage>;
+    return {
+      open: typeof parsed.open === "boolean" ? parsed.open : null,
+      tab:  parsed.tab === "preview" ? "preview" : "assistant",
+    };
+  } catch {
+    return { open: null, tab: "assistant" };
+  }
+}
+
+function writeDock(state: DockStorage) {
+  try {
+    localStorage.setItem(DOCK_KEY, JSON.stringify(state));
+  } catch { /* quota / private mode — ignore */ }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function StudioLayout({
@@ -74,29 +106,47 @@ export function StudioLayout({
   children,
   className,
 }: StudioLayoutProps) {
-  const [dockTab,   setDockTab]   = useState<DockTab>("assistant");
-  const [dockOpen,  setDockOpen]  = useState(false); // overlay toggle for medium/narrow
-  const [railOpen,  setRailOpen]  = useState(false); // overlay toggle for narrow
-  const [band,      setBand]      = useState<Band>("wide");
+  // Read storage once at component init (safe: runs before effects)
+  const stored = useRef<DockStorage>(readDock());
+
+  const [dockTab,  setDockTab]  = useState<DockTab>(stored.current.tab);
+  // Start with stored preference; fall back to false — band-default kicks in on first ResizeObserver fire
+  const [dockOpen, setDockOpen] = useState<boolean>(stored.current.open ?? false);
+  const [railOpen, setRailOpen] = useState(false);
+  const [band,     setBand]     = useState<Band>("wide");
+
+  // Tracks whether user has ever set an explicit preference (so band-default only applies on first visit)
+  const userSetDock = useRef<boolean>(stored.current.open !== null);
+
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // ── Measure container width via ResizeObserver ─────────────────────────────
+  // ── Measure container width ────────────────────────────────────────────────
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width ?? el.clientWidth;
-      setBand(getBand(w));
+      const newBand = getBand(w);
+      setBand(newBand);
+      // Apply band default only if the user has never explicitly toggled the dock
+      if (!userSetDock.current) {
+        setDockOpen(newBand === "wide");
+      }
     });
     ro.observe(el);
-    setBand(getBand(el.clientWidth)); // initial sync
+    // Sync immediately so first render has the right band
+    const initialBand = getBand(el.clientWidth);
+    setBand(initialBand);
+    if (!userSetDock.current) {
+      setDockOpen(initialBand === "wide");
+    }
     return () => ro.disconnect();
   }, []);
 
-  // ── Auto-close overlays when band widens ───────────────────────────────────
+  // ── Auto-close rail overlay when band widens ───────────────────────────────
   useEffect(() => {
     if (band !== "narrow") setRailOpen(false);
-    if (band === "wide")   setDockOpen(false);
+    // Note: dock state intentionally NOT reset on band change — user preference persists
   }, [band]);
 
   // ── ESC to close any open overlay ─────────────────────────────────────────
@@ -104,31 +154,62 @@ export function StudioLayout({
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setRailOpen(false);
+      // Only close dock on ESC if it's in overlay mode (narrow) or inline
       setDockOpen(false);
+      userSetDock.current = true;
+      writeDock({ open: false, tab: stored.current.tab });
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // ── Dock helpers ───────────────────────────────────────────────────────────
+  // ── Dock toggle helpers ────────────────────────────────────────────────────
   const hasBothTabs  = !!(rightDock?.assistant && rightDock?.preview);
   const hasAssistant = !!rightDock?.assistant;
   const hasPreview   = !!rightDock?.preview;
   const hasDock      = hasAssistant || hasPreview;
 
+  /**
+   * Toggle the dock for the given tab:
+   *  - If dock is open on THIS tab → close
+   *  - If dock is closed OR open on the OTHER tab → open on this tab
+   */
+  const handleDockTabToggle = (tab: DockTab) => {
+    userSetDock.current = true;
+    if (dockOpen && dockTab === tab) {
+      setDockOpen(false);
+      const next: DockStorage = { open: false, tab };
+      stored.current = next;
+      writeDock(next);
+    } else {
+      setDockTab(tab);
+      setDockOpen(true);
+      const next: DockStorage = { open: true, tab };
+      stored.current = next;
+      writeDock(next);
+    }
+  };
+
+  /** Close from inside the dock header */
+  const closeDock = () => {
+    userSetDock.current = true;
+    setDockOpen(false);
+    const next: DockStorage = { open: false, tab: dockTab };
+    stored.current = next;
+    writeDock(next);
+  };
+
+  // ── Dock content ──────────────────────────────────────────────────────────
   const dockContent = hasBothTabs
     ? (dockTab === "assistant" ? rightDock!.assistant : rightDock!.preview)
     : (rightDock?.assistant ?? rightDock?.preview);
 
-  // Icon shown on the dock toggle button when collapsed
-  const dockToggleEmoji = dockTab === "assistant" ? "🤖" : "👁";
-
-  // Inner dock JSX — shared between static aside and overlay
+  // ── Inner dock JSX (shared between inline aside and narrow overlay) ───────
   const dockInner = (
-    <>
-      {/* Tab bar — only when both tabs are present */}
+    <div className="flex flex-col h-full" style={{ width: 340, minWidth: 340 }}>
+      {/* Tab bar — both tabs present */}
       {hasBothTabs && (
-        <div className="border-b flex shrink-0 bg-card">
+        <div className="border-b flex items-center shrink-0 bg-card">
           {(["assistant", "preview"] as const).map((tab) => (
             <button
               key={tab}
@@ -144,21 +225,38 @@ export function StudioLayout({
               {tab === "assistant" ? "AI Assistant" : "Preview"}
             </button>
           ))}
+          {/* ChevronRight: closes dock from within the header */}
+          <button
+            onClick={closeDock}
+            aria-label="Collapse dock"
+            style={{ cursor: "pointer" }}
+            className="flex items-center justify-center w-9 h-9 mr-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
       )}
 
-      {/* Single-tab label */}
+      {/* Single-tab label + close button */}
       {!hasBothTabs && (hasAssistant || hasPreview) && (
-        <div className="border-b px-4 py-2.5 bg-card shrink-0">
+        <div className="border-b flex items-center justify-between pl-4 pr-1 bg-card shrink-0" style={{ minHeight: 40 }}>
           <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
             {hasAssistant ? "AI Assistant" : "Preview"}
           </span>
+          <button
+            onClick={closeDock}
+            aria-label="Collapse dock"
+            style={{ cursor: "pointer" }}
+            className="flex items-center justify-center w-9 h-9 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">{dockContent}</div>
-    </>
+      <div className="flex-1 overflow-y-auto min-h-0">{dockContent}</div>
+    </div>
   );
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -216,8 +314,8 @@ export function StudioLayout({
           </div>
         </div>
 
-        {/* Right cluster — status + primary action + dock toggle (medium/narrow) */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Right cluster — status + primary action + dock toggles */}
+        <div className="flex items-center gap-1.5 shrink-0">
           {/* Status pill */}
           {status && (
             <span
@@ -257,20 +355,61 @@ export function StudioLayout({
             </button>
           )}
 
-          {/* Medium + Narrow: dock toggle (44×44) — only when a dock exists */}
-          {hasDock && band !== "wide" && (
+          {/* AI dock toggle — shown whenever a dock with assistant content exists */}
+          {hasDock && hasAssistant && (
             <button
-              onClick={() => setDockOpen((v) => !v)}
-              aria-label={dockOpen ? "Close dock" : "Open dock"}
-              style={{ cursor: "pointer" }}
+              onClick={() => handleDockTabToggle("assistant")}
+              aria-label={dockOpen && dockTab === "assistant" ? "Collapse AI dock" : "Open AI dock"}
+              style={{
+                cursor: "pointer",
+                ...(dockOpen && dockTab === "assistant"
+                  ? { background: "#1B2A4A", color: "#fff" }
+                  : {}),
+              }}
               className={cn(
-                "flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-[15px] transition-colors",
-                dockOpen
-                  ? "bg-[#1B2A4A]/10 text-[#1B2A4A]"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                "flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-[12px] font-medium border transition-colors shrink-0",
+                dockOpen && dockTab === "assistant"
+                  ? "border-[#1B2A4A]"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30",
               )}
             >
-              {dockToggleEmoji}
+              <Bot className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">AI</span>
+              <ChevronRight
+                className="w-3 h-3 shrink-0 transition-transform duration-200"
+                style={{
+                  transform: dockOpen && dockTab === "assistant" ? "rotate(180deg)" : "rotate(0deg)",
+                }}
+              />
+            </button>
+          )}
+
+          {/* Preview dock toggle — shown whenever a dock with preview content exists */}
+          {hasDock && hasPreview && (
+            <button
+              onClick={() => handleDockTabToggle("preview")}
+              aria-label={dockOpen && dockTab === "preview" ? "Collapse preview dock" : "Open preview dock"}
+              style={{
+                cursor: "pointer",
+                ...(dockOpen && dockTab === "preview"
+                  ? { background: "#1B2A4A", color: "#fff" }
+                  : {}),
+              }}
+              className={cn(
+                "flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-[12px] font-medium border transition-colors shrink-0",
+                dockOpen && dockTab === "preview"
+                  ? "border-[#1B2A4A]"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30",
+              )}
+            >
+              <Eye className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Preview</span>
+              <ChevronRight
+                className="w-3 h-3 shrink-0 transition-transform duration-200"
+                style={{
+                  transform: dockOpen && dockTab === "preview" ? "rotate(180deg)" : "rotate(0deg)",
+                }}
+              />
             </button>
           )}
         </div>
@@ -345,47 +484,52 @@ export function StudioLayout({
 
         {/* RIGHT DOCK ─────────────────────────────────────────────────────── */}
         {hasDock && (
-          band === "wide" ? (
-            /* Wide: static aside */
+          band !== "narrow" ? (
+            /*
+             * Wide + Medium: inline animated aside.
+             * The outer aside animates its width (340 → 0, 260 ms ease-out).
+             * The inner div is fixed-width (340 px) so content is never squished mid-animation.
+             */
             <aside
               className="border-l bg-card overflow-hidden flex flex-col shrink-0"
-              style={{ width: 340, minWidth: 340 }}
+              style={{
+                width: dockOpen ? 340 : 0,
+                minWidth: 0,
+                transition: "width 260ms ease-out",
+              }}
             >
               {dockInner}
             </aside>
           ) : (
-            /* Medium + Narrow: fixed overlay */
+            /*
+             * Narrow: always-mounted fixed overlay so AI chat history survives band changes.
+             * Animates via translateX (260 ms ease-out). Scrim fades in/out.
+             */
             <>
-              {dockOpen && (
-                <div
-                  className="fixed inset-0 z-40 bg-black/20"
-                  onClick={() => setDockOpen(false)}
-                />
-              )}
-              {dockOpen && (
-                <div
-                  role="dialog"
-                  aria-modal="true"
-                  className="fixed inset-y-0 right-0 z-50 flex flex-col bg-card border-l shadow-xl"
-                  style={{ width: 340 }}
-                >
-                  {/* Dock overlay close button row */}
-                  <div
-                    className="flex items-center justify-end px-2 shrink-0 border-b"
-                    style={{ minHeight: 44 }}
-                  >
-                    <button
-                      onClick={() => setDockOpen(false)}
-                      aria-label="Close dock"
-                      style={{ cursor: "pointer" }}
-                      className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  {dockInner}
-                </div>
-              )}
+              {/* Scrim — fade opacity */}
+              <div
+                className="fixed inset-0 z-40 transition-opacity"
+                style={{
+                  background: "rgba(0,0,0,0.2)",
+                  transitionDuration: "260ms",
+                  opacity: dockOpen ? 1 : 0,
+                  pointerEvents: dockOpen ? "auto" : "none",
+                }}
+                onClick={closeDock}
+              />
+              {/* Dock panel — slide in/out */}
+              <div
+                role="dialog"
+                aria-modal="true"
+                className="fixed inset-y-0 right-0 z-50 bg-card border-l shadow-xl overflow-hidden"
+                style={{
+                  width: 340,
+                  transform: dockOpen ? "translateX(0)" : "translateX(100%)",
+                  transition: "transform 260ms ease-out",
+                }}
+              >
+                {dockInner}
+              </div>
             </>
           )
         )}

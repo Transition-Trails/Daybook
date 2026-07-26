@@ -47,6 +47,9 @@ import PackDetail from '@/pages/catalog/packs/detail';
 import InsertsList from '@/pages/catalog/inserts/list';
 import InsertDetail from '@/pages/catalog/inserts/detail';
 import PlatformWidgetsList from '@/pages/catalog/widgets/list';
+import HardwareList    from '@/pages/catalog/hardware/list';
+import AccessoriesList from '@/pages/catalog/accessories/list';
+import FontsList       from '@/pages/catalog/fonts/list';
 // ProductsList / ProductDetail replaced by a redirect component below
 import { Redirect } from "wouter";
 
@@ -88,6 +91,9 @@ export const routes = [
   { path: "/catalog/inserts",          component: InsertsList },
   { path: "/catalog/inserts/:id",      component: InsertDetail },
   { path: "/catalog/widgets",          component: PlatformWidgetsList },
+  { path: "/catalog/hardware",         component: HardwareList    },
+  { path: "/catalog/accessories",      component: AccessoriesList },
+  { path: "/catalog/fonts",            component: FontsList       },
   // /catalog/products and /catalog/products/:id → Planner Studio, Editions tab filtered to notebooks
   {
     path: "/catalog/products",

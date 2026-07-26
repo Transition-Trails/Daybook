@@ -25,6 +25,7 @@ import {
   Users, Settings, RefreshCw, BarChart2, LogOut,
   CalendarDays, ArrowLeft, Pen, Image, Sticker,
   Store, Megaphone, LayoutTemplate, Shapes, Brush,
+  Link2, Paperclip, Type,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
@@ -43,6 +44,9 @@ const NAV_ITEMS = [
   { label: "Inserts",            icon: FileImage,      href: "/catalog/inserts",    group: "Catalog" },
   { label: "Widgets",            icon: Shapes,         href: "/catalog/widgets",    group: "Catalog" },
   { label: "Palettes",           icon: BarChart2,      href: "/catalog/palettes",   group: "Parts" },
+  { label: "Hardware",           icon: Link2,          href: "/catalog/hardware",   group: "Parts" },
+  { label: "Accessories",        icon: Paperclip,      href: "/catalog/accessories",group: "Parts" },
+  { label: "Fonts",              icon: Type,           href: "/catalog/fonts",      group: "Parts" },
   { label: "Plans",              icon: BookOpen,       href: "/plans",              group: "Platform" },
   { label: "Users",              icon: Users,          href: "/users",              group: "Platform" },
   { label: "Ink ✦",             icon: Pen,            href: "/ink",                group: "Platform" },

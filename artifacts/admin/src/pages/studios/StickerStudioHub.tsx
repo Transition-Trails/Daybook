@@ -739,19 +739,40 @@ function StickerScalePreview({ sticker, onOpenEdit }: { sticker?: LibrarySticker
     return () => ro.disconnect();
   }, []);
 
-  const PREVIEW_W = Math.min(268, Math.max(120, containerW - 32));
-  const A5_W_MM   = 148;
-  const A5_H_MM   = 210;
-  const SCALE     = PREVIEW_W / A5_W_MM;             // px per mm
-  const PREVIEW_H = Math.round(A5_H_MM * SCALE);
+  const A5_W_MM = 148;
+  const A5_H_MM = 210;
+
+  // True physical scale: 96 CSS px = 1 inch = 25.4 mm  →  1 mm ≈ 3.779 CSS px.
+  // We compute how wide the A5 page would be at 100% physical scale, then ask
+  // whether the available container is wide enough to show it at that size.
+  // If not, we scale down and show an explicit "shown at N%" label so the user
+  // is never misled about actual sticker size.
+  const CSS_PX_PER_MM  = 96 / 25.4;                          // ≈ 3.779
+  const available      = Math.max(120, containerW - 32);
+  const trueA5W        = A5_W_MM * CSS_PX_PER_MM;            // ≈ 559 px at 100%
+  const scaleFactor    = Math.min(1, available / trueA5W);   // 1.0 when container ≥ 559px
+  const scalePercent   = Math.round(scaleFactor * 100);
+  const isAtTrueScale  = scalePercent >= 99;
+
+  const PREVIEW_W  = Math.round(A5_W_MM * CSS_PX_PER_MM * scaleFactor);
+  const PREVIEW_H  = Math.round(A5_H_MM * CSS_PX_PER_MM * scaleFactor);
+  const PX_PER_MM  = CSS_PX_PER_MM * scaleFactor;            // effective px/mm in this render
 
   const sizeMm = sticker?.sizeInMm ?? null;
-  const sizePx = sizeMm ? sizeMm * SCALE : 30 * SCALE;
+  const sizePx = sizeMm ? Math.round(sizeMm * PX_PER_MM) : Math.round(30 * PX_PER_MM);
 
   return (
     <div ref={containerRef} className="flex flex-col items-center gap-3 p-4">
-      <div className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted-foreground self-start">
-        True scale · A5 planner page
+      <div className="text-[10.5px] font-bold uppercase tracking-[0.1em] self-start flex items-center gap-2 flex-wrap">
+        <span className="text-muted-foreground">True scale · A5</span>
+        {!isAtTrueScale && (
+          <span style={{
+            color: "#92400e", background: "#fef3c7", borderRadius: 4,
+            padding: "1px 6px", fontSize: 9, fontWeight: 700,
+          }}>
+            shown at {scalePercent}% · container too narrow for 1:1
+          </span>
+        )}
       </div>
 
       {/* A5 page */}
@@ -803,8 +824,14 @@ function StickerScalePreview({ sticker, onOpenEdit }: { sticker?: LibrarySticker
           position: "absolute", bottom: 6, left: 12, right: 12,
           display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
-          <span style={{ fontSize: 9, color: "#7A8FA6" }}>148mm</span>
-          <span style={{ fontSize: 9, color: "#7A8FA6" }}>A5</span>
+          <span style={{ fontSize: 9, color: "#7A8FA6" }}>148mm A5</span>
+          <span style={{
+            fontSize: 9,
+            color:      isAtTrueScale ? "#3f6b4c" : "#92400e",
+            fontWeight: isAtTrueScale ? 700 : 400,
+          }}>
+            {isAtTrueScale ? "1:1 true scale" : `${scalePercent}%`}
+          </span>
         </div>
       </div>
 

@@ -11,7 +11,9 @@
     "seed-backgrounds": "tsx ./src/seed-backgrounds.ts",
     "migrate-themes": "tsx ./src/migrate-themes.ts",
     "migrate-notebooks": "tsx ./src/migrate-notebooks.ts",
-    "migrate-theme-studio": "tsx ./src/migrate-theme-studio.ts"
+    "migrate-theme-studio": "tsx ./src/migrate-theme-studio.ts",
+    "seed-theme-assets": "tsx ./src/seed-theme-assets.ts",
+    "migrate-related-products": "tsx ./src/migrate-related-products.ts"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",

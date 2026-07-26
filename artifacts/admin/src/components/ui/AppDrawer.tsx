@@ -34,7 +34,7 @@
  * same duration so they complete together. No page reflow during animation.
  */
 import { useEffect, useRef } from "react";
-import { X } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export interface AppDrawerProps {
   open: boolean;
@@ -217,7 +217,10 @@ export function AppDrawer({
             )}
           </div>
 
-          {/* × close — 44 × 44 minimum touch target */}
+          {/* Directional chevron — collapses the panel toward its mounted edge.
+              Right panel → ChevronRight (push away to the right).
+              Left panel  → ChevronLeft  (push away to the left).
+              44 × 44 minimum touch target throughout. */}
           <button
             onClick={onClose}
             aria-label="Close drawer"
@@ -246,7 +249,10 @@ export function AppDrawer({
               b.style.color      = "hsl(215 16% 48%)";
             }}
           >
-            <X style={{ width: 16, height: 16 }} />
+            {side === "right"
+              ? <ChevronRight style={{ width: 18, height: 18 }} />
+              : <ChevronLeft  style={{ width: 18, height: 18 }} />
+            }
           </button>
         </div>
 

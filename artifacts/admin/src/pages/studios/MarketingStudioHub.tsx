@@ -140,17 +140,30 @@ function TrendsCenter() {
       {/* Decision card — market focus */}
       <ComposeCard>
         <EyebrowLabel>What kind of trends?</EyebrowLabel>
-        <div className="flex gap-2 flex-wrap">
-          {[
-            { value: "seasonal",   label: "Seasonal" },
-            { value: "evergreen",  label: "Evergreen" },
-            { value: "lifestyle",  label: "Lifestyle" },
-            { value: "workspace",  label: "Workspace" },
-            { value: "self-care",  label: "Self-care" },
-            { value: "academic",   label: "Academic" },
-          ].map(o => (
-            <ComposeChip key={o.value} label={o.label} active={focus === o.value} onClick={() => setFocus(o.value)} />
-          ))}
+        {/* Horizontally scrollable pill row — never clips at 834 px or 640 px */}
+        <div className="relative">
+          <div
+            className="flex gap-2 overflow-x-auto"
+            style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+          >
+            {[
+              { value: "seasonal",   label: "Seasonal" },
+              { value: "evergreen",  label: "Evergreen" },
+              { value: "lifestyle",  label: "Lifestyle" },
+              { value: "workspace",  label: "Workspace" },
+              { value: "self-care",  label: "Self-care" },
+              { value: "academic",   label: "Academic" },
+            ].map(o => (
+              <ComposeChip key={o.value} label={o.label} active={focus === o.value} onClick={() => setFocus(o.value)} />
+            ))}
+            {/* Trailing spacer so the last pill doesn't hide under the fade */}
+            <span className="w-6 shrink-0" aria-hidden="true" />
+          </div>
+          {/* Right-edge scroll cue — visible only when pills overflow */}
+          <div
+            className="absolute right-0 inset-y-0 w-8 pointer-events-none"
+            style={{ background: "linear-gradient(to left, #FFFDF9, transparent)" }}
+          />
         </div>
         <p className="text-[12.5px] text-muted-foreground">
           {focus === "seasonal"  ? "Trends tied to seasons, holidays, and annual rhythms — spring, back-to-school, gifting season." :
@@ -224,7 +237,7 @@ function TrendsCenter() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => { sessionStorage.setItem("studioIdea", card.idea); navigate("/studios/theme"); }}
+                      onClick={() => { sessionStorage.setItem("studioIdea", card.idea); navigate("/studios/theme-builder"); }}
                       style={{ cursor: "pointer", borderColor: "#E7DCCB" }}
                       className="flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11.5px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
                     >

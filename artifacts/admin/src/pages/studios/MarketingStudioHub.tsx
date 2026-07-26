@@ -129,11 +129,12 @@ function TrendsCenter() {
 
   return (
     <div style={{ minWidth: 0 }}>
+      {/* No aiLabel/onAi here — the inline "Research trends" button inside the card
+          is the single action trigger. The global ✦ AI pill in the shell top-bar
+          is the one generic assistant entry point. */}
       <ComposeHeader
         title="Market trends"
         subtitle="Claude surfaces trends, what they mean for planners, and a concrete product idea for each. Based on training knowledge — validate specifics before committing to a product line."
-        aiLabel="✦ Research trends"
-        onAi={() => generate.mutate()}
       />
 
       {/* Decision card — market focus */}

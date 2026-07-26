@@ -1,73 +1,103 @@
 /**
  * Shell — Daybook Admin layout (platform catalog authoring, super_admin only).
  *
- * Scope: Platform catalog. All routes here live under /daybook/... and are
- * accessible only to super_admin.
+ * Sidebar collapses to icon-only rail (64 px) via collapsible="icon".
+ * State is persisted to localStorage under the key "admin_sidebar_collapsed".
+ * Active-item indicator (data-[active=true]) is always visible in both states.
  *
  * ── Nav structure ─────────────────────────────────────────────────────────────
- *
- * STUDIOS  (one workspace per product domain — AI generation is a dock inside
- *           each studio, not a separate nav destination)
- *   Planner Studio   — Build · Editions · Inserts & widgets · Cover · Dividers
- *                      · Theme · Paper & binding · Quality check
- *   Sticker Studio   — Library · Create a sticker · Assemble a pack
- *   Marketing Studio — Trends · Listing generator · Social posts · Promo mockups
- *
- * CATALOG  (platform-level asset types shared across studios)
- *   Themes · Palettes · Backgrounds · Inserts · Widgets · Related products
- *
- * PLATFORM
- *   Plans · Users · Ink · AI settings · Google sync · Calendar
+ * STUDIOS  · Planner · Sticker · Marketing
+ * CATALOG  · Themes · Palettes · Backgrounds · Inserts · Widgets
+ * PLATFORM · Plans · Users · Ink · AI settings · Google sync · Calendar
  */
+import { useState } from "react";
 import {
   Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem,
   SidebarMenuButton, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
-  SidebarFooter,
+  SidebarFooter, SidebarProvider, SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
+  Tooltip, TooltipContent, TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Home, Palette, FileImage, Layers3, BookOpen,
-  Users, Settings, RefreshCw, BarChart2, Package2, LogOut,
-  CalendarDays, ArrowLeft, Pen, Image, Sticker, Store,
-  Megaphone, LayoutTemplate, Shapes,
+  Users, Settings, RefreshCw, BarChart2, LogOut,
+  CalendarDays, ArrowLeft, Pen, Image, Sticker,
+  Store, Megaphone, LayoutTemplate, Shapes,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
 
 // ── Nav definition ─────────────────────────────────────────────────────────────
-// Studios = one entry per product domain. AI generation lives as a mode inside
-// each studio's dock — there is no separate "AI Studios" section.
-// Catalog = platform-level shared asset types.
-// Platform = system / ops / tooling entries.
 
 const NAV_ITEMS = [
   { label: "Dashboard",          icon: Home,           href: "/" },
-  // ── Studios ──────────────────────────────────────────────────────────────
   { label: "Planner Studio",     icon: LayoutTemplate, href: "/studios/planner",    group: "Studios" },
   { label: "Sticker Studio",     icon: Sticker,        href: "/studios/stickers",   group: "Studios" },
   { label: "Marketing Studio",   icon: Megaphone,      href: "/studios/marketing",  group: "Studios" },
-  // ── Catalog ──────────────────────────────────────────────────────────────
-  // Shared platform asset types referenced by the studios above.
   { label: "Themes",             icon: Palette,        href: "/catalog/themes",     group: "Catalog" },
   { label: "Palettes",           icon: BarChart2,      href: "/catalog/palettes",   group: "Catalog" },
   { label: "Backgrounds",        icon: Image,          href: "/catalog/backgrounds",group: "Catalog" },
   { label: "Inserts",            icon: FileImage,      href: "/catalog/inserts",    group: "Catalog" },
   { label: "Widgets",            icon: Shapes,         href: "/catalog/widgets",    group: "Catalog" },
-  // Related products merged into Planner Studio (Editions) — no longer a separate nav entry.
-  // ── Platform ─────────────────────────────────────────────────────────────
   { label: "Plans",              icon: BookOpen,       href: "/plans",              group: "Platform" },
   { label: "Users",              icon: Users,          href: "/users",              group: "Platform" },
   { label: "Ink ✦",             icon: Pen,            href: "/ink",                group: "Platform" },
   { label: "AI settings",        icon: Settings,       href: "/ai-settings",        group: "Platform" },
   { label: "Google sync",        icon: RefreshCw,      href: "/sync",               group: "Platform" },
   { label: "Calendar",           icon: CalendarDays,   href: "/calendar",           group: "Platform" },
-];
+] as const;
+
+type NavItem = (typeof NAV_ITEMS)[number];
+
+// ── NavItem — tooltip only when sidebar is collapsed ──────────────────────────
+// Must be a separate component so useSidebar() runs inside SidebarProvider tree.
+
+function NavItemRow({ item, isActive }: { item: NavItem; isActive: boolean }) {
+  const { state } = useSidebar();
+
+  const button = (
+    <SidebarMenuButton asChild isActive={isActive}>
+      <Link href={item.href} className="flex items-center gap-3">
+        <item.icon className="w-4 h-4" />
+        <span>{item.label}</span>
+      </Link>
+    </SidebarMenuButton>
+  );
+
+  return (
+    <SidebarMenuItem>
+      {state === "collapsed" ? (
+        <Tooltip>
+          <TooltipTrigger asChild>{button}</TooltipTrigger>
+          <TooltipContent side="right">{item.label}</TooltipContent>
+        </Tooltip>
+      ) : button}
+    </SidebarMenuItem>
+  );
+}
+
+// ── Shell ─────────────────────────────────────────────────────────────────────
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { data: user } = useGetMe();
   const logout = useLogout();
   const { openAssistant } = useAiDrawer();
+
+  // Persist collapse state to localStorage (true = expanded)
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem("admin_sidebar_collapsed") !== "true"; }
+    catch { return true; }
+  });
+
+  const handleOpenChange = (open: boolean) => {
+    setSidebarOpen(open);
+    try { localStorage.setItem("admin_sidebar_collapsed", open ? "false" : "true"); }
+    catch { /* ignore private-browsing exceptions */ }
+  };
 
   const handleLogout = () => {
     logout.mutate(undefined, {
@@ -76,20 +106,32 @@ export function Shell({ children }: { children: React.ReactNode }) {
   };
 
   const groups = NAV_ITEMS.reduce((acc, item) => {
-    const group = item.group || "Main";
+    const group = (item as { group?: string }).group || "Main";
     if (!acc[group]) acc[group] = [];
-    acc[group].push(item);
+    acc[group].push(item as NavItem);
     return acc;
-  }, {} as Record<string, typeof NAV_ITEMS>);
+  }, {} as Record<string, NavItem[]>);
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
-      <Sidebar variant="sidebar" className="border-r border-sidebar-border shadow-sm">
+    // SidebarProvider manages collapsed/expanded state and CSS vars.
+    // It renders its own flex wrapper, replacing the old outer div.
+    <SidebarProvider
+      open={sidebarOpen}
+      onOpenChange={handleOpenChange}
+      className="bg-background text-foreground"
+      style={{ minHeight: "100svh" }}
+    >
+      {/* ── Left rail ── */}
+      <Sidebar
+        collapsible="icon"
+        variant="sidebar"
+        className="border-r border-sidebar-border shadow-sm"
+      >
         <SidebarHeader className="border-b border-sidebar-border">
-          {/* Scope identity: Platform catalog */}
+          {/* Scope identity — icon always visible; text hides when collapsed */}
           <div className="px-4 h-14 flex items-center gap-2">
             <Layers3 className="w-5 h-5 text-primary shrink-0" />
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
               <p className="font-display font-semibold text-base text-sidebar-foreground leading-tight">
                 Daybook admin
               </p>
@@ -97,8 +139,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* Back to super admin — uses native <a> to escape the /daybook base router */}
-          <div className="px-2 pb-2">
+          {/* Back to super admin — hidden when collapsed */}
+          <div className="px-2 pb-2 group-data-[collapsible=icon]:hidden">
             <a
               href="/super"
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent no-underline"
@@ -110,21 +152,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </SidebarHeader>
 
         <SidebarContent className="py-2 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" } as React.CSSProperties}>
-          {/* Dashboard (ungrouped, always first) */}
+          {/* Dashboard (ungrouped) */}
           <SidebarMenu>
             {groups["Main"]?.map(item => (
-              <SidebarMenuItem key={item.href}>
-                <SidebarMenuButton asChild isActive={location === item.href}>
-                  <Link href={item.href} className="flex items-center gap-3">
-                    <item.icon className="w-4 h-4" />
-                    <span>{item.label}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              <NavItemRow key={item.href} item={item} isActive={location === item.href} />
             ))}
           </SidebarMenu>
 
-          {/* Grouped sections — Studios first, then Catalog, then Platform */}
+          {/* Grouped sections */}
           {(["Studios", "Catalog", "Platform"] as const).map(groupName => {
             const items = groups[groupName];
             if (!items?.length) return null;
@@ -134,17 +169,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {items.map(item => (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton
-                          asChild
-                          isActive={location.startsWith(item.href) && item.href !== "/"}
-                        >
-                          <Link href={item.href} className="flex items-center gap-3">
-                            <item.icon className="w-4 h-4" />
-                            <span>{item.label}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
+                      <NavItemRow
+                        key={item.href}
+                        item={item}
+                        isActive={location.startsWith(item.href) && item.href !== "/"}
+                      />
                     ))}
                   </SidebarMenu>
                 </SidebarGroupContent>
@@ -152,7 +181,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             );
           })}
 
-          {/* Store console pointer */}
+          {/* Store console pointer — hidden when collapsed */}
           <SidebarGroup className="mt-3">
             <SidebarGroupLabel>Store console</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -169,7 +198,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
-              <p className="px-3 pt-1 pb-2 text-[10px] text-sidebar-foreground/40 leading-snug">
+              <p className="px-3 pt-1 pb-2 text-[10px] text-sidebar-foreground/40 leading-snug group-data-[collapsible=icon]:hidden">
                 Per-store Planner, Sticker, and Marketing Studios are accessed by entering a store from Super Admin.
               </p>
             </SidebarGroupContent>
@@ -178,7 +207,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
         <SidebarFooter className="border-t border-sidebar-border p-4">
           <div className="flex items-center justify-between">
-            <div className="flex flex-col min-w-0">
+            <div className="flex flex-col min-w-0 group-data-[collapsible=icon]:hidden">
               <span className="text-sm font-medium text-sidebar-foreground truncate">
                 {user?.name}
               </span>
@@ -195,10 +224,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </SidebarFooter>
       </Sidebar>
 
+      {/* ── Main content ── */}
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {/* Top bar */}
-        <header className="h-14 flex items-center px-6 border-b bg-card shrink-0 border-border">
+        <header className="h-14 flex items-center px-4 gap-3 border-b bg-card shrink-0 border-border">
+          {/* Collapse toggle — left side of header */}
+          <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
           <div className="flex-1" />
+          {/* Single ✦ AI pill — the only AI entry point for all catalog pages */}
           <div className="flex items-center gap-2">
             <button
               onClick={openAssistant}
@@ -237,6 +270,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="max-w-6xl mx-auto">{children}</div>
         </div>
       </main>
-    </div>
+    </SidebarProvider>
   );
 }

@@ -915,7 +915,10 @@ function LibraryRow({
   );
 }
 
-// ── STICKER CARD (vertical, used in library grid) ─────────────────────────────
+// ── STICKER CARD (compact vertical, used in library grid) ─────────────────────
+// Target: 6-8 cards per row at 1440px (grid uses minmax(160px, 1fr)).
+// Card height: fixed 80px thumbnail + ~60px meta + ~36px actions ≈ 180px total.
+// One meta line combines function-type + status + origin — no stacked badge rows.
 
 function StickerCard({
   sticker, selected, onSelect, onEdit, onDuplicate, onToggle, onDelete, onUsage,
@@ -933,37 +936,38 @@ function StickerCard({
     <div className={`rounded-[14px] border flex flex-col overflow-hidden transition-colors ${
       isPreviewTarget ? "border-[#C87560] bg-[#FEF0ED]/40" : "bg-card border-border"
     }`}>
-      {/* Thumbnail — div not button to avoid nested-button invalid HTML */}
+      {/* Thumbnail — fixed 80px height (replaces aspect-square to cut card height) */}
       <div
         role="button" tabIndex={0} onClick={onSelectForPreview}
         onKeyDown={e => { if (e.key === "Enter" || e.key === " ") onSelectForPreview(); }}
         style={{ cursor: "pointer", display: "block" }}
-        className="relative w-full aspect-square bg-[#FFFDF9] flex items-center justify-center hover:bg-muted/30 transition-colors overflow-hidden"
+        className="relative w-full h-20 bg-[#FFFDF9] flex items-center justify-center hover:bg-muted/30 transition-colors overflow-hidden border-b border-border/50 shrink-0"
       >
-        <StickerThumb src={sticker.processedImageData} />
-        <div className="absolute top-2 left-2">
+        <StickerThumb src={sticker.processedImageData} size={56} />
+        <div className="absolute top-1.5 left-1.5">
           <Checkbox checked={selected} onCheckedChange={(c) => onSelect(sticker.id, Boolean(c))}
             onClick={e => e.stopPropagation()} />
         </div>
         {isPreviewTarget && (
-          <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#C87560]" />
+          <div className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#C87560]" />
         )}
       </div>
-      {/* Name + badges */}
-      <div className="p-3 flex-1 space-y-2">
-        <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 3 }}>
-          <p className="text-[12.5px] font-semibold text-foreground truncate">{sticker.name}</p>
-          <div className="flex items-center gap-1 flex-wrap">
-            <StatusChip status={sticker.status} />
-            <OriginBadge origin={sticker.origin} />
-          </div>
+
+      {/* Name + ONE inline meta line */}
+      <div className="px-2.5 pt-2 pb-1 flex flex-col gap-1 flex-1">
+        <p className="text-[12px] font-semibold text-foreground truncate">{sticker.name}</p>
+        {/* Single combined meta row: function-type · status · origin */}
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[9.5px] text-muted-foreground border border-border rounded-full px-1.5 py-0.5 shrink-0">
+            {FUNCTION_TYPE_LABELS[sticker.functionType] ?? sticker.functionType}
+          </span>
+          <StatusChip status={sticker.status} />
+          <OriginBadge origin={sticker.origin} />
         </div>
-        <span className="text-[10.5px] text-muted-foreground border border-border rounded-full px-1.5 py-0.5 inline-block">
-          {FUNCTION_TYPE_LABELS[sticker.functionType] ?? sticker.functionType}
-        </span>
       </div>
-      {/* Action chips */}
-      <div className="px-3 pb-3 flex items-center gap-1.5 flex-wrap">
+
+      {/* Compact action row */}
+      <div className="px-2.5 pb-2.5 flex items-center gap-1 flex-wrap">
         <ActionChip label="Edit" onClick={onEdit} variant="secondary" icon={<Pencil className="w-3 h-3" />} />
         <ActionChip
           label={isLive ? "Unpublish" : "Publish"}
@@ -973,7 +977,7 @@ function StickerCard({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button style={{ cursor: "pointer" }}
-              className="p-1.5 rounded-lg border border-transparent hover:border-border hover:bg-muted transition-colors text-muted-foreground">
+              className="p-1 rounded-lg border border-transparent hover:border-border hover:bg-muted transition-colors text-muted-foreground">
               <MoreHorizontal className="w-3.5 h-3.5" />
             </button>
           </DropdownMenuTrigger>
@@ -1220,7 +1224,7 @@ function LibraryCenter({
 
       {/* Card grid */}
       {!isLoading && !error && stickers && stickers.length > 0 && (
-        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(145px, 1fr))" }}>
+        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}>
           {stickers.map((s) => (
             <StickerCard key={s.id} sticker={s}
               selected={selected.has(s.id)}

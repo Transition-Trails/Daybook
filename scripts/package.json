@@ -7,7 +7,8 @@
     "hello": "tsx ./src/hello.ts",
     "seed": "tsx ./src/seed.ts",
     "seed-stickers": "tsx ./src/seed-stickers.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "seed-backgrounds": "tsx ./src/seed-backgrounds.ts"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",

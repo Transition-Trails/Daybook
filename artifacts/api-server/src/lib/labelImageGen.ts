@@ -27,9 +27,9 @@ const FONT_MAP: Record<string, FontSpec> = {
   // Spectral (serif display, matches app UI display font)
   "serif":       { dir: BUNDLED_FONT_DIR, file: "Spectral-Regular.ttf",        family: "Spectral",        weight: "normal" },
   "serif-bold":  { dir: BUNDLED_FONT_DIR, file: "Spectral-Bold.ttf",           family: "Spectral",        weight: "bold"   },
-  // DejaVu Mono (system fallback for monospace)
-  "mono":        { dir: DEJAVU_FONT_DIR,  file: "DejaVuSansMono.ttf",          family: "DejaVu Sans Mono", weight: "normal" },
-  "mono-bold":   { dir: DEJAVU_FONT_DIR,  file: "DejaVuSansMono-Bold.ttf",     family: "DejaVu Sans Mono", weight: "bold"   },
+  // Space Mono (monospace, matches app UI mono font)
+  "mono":        { dir: BUNDLED_FONT_DIR, file: "SpaceMono-Regular.ttf",        family: "Space Mono",       weight: "normal" },
+  "mono-bold":   { dir: BUNDLED_FONT_DIR, file: "SpaceMono-Bold.ttf",           family: "Space Mono",       weight: "bold"   },
 };
 
 // ── Label generators ─────────────────────────────────────────────────────────

@@ -407,7 +407,6 @@ router.post(
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
     if (!assertSameStore(actor, storeId, res)) return;
-    if (!(await assertAiEnabled(storeId, res))) return;
 
     const {
       name,

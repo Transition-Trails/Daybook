@@ -11,7 +11,10 @@ import {
   palettesTable,
   backgroundsTable,
   themeBackgroundsTable,
+  themeFontsTable,
+  fontsTable,
   storesTable,
+  type ThemeFontPairing,
 } from "@workspace/db";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
@@ -92,6 +95,39 @@ export async function runGeneration(
     if (bgRow) background = bgRow;
   }
 
+  // Font pairing resolution: theme_fonts rows → curatedPairings → ThemeFontPairing.
+  // Priority: theme_fonts join (uses the heading/body/accent curatedPairings on each font row)
+  //           > theme.fontPairing JSONB (legacy / manually set)
+  //           > none (generator falls back to Helvetica)
+  let fontPairing: ThemeFontPairing | undefined;
+  if (style.themeId) {
+    const fontRows = await db
+      .select({ familyName: fontsTable.familyName, curatedPairings: fontsTable.curatedPairings })
+      .from(themeFontsTable)
+      .innerJoin(fontsTable, eq(themeFontsTable.fontId, fontsTable.id))
+      .where(eq(themeFontsTable.themeId, style.themeId))
+      .orderBy(asc(themeFontsTable.position));
+    if (fontRows.length > 0) {
+      const merged: ThemeFontPairing = {};
+      for (const row of fontRows) {
+        for (const p of (row.curatedPairings ?? []) as Array<{ role: string; family: string }>) {
+          if (p.role === "heading" && !merged.heading) merged.heading = row.familyName;
+          if (p.role === "body"    && !merged.body)    merged.body    = row.familyName;
+          if (p.role === "accent"  && !merged.accent)  merged.accent  = row.familyName;
+        }
+      }
+      if (merged.heading || merged.body || merged.accent) fontPairing = merged;
+    }
+    // Fallback: fontPairing JSONB stored directly on the theme row
+    if (!fontPairing) {
+      const [themeRow] = await db
+        .select({ fontPairing: themesTable.fontPairing })
+        .from(themesTable)
+        .where(eq(themesTable.id, style.themeId));
+      if (themeRow?.fontPairing) fontPairing = themeRow.fontPairing as ThemeFontPairing;
+    }
+  }
+
   const sections = (config.style as PlannerStyle).sections ?? [];
   const { buffer, pageCount } = await buildPdf(
     {
@@ -105,6 +141,7 @@ export async function runGeneration(
     themeColors,
     undefined,   // use DEFAULT_TEMPLATE
     background,
+    fontPairing,
     hotspotsByTemplate,
   );
 
@@ -208,6 +245,35 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
       if (bgRow) previewBackground = bgRow;
     }
 
+    // Font pairing resolution for preview — same chain as runGeneration
+    let previewFontPairing: ThemeFontPairing | undefined;
+    if (previewStyle?.themeId) {
+      const fontRows = await db
+        .select({ familyName: fontsTable.familyName, curatedPairings: fontsTable.curatedPairings })
+        .from(themeFontsTable)
+        .innerJoin(fontsTable, eq(themeFontsTable.fontId, fontsTable.id))
+        .where(eq(themeFontsTable.themeId, previewStyle.themeId))
+        .orderBy(asc(themeFontsTable.position));
+      if (fontRows.length > 0) {
+        const merged: ThemeFontPairing = {};
+        for (const row of fontRows) {
+          for (const p of (row.curatedPairings ?? []) as Array<{ role: string; family: string }>) {
+            if (p.role === "heading" && !merged.heading) merged.heading = row.familyName;
+            if (p.role === "body"    && !merged.body)    merged.body    = row.familyName;
+            if (p.role === "accent"  && !merged.accent)  merged.accent  = row.familyName;
+          }
+        }
+        if (merged.heading || merged.body || merged.accent) previewFontPairing = merged;
+      }
+      if (!previewFontPairing) {
+        const [themeRow] = await db
+          .select({ fontPairing: themesTable.fontPairing })
+          .from(themesTable)
+          .where(eq(themesTable.id, previewStyle.themeId));
+        if (themeRow?.fontPairing) previewFontPairing = themeRow.fontPairing as ThemeFontPairing;
+      }
+    }
+
     const sections = (body.style as PlannerStyle | undefined)?.sections ?? [];
     const { buffer, pageCount } = await buildPreviewPdf(
       {
@@ -220,6 +286,7 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
       themeColors,
       undefined,          // use DEFAULT_TEMPLATE
       previewBackground,
+      previewFontPairing,
     );
 
     res.setHeader("Content-Type", "application/pdf");

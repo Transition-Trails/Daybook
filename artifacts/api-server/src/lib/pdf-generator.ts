@@ -20,7 +20,7 @@ import {
 } from "pdf-lib";
 import { Buffer } from "node:buffer";
 import sharp from "sharp";
-import type { PlannerSetup, PlannerStyle, PlannerOutput } from "@workspace/db";
+import type { PlannerSetup, PlannerStyle, PlannerOutput, ThemeFontPairing } from "@workspace/db";
 import {
   type PageIdMap,
   type PageRole,
@@ -341,11 +341,41 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
   };
 }
 
+/**
+ * Google Font families that map to the PDF Times Roman standard font.
+ * All others fall back to Helvetica (sans default).
+ * This allows theme font choices to be visible in the generated PDF without
+ * requiring a remote font fetch; the distinction (serif vs sans) is the primary
+ * signal a designer needs when reviewing a planner layout.
+ */
+const SERIF_PDF_FAMILIES = new Set([
+  "Playfair Display",
+  "Lora",
+  "Cormorant Garamond",
+  "DM Serif Display",
+  "Spectral",
+  "Merriweather",
+  "EB Garamond",
+]);
+
+/**
+ * Resolve the nearest StandardFont for a given font family name.
+ * Serif families → Times Roman / Times Bold Roman.
+ * Everything else → Helvetica / Helvetica Bold (sans default).
+ */
+function resolveStandardFont(familyName: string | undefined, bold: boolean): StandardFonts {
+  if (familyName && SERIF_PDF_FAMILIES.has(familyName)) {
+    return bold ? StandardFonts.TimesRomanBold : StandardFonts.TimesRoman;
+  }
+  return bold ? StandardFonts.HelveticaBold : StandardFonts.Helvetica;
+}
+
 export async function buildPdf(
   config: GeneratorConfig,
   themeColors?: string[],
   template: PlannerTemplate = DEFAULT_TEMPLATE,
   background?: BackgroundSpec,
+  fontPairing?: ThemeFontPairing,
   hotspotsByTemplate?: Map<string, UserHotspot[]>,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
   const { setup, style, output, sections } = config;
@@ -390,8 +420,13 @@ export async function buildPdf(
   const baseSize = PAGE_SIZES[sizeKey ?? "a4"] ?? PAGE_SIZES.a4!;
   const pageWidth  = orientation === "landscape" ? baseSize.h : baseSize.w;
   const pageHeight = orientation === "landscape" ? baseSize.w : baseSize.h;
-  const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  // 3. Embed fonts — resolve from theme fontPairing when provided.
+  // heading slot drives fontBold (large headings/titles);
+  // body slot drives font (regular text, labels, dates).
+  const headingFamily = fontPairing?.heading;
+  const bodyFamily    = fontPairing?.body ?? fontPairing?.heading; // fall back to heading if body unset
+  const font     = await pdfDoc.embedFont(resolveStandardFont(bodyFamily, false));
+  const fontBold = await pdfDoc.embedFont(resolveStandardFont(headingFamily, true));
 
   // 3a. Resolve background rendering spec (once, before the page loop).
   // Gracefully falls back to paper fill on any error — never fails generation.
@@ -825,6 +860,7 @@ export async function buildPreviewPdf(
   themeColors?: string[],
   template: PlannerTemplate = DEFAULT_TEMPLATE,
   background?: BackgroundSpec,
+  fontPairing?: ThemeFontPairing,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, weekStart, orientation } = setup;
@@ -838,8 +874,10 @@ export async function buildPreviewPdf(
   const pdfDoc = await PDFDocument.create();
   const pageWidth  = orientation === "landscape" ? PAGE_HEIGHT : PAGE_WIDTH;
   const pageHeight = orientation === "landscape" ? PAGE_WIDTH  : PAGE_HEIGHT;
-  const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const headingFamilyPv = fontPairing?.heading;
+  const bodyFamilyPv    = fontPairing?.body ?? fontPairing?.heading;
+  const font     = await pdfDoc.embedFont(resolveStandardFont(bodyFamilyPv, false));
+  const fontBold = await pdfDoc.embedFont(resolveStandardFont(headingFamilyPv, true));
 
   // Resolve background spec for preview (same logic as buildPdf)
   let bgColorOverride: { r: number; g: number; b: number } | null = null;

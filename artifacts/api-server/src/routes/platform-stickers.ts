@@ -38,6 +38,7 @@ import {
   inArray,
   sql,
   desc,
+  asc,
 } from "drizzle-orm";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
@@ -46,6 +47,7 @@ import {
   applyBorderAndSize,
   generateCutlineSvg,
 } from "../lib/imageProcessing";
+import { getSetLabels, renderLabelPng } from "../lib/labelImageGen";
 
 const router: IRouter = Router();
 
@@ -161,6 +163,141 @@ async function resolveStarterIds(
 
   return { valid, invalidCount: ids.length - valid.length };
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SET GENERATOR  (before /:id — path is specific enough to avoid capture)
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── POST /platform/stickers/generate-set ─────────────────────────────────────
+// Renders PNG images for a full labelled set (dates/weekdays/months) and returns
+// them as base64 data URLs. No DB write — the client previews and then calls
+// /platform/stickers/batch to save the approved stickers.
+
+router.post(
+  "/platform/stickers/generate-set",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const {
+      setType, labelStyle, fontKey, color,
+      sizeInMm, borderStyle, borderWidth, borderColor, shadowStyle,
+    } = req.body as {
+      setType?:      string;
+      labelStyle?:   string;
+      fontKey?:      string;
+      color?:        string;
+      sizeInMm?:     number | null;
+      borderStyle?:  string;
+      borderWidth?:  number | null;
+      borderColor?:  string | null;
+      shadowStyle?:  string;
+    };
+
+    if (!setType || !["dates","weekdays","months"].includes(setType)) {
+      res.status(400).json({ error: "setType must be one of: dates, weekdays, months" });
+      return;
+    }
+
+    const labels = getSetLabels(setType, labelStyle ?? "padded");
+    if (!labels.length) {
+      res.status(400).json({ error: "No labels produced for the given setType/labelStyle" });
+      return;
+    }
+
+    try {
+      // Render in batches of 5 to avoid OOM on 31-item date sets
+      const BATCH = 5;
+      const results: Array<{ name: string; imageBase64: string }> = [];
+
+      for (let i = 0; i < labels.length; i += BATCH) {
+        const chunk = labels.slice(i, i + BATCH);
+        const rendered = await Promise.all(
+          chunk.map((item) =>
+            renderLabelPng({
+              label:       item.label,
+              fontKey:     fontKey ?? "sans-bold",
+              color:       color ?? "#1B2A4A",
+              sizeInMm:    sizeInMm ?? null,
+              borderStyle: borderStyle ?? "none",
+              borderWidth: borderWidth ?? null,
+              borderColor: borderColor ?? null,
+              shadowStyle: shadowStyle ?? "none",
+            }).then((imageBase64) => ({ name: item.name, imageBase64 })),
+          ),
+        );
+        results.push(...rendered);
+      }
+
+      res.json({ items: results });
+    } catch (err) {
+      req.log.error({ err }, "generate-set failed");
+      res.status(500).json({ error: (err as Error).message ?? "Image generation failed" });
+    }
+  },
+);
+
+// ── POST /platform/stickers/batch ────────────────────────────────────────────
+// Saves pre-processed images (from generate-set) directly to stickers_library
+// without running the bg-removal pipeline. Images must already be transparent PNGs.
+
+router.post(
+  "/platform/stickers/batch",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const {
+      items, functionType, sizeInMm, status: reqStatus,
+    } = req.body as {
+      items?:        Array<{ name: string; imageBase64: string }>;
+      functionType?: string;
+      sizeInMm?:     number | null;
+      status?:       "draft" | "live";
+    };
+
+    if (!Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ error: "items must be a non-empty array" });
+      return;
+    }
+    const ft = isValidFunctionType(functionType) ? (functionType as StickerFunctionType) : "date" as StickerFunctionType;
+    const status: "draft" | "live" = reqStatus === "live" ? "live" : "draft";
+
+    const rows = [];
+    for (const item of items) {
+      if (!item.name || !item.imageBase64?.startsWith("data:image/")) continue;
+      const id = genId();
+      const [row] = await db
+        .insert(stickersLibraryTable)
+        .values({
+          id,
+          name: item.name,
+          tags: [] as string[],
+          functionType: ft,
+          status,
+          origin: "starter" as const,
+          authoredByStoreId: null,
+          borderStyle: "none",
+          borderWidth: null,
+          borderColor: null,
+          sizeInMm: sizeInMm ?? null,
+          exportTargets: { goodnotes: true, ink: true, cricut: false },
+          processedImageData: item.imageBase64,
+          cutlineSvg: null,
+        })
+        .returning();
+      rows.push(row);
+    }
+
+    await writeAudit(db, {
+      actorUserId: actor.userId,
+      actorRole: actor.effectiveRole,
+      scope: "platform",
+      action: "sticker.batch.create",
+      targetType: "sticker",
+      metadata: { count: rows.length, functionType: ft, status },
+    });
+
+    res.status(201).json({ created: rows.length, stickers: rows });
+  },
+);
 
 // ═════════════════════════════════════════════════════════════════════════════
 // BULK ROUTES  (must appear before /:id)
@@ -788,18 +925,20 @@ router.delete(
 );
 
 // ── GET /platform/sticker-packs ───────────────────────────────────────────────
-// Returns platform-origin packs for the "add to pack" modal.
+// Returns platform-origin packs with price, tags, and first-sticker cover image.
 
 router.get(
   "/platform/sticker-packs",
   requireSuperAdmin,
   async (_req: Request, res: Response): Promise<void> => {
-    const rows = await db
+    const packs = await db
       .select({
-        id: stickerPacksTable.id,
-        name: stickerPacksTable.name,
+        id:     stickerPacksTable.id,
+        name:   stickerPacksTable.name,
         origin: stickerPacksTable.origin,
         status: stickerPacksTable.status,
+        price:  stickerPacksTable.price,
+        tags:   stickerPacksTable.tags,
       })
       .from(stickerPacksTable)
       .where(and(
@@ -808,7 +947,105 @@ router.get(
       ))
       .orderBy(desc(stickerPacksTable.name));
 
-    res.json(rows);
+    if (!packs.length) { res.json([]); return; }
+
+    // Fetch the first (min position) sticker image for each pack as cover art
+    const packIds = packs.map((p) => p.id);
+    const coverRows = await db
+      .select({
+        packId:     packStickersTable.packId,
+        coverImage: stickersLibraryTable.processedImageData,
+      })
+      .from(packStickersTable)
+      .innerJoin(stickersLibraryTable, eq(packStickersTable.stickerId, stickersLibraryTable.id))
+      .where(and(
+        inArray(packStickersTable.packId, packIds),
+        ne(stickersLibraryTable.status, "deleted"),
+      ))
+      .orderBy(asc(packStickersTable.position));
+
+    // Build a map: packId → first cover image
+    const coverMap = new Map<string, string>();
+    for (const row of coverRows) {
+      if (!coverMap.has(row.packId) && row.coverImage) {
+        coverMap.set(row.packId, row.coverImage);
+      }
+    }
+
+    res.json(packs.map((p) => ({ ...p, coverImage: coverMap.get(p.id) ?? null })));
+  },
+);
+
+// ── PATCH /platform/sticker-packs/:id ────────────────────────────────────────
+
+router.patch(
+  "/platform/sticker-packs/:id",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { id } = req.params as { id: string };
+    const { status } = req.body as { status?: "draft" | "live" };
+
+    const [pack] = await db.select().from(stickerPacksTable).where(eq(stickerPacksTable.id, id));
+    if (!pack || pack.status === "deleted") { res.status(404).json({ error: "Pack not found" }); return; }
+
+    const [updated] = await db.update(stickerPacksTable).set({ status: status ?? pack.status })
+      .where(eq(stickerPacksTable.id, id)).returning();
+
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole,
+      scope: "platform", action: status === "live" ? "pack.publish" : "pack.unpublish",
+      targetType: "pack", targetId: id, metadata: { status },
+    });
+
+    res.json(updated);
+  },
+);
+
+// ── POST /platform/sticker-packs ─────────────────────────────────────────────
+// In-studio pack creation: name + price + tags + optional sticker IDs.
+
+router.post(
+  "/platform/sticker-packs",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { name, price, tags, stickerIds, status: reqStatus } = req.body as {
+      name?:       string;
+      price?:      number | null;
+      tags?:       string[];
+      stickerIds?: string[];
+      status?:     "draft" | "live";
+    };
+
+    if (!name?.trim()) { res.status(400).json({ error: "name is required" }); return; }
+
+    const packId = `pack_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+    const status: "draft" | "live" = reqStatus === "live" ? "live" : "draft";
+
+    const [pack] = await db.insert(stickerPacksTable).values({
+      id:     packId,
+      name:   name.trim(),
+      price:  price ?? 0,
+      tags:   (tags ?? []) as string[],
+      origin: "starter" as const,
+      status,
+    }).returning();
+
+    if (Array.isArray(stickerIds) && stickerIds.length > 0) {
+      await db.insert(packStickersTable)
+        .values(stickerIds.map((stickerId, i) => ({ packId, stickerId, position: i })))
+        .onConflictDoNothing();
+    }
+
+    await writeAudit(db, {
+      actorUserId: actor.userId, actorRole: actor.effectiveRole,
+      scope: "platform", action: "pack.create",
+      targetType: "pack", targetId: packId,
+      metadata: { name, stickerCount: stickerIds?.length ?? 0, status },
+    });
+
+    res.status(201).json({ ...pack, coverImage: null, tags: pack.tags ?? [] });
   },
 );
 

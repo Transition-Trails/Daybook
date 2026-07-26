@@ -30,7 +30,7 @@
  *
  * No backend/auth/generation logic changed — this is purely UI composition.
  */
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import {
@@ -56,16 +56,47 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   platformApi, platformStickersApi, STICKER_FUNCTION_TYPES,
-  type LibrarySticker, type StickerFunctionType, type StickerUsage,
+  type LibrarySticker, type StickerFunctionType, type StickerUsage, type PlatformStickerPack,
 } from "@/lib/api";
-import { useListStickerPacks, useUpdateStickerPack, type StickerPack, type CatalogStatus } from "@workspace/api-client-react";
+// useListStickerPacks / useUpdateStickerPack removed — PacksCenter now uses platformStickersApi directly
 import { aiApi, extractJson } from "@/lib/ai";
 import { StudioLayout } from "@/components/studio/StudioLayout";
 import {
   SectionLabel, ChipRow, MultiChipRow, SegmentedControl, EmptyState, ErrorState,
   SkeletonRows, RailCard, DockAiAssistant, ActionChip, StatusPill,
+  CHIP_ACTIVE_BG,
 } from "@/components/studio/primitives";
 import { catalogApi } from "@/lib/api";
+
+// ── Set-generator constants ────────────────────────────────────────────────────
+
+const SET_TYPE_OPTIONS = [
+  { value: "dates",    label: "Dates · 31" },
+  { value: "weekdays", label: "Weekdays · 7" },
+  { value: "months",   label: "Months · 12" },
+];
+
+const LABEL_STYLE_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  dates:    [{ value: "bare", label: "1–31" }, { value: "padded", label: "01–31" }, { value: "ordinal", label: "1st–31st" }],
+  weekdays: [{ value: "full", label: "Monday…" }, { value: "abbr", label: "Mon…" }, { value: "initial", label: "M–Su" }],
+  months:   [{ value: "full", label: "January…" }, { value: "abbr", label: "Jan…" }],
+};
+
+const FONT_OPTIONS = [
+  { value: "sans",       label: "Sans" },
+  { value: "sans-bold",  label: "Bold" },
+  { value: "serif",      label: "Serif" },
+  { value: "serif-bold", label: "Serif Bd" },
+  { value: "mono",       label: "Mono" },
+];
+
+const SHADOW_OPTIONS = [
+  { value: "none",      label: "None" },
+  { value: "flat",      label: "Flat" },
+  { value: "soft",      label: "Soft" },
+  { value: "lifted",    label: "Lifted" },
+  { value: "cut-paper", label: "Cut paper" },
+];
 
 // ── Mode definitions ──────────────────────────────────────────────────────────
 
@@ -224,10 +255,10 @@ function StickerFormFields({
         <div className="flex gap-1 flex-wrap">
           {STICKER_FUNCTION_TYPES.map((t) => (
             <button key={t} onClick={() => set("functionType", t)} type="button"
-              style={{ cursor: "pointer" }}
+              style={{ cursor: "pointer", ...(form.functionType === t ? { background: CHIP_ACTIVE_BG, color: "#fff", borderColor: CHIP_ACTIVE_BG } : {}) }}
               className={`px-2.5 py-1 rounded-full text-[11.5px] font-medium border transition-colors ${
                 form.functionType === t
-                  ? "bg-primary text-primary-foreground border-primary"
+                  ? ""
                   : "border-border text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -543,12 +574,156 @@ function AddToPackModal({ selectedIds, onClose }: { selectedIds: string[]; onClo
   );
 }
 
+// ── CREATE PACK MODAL ─────────────────────────────────────────────────────────
+// Gap 3: in-studio pack creation without leaving the sticker studio.
+// Fetches live platform stickers to use as a picker, then calls
+// platformStickersApi.createPack() to create the pack via the new backend route.
+
+function CreatePackModal({ onClose }: { onClose: () => void }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [name,      setName]      = useState("");
+  const [price,     setPrice]     = useState("4.99");
+  const [tagsStr,   setTagsStr]   = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [search,    setSearch]    = useState("");
+
+  const { data: stickers = [], isLoading } = useQuery<LibrarySticker[]>({
+    queryKey: ["platform-stickers-for-pack-picker"],
+    queryFn:  () => platformApi.stickers({ status: "live" }) as Promise<LibrarySticker[]>,
+    staleTime: 60_000,
+  });
+
+  const filtered = stickers.filter(
+    (s) => !search || s.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const create = useMutation({
+    mutationFn: (status: "draft" | "live") =>
+      platformStickersApi.createPack({
+        name,
+        price:      parseFloat(price) || null,
+        tags:       tagsStr.split(",").map((t) => t.trim()).filter(Boolean),
+        stickerIds: [...selectedIds],
+        status,
+      }),
+    onSuccess: (_data, status) => {
+      qc.invalidateQueries({ queryKey: ["platform-sticker-packs"] });
+      toast({ title: status === "live" ? "Pack published!" : "Pack saved as draft" });
+      onClose();
+    },
+    onError: (err: Error) => toast({ title: "Create failed", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>New platform pack</DialogTitle>
+          <DialogDescription>Name the pack and pick stickers from the library.</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto space-y-5 py-2 pr-1">
+          {/* Fields */}
+          <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <div className="space-y-1.5">
+              <Label className="text-[12.5px]">Pack name *</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Core Date Set" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[12.5px]">Price (USD)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[12.5px]">$</span>
+                <Input type="number" min="0" step="0.01" value={price}
+                  onChange={(e) => setPrice(e.target.value)} className="pl-6" />
+              </div>
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label className="text-[12.5px]">Tags (comma-separated)</Label>
+              <Input value={tagsStr} onChange={(e) => setTagsStr(e.target.value)}
+                placeholder="dates, coverups, minimal" />
+            </div>
+          </div>
+
+          {/* Sticker picker */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <SectionLabel>{selectedIds.size} sticker{selectedIds.size !== 1 ? "s" : ""} selected</SectionLabel>
+              <div className="relative w-44">
+                <Input className="pl-7 h-7 text-[12px]" placeholder="Search…"
+                  value={search} onChange={(e) => setSearch(e.target.value)} />
+                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground"
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+                </svg>
+              </div>
+            </div>
+
+            {isLoading && <SkeletonRows count={3} />}
+
+            {!isLoading && filtered.length === 0 && (
+              <p className="text-[12.5px] text-muted-foreground text-center py-6">
+                {search ? "No stickers match the search." : "No live stickers in the library yet."}
+              </p>
+            )}
+
+            {!isLoading && filtered.length > 0 && (
+              <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))" }}>
+                {filtered.map((s) => {
+                  const sel = selectedIds.has(s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => setSelectedIds((prev) => {
+                        const n = new Set(prev);
+                        sel ? n.delete(s.id) : n.add(s.id);
+                        return n;
+                      })}
+                      style={{
+                        cursor: "pointer",
+                        outline: sel ? `2px solid ${CHIP_ACTIVE_BG}` : "none",
+                        outlineOffset: 2, borderRadius: 10,
+                      }}
+                      className="flex flex-col items-center gap-1 p-2 rounded-[10px] border border-border hover:bg-muted/40 transition-colors"
+                    >
+                      <StickerThumb src={s.processedImageData} size={52} />
+                      <span className="text-[9.5px] text-muted-foreground leading-tight text-center break-words w-full line-clamp-2">
+                        {s.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter className="border-t pt-4 shrink-0">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" size="sm" disabled={!name.trim() || create.isPending}
+            onClick={() => create.mutate("draft")}>
+            {create.isPending && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
+            Save as draft
+          </Button>
+          <Button size="sm" style={{ background: CHIP_ACTIVE_BG, color: "#fff" }}
+            disabled={!name.trim() || create.isPending}
+            onClick={() => create.mutate("live")}>
+            {create.isPending && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
+            <Globe className="w-3.5 h-3.5 mr-1.5" />Publish pack
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── TRUE SCALE PREVIEW ────────────────────────────────────────────────────────
 // Shows the sticker at its real physical size on an A5 planner page.
 // A5 = 148mm × 210mm. Preview container = 268px wide → scale = 268/148 = 1.81px/mm.
 // This makes sizeInMm immediately meaningful: a 15mm sticker looks like a 27px square.
 
-function StickerScalePreview({ sticker }: { sticker?: LibrarySticker | null }) {
+function StickerScalePreview({ sticker, onOpenEdit }: { sticker?: LibrarySticker | null; onOpenEdit?: () => void }) {
   const PREVIEW_W = 268;
   const A5_W_MM   = 148;
   const A5_H_MM   = 210;
@@ -632,9 +807,9 @@ function StickerScalePreview({ sticker }: { sticker?: LibrarySticker | null }) {
         )}
       </div>
 
-      {sticker && !sticker.sizeInMm && (
+      {sticker && !sticker.sizeInMm && onOpenEdit && (
         <button
-          onClick={() => {}}
+          onClick={onOpenEdit}
           style={{ cursor: "pointer", width: "100%" }}
           className="px-3 py-2 rounded-full border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
         >
@@ -741,12 +916,14 @@ function LibraryRow({
 
 function LibraryCenter({
   filterOrigin, filterType, filterStatus, search, setSearch,
-  selectedPreview, onSelectPreview,
+  selectedPreview, onSelectPreview, triggerCreate,
 }: {
   filterOrigin: string; filterType: string; filterStatus: string;
   search: string; setSearch: (v: string) => void;
   selectedPreview: LibrarySticker | null;
   onSelectPreview: (s: LibrarySticker | null) => void;
+  /** Increment this counter to programmatically open the "New sticker" modal */
+  triggerCreate?: number;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -767,6 +944,9 @@ function LibraryCenter({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showCreate, setShowCreate]     = useState(false);
   const [editTarget, setEditTarget]     = useState<LibrarySticker | null>(null);
+
+  // Gap 2: open create dialog when hub's top-bar "New sticker" button fires
+  useEffect(() => { if (triggerCreate) setShowCreate(true); }, [triggerCreate]);
   const [usageTarget, setUsageTarget]   = useState<LibrarySticker | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [showAddToPack, setShowAddToPack] = useState(false);
@@ -959,8 +1139,232 @@ function LibraryCenter({
   );
 }
 
+// ── GENERATE SET CARD ─────────────────────────────────────────────────────────
+// Gap 1: Renders a full labelled set of PNGs server-side via the generate-set
+// endpoint (using @resvg/resvg-js + system DejaVu fonts), then lets the user
+// review and deselect individual stickers before saving as drafts via batch.
+
+function GenerateSetCard() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const [setType,     setSetType]     = useState<string>("dates");
+  const [labelStyle,  setLabelStyle]  = useState<string>("padded");
+  const [fontKey,     setFontKey]     = useState<string>("sans-bold");
+  const [color,       setColor]       = useState<string>("#1B2A4A");
+  const [sizeInMm,    setSizeInMm]    = useState<string>("20");
+  const [borderStyle, setBorderStyle] = useState<string>("none");
+  const [borderWidth, setBorderWidth] = useState<string>("2");
+  const [borderColor, setBorderColor] = useState<string>("#000000");
+  const [shadowStyle, setShadowStyle] = useState<string>("none");
+
+  const [genResult, setGenResult] = useState<Array<{ name: string; imageBase64: string; selected: boolean }>>([]);
+  const [genPending, setGenPending] = useState(false);
+  const [genError,   setGenError]  = useState<string | null>(null);
+  const [saving,     setSaving]    = useState(false);
+
+  // Reset label style to first option when set type changes
+  useEffect(() => {
+    const opts = LABEL_STYLE_OPTIONS[setType] ?? [];
+    if (opts.length > 0) setLabelStyle(opts[0].value);
+    setGenResult([]);
+  }, [setType]);
+
+  async function generate() {
+    setGenPending(true);
+    setGenError(null);
+    try {
+      const res = await platformStickersApi.generateSet({
+        setType, labelStyle, fontKey, color,
+        sizeInMm:    sizeInMm ? parseFloat(sizeInMm) : null,
+        borderStyle,
+        borderWidth: borderStyle !== "none" ? (parseFloat(borderWidth) || null) : null,
+        borderColor: borderStyle !== "none" ? (borderColor || null) : null,
+        shadowStyle,
+      });
+      setGenResult(res.items.map((item) => ({ ...item, selected: true })));
+    } catch (err: unknown) {
+      setGenError((err as Error).message);
+    } finally {
+      setGenPending(false);
+    }
+  }
+
+  async function saveSelected() {
+    const toSave = genResult.filter((i) => i.selected);
+    if (!toSave.length) return;
+    setSaving(true);
+    try {
+      const res = await platformStickersApi.batchCreate({
+        items:        toSave.map((i) => ({ name: i.name, imageBase64: i.imageBase64 })),
+        functionType: "date",
+        sizeInMm:     sizeInMm ? parseFloat(sizeInMm) : null,
+        status:       "draft",
+      });
+      qc.invalidateQueries({ queryKey: ["platform-stickers"] });
+      toast({ title: `${res.created} sticker${res.created !== 1 ? "s" : ""} saved as draft` });
+      setGenResult([]);
+    } catch (err: unknown) {
+      toast({ title: "Save failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const setCount       = setType === "dates" ? 31 : setType === "weekdays" ? 7 : 12;
+  const selectedCount  = genResult.filter((i) => i.selected).length;
+
+  return (
+    <div className="rounded-[14px] border bg-card shadow-sm p-5 space-y-4">
+      <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 3 }}>
+        <div className="flex items-center gap-2">
+          <CheckSquare className="w-4 h-4 shrink-0" style={{ color: CHIP_ACTIVE_BG }} />
+          <p className="font-display font-semibold text-[15px] text-foreground">Generate a labelled set</p>
+        </div>
+        <p className="text-[12.5px] text-muted-foreground">
+          Renders real transparent PNGs server-side — 31 date cover-ups, 7 weekdays, or 12 months —
+          in your chosen font, colour, and size. Review and deselect before saving.
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        <div className="space-y-1.5">
+          <Label className="text-[12.5px]">Set type</Label>
+          <ChipRow options={SET_TYPE_OPTIONS} value={setType} onChange={(v) => { setSetType(v); }} />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-[12.5px]">Label style</Label>
+          <ChipRow options={LABEL_STYLE_OPTIONS[setType] ?? []} value={labelStyle} onChange={setLabelStyle} />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-[12.5px]">Font</Label>
+          <ChipRow options={FONT_OPTIONS} value={fontKey} onChange={setFontKey} />
+        </div>
+
+        <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <div className="space-y-1.5">
+            <Label className="text-[12.5px]">Colour</Label>
+            <div className="flex items-center gap-2">
+              <input type="color" value={color} onChange={(e) => setColor(e.target.value)}
+                className="h-8 w-8 rounded border border-border cursor-pointer shrink-0" />
+              <Input className="h-8 text-xs font-mono" value={color} onChange={(e) => setColor(e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[12.5px]">Size (mm)</Label>
+            <Input type="number" min="5" max="100" className="h-8 text-xs"
+              value={sizeInMm} onChange={(e) => setSizeInMm(e.target.value)} placeholder="e.g. 20" />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-[12.5px]">Border</Label>
+          <SegmentedControl
+            options={[{value:"none",label:"None"},{value:"thin",label:"Thin"},{value:"white",label:"White matte"}]}
+            value={borderStyle} onChange={setBorderStyle}
+          />
+        </div>
+
+        {borderStyle !== "none" && (
+          <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <div className="space-y-1.5">
+              <Label className="text-[11.5px]">Width (px)</Label>
+              <Input type="number" min="1" max="20" className="h-8 text-xs"
+                value={borderWidth} onChange={(e) => setBorderWidth(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11.5px]">Border colour</Label>
+              <div className="flex items-center gap-1.5">
+                <input type="color" value={borderColor} onChange={(e) => setBorderColor(e.target.value)}
+                  className="h-8 w-8 rounded border border-border cursor-pointer shrink-0" />
+                <Input className="h-8 text-xs font-mono" value={borderColor} onChange={(e) => setBorderColor(e.target.value)} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <Label className="text-[12.5px]">Shadow</Label>
+          <ChipRow options={SHADOW_OPTIONS} value={shadowStyle} onChange={setShadowStyle} />
+        </div>
+      </div>
+
+      <button
+        onClick={generate}
+        disabled={genPending}
+        style={{ cursor: genPending ? "not-allowed" : "pointer", background: CHIP_ACTIVE_BG, color: "#fff" }}
+        className="flex items-center gap-2 px-4 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+      >
+        {genPending
+          ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generating {setCount} stickers…</>
+          : <><CheckSquare className="w-3.5 h-3.5" />Generate {setCount} stickers</>
+        }
+      </button>
+
+      {genError && !genPending && <ErrorState message={genError} onRetry={generate} />}
+
+      {genResult.length > 0 && !genPending && (
+        <div className="space-y-3 pt-2 border-t">
+          <div className="flex items-center justify-between">
+            <p className="text-[12.5px] font-semibold text-foreground">
+              {genResult.length} generated — click a sticker to deselect it
+            </p>
+            <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+              <button onClick={() => setGenResult((r) => r.map((i) => ({ ...i, selected: true })))}
+                style={{ cursor: "pointer" }} className="hover:text-foreground">All</button>
+              <span>·</span>
+              <button onClick={() => setGenResult((r) => r.map((i) => ({ ...i, selected: false })))}
+                style={{ cursor: "pointer" }} className="hover:text-foreground">None</button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {genResult.map((item, i) => (
+              <button
+                key={i}
+                onClick={() => setGenResult((r) => r.map((x, j) => j === i ? { ...x, selected: !x.selected } : x))}
+                style={{
+                  cursor: "pointer",
+                  opacity: item.selected ? 1 : 0.3,
+                  outline: item.selected ? `2px solid ${CHIP_ACTIVE_BG}` : "2px solid transparent",
+                  outlineOffset: 2, borderRadius: 8,
+                }}
+                className="flex flex-col items-center gap-1 p-1.5 rounded-[8px] border border-border transition-all"
+                title={item.name}
+              >
+                <StickerThumb src={item.imageBase64} size={44} />
+                <span className="text-[9px] text-muted-foreground leading-none">
+                  {item.name.replace(/^(Date coverup |Weekday |Month )/, "")}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={saveSelected}
+            disabled={selectedCount === 0 || saving}
+            style={{
+              cursor: selectedCount === 0 || saving ? "not-allowed" : "pointer",
+              background: CHIP_ACTIVE_BG, color: "#fff",
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+          >
+            {saving
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Save className="w-3.5 h-3.5" />
+            }
+            Save {selectedCount} sticker{selectedCount !== 1 ? "s" : ""} as draft
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── CREATE MODE ───────────────────────────────────────────────────────────────
-// Both paths shown immediately — not gated behind AI generation.
+// Three paths: upload artwork, AI brief, or generate a labelled set.
 
 interface InProgressItem { id: string; name: string; src?: string; status: "uploading" | "processing" | "done" | "error" }
 
@@ -977,15 +1381,20 @@ When given a sticker pack concept, respond ONLY with valid JSON — no markdown,
 }`;
 
 function CreateCenter({
-  batchItems, setBatchItems, aiResult, setAiResult,
+  batchItems, setBatchItems, aiResult, setAiResult, uploadTrigger,
 }: {
   batchItems: InProgressItem[]; setBatchItems: React.Dispatch<React.SetStateAction<InProgressItem[]>>;
   aiResult: PackAiResult | null; setAiResult: (r: PackAiResult | null) => void;
+  /** Increment this counter to programmatically trigger the file-upload dialog */
+  uploadTrigger?: number;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
+
+  // Gap 2: fire file-picker when hub top-bar "Upload artwork" button is clicked
+  useEffect(() => { if (uploadTrigger) fileRef.current?.click(); }, [uploadTrigger]);
 
   // Upload path: file → base64 → create sticker
   const [uploadForm, setUploadForm] = useState<StickerFormValues>(defaultForm());
@@ -1221,27 +1630,31 @@ function CreateCenter({
           </div>
         )}
       </div>
+
+      {/* Gap 1: Generate a labelled set */}
+      <GenerateSetCard />
     </div>
   );
 }
 
 // ── PACKS MODE ────────────────────────────────────────────────────────────────
 
-function PackRow({ pack, onToggle, togglePending }: {
-  pack: StickerPack; onToggle: () => void; togglePending: boolean;
+function PackRow({ pack, coverImage, onToggle, togglePending }: {
+  pack: PlatformStickerPack; coverImage?: string | null; onToggle: () => void; togglePending: boolean;
 }) {
   const isLive = pack.status === "live";
-  // Pack cover swatch — placeholder gradient based on tags
-  const tag0 = (pack.tags as string[] || [])[0] ?? "";
 
   return (
     <div className="flex items-center gap-3 px-4 py-3 rounded-[14px] border bg-card hover:bg-muted/30 transition-colors">
-      {/* Swatch thumbnail */}
+      {/* Swatch thumbnail — first sticker image or fallback icon */}
       <div
-        className="rounded-xl border border-border flex items-center justify-center shrink-0"
+        className="rounded-xl border border-border flex items-center justify-center shrink-0 overflow-hidden"
         style={{ width: 48, height: 48, background: "hsl(var(--muted))", minWidth: 48 }}
       >
-        <Sticker className="w-5 h-5 text-muted-foreground" />
+        {coverImage
+          ? <img src={coverImage} alt="" style={{ width: 40, height: 40, objectFit: "contain" }} />
+          : <Sticker className="w-5 h-5 text-muted-foreground" />
+        }
       </div>
 
       {/* Stacked text — explicit flex-col + width:100% */}
@@ -1251,11 +1664,11 @@ function PackRow({ pack, onToggle, togglePending }: {
           <StatusChip status={pack.status} />
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {(pack.tags as string[] || []).slice(0, 3).map((t: string) => (
+          {((pack.tags as string[]) || []).slice(0, 3).map((t: string) => (
             <span key={t} className="text-[10.5px] text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5">{t}</span>
           ))}
           <span className="text-[10.5px] font-mono text-muted-foreground">
-            {pack.price ? `$${pack.price.toFixed(2)}` : "Free"}
+            {pack.price ? `$${Number(pack.price).toFixed(2)}` : "Free"}
           </span>
         </div>
       </div>
@@ -1268,7 +1681,6 @@ function PackRow({ pack, onToggle, togglePending }: {
           disabled={togglePending}
           variant={isLive ? "secondary" : "primary"}
         />
-        {/* Note: detail link preserved for full pack editing */}
         <a href={`/daybook/catalog/packs/${pack.id}`}
           className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-border text-[12px] font-semibold text-foreground hover:bg-muted transition-colors">
           Edit
@@ -1278,30 +1690,33 @@ function PackRow({ pack, onToggle, togglePending }: {
   );
 }
 
-function PacksCenter({ packStatus }: { packStatus: string }) {
+function PacksCenter({ packStatus, onNewPack }: { packStatus: string; onNewPack: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { data: rawPacks, isLoading, error } = useListStickerPacks();
-  const updatePack = useUpdateStickerPack();
+  const { data: rawPacks, isLoading, error, refetch } = useQuery<PlatformStickerPack[]>({
+    queryKey: ["platform-sticker-packs"],
+    queryFn:  () => platformStickersApi.listPacks(),
+    staleTime: 30_000,
+  });
   const [pendingToggles, setPendingToggles] = useState<Set<string>>(new Set());
 
-  const packs = (rawPacks as StickerPack[] | undefined) ?? [];
+  const packs   = rawPacks ?? [];
   const filtered = packStatus === "all" ? packs : packs.filter((p) => p.status === packStatus);
 
-  function toggle(pack: StickerPack) {
+  function toggle(pack: PlatformStickerPack) {
     const next = pack.status === "live" ? "draft" : "live";
     setPendingToggles((p) => new Set(p).add(pack.id));
-    updatePack.mutate(
-      { id: pack.id, data: { status: next as CatalogStatus } },
-      {
-        onSuccess: () => {
-          toast({ title: next === "live" ? "Published" : "Unpublished" });
-          qc.invalidateQueries({ queryKey: ["sticker-packs"] });
-        },
-        onError: (err) => toast({ title: "Failed", description: (err as Error).message, variant: "destructive" }),
-        onSettled: () => setPendingToggles((p) => { const n = new Set(p); n.delete(pack.id); return n; }),
-      }
-    );
+    fetch(`/api/platform/sticker-packs/${pack.id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: next }),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+      toast({ title: next === "live" ? "Published" : "Unpublished" });
+      qc.invalidateQueries({ queryKey: ["platform-sticker-packs"] });
+    }).catch((err: Error) => toast({ title: "Failed", description: err.message, variant: "destructive" }))
+      .finally(() => setPendingToggles((p) => { const n = new Set(p); n.delete(pack.id); return n; }));
   }
 
   return (
@@ -1310,26 +1725,29 @@ function PacksCenter({ packStatus }: { packStatus: string }) {
         <p className="text-[11.5px] text-muted-foreground">
           {!isLoading ? `${filtered.length} pack${filtered.length !== 1 ? "s" : ""}` : ""}
         </p>
-        <a href="/daybook/catalog/packs/new"
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-primary text-primary-foreground text-[12.5px] font-semibold hover:opacity-90 transition-opacity">
+        <button
+          onClick={onNewPack}
+          style={{ cursor: "pointer", background: CHIP_ACTIVE_BG, color: "#fff" }}
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold hover:opacity-90 transition-opacity"
+        >
           <Plus className="w-3.5 h-3.5" />New pack
-        </a>
+        </button>
       </div>
 
       {isLoading && <SkeletonRows count={4} />}
-      {error && <ErrorState message={(error as Error).message} onRetry={() => {}} />}
+      {error && <ErrorState message={(error as Error).message} onRetry={() => refetch()} />}
       {!isLoading && !error && filtered.length === 0 && (
         <EmptyState
           icon={<Sticker className="w-5 h-5 text-muted-foreground" />}
           title={packStatus !== "all" ? `No ${packStatus} packs` : "No packs yet"}
           description={packStatus !== "all" ? "Change the status filter to see other packs." : "Create your first sticker pack."}
-          action={{ label: "New pack", onClick: () => {} }}
+          action={{ label: "New pack", onClick: onNewPack }}
         />
       )}
       {!isLoading && !error && filtered.length > 0 && (
         <div className="space-y-2">
           {filtered.map((pack) => (
-            <PackRow key={pack.id} pack={pack}
+            <PackRow key={pack.id} pack={pack} coverImage={pack.coverImage}
               onToggle={() => toggle(pack)}
               togglePending={pendingToggles.has(pack.id)} />
           ))}
@@ -1387,8 +1805,8 @@ function CreateRail({ batchItems }: { batchItems: InProgressItem[] }) {
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         <RailCard>
           <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 4 }}>
-            <p className="font-display font-semibold text-[13px] text-foreground">Two paths</p>
-            <p className="text-[11px] text-muted-foreground">Upload your own artwork — or let AI brainstorm concepts. Both produce a sticker that lands in your Library.</p>
+            <p className="font-display font-semibold text-[13px] text-foreground">Three paths</p>
+            <p className="text-[11px] text-muted-foreground">Upload your own artwork, let AI brainstorm concepts, or generate a full labelled set (dates, weekdays, months) in one click.</p>
           </div>
         </RailCard>
 
@@ -1470,6 +1888,16 @@ export default function StickerStudioHub() {
   // Packs filter state
   const [packStatus, setPackStatus] = useState("all");
 
+  // Gap 2: counters that fire each child's primary action from the top-bar button
+  const [libCreateTrigger, setLibCreateTrigger] = useState(0);
+  const [uploadTrigger,    setUploadTrigger]    = useState(0);
+
+  // Gap 3: in-studio pack composer
+  const [showNewPack, setShowNewPack] = useState(false);
+
+  // Gap 5: edit target opened from the scale-preview dock
+  const [hubEditTarget, setHubEditTarget] = useState<LibrarySticker | null>(null);
+
   // ── Left rail ─────────────────────────────────────────────────────────────
   const leftRail = (() => {
     if (validMode === "library")
@@ -1504,7 +1932,7 @@ export default function StickerStudioHub() {
         }
       />
     ),
-    preview: <StickerScalePreview sticker={previewSticker} />,
+    preview: <StickerScalePreview sticker={previewSticker} onOpenEdit={previewSticker ? () => setHubEditTarget(previewSticker) : undefined} />,
   };
 
   // ── Center content ────────────────────────────────────────────────────────
@@ -1514,19 +1942,24 @@ export default function StickerStudioHub() {
         filterOrigin={origin} filterType={filterType} filterStatus={libStatus}
         search={libSearch} setSearch={setLibSearch}
         selectedPreview={previewSticker} onSelectPreview={setPreviewSticker}
+        triggerCreate={libCreateTrigger}
       />;
     if (validMode === "create")
-      return <CreateCenter batchItems={batchItems} setBatchItems={setBatchItems} aiResult={aiResult} setAiResult={setAiResult} />;
-    return <PacksCenter packStatus={packStatus} />;
+      return <CreateCenter
+        batchItems={batchItems} setBatchItems={setBatchItems}
+        aiResult={aiResult} setAiResult={setAiResult}
+        uploadTrigger={uploadTrigger}
+      />;
+    return <PacksCenter packStatus={packStatus} onNewPack={() => setShowNewPack(true)} />;
   })();
 
   // ── Primary action ────────────────────────────────────────────────────────
   const primaryAction = (() => {
     if (validMode === "library")
-      return { label: "New sticker", icon: <Plus className="w-3.5 h-3.5" />, onClick: () => {} };
+      return { label: "New sticker", icon: <Plus className="w-3.5 h-3.5" />, onClick: () => setLibCreateTrigger((c) => c + 1) };
     if (validMode === "create")
-      return { label: "Upload artwork", icon: <Upload className="w-3.5 h-3.5" />, onClick: () => {} };
-    return { label: "New pack", icon: <Plus className="w-3.5 h-3.5" />, onClick: () => {} };
+      return { label: "Upload artwork", icon: <Upload className="w-3.5 h-3.5" />, onClick: () => setUploadTrigger((c) => c + 1) };
+    return { label: "New pack", icon: <Plus className="w-3.5 h-3.5" />, onClick: () => setShowNewPack(true) };
   })();
 
   return (
@@ -1541,6 +1974,14 @@ export default function StickerStudioHub() {
       rightDock={rightDock}
     >
       {center}
+
+      {/* Gap 3: in-studio pack composer */}
+      {showNewPack && <CreatePackModal onClose={() => setShowNewPack(false)} />}
+
+      {/* Gap 5: edit sticker opened from the scale-preview "Set size" button */}
+      {hubEditTarget && (
+        <StickerFormModal mode="edit" sticker={hubEditTarget} onClose={() => setHubEditTarget(null)} />
+      )}
     </StudioLayout>
   );
 }

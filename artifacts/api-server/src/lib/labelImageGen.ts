@@ -1,0 +1,153 @@
+/**
+ * Server-side label image generator for the "Generate a set" feature.
+ *
+ * Renders transparent PNGs of text labels (dates 1–31, weekdays, months)
+ * using @resvg/resvg-js + system DejaVu fonts, then optionally applies
+ * border and shadow via the existing imageProcessing pipeline.
+ *
+ * No external API required — everything runs locally.
+ */
+import path from "path";
+import { applyBorderAndSize, addDropShadow } from "./imageProcessing";
+
+// ── Font map ─────────────────────────────────────────────────────────────────
+
+const FONT_DIR = "/usr/share/fonts/truetype/dejavu";
+
+interface FontSpec { file: string; family: string; weight: string }
+
+const FONT_MAP: Record<string, FontSpec> = {
+  "sans":       { file: "DejaVuSans.ttf",         family: "DejaVu Sans",      weight: "normal" },
+  "sans-bold":  { file: "DejaVuSans-Bold.ttf",     family: "DejaVu Sans",      weight: "bold"   },
+  "serif":      { file: "DejaVuSerif.ttf",         family: "DejaVu Serif",     weight: "normal" },
+  "serif-bold": { file: "DejaVuSerif-Bold.ttf",    family: "DejaVu Serif",     weight: "bold"   },
+  "mono":       { file: "DejaVuSansMono.ttf",      family: "DejaVu Sans Mono", weight: "normal" },
+  "mono-bold":  { file: "DejaVuSansMono-Bold.ttf", family: "DejaVu Sans Mono", weight: "bold"   },
+};
+
+// ── Label generators ─────────────────────────────────────────────────────────
+
+function ordSuffix(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
+}
+
+export interface LabelItem { label: string; name: string }
+
+export function getSetLabels(setType: string, labelStyle: string): LabelItem[] {
+  switch (setType) {
+    case "dates": {
+      const items: LabelItem[] = [];
+      for (let i = 1; i <= 31; i++) {
+        let label: string;
+        if (labelStyle === "padded")       label = String(i).padStart(2, "0");
+        else if (labelStyle === "ordinal") label = `${i}${ordSuffix(i)}`;
+        else                               label = String(i);
+        items.push({ label, name: `Date coverup ${String(i).padStart(2, "0")}` });
+      }
+      return items;
+    }
+    case "weekdays": {
+      const full    = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+      const abbr    = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+      const initial = ["M","Tu","W","Th","F","Sa","Su"];
+      return full.map((f, i) => ({
+        label: labelStyle === "full" ? f : labelStyle === "abbr" ? abbr[i] : initial[i],
+        name: `Weekday ${abbr[i]}`,
+      }));
+    }
+    case "months": {
+      const full = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const abbr = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      return full.map((f, i) => ({
+        label: labelStyle === "full" ? f : abbr[i],
+        name:  `Month ${abbr[i]}`,
+      }));
+    }
+    default:
+      return [];
+  }
+}
+
+// ── Font-size heuristic ───────────────────────────────────────────────────────
+
+function computeFontSize(label: string): number {
+  const len = label.length;
+  if (len <= 2)  return 210;
+  if (len <= 4)  return 155;
+  if (len <= 6)  return 112;
+  if (len <= 8)  return 84;
+  if (len <= 10) return 66;
+  return 52;
+}
+
+// ── Single-label PNG renderer ─────────────────────────────────────────────────
+
+export async function renderLabelPng(params: {
+  label:        string;
+  fontKey:      string;
+  color:        string;
+  sizeInMm?:    number | null;
+  borderStyle?: string;
+  borderWidth?: number | null;
+  borderColor?: string | null;
+  shadowStyle?: string;
+}): Promise<string> {
+  const { Resvg } = (await import("@resvg/resvg-js")) as typeof import("@resvg/resvg-js");
+
+  const {
+    label, fontKey, color,
+    sizeInMm, borderStyle = "none", borderWidth, borderColor, shadowStyle = "none",
+  } = params;
+
+  const spec      = FONT_MAP[fontKey] ?? FONT_MAP["sans-bold"];
+  const fontPath  = path.join(FONT_DIR, spec.file);
+  const fontSize  = computeFontSize(label);
+  const canvasSize = 400;
+
+  const svg = [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${canvasSize} ${canvasSize}">`,
+    `  <text`,
+    `    x="${canvasSize / 2}" y="${canvasSize / 2}"`,
+    `    text-anchor="middle" dominant-baseline="central"`,
+    `    font-family="${spec.family}"`,
+    `    font-weight="${spec.weight}"`,
+    `    font-size="${fontSize}"`,
+    `    fill="${color}"`,
+    `  >${label}</text>`,
+    `</svg>`,
+  ].join("\n");
+
+  const resvg = new Resvg(svg, {
+    font: {
+      loadSystemFonts: false,
+      fontFiles: [fontPath],
+    },
+    fitTo: { mode: "width" as const, value: canvasSize },
+  });
+
+  const rendered  = resvg.render();
+  const pngBuffer = rendered.asPng();
+  let dataUrl = `data:image/png;base64,${pngBuffer.toString("base64")}`;
+
+  // Apply border / target size
+  if (borderStyle !== "none" || sizeInMm) {
+    dataUrl = await applyBorderAndSize(
+      dataUrl,
+      borderStyle,
+      borderWidth ?? null,
+      borderColor ?? null,
+      sizeInMm ?? null,
+    );
+  } else if (sizeInMm) {
+    dataUrl = await applyBorderAndSize(dataUrl, "none", null, null, sizeInMm);
+  }
+
+  // Apply shadow (baked into the PNG)
+  if (shadowStyle && shadowStyle !== "none") {
+    dataUrl = await addDropShadow(dataUrl, shadowStyle);
+  }
+
+  return dataUrl;
+}

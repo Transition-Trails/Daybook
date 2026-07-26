@@ -189,6 +189,9 @@ export interface PlatformStickerPack {
   name: string;
   origin: string;
   status: string;
+  price?: number | null;
+  tags?: string[];
+  coverImage?: string | null;
 }
 
 export const platformStickersApi = {
@@ -277,6 +280,48 @@ export const platformStickersApi = {
       method: "DELETE",
       body: JSON.stringify({ ids }),
     }),
+
+  /** Generate a labelled set of transparent PNGs server-side (no DB write). */
+  generateSet: (data: {
+    setType:      string;
+    labelStyle:   string;
+    fontKey:      string;
+    color:        string;
+    sizeInMm?:    number | null;
+    borderStyle?: string;
+    borderWidth?: number | null;
+    borderColor?: string | null;
+    shadowStyle?: string;
+  }) =>
+    apiFetch<{ items: Array<{ name: string; imageBase64: string }> }>(
+      "/platform/stickers/generate-set",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  /** Save a batch of pre-processed images directly to stickers_library (no pipeline). */
+  batchCreate: (data: {
+    items:        Array<{ name: string; imageBase64: string }>;
+    functionType: string;
+    sizeInMm?:    number | null;
+    status?:      "draft" | "live";
+  }) =>
+    apiFetch<{ created: number; stickers: LibrarySticker[] }>(
+      "/platform/stickers/batch",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  /** Create a new platform sticker pack in-studio. */
+  createPack: (data: {
+    name:        string;
+    price?:      number | null;
+    tags?:       string[];
+    stickerIds?: string[];
+    status?:     "draft" | "live";
+  }) =>
+    apiFetch<PlatformStickerPack>(
+      "/platform/sticker-packs",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
 };
 
 // ── Me endpoints ────────────────────────────────────────────────────────────

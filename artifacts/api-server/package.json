@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/multer": "^2.2.0",
     "@types/sharp": "^0.32.0",
     "@workspace/api-zod": "workspace:*",

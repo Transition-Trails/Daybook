@@ -20,3 +20,4 @@
 - [Studio active-chip contrast](studio-chip-contrast.md) — --primary is clay #C87560 (~3.5:1 on white, FAILS); always use Ink Navy #1B2A4A for active chip/pill fills; CHIP_ACTIVE_BG + CHIP_ACTIVE_CLS constants in primitives.tsx
 - [Edition duplicate route](edition-duplicate.md) — POST /editions/:id/duplicate added to catalog.ts; req.params must be cast `as string` to fix TS; advances years in name via regex; carries jsonb arrays with explicit casts
 - [Studio rail scroll](studio-rail-scroll.md) — StudioLayout aside is overflow-hidden flex-col; each rail owns its scroll (flex-1 overflow-y-auto); build rail uses flex-col h-full + inner flex-1 + sticky bottom for pinned voice/tone
+- [Sticker Studio gap closure](sticker-studio-gaps.md) — all 6 gaps closed (set generator, dead buttons, pack composer, contrast, edit hook, cover image); resvg esbuild gotcha documented

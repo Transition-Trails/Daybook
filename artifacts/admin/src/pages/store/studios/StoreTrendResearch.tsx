@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
 import { studioGenerateApi } from "@/lib/api";
-import { AiDisabledState } from "./AiDisabledState";
+import { AiDisabledState, SuperAdminAiBanner } from "./AiDisabledState";
 
 interface TrendCard {
   trend: string;
@@ -25,10 +25,11 @@ interface TrendCard {
 
 interface Props {
   storeId: string;
+  role: string;
   aiEnabled: boolean;
 }
 
-export default function StoreTrendResearch({ storeId, aiEnabled }: Props) {
+export default function StoreTrendResearch({ storeId, role, aiEnabled }: Props) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
@@ -51,7 +52,7 @@ export default function StoreTrendResearch({ storeId, aiEnabled }: Props) {
   });
 
   // All hooks declared above — safe to return early now.
-  if (!aiEnabled) return <AiDisabledState />;
+  if (!aiEnabled) return role === "super_admin" ? <SuperAdminAiBanner /> : <AiDisabledState />;
 
   // Write idea to store-scoped sessionStorage key, then navigate to the studio
   const goToTheme = (idea: string) => {

@@ -88,6 +88,7 @@ import {
   X as CloseIcon,
   PanelRight,
 } from "lucide-react";
+import { SuperAdminAiBanner } from "./AiDisabledState";
 import {
   storePlannersApi,
   widgetsApi,
@@ -481,7 +482,7 @@ function EditionsMode({ planner, storeId, onUpdated }: { planner: StorePlannerCo
 
 // ── Inserts & Widgets mode ─────────────────────────────────────────────────────
 
-function InsertsMode({ storeId, aiEnabled }: { storeId: string; aiEnabled: boolean }) {
+function InsertsMode({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; aiEnabled: boolean; isSuperAdmin?: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [prompt, setPrompt] = useState("");
@@ -606,6 +607,8 @@ function InsertsMode({ storeId, aiEnabled }: { storeId: string; aiEnabled: boole
             </div>
           )}
         </div>
+      ) : isSuperAdmin ? (
+        <SuperAdminAiBanner />
       ) : (
         <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
           <Sparkles className="w-4 h-4 inline mr-2" />
@@ -1165,7 +1168,7 @@ export default function PlannerStudio({ storeId, role, aiEnabled }: Props) {
       <div className="flex-1 overflow-y-auto" style={{ minWidth: 0 }}>
         {mode === "build"     && <BuildMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
         {mode === "editions"  && <EditionsMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
-        {mode === "inserts"   && <InsertsMode  storeId={storeId} aiEnabled={aiEnabled} />}
+        {mode === "inserts"   && <InsertsMode  storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={role === "super_admin"} />}
         {mode === "cover"     && <CoverMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
         {mode === "dividers"  && <DividersMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
         {mode === "paper"     && <PaperMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}

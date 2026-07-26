@@ -306,7 +306,7 @@ function RootRouter() {
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
                 <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
-                  {(aiEnabled) => <StoreTrendResearch storeId={p.storeId!} aiEnabled={aiEnabled} />}
+                  {(aiEnabled) => <StoreTrendResearch storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
             )}

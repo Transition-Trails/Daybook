@@ -32,6 +32,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState, SkeletonRows } from "@/components/shared";
 import { isValidHex, PALETTE_LABELS } from "@/lib/ai";
+import { SuperAdminAiBanner } from "./AiDisabledState";
 import {
   storeStudiosApi, studioGenerateApi,
   type CatalogItem, type OwnedList,
@@ -370,10 +371,11 @@ function BlankCreateCard({
 }
 
 function ClaudeCreateCard({
-  storeId, aiEnabled, onCreated,
+  storeId, aiEnabled, isSuperAdmin, onCreated,
 }: {
   storeId: string;
   aiEnabled: boolean;
+  isSuperAdmin?: boolean;
   onCreated: (id: string) => void;
 }) {
   const { toast } = useToast();
@@ -420,6 +422,13 @@ function ClaudeCreateCard({
   });
 
   if (!aiEnabled) {
+    if (isSuperAdmin) {
+      return (
+        <div className="rounded-[14px] border bg-card shadow-sm p-6 flex flex-col h-full">
+          <SuperAdminAiBanner />
+        </div>
+      );
+    }
     return (
       <div className="rounded-[14px] border bg-card shadow-sm p-6 flex flex-col gap-4 opacity-60 select-none h-full">
         <div className="flex items-center gap-2 mb-1">
@@ -557,9 +566,10 @@ function ClaudeCreateCard({
 }
 
 function EditionCreate({
-  storeId, aiEnabled, onCreated, onBack,
+  storeId, role, aiEnabled, onCreated, onBack,
 }: {
   storeId: string;
+  role: string;
   aiEnabled: boolean;
   onCreated: (id: string) => void;
   onBack: () => void;
@@ -584,7 +594,7 @@ function EditionCreate({
       {/* Two-path cards — equal height */}
       <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 1fr", alignItems: "start" }}>
         <BlankCreateCard storeId={storeId} onCreated={onCreated} />
-        <ClaudeCreateCard storeId={storeId} aiEnabled={aiEnabled} onCreated={onCreated} />
+        <ClaudeCreateCard storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={role === "super_admin"} onCreated={onCreated} />
       </div>
     </div>
   );
@@ -985,6 +995,7 @@ export default function StoreEditionStudio({ storeId, role, aiEnabled }: Props) 
     return (
       <EditionCreate
         storeId={storeId}
+        role={role}
         aiEnabled={aiEnabled}
         onCreated={goEdit}
         onBack={goList}

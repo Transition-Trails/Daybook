@@ -33,7 +33,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
 import { storeStudiosApi, studioGenerateApi, apiFetch } from "@/lib/api";
-import { AiDisabledState } from "./AiDisabledState";
+import { AiDisabledState, SuperAdminAiBanner } from "./AiDisabledState";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -323,7 +323,7 @@ function UploadTab({ storeId }: { storeId: string }) {
 
 // ── Functional SVG tab ────────────────────────────────────────────────────────
 
-function FunctionalTab({ storeId, aiEnabled }: { storeId: string; aiEnabled: boolean }) {
+function FunctionalTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; aiEnabled: boolean; isSuperAdmin?: boolean }) {
   const { toast } = useToast();
   const [functionType, setFunctionType] = useState("tab");
   const [label, setLabel] = useState("");
@@ -331,7 +331,7 @@ function FunctionalTab({ storeId, aiEnabled }: { storeId: string; aiEnabled: boo
   const [sizeInMm, setSizeInMm] = useState(20);
   const [result, setResult] = useState<GeneratedSticker | null>(null);
 
-  if (!aiEnabled) return <AiDisabledState />;
+  if (!aiEnabled) return isSuperAdmin ? <SuperAdminAiBanner /> : <AiDisabledState />;
 
   const generate = useMutation({
     mutationFn: () =>
@@ -501,14 +501,14 @@ function TextSetTab({ storeId }: { storeId: string }) {
 
 // ── Illustrative Art Prompt tab ───────────────────────────────────────────────
 
-function IllustrativeTab({ storeId, aiEnabled }: { storeId: string; aiEnabled: boolean }) {
+function IllustrativeTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; aiEnabled: boolean; isSuperAdmin?: boolean }) {
   const { toast } = useToast();
   const [brief, setBrief] = useState("");
   const [refImage, setRefImage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<{ prompt: string; reasoning: string; qaChecklist?: string[] | null } | null>(null);
 
-  if (!aiEnabled) return <AiDisabledState />;
+  if (!aiEnabled) return isSuperAdmin ? <SuperAdminAiBanner /> : <AiDisabledState />;
 
   const generate = useMutation({
     mutationFn: () =>
@@ -839,13 +839,13 @@ export default function StoreStudioPage({ storeId, role, aiEnabled }: Props) {
               <UploadTab storeId={storeId} />
             </TabsContent>
             <TabsContent value="functional">
-              <FunctionalTab storeId={storeId} aiEnabled={aiEnabled} />
+              <FunctionalTab storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={role === "super_admin"} />
             </TabsContent>
             <TabsContent value="textset">
               <TextSetTab storeId={storeId} />
             </TabsContent>
             <TabsContent value="prompt">
-              <IllustrativeTab storeId={storeId} aiEnabled={aiEnabled} />
+              <IllustrativeTab storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={role === "super_admin"} />
             </TabsContent>
           </Tabs>
         </div>

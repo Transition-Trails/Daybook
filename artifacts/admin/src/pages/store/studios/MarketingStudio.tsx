@@ -38,7 +38,7 @@ import {
   type MarketingMockupFrame,
   type StoreProfileVoice,
 } from "@/lib/api";
-import { AiDisabledState } from "./AiDisabledState";
+import { AiDisabledState, SuperAdminAiBanner } from "./AiDisabledState";
 import { Link } from "wouter";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ export default function MarketingStudio({ storeId, role, aiEnabled }: Props) {
   const qc = useQueryClient();
   const isOwner = role === "store_owner" || role === "super_admin";
 
-  if (!aiEnabled) return <AiDisabledState />;
+  if (!aiEnabled) return role === "super_admin" ? <SuperAdminAiBanner /> : <AiDisabledState />;
 
   // ── Global state ────────────────────────────────────────────────────────────
   const [activeTool,    setActiveTool]    = useState<Tool>("listing");

@@ -16,7 +16,7 @@ import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
 import { isValidHex, PALETTE_LABELS } from "@/lib/ai";
 import { storeStudiosApi, studioGenerateApi } from "@/lib/api";
-import { AiDisabledState } from "./AiDisabledState";
+import { AiDisabledState, SuperAdminAiBanner } from "./AiDisabledState";
 
 interface ThemeAiResult {
   name: string;
@@ -84,7 +84,7 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   const canSave = !!name && colors.length === 6 && colors.every(isValidHex);
 
   // All hooks declared above — safe to return early now.
-  if (!aiEnabled) return <AiDisabledState />;
+  if (!aiEnabled) return role === "super_admin" ? <SuperAdminAiBanner /> : <AiDisabledState />;
 
   return (
     <div className="max-w-3xl mx-auto space-y-0 animate-in fade-in duration-300">

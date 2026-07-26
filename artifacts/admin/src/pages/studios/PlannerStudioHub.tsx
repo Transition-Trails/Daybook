@@ -181,10 +181,11 @@ function EditionSelector({
 // ── Editions-mode left rail ───────────────────────────────────────────────────
 
 function EditionsRail({
-  tier, setTier, status, setStatus,
+  tier, setTier, status, setStatus, productType, setProductType,
 }: {
   tier: string; setTier: (v: string) => void;
   status: string; setStatus: (v: string) => void;
+  productType: string; setProductType: (v: string) => void;
 }) {
   return (
     <div className="p-4 space-y-5">
@@ -197,6 +198,20 @@ function EditionsRail({
           </p>
         </div>
       </RailCard>
+
+      <div className="space-y-2">
+        <SectionLabel>Product type</SectionLabel>
+        <ChipRow
+          options={[
+            { value:"all",label:"All" },
+            { value:"planner",label:"Planner" },
+            { value:"notebook",label:"Notebook" },
+            { value:"journal",label:"Journal" },
+            { value:"memory-keeping",label:"Memory" },
+          ]}
+          value={productType} onChange={setProductType}
+        />
+      </div>
 
       <div className="space-y-2">
         <SectionLabel>Tier</SectionLabel>
@@ -526,7 +541,7 @@ function BuildCenter({
           />
         </div>
         <div className="space-y-2">
-          <p className="text-[11.5px] font-medium text-muted-foreground">Related products</p>
+          <p className="text-[11.5px] font-medium text-muted-foreground">Notebooks &amp; journals</p>
           <MultiChipRow
             options={(products as any[]).map((p: any) => ({ value: p.id, label: p.name }))}
             value={state.productIds} onChange={v => set("productIds", v)}
@@ -725,9 +740,9 @@ function EditionCreateForm({ onDone, onCancel }: { onDone: () => void; onCancel:
 // Items 1 + 2: Inline edition list replacing <EditionsList />.
 
 function EditionsListInStudio({
-  tier, status, onShowCreate, showCreate, onHideCreate,
+  tier, status, productType, onShowCreate, showCreate, onHideCreate,
 }: {
-  tier: string; status: string;
+  tier: string; status: string; productType: string;
   onShowCreate: () => void;
   showCreate: boolean;
   onHideCreate: () => void;
@@ -742,8 +757,9 @@ function EditionsListInStudio({
 
   const editions = (rawEditions as any[])
     .filter((e: any) => e.status !== "deleted")
-    .filter((e: any) => tier   === "all" || e.tier   === tier)
-    .filter((e: any) => status === "all" || e.status === status);
+    .filter((e: any) => tier        === "all" || e.tier        === tier)
+    .filter((e: any) => status      === "all" || e.status      === status)
+    .filter((e: any) => productType === "all" || (e.productType ?? "planner") === productType);
 
   const publishMut = useMutation({
     mutationFn: ({ id, newStatus }: { id: string; newStatus: string }) =>
@@ -882,9 +898,10 @@ export default function PlannerStudioHub() {
   const [buildState, setBuildState] = useState<BuildState>(DEFAULT_BUILD);
 
   // Editions-mode filter + create state
-  const [editionTier,   setEditionTier]   = useState("all");
-  const [editionStatus, setEditionStatus] = useState("all");
-  const [showCreate,    setShowCreate]    = useState(false);
+  const [editionTier,        setEditionTier]        = useState("all");
+  const [editionStatus,      setEditionStatus]      = useState("all");
+  const [editionProductType, setEditionProductType] = useState("all");
+  const [showCreate,         setShowCreate]         = useState(false);
 
   // Inserts/Theme filter state
   const [insertType, setInsertType] = useState("all");
@@ -933,7 +950,13 @@ export default function PlannerStudioHub() {
     // All other modes: single outer scroller (aside is overflow-hidden, this div scrolls)
     const inner = (() => {
       if (validMode === "editions") {
-        return <EditionsRail tier={editionTier} setTier={setEditionTier} status={editionStatus} setStatus={setEditionStatus} />;
+        return (
+          <EditionsRail
+            tier={editionTier}     setTier={setEditionTier}
+            status={editionStatus} setStatus={setEditionStatus}
+            productType={editionProductType} setProductType={setEditionProductType}
+          />
+        );
       }
       if (validMode === "inserts") return <InsertsRail type={insertType} setType={setInsertType} />;
       if (validMode === "theme")   return <ThemeRail   tone={themeTone}  setTone={setThemeTone}  />;
@@ -1011,6 +1034,7 @@ export default function PlannerStudioHub() {
         <EditionsListInStudio
           tier={editionTier}
           status={editionStatus}
+          productType={editionProductType}
           showCreate={showCreate}
           onShowCreate={() => setShowCreate(true)}
           onHideCreate={() => setShowCreate(false)}

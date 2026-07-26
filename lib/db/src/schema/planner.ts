@@ -106,6 +106,11 @@ export const plannerConfigsTable = pgTable("planner_configs", {
   storeId: text("store_id"),
   editionId: text("edition_id"),
   year: integer("year"),
+  /**
+   * Mirrors editions.productType — drives which builder sections are offered.
+   * Defaults to 'planner' for all existing rows.
+   */
+  productType: text("product_type").notNull().default("planner"),
   setup: jsonb("setup").notNull().$type<PlannerSetup>(),
   style: jsonb("style").notNull().default({}).$type<PlannerStyle>(),
   output: jsonb("output")

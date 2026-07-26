@@ -138,6 +138,53 @@ async function validateAttachEntitlement(
   return null;
 }
 
+/**
+ * Validate product IDs that may now live in either `related_products` (legacy)
+ * or `editions` (notebook/journal/memory-keeping migrated rows, same IDs).
+ * Checks relatedProductsTable first; falls back to editionsTable for any IDs
+ * not found there (covers new notebook editions with ed_xxx IDs too).
+ */
+async function validateProductIds(
+  ids: string[],
+  ctx: EntitlementContext,
+): Promise<string | null> {
+  if (!ids.length) return null;
+
+  // Try relatedProductsTable first
+  const rpRows = await db
+    .select({ id: relatedProductsTable.id, origin: relatedProductsTable.origin, authoredByStoreId: relatedProductsTable.authoredByStoreId })
+    .from(relatedProductsTable)
+    .where(inArray(relatedProductsTable.id, ids));
+  const rpFoundIds = new Set(rpRows.map((r) => r.id));
+
+  // Check editions table for any IDs not found in relatedProducts
+  const notInRp = ids.filter((id) => !rpFoundIds.has(id));
+  let edRows: { id: string; origin: string | null; authoredByStoreId: string | null }[] = [];
+  if (notInRp.length) {
+    edRows = await db
+      .select({ id: editionsTable.id, origin: editionsTable.origin, authoredByStoreId: editionsTable.authoredByStoreId })
+      .from(editionsTable)
+      .where(inArray(editionsTable.id, notInRp));
+  }
+
+  const allRows = [...rpRows, ...edRows];
+  const allFoundIds = new Set(allRows.map((r) => r.id));
+  const missing = ids.find((id) => !allFoundIds.has(id));
+  if (missing) return `Unknown product ID: ${missing}`;
+
+  for (const row of allRows) {
+    const status = resolveEntitlement(
+      (row.origin ?? "licensed") as ItemOrigin,
+      row.authoredByStoreId ?? null,
+      ctx,
+    );
+    if (status !== "entitled") {
+      return `product "${row.id}" is not available to your store (${status})`;
+    }
+  }
+  return null;
+}
+
 // ── Helper: cross-store guard (middleware may resolve storeId from header) ──
 
 function assertSameStore(actor: import("../lib/roles").ActorContext, urlStoreId: string, res: Response): boolean {
@@ -419,6 +466,8 @@ router.post(
       insertIds,
       productIds,
       palette,
+      productType,
+      binding,
     } = req.body as {
       name: string;
       description?: string;
@@ -430,6 +479,8 @@ router.post(
       insertIds?: string[];
       productIds?: string[];
       palette?: string[];
+      productType?: "planner" | "notebook" | "journal" | "memory-keeping";
+      binding?: { type: string; finish: string } | null;
     };
 
     if (!name) {
@@ -438,20 +489,24 @@ router.post(
     }
 
     const ctx = await getStoreCtx(storeId);
+
+    // Validate non-product attach entitlements
     const attachChecks: [
-      typeof themesTable | typeof stickerPacksTable | typeof insertsTable | typeof relatedProductsTable,
+      typeof themesTable | typeof stickerPacksTable | typeof insertsTable,
       string[],
       string,
     ][] = [
       [themesTable, themeIds ?? [], "theme"],
       [stickerPacksTable, packIds ?? [], "sticker-pack"],
       [insertsTable, insertIds ?? [], "insert"],
-      [relatedProductsTable, productIds ?? [], "product"],
     ];
     for (const [table, ids, type] of attachChecks) {
       const err = await validateAttachEntitlement(table, ids, type, ctx);
       if (err) { res.status(403).json({ error: err }); return; }
     }
+    // Products: check both relatedProducts (legacy) and editions (migrated notebooks/journals)
+    const productErr = await validateProductIds(productIds ?? [], ctx);
+    if (productErr) { res.status(403).json({ error: productErr }); return; }
 
     // ── Dedup guard ──────────────────────────────────────────────────────────
     const dupEdition = await findOwnedDup(editionsTable, storeId, name);
@@ -538,6 +593,8 @@ router.post(
           globalAvailable: false,
           origin: "owned",
           authoredByStoreId: storeId,
+          productType: productType ?? "planner",
+          ...(binding !== undefined ? { binding: binding as typeof editionsTable.$inferInsert["binding"] } : {}),
         })
         .returning();
 
@@ -834,7 +891,7 @@ router.patch(
       res.status(403).json({ error: "Staff can only edit draft items" }); return;
     }
 
-    const { name, sections, priceLow, priceHigh, themeIds, packIds, insertIds, productIds, status } =
+    const { name, sections, priceLow, priceHigh, themeIds, packIds, insertIds, productIds, status, productType, binding } =
       req.body as {
         name?: string;
         sections?: string[];
@@ -845,6 +902,8 @@ router.patch(
         insertIds?: string[];
         productIds?: string[];
         status?: "draft" | "live";
+        productType?: "planner" | "notebook" | "journal" | "memory-keeping";
+        binding?: { type: string; finish: string } | null;
       };
 
     if (status !== undefined && isStaff) {
@@ -856,19 +915,23 @@ router.patch(
     if (hasAttachChange) {
       const ctx = await getStoreCtx(storeId);
       const attachChecks: [
-        typeof themesTable | typeof stickerPacksTable | typeof insertsTable | typeof relatedProductsTable,
+        typeof themesTable | typeof stickerPacksTable | typeof insertsTable,
         string[],
         string,
       ][] = [
         [themesTable, themeIds ?? [], "theme"],
         [stickerPacksTable, packIds ?? [], "sticker-pack"],
         [insertsTable, insertIds ?? [], "insert"],
-        [relatedProductsTable, productIds ?? [], "product"],
       ];
       for (const [table, ids, type] of attachChecks) {
         if (!ids.length) continue;
         const err = await validateAttachEntitlement(table, ids, type, ctx);
         if (err) { res.status(403).json({ error: err }); return; }
+      }
+      // Products: check both relatedProducts (legacy) and editions (migrated notebooks/journals)
+      if (productIds?.length) {
+        const productErr = await validateProductIds(productIds, ctx);
+        if (productErr) { res.status(403).json({ error: productErr }); return; }
       }
     }
 
@@ -882,6 +945,8 @@ router.patch(
     if (insertIds !== undefined) updateData.inserts = insertIds as string[];
     if (productIds !== undefined) updateData.products = productIds as string[];
     if (status !== undefined) updateData.status = status;
+    if (productType !== undefined) updateData.productType = productType;
+    if (binding !== undefined) updateData.binding = binding as typeof editionsTable.$inferInsert["binding"];
     if (Object.keys(updateData).length === 0) { res.json(row); return; }
 
     const [updated] = await db.update(editionsTable).set(updateData).where(eq(editionsTable.id, id)).returning();

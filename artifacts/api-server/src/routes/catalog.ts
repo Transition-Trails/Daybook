@@ -18,7 +18,7 @@ import {
   relatedProductsTable,
   editionsTable,
 } from "@workspace/db";
-import { eq, ne } from "drizzle-orm";
+import { eq, ne, and } from "drizzle-orm";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { isSuperAdmin } from "../lib/roles";
 import { writeAudit } from "../lib/audit";
@@ -163,6 +163,36 @@ buildCatalogRoutes(router, "/backgrounds",backgroundsTable,     "Background");
 buildCatalogRoutes(router, "/packs",      stickerPacksTable,    "StickerPack");
 buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert",       { dedupByName: true });
 buildCatalogRoutes(router, "/products",   relatedProductsTable, "RelatedProduct");
+
+// ── Editions — custom GET with optional ?productType= filter ─────────────────
+// Registered BEFORE buildCatalogRoutes so this handler takes precedence for
+// GET /editions (Express uses first-matching handler).  POST / PATCH / DELETE
+// are still handled by buildCatalogRoutes below.
+
+router.get("/editions", async (req: Request, res: Response): Promise<void> => {
+  const productType = req.query.productType as string | undefined;
+  const allowedTypes = ["planner", "notebook", "journal", "memory-keeping"];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rows: any[];
+  if (isPublicCaller(req)) {
+    const baseFilter = eq(editionsTable.status, "live");
+    const filter =
+      productType && allowedTypes.includes(productType)
+        ? and(baseFilter, eq(editionsTable.productType, productType as "planner" | "notebook" | "journal" | "memory-keeping"))
+        : baseFilter;
+    rows = await db.select().from(editionsTable).where(filter).orderBy(editionsTable.createdAt);
+  } else {
+    const baseFilter = ne(editionsTable.status, "deleted");
+    const filter =
+      productType && allowedTypes.includes(productType)
+        ? and(baseFilter, eq(editionsTable.productType, productType as "planner" | "notebook" | "journal" | "memory-keeping"))
+        : baseFilter;
+    rows = await db.select().from(editionsTable).where(filter).orderBy(editionsTable.createdAt);
+  }
+  res.json(rows);
+});
+
 buildCatalogRoutes(router, "/editions",   editionsTable,        "Edition");
 
 // ── Edition-specific: duplicate ───────────────────────────────────────────────

@@ -19,6 +19,26 @@ export type EditionArt = {
   notes: string | null;
 };
 
+/**
+ * What kind of bound product this edition represents.
+ * Drives section availability in the planner studio and
+ * the generator's page-set selection.
+ *   planner        — standard dated/undated planner (default)
+ *   notebook       — cover + dividers + note-paper only
+ *   journal        — cover + dividers + lined/ruled note-paper
+ *   memory-keeping — cover + dividers + photo-caption note-paper
+ */
+export type ProductType = "planner" | "notebook" | "journal" | "memory-keeping";
+
+/**
+ * Physical binding of the finished product — purely decorative in the PDF
+ * (shows ring art in the realistic render pass); does not affect page geometry.
+ */
+export type EditionBinding = {
+  type: "coil" | "twin-loop" | "discs" | "3-ring" | "none";
+  finish: "gold" | "rose gold" | "silver" | "matte black" | "white";
+};
+
 export const editionsTable = pgTable("editions", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -47,6 +67,16 @@ export const editionsTable = pgTable("editions", {
   authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
   revisionOf: text("revision_of"), // edition id | null
   year: integer("year"),
+  /**
+   * Product type — drives studio section menu and generator page set.
+   * Defaults to 'planner' for all existing rows.
+   */
+  productType: text("product_type").notNull().default("planner").$type<ProductType>(),
+  /**
+   * Physical binding spec — rendered as ring art in the realistic preview.
+   * Null = no binding decoration.
+   */
+  binding: jsonb("binding").$type<EditionBinding>(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

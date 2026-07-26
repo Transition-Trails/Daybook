@@ -52,7 +52,7 @@ const NAV_ITEMS = [
   { label: "Backgrounds",        icon: Image,          href: "/catalog/backgrounds",group: "Catalog" },
   { label: "Inserts",            icon: FileImage,      href: "/catalog/inserts",    group: "Catalog" },
   { label: "Widgets",            icon: Shapes,         href: "/catalog/widgets",    group: "Catalog" },
-  { label: "Related products",   icon: Package2,       href: "/catalog/products",   group: "Catalog" },
+  // Related products merged into Planner Studio (Editions) — no longer a separate nav entry.
   // ── Platform ─────────────────────────────────────────────────────────────
   { label: "Plans",              icon: BookOpen,       href: "/plans",              group: "Platform" },
   { label: "Users",              icon: Users,          href: "/users",              group: "Platform" },

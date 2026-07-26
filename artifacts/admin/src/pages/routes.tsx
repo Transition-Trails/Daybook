@@ -46,8 +46,8 @@ import PackDetail from '@/pages/catalog/packs/detail';
 import InsertsList from '@/pages/catalog/inserts/list';
 import InsertDetail from '@/pages/catalog/inserts/detail';
 import PlatformWidgetsList from '@/pages/catalog/widgets/list';
-import ProductsList from '@/pages/catalog/products/list';
-import ProductDetail from '@/pages/catalog/products/detail';
+// ProductsList / ProductDetail replaced by a redirect component below
+import { Redirect } from "wouter";
 
 // Products / editions (backward compat — also embedded in Planner Studio)
 import EditionsList from '@/pages/editions/list';
@@ -86,8 +86,15 @@ export const routes = [
   { path: "/catalog/inserts",          component: InsertsList },
   { path: "/catalog/inserts/:id",      component: InsertDetail },
   { path: "/catalog/widgets",          component: PlatformWidgetsList },
-  { path: "/catalog/products",         component: ProductsList },
-  { path: "/catalog/products/:id",     component: ProductDetail },
+  // /catalog/products and /catalog/products/:id → merged into Planner Studio
+  {
+    path: "/catalog/products",
+    component: () => <Redirect to="/studios/planner" />,
+  },
+  {
+    path: "/catalog/products/:id",
+    component: () => <Redirect to="/studios/planner" />,
+  },
 
   // ── Platform ───────────────────────────────────────────────────────────────
   { path: "/plans",                    component: PlansList },

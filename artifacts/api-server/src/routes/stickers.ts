@@ -58,6 +58,7 @@ import {
 } from "../lib/imageProcessing";
 import { callAi } from "../lib/ai-proxy";
 import { buildProfileGrounding } from "../lib/profile-grounding";
+import { renderLabelPng } from "../lib/labelImageGen";
 import { storeProfilesTable, storeFlagsTable } from "@workspace/db";
 import type { ActorContext } from "../lib/roles";
 
@@ -1044,19 +1045,24 @@ router.post(
 
     const {
       setType,
-      fontFamily = "sans-serif",
+      fontKey = "sans-bold",
       color = "#1A202C",
       sizeInMm,
       exportTargets,
       packId,
     } = req.body as {
       setType?: string;
-      fontFamily?: string;
+      fontKey?: string;
       color?: string;
       sizeInMm?: number;
       exportTargets?: { goodnotes: boolean; ink: boolean; cricut: boolean };
       packId?: string;
     };
+
+    const VALID_FONT_KEYS = ["sans", "sans-bold", "serif", "serif-bold", "mono", "mono-bold"] as const;
+    const resolvedFontKey = VALID_FONT_KEYS.includes(fontKey as typeof VALID_FONT_KEYS[number])
+      ? fontKey
+      : "sans-bold";
 
     const VALID_SET_TYPES = [
       "dates-1-31", "dates-padded", "dates-ordinal",
@@ -1122,22 +1128,15 @@ router.post(
 
     for (const { label, functionType, defaultSizeMm } of labelsAndTypes) {
       const resolvedSize = sizeInMm ?? defaultSizeMm;
-      const pxW = Math.max(48, Math.round((resolvedSize / 25.4) * 96));
-      const pxH = Math.max(24, Math.round((resolvedSize / 25.4) * 96 * 0.6));
-      const fontSize = Math.round(pxH * 0.6);
 
-      // Render label as SVG → PNG via sharp
-      const safeFontFamily = fontFamily.replace(/['"<>]/g, "");
-      const svg = [
-        `<svg xmlns="http://www.w3.org/2000/svg" width="${pxW}" height="${pxH}">`,
-        `  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"`,
-        `    font-family="${safeFontFamily}, Georgia, serif" font-size="${fontSize}"`,
-        `    fill="${color}">${label}</text>`,
-        `</svg>`,
-      ].join("\n");
-
-      const pngBuf = await sharp(Buffer.from(svg)).png().toBuffer();
-      const processedImageData = `data:image/png;base64,${pngBuf.toString("base64")}`;
+      // Render label using bundled Google Fonts via resvg (same path as Planner Studio)
+      const processedImageData = await renderLabelPng({
+        label,
+        fontKey: resolvedFontKey,
+        color,
+        sizeInMm: resolvedSize,
+        borderStyle: "none",
+      });
 
       const id = genId();
       const [row] = await db

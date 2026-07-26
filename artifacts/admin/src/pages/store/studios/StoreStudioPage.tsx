@@ -419,7 +419,7 @@ const SET_TYPES = [
 function TextSetTab({ storeId }: { storeId: string }) {
   const { toast } = useToast();
   const [setType, setSetType] = useState("dates-1-31");
-  const [fontFamily, setFontFamily] = useState("Georgia");
+  const [fontKey, setFontKey] = useState("sans-bold");
   const [color, setColor] = useState("#1A202C");
   const [sizeInMm, setSizeInMm] = useState(12);
   const [result, setResult] = useState<{ created: number; setType: string } | null>(null);
@@ -430,7 +430,7 @@ function TextSetTab({ storeId }: { storeId: string }) {
         `/stores/${storeId}/stickers/generate/text-set`,
         {
           method: "POST",
-          body: JSON.stringify({ setType, fontFamily, color, sizeInMm, exportTargets: { goodnotes: true, ink: true, cricut: false } }),
+          body: JSON.stringify({ setType, fontKey, color, sizeInMm, exportTargets: { goodnotes: true, ink: true, cricut: false } }),
         },
       ),
     onSuccess: (data) => {
@@ -456,9 +456,18 @@ function TextSetTab({ storeId }: { storeId: string }) {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Font family</Label>
-          <Input value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} placeholder="Georgia" />
-          <p className="text-[10px] text-muted-foreground">System or Google Fonts name (e.g. "Nunito")</p>
+          <Label className="text-xs">Font</Label>
+          <Select value={fontKey} onValueChange={setFontKey}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sans">Instrument Sans — regular</SelectItem>
+              <SelectItem value="sans-bold">Instrument Sans — bold</SelectItem>
+              <SelectItem value="serif">Spectral — regular</SelectItem>
+              <SelectItem value="serif-bold">Spectral — bold</SelectItem>
+              <SelectItem value="mono">Space Mono — regular</SelectItem>
+              <SelectItem value="mono-bold">Space Mono — bold</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">Text colour</Label>

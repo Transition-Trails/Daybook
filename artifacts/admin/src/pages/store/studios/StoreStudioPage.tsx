@@ -826,12 +826,14 @@ export default function StoreStudioPage({ storeId, role, aiEnabled }: Props) {
           </div>
 
           <Tabs value={createTab} onValueChange={(v) => setCreateTab(v as CreateTab)}>
-            <TabsList className="mb-6">
+            <div className="overflow-x-auto mb-6" style={{ scrollbarWidth: "none" }}>
+            <TabsList>
               <TabsTrigger value="upload" className="gap-1.5"><Upload className="w-3.5 h-3.5" />Upload</TabsTrigger>
               <TabsTrigger value="functional" className="gap-1.5"><Wand2 className="w-3.5 h-3.5" />Functional SVG</TabsTrigger>
               <TabsTrigger value="textset" className="gap-1.5"><Type className="w-3.5 h-3.5" />Text Set</TabsTrigger>
               <TabsTrigger value="prompt" className="gap-1.5"><Lightbulb className="w-3.5 h-3.5" />Illustrative Art</TabsTrigger>
             </TabsList>
+            </div>
 
             <TabsContent value="upload">
               <UploadTab storeId={storeId} />

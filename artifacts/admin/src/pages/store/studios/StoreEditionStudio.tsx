@@ -850,7 +850,7 @@ function EditionEdit({
                   <Input value={name} onChange={(e) => setName(e.target.value)} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Price low (USD)</Label>
                   <div className="relative">

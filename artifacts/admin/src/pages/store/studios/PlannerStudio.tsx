@@ -85,6 +85,8 @@ import {
   ChevronRight,
   Wand2,
   Sparkles,
+  X as CloseIcon,
+  PanelRight,
 } from "lucide-react";
 import {
   storePlannersApi,
@@ -1079,7 +1081,34 @@ export default function PlannerStudio({ storeId, role, aiEnabled }: Props) {
   const [phase, setPhase] = useState<"select" | "create" | "studio">("select");
   const [activePlanner, setActivePlanner] = useState<StorePlannerConfig | null>(null);
   const [mode, setMode] = useState<StudioMode>("build");
-  const [dockTab, setDockTab] = useState<DockTab>("preview");
+  const [dockTab,       setDockTab]       = useState<DockTab>("preview");
+  const [narrowStore,   setNarrowStore]   = useState(false);
+  const [dockOverlay,   setDockOverlay]   = useState(false);
+  const studioBodyRef = useRef<HTMLDivElement>(null);
+
+  // Collapse dock at < 900 px
+  useEffect(() => {
+    const el = studioBodyRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? el.clientWidth;
+      const isNarrow = w < 900;
+      setNarrowStore(isNarrow);
+      if (!isNarrow) setDockOverlay(false); // auto-close overlay when widening
+    });
+    ro.observe(el);
+    setNarrowStore(el.clientWidth < 900);
+    return () => ro.disconnect();
+  }, []);
+
+  // ESC closes dock overlay
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDockOverlay(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const handlePlannerCreated = (p: StorePlannerConfig) => {
     setActivePlanner(p);
@@ -1124,7 +1153,7 @@ export default function PlannerStudio({ storeId, role, aiEnabled }: Props) {
   if (!activePlanner) return null;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div ref={studioBodyRef} className="flex flex-col h-full overflow-hidden">
       {/* Mode tab bar */}
       <div className="border-b bg-background z-10">
         <div className="flex items-center px-4 gap-1 overflow-x-auto">
@@ -1135,30 +1164,50 @@ export default function PlannerStudio({ storeId, role, aiEnabled }: Props) {
             ← Planners
           </button>
           <div className="w-px h-4 bg-border mx-1 shrink-0" />
-          {MODES.map((m) => {
-            const Icon = m.icon;
-            return (
-              <button
-                key={m.id}
-                onClick={() => setMode(m.id)}
-                className={`flex items-center gap-1.5 px-3 py-3 text-sm whitespace-nowrap border-b-2 transition-colors shrink-0 ${
-                  mode === m.id
-                    ? "border-primary text-primary font-medium"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {m.label}
-              </button>
-            );
-          })}
+          {/* Mode pills — flex-1 min-w-0 so they never push the dock toggle off screen */}
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <div className="flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+              {MODES.map((m) => {
+                const Icon = m.icon;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setMode(m.id)}
+                    className={`flex items-center gap-1.5 px-3 py-3 text-sm whitespace-nowrap border-b-2 transition-colors shrink-0 ${
+                      mode === m.id
+                        ? "border-primary text-primary font-medium"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {/* Dock toggle button — only at narrow widths */}
+          {narrowStore && (
+            <button
+              onClick={() => setDockOverlay((v) => !v)}
+              aria-label={dockOverlay ? "Close dock" : "Open dock"}
+              style={{ cursor: "pointer" }}
+              className={`flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg transition-colors shrink-0 ml-1 ${
+                dockOverlay
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              <PanelRight className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Three-pane layout: [content] [right dock] */}
+      {/* Two-pane layout: [center content] [right dock] */}
       <div className="flex flex-1 overflow-hidden">
         {/* Center content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" style={{ minWidth: 0 }}>
           {mode === "build"     && <BuildMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
           {mode === "editions"  && <EditionsMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
           {mode === "inserts"   && <InsertsMode  storeId={storeId} aiEnabled={aiEnabled} />}
@@ -1168,39 +1217,96 @@ export default function PlannerStudio({ storeId, role, aiEnabled }: Props) {
           {mode === "hotspots"  && <HotspotEditor storeId={storeId} />}
         </div>
 
-        {/* Right dock */}
-        <div className="w-80 border-l flex flex-col shrink-0">
-          {/* Dock tab switcher */}
-          <div className="flex border-b">
-            {[
-              { id: "preview" as const, label: "Live Preview", icon: Eye },
-              ...(aiEnabled ? [{ id: "ai" as const, label: "AI Assistant", icon: Bot }] : []),
-            ].map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setDockTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium border-b-2 transition-colors ${
-                    dockTab === tab.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {tab.label}
-                </button>
-              );
-            })}
+        {/* Right dock — static at wide, fixed overlay at narrow */}
+        {!narrowStore ? (
+          <div className="w-80 border-l flex flex-col shrink-0">
+            {/* Dock tab switcher */}
+            <div className="flex border-b">
+              {[
+                { id: "preview" as const, label: "Live Preview", icon: Eye },
+                ...(aiEnabled ? [{ id: "ai" as const, label: "AI Assistant", icon: Bot }] : []),
+              ].map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setDockTab(tab.id)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium border-b-2 transition-colors ${
+                      dockTab === tab.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex-1 overflow-hidden">
+              {dockTab === "ai" && aiEnabled ? (
+                <AiAssistant storeId={storeId} mode={mode} planner={activePlanner} />
+              ) : (
+                <LivePreview planner={activePlanner} />
+              )}
+            </div>
           </div>
-
-          {/* Dock content */}
-          <div className="flex-1 overflow-hidden">
-            {dockTab === "ai" && aiEnabled ? (
-              <AiAssistant storeId={storeId} mode={mode} planner={activePlanner} />
-            ) : (
-              <LivePreview planner={activePlanner} />
+        ) : (
+          /* Narrow: fixed overlay + backdrop */
+          <>
+            {dockOverlay && (
+              <div
+                className="fixed inset-0 z-40 bg-black/20"
+                onClick={() => setDockOverlay(false)}
+              />
             )}
-          </div>
-        </div>
+            {dockOverlay && (
+              <div
+                role="dialog"
+                aria-modal="true"
+                className="fixed inset-y-0 right-0 z-50 flex flex-col bg-card border-l shadow-xl"
+                style={{ width: 320 }}
+              >
+                {/* Close button row */}
+                <div className="flex items-center justify-between px-2 border-b shrink-0" style={{ minHeight: 44 }}>
+                  <div className="flex">
+                    {[
+                      { id: "preview" as const, label: "Preview", icon: Eye },
+                      ...(aiEnabled ? [{ id: "ai" as const, label: "AI", icon: Bot }] : []),
+                    ].map((tab) => {
+                      const Icon = tab.icon;
+                      return (
+                        <button
+                          key={tab.id}
+                          onClick={() => setDockTab(tab.id)}
+                          className={`flex items-center gap-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+                            dockTab === tab.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setDockOverlay(false)}
+                    aria-label="Close dock"
+                    style={{ cursor: "pointer" }}
+                    className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <CloseIcon className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  {dockTab === "ai" && aiEnabled ? (
+                    <AiAssistant storeId={storeId} mode={mode} planner={activePlanner} />
+                  ) : (
+                    <LivePreview planner={activePlanner} />
+                  )}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

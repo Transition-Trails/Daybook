@@ -932,9 +932,13 @@ function StickerCard({
     <div className={`rounded-[14px] border flex flex-col overflow-hidden transition-colors ${
       isPreviewTarget ? "border-[#C87560] bg-[#FEF0ED]/40" : "bg-card border-border"
     }`}>
-      {/* Thumbnail */}
-      <button onClick={onSelectForPreview} style={{ cursor: "pointer", display: "block" }}
-        className="relative w-full aspect-square bg-[#FFFDF9] flex items-center justify-center hover:bg-muted/30 transition-colors overflow-hidden">
+      {/* Thumbnail — div not button to avoid nested-button invalid HTML */}
+      <div
+        role="button" tabIndex={0} onClick={onSelectForPreview}
+        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") onSelectForPreview(); }}
+        style={{ cursor: "pointer", display: "block" }}
+        className="relative w-full aspect-square bg-[#FFFDF9] flex items-center justify-center hover:bg-muted/30 transition-colors overflow-hidden"
+      >
         <StickerThumb src={sticker.processedImageData} />
         <div className="absolute top-2 left-2">
           <Checkbox checked={selected} onCheckedChange={(c) => onSelect(sticker.id, Boolean(c))}
@@ -943,7 +947,7 @@ function StickerCard({
         {isPreviewTarget && (
           <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#C87560]" />
         )}
-      </button>
+      </div>
       {/* Name + badges */}
       <div className="p-3 flex-1 space-y-2">
         <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 3 }}>

@@ -5,7 +5,7 @@
  * API: GET /backgrounds, POST /backgrounds, PATCH /backgrounds/:id,
  *      DELETE /backgrounds/:id  —  all require super_admin.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Image, Square, Layers, Loader2 } from "lucide-react";
+import { Plus, Trash2, Image, Square, Layers, Loader2, Upload, X } from "lucide-react";
+import { useUpload } from "@workspace/object-storage-web";
 import { CatalogPageHeader } from "@/components/catalog/CatalogPageHeader";
 
 interface PlatformBackground {
@@ -184,11 +185,11 @@ function BgPreview({ bg }: { bg: PlatformBackground }) {
     );
   }
 
-  // Image — HTTP URL or any data-URI (SVG, PNG, JPEG …)
+  // Image — HTTP URL, data-URI, or internal storage path
   if (
     bg.type === "image" &&
     bg.assetRef &&
-    (bg.assetRef.startsWith("http") || bg.assetRef.startsWith("data:image/"))
+    (bg.assetRef.startsWith("http") || bg.assetRef.startsWith("data:image/") || bg.assetRef.startsWith("/api/storage/"))
   ) {
     return (
       <div className="h-16 w-full shrink-0 border-b border-border overflow-hidden bg-muted/20">
@@ -233,6 +234,36 @@ function BackgroundForm({
   const [assetRef, setAssetRef] = useState(initial?.assetRef ?? "#F7F0E6");
   const [status, setStatus] = useState<"draft" | "live">(initial?.status ?? "draft");
   const [origin, setOrigin] = useState(initial?.origin ?? "licensed");
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { toast } = useToast();
+
+  const { uploadFile, isUploading } = useUpload({
+    basePath: "/api/storage",
+    onSuccess: (response) => {
+      // Store the serving URL so it can be displayed as an image
+      const servingUrl = `/api/storage${response.objectPath}`;
+      setAssetRef(servingUrl);
+    },
+    onError: (err) => {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadedFileName(file.name);
+    await uploadFile(file);
+    // reset input so same file can be re-selected after an error
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const clearUpload = () => {
+    setUploadedFileName(null);
+    setAssetRef("");
+  };
 
   return (
     <div className="space-y-4">
@@ -242,7 +273,7 @@ function BackgroundForm({
       </div>
       <div className="space-y-1">
         <Label>Type</Label>
-        <Select value={type} onValueChange={setType}>
+        <Select value={type} onValueChange={(v) => { setType(v); setAssetRef(v === "color" ? "#F7F0E6" : ""); setUploadedFileName(null); }}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="color">Solid color</SelectItem>
@@ -251,23 +282,79 @@ function BackgroundForm({
           </SelectContent>
         </Select>
       </div>
-      <div className="space-y-1">
-        <Label>
-          {type === "color" ? "Hex color (e.g. #F7F0E6)" :
-           type === "texture" ? "Texture slug (e.g. linen, kraft, marble)" :
-           "Image URL"}
-        </Label>
-        {type === "color" ? (
+
+      {/* ── Image type: file upload + URL fallback ───────────────────────── */}
+      {type === "image" ? (
+        <div className="space-y-3">
+          {/* File picker */}
+          <div className="space-y-1">
+            <Label>Upload image file</Label>
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileChange}
+                disabled={isUploading}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="shrink-0"
+              >
+                {isUploading ? (
+                  <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Uploading…</>
+                ) : (
+                  <><Upload className="w-3.5 h-3.5 mr-1.5" />Choose file</>
+                )}
+              </Button>
+              {uploadedFileName && (
+                <div className="flex items-center gap-1 text-[12px] text-muted-foreground min-w-0">
+                  <span className="truncate">{uploadedFileName}</span>
+                  <button type="button" onClick={clearUpload} className="shrink-0 hover:text-destructive">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+            {/* Preview once uploaded */}
+            {assetRef && assetRef.startsWith("/api/storage/") && (
+              <div className="mt-2 rounded-lg overflow-hidden border border-border h-20 bg-muted/20">
+                <img src={assetRef} alt="preview" className="w-full h-full object-cover" />
+              </div>
+            )}
+          </div>
+
+          {/* URL fallback */}
+          <div className="space-y-1">
+            <Label className="text-muted-foreground text-[11.5px]">Or paste an image URL</Label>
+            <Input
+              value={assetRef.startsWith("/api/storage/") ? "" : assetRef}
+              onChange={e => { setAssetRef(e.target.value); setUploadedFileName(null); }}
+              placeholder="https://…"
+            />
+          </div>
+        </div>
+      ) : type === "color" ? (
+        <div className="space-y-1">
+          <Label>Hex color (e.g. #F7F0E6)</Label>
           <div className="flex gap-2 items-center">
             <input type="color" value={assetRef} onChange={e => setAssetRef(e.target.value)}
               className="w-9 h-9 rounded border border-input cursor-pointer" />
             <Input value={assetRef} onChange={e => setAssetRef(e.target.value)} placeholder="#F7F0E6" className="font-mono" />
           </div>
-        ) : (
-          <Input value={assetRef} onChange={e => setAssetRef(e.target.value)}
-            placeholder={type === "texture" ? "linen" : "https://…"} />
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <Label>Texture slug (e.g. linen, kraft, marble)</Label>
+          <Input value={assetRef} onChange={e => setAssetRef(e.target.value)} placeholder="linen" />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label>Status</Label>
@@ -291,7 +378,10 @@ function BackgroundForm({
         </div>
       </div>
       <div className="flex gap-2 pt-2">
-        <Button onClick={() => onSave({ name, type, assetRef, status, origin })} disabled={!name.trim()}>
+        <Button
+          onClick={() => onSave({ name, type, assetRef, status, origin })}
+          disabled={!name.trim() || isUploading}
+        >
           Save background
         </Button>
         <Button variant="outline" onClick={onCancel}>Cancel</Button>

@@ -13,6 +13,7 @@
     "migrate-related-products": "npx tsx src/migrate-related-products.ts"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.21.0",
     "@resvg/resvg-js": "^2.6.2",
     "@types/multer": "^2.2.0",
     "@types/sharp": "^0.32.0",
@@ -24,6 +25,7 @@
     "drizzle-orm": "catalog:",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
+    "google-auth-library": "^10.9.1",
     "multer": "^2.2.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",

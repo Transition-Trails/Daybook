@@ -9,7 +9,8 @@
     "seed-stickers": "tsx ./src/seed-stickers.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "seed-backgrounds": "tsx ./src/seed-backgrounds.ts",
-    "migrate-themes": "tsx ./src/migrate-themes.ts"
+    "migrate-themes": "tsx ./src/migrate-themes.ts",
+    "migrate-notebooks": "tsx ./src/migrate-notebooks.ts"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",

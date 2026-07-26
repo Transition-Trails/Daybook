@@ -86,14 +86,14 @@ export const routes = [
   { path: "/catalog/inserts",          component: InsertsList },
   { path: "/catalog/inserts/:id",      component: InsertDetail },
   { path: "/catalog/widgets",          component: PlatformWidgetsList },
-  // /catalog/products and /catalog/products/:id → merged into Planner Studio
+  // /catalog/products and /catalog/products/:id → Planner Studio, Editions tab filtered to notebooks
   {
     path: "/catalog/products",
-    component: () => <Redirect to="/studios/planner" />,
+    component: () => <Redirect to="/studios/planner?mode=editions&productType=notebook" />,
   },
   {
     path: "/catalog/products/:id",
-    component: () => <Redirect to="/studios/planner" />,
+    component: () => <Redirect to="/studios/planner?mode=editions&productType=notebook" />,
   },
 
   // ── Platform ───────────────────────────────────────────────────────────────

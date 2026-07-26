@@ -86,7 +86,7 @@ export function StudioLayout({
   children,
   className,
 }: StudioLayoutProps) {
-  const { openAssistant, openPreview, open: drawerOpen, tab: drawerTab } = useAiDrawer();
+  const { openAssistant, openPreview, closeDrawer, open: drawerOpen, tab: drawerTab } = useAiDrawer();
 
   const [railOpen, setRailOpen] = useState(false);
   const [band,     setBand]     = useState<Band>("wide");
@@ -153,7 +153,7 @@ export function StudioLayout({
         </span>
 
         {/* Mode pills — flex-1 min-w-0 so they never push the right cluster off-screen */}
-        <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="flex-1 min-w-0 overflow-hidden relative">
           <div className="flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
             {modes.map((m) => (
               <button
@@ -174,6 +174,11 @@ export function StudioLayout({
               </button>
             ))}
           </div>
+          {/* Right-edge fade — visible when pills overflow */}
+          <div
+            className="absolute right-0 inset-y-0 w-8 pointer-events-none"
+            style={{ background: "linear-gradient(to left, hsl(var(--card)), transparent)" }}
+          />
         </div>
 
         {/* Right cluster — status + primary action + drawer toggles */}
@@ -217,10 +222,10 @@ export function StudioLayout({
             </button>
           )}
 
-          {/* ✦ AI — opens global assistant drawer */}
+          {/* ✦ AI — toggles global assistant drawer */}
           {hasAssistant && (
             <button
-              onClick={openAssistant}
+              onClick={drawerOpen && drawerTab === "assistant" ? closeDrawer : openAssistant}
               aria-label={drawerOpen && drawerTab === "assistant" ? "Close AI assistant" : "Open AI assistant"}
               style={{
                 cursor: "pointer",
@@ -240,10 +245,10 @@ export function StudioLayout({
             </button>
           )}
 
-          {/* Preview — opens global drawer on preview tab */}
+          {/* Preview — toggles global drawer on preview tab */}
           {hasPreview && (
             <button
-              onClick={openPreview}
+              onClick={drawerOpen && drawerTab === "preview" ? closeDrawer : openPreview}
               aria-label={drawerOpen && drawerTab === "preview" ? "Close preview" : "Open preview"}
               style={{
                 cursor: "pointer",

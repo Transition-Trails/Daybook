@@ -107,9 +107,12 @@ interface BuildState {
   weeklyType:  "vertical" | "two-page";
   themeId:     string;
   themeName:   string;
+  paletteId:   string;
   packIds:     string[];
   insertIds:   string[];
   productIds:  string[];
+  /** Derived from the selected edition — controls which modes are visible */
+  productType: string;
 }
 
 const DEFAULT_BUILD: BuildState = {
@@ -123,9 +126,11 @@ const DEFAULT_BUILD: BuildState = {
   weeklyType:  "vertical",
   themeId:     "",
   themeName:   "None",
+  paletteId:   "",
   packIds:     [],
   insertIds:   [],
   productIds:  [],
+  productType: "planner",
 };
 
 // ── Compose-context chip (clay active fill) ───────────────────────────────────
@@ -661,7 +666,8 @@ function PdfPreviewDock({ buildState }: { buildState: BuildState }) {
           paperSize:        buildState.paperSize,
           orientation:      "portrait",
           weeklySpreadType: buildState.weeklyType,
-          themeId:          buildState.themeId || undefined,
+          themeId:          buildState.themeId   || undefined,
+          paletteId:        buildState.paletteId || undefined,
           packIds:          buildState.packIds,
           insertIds:        buildState.insertIds,
           productIds:       buildState.productIds,
@@ -751,7 +757,8 @@ function BuildCenter({
           endMonth:         Number(state.endMonth),
           paperSize:        state.paperSize,
           weeklySpreadType: state.weeklyType,
-          themeId:          state.themeId || undefined,
+          themeId:          state.themeId   || undefined,
+          paletteId:        state.paletteId || undefined,
           packIds:          state.packIds,
           insertIds:        state.insertIds,
           productIds:       state.productIds,
@@ -842,7 +849,7 @@ function BuildCenter({
           <p className="text-[11.5px] font-medium text-muted-foreground">Theme</p>
           <div className="flex gap-1.5 flex-wrap">
             <button
-              onClick={() => set("themeId", "")}
+              onClick={() => setState(prev => ({ ...prev, themeId: "", paletteId: "" }))}
               style={{ cursor: "pointer" }}
               className={`px-3 py-1 rounded-full text-[12px] font-medium border border-dashed transition-colors ${
                 state.themeId === ""
@@ -855,7 +862,10 @@ function BuildCenter({
             {themes.map((t: any) => (
               <button
                 key={t.id}
-                onClick={() => { set("themeId", t.id); set("themeName", t.name); }}
+                onClick={() => {
+                  const primary = ((t as any).palettes ?? []).find((p: any) => p.isPrimary) ?? ((t as any).palettes ?? [])[0];
+                  setState(prev => ({ ...prev, themeId: t.id, themeName: t.name, paletteId: primary?.id ?? "" }));
+                }}
                 style={{ cursor: "pointer", ...(state.themeId === t.id ? { background: CHIP_ACTIVE_BG } : {}) }}
                 className={`px-3 py-1 rounded-full text-[12px] font-medium border transition-colors ${
                   state.themeId === t.id
@@ -868,6 +878,39 @@ function BuildCenter({
             ))}
           </div>
         </div>
+        {/* Palette picker — visible only when the selected theme has 2+ palettes */}
+        {(() => {
+          const selTheme = (themes as any[]).find((t: any) => t.id === state.themeId);
+          const palettes: Array<{ id: string; name: string; colors: string[]; isPrimary?: boolean }> = selTheme?.palettes ?? [];
+          if (!state.themeId || palettes.length <= 1) return null;
+          return (
+            <div className="space-y-2">
+              <p className="text-[11.5px] font-medium text-muted-foreground">Palette</p>
+              <div className="flex gap-1.5 flex-wrap">
+                {palettes.map((pal) => (
+                  <button
+                    key={pal.id}
+                    onClick={() => set("paletteId", pal.id)}
+                    style={{ cursor: "pointer", ...(state.paletteId === pal.id ? { background: CHIP_ACTIVE_BG } : {}) }}
+                    className={`flex items-center gap-2 px-3 py-1 rounded-full text-[12px] font-medium border transition-colors ${
+                      state.paletteId === pal.id
+                        ? "text-white border-[#1B2A4A]"
+                        : "bg-background text-muted-foreground border-border hover:text-foreground hover:border-foreground/30"
+                    }`}
+                  >
+                    <span className="flex gap-0.5 shrink-0">
+                      {(pal.colors ?? []).slice(0, 3).map((c, i) => (
+                        <span key={i} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />
+                      ))}
+                    </span>
+                    {pal.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="space-y-2">
           <p className="text-[11.5px] font-medium text-muted-foreground">Sticker packs</p>
           <MultiChipRow
@@ -2150,7 +2193,6 @@ export default function PlannerStudioHub() {
   const [, navigate] = useLocation();
   const params    = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const mode      = (params.get("mode") ?? "build") as ModeId;
-  const validMode: ModeId = MODES.some(m => m.id === mode) ? mode : "build";
 
   const setMode = (id: string) => navigate(`/studios/planner?mode=${id}`);
 
@@ -2159,12 +2201,38 @@ export default function PlannerStudioHub() {
   // Editions filters
   const [editionTier,        setEditionTier]        = useState("all");
   const [editionStatus,      setEditionStatus]      = useState("all");
-  const [editionProductType, setEditionProductType] = useState("all");
+  const [editionProductType, setEditionProductType] = useState(params.get("productType") ?? "all");
   const [showCreate,         setShowCreate]         = useState(false);
 
   const applyPreset = (preset: Preset) => {
     setBuildState(prev => ({ ...prev, ...preset.state }));
   };
+
+  // ── Gap 2: Editions query for productType sync ──────────────────────────────
+  const { data: _hubEditions = [] } = useQuery({
+    queryKey: ["editions"],
+    queryFn:  () => catalogApi.editions(),
+    staleTime: 30_000,
+  });
+  useEffect(() => {
+    if (!buildState.editionId) return;
+    const ed = (_hubEditions as any[]).find((e: any) => e.id === buildState.editionId);
+    const pt: string = ed?.productType ?? "planner";
+    if (pt !== buildState.productType) {
+      setBuildState(prev => ({ ...prev, productType: pt }));
+    }
+  }, [buildState.editionId, _hubEditions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Mode gating — planner-only modes hidden for non-planner product types ──
+  const PLANNER_ONLY = new Set<ModeId>(["build", "paper"]);
+  const visibleModes = (buildState.productType && buildState.productType !== "planner")
+    ? MODES.filter(m => !PLANNER_ONLY.has(m.id))
+    : [...MODES];
+
+  // validMode must be one of the visible modes; fall back to first visible
+  const validMode: ModeId = visibleModes.some(m => m.id === mode)
+    ? mode as ModeId
+    : (visibleModes[0]?.id ?? "editions") as ModeId;
 
   // ── Left rail: ALWAYS the unified rail ─────────────────────────────────────
   const leftRail = (
@@ -2282,7 +2350,7 @@ export default function PlannerStudioHub() {
   return (
     <StudioLayout
       scope="Planner Studio"
-      modes={MODES}
+      modes={visibleModes}
       activeMode={validMode}
       onModeChange={setMode}
       status={{ label: "Platform", ok: true }}

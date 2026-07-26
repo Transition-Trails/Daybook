@@ -22,3 +22,5 @@
 - [Studio rail scroll](studio-rail-scroll.md) — StudioLayout aside is overflow-hidden flex-col; each rail owns its scroll (flex-1 overflow-y-auto); build rail uses flex-col h-full + inner flex-1 + sticky bottom for pinned voice/tone
 - [Sticker Studio gap closure](sticker-studio-gaps.md) — all 6 gaps closed (set generator, dead buttons, pack composer, contrast, edit hook, cover image); resvg esbuild gotcha documented
 - [Theme bundle system](theme-bundle-system.md) — 10 colour shells → 4 real bundles; enriched GET /themes API; is_primary on theme_palettes; composer routes; Shell "Parts" group for Palettes
+- [Editions table schema](editions-schema.md) — product_type (snake_case, default 'planner'), binding (jsonb), sections is text[] not jsonb; migrations use raw SQL via pool not drizzle-orm operators
+- [Planner Studio gap closure](planner-studio-gaps.md) — paletteId in BuildState + generation payload; mode gating for non-planner product types; StudioLayout AI/Preview buttons now toggle; StickerScalePreview uses ResizeObserver

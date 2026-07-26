@@ -725,7 +725,21 @@ function CreatePackModal({ onClose }: { onClose: () => void }) {
 // This makes sizeInMm immediately meaningful: a 15mm sticker looks like a 27px square.
 
 function StickerScalePreview({ sticker, onOpenEdit }: { sticker?: LibrarySticker | null; onOpenEdit?: () => void }) {
-  const PREVIEW_W = 268;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerW, setContainerW] = useState(268);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      setContainerW(entry?.contentRect.width ?? el.clientWidth);
+    });
+    ro.observe(el);
+    setContainerW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  const PREVIEW_W = Math.min(268, Math.max(120, containerW - 32));
   const A5_W_MM   = 148;
   const A5_H_MM   = 210;
   const SCALE     = PREVIEW_W / A5_W_MM;             // px per mm
@@ -735,7 +749,7 @@ function StickerScalePreview({ sticker, onOpenEdit }: { sticker?: LibrarySticker
   const sizePx = sizeMm ? sizeMm * SCALE : 30 * SCALE;
 
   return (
-    <div className="flex flex-col items-center gap-3 p-4">
+    <div ref={containerRef} className="flex flex-col items-center gap-3 p-4">
       <div className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted-foreground self-start">
         True scale · A5 planner page
       </div>

@@ -25,11 +25,18 @@ import { Loader2, ArrowLeft, Trash2, Save } from 'lucide-react';
 import { Link } from 'wouter';
 import { type EditionInputTier } from '@workspace/api-client-react';
 
+const PRODUCT_TYPES = ['planner', 'notebook', 'journal', 'memory-keeping'] as const;
+const BINDING_TYPES   = ['', 'coil', 'twin-loop', 'discs', '3-ring', 'none'] as const;
+const BINDING_FINISHES = ['', 'gold', 'rose gold', 'silver', 'matte black', 'white'] as const;
+
 const editionSchema = z.object({
   id: z.string().min(1, 'ID is required'),
   name: z.string().min(1, 'Name is required'),
   tier: z.enum(['basic', 'advanced']),
+  productType: z.enum(PRODUCT_TYPES).default('planner'),
   sections: z.string().default(''),
+  bindingType:   z.string().default(''),
+  bindingFinish: z.string().default(''),
   priceLow: z.coerce.number().optional(),
   priceHigh: z.coerce.number().optional(),
 });
@@ -125,7 +132,7 @@ export default function EditionDetail() {
 
   const form = useForm<EditionFormValues>({
     resolver: zodResolver(editionSchema),
-    defaultValues: { id: '', name: '', tier: 'basic', sections: '', priceLow: 0, priceHigh: 0 }
+    defaultValues: { id: '', name: '', tier: 'basic', productType: 'planner', sections: '', bindingType: '', bindingFinish: '', priceLow: 0, priceHigh: 0 }
   });
 
   const initializedForId = useRef<string | null>(null);
@@ -133,11 +140,15 @@ export default function EditionDetail() {
   useEffect(() => {
     if (edition && initializedForId.current !== id) {
       initializedForId.current = id;
+      const binding = (edition as any).binding as { type?: string; finish?: string } | undefined;
       form.reset({
         id: edition.id,
         name: edition.name,
         tier: edition.tier as 'basic' | 'advanced',
+        productType: ((edition as any).productType ?? 'planner') as 'planner' | 'notebook' | 'journal' | 'memory-keeping',
         sections: (edition.sections || []).join(', '),
+        bindingType:   binding?.type   ?? '',
+        bindingFinish: binding?.finish ?? '',
         priceLow: edition.priceLow ?? 0,
         priceHigh: edition.priceHigh ?? 0,
       });
@@ -148,6 +159,10 @@ export default function EditionDetail() {
     const sections = data.sections ? data.sections.split(',').map(s => s.trim()).filter(Boolean) : [];
     const tier = data.tier as EditionInputTier;
 
+    const bindingPayload = data.bindingType && data.bindingType !== ''
+      ? { type: data.bindingType as "coil" | "twin-loop" | "discs" | "3-ring" | "none", finish: (data.bindingFinish || 'gold') as "gold" | "rose gold" | "silver" | "matte black" | "white" }
+      : null;
+
     if (isNew) {
       const payload: EditionInput = {
         id: data.id,
@@ -157,7 +172,7 @@ export default function EditionDetail() {
         priceLow: data.priceLow || undefined,
         priceHigh: data.priceHigh || undefined,
       };
-      createEdition.mutate({ data: payload }, {
+      createEdition.mutate({ data: { ...payload, productType: data.productType, ...(bindingPayload ? { binding: bindingPayload } : {}) } as EditionInput }, {
         onSuccess: (res) => {
           toast({ title: 'Edition created' });
           queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
@@ -172,6 +187,8 @@ export default function EditionDetail() {
         sections,
         priceLow: data.priceLow ?? null,
         priceHigh: data.priceHigh ?? null,
+        ...(data.productType ? { productType: data.productType } : {}),
+        ...(bindingPayload ? { binding: bindingPayload } : {}),
       };
       updateEdition.mutate({ id, data: payload }, {
         onSuccess: () => {
@@ -288,6 +305,26 @@ export default function EditionDetail() {
                       <FormMessage />
                     </FormItem>
                   )} />
+                  <FormField control={form.control} name="productType" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Product type</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select product type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="planner">Planner — dated spreads, calendar</SelectItem>
+                          <SelectItem value="notebook">Notebook — note sections, no dates</SelectItem>
+                          <SelectItem value="journal">Journal — reflection prompts, mood</SelectItem>
+                          <SelectItem value="memory-keeping">Memory keeping — photos, mementos</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>Controls which studio modes and generator spreads are available.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
                   <FormField control={form.control} name="sections" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Sections</FormLabel>
@@ -296,6 +333,50 @@ export default function EditionDetail() {
                       <FormMessage />
                     </FormItem>
                   )} />
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField control={form.control} name="bindingType" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Binding type <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="None / unset" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="">None / unset</SelectItem>
+                            <SelectItem value="coil">Coil</SelectItem>
+                            <SelectItem value="twin-loop">Twin-loop wire-o</SelectItem>
+                            <SelectItem value="discs">Disc / Arc</SelectItem>
+                            <SelectItem value="3-ring">3-ring binder</SelectItem>
+                            <SelectItem value="none">Perfect / glue</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="bindingFinish" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Binding finish</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Gold (default)" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="">Gold (default)</SelectItem>
+                            <SelectItem value="gold">Gold</SelectItem>
+                            <SelectItem value="rose gold">Rose gold</SelectItem>
+                            <SelectItem value="silver">Silver</SelectItem>
+                            <SelectItem value="matte black">Matte black</SelectItem>
+                            <SelectItem value="white">White</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>

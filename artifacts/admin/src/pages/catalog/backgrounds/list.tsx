@@ -70,7 +70,110 @@ function OriginBadge({ origin }: { origin: string }) {
 
 // ── Background preview thumbnail ──────────────────────────────────────────────
 
+/** CSS background values for named texture slugs */
+const TEXTURE_CSS: Record<string, string> = {
+  linen: `
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(180,160,130,0.18) 3px,
+      rgba(180,160,130,0.18) 4px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 3px,
+      rgba(180,160,130,0.18) 3px,
+      rgba(180,160,130,0.18) 4px
+    ),
+    #f5efe6
+  `.trim(),
+  kraft: `
+    repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 5px,
+      rgba(120,80,40,0.06) 5px,
+      rgba(120,80,40,0.06) 6px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 5px,
+      rgba(120,80,40,0.06) 5px,
+      rgba(120,80,40,0.06) 6px
+    ),
+    #c8935a
+  `.trim(),
+  marble: `
+    repeating-linear-gradient(
+      118deg,
+      transparent 0px,
+      transparent 18px,
+      rgba(180,180,200,0.30) 18px,
+      rgba(180,180,200,0.30) 20px,
+      transparent 20px,
+      transparent 38px,
+      rgba(160,160,185,0.18) 38px,
+      rgba(160,160,185,0.18) 40px
+    ),
+    #e8e6e2
+  `.trim(),
+  canvas: `
+    repeating-linear-gradient(
+      90deg,
+      rgba(140,120,90,0.12) 0px,
+      rgba(140,120,90,0.12) 1px,
+      transparent 1px,
+      transparent 6px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      rgba(140,120,90,0.12) 0px,
+      rgba(140,120,90,0.12) 1px,
+      transparent 1px,
+      transparent 6px
+    ),
+    #f0ebe0
+  `.trim(),
+  grid: `
+    repeating-linear-gradient(
+      90deg,
+      rgba(100,100,200,0.15) 0px,
+      rgba(100,100,200,0.15) 1px,
+      transparent 1px,
+      transparent 20px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      rgba(100,100,200,0.15) 0px,
+      rgba(100,100,200,0.15) 1px,
+      transparent 1px,
+      transparent 20px
+    ),
+    #f8f9ff
+  `.trim(),
+  dot: `
+    radial-gradient(circle, rgba(80,80,120,0.25) 1.5px, transparent 1.5px),
+    #f8f9ff
+  `.trim(),
+};
+
+/** Generic hatch fallback for unknown texture slugs */
+const TEXTURE_FALLBACK = `
+  repeating-linear-gradient(
+    45deg,
+    rgba(120,100,80,0.10) 0px,
+    rgba(120,100,80,0.10) 1px,
+    transparent 1px,
+    transparent 8px
+  ),
+  #f0ede8
+`.trim();
+
 function BgPreview({ bg }: { bg: PlatformBackground }) {
+  // Solid colour
   if (bg.type === "color" && bg.assetRef) {
     return (
       <div
@@ -80,14 +183,35 @@ function BgPreview({ bg }: { bg: PlatformBackground }) {
       />
     );
   }
-  if (bg.type === "image" && bg.assetRef && bg.assetRef.startsWith("http")) {
+
+  // Image — HTTP URL or any data-URI (SVG, PNG, JPEG …)
+  if (
+    bg.type === "image" &&
+    bg.assetRef &&
+    (bg.assetRef.startsWith("http") || bg.assetRef.startsWith("data:image/"))
+  ) {
     return (
       <div className="h-16 w-full shrink-0 border-b border-border overflow-hidden bg-muted/20">
         <img src={bg.assetRef} alt="" className="w-full h-full object-cover" />
       </div>
     );
   }
-  const Icon = bg.type === "texture" ? Layers : bg.type === "image" ? Image : Square;
+
+  // Texture — CSS tile from slug map or generic hatch
+  if (bg.type === "texture") {
+    const slug = (bg.assetRef ?? "").toLowerCase().trim();
+    const css = TEXTURE_CSS[slug] ?? TEXTURE_FALLBACK;
+    return (
+      <div
+        className="h-16 w-full shrink-0 border-b border-border"
+        style={{ background: css, backgroundSize: slug === "dot" ? "10px 10px" : undefined }}
+        title={bg.assetRef ?? undefined}
+      />
+    );
+  }
+
+  // Fallback icon
+  const Icon = bg.type === "image" ? Image : Square;
   return (
     <div className="h-16 w-full shrink-0 border-b border-border bg-muted/30 flex items-center justify-center">
       <Icon className="w-5 h-5 text-muted-foreground/50" />
@@ -226,6 +350,7 @@ export default function BackgroundsList() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const { data: backgrounds = [], isLoading, error } = useQuery<PlatformBackground[]>({
     queryKey: ["platform-backgrounds"],
@@ -255,7 +380,10 @@ export default function BackgroundsList() {
   if (isLoading) return <div className="p-8 text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading backgrounds…</div>;
   if (error) return <div className="p-8 text-destructive">Failed to load backgrounds.</div>;
 
-  const filtered = typeFilter === "all" ? backgrounds : backgrounds.filter(b => b.type === typeFilter);
+  const filtered = backgrounds.filter(b =>
+    (typeFilter === "all" || b.type === typeFilter) &&
+    (statusFilter === "all" || b.status === statusFilter)
+  );
   const editing = backgrounds.find(b => b.id === editingId);
 
   return (
@@ -278,12 +406,21 @@ export default function BackgroundsList() {
           {
             value: typeFilter,
             options: [
-              { value: "all", label: "All" },
+              { value: "all", label: "All types" },
               { value: "color", label: "Colour" },
               { value: "texture", label: "Texture" },
               { value: "image", label: "Image" },
             ],
             onChange: setTypeFilter,
+          },
+          {
+            value: statusFilter,
+            options: [
+              { value: "all", label: "All statuses" },
+              { value: "live", label: "Live" },
+              { value: "draft", label: "Draft" },
+            ],
+            onChange: setStatusFilter,
           },
         ]}
         filterMeta={`${filtered.length} item${filtered.length !== 1 ? "s" : ""}`}

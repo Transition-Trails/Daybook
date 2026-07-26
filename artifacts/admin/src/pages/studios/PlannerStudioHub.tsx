@@ -15,6 +15,7 @@
  * Chip fill: clay #C87560 in compose context, ink navy #1B2A4A for filters.
  */
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useAiDrawer } from "@/contexts/AiDrawerContext";
 import { useLocation, useSearch, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -2190,37 +2191,51 @@ export default function PlannerStudioHub() {
     </div>
   );
 
-  // ── Right dock ──────────────────────────────────────────────────────────────
-  const rightDock = {
-    assistant: (
-      <DockAiAssistant
-        systemPrompt={
-          validMode === "build"
-            ? "You are a planner design assistant. Help the user plan their planner structure, section order, and content balance."
-            : validMode === "editions"
-            ? "You are a planner product expert. Help the user define edition tiers, pricing strategy, and catalog item selection."
-            : validMode === "inserts"
-            ? "You are a planner insert designer. Suggest specific SVG layouts, content hierarchies, and visual treatments for planner inserts and widgets."
-            : validMode === "cover"
-            ? "You are a planner cover art director. Suggest cover concepts, colour pairings, texture choices, and typography."
-            : validMode === "theme"
-            ? "You are a colour system designer for print products. Generate 6-colour palettes and typography pairings that work for planner printing."
-            : "You are a planner design expert. Give specific, actionable design suggestions."
-        }
-        placeholder="Ask for design ideas, layout suggestions, or content advice…"
-        examplePrompts={
-          validMode === "inserts"
-            ? ["Suggest a weekly spread that includes a habit tracker", "What content makes a good daily insert?", "Design a mood and energy tracker widget"]
-            : validMode === "cover"
-            ? ["Suggest a cover concept for a minimal 2027 planner", "What colour palette works for a Q4 launch?", "Describe a foil lettering treatment for a premium edition"]
-            : validMode === "theme"
-            ? ["Generate a warm earthy palette for an autumn planner", "Suggest a font pairing for a clean minimal theme", "Create a soft botanical colour set"]
-            : ["Suggest a section order for a productivity planner", "What inserts work best with a minimal theme?", "How should I price a Starter vs Pro edition?"]
-        }
-      />
-    ),
-    preview: validMode === "build" ? <PdfPreviewDock buildState={buildState} /> : undefined,
-  };
+  // ── AI drawer context ────────────────────────────────────────────────────────
+  // Register surface-specific prompts with the global AI drawer so the ✦ AI
+  // button in the top bar opens with the right context for each studio mode.
+  const { setAiContext, clearAiContext } = useAiDrawer();
+  const _clearRef = useRef(clearAiContext);
+  _clearRef.current = clearAiContext;
+  // Restore generic prompts when the studio unmounts
+  useEffect(() => () => _clearRef.current(), []);
+  // Update text context whenever the active mode changes
+  useEffect(() => {
+    const systemPrompt =
+      validMode === "build"
+        ? "You are a planner design assistant. Help the user plan their planner structure, section order, and content balance."
+        : validMode === "editions"
+        ? "You are a planner product expert. Help the user define edition tiers, pricing strategy, and catalog item selection."
+        : validMode === "inserts"
+        ? "You are a planner insert designer. Suggest specific SVG layouts, content hierarchies, and visual treatments for planner inserts and widgets."
+        : validMode === "cover"
+        ? "You are a planner cover art director. Suggest cover concepts, colour pairings, texture choices, and typography."
+        : validMode === "theme"
+        ? "You are a colour system designer for print products. Generate 6-colour palettes and typography pairings that work for planner printing."
+        : "You are a planner design expert. Give specific, actionable design suggestions.";
+    const examplePrompts =
+      validMode === "inserts"
+        ? ["Suggest a weekly spread that includes a habit tracker", "What content makes a good daily insert?", "Design a mood and energy tracker widget"]
+        : validMode === "cover"
+        ? ["Suggest a cover concept for a minimal 2027 planner", "What colour palette works for a Q4 launch?", "Describe a foil lettering treatment for a premium edition"]
+        : validMode === "theme"
+        ? ["Generate a warm earthy palette for an autumn planner", "Suggest a font pairing for a clean minimal theme", "Create a soft botanical colour set"]
+        : ["Suggest a section order for a productivity planner", "What inserts work best with a minimal theme?", "How should I price a Starter vs Pro edition?"];
+    setAiContext({
+      systemPrompt,
+      examplePrompts,
+      contextLabel: `Planner Studio · ${validMode}`,
+      previewContent: null,
+    });
+  }, [validMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Update preview content separately — only build mode shows the PDF preview
+  useEffect(() => {
+    setAiContext({
+      previewContent: validMode === "build"
+        ? <PdfPreviewDock buildState={buildState} />
+        : null,
+    });
+  }, [validMode, buildState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Primary action (top bar) ────────────────────────────────────────────────
   const primaryAction = (() => {
@@ -2273,7 +2288,8 @@ export default function PlannerStudioHub() {
       status={{ label: "Platform", ok: true }}
       primaryAction={primaryAction}
       leftRail={leftRail}
-      rightDock={rightDock}
+      hasAssistant
+      hasPreview={validMode === "build"}
     >
       {center}
     </StudioLayout>

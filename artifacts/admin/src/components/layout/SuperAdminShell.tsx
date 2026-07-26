@@ -22,7 +22,9 @@ import {
   ChevronRight,
   Layers3,
   ArrowUpRight,
+  Sparkles,
 } from "lucide-react";
+import { useAiDrawer } from "@/contexts/AiDrawerContext";
 
 const NAV = [
   { label: "Dashboard",      icon: LayoutDashboard, href: "/super" },
@@ -34,10 +36,27 @@ const NAV = [
   { label: "Audit log",      icon: ClipboardList,   href: "/super/audit" },
 ];
 
+// ── AI button shared style ────────────────────────────────────────────────────
+const aiBtnStyle: React.CSSProperties = {
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 5,
+  padding: "4px 12px",
+  borderRadius: 20,
+  fontSize: 12,
+  fontWeight: 600,
+  background: "rgba(200,117,96,0.13)",
+  color: "#C87560",
+  border: "1px solid rgba(200,117,96,0.28)",
+  transition: "background 140ms",
+};
+
 export function SuperAdminShell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { data: user } = useGetMe();
   const logout = useLogout();
+  const { openAssistant } = useAiDrawer();
 
   const isActive = (href: string) =>
     href === "/super" ? location === "/super" : location.startsWith(href);
@@ -180,16 +199,27 @@ export function SuperAdminShell({ children }: { children: React.ReactNode }) {
           style={{ borderColor: "hsl(var(--border))" }}
         >
           <div className="flex-1" />
-          <span
-            className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium"
-            style={{
-              background: "hsl(35 52% 94%)",
-              borderColor: "hsl(37 37% 85%)",
-              color: "hsl(216 27% 40%)",
-            }}
-          >
-            Super admin · Platform
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openAssistant}
+              style={aiBtnStyle}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(200,117,96,0.22)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(200,117,96,0.13)"; }}
+            >
+              <Sparkles style={{ width: 12, height: 12 }} />
+              AI
+            </button>
+            <span
+              className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium"
+              style={{
+                background: "hsl(35 52% 94%)",
+                borderColor: "hsl(37 37% 85%)",
+                color: "hsl(216 27% 40%)",
+              }}
+            >
+              Super admin · Platform
+            </span>
+          </div>
         </header>
 
         {/* Content */}

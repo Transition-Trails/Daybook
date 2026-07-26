@@ -9,7 +9,8 @@
  * CENTER     — compose surface per mode
  * RIGHT DOCK — AI assistant
  */
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useAiDrawer } from "@/contexts/AiDrawerContext";
 import { useLocation, useSearch } from "wouter";
 import {
   Megaphone, Sparkles, TrendingUp, FileText, Image, Share2, Layers,
@@ -805,33 +806,32 @@ export default function MarketingStudioHub() {
     />
   );
 
-  const rightDock = {
-    assistant: (
-      <DockAiAssistant
-        systemPrompt={
-          validMode === "trends"  ? "You are a market trend analyst for a premium digital planner brand. Help with market research, product positioning, and identifying seasonal opportunities." :
-          validMode === "listing" ? "You are an Etsy/Shopify listing copywriter. Help with titles, descriptions, tags, and SEO strategy for digital planner products." :
-          validMode === "social"  ? "You are a social media strategist for a premium planner brand. Help with content strategy, caption writing, hashtag research, and platform-specific best practices." :
-                                   "You are a visual marketing expert for digital products. Help with mockup styling, image composition, and product photography strategy."
-        }
-        placeholder={
-          validMode === "trends"  ? "Ask about market trends, seasonal opportunities, or niche audiences…" :
-          validMode === "listing" ? "Ask for help with listing titles, tag strategy, or descriptions…" :
-          validMode === "social"  ? "Ask for caption ideas, hashtag stacks, or content strategy…" :
-                                   "Ask about scene composition, colour palette, or image style…"
-        }
-        examplePrompts={
-          validMode === "trends"
-            ? ["What planner trends are emerging for 2027?", "Which niche audiences are underserved?", "Seasonal launch windows for a self-care journal"]
-            : validMode === "listing"
-            ? ["Best tags for a productivity planner on Etsy", "How to write a listing for a digital product", "Title ideas for an undated planner"]
-            : validMode === "social"
-            ? ["Instagram caption ideas for planner launch", "Best hashtags for planner niche", "Content plan for new product announcement"]
-            : ["Best mockup scenes for digital planners", "Colour palette for autumn listing images", "How to show digital products on Pinterest"]
-        }
-      />
-    ),
-  };
+  // ── AI drawer context ────────────────────────────────────────────────────────
+  const { setAiContext, clearAiContext } = useAiDrawer();
+  const _clearRef = useRef(clearAiContext);
+  _clearRef.current = clearAiContext;
+  useEffect(() => () => _clearRef.current(), []);
+  useEffect(() => {
+    const systemPrompt =
+      validMode === "trends"  ? "You are a market trend analyst for a premium digital planner brand. Help with market research, product positioning, and identifying seasonal opportunities." :
+      validMode === "listing" ? "You are an Etsy/Shopify listing copywriter. Help with titles, descriptions, tags, and SEO strategy for digital planner products." :
+      validMode === "social"  ? "You are a social media strategist for a premium planner brand. Help with content strategy, caption writing, hashtag research, and platform-specific best practices." :
+                               "You are a visual marketing expert for digital products. Help with mockup styling, image composition, and product photography strategy.";
+    const examplePrompts =
+      validMode === "trends"
+        ? ["What planner trends are emerging for 2027?", "Which niche audiences are underserved?", "Seasonal launch windows for a self-care journal"]
+        : validMode === "listing"
+        ? ["Best tags for a productivity planner on Etsy", "How to write a listing for a digital product", "Title ideas for an undated planner"]
+        : validMode === "social"
+        ? ["Instagram caption ideas for planner launch", "Best hashtags for planner niche", "Content plan for new product announcement"]
+        : ["Best mockup scenes for digital planners", "Colour palette for autumn listing images", "How to show digital products on Pinterest"];
+    setAiContext({
+      systemPrompt,
+      examplePrompts,
+      contextLabel: `Marketing Studio · ${validMode}`,
+      previewContent: null,
+    });
+  }, [validMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const center = (() => {
     if (validMode === "trends")  return <TrendsCenter />;
@@ -854,7 +854,7 @@ export default function MarketingStudioHub() {
         onClick: () => {},
       }}
       leftRail={leftRail}
-      rightDock={rightDock}
+      hasAssistant
     >
       {center}
     </StudioLayout>

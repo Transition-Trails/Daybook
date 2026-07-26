@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
+import { useAiDrawer } from "@/contexts/AiDrawerContext";
 
 // ── Nav definition ─────────────────────────────────────────────────────────────
 // Studios = one entry per product domain. AI generation lives as a mode inside
@@ -66,6 +67,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { data: user } = useGetMe();
   const logout = useLogout();
+  const { openAssistant } = useAiDrawer();
 
   const handleLogout = () => {
     logout.mutate(undefined, {
@@ -197,16 +199,39 @@ export function Shell({ children }: { children: React.ReactNode }) {
         {/* Top bar */}
         <header className="h-14 flex items-center px-6 border-b bg-card shrink-0 border-border">
           <div className="flex-1" />
-          <span
-            className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium"
-            style={{
-              background: "hsl(35 52% 94%)",
-              borderColor: "hsl(37 37% 85%)",
-              color: "hsl(216 27% 40%)",
-            }}
-          >
-            Platform catalog
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openAssistant}
+              style={{
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "4px 12px",
+                borderRadius: 20,
+                fontSize: 12,
+                fontWeight: 600,
+                background: "rgba(200,117,96,0.13)",
+                color: "#C87560",
+                border: "1px solid rgba(200,117,96,0.28)",
+                transition: "background 140ms",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(200,117,96,0.22)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(200,117,96,0.13)"; }}
+            >
+              ✦ AI
+            </button>
+            <span
+              className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium"
+              style={{
+                background: "hsl(35 52% 94%)",
+                borderColor: "hsl(37 37% 85%)",
+                color: "hsl(216 27% 40%)",
+              }}
+            >
+              Platform catalog
+            </span>
+          </div>
         </header>
         <div className="flex-1 overflow-auto p-8">
           <div className="max-w-6xl mx-auto">{children}</div>

@@ -13,6 +13,8 @@ import { useEffect } from "react";
 import { Shell } from "@/components/layout/Shell";
 import { SuperAdminShell } from "@/components/layout/SuperAdminShell";
 import { StoreAdminShell } from "@/components/layout/StoreAdminShell";
+import { AiDrawerProvider } from "@/contexts/AiDrawerContext";
+import { GlobalAiDrawer } from "@/components/layout/GlobalAiDrawer";
 import { useConsole } from "@/lib/useConsole";
 import { resolveStoreId } from "@/lib/api";
 import Login from "@/pages/login";
@@ -652,7 +654,14 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <AppRouter />
+          {/* AiDrawerProvider must be inside WouterRouter so GlobalAiDrawer
+              can call useLocation() to derive surface-specific AI context. */}
+          <AiDrawerProvider>
+            <AppRouter />
+            {/* Mounted once at app root — never unmounts, so chat history
+                survives page navigation. Renders as a fixed overlay. */}
+            <GlobalAiDrawer />
+          </AiDrawerProvider>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

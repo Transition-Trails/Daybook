@@ -19,6 +19,7 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
+import { useAiDrawer } from "@/contexts/AiDrawerContext";
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -59,6 +60,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
   const [location] = useLocation();
   const { data: user } = useGetMe();
   const logout = useLogout();
+  const { openAssistant } = useAiDrawer();
   // When super_admin is browsing a store, they start in read-only mode
   // and can explicitly "take control" to allow mutations.
   const [hasControl, setHasControl] = useState(false);
@@ -344,8 +346,32 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
           className="h-14 flex items-center px-6 border-b bg-card shrink-0"
           style={{ borderColor: "hsl(var(--border))" }}
         >
+          {/* ✦ AI — app-wide assistant opens in a right overlay drawer */}
+          {/* Placed in render scope via hook below */}
           <div className="flex-1" />
           <div className="flex items-center gap-2">
+            {/* ✦ AI — opens the global AI assistant drawer */}
+            <button
+              onClick={openAssistant}
+              style={{
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "4px 12px",
+                borderRadius: 20,
+                fontSize: 12,
+                fontWeight: 600,
+                background: "rgba(200,117,96,0.10)",
+                color: "#C87560",
+                border: "1px solid rgba(200,117,96,0.25)",
+                transition: "background 140ms",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(200,117,96,0.20)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(200,117,96,0.10)"; }}
+            >
+              ✦ AI
+            </button>
             {role !== "store_owner" && (
               <span
                 className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium"

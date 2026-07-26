@@ -31,6 +31,7 @@
  * No backend/auth/generation logic changed — this is purely UI composition.
  */
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useAiDrawer } from "@/contexts/AiDrawerContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import {
@@ -2036,33 +2037,40 @@ export default function StickerStudioHub() {
     return <PacksRail packStatus={packStatus} setPackStatus={setPackStatus} />;
   })();
 
-  // ── Right dock ────────────────────────────────────────────────────────────
-  const rightDock = {
-    assistant: (
-      <DockAiAssistant
-        systemPrompt={
-          validMode === "library"
-            ? "You are a sticker curation expert. Help the user audit their sticker library, spot gaps, and decide what to create or remove."
-            : validMode === "create"
-            ? "You are a sticker concept generator. Create specific, visual illustration briefs: subject, style, colour palette, expression, and any text overlay. Give 4 ideas per prompt."
-            : "You are a product packaging expert for digital sticker packs. Help with naming, pricing strategy, tag selection, and edition targeting."
-        }
-        placeholder={
-          validMode === "create" ? "Describe a style or theme to brainstorm sticker ideas…"
-            : validMode === "packs" ? "Describe your pack concept for AI-assisted naming and tags…"
-            : "Ask for curation advice, gap analysis, or trend suggestions…"
-        }
-        examplePrompts={
-          validMode === "library"
-            ? ["What sticker types are missing from a productivity planner set?","Which origin stickers get used least?","Suggest 5 stickers to round out a minimal theme"]
-            : validMode === "create"
-            ? ["Generate 4 kawaii food sticker briefs for a meal-planning planner","Describe 4 botanical stickers for a spring journalling theme","What makes a good habit-tracker sticker?"]
-            : ["Suggest a name for a cosy autumn sticker pack","What's a good price for a 12-sticker premium pack?","Which edition tiers should a starter pack target?"]
-        }
-      />
-    ),
-    preview: <StickerScalePreview sticker={previewSticker} onOpenEdit={previewSticker ? () => setHubEditTarget(previewSticker) : undefined} />,
-  };
+  // ── AI drawer context ────────────────────────────────────────────────────────
+  const { setAiContext, clearAiContext } = useAiDrawer();
+  const _clearRef = useRef(clearAiContext);
+  _clearRef.current = clearAiContext;
+  useEffect(() => () => _clearRef.current(), []);
+  useEffect(() => {
+    const systemPrompt =
+      validMode === "library"
+        ? "You are a sticker curation expert. Help the user audit their sticker library, spot gaps, and decide what to create or remove."
+        : validMode === "create"
+        ? "You are a sticker concept generator. Create specific, visual illustration briefs: subject, style, colour palette, expression, and any text overlay. Give 4 ideas per prompt."
+        : "You are a product packaging expert for digital sticker packs. Help with naming, pricing strategy, tag selection, and edition targeting.";
+    const examplePrompts =
+      validMode === "library"
+        ? ["What sticker types are missing from a productivity planner set?", "Which origin stickers get used least?", "Suggest 5 stickers to round out a minimal theme"]
+        : validMode === "create"
+        ? ["Generate 4 kawaii food sticker briefs for a meal-planning planner", "Describe 4 botanical stickers for a spring journalling theme", "What makes a good habit-tracker sticker?"]
+        : ["Suggest a name for a cosy autumn sticker pack", "What's a good price for a 12-sticker premium pack?", "Which edition tiers should a starter pack target?"];
+    setAiContext({
+      systemPrompt,
+      examplePrompts,
+      contextLabel: `Sticker Studio · ${validMode}`,
+      previewContent: null,
+    });
+  }, [validMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Keep preview in sync with the currently selected sticker card
+  useEffect(() => {
+    setAiContext({
+      previewContent: <StickerScalePreview
+        sticker={previewSticker}
+        onOpenEdit={previewSticker ? () => setHubEditTarget(previewSticker) : undefined}
+      />,
+    });
+  }, [previewSticker]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Center content ────────────────────────────────────────────────────────
   const center = (() => {
@@ -2100,7 +2108,8 @@ export default function StickerStudioHub() {
       status={{ label: "Platform", ok: true }}
       primaryAction={primaryAction}
       leftRail={leftRail}
-      rightDock={rightDock}
+      hasAssistant
+      hasPreview
     >
       {center}
 

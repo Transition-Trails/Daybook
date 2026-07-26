@@ -107,7 +107,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </SidebarHeader>
 
-        <SidebarContent className="py-2">
+        <SidebarContent className="py-2 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" } as React.CSSProperties}>
           {/* Dashboard (ungrouped, always first) */}
           <SidebarMenu>
             {groups["Main"]?.map(item => (

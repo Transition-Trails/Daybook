@@ -1394,4 +1394,59 @@ export const plannerHotspotsApi = {
     ),
 };
 
+// ── Theme Studio catalog API ───────────────────────────────────────────────────
+
+export interface HardwareCatalogItem {
+  id: string; name: string; kind: string; finish?: string;
+  status: string; globalAvailable: boolean; origin: string;
+}
+export interface AccessoryCatalogItem {
+  id: string; name: string; kind: string;
+  status: string; globalAvailable: boolean; origin: string;
+}
+export interface FontCatalogItem {
+  id: string; familyName: string; variants: unknown[];
+  sampleUrl?: string; curatedPairings: unknown[];
+  status: string; globalAvailable: boolean; origin: string;
+}
+export interface AssetTypeDescriptor {
+  slot: string; label: string; glyph: string;
+  count: number; studios: string[];
+}
+
+export const themeApi = {
+  /** List hardware catalog items. */
+  hardware: () => apiFetch<HardwareCatalogItem[]>("/hardware"),
+
+  /** List accessories catalog items. */
+  accessories: () => apiFetch<AccessoryCatalogItem[]>("/accessories"),
+
+  /** List fonts catalog items. */
+  fonts: () => apiFetch<FontCatalogItem[]>("/fonts"),
+
+  /** Replace a theme's slot with a new set of catalog IDs. */
+  attachSlot: (themeId: string, slot: string, ids: string[]) =>
+    apiFetch<{ updated: number }>(`/themes/${themeId}/${slot}`, {
+      method: "PUT",
+      body: JSON.stringify(ids),
+    }),
+
+  /** Stage an AI-proposed bundle (server-side ephemeral cache). */
+  stageBundle: (themeId: string, bundle: Record<string, string[]>) =>
+    apiFetch<{ themeId: string; staged: Record<string, string[]> }>(
+      `/themes/${themeId}/stage-bundle`,
+      { method: "POST", body: JSON.stringify({ bundle }) },
+    ),
+
+  /** Commit accepted slots from a staged bundle to the DB. */
+  commitBundle: (themeId: string, accepted: Record<string, string[]>) =>
+    apiFetch<{ themeId: string; updated: number }>(
+      `/themes/${themeId}/commit-bundle`,
+      { method: "POST", body: JSON.stringify({ accepted }) },
+    ),
+
+  /** Retrieve the 9 asset-type descriptors with catalog item counts. */
+  assetTypes: () => apiFetch<AssetTypeDescriptor[]>("/catalog/asset-types"),
+};
+
 // (insert + widget generate methods are part of studioGenerateApi above)

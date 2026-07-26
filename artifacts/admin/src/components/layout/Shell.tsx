@@ -24,7 +24,7 @@ import {
   Home, Palette, FileImage, Layers3, BookOpen,
   Users, Settings, RefreshCw, BarChart2, LogOut,
   CalendarDays, ArrowLeft, Pen, Image, Sticker,
-  Store, Megaphone, LayoutTemplate, Shapes,
+  Store, Megaphone, LayoutTemplate, Shapes, Brush,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
@@ -34,9 +34,10 @@ import { useAiDrawer } from "@/contexts/AiDrawerContext";
 
 const NAV_ITEMS = [
   { label: "Dashboard",          icon: Home,           href: "/" },
-  { label: "Planner Studio",     icon: LayoutTemplate, href: "/studios/planner",    group: "Studios" },
-  { label: "Sticker Studio",     icon: Sticker,        href: "/studios/stickers",   group: "Studios" },
-  { label: "Marketing Studio",   icon: Megaphone,      href: "/studios/marketing",  group: "Studios" },
+  { label: "Planner Studio",     icon: LayoutTemplate, href: "/studios/planner",       group: "Studios" },
+  { label: "Sticker Studio",     icon: Sticker,        href: "/studios/stickers",      group: "Studios" },
+  { label: "Marketing Studio",   icon: Megaphone,      href: "/studios/marketing",     group: "Studios" },
+  { label: "Theme Studio",       icon: Brush,          href: "/studios/theme-builder", group: "Studios" },
   { label: "Themes",             icon: Palette,        href: "/catalog/themes",     group: "Catalog" },
   { label: "Backgrounds",        icon: Image,          href: "/catalog/backgrounds",group: "Catalog" },
   { label: "Inserts",            icon: FileImage,      href: "/catalog/inserts",    group: "Catalog" },

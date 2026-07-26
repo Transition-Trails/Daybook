@@ -24,11 +24,21 @@ import {
   backgroundsTable,
   stickerPacksTable,
   insertsTable,
+  widgetsTable,
   relatedProductsTable,
   editionsTable,
   themePalettesTable,
   themeBackgroundsTable,
   themePacksTable,
+  themeInsertsTable,
+  themeWidgetsTable,
+  themeCoversTable,
+  themeHardwareTable,
+  themeAccessoriesTable,
+  themeFontsTable,
+  hardwareTable,
+  accessoriesTable,
+  fontsTable,
 } from "@workspace/db";
 import { eq, ne, and, inArray, asc } from "drizzle-orm";
 import { requireSuperAdmin } from "../middleware/requireRole";
@@ -126,17 +136,129 @@ async function loadPacks(themeIds: string[]): Promise<Record<string, RichPack[]>
   return out;
 }
 
+// ── New slot load helpers ─────────────────────────────────────────────────────
+
+type RichSlotItem = { id: string; name: string; position: number };
+
+async function loadInserts(themeIds: string[]): Promise<Record<string, RichSlotItem[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({ themeId: themeInsertsTable.themeId, position: themeInsertsTable.position, item: insertsTable })
+    .from(themeInsertsTable)
+    .innerJoin(insertsTable, eq(themeInsertsTable.insertId, insertsTable.id))
+    .where(inArray(themeInsertsTable.themeId, themeIds))
+    .orderBy(themeInsertsTable.themeId, asc(themeInsertsTable.position));
+  const out: Record<string, RichSlotItem[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push({ id: r.item.id, name: r.item.name, position: r.position });
+  }
+  return out;
+}
+
+async function loadWidgets(themeIds: string[]): Promise<Record<string, RichSlotItem[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({ themeId: themeWidgetsTable.themeId, position: themeWidgetsTable.position, item: widgetsTable })
+    .from(themeWidgetsTable)
+    .innerJoin(widgetsTable, eq(themeWidgetsTable.widgetId, widgetsTable.id))
+    .where(inArray(themeWidgetsTable.themeId, themeIds))
+    .orderBy(themeWidgetsTable.themeId, asc(themeWidgetsTable.position));
+  const out: Record<string, RichSlotItem[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push({ id: r.item.id, name: r.item.name, position: r.position });
+  }
+  return out;
+}
+
+async function loadCovers(themeIds: string[]): Promise<Record<string, RichSlotItem[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({ themeId: themeCoversTable.themeId, position: themeCoversTable.position, item: insertsTable })
+    .from(themeCoversTable)
+    .innerJoin(insertsTable, eq(themeCoversTable.insertId, insertsTable.id))
+    .where(inArray(themeCoversTable.themeId, themeIds))
+    .orderBy(themeCoversTable.themeId, asc(themeCoversTable.position));
+  const out: Record<string, RichSlotItem[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push({ id: r.item.id, name: r.item.name, position: r.position });
+  }
+  return out;
+}
+
+async function loadHardware(themeIds: string[]): Promise<Record<string, RichSlotItem[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({ themeId: themeHardwareTable.themeId, position: themeHardwareTable.position, item: hardwareTable })
+    .from(themeHardwareTable)
+    .innerJoin(hardwareTable, eq(themeHardwareTable.hardwareId, hardwareTable.id))
+    .where(inArray(themeHardwareTable.themeId, themeIds))
+    .orderBy(themeHardwareTable.themeId, asc(themeHardwareTable.position));
+  const out: Record<string, RichSlotItem[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push({ id: r.item.id, name: r.item.name, position: r.position });
+  }
+  return out;
+}
+
+async function loadAccessories(themeIds: string[]): Promise<Record<string, RichSlotItem[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({ themeId: themeAccessoriesTable.themeId, position: themeAccessoriesTable.position, item: accessoriesTable })
+    .from(themeAccessoriesTable)
+    .innerJoin(accessoriesTable, eq(themeAccessoriesTable.accessoryId, accessoriesTable.id))
+    .where(inArray(themeAccessoriesTable.themeId, themeIds))
+    .orderBy(themeAccessoriesTable.themeId, asc(themeAccessoriesTable.position));
+  const out: Record<string, RichSlotItem[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push({ id: r.item.id, name: r.item.name, position: r.position });
+  }
+  return out;
+}
+
+async function loadFonts(themeIds: string[]): Promise<Record<string, RichSlotItem[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({ themeId: themeFontsTable.themeId, position: themeFontsTable.position, item: fontsTable })
+    .from(themeFontsTable)
+    .innerJoin(fontsTable, eq(themeFontsTable.fontId, fontsTable.id))
+    .where(inArray(themeFontsTable.themeId, themeIds))
+    .orderBy(themeFontsTable.themeId, asc(themeFontsTable.position));
+  const out: Record<string, RichSlotItem[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push({ id: r.item.id, name: (r.item as unknown as { family_name: string }).family_name, position: r.position });
+  }
+  return out;
+}
+
 function enrichThemes(
   themes: (typeof themesTable.$inferSelect)[],
-  palettesMap: Record<string, RichPalette[]>,
-  backgroundsMap: Record<string, RichBackground[]>,
-  packsMap: Record<string, RichPack[]>,
+  palettesMap:     Record<string, RichPalette[]>,
+  backgroundsMap:  Record<string, RichBackground[]>,
+  packsMap:        Record<string, RichPack[]>,
+  insertsMap:      Record<string, RichSlotItem[]>,
+  widgetsMap:      Record<string, RichSlotItem[]>,
+  coversMap:       Record<string, RichSlotItem[]>,
+  hardwareMap:     Record<string, RichSlotItem[]>,
+  accessoriesMap:  Record<string, RichSlotItem[]>,
+  fontsMap:        Record<string, RichSlotItem[]>,
 ) {
   return themes.map(t => ({
     ...t,
     palettes:    palettesMap[t.id]    ?? [],
     backgrounds: backgroundsMap[t.id] ?? [],
     packs:       packsMap[t.id]       ?? [],
+    inserts:     insertsMap[t.id]     ?? [],
+    widgets:     widgetsMap[t.id]     ?? [],
+    covers:      coversMap[t.id]      ?? [],
+    hardware:    hardwareMap[t.id]    ?? [],
+    accessories: accessoriesMap[t.id] ?? [],
+    fonts:       fontsMap[t.id]       ?? [],
   }));
 }
 
@@ -148,18 +270,24 @@ router.get("/themes", async (req: Request, res: Response): Promise<void> => {
     : await db.select().from(themesTable).where(ne(themesTable.status, "deleted")).orderBy(themesTable.createdAt);
 
   const ids = themes.map(t => t.id);
-  const [palettesMap, backgroundsMap, packsMap] = await Promise.all([
+  const [palettesMap, backgroundsMap, packsMap, insertsMap, widgetsMap, coversMap, hardwareMap, accessoriesMap, fontsMap] = await Promise.all([
     loadPalettes(ids),
     loadBackgrounds(ids),
     loadPacks(ids),
+    loadInserts(ids),
+    loadWidgets(ids),
+    loadCovers(ids),
+    loadHardware(ids),
+    loadAccessories(ids),
+    loadFonts(ids),
   ]);
-  res.json(enrichThemes(themes, palettesMap, backgroundsMap, packsMap));
+  res.json(enrichThemes(themes, palettesMap, backgroundsMap, packsMap, insertsMap, widgetsMap, coversMap, hardwareMap, accessoriesMap, fontsMap));
 });
 
 // ── Enriched GET /themes/:id (overrides buildCatalogRoutes detail) ─────────
 
 router.get("/themes/:id", async (req: Request, res: Response): Promise<void> => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [theme] = await db.select().from(themesTable).where(eq(themesTable.id, id)) as any[];
   if (!theme || theme.status === "deleted") {
@@ -170,12 +298,18 @@ router.get("/themes/:id", async (req: Request, res: Response): Promise<void> => 
     res.status(404).json({ error: "Theme not found" });
     return;
   }
-  const [palettesMap, backgroundsMap, packsMap] = await Promise.all([
+  const [palettesMap, backgroundsMap, packsMap, insertsMap, widgetsMap, coversMap, hardwareMap, accessoriesMap, fontsMap] = await Promise.all([
     loadPalettes([id]),
     loadBackgrounds([id]),
     loadPacks([id]),
+    loadInserts([id]),
+    loadWidgets([id]),
+    loadCovers([id]),
+    loadHardware([id]),
+    loadAccessories([id]),
+    loadFonts([id]),
   ]);
-  res.json(enrichThemes([theme], palettesMap, backgroundsMap, packsMap)[0]);
+  res.json(enrichThemes([theme], palettesMap, backgroundsMap, packsMap, insertsMap, widgetsMap, coversMap, hardwareMap, accessoriesMap, fontsMap)[0]);
 });
 
 // ── Generic CRUD factory ─────────────────────────────────────────────────────
@@ -626,5 +760,201 @@ router.post(
     }
   },
 );
+
+// ── New slot PUT routes ────────────────────────────────────────────────────────
+// Each route replaces the full join-table for that slot (same pattern as palettes/backgrounds/packs).
+
+async function requireThemeGuard(req: Request, res: Response): Promise<string | null> {
+  const id = req.params.id as string;
+  const [theme] = await db.select({ id: themesTable.id }).from(themesTable).where(eq(themesTable.id, id));
+  if (!theme) { res.status(404).json({ error: "Theme not found" }); return null; }
+  return id;
+}
+
+/** Extract a flat string[] from a PUT body that is either string[] or object[]. */
+function extractIds(body: unknown): string[] {
+  const raw: unknown[] = Array.isArray(body) ? body : [];
+  return raw.filter((x): x is string => typeof x === "string");
+}
+
+router.put("/themes/:id/inserts", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const id = await requireThemeGuard(req, res);
+  if (!id) return;
+  const ids = extractIds(req.body);
+  await db.delete(themeInsertsTable).where(eq(themeInsertsTable.themeId, id));
+  if (ids.length) await db.insert(themeInsertsTable).values(ids.map((insertId, position) => ({ themeId: id, insertId, position })));
+  await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.inserts.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
+  res.json({ updated: ids.length });
+});
+
+router.put("/themes/:id/widgets", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const id = await requireThemeGuard(req, res);
+  if (!id) return;
+  const ids = extractIds(req.body);
+  await db.delete(themeWidgetsTable).where(eq(themeWidgetsTable.themeId, id));
+  if (ids.length) await db.insert(themeWidgetsTable).values(ids.map((widgetId, position) => ({ themeId: id, widgetId, position })));
+  await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.widgets.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
+  res.json({ updated: ids.length });
+});
+
+router.put("/themes/:id/covers", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const id = await requireThemeGuard(req, res);
+  if (!id) return;
+  const ids = extractIds(req.body);
+  await db.delete(themeCoversTable).where(eq(themeCoversTable.themeId, id));
+  if (ids.length) await db.insert(themeCoversTable).values(ids.map((insertId, position) => ({ themeId: id, insertId, position })));
+  await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.covers.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
+  res.json({ updated: ids.length });
+});
+
+router.put("/themes/:id/hardware", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const id = await requireThemeGuard(req, res);
+  if (!id) return;
+  const ids = extractIds(req.body);
+  await db.delete(themeHardwareTable).where(eq(themeHardwareTable.themeId, id));
+  if (ids.length) await db.insert(themeHardwareTable).values(ids.map((hardwareId, position) => ({ themeId: id, hardwareId, position })));
+  await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.hardware.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
+  res.json({ updated: ids.length });
+});
+
+router.put("/themes/:id/accessories", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const id = await requireThemeGuard(req, res);
+  if (!id) return;
+  const ids = extractIds(req.body);
+  await db.delete(themeAccessoriesTable).where(eq(themeAccessoriesTable.themeId, id));
+  if (ids.length) await db.insert(themeAccessoriesTable).values(ids.map((accessoryId, position) => ({ themeId: id, accessoryId, position })));
+  await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.accessories.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
+  res.json({ updated: ids.length });
+});
+
+router.put("/themes/:id/fonts", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const id = await requireThemeGuard(req, res);
+  if (!id) return;
+  const ids = extractIds(req.body);
+  await db.delete(themeFontsTable).where(eq(themeFontsTable.themeId, id));
+  if (ids.length) await db.insert(themeFontsTable).values(ids.map((fontId, position) => ({ themeId: id, fontId, position })));
+  await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.fonts.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
+  res.json({ updated: ids.length });
+});
+
+// ── CRUD for hardware, accessories, fonts ──────────────────────────────────────
+
+buildCatalogRoutes(router, "/hardware",    hardwareTable,    "Hardware");
+buildCatalogRoutes(router, "/accessories", accessoriesTable, "Accessory");
+buildCatalogRoutes(router, "/fonts",       fontsTable,       "Font");
+
+// ── Stage / commit bundle (ephemeral, in-memory) ──────────────────────────────
+
+/**
+ * Staged bundles keyed by themeId. Values are { [slot]: id[] } maps.
+ * Cleared on server restart — this is intentional (session-scoped composition).
+ */
+const stagedBundles = new Map<string, Record<string, string[]>>();
+
+router.post("/themes/:id/stage-bundle", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const id = await requireThemeGuard(req, res);
+  if (!id) return;
+  const bundle = req.body?.bundle;
+  if (!bundle || typeof bundle !== "object") { res.status(400).json({ error: "bundle object required" }); return; }
+  stagedBundles.set(id, bundle as Record<string, string[]>);
+  res.json({ themeId: id, staged: bundle });
+});
+
+router.get("/themes/:id/staged-bundle", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const id = await requireThemeGuard(req, res);
+  if (!id) return;
+  res.json({ themeId: id, bundle: stagedBundles.get(id) ?? null });
+});
+
+router.post("/themes/:id/commit-bundle", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const id = await requireThemeGuard(req, res);
+  if (!id) return;
+  const accepted: Record<string, string[]> = req.body?.accepted ?? {};
+
+  let updated = 0;
+  for (const [slot, rawIds] of Object.entries(accepted)) {
+    if (!Array.isArray(rawIds)) continue;
+    const ids = rawIds.filter((x): x is string => typeof x === "string");
+    switch (slot) {
+      case "inserts":
+        await db.delete(themeInsertsTable).where(eq(themeInsertsTable.themeId, id));
+        if (ids.length) await db.insert(themeInsertsTable).values(ids.map((insertId, position) => ({ themeId: id, insertId, position })));
+        break;
+      case "widgets":
+        await db.delete(themeWidgetsTable).where(eq(themeWidgetsTable.themeId, id));
+        if (ids.length) await db.insert(themeWidgetsTable).values(ids.map((widgetId, position) => ({ themeId: id, widgetId, position })));
+        break;
+      case "covers":
+        await db.delete(themeCoversTable).where(eq(themeCoversTable.themeId, id));
+        if (ids.length) await db.insert(themeCoversTable).values(ids.map((insertId, position) => ({ themeId: id, insertId, position })));
+        break;
+      case "hardware":
+        await db.delete(themeHardwareTable).where(eq(themeHardwareTable.themeId, id));
+        if (ids.length) await db.insert(themeHardwareTable).values(ids.map((hardwareId, position) => ({ themeId: id, hardwareId, position })));
+        break;
+      case "accessories":
+        await db.delete(themeAccessoriesTable).where(eq(themeAccessoriesTable.themeId, id));
+        if (ids.length) await db.insert(themeAccessoriesTable).values(ids.map((accessoryId, position) => ({ themeId: id, accessoryId, position })));
+        break;
+      case "fonts":
+        await db.delete(themeFontsTable).where(eq(themeFontsTable.themeId, id));
+        if (ids.length) await db.insert(themeFontsTable).values(ids.map((fontId, position) => ({ themeId: id, fontId, position })));
+        break;
+      default:
+        continue;
+    }
+    updated += ids.length;
+  }
+
+  // Clear staged
+  stagedBundles.delete(id);
+
+  await writeAudit(db, {
+    actorUserId: req.actor!.userId,
+    actorRole:   req.actor!.effectiveRole,
+    scope:       "platform",
+    action:      "catalog.theme.bundle.commit",
+    targetType:  "theme",
+    targetId:    id,
+    metadata:    { slots: Object.keys(accepted), totalItems: updated },
+  });
+
+  res.json({ themeId: id, updated });
+});
+
+// ── GET /catalog/asset-types — descriptor list for the asset-catalog mode ─────
+
+router.get("/catalog/asset-types", requireSuperAdmin, async (_req: Request, res: Response): Promise<void> => {
+  const [
+    paletteCount,
+    backgroundCount,
+    packCount,
+    insertCount,
+    widgetCount,
+    hardwareCount,
+    accessoryCount,
+    fontCount,
+  ] = await Promise.all([
+    db.select({ id: palettesTable.id }).from(palettesTable).where(ne(palettesTable.status, "deleted")),
+    db.select({ id: backgroundsTable.id }).from(backgroundsTable).where(ne(backgroundsTable.status, "deleted")),
+    db.select({ id: stickerPacksTable.id }).from(stickerPacksTable).where(ne(stickerPacksTable.status, "deleted")),
+    db.select({ id: insertsTable.id }).from(insertsTable).where(ne(insertsTable.status, "deleted")),
+    db.select({ id: widgetsTable.id }).from(widgetsTable).where(ne(widgetsTable.status, "deleted")),
+    db.select({ id: hardwareTable.id }).from(hardwareTable).where(ne(hardwareTable.status, "deleted")),
+    db.select({ id: accessoriesTable.id }).from(accessoriesTable).where(ne(accessoriesTable.status, "deleted")),
+    db.select({ id: fontsTable.id }).from(fontsTable).where(ne(fontsTable.status, "deleted")),
+  ]);
+  res.json([
+    { slot: "palettes",    label: "Colour palettes",  glyph: "🎨", count: paletteCount.length,    studios: ["Theme Studio"] },
+    { slot: "backgrounds", label: "Backgrounds",       glyph: "🖼️", count: backgroundCount.length,  studios: ["Theme Studio"] },
+    { slot: "packs",       label: "Sticker packs",     glyph: "✦",  count: packCount.length,        studios: ["Theme Studio", "Sticker Studio"] },
+    { slot: "inserts",     label: "Inserts",            glyph: "📄", count: insertCount.length,      studios: ["Theme Studio", "Planner Studio"] },
+    { slot: "widgets",     label: "Widgets",            glyph: "⚙️", count: widgetCount.length,      studios: ["Theme Studio", "Planner Studio"] },
+    { slot: "covers",      label: "Cover art",          glyph: "🎁", count: insertCount.length,      studios: ["Theme Studio"] },
+    { slot: "hardware",    label: "Binding hardware",   glyph: "🔩", count: hardwareCount.length,    studios: ["Theme Studio"] },
+    { slot: "accessories", label: "Accessories",        glyph: "📎", count: accessoryCount.length,   studios: ["Theme Studio"] },
+    { slot: "fonts",       label: "Font pairings",      glyph: "Aa", count: fontCount.length,        studios: ["Theme Studio"] },
+  ]);
+});
 
 export default router;

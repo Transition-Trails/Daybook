@@ -34,6 +34,7 @@ import Dashboard from '@/pages/dashboard';
 import PlannerStudioHub from '@/pages/studios/PlannerStudioHub';
 import StickerStudioHub from '@/pages/studios/StickerStudioHub';
 import MarketingStudioHub from '@/pages/studios/MarketingStudioHub';
+import ThemeStudioHub from '@/pages/studios/ThemeStudioHub';
 
 // Catalog pages
 import ThemesList from '@/pages/catalog/themes/list';
@@ -74,9 +75,10 @@ export const routes = [
   { path: "/", component: Dashboard },
 
   // ── Studio hubs ────────────────────────────────────────────────────────────
-  { path: "/studios/planner",    component: PlannerStudioHub },
-  { path: "/studios/stickers",   component: StickerStudioHub },
-  { path: "/studios/marketing",  component: MarketingStudioHub },
+  { path: "/studios/planner",        component: PlannerStudioHub },
+  { path: "/studios/stickers",       component: StickerStudioHub },
+  { path: "/studios/marketing",      component: MarketingStudioHub },
+  { path: "/studios/theme-builder",  component: ThemeStudioHub },
 
   // ── Catalog ────────────────────────────────────────────────────────────────
   { path: "/catalog/themes",           component: ThemesList },

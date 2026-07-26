@@ -514,3 +514,155 @@ export const storeInsertsTable = pgTable("store_inserts", {
 
 export type StoreInsert = typeof storeInsertsTable.$inferSelect;
 export type InsertStoreInsert = typeof storeInsertsTable.$inferInsert;
+
+// ─── HARDWARE (binding hardware for realistic planner preview) ────────────────
+// Coils, twin-loop wires, discs, and rings used in physical/digital preview.
+
+export const hardwareTable = pgTable("hardware", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  /** coil | twin-loop | discs | 3-ring */
+  kind: text("kind").notNull(),
+  /** brass | silver | black | rose-gold | white | gunmetal */
+  finish: text("finish"),
+  status: text("status").notNull().default("draft"),
+  globalAvailable: boolean("global_available").notNull().default(true),
+  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export type HardwareItem = typeof hardwareTable.$inferSelect;
+export type InsertHardwareItem = typeof hardwareTable.$inferInsert;
+
+// ─── ACCESSORIES (clips, tabs, bookmarks, page markers) ──────────────────────
+
+export const accessoriesTable = pgTable("accessories", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  /** clip | tab | bookmark | page-marker */
+  kind: text("kind").notNull(),
+  status: text("status").notNull().default("draft"),
+  globalAvailable: boolean("global_available").notNull().default(true),
+  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export type Accessory = typeof accessoriesTable.$inferSelect;
+export type InsertAccessory = typeof accessoriesTable.$inferInsert;
+
+// ─── FONTS CATALOG ────────────────────────────────────────────────────────────
+// Named font families with curated pairing metadata. No font-file serving here —
+// names only, referencing Google Fonts / system stacks the PDF generator already loads.
+
+export interface FontVariant {
+  weight: string;      // "400" | "700" | "italic" …
+  style?: "normal" | "italic";
+}
+
+export interface CuratedFontPairing {
+  role: "heading" | "body" | "accent";
+  family: string;
+  weight?: string;
+}
+
+export const fontsTable = pgTable("fonts", {
+  id: text("id").primaryKey(),
+  familyName: text("family_name").notNull(),
+  variants: jsonb("variants").notNull().default([]).$type<FontVariant[]>(),
+  sampleUrl: text("sample_url"),
+  curatedPairings: jsonb("curated_pairings").notNull().default([]).$type<CuratedFontPairing[]>(),
+  status: text("status").notNull().default("draft"),
+  globalAvailable: boolean("global_available").notNull().default(true),
+  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export type FontItem = typeof fontsTable.$inferSelect;
+export type InsertFontItem = typeof fontsTable.$inferInsert;
+
+// ─── EXTENDED THEME JOIN TABLES ───────────────────────────────────────────────
+// The nine theme bundle slots break down as:
+//   3 existing:  theme_palettes · theme_backgrounds · theme_packs
+//   6 new below: theme_inserts · theme_widgets · theme_covers ·
+//                theme_hardware · theme_accessories · theme_fonts
+//
+// theme_covers links to insertsTable filtered to cat='Cover art'.
+// theme_inserts links to any insert (functional, decorative, seasonal…).
+
+export const themeInsertsTable = pgTable(
+  "theme_inserts",
+  {
+    id: serial("id").primaryKey(),
+    themeId: text("theme_id").notNull().references(() => themesTable.id, { onDelete: "cascade" }),
+    insertId: text("insert_id").notNull().references(() => insertsTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({ themeInsertUniq: unique("theme_insert_uq").on(t.themeId, t.insertId) }),
+);
+export type ThemeInsertRow = typeof themeInsertsTable.$inferSelect;
+
+export const themeWidgetsTable = pgTable(
+  "theme_widgets",
+  {
+    id: serial("id").primaryKey(),
+    themeId: text("theme_id").notNull().references(() => themesTable.id, { onDelete: "cascade" }),
+    widgetId: text("widget_id").notNull().references(() => widgetsTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({ themeWidgetUniq: unique("theme_widget_uq").on(t.themeId, t.widgetId) }),
+);
+export type ThemeWidgetRow = typeof themeWidgetsTable.$inferSelect;
+
+export const themeCoversTable = pgTable(
+  "theme_covers",
+  {
+    id: serial("id").primaryKey(),
+    themeId: text("theme_id").notNull().references(() => themesTable.id, { onDelete: "cascade" }),
+    /** References insertsTable — should have cat='Cover art'. */
+    insertId: text("insert_id").notNull().references(() => insertsTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({ themeCoverUniq: unique("theme_cover_uq").on(t.themeId, t.insertId) }),
+);
+export type ThemeCoverRow = typeof themeCoversTable.$inferSelect;
+
+export const themeHardwareTable = pgTable(
+  "theme_hardware",
+  {
+    id: serial("id").primaryKey(),
+    themeId: text("theme_id").notNull().references(() => themesTable.id, { onDelete: "cascade" }),
+    hardwareId: text("hardware_id").notNull().references(() => hardwareTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({ themeHardwareUniq: unique("theme_hardware_uq").on(t.themeId, t.hardwareId) }),
+);
+export type ThemeHardwareRow = typeof themeHardwareTable.$inferSelect;
+
+export const themeAccessoriesTable = pgTable(
+  "theme_accessories",
+  {
+    id: serial("id").primaryKey(),
+    themeId: text("theme_id").notNull().references(() => themesTable.id, { onDelete: "cascade" }),
+    accessoryId: text("accessory_id").notNull().references(() => accessoriesTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({ themeAccessoryUniq: unique("theme_accessory_uq").on(t.themeId, t.accessoryId) }),
+);
+export type ThemeAccessoryRow = typeof themeAccessoriesTable.$inferSelect;
+
+export const themeFontsTable = pgTable(
+  "theme_fonts",
+  {
+    id: serial("id").primaryKey(),
+    themeId: text("theme_id").notNull().references(() => themesTable.id, { onDelete: "cascade" }),
+    fontId: text("font_id").notNull().references(() => fontsTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({ themeFontUniq: unique("theme_font_uq").on(t.themeId, t.fontId) }),
+);
+export type ThemeFontRow = typeof themeFontsTable.$inferSelect;

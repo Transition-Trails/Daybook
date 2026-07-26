@@ -914,6 +914,124 @@ function LibraryRow({
   );
 }
 
+// ── STICKER CARD (vertical, used in library grid) ─────────────────────────────
+
+function StickerCard({
+  sticker, selected, onSelect, onEdit, onDuplicate, onToggle, onDelete, onUsage,
+  togglePending, dupPending, deletePending, onSelectForPreview, isPreviewTarget,
+}: {
+  sticker: PlatformStickerExt; selected: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+  onEdit: () => void; onDuplicate: () => void; onToggle: () => void;
+  onDelete: () => void; onUsage: () => void;
+  togglePending: boolean; dupPending: boolean; deletePending: boolean;
+  onSelectForPreview: () => void; isPreviewTarget: boolean;
+}) {
+  const isLive = sticker.status === "live";
+  return (
+    <div className={`rounded-[14px] border flex flex-col overflow-hidden transition-colors ${
+      isPreviewTarget ? "border-[#C87560] bg-[#FEF0ED]/40" : "bg-card border-border"
+    }`}>
+      {/* Thumbnail */}
+      <button onClick={onSelectForPreview} style={{ cursor: "pointer", display: "block" }}
+        className="relative w-full aspect-square bg-[#FFFDF9] flex items-center justify-center hover:bg-muted/30 transition-colors overflow-hidden">
+        <StickerThumb src={sticker.processedImageData} />
+        <div className="absolute top-2 left-2">
+          <Checkbox checked={selected} onCheckedChange={(c) => onSelect(sticker.id, Boolean(c))}
+            onClick={e => e.stopPropagation()} />
+        </div>
+        {isPreviewTarget && (
+          <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#C87560]" />
+        )}
+      </button>
+      {/* Name + badges */}
+      <div className="p-3 flex-1 space-y-2">
+        <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 3 }}>
+          <p className="text-[12.5px] font-semibold text-foreground truncate">{sticker.name}</p>
+          <div className="flex items-center gap-1 flex-wrap">
+            <StatusChip status={sticker.status} />
+            <OriginBadge origin={sticker.origin} />
+          </div>
+        </div>
+        <span className="text-[10.5px] text-muted-foreground border border-border rounded-full px-1.5 py-0.5 inline-block">
+          {FUNCTION_TYPE_LABELS[sticker.functionType] ?? sticker.functionType}
+        </span>
+      </div>
+      {/* Action chips */}
+      <div className="px-3 pb-3 flex items-center gap-1.5 flex-wrap">
+        <ActionChip label="Edit" onClick={onEdit} variant="secondary" icon={<Pencil className="w-3 h-3" />} />
+        <ActionChip
+          label={isLive ? "Unpublish" : "Publish"}
+          onClick={onToggle} disabled={togglePending}
+          variant={isLive ? "secondary" : "primary"}
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button style={{ cursor: "pointer" }}
+              className="p-1.5 rounded-lg border border-transparent hover:border-border hover:bg-muted transition-colors text-muted-foreground">
+              <MoreHorizontal className="w-3.5 h-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={onDuplicate} disabled={dupPending}>
+              <Copy className="w-3.5 h-3.5 mr-2" />Duplicate
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onUsage}>
+              <Info className="w-3.5 h-3.5 mr-2" />Show usage
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive" disabled={deletePending}>
+              <Trash2 className="w-3.5 h-3.5 mr-2" />Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+}
+
+// ── PACK CARD (vertical, used in packs grid) ──────────────────────────────────
+
+function PackCard({ pack, coverImage, onToggle, togglePending }: {
+  pack: PlatformStickerPack; coverImage?: string | null; onToggle: () => void; togglePending: boolean;
+}) {
+  const isLive = pack.status === "live";
+  return (
+    <div className="rounded-[14px] border bg-card flex flex-col overflow-hidden">
+      <div className="w-full aspect-square bg-[#FFFDF9] flex items-center justify-center border-b border-border">
+        {coverImage
+          ? <img src={coverImage} alt="" style={{ width: 72, height: 72, objectFit: "contain" }} />
+          : <Sticker className="w-8 h-8 text-muted-foreground/40" />
+        }
+      </div>
+      <div className="p-3 flex-1 space-y-2">
+        <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 3 }}>
+          <p className="text-[12.5px] font-semibold text-foreground truncate">{pack.name}</p>
+          <div className="flex items-center gap-2">
+            <StatusChip status={pack.status} />
+            <span className="text-[10.5px] font-mono text-muted-foreground">{pack.price ? `$${Number(pack.price).toFixed(2)}` : "Free"}</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {((pack.tags as string[]) || []).slice(0, 3).map((t: string) => (
+            <span key={t} className="text-[10px] text-muted-foreground bg-muted/60 rounded-full px-1.5 py-0.5">{t}</span>
+          ))}
+        </div>
+      </div>
+      <div className="px-3 pb-3 flex items-center gap-1.5">
+        <ActionChip
+          label={isLive ? "Unpublish" : "Publish"}
+          onClick={onToggle} disabled={togglePending}
+          variant={isLive ? "secondary" : "primary"}
+        />
+        <a href={`/daybook/catalog/packs/${pack.id}`}
+          className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-border text-[12px] font-semibold text-foreground hover:bg-muted transition-colors">
+          Edit
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function LibraryCenter({
   filterOrigin, filterType, filterStatus, search, setSearch,
   selectedPreview, onSelectPreview, triggerCreate,
@@ -1024,6 +1142,18 @@ function LibraryCenter({
 
   return (
     <div className="space-y-4" style={{ minWidth: 0 }}>
+      {/* Compose heading */}
+      <div className="mb-2">
+        <div className="flex items-center justify-between mb-1.5">
+          <h1 className="font-display font-semibold text-[22px] text-foreground">Your sticker library</h1>
+          <button onClick={() => setShowCreate(true)} style={{ cursor: "pointer", background: "#C87560" }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold text-white hover:opacity-90 transition-opacity">
+            <Plus className="w-3.5 h-3.5" />✦ Add a sticker
+          </button>
+        </div>
+        <p className="text-[13px] text-muted-foreground">All platform stickers — starter, licensed, and store-owned. Click a thumbnail to preview at true scale.</p>
+      </div>
+
       {/* Search + new button */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1 min-w-0">
@@ -1083,21 +1213,11 @@ function LibraryCenter({
         />
       )}
 
-      {/* List */}
+      {/* Card grid */}
       {!isLoading && !error && stickers && stickers.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 px-3 py-1">
-            <Checkbox
-              checked={selected.size === stickers.length && stickers.length > 0}
-              onCheckedChange={() => {
-                if (selected.size === stickers.length) setSelected(new Set());
-                else setSelected(new Set(stickers.map((s) => s.id)));
-              }}
-            />
-            <span className="text-[11.5px] text-muted-foreground">Select all</span>
-          </div>
+        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(145px, 1fr))" }}>
           {stickers.map((s) => (
-            <LibraryRow key={s.id} sticker={s}
+            <StickerCard key={s.id} sticker={s}
               selected={selected.has(s.id)}
               onSelect={toggleSelect}
               onEdit={() => setEditTarget(s)}
@@ -1478,6 +1598,12 @@ function CreateCenter({
 
   return (
     <div className="space-y-6" style={{ minWidth: 0 }}>
+      {/* Compose heading */}
+      <div className="mb-2">
+        <h1 className="font-display font-semibold text-[22px] text-foreground mb-1.5">Create a sticker</h1>
+        <p className="text-[13px] text-muted-foreground">Three paths: upload your own artwork, brainstorm with AI, or generate a full labelled set server-side.</p>
+      </div>
+
       {/* PATH A: Upload artwork */}
       <div className="rounded-[14px] border bg-card shadow-sm p-5 space-y-4">
         <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 3 }}>
@@ -1721,17 +1847,16 @@ function PacksCenter({ packStatus, onNewPack }: { packStatus: string; onNewPack:
 
   return (
     <div className="space-y-4" style={{ minWidth: 0 }}>
-      <div className="flex items-center justify-between">
-        <p className="text-[11.5px] text-muted-foreground">
-          {!isLoading ? `${filtered.length} pack${filtered.length !== 1 ? "s" : ""}` : ""}
-        </p>
-        <button
-          onClick={onNewPack}
-          style={{ cursor: "pointer", background: CHIP_ACTIVE_BG, color: "#fff" }}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold hover:opacity-90 transition-opacity"
-        >
-          <Plus className="w-3.5 h-3.5" />New pack
-        </button>
+      {/* Compose heading */}
+      <div className="mb-2">
+        <div className="flex items-center justify-between mb-1.5">
+          <h1 className="font-display font-semibold text-[22px] text-foreground">Sticker packs</h1>
+          <button onClick={onNewPack} style={{ cursor: "pointer", background: "#C87560" }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold text-white hover:opacity-90 transition-opacity">
+            <Plus className="w-3.5 h-3.5" />New pack
+          </button>
+        </div>
+        <p className="text-[13px] text-muted-foreground">Sellable bundles — each pack groups stickers, sets the price, and controls which editions buyers can access it in.</p>
       </div>
 
       {isLoading && <SkeletonRows count={4} />}
@@ -1745,9 +1870,9 @@ function PacksCenter({ packStatus, onNewPack }: { packStatus: string; onNewPack:
         />
       )}
       {!isLoading && !error && filtered.length > 0 && (
-        <div className="space-y-2">
+        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}>
           {filtered.map((pack) => (
-            <PackRow key={pack.id} pack={pack} coverImage={pack.coverImage}
+            <PackCard key={pack.id} pack={pack} coverImage={pack.coverImage}
               onToggle={() => toggle(pack)}
               togglePending={pendingToggles.has(pack.id)} />
           ))}

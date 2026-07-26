@@ -230,8 +230,10 @@ export default function HardwareList() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: Partial<HardwareItem>) =>
-      apiFetch<HardwareItem>("/hardware", { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: (data: Partial<HardwareItem>) => {
+      const id = `hw-${String(data.name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24)}-${Date.now().toString(36)}`;
+      return apiFetch<HardwareItem>("/hardware", { method: "POST", body: JSON.stringify({ ...data, id }) });
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["platform-hardware"] }); toast({ title: "Hardware created" }); setCreateOpen(false); },
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });

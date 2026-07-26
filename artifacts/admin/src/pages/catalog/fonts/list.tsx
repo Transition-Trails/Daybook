@@ -234,8 +234,12 @@ export default function FontsList() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: Partial<FontItem>) =>
-      apiFetch<FontItem>("/fonts", { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: (data: Partial<FontItem>) => {
+      const id = `font-${String(data.familyName ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24)}-${Date.now().toString(36)}`;
+      // buildCatalogRoutes requires `name`; fontsTable stores `familyName`.
+      // Sending both satisfies the API guard; drizzle maps familyName → family_name and ignores the extra name key.
+      return apiFetch<FontItem>("/fonts", { method: "POST", body: JSON.stringify({ ...data, id, name: data.familyName }) });
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["platform-fonts"] }); toast({ title: "Font created" }); setCreateOpen(false); },
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });

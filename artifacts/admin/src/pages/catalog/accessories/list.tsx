@@ -191,8 +191,10 @@ export default function AccessoriesList() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: Partial<Accessory>) =>
-      apiFetch<Accessory>("/accessories", { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: (data: Partial<Accessory>) => {
+      const id = `acc-${String(data.name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24)}-${Date.now().toString(36)}`;
+      return apiFetch<Accessory>("/accessories", { method: "POST", body: JSON.stringify({ ...data, id }) });
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["platform-accessories"] }); toast({ title: "Accessory created" }); setCreateOpen(false); },
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });

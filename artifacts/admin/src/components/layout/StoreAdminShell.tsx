@@ -122,24 +122,35 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     return (
       <Link key={href} href={href}>
         <span
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors"
+          className="flex items-center gap-3 py-2 rounded-lg text-sm cursor-pointer transition-colors"
           style={
             active
-              ? { background: "hsl(12 49% 58% / 0.2)", color: "hsl(12 70% 80%)" }
-              : { color: "hsl(35 30% 70%)" }
+              ? {
+                  background: "rgba(200, 117, 96, 0.10)",
+                  color: "#1B2A4A",
+                  borderLeft: "3px solid #C87560",
+                  paddingLeft: "calc(0.75rem - 3px)",
+                  paddingRight: "0.75rem",
+                  fontWeight: 600,
+                }
+              : {
+                  color: "#4A6080",
+                  paddingLeft: "0.75rem",
+                  paddingRight: "0.75rem",
+                }
           }
           onMouseEnter={e => {
-            if (!active) (e.currentTarget as HTMLElement).style.background = "hsl(221 46% 23%)";
-            if (!active) (e.currentTarget as HTMLElement).style.color = "hsl(35 50% 88%)";
+            if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.04)";
+            if (!active) (e.currentTarget as HTMLElement).style.color = "#1B2A4A";
           }}
           onMouseLeave={e => {
             if (!active) (e.currentTarget as HTMLElement).style.background = "";
-            if (!active) (e.currentTarget as HTMLElement).style.color = "hsl(35 30% 70%)";
+            if (!active) (e.currentTarget as HTMLElement).style.color = "#4A6080";
           }}
         >
           <Icon className="w-4 h-4 shrink-0" />
           <span>{label}</span>
-          {active && <ChevronRight className="w-3 h-3 ml-auto opacity-60" />}
+          {active && <ChevronRight className="w-3 h-3 ml-auto" style={{ color: "#C87560", opacity: 0.8 }} />}
         </span>
       </Link>
     );
@@ -150,19 +161,19 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
       {/* ── Sidebar ──────────────────────────────────────────────────── */}
       <aside
         className="w-60 shrink-0 flex flex-col"
-        style={{ background: "hsl(221 46% 17%)" }}
+        style={{ background: "#F7F0E6", borderRight: "1px solid #E7DCCB" }}
       >
         {/* Scope identity: Store: <name> */}
         <div
           className="h-14 flex items-center px-5 gap-2 border-b shrink-0"
-          style={{ borderColor: "hsl(221 46% 24%)" }}
+          style={{ borderColor: "#E7DCCB" }}
         >
           <BookMarked className="w-5 h-5 text-[#C87560] shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="font-display font-semibold text-[hsl(35_52%_88%)] text-sm truncate leading-tight">
+            <p className="font-display font-semibold text-sm truncate leading-tight" style={{ color: "#1B2A4A" }}>
               {store.name}
             </p>
-            <p className="text-[10px] leading-tight" style={{ color: "hsl(35 20% 45%)" }}>
+            <p className="text-[10px] leading-tight" style={{ color: "#8A7B6A" }}>
               Store admin
             </p>
           </div>
@@ -183,14 +194,20 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
         )}
 
         {/* Nav */}
-        <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
+        <nav
+          className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto"
+          style={{
+            scrollbarWidth: "thin",
+            scrollbarColor: "rgba(0,0,0,0.10) transparent",
+          } as React.CSSProperties}
+        >
           {NAV.map(({ label, icon: Icon, href }) => navItem(label, Icon, href))}
 
           {/* Settings section */}
           <div className="pt-3 pb-1">
             <div className="flex items-center gap-1.5 px-3 mb-1">
-              <Settings2 className="w-3 h-3" style={{ color: "hsl(35 20% 45%)" }} />
-              <p className="text-[10px] uppercase tracking-wider" style={{ color: "hsl(35 20% 45%)" }}>
+              <Settings2 className="w-3 h-3" style={{ color: "#A89880" }} />
+              <p className="text-[10px] uppercase tracking-[0.18em] font-medium" style={{ color: "#A89880" }}>
                 Settings
               </p>
             </div>
@@ -200,8 +217,8 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
           {/* AI Studios section */}
           <div className="pt-3 pb-1">
             <div className="flex items-center gap-1.5 px-3 mb-1">
-              <Sparkles className="w-3 h-3" style={{ color: "hsl(35 20% 45%)" }} />
-              <p className="text-[10px] uppercase tracking-wider" style={{ color: "hsl(35 20% 45%)" }}>
+              <Sparkles className="w-3 h-3" style={{ color: "#A89880" }} />
+              <p className="text-[10px] uppercase tracking-[0.18em] font-medium" style={{ color: "#A89880" }}>
                 AI Studios
               </p>
             </div>
@@ -210,7 +227,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
             ) : (
               <span
                 className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm opacity-40 cursor-default"
-                style={{ color: "hsl(35 30% 70%)" }}
+                style={{ color: "#4A6080" }}
                 title="AI studios aren't enabled for your plan"
               >
                 <Sparkles className="w-4 h-4 shrink-0" />
@@ -222,22 +239,22 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
 
         {/* Store switcher (if member of multiple stores) */}
         {allStores.length > 1 && (
-          <div className="px-2 py-2 border-t" style={{ borderColor: "hsl(221 46% 24%)" }}>
-            <p className="px-3 mb-1 text-[10px] uppercase tracking-wider" style={{ color: "hsl(35 20% 45%)" }}>
+          <div className="px-2 py-2 border-t" style={{ borderColor: "#E7DCCB" }}>
+            <p className="px-3 mb-1 text-[10px] uppercase tracking-[0.18em] font-medium" style={{ color: "#A89880" }}>
               My stores
             </p>
             {allStores.filter(s => resolveStoreId(s) !== resolveStoreId(store)).map(s => (
               <Link key={resolveStoreId(s)} href={`/store/${resolveStoreId(s)}`}>
                 <span
                   className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs cursor-pointer"
-                  style={{ color: "hsl(35 20% 55%)" }}
+                  style={{ color: "#4A6080" }}
                   onMouseEnter={e => {
-                    (e.currentTarget as HTMLElement).style.background = "hsl(221 46% 23%)";
-                    (e.currentTarget as HTMLElement).style.color = "hsl(35 40% 78%)";
+                    (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.04)";
+                    (e.currentTarget as HTMLElement).style.color = "#1B2A4A";
                   }}
                   onMouseLeave={e => {
                     (e.currentTarget as HTMLElement).style.background = "";
-                    (e.currentTarget as HTMLElement).style.color = "hsl(35 20% 55%)";
+                    (e.currentTarget as HTMLElement).style.color = "#4A6080";
                   }}
                 >
                   <ArrowLeft className="w-3 h-3" />
@@ -251,20 +268,20 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
         {/* User footer */}
         <div
           className="px-4 py-3 border-t flex items-center gap-3 shrink-0"
-          style={{ borderColor: "hsl(221 46% 24%)" }}
+          style={{ borderColor: "#E7DCCB" }}
         >
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate" style={{ color: "hsl(35 50% 85%)" }}>
+            <p className="text-sm font-medium truncate" style={{ color: "#1B2A4A" }}>
               {user?.name}
             </p>
-            <p className="text-xs truncate" style={{ color: "hsl(35 20% 55%)" }}>
+            <p className="text-xs truncate" style={{ color: "#8A7B6A" }}>
               {rolePretty[role] ?? role}
             </p>
           </div>
           <button
             onClick={handleLogout}
-            className="p-1.5 rounded-md transition-colors"
-            style={{ color: "hsl(35 20% 55%)" }}
+            className="p-1.5 rounded-md transition-colors hover:bg-black/5"
+            style={{ color: "#8A7B6A" }}
             title="Sign out"
           >
             <LogOut className="w-4 h-4" />

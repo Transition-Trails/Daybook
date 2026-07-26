@@ -11,18 +11,25 @@ import path from "path";
 import { applyBorderAndSize, addDropShadow } from "./imageProcessing";
 
 // ── Font map ─────────────────────────────────────────────────────────────────
+// Primary set mirrors the Daybook web UI (Instrument Sans + Spectral).
+// TTF files are bundled at src/lib/fonts/ (downloaded from Google Fonts CDN).
+// DejaVu Mono kept as fallback for "mono" keys.
 
-const FONT_DIR = "/usr/share/fonts/truetype/dejavu";
+const BUNDLED_FONT_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), "fonts");
+const DEJAVU_FONT_DIR  = "/usr/share/fonts/truetype/dejavu";
 
-interface FontSpec { file: string; family: string; weight: string }
+interface FontSpec { file: string; dir: string; family: string; weight: string }
 
 const FONT_MAP: Record<string, FontSpec> = {
-  "sans":       { file: "DejaVuSans.ttf",         family: "DejaVu Sans",      weight: "normal" },
-  "sans-bold":  { file: "DejaVuSans-Bold.ttf",     family: "DejaVu Sans",      weight: "bold"   },
-  "serif":      { file: "DejaVuSerif.ttf",         family: "DejaVu Serif",     weight: "normal" },
-  "serif-bold": { file: "DejaVuSerif-Bold.ttf",    family: "DejaVu Serif",     weight: "bold"   },
-  "mono":       { file: "DejaVuSansMono.ttf",      family: "DejaVu Sans Mono", weight: "normal" },
-  "mono-bold":  { file: "DejaVuSansMono-Bold.ttf", family: "DejaVu Sans Mono", weight: "bold"   },
+  // Instrument Sans (sans-serif, matches app UI default body font)
+  "sans":        { dir: BUNDLED_FONT_DIR, file: "InstrumentSans-Regular.ttf", family: "Instrument Sans", weight: "normal" },
+  "sans-bold":   { dir: BUNDLED_FONT_DIR, file: "InstrumentSans-Bold.ttf",    family: "Instrument Sans", weight: "bold"   },
+  // Spectral (serif display, matches app UI display font)
+  "serif":       { dir: BUNDLED_FONT_DIR, file: "Spectral-Regular.ttf",        family: "Spectral",        weight: "normal" },
+  "serif-bold":  { dir: BUNDLED_FONT_DIR, file: "Spectral-Bold.ttf",           family: "Spectral",        weight: "bold"   },
+  // DejaVu Mono (system fallback for monospace)
+  "mono":        { dir: DEJAVU_FONT_DIR,  file: "DejaVuSansMono.ttf",          family: "DejaVu Sans Mono", weight: "normal" },
+  "mono-bold":   { dir: DEJAVU_FONT_DIR,  file: "DejaVuSansMono-Bold.ttf",     family: "DejaVu Sans Mono", weight: "bold"   },
 };
 
 // ── Label generators ─────────────────────────────────────────────────────────
@@ -102,7 +109,7 @@ export async function renderLabelPng(params: {
   } = params;
 
   const spec      = FONT_MAP[fontKey] ?? FONT_MAP["sans-bold"];
-  const fontPath  = path.join(FONT_DIR, spec.file);
+  const fontPath  = path.join(spec.dir, spec.file);
   const fontSize  = computeFontSize(label);
   const canvasSize = 400;
 

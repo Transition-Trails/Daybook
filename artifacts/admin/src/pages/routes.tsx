@@ -66,6 +66,7 @@ import PlannerLibrary from '@/pages/ink/PlannerLibrary';
 import PlannerBuilder from '@/pages/planners/builder';
 import ThemeStudio from '@/pages/studios/ThemeStudio';
 import EditionStudio from '@/pages/studios/EditionStudio';
+import EditionNew from '@/pages/editions/new';
 import StudioTrendResearch from '@/pages/studios/TrendResearch';
 import StickerStudio from '@/pages/studios/StickerStudio';
 
@@ -104,6 +105,7 @@ export const routes = [
   { path: "/catalog/packs",            component: PacksList },              // → Sticker Studio · Packs
   { path: "/catalog/packs/:id",        component: PackDetail },
   { path: "/editions",                 component: EditionsList },           // → Planner Studio · Editions
+  { path: "/editions/new",             component: EditionNew },             // standalone two-path create
   { path: "/editions/:id",             component: EditionDetail },
   { path: "/planners/builder",         component: PlannerBuilder },         // → Planner Studio · Build
   { path: "/studios/theme",            component: ThemeStudio },            // → Planner Studio · Theme

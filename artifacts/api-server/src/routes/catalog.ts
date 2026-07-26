@@ -231,7 +231,7 @@ async function loadFonts(themeIds: string[]): Promise<Record<string, RichSlotIte
   const out: Record<string, RichSlotItem[]> = {};
   for (const r of rows) {
     if (!out[r.themeId]) out[r.themeId] = [];
-    out[r.themeId].push({ id: r.item.id, name: (r.item as unknown as { family_name: string }).family_name, position: r.position });
+    out[r.themeId].push({ id: r.item.id, name: r.item.familyName, position: r.position });
   }
   return out;
 }
@@ -441,6 +441,137 @@ buildCatalogRoutes(router, "/backgrounds",backgroundsTable,     "Background");
 buildCatalogRoutes(router, "/packs",      stickerPacksTable,    "StickerPack");
 buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert",       { dedupByName: true });
 buildCatalogRoutes(router, "/products",   relatedProductsTable, "RelatedProduct");
+
+// ── Hardware routes ──────────────────────────────────────────────────────────
+// GET list/detail use standard visibility; POST auto-generates id (form never sends one).
+
+router.get("/hardware", async (req: Request, res: Response): Promise<void> => {
+  const rows = isPublicCaller(req)
+    ? await db.select().from(hardwareTable).where(eq(hardwareTable.status, "live")).orderBy(hardwareTable.createdAt)
+    : await db.select().from(hardwareTable).where(ne(hardwareTable.status, "deleted")).orderBy(hardwareTable.createdAt);
+  res.json(rows);
+});
+
+router.get("/hardware/:id", async (req: Request, res: Response): Promise<void> => {
+  const [row] = await db.select().from(hardwareTable).where(eq(hardwareTable.id, req.params.id as string)) as (typeof hardwareTable.$inferSelect | undefined)[];
+  if (!row || row.status === "deleted") { res.status(404).json({ error: "Hardware not found" }); return; }
+  if (isPublicCaller(req) && row.status !== "live") { res.status(404).json({ error: "Hardware not found" }); return; }
+  res.json(row);
+});
+
+router.post("/hardware", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const body = req.body as Record<string, unknown>;
+  if (!body.name) { res.status(400).json({ error: "name is required" }); return; }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [row] = await db.insert(hardwareTable).values({ id: String(body.id ?? crypto.randomUUID()), ...body as any, status: (body.status as string) ?? "draft" }).returning();
+    res.status(201).json(row);
+  } catch (err) {
+    const msg = String(err);
+    if (msg.includes("duplicate") || msg.includes("unique")) { res.status(409).json({ error: "Hardware with that id already exists" }); }
+    else { req.log.error({ err }, "Hardware create failed"); res.status(500).json({ error: "Create failed" }); }
+  }
+});
+
+router.patch("/hardware/:id", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const body = req.body as Record<string, unknown>; delete body.id;
+  const [row] = await db.update(hardwareTable).set(body as Partial<typeof hardwareTable.$inferInsert>).where(eq(hardwareTable.id, req.params.id as string)).returning();
+  if (!row) { res.status(404).json({ error: "Hardware not found" }); return; }
+  res.json(row);
+});
+
+router.delete("/hardware/:id", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const [row] = await db.update(hardwareTable).set({ status: "deleted" }).where(eq(hardwareTable.id, req.params.id as string)).returning();
+  if (!row) { res.status(404).json({ error: "Hardware not found" }); return; }
+  res.sendStatus(204);
+});
+
+// ── Accessories routes ────────────────────────────────────────────────────────
+
+router.get("/accessories", async (req: Request, res: Response): Promise<void> => {
+  const rows = isPublicCaller(req)
+    ? await db.select().from(accessoriesTable).where(eq(accessoriesTable.status, "live")).orderBy(accessoriesTable.createdAt)
+    : await db.select().from(accessoriesTable).where(ne(accessoriesTable.status, "deleted")).orderBy(accessoriesTable.createdAt);
+  res.json(rows);
+});
+
+router.get("/accessories/:id", async (req: Request, res: Response): Promise<void> => {
+  const [row] = await db.select().from(accessoriesTable).where(eq(accessoriesTable.id, req.params.id as string)) as (typeof accessoriesTable.$inferSelect | undefined)[];
+  if (!row || row.status === "deleted") { res.status(404).json({ error: "Accessory not found" }); return; }
+  if (isPublicCaller(req) && row.status !== "live") { res.status(404).json({ error: "Accessory not found" }); return; }
+  res.json(row);
+});
+
+router.post("/accessories", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const body = req.body as Record<string, unknown>;
+  if (!body.name) { res.status(400).json({ error: "name is required" }); return; }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [row] = await db.insert(accessoriesTable).values({ id: String(body.id ?? crypto.randomUUID()), ...body as any, status: (body.status as string) ?? "draft" }).returning();
+    res.status(201).json(row);
+  } catch (err) {
+    const msg = String(err);
+    if (msg.includes("duplicate") || msg.includes("unique")) { res.status(409).json({ error: "Accessory with that id already exists" }); }
+    else { req.log.error({ err }, "Accessory create failed"); res.status(500).json({ error: "Create failed" }); }
+  }
+});
+
+router.patch("/accessories/:id", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const body = req.body as Record<string, unknown>; delete body.id;
+  const [row] = await db.update(accessoriesTable).set(body as Partial<typeof accessoriesTable.$inferInsert>).where(eq(accessoriesTable.id, req.params.id as string)).returning();
+  if (!row) { res.status(404).json({ error: "Accessory not found" }); return; }
+  res.json(row);
+});
+
+router.delete("/accessories/:id", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const [row] = await db.update(accessoriesTable).set({ status: "deleted" }).where(eq(accessoriesTable.id, req.params.id as string)).returning();
+  if (!row) { res.status(404).json({ error: "Accessory not found" }); return; }
+  res.sendStatus(204);
+});
+
+// ── Fonts routes ──────────────────────────────────────────────────────────────
+// Font rows use familyName (not name) and always auto-generate an id on create.
+
+router.get("/fonts", async (req: Request, res: Response): Promise<void> => {
+  const rows = isPublicCaller(req)
+    ? await db.select().from(fontsTable).where(eq(fontsTable.status, "live")).orderBy(fontsTable.createdAt)
+    : await db.select().from(fontsTable).where(ne(fontsTable.status, "deleted")).orderBy(fontsTable.createdAt);
+  res.json(rows);
+});
+
+router.get("/fonts/:id", async (req: Request, res: Response): Promise<void> => {
+  const [row] = await db.select().from(fontsTable).where(eq(fontsTable.id, req.params.id as string)) as (typeof fontsTable.$inferSelect | undefined)[];
+  if (!row || row.status === "deleted") { res.status(404).json({ error: "Font not found" }); return; }
+  if (isPublicCaller(req) && row.status !== "live") { res.status(404).json({ error: "Font not found" }); return; }
+  res.json(row);
+});
+
+router.post("/fonts", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const body = req.body as Record<string, unknown>;
+  if (!body.familyName) { res.status(400).json({ error: "familyName is required" }); return; }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [row] = await db.insert(fontsTable).values({ id: String(body.id ?? crypto.randomUUID()), ...body as any, status: (body.status as string) ?? "draft" }).returning();
+    res.status(201).json(row);
+  } catch (err) {
+    const msg = String(err);
+    if (msg.includes("duplicate") || msg.includes("unique")) { res.status(409).json({ error: "Font with that id already exists" }); }
+    else { req.log.error({ err }, "Font create failed"); res.status(500).json({ error: "Create failed" }); }
+  }
+});
+
+router.patch("/fonts/:id", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const body = req.body as Record<string, unknown>; delete body.id;
+  const [row] = await db.update(fontsTable).set(body as Partial<typeof fontsTable.$inferInsert>).where(eq(fontsTable.id, req.params.id as string)).returning();
+  if (!row) { res.status(404).json({ error: "Font not found" }); return; }
+  res.json(row);
+});
+
+router.delete("/fonts/:id", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const [row] = await db.update(fontsTable).set({ status: "deleted" }).where(eq(fontsTable.id, req.params.id as string)).returning();
+  if (!row) { res.status(404).json({ error: "Font not found" }); return; }
+  res.sendStatus(204);
+});
 
 // ── Theme composer routes ─────────────────────────────────────────────────────
 // PUT   /themes/:id/palettes

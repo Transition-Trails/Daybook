@@ -224,7 +224,8 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
                 AI Studios
               </p>
             </div>
-            {aiEnabled ? (
+            {/* Super admins can always navigate to studios regardless of store plan */}
+            {(aiEnabled || isSuperAdminBrowsing) ? (
               STUDIO_NAV.map(({ label, icon: Icon, href }) => navItem(label, Icon, href))
             ) : (
               <span

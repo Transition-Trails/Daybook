@@ -14,6 +14,7 @@ import { Shell } from "@/components/layout/Shell";
 import { SuperAdminShell } from "@/components/layout/SuperAdminShell";
 import { StoreAdminShell } from "@/components/layout/StoreAdminShell";
 import { AiDrawerProvider } from "@/contexts/AiDrawerContext";
+import { RequireStore, RequireSuperAdmin, StoreStudioLoader } from "@/lib/guards";
 import { GlobalAiDrawer } from "@/components/layout/GlobalAiDrawer";
 import { useConsole } from "@/lib/useConsole";
 import { resolveStoreId } from "@/lib/api";
@@ -83,8 +84,6 @@ import StoreInspector from "@/pages/super/StoreInspector";
 
 // ── Store Settings ────────────────────────────────────────────────────────────
 import StoreProfile from "@/pages/store/settings/StoreProfile";
-import { useQuery } from "@tanstack/react-query";
-import { storesApi, resolveStoreId as _resolveStoreId } from "@/lib/api";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -466,77 +465,8 @@ function RootRouter() {
   );
 }
 
-// ── Store studio aiEnabled loader ─────────────────────────────────────────────
-// Fetches store flags once (cached by React Query) and passes aiEnabled to
-// the studio child. Keeps route definitions slim.
-// Super admins bypass the loading gate — they can always access studios
-// regardless of the store's AI plan. The studio page itself renders (showing
-// a "not enabled" message when aiEnabled=false) rather than a blank spinner.
-function StoreStudioLoader({
-  storeId,
-  isSuperAdmin = false,
-  children,
-}: {
-  storeId: string;
-  isSuperAdmin?: boolean;
-  children: (aiEnabled: boolean) => React.ReactNode;
-}) {
-  const { data: flags, isLoading } = useQuery({
-    queryKey: ["store-flags", storeId],
-    queryFn: () => storesApi.flags.get(storeId),
-    staleTime: 60_000,
-  });
-  // Super admins skip the loading gate so they never see a blank spinner.
-  // For regular users, wait until we know the real value — avoids a false→true
-  // flip that would violate React's rules of hooks inside the studio component.
-  if (isLoading && !isSuperAdmin) {
-    return (
-      <div className="flex items-center justify-center min-h-[300px]">
-        <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    );
-  }
-  return <>{children(flags?.aiEnabled ?? false)}</>;
-}
-
-// ── Guards ────────────────────────────────────────────────────────────────────
-function RequireSuperAdmin({
-  state,
-  children,
-}: {
-  state: ReturnType<typeof useConsole>;
-  children: React.ReactNode;
-}) {
-  if (state.kind === "super") return <>{children}</>;
-  return <Redirect to="/unauthorized" />;
-}
-
-function RequireStore({
-  state,
-  storeId,
-  children,
-}: {
-  state: ReturnType<typeof useConsole>;
-  storeId: string | undefined;
-  children: (store: ReturnType<typeof useConsole>["stores"][number]) => React.ReactNode;
-}) {
-  // super_admin can access any store
-  if (state.kind === "super" && storeId) {
-    const store = state.stores.find(
-      (s) => (s.storeId ?? (s as any).id) === storeId,
-    ) ?? { storeId, id: storeId, name: storeId, role: "super_admin" } as any;
-    return <>{children(store)}</>;
-  }
-
-  if (state.kind === "store") {
-    const store = state.stores.find(
-      (s) => (s.storeId ?? (s as any).id) === storeId,
-    );
-    if (store) return <>{children(store)}</>;
-  }
-
-  return <Redirect to="/unauthorized" />;
-}
+// Guards and StoreStudioLoader are exported from @/lib/guards so they can be
+// imported in tests and exercised directly. The imports are at the top of this file.
 
 // ── Top-level App ─────────────────────────────────────────────────────────────
 

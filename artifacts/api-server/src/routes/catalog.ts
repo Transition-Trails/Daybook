@@ -6,6 +6,15 @@
  *   - POST / PATCH / DELETE: super_admin only (central catalog is platform-managed).
  *
  * Store-scoped catalog curation is handled in /stores/:storeId/catalog.
+ *
+ * Themes are returned ENRICHED with palettes[], backgrounds[], and packs[]
+ * on both GET /themes and GET /themes/:id.
+ *
+ * Theme composer endpoints (requireSuperAdmin):
+ *   PUT   /themes/:id/palettes      — replace palette set (body: {paletteId, isPrimary?, position?}[])
+ *   PUT   /themes/:id/backgrounds   — replace background set (body: {backgroundId, position?}[])
+ *   PUT   /themes/:id/packs         — replace pack set (body: {packId, position?}[])
+ *   PATCH /themes/:id/font-pairing  — set font pairing object
  */
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
@@ -17,8 +26,11 @@ import {
   insertsTable,
   relatedProductsTable,
   editionsTable,
+  themePalettesTable,
+  themeBackgroundsTable,
+  themePacksTable,
 } from "@workspace/db";
-import { eq, ne, and } from "drizzle-orm";
+import { eq, ne, and, inArray, asc } from "drizzle-orm";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { isSuperAdmin } from "../lib/roles";
 import { writeAudit } from "../lib/audit";
@@ -35,6 +47,137 @@ function isPublicCaller(req: Request): boolean {
   return !isSuperAdmin(user) && user.role !== "staff";
 }
 
+// ── Theme enrichment helpers ───────────────────────────────────────────────
+
+type RichPalette = { id: string; name: string; colors: string[]; isPrimary: boolean; position: number };
+type RichBackground = { id: string; name: string; type: string; value: string | null; position: number };
+type RichPack = { id: string; name: string; position: number };
+
+async function loadPalettes(themeIds: string[]): Promise<Record<string, RichPalette[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({
+      themeId:   themePalettesTable.themeId,
+      isPrimary: themePalettesTable.isPrimary,
+      position:  themePalettesTable.position,
+      palette:   palettesTable,
+    })
+    .from(themePalettesTable)
+    .innerJoin(palettesTable, eq(themePalettesTable.paletteId, palettesTable.id))
+    .where(inArray(themePalettesTable.themeId, themeIds))
+    .orderBy(themePalettesTable.themeId, asc(themePalettesTable.position));
+  const out: Record<string, RichPalette[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push({
+      id:        r.palette.id,
+      name:      r.palette.name,
+      colors:    r.palette.colors as string[],
+      isPrimary: r.isPrimary,
+      position:  r.position,
+    });
+  }
+  return out;
+}
+
+async function loadBackgrounds(themeIds: string[]): Promise<Record<string, RichBackground[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({
+      themeId:    themeBackgroundsTable.themeId,
+      position:   themeBackgroundsTable.position,
+      background: backgroundsTable,
+    })
+    .from(themeBackgroundsTable)
+    .innerJoin(backgroundsTable, eq(themeBackgroundsTable.backgroundId, backgroundsTable.id))
+    .where(inArray(themeBackgroundsTable.themeId, themeIds))
+    .orderBy(themeBackgroundsTable.themeId, asc(themeBackgroundsTable.position));
+  const out: Record<string, RichBackground[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push({
+      id:       r.background.id,
+      name:     r.background.name,
+      type:     r.background.type,
+      value:    (r.background as Record<string, unknown>).value as string | null,
+      position: r.position,
+    });
+  }
+  return out;
+}
+
+async function loadPacks(themeIds: string[]): Promise<Record<string, RichPack[]>> {
+  if (!themeIds.length) return {};
+  const rows = await db
+    .select({
+      themeId:  themePacksTable.themeId,
+      position: themePacksTable.position,
+      pack:     stickerPacksTable,
+    })
+    .from(themePacksTable)
+    .innerJoin(stickerPacksTable, eq(themePacksTable.packId, stickerPacksTable.id))
+    .where(inArray(themePacksTable.themeId, themeIds))
+    .orderBy(themePacksTable.themeId, asc(themePacksTable.position));
+  const out: Record<string, RichPack[]> = {};
+  for (const r of rows) {
+    if (!out[r.themeId]) out[r.themeId] = [];
+    out[r.themeId].push({ id: r.pack.id, name: r.pack.name, position: r.position });
+  }
+  return out;
+}
+
+function enrichThemes(
+  themes: (typeof themesTable.$inferSelect)[],
+  palettesMap: Record<string, RichPalette[]>,
+  backgroundsMap: Record<string, RichBackground[]>,
+  packsMap: Record<string, RichPack[]>,
+) {
+  return themes.map(t => ({
+    ...t,
+    palettes:    palettesMap[t.id]    ?? [],
+    backgrounds: backgroundsMap[t.id] ?? [],
+    packs:       packsMap[t.id]       ?? [],
+  }));
+}
+
+// ── Enriched GET /themes (overrides buildCatalogRoutes list for themes) ────
+
+router.get("/themes", async (req: Request, res: Response): Promise<void> => {
+  const themes = isPublicCaller(req)
+    ? await db.select().from(themesTable).where(eq(themesTable.status, "live")).orderBy(themesTable.createdAt)
+    : await db.select().from(themesTable).where(ne(themesTable.status, "deleted")).orderBy(themesTable.createdAt);
+
+  const ids = themes.map(t => t.id);
+  const [palettesMap, backgroundsMap, packsMap] = await Promise.all([
+    loadPalettes(ids),
+    loadBackgrounds(ids),
+    loadPacks(ids),
+  ]);
+  res.json(enrichThemes(themes, palettesMap, backgroundsMap, packsMap));
+});
+
+// ── Enriched GET /themes/:id (overrides buildCatalogRoutes detail) ─────────
+
+router.get("/themes/:id", async (req: Request, res: Response): Promise<void> => {
+  const { id } = req.params;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [theme] = await db.select().from(themesTable).where(eq(themesTable.id, id)) as any[];
+  if (!theme || theme.status === "deleted") {
+    res.status(404).json({ error: "Theme not found" });
+    return;
+  }
+  if (isPublicCaller(req) && theme.status !== "live") {
+    res.status(404).json({ error: "Theme not found" });
+    return;
+  }
+  const [palettesMap, backgroundsMap, packsMap] = await Promise.all([
+    loadPalettes([id]),
+    loadBackgrounds([id]),
+    loadPacks([id]),
+  ]);
+  res.json(enrichThemes([theme], palettesMap, backgroundsMap, packsMap)[0]);
+});
+
 // ── Generic CRUD factory ─────────────────────────────────────────────────────
 
 function normalizeName(n: string): string {
@@ -50,6 +193,7 @@ function buildCatalogRoutes(
   options: { dedupByName?: boolean } = {},
 ) {
   // GET /{entity} — public: live only; admin: all non-deleted
+  // NOTE: for /themes this is shadowed by the enriched handler above.
   router.get(path, async (req: Request, res: Response): Promise<void> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rows: any[];
@@ -61,7 +205,7 @@ function buildCatalogRoutes(
     res.json(rows);
   });
 
-  // GET /{entity}/:id
+  // GET /{entity}/:id — NOTE: for /themes/:id shadowed by enriched handler above.
   router.get(`${path}/:id`, async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -116,7 +260,6 @@ function buildCatalogRoutes(
         return;
       }
     }
-    // ─────────────────────────────────────────────────────────────────────
 
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -134,7 +277,6 @@ function buildCatalogRoutes(
   });
 
   // PATCH /{entity}/:id — super_admin only
-  // Also handles publish ({status:"live"}) and globalAvailable flag changes.
   router.patch(`${path}/:id`, requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
     const body = req.body as Record<string, unknown>;
@@ -156,6 +298,8 @@ function buildCatalogRoutes(
 }
 
 // ── Register all catalog entities ────────────────────────────────────────────
+// NOTE: The GET /themes and GET /themes/:id are already handled by the enriched
+// routes above; these registrations add POST / PATCH / DELETE for themes.
 
 buildCatalogRoutes(router, "/themes",      themesTable,          "Theme");
 buildCatalogRoutes(router, "/palettes",   palettesTable,        "Palette");
@@ -164,10 +308,225 @@ buildCatalogRoutes(router, "/packs",      stickerPacksTable,    "StickerPack");
 buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert",       { dedupByName: true });
 buildCatalogRoutes(router, "/products",   relatedProductsTable, "RelatedProduct");
 
+// ── Theme composer routes ─────────────────────────────────────────────────────
+// PUT   /themes/:id/palettes
+// PUT   /themes/:id/backgrounds
+// PUT   /themes/:id/packs
+// PATCH /themes/:id/font-pairing
+
+// Helper: resolve theme or 404
+async function requireTheme(id: string, res: Response) {
+  const [theme] = await db
+    .select()
+    .from(themesTable)
+    .where(and(eq(themesTable.id, id), ne(themesTable.status, "deleted")));
+  if (!theme) {
+    res.status(404).json({ error: "Theme not found" });
+    return null;
+  }
+  return theme;
+}
+
+/** PUT /themes/:id/palettes — replace palette set for a platform theme. */
+router.put(
+  "/themes/:id/palettes",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const theme = await requireTheme(id, res);
+    if (!theme) return;
+
+    const body = req.body as { paletteId: string; isPrimary?: boolean; position?: number }[];
+    if (!Array.isArray(body)) {
+      res.status(400).json({ error: "Body must be an array of palette link objects" });
+      return;
+    }
+
+    // Validate all paletteIds exist
+    if (body.length) {
+      const ids = body.map(p => p.paletteId);
+      const found = await db
+        .select({ id: palettesTable.id })
+        .from(palettesTable)
+        .where(inArray(palettesTable.id, ids));
+      const foundIds = new Set(found.map(r => r.id));
+      const missing = ids.filter(i => !foundIds.has(i));
+      if (missing.length) {
+        res.status(422).json({ error: `Palette IDs not found: ${missing.join(", ")}` });
+        return;
+      }
+    }
+
+    await db.delete(themePalettesTable).where(eq(themePalettesTable.themeId, id));
+    if (body.length) {
+      await db.insert(themePalettesTable).values(
+        body.map((p, i) => ({
+          themeId:   id,
+          paletteId: p.paletteId,
+          position:  p.position ?? i,
+          isPrimary: p.isPrimary ?? i === 0,
+        })),
+      );
+    }
+
+    await writeAudit(db, {
+      actorUserId: req.actor!.userId,
+      actorRole:   req.actor!.effectiveRole,
+      scope:       "platform",
+      action:      "catalog.theme.palettes.set",
+      targetType:  "theme",
+      targetId:    id,
+      metadata:    { count: body.length },
+    });
+
+    const palettesMap = await loadPalettes([id]);
+    res.json(palettesMap[id] ?? []);
+  },
+);
+
+/** PUT /themes/:id/backgrounds — replace background set for a platform theme. */
+router.put(
+  "/themes/:id/backgrounds",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const theme = await requireTheme(id, res);
+    if (!theme) return;
+
+    const body = req.body as { backgroundId: string; position?: number }[];
+    if (!Array.isArray(body)) {
+      res.status(400).json({ error: "Body must be an array of background link objects" });
+      return;
+    }
+
+    if (body.length) {
+      const ids = body.map(b => b.backgroundId);
+      const found = await db
+        .select({ id: backgroundsTable.id })
+        .from(backgroundsTable)
+        .where(inArray(backgroundsTable.id, ids));
+      const foundIds = new Set(found.map(r => r.id));
+      const missing = ids.filter(i => !foundIds.has(i));
+      if (missing.length) {
+        res.status(422).json({ error: `Background IDs not found: ${missing.join(", ")}` });
+        return;
+      }
+    }
+
+    await db.delete(themeBackgroundsTable).where(eq(themeBackgroundsTable.themeId, id));
+    if (body.length) {
+      await db.insert(themeBackgroundsTable).values(
+        body.map((b, i) => ({
+          themeId:      id,
+          backgroundId: b.backgroundId,
+          position:     b.position ?? i,
+        })),
+      );
+    }
+
+    await writeAudit(db, {
+      actorUserId: req.actor!.userId,
+      actorRole:   req.actor!.effectiveRole,
+      scope:       "platform",
+      action:      "catalog.theme.backgrounds.set",
+      targetType:  "theme",
+      targetId:    id,
+      metadata:    { count: body.length },
+    });
+
+    const backgroundsMap = await loadBackgrounds([id]);
+    res.json(backgroundsMap[id] ?? []);
+  },
+);
+
+/** PUT /themes/:id/packs — replace pack set for a platform theme. */
+router.put(
+  "/themes/:id/packs",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const theme = await requireTheme(id, res);
+    if (!theme) return;
+
+    const body = req.body as { packId: string; position?: number }[];
+    if (!Array.isArray(body)) {
+      res.status(400).json({ error: "Body must be an array of pack link objects" });
+      return;
+    }
+
+    if (body.length) {
+      const ids = body.map(p => p.packId);
+      const found = await db
+        .select({ id: stickerPacksTable.id })
+        .from(stickerPacksTable)
+        .where(inArray(stickerPacksTable.id, ids));
+      const foundIds = new Set(found.map(r => r.id));
+      const missing = ids.filter(i => !foundIds.has(i));
+      if (missing.length) {
+        res.status(422).json({ error: `Pack IDs not found: ${missing.join(", ")}` });
+        return;
+      }
+    }
+
+    await db.delete(themePacksTable).where(eq(themePacksTable.themeId, id));
+    if (body.length) {
+      await db.insert(themePacksTable).values(
+        body.map((p, i) => ({
+          themeId:  id,
+          packId:   p.packId,
+          position: p.position ?? i,
+        })),
+      );
+    }
+
+    await writeAudit(db, {
+      actorUserId: req.actor!.userId,
+      actorRole:   req.actor!.effectiveRole,
+      scope:       "platform",
+      action:      "catalog.theme.packs.set",
+      targetType:  "theme",
+      targetId:    id,
+      metadata:    { count: body.length },
+    });
+
+    const packsMap = await loadPacks([id]);
+    res.json(packsMap[id] ?? []);
+  },
+);
+
+/** PATCH /themes/:id/font-pairing — set or clear font pairing. */
+router.patch(
+  "/themes/:id/font-pairing",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = req.params.id as string;
+    const theme = await requireTheme(id, res);
+    if (!theme) return;
+
+    const body = req.body as { heading?: string; subheading?: string; body?: string; accent?: string } | null;
+    const fontPairing = body && Object.keys(body).length ? body : null;
+
+    const [updated] = await db
+      .update(themesTable)
+      .set({ fontPairing })
+      .where(eq(themesTable.id, id))
+      .returning();
+
+    await writeAudit(db, {
+      actorUserId: req.actor!.userId,
+      actorRole:   req.actor!.effectiveRole,
+      scope:       "platform",
+      action:      "catalog.theme.font_pairing.set",
+      targetType:  "theme",
+      targetId:    id,
+      metadata:    { fontPairing },
+    });
+
+    res.json(updated.fontPairing ?? null);
+  },
+);
+
 // ── Editions — custom GET with optional ?productType= filter ─────────────────
-// Registered BEFORE buildCatalogRoutes so this handler takes precedence for
-// GET /editions (Express uses first-matching handler).  POST / PATCH / DELETE
-// are still handled by buildCatalogRoutes below.
 
 router.get("/editions", async (req: Request, res: Response): Promise<void> => {
   const productType = req.query.productType as string | undefined;
@@ -196,13 +555,8 @@ router.get("/editions", async (req: Request, res: Response): Promise<void> => {
 buildCatalogRoutes(router, "/editions",   editionsTable,        "Edition");
 
 // ── Edition-specific: duplicate ───────────────────────────────────────────────
-// POST /editions/:id/duplicate
-// Creates a draft clone carrying over themes/packs/inserts/products,
-// auto-advancing any 20XX year in the name by 1, and setting revisionOf.
-// Never touches the source or anything generated from it.
 
 function advanceYearsInName(name: string): string {
-  // Bump every 4-digit year matching 20XX (e.g. 2026→2027, 2026–2027→2027–2028)
   return name.replace(/\b(20\d{2})\b/g, (_, y) => String(Number(y) + 1));
 }
 

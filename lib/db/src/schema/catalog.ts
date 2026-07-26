@@ -351,7 +351,9 @@ export const themePalettesTable = pgTable(
     paletteId: text("palette_id")
       .notNull()
       .references(() => palettesTable.id, { onDelete: "cascade" }),
-    position: integer("position").notNull().default(0),
+    position:  integer("position").notNull().default(0),
+    /** True for the palette shown first / used as the theme's representative swatch. */
+    isPrimary: boolean("is_primary").notNull().default(false),
   },
   (t) => ({
     themePaletteUniq: unique("theme_palette_uq").on(t.themeId, t.paletteId),

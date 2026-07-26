@@ -38,10 +38,10 @@ const NAV_ITEMS = [
   { label: "Sticker Studio",     icon: Sticker,        href: "/studios/stickers",   group: "Studios" },
   { label: "Marketing Studio",   icon: Megaphone,      href: "/studios/marketing",  group: "Studios" },
   { label: "Themes",             icon: Palette,        href: "/catalog/themes",     group: "Catalog" },
-  { label: "Palettes",           icon: BarChart2,      href: "/catalog/palettes",   group: "Catalog" },
   { label: "Backgrounds",        icon: Image,          href: "/catalog/backgrounds",group: "Catalog" },
   { label: "Inserts",            icon: FileImage,      href: "/catalog/inserts",    group: "Catalog" },
   { label: "Widgets",            icon: Shapes,         href: "/catalog/widgets",    group: "Catalog" },
+  { label: "Palettes",           icon: BarChart2,      href: "/catalog/palettes",   group: "Parts" },
   { label: "Plans",              icon: BookOpen,       href: "/plans",              group: "Platform" },
   { label: "Users",              icon: Users,          href: "/users",              group: "Platform" },
   { label: "Ink ✦",             icon: Pen,            href: "/ink",                group: "Platform" },
@@ -160,7 +160,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </SidebarMenu>
 
           {/* Grouped sections */}
-          {(["Studios", "Catalog", "Platform"] as const).map(groupName => {
+          {(["Studios", "Catalog", "Parts", "Platform"] as const).map(groupName => {
             const items = groups[groupName];
             if (!items?.length) return null;
             return (

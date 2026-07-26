@@ -21,3 +21,4 @@
 - [Edition duplicate route](edition-duplicate.md) — POST /editions/:id/duplicate added to catalog.ts; req.params must be cast `as string` to fix TS; advances years in name via regex; carries jsonb arrays with explicit casts
 - [Studio rail scroll](studio-rail-scroll.md) — StudioLayout aside is overflow-hidden flex-col; each rail owns its scroll (flex-1 overflow-y-auto); build rail uses flex-col h-full + inner flex-1 + sticky bottom for pinned voice/tone
 - [Sticker Studio gap closure](sticker-studio-gaps.md) — all 6 gaps closed (set generator, dead buttons, pack composer, contrast, edit hook, cover image); resvg esbuild gotcha documented
+- [Theme bundle system](theme-bundle-system.md) — 10 colour shells → 4 real bundles; enriched GET /themes API; is_primary on theme_palettes; composer routes; Shell "Parts" group for Palettes

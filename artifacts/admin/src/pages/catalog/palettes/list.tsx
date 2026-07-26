@@ -238,7 +238,7 @@ export default function PalettesList() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <CatalogPageHeader
         title="Palettes"
-        subtitle="Platform colour palettes — link to themes to give sellers styling choices. Each palette defines 6 slots: accent · accent-dark · secondary · tertiary · ink · paper."
+        subtitle="Colour palettes are the building blocks inside themes. Each palette defines 6 colour slots (accent · accent-dark · secondary · tertiary · ink · paper) and can be shared across multiple themes."
         primaryCta={
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>

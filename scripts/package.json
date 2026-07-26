@@ -8,7 +8,8 @@
     "seed": "tsx ./src/seed.ts",
     "seed-stickers": "tsx ./src/seed-stickers.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "seed-backgrounds": "tsx ./src/seed-backgrounds.ts"
+    "seed-backgrounds": "tsx ./src/seed-backgrounds.ts",
+    "migrate-themes": "tsx ./src/migrate-themes.ts"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",

@@ -253,7 +253,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
                   {(aiEnabled) => <StoreThemeStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -266,7 +266,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
                   {(aiEnabled) => <StoreStudioPage storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -280,7 +280,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
                   {(aiEnabled) => <StoreStudioPage storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -293,7 +293,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
                   {(aiEnabled) => <StoreEditionStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -306,7 +306,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
                   {(aiEnabled) => <StoreTrendResearch storeId={p.storeId!} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -319,7 +319,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
                   {(aiEnabled) => (
                     <MarketingStudio
                       storeId={p.storeId!}
@@ -338,7 +338,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
                   {(aiEnabled) => <PlannerStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -469,11 +469,16 @@ function RootRouter() {
 // ── Store studio aiEnabled loader ─────────────────────────────────────────────
 // Fetches store flags once (cached by React Query) and passes aiEnabled to
 // the studio child. Keeps route definitions slim.
+// Super admins bypass the loading gate — they can always access studios
+// regardless of the store's AI plan. The studio page itself renders (showing
+// a "not enabled" message when aiEnabled=false) rather than a blank spinner.
 function StoreStudioLoader({
   storeId,
+  isSuperAdmin = false,
   children,
 }: {
   storeId: string;
+  isSuperAdmin?: boolean;
   children: (aiEnabled: boolean) => React.ReactNode;
 }) {
   const { data: flags, isLoading } = useQuery({
@@ -481,9 +486,10 @@ function StoreStudioLoader({
     queryFn: () => storesApi.flags.get(storeId),
     staleTime: 60_000,
   });
-  // Wait until we know the real value — avoids a false→true flip that would
-  // violate React's rules of hooks inside the studio component.
-  if (isLoading) {
+  // Super admins skip the loading gate so they never see a blank spinner.
+  // For regular users, wait until we know the real value — avoids a false→true
+  // flip that would violate React's rules of hooks inside the studio component.
+  if (isLoading && !isSuperAdmin) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
         <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />

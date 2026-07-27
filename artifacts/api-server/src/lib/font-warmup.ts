@@ -22,8 +22,8 @@
 import { db } from "@workspace/db";
 import { themesTable, themeFontsTable, fontsTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
-import { fetchGoogleFontBytes, getFontFallbacks, _bundledFontPath, UI_REACHABLE_FAMILIES } from "./pdf-generator";
-import { existsSync } from "fs";
+import { fetchGoogleFontBytes, getFontFallbacks, _bundledFontPath, UI_REACHABLE_FAMILIES, SINGLE_WEIGHT_FAMILIES } from "./pdf-generator";
+import { existsSync, readFileSync } from "fs";
 import type { ThemeFontPairing } from "@workspace/db";
 
 const CONCURRENCY = 3;
@@ -119,6 +119,9 @@ export function getBundleCoverageGaps(): string[] { return [..._lastBundleGaps];
 
 /** Run the bundle coverage cross-check synchronously and update _lastBundleGaps. */
 function checkBundleCoverage(): void {
+  // ── 1. Missing-file check ─────────────────────────────────────────────────
+  // Every UI-reachable family must have a 400 WOFF on disk.
+  // Single-weight families (SINGLE_WEIGHT_FAMILIES) must NOT have a 700 WOFF.
   _lastBundleGaps = [...UI_REACHABLE_FAMILIES].filter(
     (f) => !existsSync(_bundledFontPath(f, 400)),
   );
@@ -131,6 +134,40 @@ function checkBundleCoverage(): void {
     );
   } else {
     console.log("[font-warmup] ✓ Bundle coverage complete — all UI-reachable families have bundled files.");
+  }
+
+  // ── 2. Fake-weight check ──────────────────────────────────────────────────
+  // A 700 WOFF byte-identical to its 400 sibling is a copied file masquerading
+  // as a different weight — it silently renders at regular weight for bold roles.
+  // Flag it so the problem cannot recur undetected.
+  const fakeWeights: string[] = [];
+  for (const family of UI_REACHABLE_FAMILIES) {
+    if (SINGLE_WEIGHT_FAMILIES.has(family)) {
+      // Single-weight family must not have a 700 file at all.
+      if (existsSync(_bundledFontPath(family, 700))) {
+        fakeWeights.push(`${family} (700 file present for a single-weight family — delete it)`);
+      }
+      continue;
+    }
+    const p400 = _bundledFontPath(family, 400);
+    const p700 = _bundledFontPath(family, 700);
+    if (!existsSync(p400) || !existsSync(p700)) continue; // missing-file check already handles this
+    try {
+      const b400 = readFileSync(p400);
+      const b700 = readFileSync(p700);
+      if (b400.length === b700.length && b400.equals(b700)) {
+        fakeWeights.push(`${family} (700 byte-identical to 400)`);
+      }
+    } catch {
+      // I/O error reading a bundled file — not a fake-weight issue; ignore here.
+    }
+  }
+  if (fakeWeights.length > 0) {
+    console.warn(
+      `[font-warmup] ⚠ FAKE WEIGHT — ${fakeWeights.length} family/families have a 700 WOFF ` +
+      `that is a copy of their 400, not a real bold: ${fakeWeights.join("; ")}. ` +
+      `Remove the copied file and add the family to SINGLE_WEIGHT_FAMILIES in pdf-generator.ts.`,
+    );
   }
 }
 

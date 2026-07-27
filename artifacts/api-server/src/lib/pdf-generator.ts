@@ -386,6 +386,16 @@ export const UI_REACHABLE_FAMILIES = new Set([
 ]);
 
 /**
+ * Font families that ship only a single weight (400) upstream.
+ * When a bold role (heading) resolves to one of these, the generator uses 400
+ * rather than requesting a 700 file that does not exist.
+ * No 700 WOFF should exist on disk for any family in this set.
+ */
+export const SINGLE_WEIGHT_FAMILIES = new Set([
+  "DM Serif Display",
+]);
+
+/**
  * Resolve the nearest StandardFont for a given font family name.
  * Serif families → Times Roman / Times Bold Roman.
  * Everything else → Helvetica / Helvetica Bold (sans default).
@@ -722,7 +732,15 @@ async function resolveEmbeddedFont(
   fallbackLog?: Set<string>,
 ) {
   if (familyName) {
-    const bytes = await fetchGoogleFontBytes(familyName, bold ? 700 : 400);
+    // Single-weight families have no 700 file on disk or upstream.
+    // Use 400 for every role rather than serving a fake duplicate weight.
+    const isSingleWeight = SINGLE_WEIGHT_FAMILIES.has(familyName);
+    if (bold && isSingleWeight) {
+      console.log(
+        `[pdf-generator] "${familyName}" is single-weight — bold role rendered at 400 (no 700 variant exists).`,
+      );
+    }
+    const bytes = await fetchGoogleFontBytes(familyName, (bold && !isSingleWeight) ? 700 : 400);
     if (bytes) {
       try {
         return await pdfDoc.embedFont(bytes);

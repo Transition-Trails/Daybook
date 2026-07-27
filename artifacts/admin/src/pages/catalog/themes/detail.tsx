@@ -446,12 +446,12 @@ function BackgroundsTab({ theme, onSaved }: { theme: EnrichedTheme; onSaved: () 
 
 // ── Font pairing tab ──────────────────────────────────────────────────────
 
-const SUGGESTED_PAIRS: { label: string; heading: string; body: string }[] = [
+const SUGGESTED_PAIRS: { label: string; heading: string; body: string; singleWeight?: true }[] = [
   { label: "Editorial",  heading: "Playfair Display",   body: "Lato" },
   { label: "Botanical",  heading: "Cormorant Garamond", body: "Source Sans Pro" },
   { label: "Coastal",    heading: "Spectral",           body: "Work Sans" },
   { label: "Literary",   heading: "Crimson Pro",        body: "Instrument Sans" },
-  { label: "Modern",     heading: "DM Serif Display",   body: "DM Sans" },
+  { label: "Modern",     heading: "DM Serif Display",   body: "DM Sans",   singleWeight: true },
   { label: "Academic",   heading: "EB Garamond",        body: "Inter" },
 ];
 
@@ -540,6 +540,22 @@ function FontPairingTab({ theme, onSaved }: { theme: EnrichedTheme; onSaved: () 
                 >
                   {p.heading} / {p.body}
                 </span>
+                {/* Single-weight notice — shown below the family names */}
+                {p.singleWeight && (
+                  <span
+                    style={{
+                      fontSize:        9,
+                      lineHeight:      1.2,
+                      letterSpacing:   "0.06em",
+                      fontFamily:      "system-ui, sans-serif",
+                      textTransform:   "uppercase",
+                      fontWeight:      600,
+                      color:           isActive ? "rgba(255,255,255,0.45)" : "hsl(var(--muted-foreground))",
+                    }}
+                  >
+                    one weight · bold renders at 400
+                  </span>
+                )}
               </button>
             );
           })}

@@ -200,6 +200,8 @@ router.post(
       return;
     }
 
+    const actor = req.actor!;
+
     try {
       const result = await callAi(
         [{ role: "user", content: brief.trim() }],
@@ -221,6 +223,25 @@ router.post(
         reading: { type: string; partsOn: string; partsOff: string; question: string };
         gaps: Array<{ title: string; explanation: string; severity: string }>;
       };
+
+      const blockerGaps = draft.gaps
+        .filter(g => g.severity === "Blocks release")
+        .map(g => g.title);
+
+      await writeAudit(db, {
+        actorUserId: actor.userId,
+        actorRole:   "super_admin",
+        scope:       "platform",
+        action:      "recipe.draft_from_brief",
+        targetType:  "product_recipe",
+        targetId:    "-",          // transient inference — no persisted row yet
+        metadata: {
+          brief:        brief.trim(),
+          proposedType: draft.productType,
+          totalGaps:    draft.gaps.length,
+          blockerGaps,             // titles of any "Blocks release" gaps
+        },
+      });
 
       res.json(draft);
     } catch (err) {

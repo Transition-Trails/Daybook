@@ -626,7 +626,7 @@ function EditionQuickPick({ value, onChange }: { value: string; onChange: () => 
 
 // ── PDF Preview dock panel ────────────────────────────────────────────────────
 
-function PdfPreviewDock({ buildState }: { buildState: BuildState }) {
+function PdfPreviewDock({ buildState, einkDevice }: { buildState: BuildState; einkDevice?: string | null }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading]       = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -635,24 +635,36 @@ function PdfPreviewDock({ buildState }: { buildState: BuildState }) {
     if (!buildState.editionId) return;
     setLoading(true);
     try {
+      // Compute monthCount from BuildState (1-indexed months → 0-indexed for server)
+      const sm = Number(buildState.startMonth) - 1;
+      const em = Number(buildState.endMonth)   - 1;
+      const sy = Number(buildState.startYear);
+      const ey = Number(buildState.endYear);
+      const monthCount = Math.max(1, (ey - sy) * 12 + (em - sm) + 1);
+
       const res = await fetch("/api/planners/preview", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          editionId:        buildState.editionId,
-          startYear:        Number(buildState.startYear),
-          startMonth:       Number(buildState.startMonth),
-          endYear:          Number(buildState.endYear),
-          endMonth:         Number(buildState.endMonth),
-          paperSize:        buildState.paperSize,
-          orientation:      "portrait",
-          weeklySpreadType: buildState.weeklyType,
-          themeId:          buildState.themeId   || undefined,
-          paletteId:        buildState.paletteId || undefined,
-          packIds:          buildState.packIds,
-          insertIds:        buildState.insertIds,
-          productIds:       buildState.productIds,
+          editionId:  buildState.editionId || undefined,
+          einkDevice: einkDevice ?? null,
+          setup: {
+            weekStart:   buildState.weekStart,
+            orientation: "vertical" as const,   // "vertical" = portrait in the generator
+            startMonth:  sm,                     // server expects 0-indexed
+            startYear:   sy,
+            monthCount,
+            datingMode:  buildState.datingMode,
+          },
+          style: {
+            themeId:    buildState.themeId   || undefined,
+            paletteId:  buildState.paletteId || undefined,
+            tabPos:     buildState.tabPos,
+            sections:   buildState.sections,
+            weeklyType: buildState.weeklyType,
+          },
+          output: { calMode: "none", eventMins: 60, aiInPdf: false },
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -665,7 +677,7 @@ function PdfPreviewDock({ buildState }: { buildState: BuildState }) {
     } finally {
       setLoading(false);
     }
-  }, [buildState]);
+  }, [buildState, einkDevice]);
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -744,11 +756,12 @@ function templateToBuildState(t: PlatformPlannerConfig): BuildState {
 }
 
 function BuildCenter({
-  template, onUpdated, onCreateNew,
+  template, onUpdated, onCreateNew, onEinkDeviceChange,
 }: {
   template: PlatformPlannerConfig | null;
   onUpdated: (t: PlatformPlannerConfig) => void;
   onCreateNew: (t: PlatformPlannerConfig) => void;
+  onEinkDeviceChange?: (device: string | null) => void;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -775,6 +788,10 @@ function BuildCenter({
   const [sectionDraft,  setSectionDraft]  = useState("");
   const [inkFriendly,   setInkFriendly]   = useState(false);
   const [einkDevice,    setEinkDevice]    = useState<string | null>(null);
+  const setEinkDeviceAndNotify = (device: string | null) => {
+    setEinkDevice(device);
+    onEinkDeviceChange?.(device);
+  };
 
   // Sync from template when template identity changes
   useEffect(() => {
@@ -1451,7 +1468,7 @@ function BuildCenter({
           id="ink-friendly-check"
           type="checkbox"
           checked={inkFriendly || !!einkDevice}
-          onChange={e => { setInkFriendly(e.target.checked); if (!e.target.checked) setEinkDevice(null); }}
+          onChange={e => { setInkFriendly(e.target.checked); if (!e.target.checked) setEinkDeviceAndNotify(null); }}
           className="w-3.5 h-3.5 accent-[#1B2A4A]"
         />
         <label htmlFor="ink-friendly-check" className="text-xs cursor-pointer select-none" style={{ color: "hsl(216 15% 40%)" }}>
@@ -1482,7 +1499,7 @@ function BuildCenter({
                 key={key}
                 onClick={() => {
                   const next = key === "none" ? null : key;
-                  setEinkDevice(next);
+                  setEinkDeviceAndNotify(next);
                   if (next) setInkFriendly(false); // einkDevice implies inkFriendly
                 }}
                 className="flex flex-col items-start px-2.5 py-1.5 rounded-lg border text-left transition-colors"
@@ -2783,6 +2800,8 @@ export default function PlannerStudioHub() {
 
   // ── Platform template state ─────────────────────────────────────────────────
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  /** Lifted from BuildCenter so PdfPreviewDock can re-render when device changes. */
+  const [previewEinkDevice, setPreviewEinkDevice] = useState<string | null>(null);
 
   const { data: platformPlanners = [], isLoading: templatesLoading } = useQuery({
     queryKey: ["platform-planners"],
@@ -2880,14 +2899,15 @@ export default function PlannerStudioHub() {
       previewContent: null,
     });
   }, [validMode]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Update preview content separately — only build mode shows the PDF preview
+  // Update preview content separately — only build mode shows the PDF preview.
+  // previewEinkDevice is lifted from BuildCenter so the preview rerenders on device change.
   useEffect(() => {
     setAiContext({
       previewContent: validMode === "build" && selectedTemplate
-        ? <PdfPreviewDock buildState={templateToBuildState(selectedTemplate)} />
+        ? <PdfPreviewDock buildState={templateToBuildState(selectedTemplate)} einkDevice={previewEinkDevice} />
         : null,
     });
-  }, [validMode, selectedTemplate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [validMode, selectedTemplate, previewEinkDevice]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Primary action (top bar) ────────────────────────────────────────────────
   const primaryAction = (() => {
@@ -2916,6 +2936,7 @@ export default function PlannerStudioHub() {
         template={selectedTemplate}
         onUpdated={handleTemplateUpdated}
         onCreateNew={handleTemplateCreated}
+        onEinkDeviceChange={setPreviewEinkDevice}
       />
     );
     if (validMode === "editions") return (

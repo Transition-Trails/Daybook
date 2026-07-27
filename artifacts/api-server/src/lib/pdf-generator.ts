@@ -416,6 +416,25 @@ function _writeDiskFontCache(filePath: string, bytes: Uint8Array): void {
     );
 }
 
+// ── Bundled font assets ─────────────────────────────────────────────────────
+// build.mjs copies src/lib/fonts → dist/fonts so these are co-located with
+// the compiled bundle.  Loading from disk here means font rendering is
+// completely independent of network availability.
+// __dirname is set by the esbuild banner to the directory of dist/index.mjs.
+const BUNDLED_FONT_DIR = path.join(__dirname, "fonts");
+
+export function _bundledFontPath(familyName: string, weight: 400 | 700): string {
+  const safe = `${familyName.replace(/\s+/g, "_")}-${weight}.woff`
+    .replace(/[^A-Za-z0-9_\-.]/g, "");
+  return path.join(BUNDLED_FONT_DIR, safe);
+}
+
+// ── Font fallback tracking ───────────────────────────────────────────────────
+/** Families that fell back to StandardFonts in the current process. */
+const FONT_FALLBACK_FAMILIES = new Set<string>();
+/** Returns the family names that are rendering in StandardFonts, not the real typeface. */
+export function getFontFallbacks(): string[] { return [...FONT_FALLBACK_FAMILIES]; }
+
 /**
  * Firefox 26 on Linux UA — makes the Google Fonts CSS v1 API return TTF format
  * URLs (not EOT for old IE, not WOFF2 for modern browsers).
@@ -427,9 +446,12 @@ const GFONT_TTF_UA =
  * Validate font binary magic bytes.
  * TTF:  00 01 00 00  (standard) or  74 72 75 65  ("true" — Apple variant)
  * OTF:  4F 54 54 4F  ("OTTO")
- * Returns "TTF", "OTF", or null for WOFF/WOFF2/EOT/other non-embeddable formats.
+ * Returns "TTF", "OTF", "WOFF" (v1 — fontkit can embed), or null for WOFF2/EOT/other.
+ * WOFF v1 bytes can be passed directly to pdf-lib embedFont because fontkit parses and
+ * converts the compressed sfnt data internally; only WOFF2 (wOF2) requires decompression
+ * that the current fontkit build does not expose to pdf-lib.
  */
-function detectFontFormat(bytes: Uint8Array): "TTF" | "OTF" | null {
+function detectFontFormat(bytes: Uint8Array): "TTF" | "OTF" | "WOFF" | null {
   const isTTF =
     (bytes[0] === 0x00 && bytes[1] === 0x01 && bytes[2] === 0x00 && bytes[3] === 0x00) ||
     (bytes[0] === 0x74 && bytes[1] === 0x72 && bytes[2] === 0x75 && bytes[3] === 0x65);
@@ -437,6 +459,9 @@ function detectFontFormat(bytes: Uint8Array): "TTF" | "OTF" | null {
   const isOTF =
     bytes[0] === 0x4f && bytes[1] === 0x54 && bytes[2] === 0x54 && bytes[3] === 0x4f;
   if (isOTF) return "OTF";
+  // WOFF v1: 77 4f 46 46 ("wOFF") — Google Fonts CSS API returns this format on restricted networks.
+  const isWOFF = bytes[0] === 0x77 && bytes[1] === 0x4f && bytes[2] === 0x46 && bytes[3] === 0x46;
+  if (isWOFF) return "WOFF";
   return null;
 }
 
@@ -542,9 +567,24 @@ async function downloadFontBinary(
 export async function fetchGoogleFontBytes(familyName: string, weight: 400 | 700): Promise<Uint8Array | null> {
   const cacheKey = `${familyName}:${weight}`;
 
-  // 1. In-process cache — fastest path, zero I/O.
+  // 0. In-process cache — fastest path, zero I/O.
   const cached = _googleFontCache.get(cacheKey);
   if (cached) return cached;
+
+  // 1. Bundled font — shipped alongside the server binary; immune to network.
+  const bundledPath = _bundledFontPath(familyName, weight);
+  try {
+    const bundledRaw = await fsPromises.readFile(bundledPath);
+    const bytes = new Uint8Array(bundledRaw.buffer, bundledRaw.byteOffset, bundledRaw.byteLength);
+    const fmt = detectFontFormat(bytes);
+    if (fmt) {
+      _googleFontCache.set(cacheKey, bytes);
+      console.log(`[pdf-generator] Font loaded from bundle: "${cacheKey}" ${Math.round(bytes.byteLength / 1024)} KB (${fmt})`);
+      return bytes;
+    }
+  } catch {
+    // Bundled asset not present — fall through to disk cache then network.
+  }
 
   // 2. Disk cache — survives server restarts within the same container so the
   //    first generation after a hot-reload doesn't pay the network round-trip.
@@ -581,7 +621,7 @@ export async function fetchGoogleFontBytes(familyName: string, weight: 400 | 700
             );
             return bytes;
           }
-          // CSS v1 returned non-TTF/OTF bytes (e.g. WOFF in restrictive environments)
+          // WOFF2 or unknown format — not embeddable via current fontkit build.
           const magic = Array.from(bytes.slice(0, 4))
             .map((b) => b.toString(16).padStart(2, "0"))
             .join(" ");
@@ -667,7 +707,28 @@ async function resolveEmbeddedFont(
       }
     }
   }
+  if (familyName) FONT_FALLBACK_FAMILIES.add(familyName);
   return pdfDoc.embedFont(resolveStandardFont(familyName, bold));
+}
+
+// ── Shared e-ink helper factory ──────────────────────────────────────────────
+/**
+ * Returns the lt/lo/skipLinks helpers and preset metadata for the given device
+ * key. Both buildPdf and buildPreviewPdf call this so the enforcement is
+ * identical — the preview is always truthful about what the export produces.
+ */
+function makeEinkHelpers(einkDevice: string | null | undefined) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getEinkPreset } = require("./eink-presets") as typeof import("./eink-presets");
+  const einkPreset = getEinkPreset(einkDevice ?? null);
+  const einkMode = !!einkPreset;
+  /** Enforce ≥ 0.75 pt on any drawn line in e-ink mode so hairlines survive rendering. */
+  const lt = (n: number) => einkMode ? Math.max(n, 0.75) : n;
+  /** Enforce ≥ 0.30 opacity on content strokes so faint rules remain visible on e-ink. */
+  const lo = (n: number) => einkMode ? Math.max(n, 0.30) : n;
+  /** Suppress URI annotations on Kindle Scribe — links are unreliable via Send-to-Kindle. */
+  const skipLinks = einkMode && (einkPreset?.linksQuality === "poor");
+  return { einkPreset, einkMode, lt, lo, skipLinks } as const;
 }
 
 export async function buildPdf(
@@ -680,20 +741,9 @@ export async function buildPdf(
   inkFriendly = false,
   einkDevice?: string,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
-  // Resolve e-ink preset — import inline to avoid circular deps at module top-level
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getEinkPreset } = require("./eink-presets") as typeof import("./eink-presets");
-  const einkPreset = getEinkPreset(einkDevice ?? null);
-  const einkMode = !!einkPreset;
+  const { einkPreset, einkMode, lt, lo, skipLinks } = makeEinkHelpers(einkDevice);
   // E-ink mode forces ink-friendly (grayscale is the e-ink asset)
   if (einkMode) inkFriendly = true;
-
-  /** E-ink safe line thickness: enforces ≥ 0.75 pt so hairlines don't alias. */
-  const lt = (n: number) => einkMode ? Math.max(n, 0.75) : n;
-  /** E-ink safe opacity: enforces ≥ 0.3 on content lines so they remain visible. */
-  const lo = (n: number) => einkMode ? Math.max(n, 0.30) : n;
-  /** Suppress URI annotations on Kindle Scribe (links are unreliable via Send-to-Kindle). */
-  const skipLinks = einkMode && einkPreset?.linksQuality === "poor";
 
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, monthCount, weekStart, orientation } = setup;
@@ -1201,27 +1251,30 @@ export async function buildPreviewPdf(
   template: PlannerTemplate = DEFAULT_TEMPLATE,
   background?: BackgroundSpec,
   fontPairing?: ThemeFontPairing,
+  einkDevice?: string,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
+  // Shared e-ink helpers — identical logic to buildPdf so the preview is
+  // always truthful about what the export will produce.
+  const { einkPreset, einkMode, lt, lo, skipLinks } = makeEinkHelpers(einkDevice);
+  // In e-ink mode the export is always ink-friendly; preview must match.
+  const inkFriendly = einkMode;
+
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, weekStart, orientation } = setup;
   const tabPos = (style.tabPos ?? "right") as "right" | "top" | "none";
 
   const colors = themeColors ?? ["#6366f1", "#4f46e5", "#a5b4fc", "#c7d2fe", "#1e1b4b", "#fafafa"];
-  const accent = hexToRgb(colors[0] ?? "#6366f1");
-  const ink    = hexToRgb(colors[4] ?? "#1e1b4b");
-  const paper  = hexToRgb(colors[5] ?? "#fafafa");
-
-  // Preview never uses e-ink device trim — these stubs keep the call sites consistent.
-  const lt = (n: number) => n;
-  const lo = (n: number) => n;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const skipLinks = false;
+  // In e-ink mode: pure black ink/accent + white paper — same overrides as buildPdf.
+  const accent = inkFriendly ? { r: 0, g: 0, b: 0 } : hexToRgb(colors[0] ?? "#6366f1");
+  const ink    = inkFriendly ? { r: 0, g: 0, b: 0 } : hexToRgb(colors[4] ?? "#1e1b4b");
+  const paper  = inkFriendly ? { r: 1, g: 1, b: 1 } : hexToRgb(colors[5] ?? "#fafafa");
 
   const pdfDoc = await PDFDocument.create();
-  // Register fontkit so pdfDoc.embedFont(bytes) can handle TTF/OTF binaries.
+  // Register fontkit so pdfDoc.embedFont(bytes) can handle TTF/OTF/WOFF binaries.
   pdfDoc.registerFontkit(fontkit);
-  const pageWidth  = orientation === "landscape" ? PAGE_HEIGHT : PAGE_WIDTH;
-  const pageHeight = orientation === "landscape" ? PAGE_WIDTH  : PAGE_HEIGHT;
+  // E-ink device preset overrides page trim (always portrait at device native size).
+  const pageWidth  = einkPreset?.pts.w ?? (orientation === "landscape" ? PAGE_HEIGHT : PAGE_WIDTH);
+  const pageHeight = einkPreset?.pts.h ?? (orientation === "landscape" ? PAGE_WIDTH  : PAGE_HEIGHT);
   const headingFamilyPv = fontPairing?.heading;
   const bodyFamilyPv    = fontPairing?.body ?? fontPairing?.heading;
   // Real TTF binaries from Google Fonts; falls back to StandardFonts on error.
@@ -1230,11 +1283,12 @@ export async function buildPreviewPdf(
     resolveEmbeddedFont(pdfDoc, headingFamilyPv, true),
   ]);
 
-  // Resolve background spec for preview (same logic as buildPdf)
+  // Resolve background spec for preview (same logic as buildPdf).
+  // Skip entirely in e-ink mode — export has no background; preview must match.
   let bgColorOverride: { r: number; g: number; b: number } | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let bgEmbedded: any = null;
-  if (background) {
+  if (!inkFriendly && background) {
     if (background.type === "color" && background.assetRef) {
       try { bgColorOverride = hexToRgb(background.assetRef); } catch { /* ignore */ }
     } else if (
@@ -1253,11 +1307,12 @@ export async function buildPreviewPdf(
     }
   }
 
-  // Realistic grain overlay for preview (same XObject-once approach as buildPdf)
+  // Realistic grain overlay for preview (same XObject-once approach as buildPdf).
+  // Skipped in e-ink mode to match export behaviour.
   const previewRenderStyle = (style as Record<string, unknown>).renderStyle ?? "realistic";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let previewGrainImg: any = null;
-  if (previewRenderStyle === "realistic") {
+  if (!inkFriendly && previewRenderStyle === "realistic") {
     try {
       const grainSz = 128;
       const px = Buffer.alloc(grainSz * grainSz * 4);

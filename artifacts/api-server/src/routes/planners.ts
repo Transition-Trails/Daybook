@@ -245,6 +245,7 @@ export async function runGeneration(
 router.post("/planners/preview", requireAuth, async (req, res): Promise<void> => {
   const body = req.body as {
     editionId?: string;
+    einkDevice?: string | null;
     setup: PlannerSetup;
     style?: PlannerStyle & { themeId?: string };
     output?: PlannerOutput;
@@ -343,6 +344,7 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
       undefined,          // use DEFAULT_TEMPLATE
       previewBackground,
       previewFontPairing,
+      body.einkDevice ?? undefined,
     );
 
     res.setHeader("Content-Type", "application/pdf");

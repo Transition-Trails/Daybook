@@ -22,7 +22,7 @@
 import { db } from "@workspace/db";
 import { themesTable, themeFontsTable, fontsTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
-import { fetchGoogleFontBytes } from "./pdf-generator";
+import { fetchGoogleFontBytes, getFontFallbacks } from "./pdf-generator";
 import type { ThemeFontPairing } from "@workspace/db";
 
 const CONCURRENCY = 3;
@@ -131,27 +131,32 @@ export function warmFontCache(): void {
         `[font-warmup] Pre-fetching ${families.size} font family/families × ${WEIGHTS.length} weights = ${pairs.length} files (concurrency ${CONCURRENCY})…`,
       );
 
-      let fetched = 0;
-      let cached = 0;
+      let loaded = 0;
       let failed = 0;
 
       await pMap(
         pairs,
         async ({ family, weight }) => {
           const bytes = await fetchGoogleFontBytes(family, weight);
-          if (bytes) {
-            fetched++;
-          } else {
-            // null means either disk-cache hit was already counted or it failed
-            failed++;
-          }
+          if (bytes) { loaded++; } else { failed++; }
         },
         CONCURRENCY,
       );
 
+      const fallbacks = getFontFallbacks();
+      const loadedFamilies = [...families].filter(f => !fallbacks.includes(f));
+      const ok   = loadedFamilies.length > 0 ? `✓ ${loadedFamilies.join(", ")}` : "none";
+      const fail = fallbacks.length > 0       ? `✗ fallback: ${fallbacks.join(", ")}` : "✓ all real";
       console.log(
-        `[font-warmup] Done — ${fetched} fetched/cached, ${failed} unavailable.`,
+        `[font-warmup] Done — ${loaded}/${pairs.length} files loaded. ${ok} | ${fail}`,
       );
+      if (fallbacks.length > 0) {
+        console.warn(
+          `[font-warmup] ⚠ FONT FALLBACK ACTIVE — the following families will render in ` +
+          `Helvetica/Times in generated PDFs instead of their chosen typeface: ${fallbacks.join(", ")}. ` +
+          `Check that src/lib/fonts/ contains the bundled WOFF files and was copied to dist/fonts/.`,
+        );
+      }
     } catch (err) {
       // Top-level safety net — should never be reached given inner try/catches
       console.warn("[font-warmup] Unexpected error during font warm-up:", (err as Error).message);

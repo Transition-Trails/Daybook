@@ -1591,4 +1591,14 @@ export const recipesApi = {
 
   delete: (id: string) =>
     apiFetch<{ ok: boolean; status: string }>(`/platform/recipes/${id}`, { method: "DELETE" }),
+
+  draftFromBrief: (brief: string) =>
+    apiFetch<{
+      productType: string;
+      partsOn: string[];
+      partsOff: Array<{ key: string; reason: string }>;
+      decisionCard: { prompt: string; optionA: { label: string; consequence: string }; optionB: { label: string; consequence: string } };
+      reading: { type: string; partsOn: string; partsOff: string; question: string };
+      gaps: Array<{ title: string; explanation: string; severity: string }>;
+    }>("/platform/recipes/draft-from-brief", { method: "POST", body: JSON.stringify({ brief }) }),
 };

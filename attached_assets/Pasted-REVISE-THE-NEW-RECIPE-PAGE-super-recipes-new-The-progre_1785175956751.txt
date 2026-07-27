@@ -1,0 +1,98 @@
+REVISE THE "+ NEW RECIPE" PAGE (/super/recipes/new). The progressive-disclosure
+structure is correct — do not rebuild it. Two additions and one clarity fix.
+See the attached screenshot for the target.
+
+=== 1. ADD STEP 0 — "✦ START WITH CLAUDE" ===
+A new card ABOVE Step 1, with a clay border (var(--ppp-clay)) so it reads as the
+assisted path rather than a required step.
+
+Header: a 32px clay-gradient ✦ avatar, then the eyebrow "START WITH CLAUDE" and
+the subline: "Describe the product in plain language. Claude proposes the type,
+the parts and the buyer's question — and tells you when it needs engine work we
+don't have yet."
+
+Body: a textarea for the description (placeholder e.g. "A mobile-sized planner —
+phone screen proportions, dated, for someone who plans on their phone rather than
+an iPad."), then a clay-gradient "✦ Draft this recipe" button. Once a draft exists,
+a secondary "Start over" button appears beside it that clears the staged state.
+
+ON SUBMIT, Claude must do three things — all three matter:
+
+  (a) STAGE THE RECIPE. Set the product type in Step 1, toggle the parts in Step 2,
+      and fill the decision card in Step 3. Everything stays editable — this is a
+      starting point, not a commit. Show a green pill reading
+      "STAGED BELOW — ADJUST ANYTHING".
+
+  (b) EXPLAIN ITS READING, as a labelled list titled "What Claude read from that":
+        TYPE      — why this product type
+        PARTS ON  — which engines it enabled
+        PARTS OFF — which it deliberately left off AND WHY (the exclusions are the
+                    valuable part; do not omit them)
+        QUESTION  — why this is the buyer's first either/or
+      Worked example for the mobile-planner prompt:
+        Type      "Planner — it is dated, so the date and hyperlink engines apply."
+        Parts on  "Page recipes, date engine, hyperlink layer, trackers."
+        Parts off "Tab rail — edge tabs do not work at phone width; a top nav bar
+                   reads better. That is the gap below."
+        Question  "Dated or undated, same as any planner. Nothing about mobile
+                   changes what the buyer decides first."
+
+  (c) FLAG ENGINE GAPS — THE MOST IMPORTANT BEHAVIOUR. When the described product
+      needs capability the engines do not have, Claude must say so explicitly
+      rather than staging something that cannot generate. Render these in a warm
+      warning treatment (bg #FDF6EF, border #F0E0CF) under the heading
+      "⚠ This recipe needs engine work first", each with a title, a concrete
+      explanation, and a severity pill:
+        "Blocks release"   (bg #FBECEB, text #A33A32)
+        "Needs a decision" (bg #FDF0E6, text var(--ppp-cocoa))
+      Worked example:
+        Page size profile · Blocks release — "The page engine has A5, B6, Personal,
+          Half letter, Letter and iPad 4:3. There is no phone trim. A mobile recipe
+          needs a new profile — roughly 1170 × 2532 at 3:1 aspect — before this can
+          generate."
+        Tab rail at narrow width · Needs a decision — "Edge tabs need about 40mm of
+          margin. At phone width that is a third of the page. Either ship without
+          tabs or add a top-bar nav variant to the tab engine."
+      Close with: "Claude staged this so you can review it, but it cannot generate
+      until the engine work above ships. Save it as a draft, build the profile,
+      then release."
+
+  Gap detection must be REAL, not a fixed list: compare what the description implies
+  (page trim, binding, link behaviour, cut paths, print path) against the engine
+  capabilities that actually exist in the codebase, and report genuine mismatches.
+  A recipe carrying an unresolved "Blocks release" gap may be SAVED AS A DRAFT but
+  must NOT be publishable — enforce that server-side, not just in the UI.
+
+  Reuse the existing grounded Claude plumbing (store-profile grounding, aiEnabled
+  gating, audit logging). Do not build a second chat implementation.
+
+=== 2. CLARIFY THE RIGHT RAIL ===
+The three numbers are three DIFFERENT UNITS shown identically, which reads as an
+unlabelled score. Give each number its unit inline, stacked (label / number+unit /
+description), and retitle the rail.
+
+  Rail title:    "How many choices each person faces"
+  Rail subtitle: "The same product, seen from three sides. Choice narrows at every
+                  level — that is the whole design."
+
+  You · platform  →  [N] parts offered
+                     "Every part this product type can use. You decide which of them
+                      the recipe turns on."
+  Store owner     →  [N] parts they can touch
+                     "Only the ones you left on above — and already filled in by
+                      their theme. They adjust; they do not assemble."
+  Consumer        →  [3] choices at checkout
+                     "The buyer question, a theme, and a palette. Everything else
+                      was decided before they arrived."
+
+  The consumer number is NOT a part count — it is decisions. Labelling it as such is
+  the point of the change. Keep the en-dash in each number until a type is picked.
+
+=== 3. KEEP AS-IS ===
+Steps 1–3 (including the dashed placeholder before a type is chosen), the type-scoped
+engine list with defaults on, the "Not offered for this type" excluded row, and the
+collapsed Publishing details section are all correct. Do not alter them.
+
+Report: a described product staging type + parts + decision card with reasoning
+visible; a genuine engine gap detected and blocking publish while still allowing a
+draft save; and the rail reading with units.

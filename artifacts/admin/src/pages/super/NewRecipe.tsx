@@ -3,13 +3,13 @@
  *
  * Route: /super/recipes/new
  *
- * Design principle: options appear as a consequence of a decision already
- * made, never all at once. Three levels narrow:
- *   Platform  → picks from everything a type allows
- *   Store owner → sees only what the recipe enabled
- *   Consumer  → picks a template, changes two or three things
+ * Step 0  Claude drafting (optional assisted path)
+ * Step 1  Product type (gates everything below)
+ * Step 2  Parts toggle
+ * Step 3  Buyer decision card
+ * ···     Publishing details (collapsed)
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import {
   ArrowLeft, CalendarDays, BookOpen, LayoutGrid,
@@ -27,9 +27,11 @@ const PAPER  = "hsl(38 65% 96%)";
 const BORDER = "hsl(38 30% 88%)";
 const MUTED  = "hsl(216 15% 52%)";
 
-const EYEBROW    = "text-[10px] font-semibold uppercase tracking-[0.18em]";
-const INPUT_CLS  = "w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#C87560]";
-const INPUT_STY  = { borderColor: BORDER, background: "white" } as React.CSSProperties;
+const EYEBROW   = "text-[10px] font-semibold uppercase tracking-[0.18em]";
+const INPUT_CLS = "w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#C87560]";
+const INPUT_STY = { borderColor: BORDER, background: "white" } as React.CSSProperties;
+
+const CLAY_GRADIENT = `linear-gradient(135deg, ${CLAY} 0%, hsl(12 60% 42%) 100%)`;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type ProductTypeId = "planner" | "journal" | "memory" | "solo" | "stickers" | "inserts";
@@ -59,18 +61,27 @@ interface TypeConfig {
   defaultStudio: string;
 }
 
+interface DraftResult {
+  productType: ProductTypeId;
+  partsOn: string[];
+  partsOff: Array<{ key: string; reason: string }>;
+  decisionCard: DecisionCard;
+  reading: { type: string; partsOn: string; partsOff: string; question: string };
+  gaps: Array<{ title: string; explanation: string; severity: string }>;
+}
+
 // ── Part definitions ──────────────────────────────────────────────────────────
 const PARTS: Record<string, PartDef> = {
-  "page recipes":   { key: "page recipes",   name: "Page recipes",   description: "The layout engine — grids, lines, spreads" },
-  "date engine":    { key: "date engine",    name: "Date engine",    description: "Real dates, weekday columns, month rollover" },
-  "hyperlink layer":{ key: "hyperlink layer",name: "Hyperlink layer",description: "Internal PDF links — tabs, contents, cross-refs" },
-  "tab rail":       { key: "tab rail",       name: "Tab rail",       description: "Edge tabs and dividers" },
-  "trackers":       { key: "trackers",       name: "Trackers",       description: "Habit, mood, run and progress grids" },
-  "photo layouts":  { key: "photo layouts",  name: "Photo layouts",  description: "Collage frames the buyer drops images into" },
-  "imposition":     { key: "imposition",     name: "Imposition",     description: "Letter-size tiling for home printing" },
-  "index sheet":    { key: "index sheet",    name: "Index sheet",    description: "A visual contents page of everything included" },
-  "prompt decks":   { key: "prompt decks",   name: "Prompt decks",   description: "Curated question sets for journaling or play" },
-  "cut paths":      { key: "cut paths",      name: "Cut paths",      description: "SVG cut lines for Cricut / Silhouette" },
+  "page recipes":    { key: "page recipes",    name: "Page recipes",    description: "The layout engine — grids, lines, spreads" },
+  "date engine":     { key: "date engine",     name: "Date engine",     description: "Real dates, weekday columns, month rollover" },
+  "hyperlink layer": { key: "hyperlink layer", name: "Hyperlink layer", description: "Internal PDF links — tabs, contents, cross-refs" },
+  "tab rail":        { key: "tab rail",        name: "Tab rail",        description: "Edge tabs and dividers" },
+  "trackers":        { key: "trackers",        name: "Trackers",        description: "Habit, mood, run and progress grids" },
+  "photo layouts":   { key: "photo layouts",   name: "Photo layouts",   description: "Collage frames the buyer drops images into" },
+  "imposition":      { key: "imposition",      name: "Imposition",      description: "Letter-size tiling for home printing" },
+  "index sheet":     { key: "index sheet",     name: "Index sheet",     description: "A visual contents page of everything included" },
+  "prompt decks":    { key: "prompt decks",    name: "Prompt decks",    description: "Curated question sets for journaling or play" },
+  "cut paths":       { key: "cut paths",       name: "Cut paths",       description: "SVG cut lines for Cricut / Silhouette" },
 };
 
 // ── Type configs ──────────────────────────────────────────────────────────────
@@ -149,8 +160,8 @@ const TYPE_CONFIGS: TypeConfig[] = [
     never:      ["page recipes", "date engine", "hyperlink layer", "tab rail", "photo layouts", "prompt decks", "trackers"],
     decision: {
       prompt: "Digital or print & cut?",
-      optionA: { label: "Digital",      consequence: "Digital — transparent PNGs sized for GoodNotes." },
-      optionB: { label: "Print & cut",  consequence: "Print & cut — adds a cut path and a Letter-size sheet." },
+      optionA: { label: "Digital",     consequence: "Digital — transparent PNGs sized for GoodNotes." },
+      optionB: { label: "Print & cut", consequence: "Print & cut — adds a cut path and a Letter-size sheet." },
     },
     defaultName:   "Sticker pack",
     defaultStudio: "Sticker Studio",
@@ -183,9 +194,7 @@ const MONTH_NAMES = [
 ];
 
 // ── TypeCard ──────────────────────────────────────────────────────────────────
-function TypeCard({
-  config, selected, onClick,
-}: { config: TypeConfig; selected: boolean; onClick: () => void }) {
+function TypeCard({ config, selected, onClick }: { config: TypeConfig; selected: boolean; onClick: () => void }) {
   const { Icon, name } = config;
   return (
     <button
@@ -195,43 +204,27 @@ function TypeCard({
         background: "hsl(12 55% 95%)",
         borderColor: CLAY,
         boxShadow: `inset 3px 0 0 ${CLAY}`,
-      } : {
-        background: "white",
-        borderColor: BORDER,
-      }}
+      } : { background: "white", borderColor: BORDER }}
     >
-      <Icon
-        className="w-5 h-5 mb-2.5"
-        style={{ color: selected ? CLAY : "hsl(221 46% 42%)" }}
-      />
+      <Icon className="w-5 h-5 mb-2.5" style={{ color: selected ? CLAY : "hsl(221 46% 42%)" }} />
       <p className="font-semibold text-sm leading-tight" style={{ color: INK }}>{name}</p>
     </button>
   );
 }
 
 // ── PartToggleCard ────────────────────────────────────────────────────────────
-function PartToggleCard({
-  part, enabled, onToggle,
-}: { part: PartDef; enabled: boolean; onToggle: () => void }) {
+function PartToggleCard({ part, enabled, onToggle }: { part: PartDef; enabled: boolean; onToggle: () => void }) {
   return (
     <button
       onClick={onToggle}
       className="flex items-start gap-3 text-left rounded-xl border p-4 w-full transition-colors focus:outline-none"
-      style={{
-        background: enabled ? "white" : "white",
-        borderColor: enabled ? CLAY : BORDER,
-      }}
+      style={{ background: "white", borderColor: enabled ? CLAY : BORDER }}
     >
-      {/* Check indicator */}
       <div
         className="mt-0.5 shrink-0 w-5 h-5 rounded flex items-center justify-center"
-        style={enabled ? {
-          background: CLAY,
-          border: `1.5px solid ${CLAY}`,
-        } : {
-          background: "transparent",
-          border: `1.5px solid ${CLAY}`,
-        }}
+        style={enabled
+          ? { background: CLAY, border: `1.5px solid ${CLAY}` }
+          : { background: "transparent", border: `1.5px solid ${CLAY}` }}
       >
         {enabled
           ? <Check className="w-3 h-3 text-white" strokeWidth={3} />
@@ -247,14 +240,22 @@ function PartToggleCard({
 }
 
 // ── RailRow ───────────────────────────────────────────────────────────────────
-function RailRow({
-  num, label, desc,
-}: { num: number | string; label: string; desc: string }) {
+// entity = eyebrow label (e.g. "YOU · PLATFORM")
+// num    = the number shown large
+// unit   = inline label after the number (e.g. "parts offered")
+// desc   = supporting sentence
+function RailRow({ entity, num, unit, desc }: {
+  entity: string;
+  num: number | string;
+  unit: string;
+  desc: string;
+}) {
   return (
     <div className="rounded-xl border p-4" style={{ background: PAPER, borderColor: BORDER }}>
-      <div className="flex items-baseline gap-2 mb-1">
+      <p className={`${EYEBROW} mb-1.5`} style={{ color: MUTED }}>{entity}</p>
+      <div className="flex items-baseline gap-1.5 mb-1">
         <span className="text-2xl font-bold font-display tabular-nums" style={{ color: INK }}>{num}</span>
-        <span className="text-sm font-semibold" style={{ color: INK }}>{label}</span>
+        <span className="text-sm font-semibold" style={{ color: INK }}>{unit}</span>
       </div>
       <p className="text-xs leading-relaxed" style={{ color: MUTED }}>{desc}</p>
     </div>
@@ -266,6 +267,14 @@ export default function NewRecipePage() {
   const [, navigate] = useLocation();
   const { toast }    = useToast();
   const qc           = useQueryClient();
+
+  // ── Claude drafting (Step 0) ──────────────────────────────────────────────
+  const [briefText,   setBriefText]   = useState("");
+  const [drafting,    setDrafting]    = useState(false);
+  const [stagedDraft, setStagedDraft] = useState<DraftResult | null>(null);
+
+  // Ref so the productType useEffect can read it synchronously
+  const stagedDraftRef = useRef<DraftResult | null>(null);
 
   // ── Step 1 ────────────────────────────────────────────────────────────────
   const [productType, setProductType] = useState<ProductTypeId | null>(null);
@@ -294,17 +303,27 @@ export default function NewRecipePage() {
   const [briefGen,  setBriefGen]  = useState("");
   const [saving,    setSaving]    = useState(false);
 
-  // Reset steps 2 + 3 when type changes
+  // When productType changes: apply staged draft values OR reset to type defaults
   useEffect(() => {
     if (!typeConfig) return;
-    setEnabledParts(new Set(typeConfig.defaultOn));
-    setDcPrompt(typeConfig.decision.prompt);
-    setDcALabel(typeConfig.decision.optionA.label);
-    setDcACons(typeConfig.decision.optionA.consequence);
-    setDcBLabel(typeConfig.decision.optionB.label);
-    setDcBCons(typeConfig.decision.optionB.consequence);
-    setName(typeConfig.defaultName);
-    setCategory(typeConfig.defaultStudio);
+    const sd = stagedDraftRef.current;
+    if (sd && sd.productType === productType) {
+      setEnabledParts(new Set(sd.partsOn));
+      setDcPrompt(sd.decisionCard.prompt);
+      setDcALabel(sd.decisionCard.optionA.label);
+      setDcACons(sd.decisionCard.optionA.consequence);
+      setDcBLabel(sd.decisionCard.optionB.label);
+      setDcBCons(sd.decisionCard.optionB.consequence);
+    } else {
+      setEnabledParts(new Set(typeConfig.defaultOn));
+      setDcPrompt(typeConfig.decision.prompt);
+      setDcALabel(typeConfig.decision.optionA.label);
+      setDcACons(typeConfig.decision.optionA.consequence);
+      setDcBLabel(typeConfig.decision.optionB.label);
+      setDcBCons(typeConfig.decision.optionB.consequence);
+      setName(typeConfig.defaultName);
+      setCategory(typeConfig.defaultStudio);
+    }
   }, [productType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const togglePart = (key: string) =>
@@ -315,10 +334,52 @@ export default function NewRecipePage() {
     });
 
   // ── Rail numbers ──────────────────────────────────────────────────────────
-  const platformCount    = typeConfig
+  const platformCount   = typeConfig
     ? typeConfig.defaultOn.length + typeConfig.available.length
     : ("—" as const);
-  const storeOwnerCount  = typeConfig ? enabledParts.size : ("—" as const);
+  const storeOwnerCount = typeConfig ? enabledParts.size : ("—" as const);
+
+  // ── Claude drafting handlers ──────────────────────────────────────────────
+  const handleDraft = async () => {
+    if (!briefText.trim()) return;
+    setDrafting(true);
+    setStagedDraft(null);
+    stagedDraftRef.current = null;
+    try {
+      const result = await recipesApi.draftFromBrief(briefText.trim());
+      // Validate productType is one we know
+      const validTypes: ProductTypeId[] = ["planner", "journal", "memory", "solo", "stickers", "inserts"];
+      if (!validTypes.includes(result.productType as ProductTypeId)) {
+        throw new Error(`Unrecognised product type: ${result.productType}`);
+      }
+      const draft = result as DraftResult;
+      stagedDraftRef.current = draft;
+      setStagedDraft(draft);
+
+      if (productType === draft.productType) {
+        // Type didn't change — apply draft values directly (useEffect won't re-run)
+        setEnabledParts(new Set(draft.partsOn));
+        setDcPrompt(draft.decisionCard.prompt);
+        setDcALabel(draft.decisionCard.optionA.label);
+        setDcACons(draft.decisionCard.optionA.consequence);
+        setDcBLabel(draft.decisionCard.optionB.label);
+        setDcBCons(draft.decisionCard.optionB.consequence);
+      } else {
+        // Type changed — useEffect will pick up from stagedDraftRef
+        setProductType(draft.productType);
+      }
+    } catch (e: unknown) {
+      toast({ title: "Draft failed", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setDrafting(false);
+    }
+  };
+
+  const handleStartOver = () => {
+    setStagedDraft(null);
+    stagedDraftRef.current = null;
+    setBriefText("");
+  };
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -338,15 +399,23 @@ export default function NewRecipePage() {
           optionB: { label: dcBLabel, consequence: dcBCons },
         } : undefined,
         physicalPath: { prints, impositionSheet: impSheet, templates: [] },
-        claudeBrief:  { asks: briefAsks.split("\n").filter(Boolean), generates: briefGen },
-        release:      { planTiers: tiers, month, year },
+        claudeBrief: {
+          asks:       briefAsks.split("\n").filter(Boolean),
+          generates:  briefGen,
+          // Persist Claude's engine gaps so the publish endpoint can enforce them
+          ...(stagedDraft && {
+            engineGaps: stagedDraft.gaps,
+            reading:    stagedDraft.reading,
+          }),
+        },
+        release: { planTiers: tiers, month, year },
       });
       qc.invalidateQueries({ queryKey: ["platform-recipes"] });
       qc.invalidateQueries({ queryKey: ["platform-recipes-stats"] });
       toast({ title: "Recipe saved as draft" });
       navigate("/super/recipes");
-    } catch (e: any) {
-      toast({ title: "Save failed", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Save failed", description: (e as Error).message, variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -368,18 +437,142 @@ export default function NewRecipePage() {
         </button>
         <h1 className="text-2xl font-bold font-display" style={{ color: INK }}>New recipe</h1>
         <p className="text-sm mt-0.5" style={{ color: MUTED }}>
-          Pick the product type first. Everything after narrows to what that type can actually use.
+          Pick the product type first. Everything after it narrows to what that type can actually use.
         </p>
       </div>
 
       {/* ── Two-column grid ─────────────────────────────────────────────── */}
-      <div
-        className="grid gap-6"
-        style={{ gridTemplateColumns: "1.5fr 1fr", alignItems: "start" }}
-      >
+      <div className="grid gap-6" style={{ gridTemplateColumns: "1.5fr 1fr", alignItems: "start" }}>
 
         {/* ══ LEFT: Steps ════════════════════════════════════════════════ */}
         <div className="space-y-5 min-w-0">
+
+          {/* ── STEP 0: Start with Claude ────────────────────────────────── */}
+          <div
+            className="rounded-2xl p-6"
+            style={{ background: "white", border: `1.5px solid ${CLAY}` }}
+          >
+            {/* Header */}
+            <div className="flex items-start gap-3 mb-4">
+              {/* Gradient avatar */}
+              <div
+                className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold select-none"
+                style={{ background: CLAY_GRADIENT }}
+                aria-hidden="true"
+              >
+                ✦
+              </div>
+              <div className="min-w-0">
+                <p className={`${EYEBROW} mb-0.5`} style={{ color: CLAY }}>Start with Claude</p>
+                <p className="text-xs leading-relaxed" style={{ color: MUTED }}>
+                  Describe the product in plain language. Claude proposes the type, the parts and the
+                  buyer's question — and tells you when it needs engine work we don't have yet.
+                </p>
+              </div>
+            </div>
+
+            {/* Staged pill */}
+            {stagedDraft && (
+              <div
+                className="mb-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold"
+                style={{ background: "hsl(142 76% 93%)", color: "hsl(142 60% 26%)" }}
+              >
+                ✓ STAGED BELOW — ADJUST ANYTHING
+              </div>
+            )}
+
+            {/* Textarea */}
+            <textarea
+              className={`${INPUT_CLS} resize-none mb-3`}
+              style={INPUT_STY}
+              rows={3}
+              value={briefText}
+              onChange={e => setBriefText(e.target.value)}
+              placeholder="A mobile-sized planner — phone screen proportions, dated, for someone who plans on their phone rather than an iPad."
+            />
+
+            {/* Buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleDraft}
+                disabled={drafting || !briefText.trim()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity disabled:opacity-40"
+                style={{ background: CLAY_GRADIENT }}
+              >
+                {drafting ? "Drafting…" : "✦ Draft this recipe"}
+              </button>
+              {stagedDraft && (
+                <button
+                  onClick={handleStartOver}
+                  className="px-3 py-2 rounded-lg text-xs font-medium border transition-opacity hover:opacity-70"
+                  style={{ color: MUTED, borderColor: BORDER }}
+                >
+                  Start over
+                </button>
+              )}
+            </div>
+
+            {/* Reading panel — appears after staging */}
+            {stagedDraft && (
+              <div className="mt-4 pt-4 border-t" style={{ borderColor: BORDER }}>
+                <p className={`${EYEBROW} mb-3`} style={{ color: MUTED }}>What Claude read from that</p>
+                <dl className="space-y-2">
+                  {([
+                    { dt: "TYPE",      dd: stagedDraft.reading.type },
+                    { dt: "PARTS ON",  dd: stagedDraft.reading.partsOn },
+                    { dt: "PARTS OFF", dd: stagedDraft.reading.partsOff },
+                    { dt: "QUESTION",  dd: stagedDraft.reading.question },
+                  ] as const).map(({ dt, dd }) => (
+                    <div key={dt} className="grid gap-x-3" style={{ gridTemplateColumns: "80px 1fr" }}>
+                      <dt className={`${EYEBROW} pt-0.5`} style={{ color: CLAY }}>{dt}</dt>
+                      <dd className="text-xs leading-relaxed" style={{ color: INK }}>{dd}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+
+            {/* Engine gaps panel */}
+            {stagedDraft && stagedDraft.gaps.length > 0 && (
+              <div
+                className="mt-4 rounded-xl p-4"
+                style={{ background: "#FDF6EF", border: "1px solid #F0E0CF" }}
+              >
+                <p className="text-sm font-semibold mb-3" style={{ color: INK }}>
+                  ⚠ This recipe needs engine work first
+                </p>
+                <div className="space-y-3">
+                  {stagedDraft.gaps.map((gap, i) => (
+                    <div key={i}>
+                      <div className="flex items-start justify-between gap-2 mb-0.5">
+                        <p className="text-xs font-semibold leading-snug" style={{ color: INK }}>
+                          {gap.title}
+                        </p>
+                        <span
+                          className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                          style={gap.severity === "Blocks release"
+                            ? { background: "#FBECEB", color: "#A33A32" }
+                            : { background: "#FDF0E6", color: "hsl(20 50% 32%)" }}
+                        >
+                          {gap.severity}
+                        </span>
+                      </div>
+                      <p className="text-xs leading-relaxed" style={{ color: MUTED }}>
+                        {gap.explanation}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <p
+                  className="text-xs mt-3 pt-3 border-t leading-relaxed italic"
+                  style={{ borderColor: "#F0E0CF", color: MUTED }}
+                >
+                  Claude staged this so you can review it, but it cannot generate until the engine
+                  work above ships. Save it as a draft, build the profile, then release.
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* ── STEP 1: What kind of product? ───────────────────────────── */}
           <div className="rounded-2xl border p-6" style={{ background: "white", borderColor: BORDER }}>
@@ -402,7 +595,6 @@ export default function NewRecipePage() {
               ))}
             </div>
 
-            {/* Type note */}
             {typeConfig && (
               <div
                 className="mt-4 rounded-xl px-4 py-3 text-sm leading-relaxed"
@@ -453,7 +645,6 @@ export default function NewRecipePage() {
                   store owners never see the rest.
                 </p>
 
-                {/* Parts grid */}
                 {(typeConfig!.defaultOn.length + typeConfig!.available.length) > 0 ? (
                   <div className="grid grid-cols-2 gap-3">
                     {[...typeConfig!.defaultOn, ...typeConfig!.available].map(key => {
@@ -470,27 +661,18 @@ export default function NewRecipePage() {
                     })}
                   </div>
                 ) : (
-                  <p className="text-xs italic" style={{ color: MUTED }}>
-                    No optional parts for this type.
-                  </p>
+                  <p className="text-xs italic" style={{ color: MUTED }}>No optional parts for this type.</p>
                 )}
 
-                {/* Not offered row */}
                 {typeConfig!.never.length > 0 && (
                   <div className="mt-5 pt-4 border-t" style={{ borderColor: BORDER }}>
-                    <p className={`${EYEBROW} mb-2`} style={{ color: MUTED }}>
-                      Not offered for this type
-                    </p>
+                    <p className={`${EYEBROW} mb-2`} style={{ color: MUTED }}>Not offered for this type</p>
                     <div className="flex flex-wrap gap-1.5">
                       {typeConfig!.never.map(key => (
                         <span
                           key={key}
                           className="px-2.5 py-1 rounded-full border text-xs"
-                          style={{
-                            borderColor: BORDER,
-                            color: MUTED,
-                            background: "hsl(38 30% 97%)",
-                          }}
+                          style={{ borderColor: BORDER, color: MUTED, background: "hsl(38 30% 97%)" }}
                         >
                           {PARTS[key]?.name ?? key}
                         </span>
@@ -510,14 +692,8 @@ export default function NewRecipePage() {
                   Every recipe opens with a single either/or. Anything else waits until after they answer it.
                 </p>
 
-                {/* Question */}
                 <div className="mb-5">
-                  <label
-                    className={`${EYEBROW} block mb-1.5`}
-                    style={{ color: MUTED }}
-                  >
-                    Question
-                  </label>
+                  <label className={`${EYEBROW} block mb-1.5`} style={{ color: MUTED }}>Question</label>
                   <input
                     className={INPUT_CLS}
                     style={INPUT_STY}
@@ -527,7 +703,6 @@ export default function NewRecipePage() {
                   />
                 </div>
 
-                {/* Option cards */}
                 <div className="grid grid-cols-2 gap-3">
                   {([
                     { label: dcALabel, setLabel: setDcALabel, cons: dcACons, setCons: setDcACons, slot: "A" },
@@ -576,16 +751,13 @@ export default function NewRecipePage() {
                 </p>
               </div>
               {showPublishing
-                ? <ChevronUp  className="w-4 h-4 shrink-0" style={{ color: MUTED }} />
+                ? <ChevronUp   className="w-4 h-4 shrink-0" style={{ color: MUTED }} />
                 : <ChevronDown className="w-4 h-4 shrink-0" style={{ color: MUTED }} />
               }
             </button>
 
             {showPublishing && (
-              <div
-                className="px-6 pb-6 space-y-4 border-t"
-                style={{ borderColor: BORDER }}
-              >
+              <div className="px-6 pb-6 space-y-4 border-t" style={{ borderColor: BORDER }}>
                 {/* Name + studio */}
                 <div className="grid grid-cols-2 gap-3 pt-4">
                   <div>
@@ -612,20 +784,10 @@ export default function NewRecipePage() {
                 </div>
 
                 {/* Physical path */}
-                <div
-                  className="rounded-xl border p-4 space-y-3"
-                  style={{ borderColor: BORDER, background: PAPER }}
-                >
+                <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: BORDER, background: PAPER }}>
                   <p className={`${EYEBROW} mb-1`} style={{ color: MUTED }}>Physical path</p>
-                  <label
-                    className="flex items-center gap-2 text-sm cursor-pointer"
-                    style={{ color: INK }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={prints}
-                      onChange={e => setPrints(e.target.checked)}
-                    />
+                  <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: INK }}>
+                    <input type="checkbox" checked={prints} onChange={e => setPrints(e.target.checked)} />
                     This recipe produces a printable file
                   </label>
                   {prints && (
@@ -640,10 +802,7 @@ export default function NewRecipePage() {
                 </div>
 
                 {/* Claude brief */}
-                <div
-                  className="rounded-xl border p-4 space-y-3"
-                  style={{ borderColor: BORDER, background: PAPER }}
-                >
+                <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: BORDER, background: PAPER }}>
                   <p className={`${EYEBROW}`} style={{ color: MUTED }}>Claude brief</p>
                   <div>
                     <label
@@ -679,10 +838,7 @@ export default function NewRecipePage() {
                 </div>
 
                 {/* Release */}
-                <div
-                  className="rounded-xl border p-4 space-y-3"
-                  style={{ borderColor: BORDER, background: PAPER }}
-                >
+                <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: BORDER, background: PAPER }}>
                   <p className={`${EYEBROW}`} style={{ color: MUTED }}>Release</p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -740,9 +896,7 @@ export default function NewRecipePage() {
                             checked={tiers.includes(t)}
                             onChange={() =>
                               setTiers(prev =>
-                                prev.includes(t)
-                                  ? prev.filter(x => x !== t)
-                                  : [...prev, t]
+                                prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]
                               )
                             }
                           />
@@ -757,32 +911,37 @@ export default function NewRecipePage() {
           </div>
         </div>
 
-        {/* ══ RIGHT: Who sees what rail ═══════════════════════════════════ */}
+        {/* ══ RIGHT: Choices rail ══════════════════════════════════════════ */}
         <div style={{ position: "sticky", top: "1rem" }}>
           <div
             className="rounded-2xl border p-5 mb-3"
             style={{ background: "white", borderColor: BORDER }}
           >
-            <p className={`${EYEBROW} mb-0.5`} style={{ color: CLAY }}>Who sees what</p>
+            <h3 className="text-sm font-extrabold uppercase tracking-wide mb-0.5" style={{ color: INK }}>
+              How many choices each person faces
+            </h3>
             <p className="text-xs mb-5 leading-relaxed" style={{ color: MUTED }}>
-              Choice narrows at every level. That is the whole design.
+              The same product, seen from three sides. Choice narrows at every level — that is the whole design.
             </p>
 
             <div className="space-y-2.5">
               <RailRow
+                entity="YOU · PLATFORM"
                 num={platformCount}
-                label="You · platform"
-                desc="Choose from every part this product type can use. Authored once."
+                unit="parts offered"
+                desc="Every part this product type can use. You decide which of them the recipe turns on."
               />
               <RailRow
+                entity="STORE OWNER"
                 num={storeOwnerCount}
-                label="Store owner"
-                desc="Sees only what you enabled, pre-filled from a theme. Adjusts what matters to them."
+                unit="parts they can touch"
+                desc="Only the ones you left on above — and already filled in by their theme. They adjust; they do not assemble."
               />
               <RailRow
+                entity="CONSUMER"
                 num={3}
-                label="Consumer"
-                desc="Picks a template, changes two or three things. Never sees the rest."
+                unit="choices at checkout"
+                desc="The buyer question, a theme, and a palette. Everything else was decided before they arrived."
               />
             </div>
 

@@ -19,7 +19,6 @@ import {
   themesTable,
   stickerPacksTable,
   insertsTable,
-  relatedProductsTable,
   editionsTable,
   plansTable,
   usersTable,
@@ -112,20 +111,19 @@ async function main() {
     });
   console.log("  ✓ inserts (6): i1,i2=starter  i3–i6=licensed");
 
-  // ── Related Products ───────────────────────────────────────────────────────
+  // ── Notebook / Journal Editions (formerly related_products) ──────────────
+  // These rows were migrated from the retired related_products table into editions.
+  // Seeds are idempotent via ON CONFLICT DO NOTHING.
   await db
-    .insert(relatedProductsTable)
+    .insert(editionsTable)
     .values([
-      { id: "r1", name: "Notes-only Notebook", kind: "Notebook · notes",    matches: ["e1","e2"], price: 9, status: "live",  origin: "licensed" },
-      { id: "r2", name: "To-Do Notebook",      kind: "Notebook · to-do",    matches: ["e1"],      price: 9, status: "live",  origin: "licensed" },
-      { id: "r3", name: "Meeting Notes Pad",   kind: "Notebook · notes",    matches: ["e3"],      price: 7, status: "draft", origin: "licensed" },
-      { id: "r4", name: "Habit Journal",       kind: "Notebook · trackers", matches: ["e2"],      price: 8, status: "draft", origin: "licensed" },
+      { id: "r1", name: "Notes-only Notebook", status: "live",  tier: "basic", sections: [], priceLow: 9,  priceHigh: 9,  themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "notebook",  binding: { type: "coil", finish: "silver" } },
+      { id: "r2", name: "To-Do Notebook",      status: "live",  tier: "basic", sections: [], priceLow: 9,  priceHigh: 9,  themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "notebook",  binding: { type: "coil", finish: "silver" } },
+      { id: "r3", name: "Meeting Notes Pad",   status: "draft", tier: "basic", sections: [], priceLow: 7,  priceHigh: 7,  themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "notebook",  binding: { type: "coil", finish: "silver" } },
+      { id: "r4", name: "Habit Journal",       status: "draft", tier: "basic", sections: [], priceLow: 8,  priceHigh: 8,  themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "journal",   binding: { type: "coil", finish: "silver" } },
     ])
-    .onConflictDoUpdate({
-      target: relatedProductsTable.id,
-      set: { origin: relatedProductsTable.origin },
-    });
-  console.log("  ✓ products (4): all licensed");
+    .onConflictDoNothing();
+  console.log("  ✓ notebook/journal editions (4): r1–r4 licensed");
 
   // ── Editions ───────────────────────────────────────────────────────────────
   // e4 Basic 2026 = starter (minimum viable planner, no licensed extras)

@@ -160,30 +160,6 @@ export const insertsTable = pgTable("inserts", {
 export type Insert = typeof insertsTable.$inferSelect;
 export type InsertInsert = typeof insertsTable.$inferInsert;
 
-// ─── RELATED PRODUCTS ────────────────────────────────────────────────────────
-
-export const relatedProductsTable = pgTable("related_products", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  kind: text("kind").notNull(), // e.g. "Notebook · notes"
-  status: text("status").notNull().default("draft"), // draft | live
-  price: real("price").notNull().default(0),
-  matches: jsonb("matches").notNull().default([]).$type<string[]>(), // edition ids
-  globalAvailable: boolean("global_available").notNull().default(true),
-  origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
-  authoredByStoreId: text("authored_by_store_id").references(() => storesTable.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
-
-export type RelatedProduct = typeof relatedProductsTable.$inferSelect;
-export type InsertRelatedProduct = typeof relatedProductsTable.$inferInsert;
-
 // ─── STICKER LIBRARY ─────────────────────────────────────────────────────────
 // Central sticker library — one row per image asset. A sticker can be assigned
 // to many packs via the packStickersTable join (M:N).

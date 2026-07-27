@@ -28,7 +28,6 @@ import {
   stickerPacksTable,
   themePacksTable,
   insertsTable,
-  relatedProductsTable,
   editionsTable,
 } from "@workspace/db";
 import { eq, and, or, ne, inArray, desc, asc } from "drizzle-orm";
@@ -111,8 +110,7 @@ async function validateAttachEntitlement(
   table:
     | typeof themesTable
     | typeof stickerPacksTable
-    | typeof insertsTable
-    | typeof relatedProductsTable,
+    | typeof insertsTable,
   ids: string[],
   type: string,
   ctx: EntitlementContext,
@@ -139,10 +137,9 @@ async function validateAttachEntitlement(
 }
 
 /**
- * Validate product IDs that may now live in either `related_products` (legacy)
- * or `editions` (notebook/journal/memory-keeping migrated rows, same IDs).
- * Checks relatedProductsTable first; falls back to editionsTable for any IDs
- * not found there (covers new notebook editions with ed_xxx IDs too).
+ * Validate product IDs against the editions table.
+ * related_products has been retired; all notebook/journal/memory-keeping rows
+ * were migrated into editions with the same IDs before this lookup was simplified.
  */
 async function validateProductIds(
   ids: string[],
@@ -150,24 +147,11 @@ async function validateProductIds(
 ): Promise<string | null> {
   if (!ids.length) return null;
 
-  // Try relatedProductsTable first
-  const rpRows = await db
-    .select({ id: relatedProductsTable.id, origin: relatedProductsTable.origin, authoredByStoreId: relatedProductsTable.authoredByStoreId })
-    .from(relatedProductsTable)
-    .where(inArray(relatedProductsTable.id, ids));
-  const rpFoundIds = new Set(rpRows.map((r) => r.id));
+  const allRows = await db
+    .select({ id: editionsTable.id, origin: editionsTable.origin, authoredByStoreId: editionsTable.authoredByStoreId })
+    .from(editionsTable)
+    .where(inArray(editionsTable.id, ids));
 
-  // Check editions table for any IDs not found in relatedProducts
-  const notInRp = ids.filter((id) => !rpFoundIds.has(id));
-  let edRows: { id: string; origin: string | null; authoredByStoreId: string | null }[] = [];
-  if (notInRp.length) {
-    edRows = await db
-      .select({ id: editionsTable.id, origin: editionsTable.origin, authoredByStoreId: editionsTable.authoredByStoreId })
-      .from(editionsTable)
-      .where(inArray(editionsTable.id, notInRp));
-  }
-
-  const allRows = [...rpRows, ...edRows];
   const allFoundIds = new Set(allRows.map((r) => r.id));
   const missing = ids.find((id) => !allFoundIds.has(id));
   if (missing) return `Unknown product ID: ${missing}`;
@@ -648,11 +632,15 @@ router.get(
           and(ne(insertsTable.origin, "owned"), eq(insertsTable.globalAvailable, true), eq(insertsTable.status, "live")),
         )),
       ),
-      db.select().from(relatedProductsTable).where(
-        and(ne(relatedProductsTable.status, "deleted"), or(
-          and(eq(relatedProductsTable.origin, "owned"), eq(relatedProductsTable.authoredByStoreId, storeId)),
-          and(ne(relatedProductsTable.origin, "owned"), eq(relatedProductsTable.globalAvailable, true), eq(relatedProductsTable.status, "live")),
-        )),
+      db.select().from(editionsTable).where(
+        and(
+          ne(editionsTable.status, "deleted"),
+          inArray(editionsTable.productType, ["notebook", "journal", "memory-keeping"]),
+          or(
+            and(eq(editionsTable.origin, "owned"), eq(editionsTable.authoredByStoreId, storeId)),
+            and(ne(editionsTable.origin, "owned"), eq(editionsTable.globalAvailable, true), eq(editionsTable.status, "live")),
+          ),
+        ),
       ),
       db.select().from(editionsTable).where(
         and(ne(editionsTable.status, "deleted"), or(

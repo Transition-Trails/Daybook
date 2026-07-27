@@ -25,7 +25,6 @@ import {
   stickerPacksTable,
   insertsTable,
   widgetsTable,
-  relatedProductsTable,
   editionsTable,
   themePalettesTable,
   themeBackgroundsTable,
@@ -440,7 +439,30 @@ buildCatalogRoutes(router, "/palettes",   palettesTable,        "Palette");
 buildCatalogRoutes(router, "/backgrounds",backgroundsTable,     "Background");
 buildCatalogRoutes(router, "/packs",      stickerPacksTable,    "StickerPack");
 buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert",       { dedupByName: true });
-buildCatalogRoutes(router, "/products",   relatedProductsTable, "RelatedProduct");
+// /products — legacy read-only view of notebook/journal/memory-keeping editions.
+// Writes go through /editions. /related-products is the old URL; both 301-redirect
+// to the same data so existing bookmarks and API clients keep working.
+router.get("/products", async (req: Request, res: Response): Promise<void> => {
+  const rows = await db.select().from(editionsTable).where(
+    and(
+      ne(editionsTable.status, "deleted"),
+      inArray(editionsTable.productType, ["notebook", "journal", "memory-keeping"]),
+    ),
+  );
+  res.json(rows);
+});
+router.get("/products/:id", async (req: Request, res: Response): Promise<void> => {
+  const [row] = await db.select().from(editionsTable).where(
+    and(
+      eq(editionsTable.id, req.params.id as string),
+      inArray(editionsTable.productType, ["notebook", "journal", "memory-keeping"]),
+    ),
+  );
+  if (!row || row.status === "deleted") { res.status(404).json({ error: "Product not found" }); return; }
+  res.json(row);
+});
+router.get("/related-products",     (_req: Request, res: Response) => res.redirect(301, "/products"));
+router.get("/related-products/:id", (req: Request,  res: Response) => res.redirect(301, `/products/${req.params.id as string}`));
 
 // ── Hardware routes ──────────────────────────────────────────────────────────
 // GET list/detail use standard visibility; POST auto-generates id (form never sends one).

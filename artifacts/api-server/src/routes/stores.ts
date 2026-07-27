@@ -17,7 +17,6 @@ import {
   themesTable,
   stickerPacksTable,
   insertsTable,
-  relatedProductsTable,
   editionsTable,
 } from "@workspace/db";
 import { eq, and, count, inArray } from "drizzle-orm";
@@ -37,7 +36,7 @@ const CATALOG_TABLES: Record<string, { table: any; label: string }> = {
   theme:   { table: themesTable,          label: "Theme" },
   pack:    { table: stickerPacksTable,    label: "StickerPack" },
   insert:  { table: insertsTable,         label: "Insert" },
-  product: { table: relatedProductsTable, label: "RelatedProduct" },
+  product: { table: editionsTable, label: "Edition" },
   edition: { table: editionsTable,        label: "Edition" },
 };
 
@@ -291,7 +290,7 @@ router.get(
       { type: "theme",   table: themesTable },
       { type: "pack",    table: stickerPacksTable },
       { type: "insert",  table: insertsTable },
-      { type: "product", table: relatedProductsTable },
+      { type: "product", table: editionsTable },
       { type: "edition", table: editionsTable },
     ];
     await Promise.all(

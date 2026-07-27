@@ -8,13 +8,12 @@ import {
   themesTable,
   stickerPacksTable,
   insertsTable,
-  relatedProductsTable,
   editionsTable,
   usersTable,
   generationJobsTable,
   plansTable,
 } from "@workspace/db";
-import { count, sql } from "drizzle-orm";
+import { count, sql, inArray } from "drizzle-orm";
 import { requireStaff } from "../lib/auth-middleware";
 
 const router: IRouter = Router();
@@ -31,11 +30,24 @@ router.get("/admin/stats", requireStaff, async (req, res): Promise<void> => {
     return { total: live + draft, live, draft };
   }
 
+  // Notebook / journal / memory-keeping editions — sourced from editions table
+  // after related_products was retired and its rows migrated into editions.
+  async function countNotebookEditions() {
+    const rows = await db
+      .select({ status: editionsTable.status, cnt: count() })
+      .from(editionsTable)
+      .where(inArray(editionsTable.productType, ["notebook", "journal", "memory-keeping"]))
+      .groupBy(editionsTable.status);
+    const live = Number(rows.find((r) => r.status === "live")?.cnt ?? 0);
+    const draft = Number(rows.find((r) => r.status === "draft")?.cnt ?? 0);
+    return { total: live + draft, live, draft };
+  }
+
   const [themes, packs, inserts, products, editions, planCount] = await Promise.all([
     countByStatus(themesTable),
     countByStatus(stickerPacksTable),
     countByStatus(insertsTable),
-    countByStatus(relatedProductsTable),
+    countNotebookEditions(),
     countByStatus(editionsTable),
     db.select({ cnt: count() }).from(plansTable).then(r => Number(r[0]?.cnt ?? 0)),
   ]);

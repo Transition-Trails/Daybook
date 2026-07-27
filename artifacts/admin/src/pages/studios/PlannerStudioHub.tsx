@@ -21,6 +21,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sparkles, BookOpen, FileText, Download, Upload,
   Plus, Copy, Globe, EyeOff, ImageOff, Layers,
+  Lock as LockIcon, RefreshCw, Check,
 } from "lucide-react";
 import { StudioLayout } from "@/components/studio/StudioLayout";
 import {
@@ -113,6 +114,11 @@ interface BuildState {
   productIds:  string[];
   /** Derived from the selected edition — controls which modes are visible */
   productType: string;
+  /** New fields for the two-card build UI */
+  datingMode:  "dated" | "undated" | "perpetual";
+  weekStart:   "mon" | "sun";
+  tabPos:      "right" | "top" | "bottom" | "none";
+  sections:    string[];
 }
 
 const DEFAULT_BUILD: BuildState = {
@@ -131,6 +137,10 @@ const DEFAULT_BUILD: BuildState = {
   insertIds:   [],
   productIds:  [],
   productType: "planner",
+  datingMode:  "dated",
+  weekStart:   "mon",
+  tabPos:      "right",
+  sections:    [],
 };
 
 // ── Compose-context chip (clay active fill) ───────────────────────────────────
@@ -726,11 +736,30 @@ function PdfPreviewDock({ buildState }: { buildState: BuildState }) {
 
 // ── BUILD mode center ─────────────────────────────────────────────────────────
 
+// Eyebrow + consequence tokens used throughout the build card
+const BUILD_EYEBROW    = "text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground";
+const BUILD_CONSEQ     = "text-[12.5px] leading-relaxed text-muted-foreground";
+
+/** Months stepper — computes total month count from start/end, updates end on change */
+function computeMonthCount(startYear: string, startMonth: string, endYear: string, endMonth: string) {
+  return (Number(endYear) - Number(startYear)) * 12 + (Number(endMonth) - Number(startMonth)) + 1;
+}
+function applyMonthCount(startYear: string, startMonth: string, count: number) {
+  const total = Number(startMonth) - 1 + count - 1; // 0-based month offset
+  const eYear = Number(startYear) + Math.floor(total / 12);
+  const eMon  = (total % 12) + 1;
+  return { endYear: String(eYear), endMonth: String(eMon) };
+}
+
 function BuildCenter({
   state, setState,
 }: { state: BuildState; setState: React.Dispatch<React.SetStateAction<BuildState>> }) {
   const set = <K extends keyof BuildState>(key: K, val: BuildState[K]) =>
     setState(prev => ({ ...prev, [key]: val }));
+
+  // Local section-add UI state
+  const [addingSection, setAddingSection] = useState(false);
+  const [sectionDraft,  setSectionDraft]  = useState("");
 
   const { data: rawThemes = [] } = useQuery({
     queryKey: ["themes-mini"],
@@ -766,169 +795,472 @@ function BuildCenter({
       }),
   });
 
-  const monthChipCls = (active: boolean) =>
-    `px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${
-      active ? "text-white border-[#1B2A4A]" : "border-border text-muted-foreground hover:text-foreground"
+  // Derived helpers
+  const isDated     = state.datingMode === "dated";
+  const monthCount  = computeMonthCount(state.startYear, state.startMonth, state.endYear, state.endMonth);
+  const selTheme    = (themes as any[]).find((t: any) => t.id === state.themeId) ?? null;
+  const palettes: Array<{ id: string; name: string; colors: string[] }> = selTheme?.palettes ?? [];
+
+  const MONTHS_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const MONTHS_ABB  = MONTHS_FULL.map(m => m.slice(0, 3));
+  const YEAR_SEL    = [2025, 2026, 2027, 2028, 2029, 2030];
+
+  const datingConsequence: Record<string, string> = {
+    dated:     "Real dates and weekdays — sells by year, links to calendar invites.",
+    undated:   "No date links — fill-in boxes instead. Sells any time, no year expiry.",
+    perpetual: "Reusable year-round — no year-specific content, no expiry.",
+  };
+  const tabConsequence: Record<string, string> = {
+    right:  "Tabs appear on section dividers as right-edge navigational rails.",
+    top:    "Tabs run across the top of each section divider page.",
+    bottom: "Tabs run along the bottom edge of each section divider page.",
+    none:   "No section dividers — a single Home tab only.",
+  };
+
+  const PRODUCT_TYPES = [
+    { id: "planner",  label: "Planner",      sub: "Dated, hyperlinked,\ntab rails",  active: true  },
+    { id: "notebook", label: "Notebook",     sub: "Repeating pages,\nno calendar",   active: false },
+    { id: "svg",      label: "SVG cut pack", sub: "SVG + DXF + PNG,\ncut layers",    active: false },
+    { id: "kdp",      label: "KDP interior", sub: "Print — v2",                      active: false },
+  ];
+
+  const pillCls = (active: boolean) =>
+    `px-3.5 py-1.5 rounded-full text-[12.5px] font-medium border transition-colors cursor-pointer ${
+      active
+        ? "bg-[#1B2A4A] text-white border-[#1B2A4A]"
+        : "bg-background text-muted-foreground border-border hover:text-foreground hover:border-foreground/30"
     }`;
 
   return (
-    <div className="space-y-7" style={{ minWidth: 0 }}>
-      <ComposePageHeader
-        title="Configure your planner"
-        subtitle="Set dates, format, and style — then generate the PDF or hand it to Claude."
-        aiLabel="✦ Build with Claude"
-        onAi={() => {}}
-      />
+    <div className="space-y-5 pb-8" style={{ minWidth: 0, maxWidth: 700 }}>
 
-      {/* Date range */}
-      <div className="space-y-4 rounded-[16px] border p-5" style={{ background: PAPER_TINT }}>
-        <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Date range</p>
-        <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div className="space-y-2">
-            <p className="text-[11.5px] font-medium text-muted-foreground">Start year</p>
-            <ChipRow options={YEAR_OPTIONS} value={state.startYear} onChange={v => set("startYear", v)} />
+      {/* Page header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-display font-semibold text-[17px] text-foreground leading-tight">Build a planner</h2>
+          <p className="text-[12.5px] text-muted-foreground mt-1 max-w-lg">
+            Structure is set once. Everything else you can change and re-export later.
+          </p>
+        </div>
+        <button
+          style={{ cursor: "pointer", background: CLAY, color: "#fff", flexShrink: 0 }}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-full text-[12.5px] font-semibold hover:opacity-90 transition-opacity whitespace-nowrap"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          ✦ Build with Claude
+        </button>
+      </div>
+
+      {/* Edition requirement notice */}
+      {!state.editionId && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <BookOpen className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-[13px] font-semibold text-amber-800">No edition linked yet</p>
+            <p className={`${BUILD_CONSEQ} text-amber-700`}>
+              An edition defines the page layout and section order. Select one in the left rail before generating.
+            </p>
           </div>
-          <div className="space-y-2">
-            <p className="text-[11.5px] font-medium text-muted-foreground">End year</p>
-            <ChipRow options={YEAR_OPTIONS} value={state.endYear} onChange={v => set("endYear", v)} />
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          CARD 1 — SET UP ONCE (navy left accent)
+      ══════════════════════════════════════════════════════ */}
+      <div className="rounded-[16px] border overflow-hidden">
+        <div className="border-l-[3px] border-[#1B2A4A] p-6 space-y-6" style={{ background: PAPER_TINT }}>
+
+          {/* Card header */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <span className={BUILD_EYEBROW}>Set up once</span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                <LockIcon className="w-3 h-3" /> Locked after generating
+              </span>
+            </div>
+            <p className={BUILD_CONSEQ}>
+              These decide the page count and every internal link — they can't change without a fresh planner.
+            </p>
           </div>
+
+          {/* DATING */}
           <div className="space-y-2">
-            <p className="text-[11.5px] font-medium text-muted-foreground">Start month</p>
-            <div className="flex gap-1 flex-wrap">
-              {MONTH_OPTIONS.map(o => (
-                <button key={o.value} onClick={() => set("startMonth", o.value)}
-                  style={{ cursor: "pointer", ...(state.startMonth === o.value ? { background: CHIP_ACTIVE_BG } : {}) }}
-                  className={monthChipCls(state.startMonth === o.value)}>
-                  {o.label}
+            <div className="flex items-center gap-2">
+              <span className={BUILD_EYEBROW}>Dating</span>
+              <span className="px-2 py-0.5 rounded-full bg-[#1B2A4A]/10 text-[#1B2A4A] text-[11px] font-semibold capitalize leading-none py-[3px]">
+                {state.datingMode}
+              </span>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {(["dated","undated","perpetual"] as const).map(v => (
+                <button key={v} onClick={() => set("datingMode", v)} className={pillCls(state.datingMode === v)}>
+                  {v.charAt(0).toUpperCase() + v.slice(1)}
                 </button>
               ))}
             </div>
+            <p className={BUILD_CONSEQ}>{datingConsequence[state.datingMode]}</p>
           </div>
+
+          {/* PRODUCT TYPE */}
           <div className="space-y-2">
-            <p className="text-[11.5px] font-medium text-muted-foreground">End month</p>
-            <div className="flex gap-1 flex-wrap">
-              {MONTH_OPTIONS.map(o => (
-                <button key={o.value} onClick={() => set("endMonth", o.value)}
-                  style={{ cursor: "pointer", ...(state.endMonth === o.value ? { background: CHIP_ACTIVE_BG } : {}) }}
-                  className={monthChipCls(state.endMonth === o.value)}>
-                  {o.label}
-                </button>
+            <span className={BUILD_EYEBROW}>Product type</span>
+            <div className="grid grid-cols-4 gap-2">
+              {PRODUCT_TYPES.map(pt => (
+                <div key={pt.id} className={`p-3 rounded-xl border text-left select-none transition-colors ${
+                  pt.active
+                    ? "text-white border-[#C87560]"
+                    : "bg-background text-foreground border-border opacity-40 cursor-not-allowed"
+                }`} style={pt.active ? { background: CLAY } : {}}>
+                  <p className="text-[12.5px] font-semibold leading-tight">{pt.label}</p>
+                  <p className={`text-[11px] leading-snug mt-1 whitespace-pre-line ${pt.active ? "text-white/80" : "text-muted-foreground"}`}>{pt.sub}</p>
+                </div>
               ))}
             </div>
+            <p className={BUILD_CONSEQ}>Full planner engine — dating, hyperlink map, tab groups and realistic binding all apply.</p>
           </div>
-        </div>
-      </div>
 
-      {/* Format */}
-      <div className="space-y-3 rounded-[16px] border p-5" style={{ background: PAPER_TINT }}>
-        <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Format</p>
-        <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div className="space-y-1.5">
-            <p className="text-[11.5px] font-medium text-muted-foreground">Paper size</p>
-            <SegmentedControl
-              options={[{value:"A5",label:"A5"},{value:"HalfLetter",label:"Half letter"}]}
-              value={state.paperSize}
-              onChange={v => set("paperSize", v as "A5" | "HalfLetter")}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-[11.5px] font-medium text-muted-foreground">Weekly spread</p>
-            <SegmentedControl
-              options={[{value:"vertical",label:"Vertical"},{value:"two-page",label:"2-page"}]}
-              value={state.weeklyType}
-              onChange={v => set("weeklyType", v as "vertical" | "two-page")}
-            />
-          </div>
-        </div>
-      </div>
+          {/* COMPACT 4-FIELD ROW */}
+          <div className="grid grid-cols-4 gap-4">
 
-      {/* Style */}
-      <div className="space-y-3 rounded-[16px] border p-5" style={{ background: PAPER_TINT }}>
-        <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Style</p>
-        <div className="space-y-2">
-          <p className="text-[11.5px] font-medium text-muted-foreground">Theme</p>
-          <div className="flex gap-1.5 flex-wrap">
-            <button
-              onClick={() => setState(prev => ({ ...prev, themeId: "", paletteId: "" }))}
-              style={{ cursor: "pointer" }}
-              className={`px-3 py-1 rounded-full text-[12px] font-medium border border-dashed transition-colors ${
-                state.themeId === ""
-                  ? "border-foreground/30 text-muted-foreground bg-muted"
-                  : "border-border text-muted-foreground/50 hover:text-muted-foreground hover:border-foreground/20"
-              }`}
-            >
-              No theme
-            </button>
-            {themes.map((t: any) => (
-              <button
-                key={t.id}
-                onClick={() => {
-                  const primary = ((t as any).palettes ?? []).find((p: any) => p.isPrimary) ?? ((t as any).palettes ?? [])[0];
-                  setState(prev => ({ ...prev, themeId: t.id, themeName: t.name, paletteId: primary?.id ?? "" }));
-                }}
-                style={{ cursor: "pointer", ...(state.themeId === t.id ? { background: CHIP_ACTIVE_BG } : {}) }}
-                className={`px-3 py-1 rounded-full text-[12px] font-medium border transition-colors ${
-                  state.themeId === t.id
-                    ? "text-white border-[#1B2A4A]"
-                    : "bg-background text-muted-foreground border-border hover:text-foreground hover:border-foreground/30"
-                }`}
-              >
-                {t.name}
-              </button>
-            ))}
-          </div>
-        </div>
-        {/* Palette picker — visible only when the selected theme has 2+ palettes */}
-        {(() => {
-          const selTheme = (themes as any[]).find((t: any) => t.id === state.themeId);
-          const palettes: Array<{ id: string; name: string; colors: string[]; isPrimary?: boolean }> = selTheme?.palettes ?? [];
-          if (!state.themeId || palettes.length <= 1) return null;
-          return (
+            {/* Week starts */}
             <div className="space-y-2">
-              <p className="text-[11.5px] font-medium text-muted-foreground">Palette</p>
-              <div className="flex gap-1.5 flex-wrap">
-                {palettes.map((pal) => (
-                  <button
-                    key={pal.id}
-                    onClick={() => set("paletteId", pal.id)}
-                    style={{ cursor: "pointer", ...(state.paletteId === pal.id ? { background: CHIP_ACTIVE_BG } : {}) }}
-                    className={`flex items-center gap-2 px-3 py-1 rounded-full text-[12px] font-medium border transition-colors ${
-                      state.paletteId === pal.id
-                        ? "text-white border-[#1B2A4A]"
-                        : "bg-background text-muted-foreground border-border hover:text-foreground hover:border-foreground/30"
-                    }`}
-                  >
-                    <span className="flex gap-0.5 shrink-0">
-                      {(pal.colors ?? []).slice(0, 3).map((c, i) => (
-                        <span key={i} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />
-                      ))}
-                    </span>
-                    {pal.name}
+              <span className={BUILD_EYEBROW}>Week starts</span>
+              <div className="flex gap-1.5">
+                {(["mon","sun"] as const).map(v => (
+                  <button key={v} onClick={() => set("weekStart", v)} className={pillCls(state.weekStart === v)}>
+                    {v === "mon" ? "Mon" : "Sun"}
                   </button>
                 ))}
               </div>
             </div>
-          );
-        })()}
 
-        <div className="space-y-2">
-          <p className="text-[11.5px] font-medium text-muted-foreground">Sticker packs</p>
-          <MultiChipRow
-            options={(packs as any[]).map((p: any) => ({ value: p.id, label: p.name }))}
-            value={state.packIds} onChange={v => set("packIds", v)}
-          />
+            {/* Layout */}
+            <div className="space-y-2">
+              <span className={BUILD_EYEBROW}>Layout</span>
+              <div className="flex gap-1.5">
+                {(["vertical","two-page"] as const).map(v => (
+                  <button key={v} onClick={() => set("weeklyType", v)} className={pillCls(state.weeklyType === v)}>
+                    {v === "vertical" ? "Vertical" : "2-page"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Starts — compact month + year selects */}
+            <div className="space-y-2">
+              <span className={`${BUILD_EYEBROW} ${!isDated ? "opacity-40" : ""}`}>Starts</span>
+              <div className="flex items-center gap-1">
+                <select
+                  disabled={!isDated}
+                  value={state.startMonth}
+                  onChange={e => {
+                    const sm = e.target.value;
+                    const { endYear, endMonth } = applyMonthCount(state.startYear, sm, monthCount);
+                    setState(prev => ({ ...prev, startMonth: sm, endYear, endMonth }));
+                  }}
+                  className="h-8 rounded-lg border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-foreground/40 transition-colors disabled:opacity-40"
+                  style={{ cursor: isDated ? "pointer" : "not-allowed" }}
+                >
+                  {MONTHS_ABB.map((m, i) => <option key={i} value={String(i+1)}>{m}</option>)}
+                </select>
+                <select
+                  disabled={!isDated}
+                  value={state.startYear}
+                  onChange={e => {
+                    const sy = e.target.value;
+                    const { endYear, endMonth } = applyMonthCount(sy, state.startMonth, monthCount);
+                    setState(prev => ({ ...prev, startYear: sy, endYear, endMonth }));
+                  }}
+                  className="h-8 rounded-lg border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-foreground/40 transition-colors disabled:opacity-40 w-[72px]"
+                  style={{ cursor: isDated ? "pointer" : "not-allowed" }}
+                >
+                  {YEAR_SEL.map(y => <option key={y} value={String(y)}>{y}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Months — stepper */}
+            <div className="space-y-2">
+              <span className={`${BUILD_EYEBROW} ${!isDated ? "opacity-40" : ""}`}>Months</span>
+              <div className="flex items-center gap-0">
+                <button
+                  disabled={!isDated || monthCount <= 1}
+                  onClick={() => {
+                    const { endYear, endMonth } = applyMonthCount(state.startYear, state.startMonth, Math.max(1, monthCount - 1));
+                    setState(prev => ({ ...prev, endYear, endMonth }));
+                  }}
+                  className="h-8 w-7 rounded-l-lg border border-r-0 text-[13px] font-medium flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  style={{ cursor: isDated && monthCount > 1 ? "pointer" : "not-allowed" }}
+                >−</button>
+                <div className="h-8 w-10 border text-[13px] font-medium flex items-center justify-center bg-background">
+                  {isDated ? monthCount : "—"}
+                </div>
+                <button
+                  disabled={!isDated || monthCount >= 24}
+                  onClick={() => {
+                    const { endYear, endMonth } = applyMonthCount(state.startYear, state.startMonth, Math.min(24, monthCount + 1));
+                    setState(prev => ({ ...prev, endYear, endMonth }));
+                  }}
+                  className="h-8 w-7 rounded-r-lg border border-l-0 text-[13px] font-medium flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  style={{ cursor: isDated && monthCount < 24 ? "pointer" : "not-allowed" }}
+                >+</button>
+              </div>
+            </div>
+
+          </div>
+          {/* Row consequence */}
+          <p className={`${BUILD_CONSEQ} -mt-3`}>
+            {isDated
+              ? `${state.weekStart === "mon" ? "Monday" : "Sunday"}-start ${state.weeklyType === "vertical" ? "vertical" : "2-page spread"} · ${MONTHS_FULL[Number(state.startMonth)-1]} ${state.startYear} → ${MONTHS_FULL[Number(state.endMonth)-1]} ${state.endYear} · ${monthCount} ${monthCount === 1 ? "month" : "months"}.`
+              : `${state.weekStart === "mon" ? "Monday" : "Sunday"}-start ${state.weeklyType === "vertical" ? "vertical" : "2-page spread"} · no fixed dates.`}
+          </p>
+
         </div>
-        <div className="space-y-2">
-          <p className="text-[11.5px] font-medium text-muted-foreground">Inserts</p>
-          <MultiChipRow
-            options={(inserts as any[]).map((i: any) => ({ value: i.id, label: i.name }))}
-            value={state.insertIds} onChange={v => set("insertIds", v)}
-          />
+      </div>
+
+      {/* ══════════════════════════════════════════════════════
+          CARD 2 — CUSTOMIZE ANYTIME (clay left accent)
+      ══════════════════════════════════════════════════════ */}
+      <div className="rounded-[16px] border overflow-hidden">
+        <div className="border-l-[3px] border-[#C87560] p-6 space-y-6" style={{ background: PAPER_TINT }}>
+
+          {/* Card header */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <span className={BUILD_EYEBROW}>Customize anytime</span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <RefreshCw className="w-3 h-3" /> Re-export whenever
+              </span>
+            </div>
+            <p className={BUILD_CONSEQ}>
+              Cosmetic and content choices. Change them and export a fresh PDF — existing planners stay untouched.
+            </p>
+          </div>
+
+          {/* THEME & PALETTE */}
+          <div className="space-y-3">
+            <span className={BUILD_EYEBROW}>Theme &amp; Palette</span>
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                onClick={() => setState(prev => ({ ...prev, themeId: "", themeName: "None", paletteId: "" }))}
+                style={{ cursor: "pointer" }}
+                className={pillCls(state.themeId === "")}
+              >
+                No theme
+              </button>
+              {(themes as any[]).map((t: any) => (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    const primary = (t.palettes ?? []).find((p: any) => p.isPrimary) ?? (t.palettes ?? [])[0];
+                    setState(prev => ({ ...prev, themeId: t.id, themeName: t.name, paletteId: primary?.id ?? "" }));
+                  }}
+                  style={{ cursor: "pointer", ...(state.themeId === t.id ? { background: CHIP_ACTIVE_BG } : {}) }}
+                  className={pillCls(state.themeId === t.id)}
+                >
+                  {t.name}
+                </button>
+              ))}
+            </div>
+
+            {/* Palette swatches */}
+            {state.themeId && palettes.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-0.5">
+                {palettes.map((pal) => (
+                  <button
+                    key={pal.id}
+                    onClick={() => set("paletteId", pal.id)}
+                    title={pal.name}
+                    style={{ cursor: "pointer" }}
+                    className={`flex flex-col items-center gap-1 p-1.5 rounded-xl border transition-all ${
+                      state.paletteId === pal.id
+                        ? "border-[#1B2A4A] ring-1 ring-[#1B2A4A]/20"
+                        : "border-border hover:border-foreground/40"
+                    }`}
+                  >
+                    <div className="flex rounded overflow-hidden">
+                      {(pal.colors ?? []).slice(0, 4).map((hex: string, ci: number) => (
+                        <div key={ci} className="w-5 h-5" style={{ background: hex }} />
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-muted-foreground leading-none max-w-[80px] truncate">{pal.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className={BUILD_CONSEQ}>Sets the colour family and typeface applied across all pages.</p>
+          </div>
+
+          {/* TABS */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className={BUILD_EYEBROW}>Tabs</span>
+              <span className="text-[11.5px] text-muted-foreground">
+                {state.tabPos === "right" ? "side tabs" : state.tabPos === "top" ? "top tabs" : state.tabPos === "bottom" ? "bottom tabs" : "no tabs"}
+              </span>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {([["right","Side"],["top","Top"],["bottom","Bottom"],["none","Home only"]] as const).map(([v, label]) => (
+                <button key={v} onClick={() => set("tabPos", v as BuildState["tabPos"])} className={pillCls(state.tabPos === v)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className={BUILD_CONSEQ}>{tabConsequence[state.tabPos]}</p>
+          </div>
+
+          {/* FONTS */}
+          <div className="space-y-2">
+            <span className={BUILD_EYEBROW}>Fonts</span>
+            {selTheme?.fontPairing ? (
+              <div className="flex flex-wrap gap-1.5">
+                {selTheme.fontPairing.heading && (
+                  <span className="px-3 py-1.5 rounded-full text-[12.5px] font-medium border bg-[#1B2A4A] text-white border-[#1B2A4A]">{selTheme.fontPairing.heading}</span>
+                )}
+                {selTheme.fontPairing.body && (
+                  <span className="px-3 py-1.5 rounded-full text-[12.5px] font-medium border border-border bg-background text-foreground">{selTheme.fontPairing.body}</span>
+                )}
+              </div>
+            ) : (
+              <p className="text-[12.5px] text-muted-foreground">
+                {themes.length === 0 ? "Set a theme above to see its font pairing." : state.themeId ? "The selected theme has no font pairing set." : "Select a theme above to see its font pairing."}
+              </p>
+            )}
+            <p className={BUILD_CONSEQ}>Heading and body fonts apply throughout — covers, section titles, and day labels.</p>
+          </div>
+
+          {/* NOTE SECTIONS */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className={BUILD_EYEBROW}>Note sections</span>
+                <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  {state.sections.length} OF 10
+                </span>
+              </div>
+              <button
+                style={{ cursor: "pointer", color: CLAY }}
+                className="text-[12px] font-semibold flex items-center gap-1 hover:opacity-70 transition-opacity"
+              >
+                ✦ Name them for me
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {state.sections.map((s, i) => (
+                <span key={i} className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full text-[12.5px] border bg-background">
+                  {s}
+                  <button
+                    onClick={() => set("sections", state.sections.filter((_, j) => j !== i))}
+                    style={{ cursor: "pointer" }}
+                    className="w-4 h-4 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-[11px]"
+                  >×</button>
+                </span>
+              ))}
+              {state.sections.length < 10 && !addingSection && (
+                <button
+                  onClick={() => setAddingSection(true)}
+                  style={{ cursor: "pointer" }}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[12.5px] border border-dashed text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+                >
+                  <Plus className="w-3 h-3" /> add
+                </button>
+              )}
+              {addingSection && (
+                <span className="inline-flex items-center gap-1">
+                  <input
+                    autoFocus
+                    value={sectionDraft}
+                    onChange={e => setSectionDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && sectionDraft.trim()) {
+                        set("sections", [...state.sections, sectionDraft.trim()]);
+                        setSectionDraft(""); setAddingSection(false);
+                      }
+                      if (e.key === "Escape") { setSectionDraft(""); setAddingSection(false); }
+                    }}
+                    placeholder="Section name…"
+                    className="h-8 w-36 rounded-full border border-border bg-background px-3 text-[12.5px] outline-none focus:border-foreground/40"
+                  />
+                  <button
+                    onClick={() => {
+                      if (sectionDraft.trim()) set("sections", [...state.sections, sectionDraft.trim()]);
+                      setSectionDraft(""); setAddingSection(false);
+                    }}
+                    style={{ cursor: "pointer" }}
+                    className="text-[11.5px] text-muted-foreground hover:text-foreground px-1"
+                  >done</button>
+                </span>
+              )}
+            </div>
+            <p className={BUILD_CONSEQ}>Section names appear on tab dividers and in the contents page hyperlink map.</p>
+          </div>
+
+          {/* STICKER PACKS */}
+          <div className="space-y-2">
+            <span className={BUILD_EYEBROW}>Sticker packs</span>
+            {(packs as any[]).length === 0 ? (
+              <div className="flex items-center justify-between rounded-xl border border-dashed px-4 py-3 bg-background">
+                <p className="text-[12.5px] text-muted-foreground">No sticker packs in the catalog yet.</p>
+              </div>
+            ) : (
+              <MultiChipRow
+                options={(packs as any[]).map((p: any) => ({ value: p.id, label: p.name }))}
+                value={state.packIds} onChange={v => set("packIds", v)}
+              />
+            )}
+            <p className={BUILD_CONSEQ}>Sticker packs add decorative clip-art sheets after the planner pages.</p>
+          </div>
+
+          {/* INSERTS */}
+          <div className="space-y-2">
+            <span className={BUILD_EYEBROW}>Inserts</span>
+            {(inserts as any[]).length === 0 ? (
+              <div className="flex items-center justify-between rounded-xl border border-dashed px-4 py-3 bg-background">
+                <p className="text-[12.5px] text-muted-foreground">No inserts in the catalog yet.</p>
+              </div>
+            ) : (
+              <MultiChipRow
+                options={(inserts as any[]).map((i: any) => ({ value: i.id, label: i.name }))}
+                value={state.insertIds} onChange={v => set("insertIds", v)}
+              />
+            )}
+            <p className={BUILD_CONSEQ}>Inserts add bonus pages — habit trackers, goal sheets, reading logs — between planner sections.</p>
+          </div>
+
+        </div>
+      </div>
+
+      {/* WHAT SHIPS WITH THE PLANNER */}
+      <div className="rounded-[16px] border p-5 space-y-3" style={{ background: PAPER_TINT }}>
+        <div>
+          <span className={BUILD_EYEBROW}>What ships with the planner</span>
+          <p className={`${BUILD_CONSEQ} mt-1`}>Same treatment as a sticker pack — the buyer gets more than a bare PDF.</p>
+        </div>
+        <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          {[
+            { label: "Hyperlinked contents page", sub: "Every section and month, one tap away", badge: "Included", ok: true },
+            { label: "Getting-started guide (PDF)", sub: "Written in your brand voice by Claude", badge: "Included", ok: true },
+            { label: "Sticker packs bundled", sub: state.packIds.length > 0 ? `${state.packIds.length} pack${state.packIds.length > 1 ? "s" : ""} attached` : "Attach packs above", badge: "Optional", ok: false },
+            { label: "Calendar starter file", sub: "Pre-built events — coming in v2", badge: "v2", ok: false },
+          ].map(item => (
+            <div key={item.label} className="flex items-start gap-2.5 p-3 rounded-xl border border-border bg-background">
+              <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${item.ok ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
+                {item.ok ? <Check className="w-3 h-3" /> : <span className="text-[9px] font-bold">—</span>}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className="text-[12.5px] font-semibold leading-tight">{item.label}</p>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${item.ok ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground"}`}>{item.badge}</span>
+                </div>
+                <p className="text-[11.5px] text-muted-foreground leading-snug mt-0.5">{item.sub}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Generate */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 pt-1">
         <button
           onClick={() => generateMutation.mutate()}
           disabled={!state.editionId || generateMutation.isPending}
@@ -936,14 +1268,20 @@ function BuildCenter({
             cursor: !state.editionId || generateMutation.isPending ? "not-allowed" : "pointer",
             background: CHIP_ACTIVE_BG,
           }}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-full text-white text-[13px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+          className="flex items-center gap-2 px-6 py-2.5 rounded-full text-white text-[13px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
         >
           {generateMutation.isPending ? (
             <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
           ) : (
             <Download className="w-4 h-4" />
           )}
-          Generate & save to Drive
+          Generate planner
+        </button>
+        <button
+          style={{ cursor: "pointer" }}
+          className="px-5 py-2.5 rounded-full text-[13px] font-semibold border border-border bg-background hover:bg-muted transition-colors"
+        >
+          Save draft
         </button>
         {!state.editionId && (
           <p className="text-[11.5px] text-muted-foreground">Select an edition in the left rail first</p>

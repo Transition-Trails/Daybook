@@ -29,6 +29,8 @@ import plannerHotspotsRouter from "./planner-hotspots";
 import platformPlannersRouter from "./platform-planners";
 import platformRecipesRouter  from "./platform-recipes";
 import supportRouter from "./support";
+import emailSettingsRouter from "./email-settings";
+import webhooksRouter from "./webhooks";
 
 const router: IRouter = Router();
 
@@ -61,6 +63,8 @@ router.use(plannerHotspotsRouter);
 router.use(platformPlannersRouter);
 router.use(platformRecipesRouter);
 router.use(supportRouter);
+router.use(emailSettingsRouter);
+router.use(webhooksRouter);
 router.use(marketingRouter);
 // Public storefront API (no auth required)
 router.use(shopRouter);

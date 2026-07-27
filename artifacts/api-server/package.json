@@ -33,8 +33,10 @@
     "pdf-lib": "^1.17.1",
     "pino": "^9.14.0",
     "pino-http": "^10.5.0",
+    "resend": "^6.18.0",
     "sharp": "^0.35.3",
     "stripe": "^22.3.2",
+    "svix": "^1.99.1",
     "uuid": "^14.0.1"
   },
   "devDependencies": {

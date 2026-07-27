@@ -1665,6 +1665,84 @@ export interface HelpArticleMatch {
   confidence: "EXACT MATCH" | "LIKELY" | "RELATED" | null;
 }
 
+// ── Email types ───────────────────────────────────────────────────────────────
+
+export interface DnsRecord {
+  type: string;
+  name: string;
+  value: string;
+  ttl: string | number;
+  status: string;
+}
+
+export interface StoreEmailConfig {
+  storeId: string;
+  fromDisplayName: string | null;
+  fromDomain: string | null;
+  fromLocalPart: string | null;
+  domainStatus: string;
+  resendDomainId: string | null;
+  dnsRecords: DnsRecord[] | null;
+  dkimVerifiedAt: string | null;
+  spfVerifiedAt: string | null;
+  lastVerifyCheckAt: string | null;
+  lastVerifyError: string | null;
+  tier1Suspended: boolean;
+  suspendedReason: string | null;
+  monthlyVolume: number;
+  bounceCount: number;
+  complaintCount: number;
+}
+
+export interface DeliverabilityRow {
+  storeId: string;
+  storeName: string;
+  domainStatus: string | null;
+  fromDomain: string | null;
+  tier1Suspended: boolean | null;
+  suspendedReason: string | null;
+  bounceCount: number | null;
+  complaintCount: number | null;
+  monthlyVolume: number | null;
+  total: number;
+  sent: number;
+  failed: number;
+  bounceRate: number;
+  complaintRate: number;
+}
+
+export const emailSettingsApi = {
+  get: (storeId: string) =>
+    apiFetch<{ config: StoreEmailConfig | null }>(`/store/${storeId}/email-settings`),
+
+  update: (storeId: string, data: { fromDisplayName?: string; fromLocalPart?: string }) =>
+    apiFetch<{ config: StoreEmailConfig }>(`/store/${storeId}/email-settings`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  registerDomain: (storeId: string, data: { fromDomain: string; fromLocalPart?: string }) =>
+    apiFetch<{ domain: { id: string; name: string; status: string; records: DnsRecord[] } }>(
+      `/store/${storeId}/email-settings/domain`,
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  verifyDomain: (storeId: string) =>
+    apiFetch<{ domain: { id: string; name: string; status: string; records: DnsRecord[] } }>(
+      `/store/${storeId}/email-settings/domain/verify`,
+      { method: "POST" },
+    ),
+
+  removeDomain: (storeId: string) =>
+    apiFetch<{ ok: boolean }>(`/store/${storeId}/email-settings/domain`, { method: "DELETE" }),
+
+  deliverability: () =>
+    apiFetch<{ stores: DeliverabilityRow[] }>("/super/email/deliverability"),
+
+  unsuspend: (storeId: string) =>
+    apiFetch<{ ok: boolean }>(`/super/email/stores/${storeId}/unsuspend`, { method: "POST" }),
+};
+
 export const supportApi = {
   articles: (area: string, symptoms: string[], scope = "platform") =>
     apiFetch<{ articles: HelpArticleMatch[] }>(

@@ -89,6 +89,8 @@ import StoreInspector from "@/pages/super/StoreInspector";
 
 // ── Store Settings ────────────────────────────────────────────────────────────
 import StoreProfile from "@/pages/store/settings/StoreProfile";
+import EmailSettings from "@/pages/store/settings/EmailSettings";
+import Deliverability from "@/pages/super/Deliverability";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -164,6 +166,9 @@ function RootRouter() {
       </Route>
       <Route path="/super/support">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperSupportInbox /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/email/deliverability">
+        <RequireSuperAdmin state={state}><SuperAdminShell><Deliverability /></SuperAdminShell></RequireSuperAdmin>
       </Route>
 
       {/* ── Store Admin console ────────────────────────────────── */}
@@ -380,6 +385,19 @@ function RootRouter() {
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
                 <StoreSupportInbox />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
+      {/* ── Store: Email Settings ────────────────────────────────── */}
+      <Route path="/store/:storeId/email-settings">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <EmailSettings />
               </StoreAdminShell>
             )}
           </RequireStore>

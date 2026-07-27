@@ -21,3 +21,11 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+EMAIL_FROM_DOMAIN = "notifications.example.com"
+EMAIL_PLATFORM_NAME = "Daybook"
+EMAIL_TIER1_DAILY_LIMIT = "200"
+EMAIL_TIER1_MONTHLY_UPGRADE_THRESHOLD = "1000"

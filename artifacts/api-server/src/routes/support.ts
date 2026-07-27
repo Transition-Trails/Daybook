@@ -30,6 +30,11 @@ import {
   resolveStoreActorOptional,
 } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
+import {
+  onTicketCreated,
+  onTicketReplied,
+  onTicketClosed,
+} from "../lib/email/senders";
 
 const router: IRouter = Router();
 
@@ -523,6 +528,15 @@ router.post(
         },
       });
 
+      // Fire-and-forget email notifications (errors logged, never rethrown)
+      onTicketCreated({
+        id: ticket.id,
+        reporterUserId: actor.userId,
+        storeId: ticket.storeId,
+        recipientScope: ticket.recipientScope,
+        area: ticket.area,
+      });
+
       res.status(201).json({ ticket });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -599,6 +613,19 @@ router.post(
         metadata: { replyId: reply.id },
       });
 
+      // Fire-and-forget email notifications
+      onTicketReplied({
+        ticketId: id,
+        authorUserId: actor.userId,
+        authorRole,
+        ticket: {
+          reporterUserId: ticket.reporterUserId ?? "",
+          storeId: ticket.storeId,
+          recipientScope: ticket.recipientScope,
+          area: ticket.area ?? "",
+        },
+      });
+
       res.status(201).json({ reply });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -657,6 +684,18 @@ router.patch(
         targetId: id,
         metadata: { fromStatus: ticket.status, toStatus: status },
       });
+
+      // Fire-and-forget close notification
+      if (status === "closed") {
+        onTicketClosed({
+          ticketId: id,
+          ticket: {
+            reporterUserId: ticket.reporterUserId ?? "",
+            storeId: ticket.storeId,
+            area: ticket.area ?? "",
+          },
+        });
+      }
 
       res.json({ ok: true });
     } catch (err) {

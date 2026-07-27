@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { warmFontCache } from "./lib/font-warmup";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +23,9 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  // Pre-fetch Google Font binaries for all live-theme font families so that
+  // the very first planner export on a fresh container pays zero network latency.
+  // Fire-and-forget — never blocks the HTTP server from accepting requests.
+  warmFontCache();
 });

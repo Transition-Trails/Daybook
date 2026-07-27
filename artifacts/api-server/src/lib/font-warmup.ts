@@ -1,0 +1,160 @@
+/**
+ * Font pre-loader — runs once at server startup (fire-and-forget).
+ *
+ * Strategy:
+ *  1. Query `theme_fonts` JOIN `fonts` for every live theme to collect
+ *     font family names registered in the join table.
+ *  2. Also extract family names from `themes.fontPairing` JSONB (heading /
+ *     subheading / body / accent / button slots) so themes that use the
+ *     pairing field without explicit theme_fonts rows are covered too.
+ *  3. Deduplicate all (familyName, weight) pairs — weights 400 and 700 are
+ *     always pre-fetched because they are the only weights the PDF generator uses.
+ *  4. Fetch concurrently with a cap of 3 parallel downloads so we don't spike
+ *     outbound bandwidth on a fresh container.
+ *  5. Any individual failure is logged and swallowed; the warmup never rejects
+ *     or throws to the caller.
+ *
+ * The warmup populates both the in-process Map and the /tmp disk cache so the
+ * first planner export — regardless of whether it arrives on a fresh container
+ * or after a hot-reload — pays zero network latency.
+ */
+
+import { db } from "@workspace/db";
+import { themesTable, themeFontsTable, fontsTable } from "@workspace/db";
+import { eq, inArray } from "drizzle-orm";
+import { fetchGoogleFontBytes } from "./pdf-generator";
+import type { ThemeFontPairing } from "@workspace/db";
+
+const CONCURRENCY = 3;
+const WEIGHTS: Array<400 | 700> = [400, 700];
+
+/**
+ * Run `fn` over `items` with at most `concurrency` simultaneous calls.
+ * Errors from individual calls are swallowed; overall promise always resolves.
+ */
+async function pMap<T>(
+  items: T[],
+  fn: (item: T) => Promise<void>,
+  concurrency: number,
+): Promise<void> {
+  const queue = [...items];
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (item === undefined) break;
+      try {
+        await fn(item);
+      } catch {
+        // Individual errors are already logged inside fetchGoogleFontBytes
+      }
+    }
+  });
+  await Promise.all(workers);
+}
+
+/**
+ * Collect all unique font family names referenced by live themes.
+ * Sources:
+ *   a) theme_fonts join table → fonts.family_name
+ *   b) themes.font_pairing JSONB (heading/subheading/body/accent/button)
+ */
+async function collectLiveFamilyNames(): Promise<Set<string>> {
+  const families = new Set<string>();
+
+  // a) theme_fonts JOIN fonts WHERE themes.status = 'live'
+  try {
+    // Fetch all live theme IDs first
+    const liveThemes = await db
+      .select({ id: themesTable.id, fontPairing: themesTable.fontPairing })
+      .from(themesTable)
+      .where(eq(themesTable.status, "live"));
+
+    const liveThemeIds = liveThemes.map((t) => t.id);
+
+    // Extract family names from fontPairing JSONB (source b)
+    for (const theme of liveThemes) {
+      const pairing = theme.fontPairing as ThemeFontPairing | null | undefined;
+      if (pairing) {
+        for (const slot of ["heading", "subheading", "body", "accent", "button"] as const) {
+          const name = pairing[slot];
+          if (name && typeof name === "string" && name.trim()) {
+            families.add(name.trim());
+          }
+        }
+      }
+    }
+
+    // Source a: theme_fonts → fonts
+    if (liveThemeIds.length > 0) {
+      const rows = await db
+        .select({ familyName: fontsTable.familyName })
+        .from(themeFontsTable)
+        .innerJoin(fontsTable, eq(themeFontsTable.fontId, fontsTable.id))
+        .where(inArray(themeFontsTable.themeId, liveThemeIds));
+
+      for (const row of rows) {
+        if (row.familyName && row.familyName.trim()) {
+          families.add(row.familyName.trim());
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[font-warmup] DB query failed:", (err as Error).message);
+  }
+
+  return families;
+}
+
+/**
+ * Pre-fetch all live-theme font families (weights 400 + 700) in the background.
+ * Call this once after the DB pool is ready.  Never awaited by the caller.
+ */
+export function warmFontCache(): void {
+  (async () => {
+    try {
+      const families = await collectLiveFamilyNames();
+
+      if (families.size === 0) {
+        console.log("[font-warmup] No live theme fonts found — nothing to pre-fetch.");
+        return;
+      }
+
+      // Build the full (family, weight) work list
+      const pairs: Array<{ family: string; weight: 400 | 700 }> = [];
+      for (const family of families) {
+        for (const weight of WEIGHTS) {
+          pairs.push({ family, weight });
+        }
+      }
+
+      console.log(
+        `[font-warmup] Pre-fetching ${families.size} font family/families × ${WEIGHTS.length} weights = ${pairs.length} files (concurrency ${CONCURRENCY})…`,
+      );
+
+      let fetched = 0;
+      let cached = 0;
+      let failed = 0;
+
+      await pMap(
+        pairs,
+        async ({ family, weight }) => {
+          const bytes = await fetchGoogleFontBytes(family, weight);
+          if (bytes) {
+            fetched++;
+          } else {
+            // null means either disk-cache hit was already counted or it failed
+            failed++;
+          }
+        },
+        CONCURRENCY,
+      );
+
+      console.log(
+        `[font-warmup] Done — ${fetched} fetched/cached, ${failed} unavailable.`,
+      );
+    } catch (err) {
+      // Top-level safety net — should never be reached given inner try/catches
+      console.warn("[font-warmup] Unexpected error during font warm-up:", (err as Error).message);
+    }
+  })();
+}

@@ -436,7 +436,7 @@ const GFONT_TTF_UA =
  *
  * Returns null — never throws — on any failure so callers fall back to StandardFonts.
  */
-async function fetchGoogleFontBytes(familyName: string, weight: 400 | 700): Promise<Uint8Array | null> {
+export async function fetchGoogleFontBytes(familyName: string, weight: 400 | 700): Promise<Uint8Array | null> {
   const cacheKey = `${familyName}:${weight}`;
 
   // 1. In-process cache — fastest path, zero I/O.

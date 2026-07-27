@@ -28,6 +28,7 @@ import storePlannersRouter from "./store-planners";
 import plannerHotspotsRouter from "./planner-hotspots";
 import platformPlannersRouter from "./platform-planners";
 import platformRecipesRouter  from "./platform-recipes";
+import supportRouter from "./support";
 
 const router: IRouter = Router();
 
@@ -59,6 +60,7 @@ router.use(storePlannersRouter);
 router.use(plannerHotspotsRouter);
 router.use(platformPlannersRouter);
 router.use(platformRecipesRouter);
+router.use(supportRouter);
 router.use(marketingRouter);
 // Public storefront API (no auth required)
 router.use(shopRouter);

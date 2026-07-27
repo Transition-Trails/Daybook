@@ -30,3 +30,4 @@
 - [E-ink device export profiles](eink-export-profiles.md) — `buildPdf` 9th param `einkDevice` key; forces inkFriendly, overrides page trim, enforces min 0.75pt lines, suppresses Kindle links; `eink-presets.ts` + `eink-checker.ts`; `PlannerOutput.einkDevice` in schema; device slug in filename
 - [Product Recipe Engine](product-recipe-engine.md) — `product_recipes` table; full CRUD at `/api/platform/recipes`; 11 seed records via `seed-recipes` script; ProductRecipes page at `/super/recipes` with drawer, stat tiles, and status badges
 - [Progressive recipe builder](progressive-recipe-builder.md) — `/super/recipes/new` full-page 3-step build center; gating pattern, sticky-rail layout, typeConfig narrowing gotcha
+- [Support system](support-system.md) — two-tier ticket system; area arrays in support-areas.ts (separate file, Fast Refresh); DB tables via migrate-tickets.mjs; 3 surfaces: /s/:slug/support, /super/support, /store/:id/support-inbox

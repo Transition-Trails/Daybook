@@ -55,6 +55,9 @@ import SuperFlags from "@/pages/super/FeatureFlags";
 import SuperAudit from "@/pages/super/AuditLog";
 import SuperRecipes from "@/pages/super/ProductRecipes";
 import NewRecipe from "@/pages/super/NewRecipe";
+import SuperSupportInbox from "@/pages/super/SupportInbox";
+import StoreSupportInbox from "@/pages/store/SupportInbox";
+const ShopSupportPage = lazy(() => import("@/pages/shop/SupportPage"));
 
 // ── Store Admin pages ─────────────────────────────────────────────────────────
 import StoreDashboard from "@/pages/store/Dashboard";
@@ -158,6 +161,9 @@ function RootRouter() {
       </Route>
       <Route path="/super/audit">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperAudit /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/support">
+        <RequireSuperAdmin state={state}><SuperAdminShell><SuperSupportInbox /></SuperAdminShell></RequireSuperAdmin>
       </Route>
 
       {/* ── Store Admin console ────────────────────────────────── */}
@@ -361,6 +367,19 @@ function RootRouter() {
                 <div className="p-8">
                   <StoreProfile storeId={p.storeId!} role={store.role as string} />
                 </div>
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
+      {/* ── Store: Buyer Support Inbox ──────────────────────────── */}
+      <Route path="/store/:storeId/support-inbox">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreSupportInbox />
               </StoreAdminShell>
             )}
           </RequireStore>
@@ -571,6 +590,17 @@ function AppRouter() {
           <ShopRouteShell>
             <Suspense fallback={<ShopPageLoading />}>
               <StoreBuilder key={`${p.storeSlug}/${p.editionId}`} />
+            </Suspense>
+          </ShopRouteShell>
+        )}
+      </Route>
+
+      {/* Store-scoped support form — public, role-adaptive */}
+      <Route path="/s/:storeSlug/support">
+        {(p) => (
+          <ShopRouteShell>
+            <Suspense fallback={<ShopPageLoading />}>
+              <ShopSupportPage key={p.storeSlug} />
             </Suspense>
           </ShopRouteShell>
         )}

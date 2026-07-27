@@ -1611,3 +1611,108 @@ export const storageApi = {
       body: JSON.stringify({ name, size, contentType }),
     }),
 };
+
+// ─── SUPPORT ──────────────────────────────────────────────────────────────────
+
+export interface SupportTicket {
+  id: string;
+  reporterUserId: string | null;
+  reporterRole: string;
+  recipientScope: string;
+  storeId: string | null;
+  area: string;
+  symptoms: string[];
+  body: string | null;
+  screenshotRefs: string[];
+  diagnostics: Record<string, unknown>;
+  status: "open" | "replied" | "fixed" | "closed";
+  buildRef: string | null;
+  createdAt: string;
+  updatedAt: string;
+  replyCount?: number;
+}
+
+export interface TicketReply {
+  id: number;
+  ticketId: string;
+  authorUserId: string | null;
+  authorRole: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface RecentBuild {
+  id: string;
+  name: string;
+  type: string;
+  generatedAt: string | null;
+  meta: string;
+  badge: string | null;
+  style: Record<string, unknown> | null;
+  setup: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  storeId: string | null;
+  themeName: string | null;
+  editionName: string | null;
+  lastJobStatus: string | null;
+  lastJobError: string | null;
+}
+
+export interface HelpArticleMatch {
+  id: string;
+  title: string;
+  excerpt: string;
+  confidence: "EXACT MATCH" | "LIKELY" | "RELATED" | null;
+}
+
+export const supportApi = {
+  articles: (area: string, symptoms: string[], scope = "platform") =>
+    apiFetch<{ articles: HelpArticleMatch[] }>(
+      `/support/articles?area=${encodeURIComponent(area)}&symptoms=${encodeURIComponent(symptoms.join(","))}&scope=${encodeURIComponent(scope)}`,
+    ),
+
+  recentActivity: (storeId?: string) =>
+    apiFetch<{ builds: RecentBuild[] }>(
+      `/support/recent-activity${storeId ? `?storeId=${storeId}` : ""}`,
+    ),
+
+  myTickets: () =>
+    apiFetch<{ tickets: SupportTicket[] }>("/support/tickets/mine"),
+
+  inbox: (params?: { storeId?: string; status?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.storeId) q.set("storeId", params.storeId);
+    if (params?.status)  q.set("status",  params.status);
+    const qs = q.toString();
+    return apiFetch<{ tickets: SupportTicket[] }>(`/support/inbox${qs ? `?${qs}` : ""}`);
+  },
+
+  get: (id: string) =>
+    apiFetch<{ ticket: SupportTicket; replies: TicketReply[] }>(`/support/tickets/${id}`),
+
+  create: (data: {
+    area: string;
+    symptoms?: string[];
+    body?: string;
+    buildRef?: string;
+    storeId?: string;
+    screenshotRefs?: string[];
+    extraDiagnostics?: Record<string, unknown>;
+  }) =>
+    apiFetch<{ ticket: SupportTicket }>("/support/tickets", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  addReply: (ticketId: string, body: string) =>
+    apiFetch<{ reply: TicketReply }>(`/support/tickets/${ticketId}/replies`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
+
+  updateStatus: (ticketId: string, status: string) =>
+    apiFetch<{ ok: boolean }>(`/support/tickets/${ticketId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+};

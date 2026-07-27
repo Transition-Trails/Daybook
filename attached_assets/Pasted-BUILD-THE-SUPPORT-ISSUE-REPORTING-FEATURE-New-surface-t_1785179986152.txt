@@ -1,0 +1,108 @@
+BUILD THE SUPPORT / ISSUE-REPORTING FEATURE. New surface, two tiers. See the two
+attached screenshots (store-owner view and buyer view — toggle at top right).
+
+=== THE TWO TIERS ===
+  STORE OWNER → DAYBOOK PLATFORM   (super admin fields these)
+  BUYER → THEIR STORE              (the store owner fields these)
+Same machinery, different vocabulary, different attached diagnostics, different
+recipient. Route by the authenticated user's role — the screenshot toggle is only so
+you can see both; do NOT ship a role switcher to real users.
+
+=== THE ORGANISING PRINCIPLE ===
+Most of a good ticket is information the system already holds. The user should type
+almost nothing. And matching help articles as they narrow deflects a real share of
+tickets before submit. Build for both.
+
+=== THE FORM — same progressive disclosure as /super/recipes/new ===
+Left column, ~1.45fr; right column ~1fr, sticky.
+
+STEP 1 — WHAT WERE YOU DOING? A 2-across grid of area cards (glyph + name + one-line
+description). Selecting one applies accent-soft fill, clay border, 3px inset-left bar.
+  Store-owner areas: Building a planner (Planner Studio, previews, generation) ·
+    Stickers & packs (cutouts, cut paths, index sheets) · The exported PDF (links,
+    sizing, e-ink, printing) · Drive & sync (saving, permissions, missing files) ·
+    My storefront (listings, themes, publishing) · Account & billing (plan, seats,
+    invoices)
+  Buyer areas: Opening my planner (GoodNotes, Notability, Noteshelf) · Links not
+    working (tabs or dates not jumping) · Using my stickers (importing, resizing,
+    placing) · Printing & cutting (home printer, Cricut, Silhouette) · Something is
+    missing (a file did not arrive) · Something else
+
+UNTIL AN AREA IS PICKED, STEPS 2 AND 3 DO NOT RENDER. Dashed placeholder in their
+place: "The rest of the form appears once you pick an area" / "A generic 'describe
+your problem' box gets us a ticket we have to reply to with questions. This way we
+usually have enough to fix it on the first pass."
+
+STEP 2 — WHICH BUILD? (owner) / WHICH PURCHASE? (buyer). A list of the user's RECENT
+ACTIVITY pulled from real data — cover swatch, name, meta line (owner: "Generated 2
+hours ago · 148 pages · reMarkable"; buyer: "Bought 14 Jul · downloaded twice"), and
+a badge on the newest (MOST RECENT) or a live listing (LIVE). Subtitle: "Pick it from
+your recent activity so we get the exact build, not a description of it."
+This is what makes the ticket actionable — we get bld_7f3a9c, not "my planner from
+Tuesday."
+
+STEP 3 — WHAT WENT WRONG? Symptom chips SCOPED TO THE CHOSEN AREA (navy fill when
+selected), then a free-text box for anything else, then a screenshot drop zone that
+also accepts paste. Author real symptom sets per area, e.g.
+  building a planner: It failed to generate · Preview looks wrong · Wrong fonts ·
+    Missing pages · Took too long
+  stickers: Cutout has a halo · Cut path is off · Wrong size on the page · Index
+    sheet is blank · Upload failed
+  exported PDF: A link goes nowhere · Wrong page size · Text is too light · File will
+    not open · Print is misaligned
+  buyer/links: Tabs do nothing · Dates go to the wrong page · Links vanished after
+    editing · Works on iPad, not phone
+  buyer/printing: Cuts in the wrong place · Prints too small · Colours look faded ·
+    Registration marks missing
+  (…and equivalents for the remaining areas)
+
+=== "ATTACHED AUTOMATICALLY" — THE MOST VALUABLE PART ===
+A slate-bordered card listing, as a 2-column key/value grid, exactly what ships with
+the ticket. Badge: "NOTHING TO TYPE".
+  Owner: build id + name · recipe · theme + palette · parts enabled · device profile
+    and trim · font status (loaded vs fallback) · generator log summary (pages, links,
+    errors) · browser + OS
+  Buyer: order number + date · product · file size and page count · download count and
+    last download · device · reader app · link count verified at export · store
+Pull all of it from real records — planner_configs, the generation log, the order row,
+the client user-agent. Nothing invented.
+Close with the privacy boundary, shown to the user: "No page content, no buyer names,
+no Drive files — only the build settings and the log of what the generator did."
+Honour that literally in what you send.
+
+=== RIGHT RAIL · LIVE HELP (deflection) ===
+Clay-bordered card, ✦ avatar. Title "Might fix it now" (owner) / "This may answer it"
+(buyer). Matches help articles against area + symptom as the user narrows, each with
+an honest confidence badge: EXACT MATCH (green) · LIKELY (blush) · RELATED (neutral).
+Before an area is chosen: "Pick an area and the articles that match will show up here
+— often before you finish the form."
+Close the card with: "If one of these solves it, close the form — nothing is sent.
+Around half of tickets are answered by an article that was already on this list."
+Wire this to the existing Help centre content; do not fork a second article store.
+
+Below it, "YOUR OPEN TICKETS" — id, age, and a status pill (Open / Replied / Fixed),
+so support lives in one place instead of a mail thread.
+
+=== BACKEND ===
+· A tickets table: reporter, reporterRole, recipient scope (platform vs storeId),
+  area, symptom, body, screenshot refs, the diagnostics JSON, status, timestamps,
+  and a threaded replies relation.
+· ROUTING: store-owner tickets go to the platform queue (super admin); buyer tickets
+  go to that store's queue (store owner + staff), and must never be visible to another
+  store. Enforce server-side.
+· Store owners get an inbox for buyer tickets; super admin gets the platform inbox
+  plus read access to store queues for support, consistent with the existing
+  impersonation/support model.
+· Screenshots to Drive/object storage, not base64 in the row.
+· audit_log on create, reply, status change.
+· Notify by email on reply, but the thread of record lives in the app.
+· Defensive JSON parsing, loading/empty/error states throughout.
+
+=== LATER, NOT NOW ===
+Claude triage on the queue (suggesting the likely cause from the diagnostics, and
+flagging when several tickets share a root cause — e.g. six failures on one template's
+tab hotspot). Build the data shape so that is possible; do not build it yet.
+
+Report: an owner ticket carrying a real build id and generator log; a buyer ticket
+carrying a real order; article matching changing as area and symptom change; and a
+buyer ticket landing only in its own store's queue.

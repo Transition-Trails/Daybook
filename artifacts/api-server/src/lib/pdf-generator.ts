@@ -363,7 +363,7 @@ const SERIF_PDF_FAMILIES = new Set([
  * Everything else → Helvetica / Helvetica Bold (sans default).
  * Used as fallback when Google Fonts fetch fails or family is undefined.
  */
-function resolveStandardFont(familyName: string | undefined, bold: boolean): StandardFonts {
+export function resolveStandardFont(familyName: string | undefined, bold: boolean): StandardFonts {
   if (familyName && SERIF_PDF_FAMILIES.has(familyName)) {
     return bold ? StandardFonts.TimesRomanBold : StandardFonts.TimesRoman;
   }

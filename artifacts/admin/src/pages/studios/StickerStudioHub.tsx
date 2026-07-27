@@ -157,9 +157,12 @@ function groupStickers(stickers: PlatformStickerExt[]): {
   const singles: PlatformStickerExt[] = [];
 
   for (const s of stickers) {
-    const sep = s.name.indexOf(" — ");
-    if (sep > 0) {
-      const key = s.name.slice(0, sep).trim();
+    // Prefer the stable DB setId; fall back to name-prefix heuristic for
+    // pre-migration rows where setId was not yet stamped.
+    const key = s.setId ?? (s.name.indexOf(" — ") > 0
+      ? s.name.slice(0, s.name.indexOf(" — ")).trim()
+      : null);
+    if (key) {
       const arr = setMap.get(key) ?? [];
       arr.push(s);
       setMap.set(key, arr);
@@ -1200,45 +1203,72 @@ function PackCard({ pack, coverImage, onToggle, togglePending }: {
   pack: PlatformStickerPack; coverImage?: string | null; onToggle: () => void; togglePending: boolean;
 }) {
   const isLive = pack.status === "live";
-  const [imgError, setImgError] = useState(false);
   const tags   = (pack.tags as string[] | undefined) ?? [];
   const shown  = tags.slice(0, 2);
   const extra  = tags.length - shown.length;
 
-  const hasValidCover = !!coverImage && !imgError;
+  // Use memberImages if available (up to 3 for fan), otherwise fall back to coverImage
+  const memberImages = pack.memberImages ?? (coverImage ? [coverImage] : []);
+  const [errSet, setErrSet] = useState<Set<number>>(new Set());
+  const validImgs = memberImages.filter((_, i) => !errSet.has(i));
+  const hasImages = validImgs.length > 0;
+
+  // Fan positioning for up to 3 images
+  const FAN_OFFSETS: Array<{ rotate: string; top: number; left: number; zIndex: number }> = [
+    { rotate: "rotate(9deg)",  top: 4,  left: 12, zIndex: 1 },
+    { rotate: "rotate(-5deg)", top: 2,  left: 4,  zIndex: 2 },
+    { rotate: "rotate(0deg)",  top: 6,  left: 8,  zIndex: 3 },
+  ];
+  // Reverse so front card = first image (most prominent)
+  const fanImgs = validImgs.slice(0, 3).reverse();
 
   return (
     <div className="rounded-[14px] border bg-card flex flex-col overflow-hidden hover:shadow-sm transition-shadow">
-      {/* ── Thumbnail — fixed 96px tall, not aspect-square ── */}
+      {/* ── Thumbnail — fixed 96px tall ── */}
       <div
         className="w-full border-b border-border flex items-center justify-center overflow-hidden"
         style={{ height: 96, background: "#FFFDF9" }}
       >
-        {hasValidCover ? (
-          <img
-            src={coverImage!}
-            alt=""
-            onError={() => setImgError(true)}
-            style={{ maxWidth: 72, maxHeight: 72, objectFit: "contain" }}
-          />
+        {hasImages ? (
+          /* Real sticker images fanned */
+          <div className="relative" style={{ width: 52, height: 52 }}>
+            {fanImgs.map((src, i) => {
+              const offset = FAN_OFFSETS[fanImgs.length - 1 - i] ?? FAN_OFFSETS[0];
+              const origIdx = memberImages.indexOf(src);
+              return (
+                <div
+                  key={i}
+                  className="absolute rounded-[8px] border border-border bg-white overflow-hidden"
+                  style={{
+                    width: 36, height: 36,
+                    top: offset.top, left: offset.left,
+                    transform: offset.rotate,
+                    zIndex: offset.zIndex,
+                  }}
+                >
+                  <img
+                    src={src} alt=""
+                    onError={() => setErrSet((s) => new Set(s).add(origIdx))}
+                    style={{ width: 36, height: 36, objectFit: "contain" }}
+                  />
+                </div>
+              );
+            })}
+          </div>
         ) : (
           /* Stylised placeholder — stacked card fan + label */
           <div className="flex flex-col items-center gap-1.5">
             <div className="relative" style={{ width: 40, height: 40 }}>
-              {/* Fan cards behind */}
               <div className="absolute rounded-[6px] border border-border bg-muted/60"
                 style={{ width: 32, height: 32, top: 6, left: 10, transform: "rotate(10deg)" }} />
               <div className="absolute rounded-[6px] border border-border bg-muted/40"
                 style={{ width: 32, height: 32, top: 4, left: 4, transform: "rotate(-6deg)" }} />
-              {/* Front card */}
               <div className="absolute rounded-[6px] border border-border bg-card flex items-center justify-center"
                 style={{ width: 32, height: 32, top: 4, left: 4 }}>
                 <Package className="w-3.5 h-3.5 text-muted-foreground/50" />
               </div>
             </div>
-            <span className="text-[9.5px] text-muted-foreground/60 leading-none">
-              {coverImage ? "No preview" : "No stickers yet"}
-            </span>
+            <span className="text-[9.5px] text-muted-foreground/60 leading-none">No stickers yet</span>
           </div>
         )}
       </div>
@@ -1594,232 +1624,9 @@ function LibraryCenter({
   );
 }
 
-// ── GENERATE SET CARD ─────────────────────────────────────────────────────────
-// Gap 1: Renders a full labelled set of PNGs server-side via the generate-set
-// endpoint (using @resvg/resvg-js + system DejaVu fonts), then lets the user
-// review and deselect individual stickers before saving as drafts via batch.
-
-function GenerateSetCard() {
-  const { toast } = useToast();
-  const qc = useQueryClient();
-
-  const [setType,     setSetType]     = useState<string>("dates");
-  const [labelStyle,  setLabelStyle]  = useState<string>("padded");
-  const [fontKey,     setFontKey]     = useState<string>("sans-bold");
-  const [color,       setColor]       = useState<string>("#1B2A4A");
-  const [sizeInMm,    setSizeInMm]    = useState<string>("20");
-  const [borderStyle, setBorderStyle] = useState<string>("none");
-  const [borderWidth, setBorderWidth] = useState<string>("2");
-  const [borderColor, setBorderColor] = useState<string>("#000000");
-  const [shadowStyle, setShadowStyle] = useState<string>("none");
-
-  const [genResult, setGenResult] = useState<Array<{ name: string; imageBase64: string; selected: boolean }>>([]);
-  const [genPending, setGenPending] = useState(false);
-  const [genError,   setGenError]  = useState<string | null>(null);
-  const [saving,     setSaving]    = useState(false);
-
-  // Reset label style to first option when set type changes
-  useEffect(() => {
-    const opts = LABEL_STYLE_OPTIONS[setType] ?? [];
-    if (opts.length > 0) setLabelStyle(opts[0].value);
-    setGenResult([]);
-  }, [setType]);
-
-  async function generate() {
-    setGenPending(true);
-    setGenError(null);
-    try {
-      const res = await platformStickersApi.generateSet({
-        setType, labelStyle, fontKey, color,
-        sizeInMm:    sizeInMm ? parseFloat(sizeInMm) : null,
-        borderStyle,
-        borderWidth: borderStyle !== "none" ? (parseFloat(borderWidth) || null) : null,
-        borderColor: borderStyle !== "none" ? (borderColor || null) : null,
-        shadowStyle,
-      });
-      setGenResult(res.items.map((item) => ({ ...item, selected: true })));
-    } catch (err: unknown) {
-      setGenError((err as Error).message);
-    } finally {
-      setGenPending(false);
-    }
-  }
-
-  async function saveSelected() {
-    const toSave = genResult.filter((i) => i.selected);
-    if (!toSave.length) return;
-    setSaving(true);
-    try {
-      const res = await platformStickersApi.batchCreate({
-        items:        toSave.map((i) => ({ name: i.name, imageBase64: i.imageBase64 })),
-        functionType: "date",
-        sizeInMm:     sizeInMm ? parseFloat(sizeInMm) : null,
-        status:       "draft",
-      });
-      qc.invalidateQueries({ queryKey: ["platform-stickers"] });
-      toast({ title: `${res.created} sticker${res.created !== 1 ? "s" : ""} saved as draft` });
-      setGenResult([]);
-    } catch (err: unknown) {
-      toast({ title: "Save failed", description: (err as Error).message, variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const setCount       = setType === "dates" ? 31 : setType === "weekdays" ? 7 : 12;
-  const selectedCount  = genResult.filter((i) => i.selected).length;
-
-  return (
-    <div className="rounded-[14px] border bg-card shadow-sm p-5 space-y-4">
-      <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 3 }}>
-        <div className="flex items-center gap-2">
-          <CheckSquare className="w-4 h-4 shrink-0" style={{ color: CHIP_ACTIVE_BG }} />
-          <p className="font-display font-semibold text-[15px] text-foreground">Generate a labelled set</p>
-        </div>
-        <p className="text-[12.5px] text-muted-foreground">
-          Renders real transparent PNGs server-side — 31 date cover-ups, 7 weekdays, or 12 months —
-          in your chosen font, colour, and size. Review and deselect before saving.
-        </p>
-      </div>
-
-      <div className="space-y-4">
-        <div className="space-y-1.5">
-          <Label className="text-[12.5px]">Set type</Label>
-          <ChipRow options={SET_TYPE_OPTIONS} value={setType} onChange={(v) => { setSetType(v); }} />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[12.5px]">Label style</Label>
-          <ChipRow options={LABEL_STYLE_OPTIONS[setType] ?? []} value={labelStyle} onChange={setLabelStyle} />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[12.5px]">Font</Label>
-          <ChipRow options={FONT_OPTIONS} value={fontKey} onChange={setFontKey} />
-        </div>
-
-        <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div className="space-y-1.5">
-            <Label className="text-[12.5px]">Colour</Label>
-            <div className="flex items-center gap-2">
-              <input type="color" value={color} onChange={(e) => setColor(e.target.value)}
-                className="h-8 w-8 rounded border border-border cursor-pointer shrink-0" />
-              <Input className="h-8 text-xs font-mono" value={color} onChange={(e) => setColor(e.target.value)} />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-[12.5px]">Size (mm)</Label>
-            <Input type="number" min="5" max="100" className="h-8 text-xs"
-              value={sizeInMm} onChange={(e) => setSizeInMm(e.target.value)} placeholder="e.g. 20" />
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[12.5px]">Border</Label>
-          <SegmentedControl
-            options={[{value:"none",label:"None"},{value:"thin",label:"Thin"},{value:"white",label:"White matte"}]}
-            value={borderStyle} onChange={setBorderStyle}
-          />
-        </div>
-
-        {borderStyle !== "none" && (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <div className="space-y-1.5">
-              <Label className="text-[11.5px]">Width (px)</Label>
-              <Input type="number" min="1" max="20" className="h-8 text-xs"
-                value={borderWidth} onChange={(e) => setBorderWidth(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[11.5px]">Border colour</Label>
-              <div className="flex items-center gap-1.5">
-                <input type="color" value={borderColor} onChange={(e) => setBorderColor(e.target.value)}
-                  className="h-8 w-8 rounded border border-border cursor-pointer shrink-0" />
-                <Input className="h-8 text-xs font-mono" value={borderColor} onChange={(e) => setBorderColor(e.target.value)} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-1.5">
-          <Label className="text-[12.5px]">Shadow</Label>
-          <ChipRow options={SHADOW_OPTIONS} value={shadowStyle} onChange={setShadowStyle} />
-        </div>
-      </div>
-
-      <button
-        onClick={generate}
-        disabled={genPending}
-        style={{ cursor: genPending ? "not-allowed" : "pointer", background: CHIP_ACTIVE_BG, color: "#fff" }}
-        className="flex items-center gap-2 px-4 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
-      >
-        {genPending
-          ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generating {setCount} stickers…</>
-          : <><CheckSquare className="w-3.5 h-3.5" />Generate {setCount} stickers</>
-        }
-      </button>
-
-      {genError && !genPending && <ErrorState message={genError} onRetry={generate} />}
-
-      {genResult.length > 0 && !genPending && (
-        <div className="space-y-3 pt-2 border-t">
-          <div className="flex items-center justify-between">
-            <p className="text-[12.5px] font-semibold text-foreground">
-              {genResult.length} generated — click a sticker to deselect it
-            </p>
-            <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-              <button onClick={() => setGenResult((r) => r.map((i) => ({ ...i, selected: true })))}
-                style={{ cursor: "pointer" }} className="hover:text-foreground">All</button>
-              <span>·</span>
-              <button onClick={() => setGenResult((r) => r.map((i) => ({ ...i, selected: false })))}
-                style={{ cursor: "pointer" }} className="hover:text-foreground">None</button>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {genResult.map((item, i) => (
-              <button
-                key={i}
-                onClick={() => setGenResult((r) => r.map((x, j) => j === i ? { ...x, selected: !x.selected } : x))}
-                style={{
-                  cursor: "pointer",
-                  opacity: item.selected ? 1 : 0.3,
-                  outline: item.selected ? `2px solid ${CHIP_ACTIVE_BG}` : "2px solid transparent",
-                  outlineOffset: 2, borderRadius: 8,
-                }}
-                className="flex flex-col items-center gap-1 p-1.5 rounded-[8px] border border-border transition-all"
-                title={item.name}
-              >
-                <StickerThumb src={item.imageBase64} size={44} />
-                <span className="text-[9px] text-muted-foreground leading-none">
-                  {item.name.replace(/^(Date coverup |Weekday |Month )/, "")}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={saveSelected}
-            disabled={selectedCount === 0 || saving}
-            style={{
-              cursor: selectedCount === 0 || saving ? "not-allowed" : "pointer",
-              background: CHIP_ACTIVE_BG, color: "#fff",
-            }}
-            className="flex items-center gap-2 px-4 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
-          >
-            {saving
-              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              : <Save className="w-3.5 h-3.5" />
-            }
-            Save {selectedCount} sticker{selectedCount !== 1 ? "s" : ""} as draft
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── CREATE MODE ───────────────────────────────────────────────────────────────
-// Three paths: upload artwork, AI brief, or generate a labelled set.
+// One decision card selects a path; only that path's controls render.
+// CreatePath type is declared alongside CreateRail above.
 
 interface InProgressItem { id: string; name: string; src?: string; status: "uploading" | "processing" | "done" | "error" }
 
@@ -1835,23 +1642,42 @@ When given a sticker pack concept, respond ONLY with valid JSON — no markdown,
   ]
 }`;
 
+const PATH_CHIPS: Array<{ id: CreatePath; label: string }> = [
+  { id: "upload",       label: "Upload artwork" },
+  { id: "brainstorm",   label: "✦ Brainstorm with Claude" },
+  { id: "labelled-set", label: "Generate a labelled set" },
+];
+
+const PATH_DESCRIPTIONS: Record<CreatePath, string> = {
+  upload:        "Drag in a PNG, JPEG, or WebP file. Background is removed automatically, and a Cricut-compatible SVG cut path is generated if you enable it.",
+  brainstorm:    "Describe a pack concept — Claude names it, suggests 4 tags, and brainstorms 4 specific illustration briefs ready to hand to an artist or image model.",
+  "labelled-set": "Renders real transparent PNGs server-side — 31 date cover-ups, 7 weekdays, or 12 months — in your chosen font, colour, and size. Review and deselect before saving.",
+};
+
 function CreateCenter({
   batchItems, setBatchItems, aiResult, setAiResult, uploadTrigger,
+  createPath, setCreatePath, onStickerCreated,
 }: {
   batchItems: InProgressItem[]; setBatchItems: React.Dispatch<React.SetStateAction<InProgressItem[]>>;
   aiResult: PackAiResult | null; setAiResult: (r: PackAiResult | null) => void;
-  /** Increment this counter to programmatically trigger the file-upload dialog */
+  /** Increment to programmatically trigger the file-upload dialog from the top bar */
   uploadTrigger?: number;
+  createPath: CreatePath;
+  setCreatePath: (p: CreatePath) => void;
+  /** Called after a sticker is successfully created — updates the right-dock preview */
+  onStickerCreated?: (sticker: LibrarySticker) => void;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
-  // Gap 2: fire file-picker when hub top-bar "Upload artwork" button is clicked
-  useEffect(() => { if (uploadTrigger) fileRef.current?.click(); }, [uploadTrigger]);
+  // Fire file-picker (and switch to upload path) when hub top-bar button increments
+  useEffect(() => {
+    if (uploadTrigger) { setCreatePath("upload"); fileRef.current?.click(); }
+  }, [uploadTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Upload path: file → base64 → create sticker
+  // ── Upload path ─────────────────────────────────────────────────────────────
   const [uploadForm, setUploadForm] = useState<StickerFormValues>(defaultForm());
   const [showUploadForm, setShowUploadForm] = useState(false);
 
@@ -1885,22 +1711,23 @@ function CreateCenter({
       exportTargets: { goodnotes: uploadForm.exportGoodnotes, ink: uploadForm.exportInk, cricut: uploadForm.exportCricut },
       status: "draft",
     }),
-    onSuccess: () => {
+    onSuccess: (sticker) => {
       qc.invalidateQueries({ queryKey: ["platform-stickers"] });
       toast({ title: "Sticker created — background removed" });
+      onStickerCreated?.(sticker);
       setUploadForm(defaultForm());
       setShowUploadForm(false);
     },
     onError: (err: Error) => toast({ title: "Create failed", description: err.message, variant: "destructive" }),
   });
 
-  // AI path
-  const [aiPrompt, setAiPrompt]     = useState("");
-  const [aiError, setAiError]       = useState<string | null>(null);
-  const [aiTags, setAiTags]         = useState<string[]>([]);
-  const [aiIdeas, setAiIdeas]       = useState<string[]>([]);
-  const [aiName, setAiName]         = useState("");
-  const [aiPrice, setAiPrice]       = useState("4.99");
+  // ── Brainstorm path ──────────────────────────────────────────────────────────
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiError,  setAiError]  = useState<string | null>(null);
+  const [aiTags,   setAiTags]   = useState<string[]>([]);
+  const [aiIdeas,  setAiIdeas]  = useState<string[]>([]);
+  const [aiName,   setAiName]   = useState("");
+  const [aiPrice,  setAiPrice]  = useState("4.99");
 
   const aiMut = useMutation({
     mutationFn: () => aiApi.complete(PACK_SYSTEM_PROMPT, aiPrompt.trim()),
@@ -1931,169 +1758,389 @@ function CreateCenter({
     onError: (err: Error) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
   });
 
+  // ── Labelled-set path (state previously in GenerateSetCard) ──────────────────
+  const [setType,     setSetType]     = useState<string>("dates");
+  const [labelStyle,  setLabelStyle]  = useState<string>("padded");
+  const [fontKey,     setFontKey]     = useState<string>("sans-bold");
+  const [color,       setColor]       = useState<string>("#1B2A4A");
+  const [sizeInMm,    setSizeInMm]    = useState<string>("20");
+  const [borderStyle, setBorderStyle] = useState<string>("none");
+  const [borderWidth, setBorderWidth] = useState<string>("2");
+  const [borderColor, setBorderColor] = useState<string>("#000000");
+  const [shadowStyle, setShadowStyle] = useState<string>("none");
+  const [genResult,   setGenResult]   = useState<Array<{ name: string; imageBase64: string; selected: boolean }>>([]);
+  const [genPending,  setGenPending]  = useState(false);
+  const [genError,    setGenError]    = useState<string | null>(null);
+  const [saving,      setSaving]      = useState(false);
+
+  useEffect(() => {
+    const opts = LABEL_STYLE_OPTIONS[setType] ?? [];
+    if (opts.length > 0) setLabelStyle(opts[0].value);
+    setGenResult([]);
+  }, [setType]);
+
+  async function generate() {
+    setGenPending(true);
+    setGenError(null);
+    try {
+      const res = await platformStickersApi.generateSet({
+        setType, labelStyle, fontKey, color,
+        sizeInMm:    sizeInMm ? parseFloat(sizeInMm) : null,
+        borderStyle,
+        borderWidth: borderStyle !== "none" ? (parseFloat(borderWidth) || null) : null,
+        borderColor: borderStyle !== "none" ? (borderColor || null) : null,
+        shadowStyle,
+      });
+      setGenResult(res.items.map((item) => ({ ...item, selected: true })));
+    } catch (err: unknown) {
+      setGenError((err as Error).message);
+    } finally {
+      setGenPending(false);
+    }
+  }
+
+  async function saveSelected() {
+    const toSave = genResult.filter((i) => i.selected);
+    if (!toSave.length) return;
+    setSaving(true);
+    // Stable identifier shared by all stickers in this batch — enables DB-level grouping
+    const newSetId = crypto.randomUUID();
+    try {
+      const res = await platformStickersApi.batchCreate({
+        items:        toSave.map((i) => ({ name: i.name, imageBase64: i.imageBase64 })),
+        functionType: "date",
+        sizeInMm:     sizeInMm ? parseFloat(sizeInMm) : null,
+        status:       "draft",
+        setId:        newSetId,
+      });
+      qc.invalidateQueries({ queryKey: ["platform-stickers"] });
+      toast({ title: `${res.created} sticker${res.created !== 1 ? "s" : ""} saved as draft` });
+      if (res.stickers.length > 0) onStickerCreated?.(res.stickers[0]);
+      setGenResult([]);
+    } catch (err: unknown) {
+      toast({ title: "Save failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const setCount      = setType === "dates" ? 31 : setType === "weekdays" ? 7 : 12;
+  const selectedCount = genResult.filter((i) => i.selected).length;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6" style={{ minWidth: 0 }}>
-      {/* Compose heading */}
-      <div className="mb-2">
+    <div className="space-y-5" style={{ minWidth: 0 }}>
+      {/* Page header */}
+      <div className="mb-1">
         <h1 className="font-display font-semibold text-[22px] text-foreground mb-1.5">Create a sticker</h1>
-        <p className="text-[13px] text-muted-foreground">Three paths: upload your own artwork, brainstorm with AI, or generate a full labelled set server-side.</p>
+        <p className="text-[13px] text-muted-foreground">
+          Upload your own artwork, brainstorm with AI, or generate a full labelled set — all in one screen.
+        </p>
       </div>
 
-      {/* PATH A: Upload artwork */}
-      <div className="rounded-[14px] border bg-card shadow-sm p-5 space-y-4">
-        <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 3 }}>
-          <p className="font-display font-semibold text-[15px] text-foreground">Upload artwork</p>
-          <p className="text-[12.5px] text-muted-foreground">
-            Drag in your PNG, JPEG, or WebP file. Background is removed automatically, and a Cricut-compatible SVG cut path is generated if you enable it.
-          </p>
+      {/* Decision card */}
+      <div className="rounded-[14px] border bg-card shadow-sm p-5 space-y-3">
+        <p style={{ letterSpacing: "0.16em" }} className="text-[10px] font-bold uppercase text-muted-foreground">
+          HOW ARE YOU MAKING THIS?
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {PATH_CHIPS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setCreatePath(id)}
+              style={{
+                cursor: "pointer",
+                ...(createPath === id
+                  ? { background: CHIP_ACTIVE_BG, color: "#fff", borderColor: CHIP_ACTIVE_BG }
+                  : {}),
+              }}
+              className={`px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold border transition-colors ${
+                createPath === id ? "" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/20"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-
-        {!showUploadForm ? (
-          <div
-            ref={dropRef}
-            onDrop={onDrop}
-            onDragOver={(e) => e.preventDefault()}
-            onClick={() => fileRef.current?.click()}
-            style={{ cursor: "pointer" }}
-            className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/30 transition-colors py-10"
-          >
-            <Upload className="w-7 h-7 text-muted-foreground" />
-            <div style={{ display: "flex", flexDirection: "column", width: "100%", alignItems: "center", gap: 2 }}>
-              <p className="font-medium text-[13px] text-foreground">Drop files here or click to browse</p>
-              <p className="text-[11.5px] text-muted-foreground">PNG, JPEG, WebP · Multiple files OK</p>
-            </div>
-            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-[12.5px] font-semibold text-foreground">Configure sticker</p>
-              <button onClick={() => setShowUploadForm(false)} style={{ cursor: "pointer" }} className="text-muted-foreground hover:text-foreground">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <StickerFormFields form={uploadForm} setForm={setUploadForm} requireImage={false} />
-            <div className="flex gap-2">
-              <button
-                onClick={() => createMut.mutate()}
-                disabled={!uploadForm.name || !uploadForm.imageBase64 || createMut.isPending}
-                style={{ cursor: !uploadForm.name || !uploadForm.imageBase64 || createMut.isPending ? "not-allowed" : "pointer" }}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-primary text-primary-foreground text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
-              >
-                {createMut.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                Create sticker
-              </button>
-              <button onClick={() => setShowUploadForm(false)} style={{ cursor: "pointer" }}
-                className="px-4 py-2 rounded-full border text-[12.5px] font-medium text-muted-foreground hover:text-foreground transition-colors">
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
+        <p className="text-[12px] text-muted-foreground">{PATH_DESCRIPTIONS[createPath]}</p>
       </div>
 
-      {/* PATH B: AI generate a set */}
-      <div className="rounded-[14px] border bg-card shadow-sm p-5 space-y-4">
-        <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 3 }}>
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-primary shrink-0" />
-            <p className="font-display font-semibold text-[15px] text-foreground">AI: generate a sticker set</p>
-          </div>
-          <p className="text-[12.5px] text-muted-foreground">
-            Describe a pack concept — Claude names it, suggests 4 tags, and brainstorms 4 specific illustration briefs ready to hand to an artist or image model.
-          </p>
+      {/* ── Path A: Upload artwork ── */}
+      {createPath === "upload" && (
+        <div className="rounded-[14px] border bg-card shadow-sm p-5 space-y-4">
+          {!showUploadForm ? (
+            <div
+              ref={dropRef}
+              onDrop={onDrop}
+              onDragOver={(e) => e.preventDefault()}
+              onClick={() => fileRef.current?.click()}
+              style={{ cursor: "pointer" }}
+              className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/30 transition-colors py-8"
+            >
+              <Upload className="w-7 h-7 text-muted-foreground" />
+              <div style={{ display: "flex", flexDirection: "column", width: "100%", alignItems: "center", gap: 2 }}>
+                <p className="font-medium text-[13px] text-foreground">Drop files here or click to browse</p>
+                <p className="text-[11.5px] text-muted-foreground">PNG, JPEG, WebP · Multiple files OK</p>
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-[12.5px] font-semibold text-foreground">Configure sticker</p>
+                <button onClick={() => setShowUploadForm(false)} style={{ cursor: "pointer" }} className="text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <StickerFormFields form={uploadForm} setForm={setUploadForm} requireImage={false} />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => createMut.mutate()}
+                  disabled={!uploadForm.name || !uploadForm.imageBase64 || createMut.isPending}
+                  style={{ cursor: !uploadForm.name || !uploadForm.imageBase64 || createMut.isPending ? "not-allowed" : "pointer" }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-primary text-primary-foreground text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+                >
+                  {createMut.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Create sticker
+                </button>
+                <button onClick={() => setShowUploadForm(false)} style={{ cursor: "pointer" }}
+                  className="px-4 py-2 rounded-full border text-[12.5px] font-medium text-muted-foreground hover:text-foreground transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
+      )}
 
-        <div className="space-y-2">
-          <Label className="text-[12.5px]">Pack concept</Label>
-          <Textarea
-            rows={3}
-            placeholder="e.g. A self-care pack for college students — cosy vibes, affirmations, study motivation, coffee & books"
-            value={aiPrompt}
-            onChange={(e) => setAiPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) aiMut.mutate(); }}
-            className="resize-none text-[12.5px]"
-          />
+      {/* ── Path B: Brainstorm with Claude ── */}
+      {createPath === "brainstorm" && (
+        <div className="rounded-[14px] border bg-card shadow-sm p-5 space-y-4">
+          <div className="relative">
+            <Textarea
+              rows={4}
+              placeholder="e.g. A self-care pack for college students — cosy vibes, affirmations, study motivation, coffee & books"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) aiMut.mutate(); }}
+              className="resize-none text-[12.5px] pr-36"
+            />
+            {/* "✦ Ask Claude" chip pinned inside the bottom-right corner of the textarea */}
+            <button
+              onClick={() => aiMut.mutate()}
+              disabled={!aiPrompt.trim() || aiMut.isPending}
+              style={{
+                cursor: !aiPrompt.trim() || aiMut.isPending ? "not-allowed" : "pointer",
+                position: "absolute", bottom: 10, right: 10,
+                background: CHIP_ACTIVE_BG, color: "#fff",
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+            >
+              {aiMut.isPending
+                ? <><Loader2 className="w-3 h-3 animate-spin" />Thinking…</>
+                : <><Sparkles className="w-3 h-3" />✦ Ask Claude</>
+              }
+            </button>
+          </div>
           <p className="text-[11px] text-muted-foreground">⌘ + Enter to generate</p>
+
+          {aiError && !aiMut.isPending && (
+            <ErrorState message={aiError} onRetry={() => aiMut.mutate()} />
+          )}
+
+          {aiResult && !aiMut.isPending && (
+            <div className="space-y-4 pt-2 border-t">
+              <div className="space-y-1.5">
+                <Label className="text-[12.5px]">Pack name</Label>
+                <Input value={aiName} onChange={(e) => setAiName(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[12.5px]">Tags</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {aiTags.map((tag, i) => (
+                    <button key={i} onClick={() => setAiTags(aiTags.filter((_, j) => j !== i))}
+                      style={{ cursor: "pointer" }}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-full border text-[12px] font-medium hover:bg-destructive/10 hover:border-destructive/30 transition-colors">
+                      {tag}<X className="w-3 h-3" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[12.5px]">Illustration briefs</Label>
+                <div className="space-y-2">
+                  {aiIdeas.map((idea, i) => (
+                    <div key={i} className="rounded-xl border bg-muted/30 p-3 text-[12.5px] text-foreground/80 leading-relaxed">
+                      <span className="font-mono text-[10px] text-muted-foreground mr-2">#{i + 1}</span>{idea}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5 max-w-[140px]">
+                <Label className="text-[12.5px]">Price (USD)</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[12.5px]">$</span>
+                  <Input type="number" min="0" step="0.01" value={aiPrice} onChange={(e) => setAiPrice(e.target.value)} className="pl-6" />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => aiMut.mutate()} style={{ cursor: "pointer" }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors">
+                  <RefreshCw className="w-3.5 h-3.5" />Regenerate
+                </button>
+                <div className="flex-1" />
+                <button onClick={() => savePack.mutate("draft")} disabled={!aiName || savePack.isPending}
+                  style={{ cursor: !aiName || savePack.isPending ? "not-allowed" : "pointer" }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-[12px] font-medium disabled:opacity-40 hover:bg-muted transition-colors">
+                  {savePack.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  Save as draft
+                </button>
+                <button onClick={() => savePack.mutate("live")} disabled={!aiName || savePack.isPending}
+                  style={{ cursor: !aiName || savePack.isPending ? "not-allowed" : "pointer" }}
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-[12px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity">
+                  {savePack.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
+                  Publish pack
+                </button>
+              </div>
+            </div>
+          )}
         </div>
+      )}
 
-        <button
-          onClick={() => aiMut.mutate()}
-          disabled={!aiPrompt.trim() || aiMut.isPending}
-          style={{ cursor: !aiPrompt.trim() || aiMut.isPending ? "not-allowed" : "pointer" }}
-          className="flex items-center gap-2 px-4 py-2 rounded-full bg-primary text-primary-foreground text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
-        >
-          {aiMut.isPending
-            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generating…</>
-            : <><Sparkles className="w-3.5 h-3.5" />Generate pack spec</>
-          }
-        </button>
+      {/* ── Path C: Generate a labelled set ── */}
+      {createPath === "labelled-set" && (
+        <div className="rounded-[14px] border bg-card shadow-sm p-5 space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-[12.5px]">Set type</Label>
+            <ChipRow options={SET_TYPE_OPTIONS} value={setType} onChange={(v) => setSetType(v)} />
+          </div>
 
-        {aiError && !aiMut.isPending && (
-          <ErrorState message={aiError} onRetry={() => aiMut.mutate()} />
-        )}
+          <div className="space-y-1.5">
+            <Label className="text-[12.5px]">Label style</Label>
+            <ChipRow options={LABEL_STYLE_OPTIONS[setType] ?? []} value={labelStyle} onChange={setLabelStyle} />
+          </div>
 
-        {/* AI result — editable */}
-        {aiResult && !aiMut.isPending && (
-          <div className="space-y-4 pt-2 border-t">
+          <div className="space-y-1.5">
+            <Label className="text-[12.5px]">Font</Label>
+            <ChipRow options={FONT_OPTIONS} value={fontKey} onChange={setFontKey} />
+          </div>
+
+          {/* Two-column: Colour + Size */}
+          <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <div className="space-y-1.5">
-              <Label className="text-[12.5px]">Pack name</Label>
-              <Input value={aiName} onChange={(e) => setAiName(e.target.value)} />
+              <Label className="text-[12.5px]">Colour</Label>
+              <div className="flex items-center gap-2">
+                <input type="color" value={color} onChange={(e) => setColor(e.target.value)}
+                  className="h-8 w-8 rounded border border-border cursor-pointer shrink-0" />
+                <Input className="h-8 text-xs font-mono" value={color} onChange={(e) => setColor(e.target.value)} />
+              </div>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[12.5px]">Tags</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {aiTags.map((tag, i) => (
-                  <button key={i} onClick={() => setAiTags(aiTags.filter((_, j) => j !== i))}
-                    style={{ cursor: "pointer" }}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-full border text-[12px] font-medium hover:bg-destructive/10 hover:border-destructive/30 transition-colors">
-                    {tag}<X className="w-3 h-3" />
+              <Label className="text-[12.5px]">Size (mm)</Label>
+              <Input type="number" min="5" max="100" className="h-8 text-xs"
+                value={sizeInMm} onChange={(e) => setSizeInMm(e.target.value)} placeholder="e.g. 20" />
+            </div>
+          </div>
+
+          {/* Two-column: Shadow + Border */}
+          <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <div className="space-y-1.5">
+              <Label className="text-[12.5px]">Shadow</Label>
+              <ChipRow options={SHADOW_OPTIONS} value={shadowStyle} onChange={setShadowStyle} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[12.5px]">Border</Label>
+              <SegmentedControl
+                options={[{value:"none",label:"None"},{value:"thin",label:"Thin"},{value:"white",label:"White"}]}
+                value={borderStyle} onChange={setBorderStyle}
+              />
+            </div>
+          </div>
+
+          {borderStyle !== "none" && (
+            <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+              <div className="space-y-1.5">
+                <Label className="text-[11.5px]">Width (px)</Label>
+                <Input type="number" min="1" max="20" className="h-8 text-xs"
+                  value={borderWidth} onChange={(e) => setBorderWidth(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[11.5px]">Border colour</Label>
+                <div className="flex items-center gap-1.5">
+                  <input type="color" value={borderColor} onChange={(e) => setBorderColor(e.target.value)}
+                    className="h-8 w-8 rounded border border-border cursor-pointer shrink-0" />
+                  <Input className="h-8 text-xs font-mono" value={borderColor} onChange={(e) => setBorderColor(e.target.value)} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={generate}
+            disabled={genPending}
+            style={{ cursor: genPending ? "not-allowed" : "pointer", background: CHIP_ACTIVE_BG, color: "#fff" }}
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+          >
+            {genPending
+              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generating {setCount} stickers…</>
+              : <><CheckSquare className="w-3.5 h-3.5" />Generate {setCount} stickers</>
+            }
+          </button>
+
+          {genError && !genPending && <ErrorState message={genError} onRetry={generate} />}
+
+          {genResult.length > 0 && !genPending && (
+            <div className="space-y-3 pt-2 border-t">
+              <div className="flex items-center justify-between">
+                <p className="text-[12.5px] font-semibold text-foreground">
+                  {genResult.length} generated — click a sticker to deselect
+                </p>
+                <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+                  <button onClick={() => setGenResult((r) => r.map((i) => ({ ...i, selected: true })))}
+                    style={{ cursor: "pointer" }} className="hover:text-foreground">All</button>
+                  <span>·</span>
+                  <button onClick={() => setGenResult((r) => r.map((i) => ({ ...i, selected: false })))}
+                    style={{ cursor: "pointer" }} className="hover:text-foreground">None</button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {genResult.map((item, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setGenResult((r) => r.map((x, j) => j === i ? { ...x, selected: !x.selected } : x))}
+                    style={{
+                      cursor: "pointer",
+                      opacity: item.selected ? 1 : 0.3,
+                      outline: item.selected ? `2px solid ${CHIP_ACTIVE_BG}` : "2px solid transparent",
+                      outlineOffset: 2, borderRadius: 8,
+                    }}
+                    className="flex flex-col items-center gap-1 p-1.5 rounded-[8px] border border-border transition-all"
+                    title={item.name}
+                  >
+                    <StickerThumb src={item.imageBase64} size={44} />
+                    <span className="text-[9px] text-muted-foreground leading-none">
+                      {item.name.replace(/^(Date coverup |Weekday |Month )/, "")}
+                    </span>
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[12.5px]">Illustration briefs</Label>
-              <div className="space-y-2">
-                {aiIdeas.map((idea, i) => (
-                  <div key={i} className="rounded-xl border bg-muted/30 p-3 text-[12.5px] text-foreground/80 leading-relaxed">
-                    <span className="font-mono text-[10px] text-muted-foreground mr-2">#{i + 1}</span>{idea}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-1.5 max-w-[140px]">
-              <Label className="text-[12.5px]">Price (USD)</Label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[12.5px]">$</span>
-                <Input type="number" min="0" step="0.01" value={aiPrice} onChange={(e) => setAiPrice(e.target.value)} className="pl-6" />
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => aiMut.mutate()} style={{ cursor: "pointer" }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors">
-                <RefreshCw className="w-3.5 h-3.5" />Regenerate
-              </button>
-              <div className="flex-1" />
-              <button onClick={() => savePack.mutate("draft")} disabled={!aiName || savePack.isPending}
-                style={{ cursor: !aiName || savePack.isPending ? "not-allowed" : "pointer" }}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-[12px] font-medium disabled:opacity-40 hover:bg-muted transition-colors">
-                {savePack.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                Save as draft
-              </button>
-              <button onClick={() => savePack.mutate("live")} disabled={!aiName || savePack.isPending}
-                style={{ cursor: !aiName || savePack.isPending ? "not-allowed" : "pointer" }}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-[12px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity">
-                {savePack.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
-                Publish pack
+              <button
+                onClick={saveSelected}
+                disabled={selectedCount === 0 || saving}
+                style={{
+                  cursor: selectedCount === 0 || saving ? "not-allowed" : "pointer",
+                  background: CHIP_ACTIVE_BG, color: "#fff",
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save {selectedCount} sticker{selectedCount !== 1 ? "s" : ""} as draft
               </button>
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* Gap 1: Generate a labelled set */}
-      <GenerateSetCard />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2279,17 +2326,73 @@ function LibraryRail({
   );
 }
 
-function CreateRail({ batchItems }: { batchItems: InProgressItem[] }) {
+const CREATE_WORKFLOW_STEPS = [
+  "Upload or generate",
+  "Auto-cutout & bg remove",
+  "Refine & size",
+  "Publish",
+];
+
+type CreatePath = "upload" | "brainstorm" | "labelled-set";
+
+function CreateRail({
+  batchItems,
+  createPath,
+}: {
+  batchItems: InProgressItem[];
+  createPath: CreatePath;
+}) {
+  // Compute active workflow step from batch state
+  const activeStep = batchItems.length === 0 ? 0
+    : batchItems.some((i) => i.status === "uploading" || i.status === "processing") ? 1
+    : batchItems.some((i) => i.status === "done") ? 2
+    : 0;
+
+  const pathDesc: Record<CreatePath, string> = {
+    "upload":        "Drop a PNG, JPEG, or WebP file. Background is removed automatically.",
+    "brainstorm":    "Describe a pack concept. Claude returns a name, 4 tags, and 4 illustration briefs.",
+    "labelled-set":  "Generate 7–31 transparent PNGs server-side. Review and deselect before saving.",
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
+        {/* Context card — updates with selected path */}
         <RailCard>
           <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: 4 }}>
-            <p className="font-display font-semibold text-[13px] text-foreground">Three paths</p>
-            <p className="text-[11px] text-muted-foreground">Upload your own artwork, let AI brainstorm concepts, or generate a full labelled set (dates, weekdays, months) in one click.</p>
+            <p className="font-display font-semibold text-[13px] text-foreground">
+              {createPath === "upload" ? "Upload artwork"
+                : createPath === "brainstorm" ? "Brainstorm with Claude"
+                : "Generate a labelled set"}
+            </p>
+            <p className="text-[11px] text-muted-foreground">{pathDesc[createPath]}</p>
           </div>
         </RailCard>
 
+        {/* Workflow — PROMOTED to main rail content with active step highlighted */}
+        <div className="space-y-1">
+          <SectionLabel className="mb-2">Workflow</SectionLabel>
+          {CREATE_WORKFLOW_STEPS.map((step, i) => (
+            <div key={step} className="flex items-center gap-2 py-1">
+              <span
+                className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0"
+                style={{
+                  background: i === activeStep ? CHIP_ACTIVE_BG : "hsl(var(--muted))",
+                  color:      i === activeStep ? "#fff"          : "hsl(var(--muted-foreground))",
+                }}
+              >
+                {i + 1}
+              </span>
+              <span
+                className={`text-[11.5px] ${i === activeStep ? "font-semibold text-foreground" : "text-muted-foreground"}`}
+              >
+                {step}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* In-progress items */}
         {batchItems.length > 0 && (
           <div className="space-y-2">
             <SectionLabel>In progress</SectionLabel>
@@ -2298,25 +2401,12 @@ function CreateRail({ batchItems }: { batchItems: InProgressItem[] }) {
                 <StickerThumb src={item.src} size={32} />
                 <div style={{ display: "flex", flexDirection: "column", width: "100%", minWidth: 0, gap: 1 }}>
                   <p className="text-[11.5px] font-medium truncate">{item.name}</p>
-                  <p className="text-[10.5px] text-muted-foreground">{item.status}</p>
+                  <p className="text-[10.5px] text-muted-foreground capitalize">{item.status}</p>
                 </div>
               </div>
             ))}
           </div>
         )}
-      </div>
-      {/* Steps pinned at bottom */}
-      <div className="border-t p-4 space-y-1 shrink-0">
-        <SectionLabel className="mb-2">Workflow</SectionLabel>
-        {["Upload or generate","Auto-cutout & bg remove","Refine & size","Publish"].map((step, i) => (
-          <div key={step} className="flex items-center gap-2 py-1">
-            <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0"
-              style={{ background: i === 0 ? "hsl(var(--primary))" : "hsl(var(--muted))", color: i === 0 ? "hsl(var(--primary-foreground))" : "hsl(var(--muted-foreground))" }}>
-              {i + 1}
-            </span>
-            <span className={`text-[11.5px] ${i === 0 ? "font-semibold text-foreground" : "text-muted-foreground"}`}>{step}</span>
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -2435,8 +2525,9 @@ export default function StickerStudioHub() {
   const [previewSticker, setPreviewSticker] = useState<LibrarySticker | null>(null);
 
   // Create mode state
-  const [batchItems, setBatchItems] = useState<InProgressItem[]>([]);
-  const [aiResult,   setAiResult]   = useState<PackAiResult | null>(null);
+  const [batchItems,   setBatchItems]   = useState<InProgressItem[]>([]);
+  const [aiResult,     setAiResult]     = useState<PackAiResult | null>(null);
+  const [createPath,   setCreatePath]   = useState<CreatePath>("upload");
 
   // Packs filter state
   const [packStatus,      setPackStatus]      = useState("all");
@@ -2458,7 +2549,7 @@ export default function StickerStudioHub() {
     if (validMode === "library")
       return <LibraryRail origin={origin} setOrigin={setOrigin} status={libStatus} setStatus={setLibStatus} filterType={filterType} setFilterType={setFilterType} />;
     if (validMode === "create")
-      return <CreateRail batchItems={batchItems} />;
+      return <CreateRail batchItems={batchItems} createPath={createPath} />;
     return <PacksRail
       packStatus={packStatus} setPackStatus={setPackStatus}
       packOrigin={packOrigin} setPackOrigin={setPackOrigin}
@@ -2515,6 +2606,8 @@ export default function StickerStudioHub() {
         batchItems={batchItems} setBatchItems={setBatchItems}
         aiResult={aiResult} setAiResult={setAiResult}
         uploadTrigger={uploadTrigger}
+        createPath={createPath} setCreatePath={setCreatePath}
+        onStickerCreated={(s) => setPreviewSticker(s)}
       />;
     return <PacksCenter
       packStatus={packStatus} packOrigin={packOrigin} packPriceFilter={packPriceFilter}
@@ -2527,7 +2620,7 @@ export default function StickerStudioHub() {
     if (validMode === "library")
       return { label: "New sticker", icon: <Plus className="w-3.5 h-3.5" />, onClick: () => setLibCreateTrigger((c) => c + 1) };
     if (validMode === "create")
-      return { label: "Upload artwork", icon: <Upload className="w-3.5 h-3.5" />, onClick: () => setUploadTrigger((c) => c + 1) };
+      return { label: "Upload artwork", icon: <Upload className="w-3.5 h-3.5" />, onClick: () => { setCreatePath("upload"); setUploadTrigger((c) => c + 1); } };
     return { label: "New pack", icon: <Plus className="w-3.5 h-3.5" />, onClick: () => setShowNewPack(true) };
   })();
 

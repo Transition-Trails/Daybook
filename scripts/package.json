@@ -13,6 +13,7 @@
     "migrate-notebooks": "tsx ./src/migrate-notebooks.ts",
     "migrate-theme-studio": "tsx ./src/migrate-theme-studio.ts",
     "seed-theme-assets": "tsx ./src/seed-theme-assets.ts",
+    "migrate-sticker-set-id": "tsx ./src/migrate-sticker-set-id.ts",
     "migrate-related-products": "tsx ./src/migrate-related-products.ts",
     "seed-theme-catalog": "tsx ./src/seed-theme-catalog.ts"
   },

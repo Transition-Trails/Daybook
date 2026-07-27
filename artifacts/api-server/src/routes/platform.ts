@@ -364,6 +364,7 @@ router.get("/platform/stickers", requireSuperAdmin, async (req: Request, res: Re
       exportTargets: stickersLibraryTable.exportTargets,
       processedImageData: stickersLibraryTable.processedImageData,
       cutlineSvg: stickersLibraryTable.cutlineSvg,
+      setId: stickersLibraryTable.setId,
       createdAt: stickersLibraryTable.createdAt,
       updatedAt: stickersLibraryTable.updatedAt,
     })

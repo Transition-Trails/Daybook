@@ -245,12 +245,13 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const {
-      items, functionType, sizeInMm, status: reqStatus,
+      items, functionType, sizeInMm, status: reqStatus, setId,
     } = req.body as {
       items?:        Array<{ name: string; imageBase64: string }>;
       functionType?: string;
       sizeInMm?:     number | null;
       status?:       "draft" | "live";
+      setId?:        string | null;
     };
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -281,6 +282,7 @@ router.post(
           exportTargets: { goodnotes: true, ink: true, cricut: false },
           processedImageData: item.imageBase64,
           cutlineSvg: null,
+          setId: setId ?? null,
         })
         .returning();
       rows.push(row);
@@ -964,15 +966,21 @@ router.get(
       ))
       .orderBy(asc(packStickersTable.position));
 
-    // Build a map: packId → first cover image
-    const coverMap = new Map<string, string>();
+    // Build a map: packId → up to 4 member images (ordered by position)
+    const imagesMap = new Map<string, string[]>();
     for (const row of coverRows) {
-      if (!coverMap.has(row.packId) && row.coverImage) {
-        coverMap.set(row.packId, row.coverImage);
+      const imgs = imagesMap.get(row.packId) ?? [];
+      if (imgs.length < 4 && row.coverImage) {
+        imgs.push(row.coverImage);
+        imagesMap.set(row.packId, imgs);
       }
     }
 
-    res.json(packs.map((p) => ({ ...p, coverImage: coverMap.get(p.id) ?? null })));
+    res.json(packs.map((p) => ({
+      ...p,
+      coverImage:   imagesMap.get(p.id)?.[0] ?? null,   // backwards compat
+      memberImages: imagesMap.get(p.id) ?? [],
+    })));
   },
 );
 

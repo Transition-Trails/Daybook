@@ -330,8 +330,8 @@ export function StudioLayout({
         {/* CENTER WORKSPACE ───────────────────────────────────────────────── */}
         {/* Single scroll context for the work surface — no nested scrollbars */}
         <main
-          className="flex-1 overflow-y-auto bg-background"
-          style={{ minWidth: 0 }}
+          className="flex-1 overflow-y-auto bg-background [&::-webkit-scrollbar]:hidden"
+          style={{ minWidth: 0, scrollbarWidth: "none" } as React.CSSProperties}
         >
           <div className="p-6" style={{ minWidth: 0 }}>
             {children}

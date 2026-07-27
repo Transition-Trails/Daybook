@@ -217,6 +217,10 @@ export const stickersLibraryTable = pgTable("stickers_library", {
   shadowLiftPx: real("shadow_lift_px"),
   // Gaussian alpha blur on the silhouette edge (photo stickers).
   edgeFeatherPx: real("edge_feather_px"),
+  // Stable identifier shared by every member of a generated set (dates/weekdays/months).
+  // Stamped at batch-save time; null for hand-uploaded stickers and pre-migration rows.
+  // Grouping in the UI should prefer this over name-prefix heuristics.
+  setId: text("set_id"),
   // Human-readable label within a set, e.g. "Monday" or "14" for text-set stickers.
   setLabel: text("set_label"),
   // Slug that drives download filename; default "set_function_label_size".

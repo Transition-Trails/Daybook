@@ -192,6 +192,8 @@ export interface PlatformStickerPack {
   price?: number | null;
   tags?: string[];
   coverImage?: string | null;
+  /** Up to 4 member sticker images ordered by position — for fanned cluster display. */
+  memberImages?: string[];
 }
 
 export const platformStickersApi = {
@@ -304,6 +306,8 @@ export const platformStickersApi = {
     functionType: string;
     sizeInMm?:    number | null;
     status?:      "draft" | "live";
+    /** Shared set identifier stamped on every row — enables DB-level grouping. */
+    setId?:       string | null;
   }) =>
     apiFetch<{ created: number; stickers: LibrarySticker[] }>(
       "/platform/stickers/batch",
@@ -746,6 +750,8 @@ export interface LibrarySticker {
   exportTargets: StickerExportTargets;
   processedImageData: string | null;
   cutlineSvg: string | null;
+  /** Stable group identifier shared by every member of a generated set. Null for hand-uploaded stickers. */
+  setId?: string | null;
   createdAt: string;
   updatedAt: string;
   /** Attached pack count — present in list responses */

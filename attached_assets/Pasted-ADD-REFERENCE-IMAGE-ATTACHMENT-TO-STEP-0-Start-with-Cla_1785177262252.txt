@@ -1,0 +1,68 @@
+ADD REFERENCE-IMAGE ATTACHMENT TO STEP 0 ("✦ Start with Claude") ON /super/recipes/new.
+Everything else on the page is correct — do not rebuild it. See the attached screenshot.
+
+=== THE UI ===
+Between the description textarea and the "✦ Draft this recipe" button, add a
+reference-image row:
+
+  Eyebrow: "SHOW CLAUDE WHAT YOU MEAN"
+  Beside it, muted: "Sketches, screenshots, a page you like — optional"
+
+  Then a horizontal row of 108px-wide items:
+   · Each attached image: a 76px-tall thumbnail (rounded 9px, warm hairline border)
+     with a small × remove control in its top-right corner, then a ROLE PILL, then
+     the truncated filename at 10.5px muted.
+   · A dashed "+ Add image" tile at the end of the row (same 108×76), clay accent text.
+   · A flexible explainer panel filling the remaining width, reading:
+     "Tag each one so Claude knows how to read it. Layout shapes the parts and page
+      structure. Style informs the theme brief only — it never changes which engines
+      a recipe uses."
+
+Accept drag-and-drop onto the row as well as click-to-browse. PNG/JPG/WebP, a few MB
+cap, sensible limit (say 4 images). Store them with the recipe draft.
+
+=== THE ROLE TAG — THIS IS THE IMPORTANT PART ===
+Every attached image carries a role the user sets, defaulting to Layout:
+
+  LAYOUT (slate pill, bg #E1E8F0 / text var(--ppp-slate-600))
+    Claude MAY use it to infer page structure: trim/aspect ratio, column count,
+    whether it is a single page or a spread, what regions exist (time rail, task
+    rows, notes block), and therefore which engine parts the recipe needs and which
+    are impossible.
+
+  STYLE (blush pill, bg var(--accent-soft) / text var(--ppp-cocoa))
+    Claude MAY use it for the theme brief and description only. It must NOT influence
+    the product type, the parts list, or the decision card. A pretty cover photo is
+    not a structural signal — enforce this in the system prompt, explicitly.
+
+=== WHAT CLAUDE MUST DO WITH THEM ===
+Pass the images to the vision-capable Claude call alongside the text brief, with the
+role of each image stated in the prompt. Then:
+
+1. REPORT WHAT IT READ. Add a new first row to the existing "What Claude read from
+   that" panel, labelled after the source (e.g. "YOUR SKETCH"), stating what it
+   actually took from the image and what that implies. Worked example:
+     "A single column with a time rail down the left and three task rows under it —
+      no side-by-side spread. That confirms the phone trim and rules out the tab rail."
+   Only render this row when at least one image was attached. If Claude could not
+   read anything useful from an image, say so plainly rather than inventing a reading.
+
+2. FEED GAP DETECTION. A layout image is often how an engine gap becomes visible —
+   a sketch at phone proportions is direct evidence the page engine has no matching
+   trim. Image-derived findings must flow into the existing engineGaps output with
+   the same severity levels and the same server-side publish block.
+
+3. NEVER LET A STYLE IMAGE CHANGE STRUCTURE. If the only images attached are tagged
+   Style, the parts list and decision card must be derived from the text brief alone.
+
+=== HOUSEKEEPING ===
+· Include the image count and each image's role in the audit entry for
+  draft-from-brief (alongside the brief text and returned product type).
+· Store uploads in Google Drive like every other asset; do not inline base64 into
+  the recipe row.
+· "Start over" clears attached images along with the staged draft and brief text.
+· Empty state: the row shows only the "+ Add image" tile and the explainer panel.
+
+Report: a layout sketch producing a visible "what I read" row that changes the staged
+parts; a style-only attachment leaving the parts list untouched; and an image-derived
+engine gap blocking publish while still allowing a draft save.

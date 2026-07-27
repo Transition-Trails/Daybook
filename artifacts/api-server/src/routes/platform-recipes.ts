@@ -158,6 +158,13 @@ NOT supported: phone portrait (≈58×126 mm or ≈68×147 mm), landscape tablet
 | stickers | cut paths, index sheet, imposition                      | (none)                             | page recipes, date engine, hyperlink layer, tab rail, photo layouts, prompt decks, trackers |
 | inserts  | page recipes, trackers                                  | hyperlink layer, photo layouts, index sheet | date engine, tab rail, prompt decks, cut paths, imposition |
 
+## Reference images (when provided)
+Images arrive labeled LAYOUT or STYLE before the text brief.
+
+LAYOUT image: Infer page structure — trim/aspect ratio, column count, whether single page or spread, what regions exist (time rail, task rows, notes block, tab zone). Use these observations to decide which parts are needed and which are impossible. A sketch at phone proportions is direct evidence of the missing phone-trim engine gap. A visible tab zone confirms tab rail is viable.
+
+STYLE image: Use for theme description or cover concept ONLY. You MUST NOT let a STYLE image change productType, partsOn, partsOff, or decisionCard. A mood board or pretty cover photo is NOT a structural signal. If every image is tagged STYLE, derive all structure from the text brief alone.
+
 ## Output — respond ONLY with valid JSON, no markdown, no prose outside the JSON
 
 {
@@ -175,6 +182,7 @@ NOT supported: phone portrait (≈58×126 mm or ≈68×147 mm), landscape tablet
     "partsOff": "Part — reason. Part — reason.",
     "question": "One sentence explaining why this is the right first question."
   },
+  "imageReading": "One sentence per LAYOUT image: what structure you read and what it implies about parts/gaps. Separate multiple images with newline. Be honest — if an image was unclear say so. Omit STYLE images. null when no LAYOUT images." | null,
   "gaps": [
     {
       "title": "Short gap title",
@@ -187,27 +195,60 @@ NOT supported: phone portrait (≈58×126 mm or ≈68×147 mm), landscape tablet
 RULES:
 1. Only use part keys from: page recipes, date engine, hyperlink layer, tab rail, trackers, photo layouts, imposition, index sheet, prompt decks, cut paths.
 2. partsOff: only list parts that are in the Available column for the chosen type but you deliberately exclude.
-3. gaps: include ONLY real technical engine gaps — things the described product genuinely needs that the engine cannot currently do. A standard A5 planner has zero gaps. A phone-sized planner has a Blocks-release gap for the missing phone-trim profile.
-4. If no gaps: "gaps": [].`;
+3. gaps: include ONLY real technical engine gaps. A standard A5 planner has zero gaps. Image-derived findings count equally — a sketch at phone proportions is as strong a gap signal as text.
+4. If no gaps: "gaps": [].
+5. imageReading: populate when at least one LAYOUT image was provided; null otherwise.`;
 
 router.post(
   "/platform/recipes/draft-from-brief",
   requireSuperAdmin,
   async (req: Request, res: Response): Promise<void> => {
-    const { brief } = req.body as { brief?: string };
+    const { brief, images } = req.body as {
+      brief?: string;
+      images?: Array<{ base64: string; mediaType: string; role: "layout" | "style" }>;
+    };
     if (!brief?.trim()) {
       res.status(400).json({ error: "brief is required" });
       return;
     }
 
     const actor = req.actor!;
+    const validImages = (images ?? []).filter(
+      img => img.base64 && img.mediaType && (img.role === "layout" || img.role === "style"),
+    );
 
     try {
-      const result = await callAi(
-        [{ role: "user", content: brief.trim() }],
-        "claude",
-        DRAFT_SYSTEM_PROMPT,
-      );
+      // Build the user message.  When images are attached we use a vision-capable
+      // multipart content array; otherwise a plain text string (cheaper, faster).
+      type ContentPart =
+        | { type: "text"; text: string }
+        | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+
+      let userContent: string | ContentPart[];
+
+      if (validImages.length > 0) {
+        const parts: ContentPart[] = [];
+        for (const img of validImages) {
+          // State the role before each image so Claude knows how to treat it
+          parts.push({
+            type: "text",
+            text: img.role === "layout"
+              ? "[LAYOUT image — infer page structure, parts, and gaps from this]"
+              : "[STYLE image — for theme/description only; must NOT change productType, partsOn, partsOff, or decisionCard]",
+          });
+          parts.push({
+            type: "image",
+            source: { type: "base64", media_type: img.mediaType, data: img.base64 },
+          });
+        }
+        parts.push({ type: "text", text: `Brief: ${brief.trim()}` });
+        userContent = parts;
+      } else {
+        userContent = brief.trim();
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await callAi([{ role: "user", content: userContent as any }], "claude", DRAFT_SYSTEM_PROMPT);
 
       // Strip any accidental markdown fences before parsing
       const cleaned = result.content
@@ -221,6 +262,7 @@ router.post(
         partsOff: Array<{ key: string; reason: string }>;
         decisionCard: { prompt: string; optionA: { label: string; consequence: string }; optionB: { label: string; consequence: string } };
         reading: { type: string; partsOn: string; partsOff: string; question: string };
+        imageReading: string | null;
         gaps: Array<{ title: string; explanation: string; severity: string }>;
       };
 
@@ -234,12 +276,14 @@ router.post(
         scope:       "platform",
         action:      "recipe.draft_from_brief",
         targetType:  "product_recipe",
-        targetId:    "-",          // transient inference — no persisted row yet
+        targetId:    "-",   // transient inference — no persisted row yet
         metadata: {
           brief:        brief.trim(),
           proposedType: draft.productType,
+          imageCount:   validImages.length,
+          imageRoles:   validImages.map(i => i.role),
           totalGaps:    draft.gaps.length,
-          blockerGaps,             // titles of any "Blocks release" gaps
+          blockerGaps,
         },
       });
 

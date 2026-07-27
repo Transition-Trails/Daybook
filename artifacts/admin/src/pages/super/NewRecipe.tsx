@@ -9,7 +9,7 @@
  * Step 3  Buyer decision card
  * ···     Publishing details (collapsed)
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import {
   ArrowLeft, CalendarDays, BookOpen, LayoutGrid,
@@ -17,7 +17,7 @@ import {
   ChevronDown, ChevronUp,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { recipesApi } from "@/lib/api";
+import { recipesApi, storageApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -68,6 +68,17 @@ interface DraftResult {
   decisionCard: DecisionCard;
   reading: { type: string; partsOn: string; partsOff: string; question: string };
   gaps: Array<{ title: string; explanation: string; severity: string }>;
+  imageReading: string | null;
+}
+
+interface AttachedImage {
+  id: string;
+  file: File;
+  previewUrl: string;  // ObjectURL — display only
+  base64: string;      // for Claude vision call
+  mediaType: string;
+  role: "layout" | "style";
+  objectPath?: string; // set after object-storage upload resolves
 }
 
 // ── Part definitions ──────────────────────────────────────────────────────────
@@ -269,9 +280,12 @@ export default function NewRecipePage() {
   const qc           = useQueryClient();
 
   // ── Claude drafting (Step 0) ──────────────────────────────────────────────
-  const [briefText,   setBriefText]   = useState("");
-  const [drafting,    setDrafting]    = useState(false);
-  const [stagedDraft, setStagedDraft] = useState<DraftResult | null>(null);
+  const [briefText,    setBriefText]    = useState("");
+  const [drafting,     setDrafting]     = useState(false);
+  const [stagedDraft,  setStagedDraft]  = useState<DraftResult | null>(null);
+  const [attachments,  setAttachments]  = useState<AttachedImage[]>([]);
+  const [dragging,     setDragging]     = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Ref so the productType useEffect can read it synchronously
   const stagedDraftRef = useRef<DraftResult | null>(null);
@@ -333,6 +347,63 @@ export default function NewRecipePage() {
       return next;
     });
 
+  // ── Attachment utilities ──────────────────────────────────────────────────
+  const readFileAsBase64 = (file: File): Promise<{ base64: string; mediaType: string }> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const [header, base64] = dataUrl.split(",");
+        const mediaType = header.split(":")[1]?.split(";")[0] ?? file.type;
+        resolve({ base64, mediaType });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  /** Upload image to object storage (fire-and-forget — does not block drafting). */
+  const uploadToStorage = useCallback(async (id: string, file: File) => {
+    try {
+      const { uploadURL, objectPath } = await storageApi.requestUploadUrl(
+        file.name, file.size, file.type,
+      );
+      await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+      setAttachments(prev => prev.map(a => a.id === id ? { ...a, objectPath } : a));
+    } catch {
+      // Non-fatal — storage failure doesn't block the draft call
+    }
+  }, []);
+
+  const handleFiles = useCallback(async (fileList: FileList | File[]) => {
+    const ALLOWED = ["image/png", "image/jpeg", "image/webp"];
+    const MAX_BYTES = 5 * 1024 * 1024;
+    const toAdd = Array.from(fileList)
+      .filter(f => ALLOWED.includes(f.type) && f.size <= MAX_BYTES)
+      .slice(0, 4 - attachments.length);
+
+    for (const file of toAdd) {
+      const { base64, mediaType } = await readFileAsBase64(file);
+      const id = Math.random().toString(36).slice(2);
+      const previewUrl = URL.createObjectURL(file);
+      const newAtt: AttachedImage = { id, file, previewUrl, base64, mediaType, role: "layout" };
+      setAttachments(prev => [...prev, newAtt]);
+      uploadToStorage(id, file);
+    }
+  }, [attachments.length, uploadToStorage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments(prev => {
+      const att = prev.find(a => a.id === id);
+      if (att) URL.revokeObjectURL(att.previewUrl);
+      return prev.filter(a => a.id !== id);
+    });
+  };
+
+  const toggleRole = (id: string) =>
+    setAttachments(prev =>
+      prev.map(a => a.id === id ? { ...a, role: a.role === "layout" ? "style" : "layout" } : a),
+    );
+
   // ── Rail numbers ──────────────────────────────────────────────────────────
   const platformCount   = typeConfig
     ? typeConfig.defaultOn.length + typeConfig.available.length
@@ -346,7 +417,8 @@ export default function NewRecipePage() {
     setStagedDraft(null);
     stagedDraftRef.current = null;
     try {
-      const result = await recipesApi.draftFromBrief(briefText.trim());
+      const images = attachments.map(a => ({ base64: a.base64, mediaType: a.mediaType, role: a.role }));
+      const result = await recipesApi.draftFromBrief(briefText.trim(), images.length > 0 ? images : undefined);
       // Validate productType is one we know
       const validTypes: ProductTypeId[] = ["planner", "journal", "memory", "solo", "stickers", "inserts"];
       if (!validTypes.includes(result.productType as ProductTypeId)) {
@@ -379,6 +451,7 @@ export default function NewRecipePage() {
     setStagedDraft(null);
     stagedDraftRef.current = null;
     setBriefText("");
+    setAttachments(prev => { prev.forEach(a => URL.revokeObjectURL(a.previewUrl)); return []; });
   };
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -404,8 +477,12 @@ export default function NewRecipePage() {
           generates:  briefGen,
           // Persist Claude's engine gaps so the publish endpoint can enforce them
           ...(stagedDraft && {
-            engineGaps: stagedDraft.gaps,
-            reading:    stagedDraft.reading,
+            engineGaps:   stagedDraft.gaps,
+            reading:      stagedDraft.reading,
+            imageReading: stagedDraft.imageReading,
+            refImages: attachments
+              .filter(a => a.objectPath)
+              .map(a => ({ objectPath: a.objectPath!, role: a.role })),
           }),
         },
         release: { planTiers: tiers, month, year },
@@ -491,6 +568,90 @@ export default function NewRecipePage() {
               placeholder="A mobile-sized planner — phone screen proportions, dated, for someone who plans on their phone rather than an iPad."
             />
 
+            {/* ── Attachment row ───────────────────────────────────── */}
+            <div
+              className="mb-3"
+              onDragOver={e => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={e => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
+            >
+              <div className="flex items-baseline gap-2 mb-1.5">
+                <p className={EYEBROW} style={{ color: MUTED }}>Show Claude what you mean</p>
+                <p className="text-[10px]" style={{ color: MUTED }}>
+                  Sketches, screenshots, a page you like — optional
+                </p>
+              </div>
+
+              <div
+                className="flex gap-2 items-start"
+                style={{
+                  padding:      dragging ? 6 : 0,
+                  border:       dragging ? `1.5px dashed ${CLAY}` : "1.5px solid transparent",
+                  borderRadius: 12,
+                  transition:   "all 0.12s",
+                  overflowX:    "auto",
+                }}
+              >
+                {/* Thumbnails */}
+                {attachments.map(att => (
+                  <div key={att.id} className="shrink-0 flex flex-col" style={{ width: 108 }}>
+                    <div className="relative mb-1" style={{ height: 76 }}>
+                      <img
+                        src={att.previewUrl}
+                        alt={att.file.name}
+                        className="w-full h-full object-cover"
+                        style={{ borderRadius: 9, border: `1px solid ${BORDER}` }}
+                      />
+                      <button
+                        onClick={() => handleRemoveAttachment(att.id)}
+                        className="absolute top-1 right-1 w-4 h-4 rounded-full flex items-center justify-center font-bold leading-none"
+                        style={{ background: "rgba(0,0,0,0.48)", color: "white", fontSize: 11 }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {/* Role toggle pill */}
+                    <button
+                      onClick={() => toggleRole(att.id)}
+                      title="Click to switch role"
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full mb-0.5 self-start transition-colors"
+                      style={att.role === "layout"
+                        ? { background: "#E1E8F0", color: "#4A5D78" }
+                        : { background: "hsl(12 55% 95%)", color: CLAY }}
+                    >
+                      {att.role.toUpperCase()}
+                    </button>
+                    <p className="text-[10.5px] leading-tight" style={{ color: MUTED, maxWidth: 108, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {att.file.name}
+                    </p>
+                  </div>
+                ))}
+
+                {/* Add image tile */}
+                {attachments.length < 4 && (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="shrink-0 flex flex-col items-center justify-center border-2 border-dashed transition-colors"
+                    style={{ width: 108, height: 76, borderRadius: 9, borderColor: BORDER }}
+                  >
+                    <span style={{ color: CLAY, fontSize: 22, lineHeight: 1, marginBottom: 2 }}>+</span>
+                    <span className="text-[10.5px] font-medium" style={{ color: CLAY }}>Add image</span>
+                  </button>
+                )}
+
+                {/* Explainer */}
+                <div className="flex-1 self-start" style={{ minWidth: 150, paddingLeft: 8 }}>
+                  <p className="text-[11px] leading-relaxed" style={{ color: MUTED }}>
+                    Tag each one so Claude knows how to read it.{" "}
+                    <strong style={{ color: INK }}>Layout</strong> shapes the parts and page
+                    structure.{" "}
+                    <strong style={{ color: INK }}>Style</strong> informs the theme brief only —
+                    it never changes which engines a recipe uses.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Buttons */}
             <div className="flex items-center gap-2">
               <button
@@ -518,11 +679,15 @@ export default function NewRecipePage() {
                 <p className={`${EYEBROW} mb-3`} style={{ color: MUTED }}>What Claude read from that</p>
                 <dl className="space-y-2">
                   {([
+                    // "YOUR SKETCH" row — only when layout images produced a reading
+                    ...(stagedDraft.imageReading
+                      ? [{ dt: "YOUR SKETCH", dd: stagedDraft.imageReading }]
+                      : []),
                     { dt: "TYPE",      dd: stagedDraft.reading.type },
                     { dt: "PARTS ON",  dd: stagedDraft.reading.partsOn },
                     { dt: "PARTS OFF", dd: stagedDraft.reading.partsOff },
                     { dt: "QUESTION",  dd: stagedDraft.reading.question },
-                  ] as const).map(({ dt, dd }) => (
+                  ]).map(({ dt, dd }) => (
                     <div key={dt} className="grid gap-x-3" style={{ gridTemplateColumns: "80px 1fr" }}>
                       <dt className={`${EYEBROW} pt-0.5`} style={{ color: CLAY }}>{dt}</dt>
                       <dd className="text-xs leading-relaxed" style={{ color: INK }}>{dd}</dd>
@@ -572,6 +737,21 @@ export default function NewRecipePage() {
                 </p>
               </div>
             )}
+
+            {/* Hidden file picker — triggered by the "+ Add image" tile */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              multiple
+              className="hidden"
+              onChange={e => {
+                if (e.target.files) {
+                  handleFiles(e.target.files);
+                  e.target.value = "";
+                }
+              }}
+            />
           </div>
 
           {/* ── STEP 1: What kind of product? ───────────────────────────── */}

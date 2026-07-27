@@ -1592,7 +1592,7 @@ export const recipesApi = {
   delete: (id: string) =>
     apiFetch<{ ok: boolean; status: string }>(`/platform/recipes/${id}`, { method: "DELETE" }),
 
-  draftFromBrief: (brief: string) =>
+  draftFromBrief: (brief: string, images?: Array<{ base64: string; mediaType: string; role: "layout" | "style" }>) =>
     apiFetch<{
       productType: string;
       partsOn: string[];
@@ -1600,5 +1600,14 @@ export const recipesApi = {
       decisionCard: { prompt: string; optionA: { label: string; consequence: string }; optionB: { label: string; consequence: string } };
       reading: { type: string; partsOn: string; partsOff: string; question: string };
       gaps: Array<{ title: string; explanation: string; severity: string }>;
-    }>("/platform/recipes/draft-from-brief", { method: "POST", body: JSON.stringify({ brief }) }),
+      imageReading: string | null;
+    }>("/platform/recipes/draft-from-brief", { method: "POST", body: JSON.stringify({ brief, images }) }),
+};
+
+export const storageApi = {
+  requestUploadUrl: (name: string, size: number, contentType: string) =>
+    apiFetch<{ uploadURL: string; objectPath: string }>("/storage/uploads/request-url", {
+      method: "POST",
+      body: JSON.stringify({ name, size, contentType }),
+    }),
 };

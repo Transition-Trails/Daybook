@@ -1,0 +1,98 @@
+[
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000001",
+    "position": 1,
+    "filepath": "src/pages/slides/Slide01Title.tsx",
+    "title": "Daybook Studio",
+    "description": "Title and platform progress overview",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000002",
+    "position": 2,
+    "filepath": "src/pages/slides/Slide02WhatWeAreBuilding.tsx",
+    "title": "What we're building",
+    "description": "Platform overview and product purpose",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000003",
+    "position": 3,
+    "filepath": "src/pages/slides/Slide03WhoIsOnThePlatform.tsx",
+    "title": "Who's on the platform",
+    "description": "Four platform roles: super admin, store owner, staff, buyer",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000004",
+    "position": 4,
+    "filepath": "src/pages/slides/Slide04CoreEngine.tsx",
+    "title": "Core engine: what ships in every PDF",
+    "description": "PDF generation pipeline and render capabilities",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000005",
+    "position": 5,
+    "filepath": "src/pages/slides/Slide05AIStudios.tsx",
+    "title": "AI Studios: shipped",
+    "description": "Planner, Sticker, and Marketing studios",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000006",
+    "position": 6,
+    "filepath": "src/pages/slides/Slide06CatalogEntitlement.tsx",
+    "title": "Catalog & entitlement system",
+    "description": "Three-tier origin model and theme bundle system",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000007",
+    "position": 7,
+    "filepath": "src/pages/slides/Slide07SupportComms.tsx",
+    "title": "Support & communications layer",
+    "description": "Ticket system, close-reason taxonomy, Resend email",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000008",
+    "position": 8,
+    "filepath": "src/pages/slides/Slide08DevFoundation.tsx",
+    "title": "Developer foundation: shipped this session",
+    "description": "GitHub, CI, Playwright, Dependabot, CODEOWNERS, CodeQL",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000009",
+    "position": 9,
+    "filepath": "src/pages/slides/Slide09OpenItemsNearTerm.tsx",
+    "title": "Open items — near term",
+    "description": "7 near-term backlog items",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000010",
+    "position": 10,
+    "filepath": "src/pages/slides/Slide10OpenItemsQuality.tsx",
+    "title": "Open items — quality & testing",
+    "description": "7 quality and testing backlog items",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000011",
+    "position": 11,
+    "filepath": "src/pages/slides/Slide11RoadmapNextPhase.tsx",
+    "title": "Roadmap — next phase",
+    "description": "6 next-phase initiatives",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0001-0000-0000-000000000012",
+    "position": 12,
+    "filepath": "src/pages/slides/Slide12FocusThisWeek.tsx",
+    "title": "What to focus on this week",
+    "description": "4 action items for this week",
+    "speakerNotes": ""
+  }
+]

@@ -1,0 +1,27 @@
+kind = "slides"
+previewPath = "/daybook-deck/"
+title = "Daybook Progress & Roadmap"
+version = "1.0.0"
+id = "artifacts/daybook-deck"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/daybook-deck/" ]
+localPort = 20747
+
+[services.development]
+run = "pnpm --filter @workspace/daybook-deck run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/daybook-deck", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/daybook-deck/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20747"
+BASE_PATH = "/daybook-deck/"

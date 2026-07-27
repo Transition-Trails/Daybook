@@ -29,3 +29,6 @@ EMAIL_FROM_DOMAIN = "notifications.example.com"
 EMAIL_PLATFORM_NAME = "Daybook"
 EMAIL_TIER1_DAILY_LIMIT = "200"
 EMAIL_TIER1_MONTHLY_UPGRADE_THRESHOLD = "1000"
+
+[objectStorage]
+defaultBucketID = "replit-objstore-8dda2e7d-40f3-4539-932f-d03b3d8bc981"

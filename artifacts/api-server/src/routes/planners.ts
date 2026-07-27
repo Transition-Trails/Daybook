@@ -31,7 +31,7 @@ const router: IRouter = Router();
 export async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
   hotspotsByTemplate?: Map<string, import("../lib/pdf-generator").UserHotspot[]>,
-): Promise<{ pdfFileId: string; configFileId: string; inkFriendlyPdfFileId: string | null; pageCount: number }> {
+): Promise<{ pdfFileId: string; configFileId: string; inkFriendlyPdfFileId: string | null; pageCount: number; einkCaveat: string | null }> {
   // Resolve colors for generation.
   // Priority 1: explicit paletteId (buyer picked a palette within the theme)
   // Priority 2: theme.colors for the explicit themeId (backward-compat)
@@ -131,6 +131,9 @@ export async function runGeneration(
   const sections = (config.style as PlannerStyle).sections ?? [];
   const output   = config.output as PlannerOutput;
   const inkFriendlyEnabled = !!output.inkFriendly;
+  const einkDeviceKey = (output.einkDevice as string | null | undefined) ?? null;
+  // When an e-ink device is set, always generate the B&W/device-trim variant.
+  const shouldGenerateEinkVariant = inkFriendlyEnabled || !!einkDeviceKey;
 
   const generatorConfig = {
     setup: config.setup as PlannerSetup,
@@ -141,22 +144,47 @@ export async function runGeneration(
     userId: config.userId,
   };
 
+  // Main build: always colour at standard trim (einkDevice not passed here)
   const { buffer, pageCount } = await buildPdf(
     generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
   );
 
-  // If ink-friendly is requested, generate the B&W variant.
+  // B&W / e-ink variant: inkFriendly=true + optional device trim
+  // Per spec: "the B&W asset from Part 2 IS the e-ink asset — do not build a second pipeline."
   let inkFriendlyBuffer: Uint8Array | null = null;
-  if (inkFriendlyEnabled) {
+  if (shouldGenerateEinkVariant) {
     try {
       const result = await buildPdf(
         generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
         /* inkFriendly */ true,
+        /* einkDevice */ einkDeviceKey ?? undefined,
       );
       inkFriendlyBuffer = result.buffer;
-      console.log(`[pdf-generator] Ink-friendly variant produced (${result.pageCount} pages)`);
+      console.log(
+        `[pdf-generator] E-ink/ink-friendly variant produced` +
+        (einkDeviceKey ? ` [device: ${einkDeviceKey}]` : "") +
+        ` (${result.pageCount} pages)`,
+      );
+
+      // Run e-ink safety check when a device preset is active.
+      if (einkDeviceKey) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { collectEinkViolations } = require("../lib/eink-checker") as typeof import("../lib/eink-checker");
+        const originalAccentHex = (themeColors?.[0] ?? "#6366f1").replace(/^#?/, "#");
+        const violations = collectEinkViolations({
+          originalAccentHex,
+          bufferBytes: result.buffer.byteLength,
+          deviceKey: einkDeviceKey,
+        });
+        if (violations.length > 0) {
+          // Hard failure — caller handles the EinkSafetyError
+          const { EinkSafetyError } = require("../lib/eink-checker") as typeof import("../lib/eink-checker");
+          throw new EinkSafetyError(violations);
+        }
+      }
     } catch (err) {
-      console.warn("[pdf-generator] Ink-friendly generation failed — skipping:", (err as Error).message);
+      if ((err as Error).name === "EinkSafetyError") throw err;  // propagate hard failures
+      console.warn("[pdf-generator] Ink-friendly/e-ink generation failed — skipping:", (err as Error).message);
     }
   }
 
@@ -201,7 +229,11 @@ export async function runGeneration(
     }
   }
 
-  return { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount };
+  // Kindle Scribe caveat — surface to caller for listing copy
+  const { getEinkPreset } = await import("../lib/eink-presets");
+  const einkCaveat = getEinkPreset(einkDeviceKey)?.caveat ?? null;
+
+  return { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount, einkCaveat };
 }
 
 // ── POST /planners/preview ────────────────────────────────────────────────────

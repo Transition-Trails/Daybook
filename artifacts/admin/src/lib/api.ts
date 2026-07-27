@@ -1320,8 +1320,8 @@ export const platformPlannersApi = {
       body: JSON.stringify(data),
     }),
 
-  generate: (id: string, opts?: { inkFriendly?: boolean }) =>
-    apiFetch<{ id: string; drive: { pdfFileId: string | null; configFileId: string | null; inkFriendlyPdfFileId?: string | null }; pageCount: number; fileName: string }>(
+  generate: (id: string, opts?: { inkFriendly?: boolean; einkDevice?: string | null }) =>
+    apiFetch<{ id: string; drive: { pdfFileId: string | null; configFileId: string | null; inkFriendlyPdfFileId?: string | null }; pageCount: number; fileName: string; einkCaveat?: string | null }>(
       `/platform/planners/${id}/generate`,
       { method: "POST", body: JSON.stringify(opts ?? {}) },
     ),

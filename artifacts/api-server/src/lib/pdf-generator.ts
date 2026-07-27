@@ -678,7 +678,23 @@ export async function buildPdf(
   fontPairing?: ThemeFontPairing,
   hotspotsByTemplate?: Map<string, UserHotspot[]>,
   inkFriendly = false,
+  einkDevice?: string,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
+  // Resolve e-ink preset — import inline to avoid circular deps at module top-level
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getEinkPreset } = require("./eink-presets") as typeof import("./eink-presets");
+  const einkPreset = getEinkPreset(einkDevice ?? null);
+  const einkMode = !!einkPreset;
+  // E-ink mode forces ink-friendly (grayscale is the e-ink asset)
+  if (einkMode) inkFriendly = true;
+
+  /** E-ink safe line thickness: enforces ≥ 0.75 pt so hairlines don't alias. */
+  const lt = (n: number) => einkMode ? Math.max(n, 0.75) : n;
+  /** E-ink safe opacity: enforces ≥ 0.3 on content lines so they remain visible. */
+  const lo = (n: number) => einkMode ? Math.max(n, 0.30) : n;
+  /** Suppress URI annotations on Kindle Scribe (links are unreliable via Send-to-Kindle). */
+  const skipLinks = einkMode && einkPreset?.linksQuality === "poor";
+
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, monthCount, weekStart, orientation } = setup;
   const tabPos      = (style.tabPos ?? "right") as "right" | "top" | "none";
@@ -720,11 +736,14 @@ export async function buildPdf(
   const pdfDoc = await PDFDocument.create();
   // Register fontkit so pdfDoc.embedFont(bytes) can handle TTF/OTF binaries.
   pdfDoc.registerFontkit(fontkit);
-  // Page dimensions driven by style.size; fallback to A4
+  // Page dimensions: e-ink device preset overrides style.size; fallback to A4.
+  // E-ink presets are always portrait (device native orientation).
   const sizeKey  = (style as Record<string, unknown>).size as string | undefined;
-  const baseSize = PAGE_SIZES[sizeKey ?? "a4"] ?? PAGE_SIZES.a4!;
-  const pageWidth  = orientation === "landscape" ? baseSize.h : baseSize.w;
-  const pageHeight = orientation === "landscape" ? baseSize.w : baseSize.h;
+  const baseSize = einkPreset
+    ? einkPreset.pts                              // device native trim, portrait only
+    : (PAGE_SIZES[sizeKey ?? "a4"] ?? PAGE_SIZES.a4!);
+  const pageWidth  = (!einkPreset && orientation === "landscape") ? baseSize.h : baseSize.w;
+  const pageHeight = (!einkPreset && orientation === "landscape") ? baseSize.w : baseSize.h;
   // 3. Embed fonts — resolve from theme fontPairing when provided.
   // heading slot drives fontBold (large headings/titles);
   // body slot drives font (regular text, labels, dates).
@@ -1029,28 +1048,30 @@ export async function buildPdf(
         : `Week ${weekNum} — ${weekYear}`;
     wPage.drawText(weekHeading, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
 
-    // Calendar links per day (remains imperative — driven by output.calMode)
-    for (let d = 0; d < 7; d++) {
-      const date = new Date(monday);
-      date.setDate(monday.getDate() + d);
-      if (calMode === "link" || calMode === "overlay") {
-        const nextDay = new Date(date);
-        nextDay.setDate(date.getDate() + 1);
-        const calRect: [number, number, number, number] = [
-          MARGIN + d * 70, pageHeight - 120, MARGIN + d * 70 + 65, pageHeight - 102,
-        ];
-        if (calMode === "link") {
-          addUriAnnotation(pdfDoc, wPage, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Cal", font, accent);
-        } else {
-          const startDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
-          const endDt   = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, output.eventMins ?? 60, 0);
-          addUriAnnotation(pdfDoc, wPage, icsDataUri(startDt, endDt, `Week ${weekNum} Day ${d + 1}`), calRect, "+Cal", font, accent);
+    // Calendar links per day — suppressed on Kindle Scribe (links unreliable via Send)
+    if (!skipLinks) {
+      for (let d = 0; d < 7; d++) {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + d);
+        if (calMode === "link" || calMode === "overlay") {
+          const nextDay = new Date(date);
+          nextDay.setDate(date.getDate() + 1);
+          const calRect: [number, number, number, number] = [
+            MARGIN + d * 70, pageHeight - 120, MARGIN + d * 70 + 65, pageHeight - 102,
+          ];
+          if (calMode === "link") {
+            addUriAnnotation(pdfDoc, wPage, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Cal", font, accent);
+          } else {
+            const startDt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
+            const endDt   = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, output.eventMins ?? 60, 0);
+            addUriAnnotation(pdfDoc, wPage, icsDataUri(startDt, endDt, `Week ${weekNum} Day ${d + 1}`), calRect, "+Cal", font, accent);
+          }
         }
       }
     }
 
-    // AI block
-    if (output.aiInPdf) {
+    // AI block — suppressed on Kindle Scribe
+    if (output.aiInPdf && !skipLinks) {
       const aiUrl = `${process.env.APP_URL ?? "https://daybook.app"}/assistant?context=weekly&page=${weekId}`;
       addUriAnnotation(pdfDoc, wPage, aiUrl, [MARGIN, MARGIN + 22, MARGIN + 130, MARGIN + 40], "* Ask AI about this week", font, accent);
     }
@@ -1097,8 +1118,8 @@ export async function buildPdf(
         : date.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     dPage.drawText(dayHeading, { x: MARGIN, y: pageHeight - 50, size: 14, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
 
-    // Calendar link
-    if (calMode === "link" || calMode === "overlay") {
+    // Calendar link — suppressed on Kindle Scribe
+    if (!skipLinks && (calMode === "link" || calMode === "overlay")) {
       const nextDay = new Date(date);
       nextDay.setDate(date.getDate() + 1);
       const calRect: [number, number, number, number] = [pageWidth - 120, pageHeight - 50, pageWidth - MARGIN, pageHeight - 34];
@@ -1189,6 +1210,12 @@ export async function buildPreviewPdf(
   const accent = hexToRgb(colors[0] ?? "#6366f1");
   const ink    = hexToRgb(colors[4] ?? "#1e1b4b");
   const paper  = hexToRgb(colors[5] ?? "#fafafa");
+
+  // Preview never uses e-ink device trim — these stubs keep the call sites consistent.
+  const lt = (n: number) => n;
+  const lo = (n: number) => n;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const skipLinks = false;
 
   const pdfDoc = await PDFDocument.create();
   // Register fontkit so pdfDoc.embedFont(bytes) can handle TTF/OTF binaries.
@@ -1420,13 +1447,13 @@ export async function buildPreviewPdf(
         wp.drawText(label, { x: cx + 4, y: pageHeight - 88, size: 7, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
       }
       if (d > 0) {
-        wp.drawLine({ start: { x: cx, y: pageHeight - 100 }, end: { x: cx, y: MARGIN + 30 }, thickness: 0.4, color: rgb(ink.r, ink.g, ink.b), opacity: 0.1 });
+        wp.drawLine({ start: { x: cx, y: pageHeight - 100 }, end: { x: cx, y: MARGIN + 30 }, thickness: lt(0.4), color: rgb(ink.r, ink.g, ink.b), opacity: lo(0.1) });
       }
       for (let h = 8; h <= 18; h++) {
         const hy2 = pageHeight - 110 - (h - 8) * 26;
         if (hy2 < MARGIN + 30) break;
         if (d === 0) wp.drawText(`${h}:00`, { x: MARGIN - 2, y: hy2, size: 6, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.3 });
-        wp.drawLine({ start: { x: cx + 1, y: hy2 + 4 }, end: { x: cx + colW - 2, y: hy2 + 4 }, thickness: 0.3, color: rgb(ink.r, ink.g, ink.b), opacity: 0.08 });
+        wp.drawLine({ start: { x: cx + 1, y: hy2 + 4 }, end: { x: cx + colW - 2, y: hy2 + 4 }, thickness: lt(0.3), color: rgb(ink.r, ink.g, ink.b), opacity: lo(0.08) });
       }
     }
 
@@ -1465,12 +1492,12 @@ export async function buildPreviewPdf(
       firstDate.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
       { x: MARGIN, y: pageHeight - 50, size: 14, font: fontBold, color: rgb(ink.r, ink.g, ink.b) },
     );
-    dp.drawLine({ start: { x: MARGIN, y: pageHeight - 60 }, end: { x: pageWidth - MARGIN, y: pageHeight - 60 }, thickness: 0.5, color: rgb(accent.r, accent.g, accent.b), opacity: 0.3 });
+    dp.drawLine({ start: { x: MARGIN, y: pageHeight - 60 }, end: { x: pageWidth - MARGIN, y: pageHeight - 60 }, thickness: lt(0.5), color: rgb(accent.r, accent.g, accent.b), opacity: lo(0.3) });
     for (let h = 6; h <= 21; h++) {
       const hy2 = pageHeight - 80 - (h - 6) * ((pageHeight - 80 - MARGIN - 30) / 16);
       if (hy2 < MARGIN + 30) break;
-      dp.drawText(`${String(h).padStart(2, "0")}:00`, { x: MARGIN, y: hy2, size: 8, font, color: rgb(ink.r, ink.g, ink.b), opacity: 0.4 });
-      dp.drawLine({ start: { x: MARGIN + 34, y: hy2 + 4 }, end: { x: pageWidth - MARGIN, y: hy2 + 4 }, thickness: 0.3, color: rgb(ink.r, ink.g, ink.b), opacity: h % 4 === 0 ? 0.2 : 0.07 });
+      dp.drawText(`${String(h).padStart(2, "0")}:00`, { x: MARGIN, y: hy2, size: 8, font, color: rgb(ink.r, ink.g, ink.b), opacity: lo(0.4) });
+      dp.drawLine({ start: { x: MARGIN + 34, y: hy2 + 4 }, end: { x: pageWidth - MARGIN, y: hy2 + 4 }, thickness: lt(0.3), color: rgb(ink.r, ink.g, ink.b), opacity: lo(h % 4 === 0 ? 0.2 : 0.07) });
     }
 
     // Calendar link on daily preview (driven by output.calMode)

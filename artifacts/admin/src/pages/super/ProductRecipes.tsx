@@ -563,6 +563,95 @@ export default function ProductRecipesPage() {
         </div>
       </div>
 
+      {/* ── E-Ink Export Profiles ── */}
+      <div className="rounded-xl border overflow-hidden" style={{ background: PAPER, borderColor: BORDER }}>
+        {/* Section header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: BORDER }}>
+          <div>
+            <h2 className="font-semibold text-sm" style={{ color: INK }}>E-Ink Export Profiles</h2>
+            <p className="text-xs mt-0.5" style={{ color: "hsl(216 15% 55%)" }}>
+              Not a new studio — a profile that sets the trim, forces the B&amp;W variant and runs the e-ink checks.
+              It turns "works on reMarkable" into a line on every existing listing.
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wide"
+            style={{ background: "hsl(216 40% 88%)", color: "hsl(221 46% 28%)" }}>
+            Inherited by every recipe
+          </span>
+        </div>
+
+        {/* Device preset rows */}
+        <div className="divide-y" style={{ borderColor: BORDER }}>
+          {[
+            {
+              name: "reMarkable 2 / Pro",
+              dims: "1404 × 1872",
+              desc: "The strongest fit. Internal PDF links work, so tab rails and the contents page behave exactly as designed.",
+              links: "full" as const,
+            },
+            {
+              name: "Supernote A5X / A6X",
+              dims: "1404 × 1872",
+              desc: "Same trim as reMarkable. Handles links and heavy documents well.",
+              links: "full" as const,
+            },
+            {
+              name: "Boox Note / Tab",
+              dims: "varies by model",
+              desc: "Android-based, so the PDF reader is capable. Trim varies — export the closest preset.",
+              links: "full" as const,
+            },
+            {
+              name: "Kindle Scribe",
+              dims: "1860 × 2480",
+              desc: "Internal PDF links are unreliable and sideloading goes through Send to Kindle. Sell it as a printable-style planner here, not a hyperlinked one — and say so in the listing.",
+              links: "poor" as const,
+            },
+          ].map(({ name, dims, desc, links }) => (
+            <div key={name} className="flex items-start gap-4 px-5 py-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="font-semibold text-[13px]" style={{ color: INK }}>{name}</span>
+                  <span className="text-[11px]" style={{ color: "hsl(216 15% 62%)" }}>{dims}</span>
+                </div>
+                <p className="text-xs leading-relaxed" style={{ color: "hsl(216 15% 52%)" }}>{desc}</p>
+              </div>
+              <span
+                className="shrink-0 mt-0.5 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
+                style={links === "full"
+                  ? { background: "hsl(142 50% 90%)", color: "hsl(142 55% 28%)" }
+                  : { background: "hsl(12 60% 90%)", color: "hsl(12 65% 38%)" }}
+              >
+                Links: {links}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* What the profile enforces */}
+        <div className="px-5 py-4 border-t" style={{ borderColor: BORDER, background: "white" }}>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] mb-3" style={{ color: "hsl(216 15% 52%)" }}>
+            What the profile enforces
+          </p>
+          <div className="space-y-2.5">
+            {[
+              ["Grayscale only",   "E-ink has no colour, so the ink-friendly B&W variant is the e-ink variant. One asset, two audiences."],
+              ["Contrast floor",   "Fills lighter than about 15% grey disappear on e-ink. Nothing lighter may carry meaning — the quality checker enforces it."],
+              ["Line weight",      "Hairlines alias into nothing. Minimum 0.75 pt on any rule the buyer needs to see."],
+              ["File weight",      "Page turns are slow. Vector-first only — no full-bleed raster art above a 10 MB planner with heavy backgrounds."],
+              ["Toolbar margin",   "Device toolbars overlay the page edge. Keep live content inside a safe inset."],
+            ].map(([label, desc]) => (
+              <div key={label} className="flex gap-3">
+                <span className="text-[10px] font-bold uppercase tracking-wide shrink-0 pt-0.5 w-32" style={{ color: INK }}>
+                  {label}
+                </span>
+                <span className="text-xs leading-relaxed" style={{ color: "hsl(216 15% 52%)" }}>{desc}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* ── Bottom two cards ── */}
       <div className="grid grid-cols-2 gap-5">
 

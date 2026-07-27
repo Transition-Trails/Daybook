@@ -241,13 +241,14 @@ router.post(
     }
 
     try {
-      const body = req.body as { inkFriendly?: boolean } | undefined;
+      const body = req.body as { inkFriendly?: boolean; einkDevice?: string | null } | undefined;
 
-      // runGeneration expects a PlannerConfig shape; platform templates are compatible
-      // Merge inkFriendly flag into the output JSONB so runGeneration picks it up.
+      // runGeneration expects a PlannerConfig shape; platform templates are compatible.
+      // Merge request-level export flags into the output JSONB so runGeneration picks them up.
       const mergedOutput = {
         ...(template.output as Record<string, unknown> ?? {}),
         ...(body?.inkFriendly ? { inkFriendly: true } : {}),
+        ...(body?.einkDevice !== undefined ? { einkDevice: body.einkDevice } : {}),
       };
       const fakeConfig = {
         ...template,
@@ -258,7 +259,7 @@ router.post(
         productType: template.productType,
       } as unknown as typeof plannerConfigsTable.$inferSelect;
 
-      const { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount } = await runGeneration(fakeConfig);
+      const { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount, einkCaveat } = await runGeneration(fakeConfig);
 
       // Resolve names for the filename
       let editionName: string | null = null;
@@ -279,7 +280,8 @@ router.post(
         themeName = th?.name ?? null;
       }
       const setup = template.setup as PlannerSetup;
-      const fileName = plannerFileName({ setup, editionName, themeName });
+      const einkDeviceForFile = (mergedOutput.einkDevice as string | null | undefined) ?? null;
+      const fileName = plannerFileName({ setup, editionName, themeName, einkDevice: einkDeviceForFile });
 
       const [updated] = await db
         .update(platformPlannerTemplatesTable)
@@ -304,7 +306,7 @@ router.post(
         metadata: { pageCount, fileName },
       });
 
-      res.json({ id: updated.id, drive: { pdfFileId, configFileId }, pageCount, fileName });
+      res.json({ id: updated.id, drive: { pdfFileId, configFileId, inkFriendlyPdfFileId }, pageCount, fileName, einkCaveat });
     } catch (err) {
       req.log.error({ err }, "Platform planner generation failed");
       res.status(500).json({ error: String(err) });

@@ -774,6 +774,7 @@ function BuildCenter({
   const [addingSection, setAddingSection] = useState(false);
   const [sectionDraft,  setSectionDraft]  = useState("");
   const [inkFriendly,   setInkFriendly]   = useState(false);
+  const [einkDevice,    setEinkDevice]    = useState<string | null>(null);
 
   // Sync from template when template identity changes
   useEffect(() => {
@@ -839,13 +840,19 @@ function BuildCenter({
   });
 
   const generateMut = useMutation({
-    mutationFn: () => platformPlannersApi.generate(template!.id, { inkFriendly }),
+    mutationFn: () => platformPlannersApi.generate(template!.id, {
+      inkFriendly: inkFriendly || !!einkDevice,
+      einkDevice: einkDevice ?? undefined,
+    }),
     onSuccess: async (result) => {
       qc.invalidateQueries({ queryKey: ["platform-planners"] });
       const updated = await platformPlannersApi.get(template!.id);
       onUpdated(updated);
-      const bwNote = inkFriendly ? " · + ink-friendly" : "";
+      const bwNote = einkDevice ? ` · ${einkDevice}` : (inkFriendly ? " · + ink-friendly" : "");
       toast({ title: "Generated", description: `${result.pageCount} pages · ${result.fileName}${bwNote}` });
+      if (result.einkCaveat) {
+        toast({ title: "Kindle Scribe listing note", description: result.einkCaveat, variant: "default" });
+      }
     },
     onError: (err: Error) => toast({ title: "Generation failed", description: err.message, variant: "destructive" }),
   });
@@ -1439,20 +1446,58 @@ function BuildCenter({
       </div>
 
       {/* Ink-friendly B&W export checkbox */}
-      <div className="flex items-center gap-2 pt-2 pb-1">
+      <div className="flex items-center gap-2 pt-2 pb-0.5">
         <input
           id="ink-friendly-check"
           type="checkbox"
-          checked={inkFriendly}
-          onChange={e => setInkFriendly(e.target.checked)}
+          checked={inkFriendly || !!einkDevice}
+          onChange={e => { setInkFriendly(e.target.checked); if (!e.target.checked) setEinkDevice(null); }}
           className="w-3.5 h-3.5 accent-[#1B2A4A]"
         />
         <label htmlFor="ink-friendly-check" className="text-xs cursor-pointer select-none" style={{ color: "hsl(216 15% 40%)" }}>
           Include ink-friendly B&W version{" "}
           <span className="text-[10px] ml-1" style={{ color: "hsl(216 15% 60%)" }}>
-            — line art, no colour fills; named <em>…-inkfriendly.pdf</em>
+            — line art, no colour fills
           </span>
         </label>
+      </div>
+
+      {/* E-ink device profile selector */}
+      <div className="flex flex-col gap-1 pb-1 pl-5">
+        <p className="text-[11px]" style={{ color: "hsl(216 15% 55%)" }}>
+          E-ink device profile{" "}
+          <span className="text-[10px]" style={{ color: "hsl(216 15% 68%)" }}>— sets trim, enforces min line weight</span>
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            { key: "none",          label: "None",             sub: "" },
+            { key: "remarkable",    label: "reMarkable 2/Pro", sub: "447×597 pt" },
+            { key: "supernote",     label: "Supernote A5X",    sub: "447×597 pt" },
+            { key: "boox",          label: "Boox Note/Tab",    sub: "closest preset" },
+            { key: "kindle_scribe", label: "Kindle Scribe",    sub: "links: poor" },
+          ].map(({ key, label, sub }) => {
+            const active = key === "none" ? !einkDevice : einkDevice === key;
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  const next = key === "none" ? null : key;
+                  setEinkDevice(next);
+                  if (next) setInkFriendly(false); // einkDevice implies inkFriendly
+                }}
+                className="flex flex-col items-start px-2.5 py-1.5 rounded-lg border text-left transition-colors"
+                style={{
+                  borderColor: active ? "#1B2A4A" : "hsl(38 30% 85%)",
+                  background:  active ? "#1B2A4A" : "white",
+                  color:       active ? "white"   : "hsl(216 15% 40%)",
+                }}
+              >
+                <span className="text-[11px] font-semibold">{label}</span>
+                {sub && <span className="text-[9px] opacity-70">{sub}</span>}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Generate + Publish */}

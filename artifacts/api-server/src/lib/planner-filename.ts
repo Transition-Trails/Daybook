@@ -18,6 +18,8 @@ export interface PlannerFileNameConfig {
   };
   editionName?: string | null;
   themeName?: string | null;
+  /** When set, the device slug is appended before the extension: e.g. …_remarkable.pdf */
+  einkDevice?: string | null;
 }
 
 /** Slugify: lowercase, replace spaces/special chars with hyphens, collapse runs. */
@@ -38,7 +40,8 @@ export function plannerFileName(config: PlannerFileNameConfig): string {
   const themeSlug = slugify(themeName);
   const orientationSlug = orientation === "landscape" ? "landscape" : "vertical";
 
-  const core = `${layoutSlug}_${themeSlug}_${orientationSlug}_${weekStart}.pdf`;
+  const deviceSuffix = config.einkDevice ? `_${slugify(config.einkDevice)}` : "";
+  const core = `${layoutSlug}_${themeSlug}_${orientationSlug}_${weekStart}${deviceSuffix}.pdf`;
 
   if (datingMode !== "dated" || !startYear) {
     return core;

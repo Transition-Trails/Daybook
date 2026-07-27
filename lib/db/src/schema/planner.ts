@@ -92,6 +92,12 @@ export type PlannerOutput = {
   inkFriendly?: boolean;
   /** Drive file ID for the ink-friendly variant; populated only when inkFriendly=true. */
   inkFriendlyPdfFileId?: string | null;
+  /**
+   * E-ink device preset key ("remarkable" | "supernote" | "boox" | "kindle_scribe" | null).
+   * When set, the generator forces inkFriendly=true, overrides the page trim to the device
+   * dimensions, enforces min 0.75 pt line weights, and runs the e-ink safety check.
+   */
+  einkDevice?: string | null;
 };
 
 // ── DRIVE REFERENCES ──────────────────────────────────────────────────────────

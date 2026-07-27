@@ -32,6 +32,7 @@ import supportRouter from "./support";
 import emailSettingsRouter from "./email-settings";
 import webhooksRouter from "./webhooks";
 import ordersRouter from "./orders";
+import qualityRouter from "./quality";
 
 const router: IRouter = Router();
 
@@ -67,6 +68,7 @@ router.use(supportRouter);
 router.use(emailSettingsRouter);
 router.use(webhooksRouter);
 router.use(ordersRouter);
+router.use(qualityRouter);
 router.use(marketingRouter);
 // Public storefront API (no auth required)
 router.use(shopRouter);

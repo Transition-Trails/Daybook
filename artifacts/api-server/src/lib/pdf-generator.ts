@@ -20,6 +20,8 @@ import {
 } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { Buffer } from "node:buffer";
+import { promises as fsPromises } from "node:fs";
+import path from "node:path";
 import sharp from "sharp";
 import type { PlannerSetup, PlannerStyle, PlannerOutput, ThemeFontPairing } from "@workspace/db";
 import {
@@ -380,6 +382,38 @@ export function resolveStandardFont(familyName: string | undefined, bold: boolea
  */
 const _googleFontCache = new Map<string, Uint8Array>();
 
+// ── Disk font cache ────────────────────────────────────────────────────────────
+
+/**
+ * Root directory for the disk-based font cache.
+ * /tmp survives across hot-reloads in the same container but is cleared on
+ * a full machine restart — still far cheaper than a cold download per request.
+ */
+const GFONT_DISK_DIR = "/tmp/gfont-cache";
+
+/**
+ * Convert a font cache key ("Playfair Display:700") into a safe filesystem path.
+ * Spaces → underscore, colon → hyphen, everything else non-alphanumeric → removed.
+ */
+function _diskCachePath(familyName: string, weight: 400 | 700): string {
+  const safe = `${familyName.replace(/\s+/g, "_")}-${weight}.ttf`
+    .replace(/[^A-Za-z0-9_\-.]/g, "");
+  return path.join(GFONT_DISK_DIR, safe);
+}
+
+/**
+ * Fire-and-forget: write font bytes to disk.
+ * Any I/O error (EROFS, ENOSPC, EPERM …) is swallowed so it never delays or
+ * fails the current PDF generation request.
+ */
+function _writeDiskFontCache(filePath: string, bytes: Uint8Array): void {
+  fsPromises.mkdir(path.dirname(filePath), { recursive: true })
+    .then(() => fsPromises.writeFile(filePath, bytes))
+    .catch((err: Error) =>
+      console.warn("[pdf-generator] Disk font cache write failed:", err.message),
+    );
+}
+
 /**
  * Firefox 26 on Linux UA — makes the Google Fonts CSS v1 API return TTF format
  * URLs (not EOT for old IE, not WOFF2 for modern browsers).
@@ -404,8 +438,23 @@ const GFONT_TTF_UA =
  */
 async function fetchGoogleFontBytes(familyName: string, weight: 400 | 700): Promise<Uint8Array | null> {
   const cacheKey = `${familyName}:${weight}`;
+
+  // 1. In-process cache — fastest path, zero I/O.
   const cached = _googleFontCache.get(cacheKey);
   if (cached) return cached;
+
+  // 2. Disk cache — survives server restarts within the same container so the
+  //    first generation after a hot-reload doesn't pay the network round-trip.
+  const diskPath = _diskCachePath(familyName, weight);
+  try {
+    const diskBytes = await fsPromises.readFile(diskPath);
+    const bytes = new Uint8Array(diskBytes.buffer, diskBytes.byteOffset, diskBytes.byteLength);
+    _googleFontCache.set(cacheKey, bytes); // backfill in-process cache
+    console.log(`[pdf-generator] Google Font loaded from disk cache: "${cacheKey}" ${Math.round(bytes.byteLength / 1024)} KB`);
+    return bytes;
+  } catch {
+    // Cache miss (ENOENT) or unreadable — fall through to network fetch.
+  }
 
   const TIMEOUT_MS = 5000;
   // CSS v1 endpoint — one @font-face block per weight, simpler to parse.
@@ -481,8 +530,10 @@ async function fetchGoogleFontBytes(familyName: string, weight: 400 | 700): Prom
     }
 
     _googleFontCache.set(cacheKey, bytes);
+    // Persist to disk cache fire-and-forget so future restarts skip the download.
+    _writeDiskFontCache(diskPath, bytes);
     console.log(
-      `[pdf-generator] Google Font cached: "${familyName}:${weight}" ${Math.round(bytes.byteLength / 1024)} KB (${isTTF ? "TTF" : "OTF"})`,
+      `[pdf-generator] Google Font fetched & cached: "${familyName}:${weight}" ${Math.round(bytes.byteLength / 1024)} KB (${isTTF ? "TTF" : "OTF"})`,
     );
     return bytes;
   } catch (err) {

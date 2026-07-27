@@ -564,6 +564,11 @@ function RightDock({
 
 // ── Build mode ────────────────────────────────────────────────────────────────
 
+// Shared eyebrow style: uppercase, spaced, muted
+const EYEBROW = "text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground";
+// Consequence line style
+const CONSEQUENCE = "text-[12.5px] leading-relaxed text-muted-foreground";
+
 function BuildMode({
   planner, storeId, onUpdated, onAskClaude,
 }: {
@@ -576,27 +581,39 @@ function BuildMode({
   const qc = useQueryClient();
   const isLocked = !!planner.generatedAt;
 
-  // Local editable copies of setup (only editable before lock)
+  // ── Setup state (structural — Card 1) ──────────────────────────────────
   const [datingMode, setDatingMode] = useState<"dated" | "undated" | "perpetual">(
     (planner.setup.datingMode ?? "dated") as "dated" | "undated" | "perpetual",
   );
-  const [weekStart, setWeekStart] = useState<"mon" | "sun">(planner.setup.weekStart);
+  const [weekStart,   setWeekStart]   = useState<"mon" | "sun">(planner.setup.weekStart);
   const [orientation, setOrientation] = useState<"vertical" | "landscape">(planner.setup.orientation);
-  const [startMonth, setStartMonth] = useState(planner.setup.startMonth);
-  const [startYear, setStartYear]   = useState(planner.setup.startYear);
-  const [monthCount, setMonthCount] = useState(planner.setup.monthCount);
+  const [startMonth,  setStartMonth]  = useState(planner.setup.startMonth);
+  const [startYear,   setStartYear]   = useState(planner.setup.startYear);
+  const [monthCount,  setMonthCount]  = useState(planner.setup.monthCount);
 
-  // Customize-anytime style fields
+  // ── Style state (cosmetic — Card 2) ────────────────────────────────────
   const [tabPos, setTabPos] = useState<"right" | "top" | "bottom" | "none">(
     (planner.style.tabPos ?? "right") as "right" | "top" | "bottom" | "none",
   );
+  const [sections,      setSections]     = useState<string[]>(planner.style.sections ?? []);
+  const [sectionDraft,  setSectionDraft] = useState("");
+  const [addingSection, setAddingSection] = useState(false);
 
+  // ── Data ───────────────────────────────────────────────────────────────
   const { data: owned } = useQuery<OwnedList>({
     queryKey: ["store-owned", storeId],
     queryFn: () => storeStudiosApi.list(storeId),
   });
   const themes = owned?.themes ?? [];
+  const packs  = owned?.packs  ?? [];
 
+  const selectedTheme = themes.find((t) => t.id === planner.style.themeId) ?? null;
+  // Palette swatches: prefer theme.palettes, fall back to owned.palettes
+  const palettes = selectedTheme?.palettes?.length
+    ? selectedTheme.palettes
+    : (owned?.palettes ?? []);
+
+  // ── Mutations ──────────────────────────────────────────────────────────
   const setupMut = useMutation({
     mutationFn: () =>
       storePlannersApi.patch(storeId, planner.id, {
@@ -604,8 +621,7 @@ function BuildMode({
       }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["store-planners", storeId] });
-      const full = await storePlannersApi.get(storeId, planner.id);
-      onUpdated(full);
+      onUpdated(await storePlannersApi.get(storeId, planner.id));
       toast({ title: "Setup saved" });
     },
     onError: (err: Error) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
@@ -616,8 +632,7 @@ function BuildMode({
       storePlannersApi.patch(storeId, planner.id, { style: patch }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["store-planners", storeId] });
-      const full = await storePlannersApi.get(storeId, planner.id);
-      onUpdated(full);
+      onUpdated(await storePlannersApi.get(storeId, planner.id));
     },
     onError: (err: Error) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
@@ -626,251 +641,476 @@ function BuildMode({
     mutationFn: () => storePlannersApi.reexport(storeId, planner.id, {}),
     onSuccess: async (result) => {
       await qc.invalidateQueries({ queryKey: ["store-planners", storeId] });
-      const full = await storePlannersApi.get(storeId, planner.id);
-      onUpdated(full);
+      onUpdated(await storePlannersApi.get(storeId, planner.id));
       toast({ title: "Re-exported", description: `${result.pageCount} pages · ${result.fileName}` });
     },
     onError: (err: Error) => toast({ title: "Re-export failed", description: err.message, variant: "destructive" }),
   });
 
+  const saveSections = (next: string[]) => {
+    setSections(next);
+    styleMut.mutate({ sections: next });
+  };
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+  const datingConsequence: Record<string, string> = {
+    dated:     "Real dates and weekdays — sells by year, links to calendar invites.",
+    undated:   "No date links — fill-in boxes instead. Sells any time, no year expiry.",
+    perpetual: "Reusable year-round — no year-specific content, no expiry.",
+  };
+
+  const tabConsequence: Record<string, string> = {
+    right:  "Tabs appear on section dividers as right-edge navigational rails.",
+    top:    "Tabs run across the top of each section divider page.",
+    bottom: "Tabs run along the bottom edge of each section divider page.",
+    none:   "No section dividers — a single Home tab only.",
+  };
+
   const PRODUCT_TYPES = [
-    { id: "planner",  label: "Planner",      sub: "Dated, hyperlinked, tab rails", active: true },
-    { id: "notebook", label: "Notebook",     sub: "Repeating pages, no calendar",  active: false },
-    { id: "svg",      label: "SVG cut pack", sub: "SVG + DXF + PNG, cut layers",   active: false },
-    { id: "kdp",      label: "KDP interior", sub: "Print — v2",                    active: false },
+    { id: "planner",  label: "Planner",      sub: "Dated, hyperlinked,\ntab rails",  active: true  },
+    { id: "notebook", label: "Notebook",     sub: "Repeating pages,\nno calendar",   active: false },
+    { id: "svg",      label: "SVG cut pack", sub: "SVG + DXF + PNG,\ncut layers",    active: false },
+    { id: "kdp",      label: "KDP interior", sub: "Print — v2",                      active: false },
   ];
 
-  const startLabel = `${MONTHS[startMonth]} ${startYear}`;
+  const isDated = datingMode === "dated";
+
+  // Year stepper range
+  const YEAR_OPTIONS = [2025, 2026, 2027, 2028, 2029, 2030];
 
   return (
-    <div className="p-6 max-w-2xl space-y-5">
-      {/* Page title row */}
+    <div className="p-6 space-y-5" style={{ maxWidth: 720 }}>
+
+      {/* ── Page title ──────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Build a planner</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Build a planner</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Structure is set once. Everything else you can change and re-export later.
           </p>
         </div>
         <Button
           onClick={onAskClaude}
-          className="shrink-0 text-white hover:opacity-90"
+          className="shrink-0 text-white hover:opacity-90 gap-1.5"
           style={{ backgroundColor: "#C87560" }}
         >
           ✦ Set it up with Claude
         </Button>
       </div>
 
-      {/* ── SET UP ONCE ─────────────────────────────────────────────────── */}
-      <div className="rounded-xl border p-6 space-y-5">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Set up once</span>
-          <SectionBadge label="Locked after generating" variant="lock" />
-        </div>
-        <p className="text-sm text-muted-foreground -mt-2">
-          These decide the page count and every internal link, so they can't change without a fresh planner.
-        </p>
-
-        {/* Dating */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Dating</span>
-            <span className="px-2 py-0.5 rounded-full bg-[#1B2A4A]/10 text-[#1B2A4A] text-xs font-medium capitalize">
-              {datingMode}
-            </span>
+      {/* ── Edition requirement notice ──────────────────────────────────── */}
+      {!planner.editionId && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <BookOpen className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-amber-800">No edition linked yet</p>
+            <p className={`${CONSEQUENCE} text-amber-700`}>
+              An edition defines the page layout and section order. Go to the{" "}
+              <button className="underline underline-offset-2 font-medium">Editions tab</button>{" "}
+              to attach one before generating.
+            </p>
           </div>
-          <PillGroup
-            options={[
-              { value: "dated", label: "Dated" },
-              { value: "undated", label: "Undated" },
-              { value: "perpetual", label: "Perpetual" },
-            ]}
-            value={datingMode}
-            onChange={(v) => setDatingMode(v as "dated" | "undated" | "perpetual")}
-            disabled={isLocked}
-          />
-          {datingMode === "dated" && (
-            <p className="text-xs text-muted-foreground">Real dates and weekdays — sells by year, links to calendar invites.</p>
-          )}
-          {datingMode === "undated" && (
-            <p className="text-xs text-muted-foreground">No date links — fill-in boxes instead.</p>
-          )}
-          {datingMode === "perpetual" && (
-            <p className="text-xs text-muted-foreground">Reusable year-round — no year-specific content.</p>
-          )}
         </div>
+      )}
 
-        {/* Product type */}
-        <div className="space-y-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Product type</span>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {PRODUCT_TYPES.map((pt) => (
-              <div
-                key={pt.id}
-                className={`p-3 rounded-lg border text-left transition-colors ${
-                  pt.active
-                    ? "bg-[#C87560] text-white border-[#C87560]"
-                    : "bg-white text-foreground border-border opacity-50 cursor-not-allowed"
-                }`}
-              >
-                <p className="text-sm font-medium leading-tight">{pt.label}</p>
-                <p className={`text-[11px] leading-relaxed mt-0.5 ${pt.active ? "text-white/80" : "text-muted-foreground"}`}>
-                  {pt.sub}
-                </p>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Full planner engine — dating, hyperlink map, tab groups and realistic binding all apply.
-          </p>
-        </div>
+      {/* ══════════════════════════════════════════════════════════════════
+          CARD 1 — SET UP ONCE
+          Navy left accent rule. Everything here is structural.
+      ═══════════════════════════════════════════════════════════════════ */}
+      <div className="rounded-xl border overflow-hidden">
+        {/* Navy accent rule */}
+        <div className="border-l-[3px] border-[#1B2A4A] p-6 space-y-6">
 
-        {/* Fields row */}
-        <div className="flex flex-wrap gap-5">
+          {/* Card header */}
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Week starts</p>
+            <div className="flex items-center gap-3">
+              <span className={EYEBROW}>Set up once</span>
+              <SectionBadge label="Locked after generating" variant="lock" />
+            </div>
+            <p className={CONSEQUENCE}>
+              These decide the page count and every internal link, so they can't change later without a fresh planner.
+            </p>
+          </div>
+
+          {/* ── DATING ────────────────────────────────────────────────── */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className={EYEBROW}>Dating</span>
+              <span className="px-2 py-0.5 rounded-full bg-[#1B2A4A]/10 text-[#1B2A4A] text-[11px] font-semibold capitalize leading-none py-1">
+                {datingMode}
+              </span>
+            </div>
             <PillGroup
-              options={[{ value: "mon", label: "Mon" }, { value: "sun", label: "Sun" }]}
-              value={weekStart}
-              onChange={(v) => setWeekStart(v as "mon" | "sun")}
+              options={[
+                { value: "dated",     label: "Dated" },
+                { value: "undated",   label: "Undated" },
+                { value: "perpetual", label: "Perpetual" },
+              ]}
+              value={datingMode}
+              onChange={(v) => setDatingMode(v as "dated" | "undated" | "perpetual")}
               disabled={isLocked}
             />
+            <p className={CONSEQUENCE}>{datingConsequence[datingMode]}</p>
           </div>
-          <div className="space-y-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Layout</p>
-            <PillGroup
-              options={[{ value: "vertical", label: "Vertical" }, { value: "landscape", label: "2-page" }]}
-              value={orientation}
-              onChange={(v) => setOrientation(v as "vertical" | "landscape")}
-              disabled={isLocked}
-            />
+
+          {/* ── PRODUCT TYPE ──────────────────────────────────────────── */}
+          <div className="space-y-2">
+            <span className={EYEBROW}>Product type</span>
+            <div className="grid grid-cols-4 gap-2">
+              {PRODUCT_TYPES.map((pt) => (
+                <div
+                  key={pt.id}
+                  className={`p-3 rounded-lg border text-left select-none transition-colors ${
+                    pt.active
+                      ? "bg-[#C87560] text-white border-[#C87560]"
+                      : "bg-background text-foreground border-border opacity-40 cursor-not-allowed"
+                  }`}
+                >
+                  <p className="text-sm font-semibold leading-tight">{pt.label}</p>
+                  <p className={`text-[11px] leading-snug mt-1 whitespace-pre-line ${pt.active ? "text-white/80" : "text-muted-foreground"}`}>
+                    {pt.sub}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <p className={CONSEQUENCE}>Full planner engine — dating, hyperlink map, tab groups and realistic binding all apply.</p>
           </div>
-          {datingMode === "dated" && (
-            <>
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Starts</p>
+
+          {/* ── COMPACT 4-FIELD ROW ────────────────────────────────────── */}
+          {/* Week starts · Layout · Starts · Months — always in one row */}
+          <div className="grid grid-cols-4 gap-4">
+
+            {/* Week starts */}
+            <div className="space-y-2">
+              <span className={EYEBROW}>Week starts</span>
+              <PillGroup
+                options={[{ value: "mon", label: "Mon" }, { value: "sun", label: "Sun" }]}
+                value={weekStart}
+                onChange={(v) => setWeekStart(v as "mon" | "sun")}
+                disabled={isLocked}
+              />
+            </div>
+
+            {/* Layout */}
+            <div className="space-y-2">
+              <span className={EYEBROW}>Layout</span>
+              <PillGroup
+                options={[{ value: "vertical", label: "Vertical" }, { value: "landscape", label: "2-page" }]}
+                value={orientation}
+                onChange={(v) => setOrientation(v as "vertical" | "landscape")}
+                disabled={isLocked}
+              />
+            </div>
+
+            {/* Starts — month + year compact group */}
+            <div className="space-y-2">
+              <span className={`${EYEBROW} ${!isDated ? "opacity-40" : ""}`}>Starts</span>
+              <div className="flex items-center gap-1">
                 <Select
-                  disabled={isLocked}
+                  disabled={isLocked || !isDated}
                   value={String(startMonth)}
                   onValueChange={(v) => setStartMonth(Number(v))}
                 >
-                  <SelectTrigger className="h-9 w-36 text-sm">
-                    <SelectValue>{startLabel}</SelectValue>
+                  <SelectTrigger className="h-8 text-sm px-2.5 min-w-0 flex-1">
+                    <SelectValue>{MONTHS[startMonth].slice(0, 3)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {MONTHS.map((m, i) => (
-                      <SelectItem key={i} value={String(i)}>{m} {startYear}</SelectItem>
+                      <SelectItem key={i} value={String(i)}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  disabled={isLocked || !isDated}
+                  value={String(startYear)}
+                  onValueChange={(v) => setStartYear(Number(v))}
+                >
+                  <SelectTrigger className="h-8 text-sm px-2 w-[72px]">
+                    <SelectValue>{startYear}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {YEAR_OPTIONS.map((y) => (
+                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Months</p>
-                <Input
-                  type="number" min={1} max={24}
-                  disabled={isLocked}
-                  value={monthCount}
-                  onChange={(e) => setMonthCount(Number(e.target.value))}
-                  className="h-9 w-20 text-sm"
-                />
+            </div>
+
+            {/* Months — stepper */}
+            <div className="space-y-2">
+              <span className={`${EYEBROW} ${!isDated ? "opacity-40" : ""}`}>Months</span>
+              <div className="flex items-center gap-0.5">
+                <button
+                  disabled={isLocked || !isDated || monthCount <= 1}
+                  onClick={() => setMonthCount((n) => Math.max(1, n - 1))}
+                  className="h-8 w-7 rounded-l-md border border-r-0 text-sm font-medium flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >−</button>
+                <div className="h-8 w-10 border text-sm font-medium flex items-center justify-center bg-background">
+                  {monthCount}
+                </div>
+                <button
+                  disabled={isLocked || !isDated || monthCount >= 24}
+                  onClick={() => setMonthCount((n) => Math.min(24, n + 1))}
+                  className="h-8 w-7 rounded-r-md border border-l-0 text-sm font-medium flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >+</button>
               </div>
-            </>
+            </div>
+
+          </div>
+          {/* Consequence for the 4-field row */}
+          <p className={`${CONSEQUENCE} -mt-3`}>
+            {isDated
+              ? `${weekStart === "mon" ? "Monday" : "Sunday"}-start ${orientation === "landscape" ? "2-page spread" : "vertical"} · ${MONTHS[startMonth]} ${startYear} through ${MONTHS[(startMonth + monthCount - 1) % 12]} ${startYear + Math.floor((startMonth + monthCount - 1) / 12)} · ${monthCount} months.`
+              : `${weekStart === "mon" ? "Monday" : "Sunday"}-start ${orientation === "landscape" ? "2-page spread" : "vertical"} · no fixed dates.`}
+          </p>
+
+          {/* ── Card 1 footer ──────────────────────────────────────────── */}
+          {isLocked ? (
+            <div className="flex items-center justify-between pt-1 border-t">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Lock className="w-3.5 h-3.5 shrink-0" />
+                <p className="text-sm">Setup locked. Use Re-export to regenerate with updated style.</p>
+              </div>
+              {planner.drive.pdfFileId && (
+                <Button size="sm" variant="outline" onClick={() => reexportMut.mutate()} disabled={reexportMut.isPending} className="shrink-0 ml-4">
+                  {reexportMut.isPending ? <><RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Re-exporting…</> : <><Download className="w-3.5 h-3.5 mr-1.5" />Re-export PDF</>}
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between pt-1 border-t">
+              <p className={CONSEQUENCE}>Changes save when you click below. Generation locks this card.</p>
+              <Button
+                size="sm"
+                title={!planner.editionId ? "Select an edition in the Editions tab first" : undefined}
+                disabled={setupMut.isPending || !planner.editionId}
+                onClick={() => setupMut.mutate()}
+                className="shrink-0 ml-4"
+              >
+                {setupMut.isPending ? <><RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Saving…</> : "Save & generate"}
+              </Button>
+            </div>
           )}
+
         </div>
-
-        {isLocked ? (
-          <div className="flex items-center gap-2 pt-1">
-            <Lock className="w-4 h-4 text-muted-foreground shrink-0" />
-            <p className="text-sm text-muted-foreground">
-              Setup locked — use <strong>Re-export</strong> to regenerate with updated style settings.
-            </p>
-          </div>
-        ) : (
-          <div className="flex gap-2 pt-1">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setupMut.mutate()}
-              disabled={setupMut.isPending}
-            >
-              {setupMut.isPending ? <><RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Saving…</> : "Save setup"}
-            </Button>
-          </div>
-        )}
-
-        {isLocked && planner.drive.pdfFileId && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => reexportMut.mutate()}
-            disabled={reexportMut.isPending}
-            className="w-fit"
-          >
-            {reexportMut.isPending ? (
-              <><RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Re-exporting…</>
-            ) : (
-              <><Download className="w-3.5 h-3.5 mr-1.5" /> Re-export PDF</>
-            )}
-          </Button>
-        )}
       </div>
 
-      {/* ── CUSTOMIZE ANYTIME ───────────────────────────────────────────── */}
-      <div className="rounded-xl border p-6 space-y-5">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Customize anytime</span>
-          <SectionBadge label="Re-export whenever" variant="refresh" />
-        </div>
-        <p className="text-sm text-muted-foreground -mt-2">
-          Cosmetic and content choices. Change them and export a fresh PDF — existing planners stay untouched.
-        </p>
+      {/* ══════════════════════════════════════════════════════════════════
+          CARD 2 — CUSTOMIZE ANYTIME
+          Clay left accent rule. Everything here is re-exportable.
+      ═══════════════════════════════════════════════════════════════════ */}
+      <div className="rounded-xl border overflow-hidden">
+        <div className="border-l-[3px] border-[#C87560] p-6 space-y-6">
 
-        {/* Theme & palette */}
-        {themes.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Theme & Palette</p>
+          {/* Card header */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-3">
+              <span className={EYEBROW}>Customize anytime</span>
+              <SectionBadge label="Re-export whenever" variant="refresh" />
+            </div>
+            <p className={CONSEQUENCE}>
+              Cosmetic and content choices. Change them and export a fresh PDF — existing planners stay untouched.
+            </p>
+          </div>
+
+          {/* ── THEME & PALETTE ────────────────────────────────────────── */}
+          <div className="space-y-3">
+            <span className={EYEBROW}>Theme &amp; Palette</span>
+
+            {/* Theme chips */}
             <div className="flex flex-wrap gap-1.5">
-              {themes.slice(0, 6).map((t) => (
+              {themes.length === 0 && (
+                <span className="px-3 py-1.5 rounded-full text-sm border border-dashed text-muted-foreground">
+                  No themes yet — create one in Theme Studio
+                </span>
+              )}
+              {themes.map((t) => (
                 <button
                   key={t.id}
-                  onClick={() => styleMut.mutate({ themeId: t.id })}
-                  className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                  onClick={() => styleMut.mutate({ themeId: t.id, paletteId: null })}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                     planner.style.themeId === t.id
                       ? "bg-[#1B2A4A] text-white border-[#1B2A4A]"
-                      : "bg-white text-foreground border-border hover:border-foreground/40"
+                      : "bg-background text-foreground border-border hover:border-foreground/50"
                   }`}
                 >
                   {t.name}
                 </button>
               ))}
-              {!planner.style.themeId && (
-                <span className="px-3 py-1.5 rounded-full text-sm border border-dashed text-muted-foreground">
-                  No theme selected
+            </div>
+
+            {/* Palette swatches — shown when a theme is selected */}
+            {selectedTheme && palettes.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {palettes.map((pal) => (
+                  <button
+                    key={pal.id}
+                    onClick={() => styleMut.mutate({ paletteId: pal.id })}
+                    title={pal.name}
+                    className={`flex flex-col items-center gap-1 p-1.5 rounded-lg border transition-all ${
+                      planner.style.paletteId === pal.id
+                        ? "border-[#1B2A4A] ring-1 ring-[#1B2A4A]/30"
+                        : "border-border hover:border-foreground/40"
+                    }`}
+                  >
+                    {/* Colour swatch tiles */}
+                    <div className="flex rounded overflow-hidden">
+                      {pal.colors.slice(0, 4).map((hex, ci) => (
+                        <div key={ci} className="w-5 h-5" style={{ backgroundColor: hex }} />
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-muted-foreground leading-none max-w-[80px] truncate">{pal.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <p className={CONSEQUENCE}>Sets the colour family and typeface applied across all pages.</p>
+          </div>
+
+          {/* ── TABS ──────────────────────────────────────────────────── */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className={EYEBROW}>Tabs</span>
+              <span className="text-[12px] text-muted-foreground">
+                {tabPos === "right" ? "side tabs" : tabPos === "top" ? "top tabs" : tabPos === "bottom" ? "bottom tabs" : "no tabs"}
+                {planner.style.tabTheme ? `, ${planner.style.tabTheme}` : ""}
+              </span>
+            </div>
+            <PillGroup
+              options={[
+                { value: "right",  label: "Side"      },
+                { value: "top",    label: "Top"       },
+                { value: "bottom", label: "Bottom"    },
+                { value: "none",   label: "Home only" },
+              ]}
+              value={tabPos}
+              onChange={(v) => { setTabPos(v as typeof tabPos); styleMut.mutate({ tabPos: v as typeof tabPos }); }}
+            />
+            <p className={CONSEQUENCE}>{tabConsequence[tabPos]}</p>
+          </div>
+
+          {/* ── FONTS ─────────────────────────────────────────────────── */}
+          <div className="space-y-2">
+            <span className={EYEBROW}>Fonts</span>
+            {selectedTheme?.fontPairing ? (
+              <div className="flex flex-wrap gap-1.5">
+                {selectedTheme.fontPairing.heading && (
+                  <span className="px-3 py-1.5 rounded-full text-sm border bg-[#1B2A4A] text-white border-[#1B2A4A]">
+                    {selectedTheme.fontPairing.heading}
+                  </span>
+                )}
+                {selectedTheme.fontPairing.body && (
+                  <span className="px-3 py-1.5 rounded-full text-sm border border-border bg-background text-foreground">
+                    {selectedTheme.fontPairing.body}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {themes.length === 0 ? "Set a theme above to see its font pairing." : "The selected theme has no font pairing set."}
+              </p>
+            )}
+            <p className={CONSEQUENCE}>Heading and body fonts apply throughout — covers, section titles, and day labels.</p>
+          </div>
+
+          {/* ── NOTE SECTIONS ─────────────────────────────────────────── */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className={EYEBROW}>Note sections</span>
+                <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  {sections.length} OF 10
                 </span>
+              </div>
+              <button
+                onClick={onAskClaude}
+                className="text-[12px] text-[#C87560] hover:text-[#b56650] font-medium transition-colors flex items-center gap-1"
+              >
+                ✦ Name them for me
+              </button>
+            </div>
+
+            {/* Existing section chips + add tile */}
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {sections.map((s, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full text-sm border bg-background"
+                >
+                  {s}
+                  <button
+                    onClick={() => saveSections(sections.filter((_, j) => j !== i))}
+                    className="w-4 h-4 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-xs"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+
+              {/* + add tile */}
+              {sections.length < 10 && !addingSection && (
+                <button
+                  onClick={() => setAddingSection(true)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm border border-dashed text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+                >
+                  <Plus className="w-3 h-3" /> add
+                </button>
+              )}
+
+              {addingSection && (
+                <div className="inline-flex items-center gap-1">
+                  <Input
+                    autoFocus
+                    value={sectionDraft}
+                    onChange={(e) => setSectionDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && sectionDraft.trim()) {
+                        saveSections([...sections, sectionDraft.trim()]);
+                        setSectionDraft("");
+                        setAddingSection(false);
+                      }
+                      if (e.key === "Escape") { setSectionDraft(""); setAddingSection(false); }
+                    }}
+                    placeholder="Section name…"
+                    className="h-8 w-36 text-sm rounded-full px-3"
+                  />
+                  <button
+                    onClick={() => {
+                      if (sectionDraft.trim()) saveSections([...sections, sectionDraft.trim()]);
+                      setSectionDraft(""); setAddingSection(false);
+                    }}
+                    className="text-xs text-muted-foreground hover:text-foreground px-1"
+                  >done</button>
+                </div>
               )}
             </div>
+            <p className={CONSEQUENCE}>Section names appear on tab dividers and in the contents page hyperlink map.</p>
           </div>
-        )}
 
-        {/* Tabs */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tabs</p>
-            <span className="text-xs text-muted-foreground">
-              {tabPos === "right" ? "side tabs" : tabPos === "top" ? "top tabs" : tabPos === "bottom" ? "bottom tabs" : "no tabs"}
-              {planner.style.tabTheme ? `, ${planner.style.tabTheme}` : ""}
-            </span>
+          {/* ── STICKER PACKS ─────────────────────────────────────────── */}
+          <div className="space-y-2">
+            <span className={EYEBROW}>Sticker packs</span>
+            {packs.length === 0 ? (
+              <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3 bg-background">
+                <p className="text-sm text-muted-foreground">No sticker packs attached to this planner.</p>
+                <button className="text-sm text-[#C87560] font-medium hover:text-[#b56650] transition-colors flex items-center gap-1.5 shrink-0 ml-4">
+                  <Plus className="w-3.5 h-3.5" /> Attach a pack
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {packs.map((p) => (
+                  <span key={p.id} className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full text-sm border bg-background">
+                    {p.name}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className={CONSEQUENCE}>Sticker packs add decorative clip-art sheets after the planner pages.</p>
           </div>
-          <PillGroup
-            options={[
-              { value: "right",  label: "Side" },
-              { value: "top",    label: "Top" },
-              { value: "bottom", label: "Bottom" },
-              { value: "none",   label: "Home only" },
-            ]}
-            value={tabPos}
-            onChange={(v) => { setTabPos(v); styleMut.mutate({ tabPos: v }); }}
-          />
+
         </div>
       </div>
     </div>

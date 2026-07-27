@@ -1627,9 +1627,31 @@ export interface SupportTicket {
   diagnostics: Record<string, unknown>;
   status: "open" | "replied" | "fixed" | "closed";
   buildRef: string | null;
+  closeReason: string | null;
+  closeNote: string | null;
+  closedAt: string | null;
   createdAt: string;
   updatedAt: string;
   replyCount?: number;
+}
+
+export interface CloseReasonPattern {
+  reason: string;
+  label: string;
+  count: number;
+}
+
+export interface NoArticleCluster {
+  area: string;
+  areaLabel: string;
+  count: number;
+}
+
+export interface CloseReasonPatternsResult {
+  byReason: CloseReasonPattern[];
+  noArticleClusters: NoArticleCluster[];
+  total: number;
+  months: number;
 }
 
 export interface TicketReply {
@@ -1788,9 +1810,21 @@ export const supportApi = {
       body: JSON.stringify({ body }),
     }),
 
-  updateStatus: (ticketId: string, status: string) =>
+  updateStatus: (
+    ticketId: string,
+    status: string,
+    opts?: { closeReason?: string; closeNote?: string },
+  ) =>
     apiFetch<{ ok: boolean }>(`/support/tickets/${ticketId}/status`, {
       method: "PATCH",
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, ...opts }),
     }),
+
+  closeReasonPatterns: (params?: { storeId?: string; months?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.storeId) q.set("storeId", params.storeId);
+    if (params?.months)  q.set("months",  String(params.months));
+    const qs = q.toString();
+    return apiFetch<CloseReasonPatternsResult>(`/support/close-reason-patterns${qs ? `?${qs}` : ""}`);
+  },
 };

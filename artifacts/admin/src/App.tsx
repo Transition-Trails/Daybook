@@ -91,6 +91,8 @@ import StoreInspector from "@/pages/super/StoreInspector";
 import StoreProfile from "@/pages/store/settings/StoreProfile";
 import EmailSettings from "@/pages/store/settings/EmailSettings";
 import Deliverability from "@/pages/super/Deliverability";
+import StoreSupportPatterns from "@/pages/store/SupportPatterns";
+import SuperSupportPatterns from "@/pages/super/SupportPatterns";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -169,6 +171,9 @@ function RootRouter() {
       </Route>
       <Route path="/super/email/deliverability">
         <RequireSuperAdmin state={state}><SuperAdminShell><Deliverability /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/support/patterns">
+        <RequireSuperAdmin state={state}><SuperAdminShell><SuperSupportPatterns /></SuperAdminShell></RequireSuperAdmin>
       </Route>
 
       {/* ── Store Admin console ────────────────────────────────── */}
@@ -385,6 +390,19 @@ function RootRouter() {
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
                 <StoreSupportInbox />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
+      {/* ── Store: Support Patterns ──────────────────────────────── */}
+      <Route path="/store/:storeId/support-patterns">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreSupportPatterns />
               </StoreAdminShell>
             )}
           </RequireStore>

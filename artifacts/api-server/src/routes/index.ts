@@ -31,6 +31,7 @@ import platformRecipesRouter  from "./platform-recipes";
 import supportRouter from "./support";
 import emailSettingsRouter from "./email-settings";
 import webhooksRouter from "./webhooks";
+import ordersRouter from "./orders";
 
 const router: IRouter = Router();
 
@@ -65,6 +66,7 @@ router.use(platformRecipesRouter);
 router.use(supportRouter);
 router.use(emailSettingsRouter);
 router.use(webhooksRouter);
+router.use(ordersRouter);
 router.use(marketingRouter);
 // Public storefront API (no auth required)
 router.use(shopRouter);

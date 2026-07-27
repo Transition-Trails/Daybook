@@ -196,26 +196,31 @@ export function onTicketClosed(opts: {
 // ── Order events ──────────────────────────────────────────────────────────────
 
 export async function sendOrderReceipt(opts: {
-  storeId: string;
-  storeName: string;
-  buyerEmail: string;
-  editionName: string;
-  downloadUrl: string;
-  resendUrl: string;
   orderId: string;
+  storeId: string;
+  buyerEmail: string;
+  buyerName?: string;
+  items: Array<{ name: string; priceCents: number; downloadUrl?: string }>;
+  totalCents: number;
+  currency: string;
+  downloadLinks: Array<{ name: string; url: string }>;
+  resendToken?: string;
 }): Promise<void> {
-  const tmpl = orderReceipt({
-    storeName: opts.storeName,
-    editionName: opts.editionName,
-    downloadUrl: opts.downloadUrl,
-    resendUrl: opts.resendUrl,
-  });
+  const storeName = await getStoreName(opts.storeId) ?? "Daybook";
+  const editionName = opts.items[0]?.name ?? "your order";
+  const downloadUrl  = opts.downloadLinks[0]?.url ?? "#";
+  const APP_URL      = process.env["APP_URL"] ?? "https://app.daybook.com";
+  const resendUrl    = opts.resendToken
+    ? `${APP_URL}/api/orders/${opts.orderId}/resend-receipt?token=${opts.resendToken}`
+    : `${APP_URL}/api/orders/${opts.orderId}/resend-receipt`;
+
+  const tmpl = orderReceipt({ storeName, editionName, downloadUrl, resendUrl });
   await sendEmail({
     idempotencyKey: `order-receipt:${opts.orderId}`,
-    storeId: opts.storeId,
-    storeName: opts.storeName,
-    to: opts.buyerEmail,
-    template: "order_receipt",
+    storeId:   opts.storeId,
+    storeName,
+    to:        opts.buyerEmail,
+    template:  "order_receipt",
     ...tmpl,
   });
 }

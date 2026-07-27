@@ -174,6 +174,25 @@ export default function EmailSettings() {
           </p>
         </div>
 
+        {/* Volume upgrade prompt — shown when approaching or at tier-1 daily/monthly limits */}
+        {config && config.monthlyVolume >= 1000 && config.domainStatus !== "verified" && (
+          <div style={{
+            marginBottom: 20, padding: "12px 16px", borderRadius: 10,
+            background: T.yellowBg, border: `1px solid #D4A017`,
+            display: "flex", alignItems: "flex-start", gap: 12,
+          }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>⚡</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.yellow, marginBottom: 3 }}>
+                You're sending at volume — consider a custom domain
+              </div>
+              <div style={{ fontSize: 13, color: T.slate, lineHeight: 1.55 }}>
+                You've sent {config.monthlyVolume.toLocaleString()} emails this month from the shared platform address. At 1,000+ sends, a custom sending domain improves deliverability and keeps your store's reputation separate from other senders. Set one up below.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Flash message */}
         {msg && (
           <div style={{ marginBottom: 16, padding: "10px 16px", borderRadius: 8, background: msg.kind === "ok" ? T.greenBg : T.redBg, color: msg.kind === "ok" ? T.green : T.red, fontSize: 13, fontWeight: 500 }}>

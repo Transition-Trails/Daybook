@@ -24,7 +24,7 @@ import {
   editionsTable,
   themesTable,
 } from "@workspace/db";
-import { eq, and, or, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, or, desc, asc, inArray, sql, gte } from "drizzle-orm";
 import {
   resolveStoreActor,
   resolveStoreActorOptional,
@@ -52,6 +52,40 @@ const AREA_KEYWORDS: Record<string, string[]> = {
   "printing-cutting":  ["print", "cut", "cricut", "silhouette", "registration", "colour"],
   "something-missing": ["download", "missing", "file", "link", "arrived", "delivery"],
   "something-else":    [],
+};
+
+// ── Close-reason constants ────────────────────────────────────────────────────
+const VALID_CLOSE_REASONS = [
+  "fixed_myself",
+  "answered_article_existed",
+  "answered_no_article",
+  "buyer_error",
+  "product_defect",
+] as const;
+type CloseReason = (typeof VALID_CLOSE_REASONS)[number];
+
+const CLOSE_REASON_LABELS: Record<CloseReason, string> = {
+  fixed_myself:             "Fixed it myself",
+  answered_article_existed: "Answered — article existed",
+  answered_no_article:      "Answered — no article yet",
+  buyer_error:              "Buyer error",
+  product_defect:           "Product defect",
+};
+
+// ── Area labels (mirrored from admin for patterns endpoint) ───────────────────
+const AREA_LABELS_MAP: Record<string, string> = {
+  "building-planner":  "Building a planner",
+  "stickers-packs":    "Stickers & packs",
+  "exported-pdf":      "Exported PDF",
+  "drive-sync":        "Drive sync",
+  "my-storefront":     "My storefront",
+  "account-billing":   "Account & billing",
+  "opening-planner":   "Opening the planner",
+  "links-not-working": "Links not working",
+  "using-stickers":    "Using stickers",
+  "printing-cutting":  "Printing & cutting",
+  "something-missing": "Something missing",
+  "something-else":    "Something else",
 };
 
 // ── GET /support/articles ─────────────────────────────────────────────────────
@@ -318,8 +352,8 @@ router.get(
         .select()
         .from(ticketsTable)
         .where(where)
-        .orderBy(desc(ticketsTable.createdAt))
-        .limit(50);
+        .orderBy(asc(ticketsTable.createdAt))
+        .limit(200);
 
       // Reply counts
       const ids = tickets.map((t) => t.id);
@@ -640,12 +674,27 @@ router.patch(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { id } = req.params as { id: string };
-    const { status } = req.body as { status?: string };
-    const VALID = ["open", "replied", "fixed", "closed"] as const;
+    const { status, closeReason, closeNote } = req.body as {
+      status?: string;
+      closeReason?: string;
+      closeNote?: string;
+    };
+    const VALID_STATUS = ["open", "replied", "fixed", "closed"] as const;
 
-    if (!status || !VALID.includes(status as (typeof VALID)[number])) {
-      res.status(400).json({ error: `status must be one of: ${VALID.join(", ")}` });
+    if (!status || !VALID_STATUS.includes(status as (typeof VALID_STATUS)[number])) {
+      res.status(400).json({ error: `status must be one of: ${VALID_STATUS.join(", ")}` });
       return;
+    }
+
+    // Closing REQUIRES a valid reason — enforced server-side, not just UI
+    if (status === "closed") {
+      if (!closeReason || !VALID_CLOSE_REASONS.includes(closeReason as CloseReason)) {
+        res.status(422).json({
+          error: "A close reason is required when closing a ticket.",
+          validReasons: VALID_CLOSE_REASONS,
+        });
+        return;
+      }
     }
 
     try {
@@ -670,10 +719,27 @@ router.patch(
         return;
       }
 
-      await db
-        .update(ticketsTable)
-        .set({ status, updatedAt: new Date() })
-        .where(eq(ticketsTable.id, id));
+      // Build the patch — close metadata set on close, cleared on reopen
+      const patch: {
+        status: string;
+        updatedAt: Date;
+        closeReason?: string | null;
+        closeNote?: string | null;
+        closedAt?: Date | null;
+      } = { status, updatedAt: new Date() };
+
+      if (status === "closed") {
+        patch.closeReason = closeReason!;
+        patch.closeNote   = closeNote ?? null;
+        patch.closedAt    = new Date();
+      } else if (ticket.status === "closed") {
+        // Reopening — clear close metadata
+        patch.closeReason = null;
+        patch.closeNote   = null;
+        patch.closedAt    = null;
+      }
+
+      await db.update(ticketsTable).set(patch).where(eq(ticketsTable.id, id));
 
       await writeAudit(db, {
         actorUserId: actor.userId,
@@ -682,7 +748,7 @@ router.patch(
         action: "ticket.status_change",
         targetType: "ticket",
         targetId: id,
-        metadata: { fromStatus: ticket.status, toStatus: status },
+        metadata: { fromStatus: ticket.status, toStatus: status, closeReason: closeReason ?? null },
       });
 
       // Fire-and-forget close notification
@@ -698,6 +764,84 @@ router.patch(
       }
 
       res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  },
+);
+
+// ── GET /support/close-reason-patterns ───────────────────────────────────────
+// Aggregates closed tickets this month by reason and surfaces no-article clusters.
+router.get(
+  "/support/close-reason-patterns",
+  resolveStoreActor,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, months = "1" } = req.query as { storeId?: string; months?: string };
+
+    const monthCount = Math.min(Math.max(parseInt(months) || 1, 1), 12);
+    const since = new Date();
+    since.setMonth(since.getMonth() - monthCount);
+
+    // Determine scope
+    let scope: string;
+    if (actor.isSuperAdmin && !storeId) {
+      scope = "platform";
+    } else {
+      const sid = storeId ?? actor.storeId;
+      if (!sid) { res.status(400).json({ error: "storeId required" }); return; }
+      if (
+        !actor.isSuperAdmin &&
+        (actor.storeId !== sid || !["store_owner", "store_staff"].includes(actor.storeRole ?? ""))
+      ) {
+        res.status(403).json({ error: "Forbidden" }); return;
+      }
+      scope = sid;
+    }
+
+    try {
+      // All closed tickets in the window
+      const closed = await db
+        .select({ closeReason: ticketsTable.closeReason, area: ticketsTable.area })
+        .from(ticketsTable)
+        .where(
+          and(
+            eq(ticketsTable.recipientScope, scope),
+            eq(ticketsTable.status, "closed"),
+            gte(ticketsTable.closedAt, since),
+          ),
+        );
+
+      // Count by reason
+      const reasonCounts: Record<string, number> = {};
+      for (const { closeReason } of closed) {
+        const r = closeReason ?? "unknown";
+        reasonCounts[r] = (reasonCounts[r] ?? 0) + 1;
+      }
+      const byReason = Object.entries(reasonCounts)
+        .map(([reason, count]) => ({
+          reason,
+          label: (CLOSE_REASON_LABELS as Record<string, string>)[reason] ?? reason,
+          count,
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      // No-article clusters grouped by area
+      const noArticleCounts: Record<string, number> = {};
+      for (const { closeReason, area } of closed) {
+        if (closeReason === "answered_no_article") {
+          noArticleCounts[area] = (noArticleCounts[area] ?? 0) + 1;
+        }
+      }
+      const noArticleClusters = Object.entries(noArticleCounts)
+        .map(([area, count]) => ({
+          area,
+          areaLabel: AREA_LABELS_MAP[area] ?? area,
+          count,
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      res.json({ byReason, noArticleClusters, total: closed.length, months: monthCount });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }

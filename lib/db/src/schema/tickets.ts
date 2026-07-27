@@ -33,6 +33,16 @@ export const ticketsTable = pgTable("tickets", {
   status: text("status").notNull().default("open"),
   /** plannerConfig id or pack id for the build this ticket is about. */
   buildRef: text("build_ref"),
+  /**
+   * Required when status transitions to "closed".
+   * Values: fixed_myself | answered_article_existed | answered_no_article |
+   *         buyer_error | product_defect
+   */
+  closeReason: text("close_reason"),
+  /** Optional free-text note captured at close time. */
+  closeNote: text("close_note"),
+  /** Set to NOW() when status first moves to "closed". Cleared on reopen. */
+  closedAt: timestamp("closed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

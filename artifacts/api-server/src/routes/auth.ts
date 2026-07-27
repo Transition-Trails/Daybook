@@ -111,4 +111,30 @@ router.post("/auth/staff/login", async (req, res): Promise<void> => {
   });
 });
 
+// ── Test-only login (NODE_ENV=test) ──────────────────────────────────────────
+// Allows Playwright to log in as any seeded test persona without Google OAuth.
+// NEVER active in production — guarded by NODE_ENV check at the route level.
+
+router.post("/auth/test-login", async (req, res): Promise<void> => {
+  if (process.env["NODE_ENV"] !== "test") {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const { email } = req.body as { email?: string };
+  if (!email) {
+    res.status(400).json({ error: "email required" });
+    return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+  if (!user) {
+    res.status(404).json({ error: `No user found with email ${email}` });
+    return;
+  }
+  req.login(user, (err) => {
+    if (err) { res.status(500).json({ error: "Login failed" }); return; }
+    const { passwordHash, googleAccessToken, googleRefreshToken, notionToken, ...safe } = user;
+    res.json(safe);
+  });
+});
+
 export default router;

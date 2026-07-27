@@ -1,0 +1,259 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "10"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 1 — TypeScript + build
+# No database needed. Runs on every push/PR.
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  typecheck-build:
+    name: Typecheck & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (libs + all artifacts)
+        run: pnpm run typecheck
+
+      - name: Build API server
+        run: pnpm --filter @workspace/api-server run build
+
+      - name: Build admin (CI static mode, base = /)
+        run: pnpm --filter @workspace/admin run build
+        env:
+          PORT: "3001"          # vite.config.ts requires PORT even for build
+          BASE_PATH: "/"
+
+      # Upload built admin so E2E job can download it without rebuilding
+      - uses: actions/upload-artifact@v4
+        with:
+          name: admin-dist
+          path: artifacts/admin/dist/
+          retention-days: 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-dist
+          path: artifacts/api-server/dist/
+          retention-days: 1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 2 — Unit / integration tests (Vitest, no database)
+# ─────────────────────────────────────────────────────────────────────────────
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: typecheck-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run unit tests
+        run: pnpm --filter @workspace/api-server run test
+        env:
+          NODE_ENV: test
+          # Unit tests that touch the DB use a mock; those that don't are fine without.
+          DATABASE_URL: ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 3 — Migration dry-run (schema validation)
+# Spins up a clean Postgres, runs every migration, verifies schema compiles.
+# ─────────────────────────────────────────────────────────────────────────────
+  migrations:
+    name: Migration check
+    runs-on: ubuntu-latest
+    needs: typecheck-build
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: daybook
+          POSTGRES_PASSWORD: daybook
+          POSTGRES_DB: daybook_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://daybook:daybook@localhost:5432/daybook_ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build lib/db
+        run: npx tsc -b lib/db
+
+      - name: Run all migrations in order
+        run: |
+          node lib/db/migrate-email.mjs
+          node lib/db/migrate-orders.mjs
+          node lib/db/migrate-support-v2.mjs
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Verify core tables exist
+        run: |
+          psql "$DATABASE_URL" -c "\dt" | grep -E "orders|tickets|email_configs"
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 4 — Playwright end-to-end tests
+# Spins up the full stack (Postgres + API + admin SPA) and runs browser tests.
+# ─────────────────────────────────────────────────────────────────────────────
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: [typecheck-build, migrations]
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: daybook
+          POSTGRES_PASSWORD: daybook
+          POSTGRES_DB: daybook_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://daybook:daybook@localhost:5432/daybook_ci
+      SESSION_SECRET: ci-session-secret-not-for-production
+      NODE_ENV: test
+      # API server will also serve the admin SPA at /
+      SERVE_ADMIN_DIST: artifacts/admin/dist/public
+      PORT: "3001"
+      APP_URL: "http://localhost:3001"
+      # Optional: override to test against a deployed staging URL instead
+      PLAYWRIGHT_BASE_URL: "http://localhost:3001"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-dist
+          path: artifacts/admin/dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-dist
+          path: artifacts/api-server/dist/
+
+      - name: Build lib/db
+        run: npx tsc -b lib/db
+
+      - name: Run all migrations
+        run: |
+          node lib/db/migrate-email.mjs
+          node lib/db/migrate-orders.mjs
+          node lib/db/migrate-support-v2.mjs
+
+      - name: Seed full dev data
+        run: pnpm --filter @workspace/scripts run seed
+
+      - name: Seed CI test personas
+        run: pnpm --filter @workspace/scripts run seed:ci
+
+      - name: Install Playwright browsers (Chromium only)
+        run: pnpm --filter @workspace/e2e exec playwright install --with-deps chromium
+
+      - name: Start API server (+ admin SPA via SERVE_ADMIN_DIST)
+        run: |
+          node --enable-source-maps artifacts/api-server/dist/index.mjs &
+          echo $! > /tmp/server.pid
+        env:
+          PORT: "3001"
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          SESSION_SECRET: ${{ env.SESSION_SECRET }}
+          NODE_ENV: test
+          SERVE_ADMIN_DIST: ${{ env.SERVE_ADMIN_DIST }}
+
+      - name: Wait for server
+        run: npx wait-on http://localhost:3001/api/health --timeout 30000
+
+      - name: Run Playwright tests
+        run: pnpm --filter @workspace/e2e run test
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ env.PLAYWRIGHT_BASE_URL }}
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: tests/e2e/playwright-report/
+          retention-days: 7
+
+      - name: Upload test traces (failures only)
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: tests/e2e/test-results/
+          retention-days: 3

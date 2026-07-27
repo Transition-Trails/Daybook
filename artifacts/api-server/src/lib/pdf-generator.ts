@@ -380,7 +380,8 @@ export function resolveStandardFont(familyName: string | undefined, bold: boolea
  * Persists for the lifetime of the process, so repeated generation calls for the
  * same family skip the network round-trip entirely.
  */
-const _googleFontCache = new Map<string, Uint8Array>();
+// Exported for test access only — do not import from production code paths.
+export const _googleFontCache = new Map<string, Uint8Array>();
 
 // ── Disk font cache ────────────────────────────────────────────────────────────
 
@@ -395,7 +396,8 @@ const GFONT_DISK_DIR = "/tmp/gfont-cache";
  * Convert a font cache key ("Playfair Display:700") into a safe filesystem path.
  * Spaces → underscore, colon → hyphen, everything else non-alphanumeric → removed.
  */
-function _diskCachePath(familyName: string, weight: 400 | 700): string {
+// Exported for test access only — allows tests to compute the expected disk path.
+export function _diskCachePath(familyName: string, weight: 400 | 700): string {
   const safe = `${familyName.replace(/\s+/g, "_")}-${weight}.ttf`
     .replace(/[^A-Za-z0-9_\-.]/g, "");
   return path.join(GFONT_DISK_DIR, safe);

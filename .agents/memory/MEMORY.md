@@ -24,3 +24,4 @@
 - [Theme bundle system](theme-bundle-system.md) — 10 colour shells → 4 real bundles; enriched GET /themes API; is_primary on theme_palettes; composer routes; Shell "Parts" group for Palettes
 - [Editions table schema](editions-schema.md) — product_type (snake_case, default 'planner'), binding (jsonb), sections is text[] not jsonb; migrations use raw SQL via pool not drizzle-orm operators
 - [Planner Studio gap closure](planner-studio-gaps.md) — paletteId in BuildState + generation payload; mode gating for non-planner product types; StudioLayout AI/Preview buttons now toggle; StickerScalePreview uses ResizeObserver
+- [Platform planner templates](platform-planner-templates.md) — persisted platform-owned templates; `requireSuperAdmin` guard (not `requireAuth`); setup months are 0-indexed; PlannerStudioHub now uses PlatformTemplateRail + template-backed BuildCenter

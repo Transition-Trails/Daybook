@@ -26,6 +26,7 @@ import stickerPresetsRouter from "./sticker-presets";
 import widgetsRouter from "./widgets";
 import storePlannersRouter from "./store-planners";
 import plannerHotspotsRouter from "./planner-hotspots";
+import platformPlannersRouter from "./platform-planners";
 
 const router: IRouter = Router();
 
@@ -55,6 +56,7 @@ router.use(stickerPresetsRouter);
 router.use(widgetsRouter);
 router.use(storePlannersRouter);
 router.use(plannerHotspotsRouter);
+router.use(platformPlannersRouter);
 router.use(marketingRouter);
 // Public storefront API (no auth required)
 router.use(shopRouter);

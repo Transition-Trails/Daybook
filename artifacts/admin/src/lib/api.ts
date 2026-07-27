@@ -1265,6 +1265,76 @@ export const storePlannersApi = {
     }),
 };
 
+// ── Platform Planner Templates ────────────────────────────────────────────────
+
+export interface PlatformPlannerConfig {
+  id: string;
+  name: string;
+  description: string | null;
+  status: "draft" | "published" | "archived";
+  editionId: string | null;
+  productType: string;
+  setup: StorePlannerSetup;
+  style: StorePlannerStyle;
+  output: StorePlannerOutput;
+  drive: { pdfFileId: string | null; configFileId: string | null };
+  generatedAt: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const platformPlannersApi = {
+  list: () =>
+    apiFetch<PlatformPlannerConfig[]>("/platform/planners"),
+
+  get: (id: string) =>
+    apiFetch<PlatformPlannerConfig>(`/platform/planners/${id}`),
+
+  create: (data: {
+    name: string;
+    description?: string;
+    editionId?: string;
+    setup?: Partial<StorePlannerSetup>;
+    style?: Partial<StorePlannerStyle>;
+    output?: Partial<StorePlannerOutput>;
+  }) =>
+    apiFetch<PlatformPlannerConfig>("/platform/planners", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  patch: (
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      editionId?: string | null;
+      setup?: Partial<StorePlannerSetup>;
+      style?: Partial<StorePlannerStyle>;
+      output?: Partial<StorePlannerOutput>;
+    },
+  ) =>
+    apiFetch<PlatformPlannerConfig>(`/platform/planners/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  generate: (id: string) =>
+    apiFetch<{ id: string; drive: { pdfFileId: string | null; configFileId: string | null }; pageCount: number; fileName: string }>(
+      `/platform/planners/${id}/generate`,
+      { method: "POST" },
+    ),
+
+  publish: (id: string) =>
+    apiFetch<PlatformPlannerConfig>(`/platform/planners/${id}/publish`, {
+      method: "POST",
+    }),
+
+  delete: (id: string) =>
+    apiFetch<void>(`/platform/planners/${id}`, { method: "DELETE" }),
+};
+
 // ── Widgets ───────────────────────────────────────────────────────────────────
 
 export interface Widget {

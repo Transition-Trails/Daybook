@@ -29,7 +29,7 @@ import {
   EmptyState, ErrorState, SkeletonRows, RailCard, DockAiAssistant,
   StatusPill, ActionChip, CHIP_ACTIVE_BG,
 } from "@/components/studio/primitives";
-import { catalogApi, apiFetch } from "@/lib/api";
+import { catalogApi, apiFetch, platformPlannersApi, type PlatformPlannerConfig } from "@/lib/api";
 import { aiApi, extractJson, type AiResult } from "@/lib/ai";
 import { useToast } from "@/hooks/use-toast";
 
@@ -470,143 +470,115 @@ function PaletteRow({
   );
 }
 
-// ── Unified left rail (all modes) ─────────────────────────────────────────────
+// ── Platform template left rail ───────────────────────────────────────────────
 
-interface Preset { id: string; label: string; isDefault?: boolean; summary: string; state: Partial<BuildState> }
-
-const BUILT_IN_PRESETS: Preset[] = [
-  {
-    id: "usual",
-    label: "My usual",
-    isDefault: true,
-    summary: "A5 · vertical · Jan–Dec",
-    state: { paperSize: "A5", weeklyType: "vertical", startMonth: "1", endMonth: "12" },
-  },
-  {
-    id: "landscape",
-    label: "Landscape",
-    summary: "Half letter · 2-page · 6 mo",
-    state: { paperSize: "HalfLetter", weeklyType: "two-page", startMonth: "1", endMonth: "6" },
-  },
-  {
-    id: "minimal",
-    label: "Minimal",
-    summary: "A5 · no theme · 3 mo",
-    state: { paperSize: "A5", weeklyType: "vertical", themeId: "", startMonth: "1", endMonth: "3" },
-  },
-];
-
-function UnifiedRail({
-  buildState, onApplyPreset, onNewEdition,
+function PlatformTemplateRail({
+  templates, selectedId, onSelect, onNew, loading,
 }: {
-  buildState: BuildState;
-  onApplyPreset: (preset: Preset) => void;
-  onNewEdition: () => void;
+  templates: PlatformPlannerConfig[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onNew: () => void;
+  loading?: boolean;
 }) {
-  const monthLabel = (m: string) => MONTHS[parseInt(m, 10) - 1] ?? m;
-
-  const thisBuilSummaryLines = [
-    `Edition: ${buildState.editionName}`,
-    `Format: ${buildState.paperSize} · ${buildState.weeklyType === "vertical" ? "Vertical" : "2-page"}`,
-    `Dates: ${monthLabel(buildState.startMonth)} ${buildState.startYear} – ${monthLabel(buildState.endMonth)} ${buildState.endYear}`,
-    `Theme: ${buildState.themeName || "None"}`,
-    ...(buildState.packIds.length > 0 ? [`Packs: ${buildState.packIds.length} selected`] : []),
-  ];
-
-  // Swatch for the template card: use first palette or default tints
-  const swatchColors = buildState.themeId
-    ? (PALETTES.find(p => p.id === buildState.themeId)?.colors ?? ["#f5f0ea","#e8e0d5","#d0c8be"])
-    : ["#f5f0ea", "#e8e0d5", "#d0c8be"];
+  const selected = templates.find(t => t.id === selectedId) ?? null;
+  const setup = selected?.setup;
 
   return (
     <div className="flex flex-col h-full" style={{ background: PAPER_TINT }}>
-      <div className="flex-1 overflow-y-auto p-4 space-y-5" style={THIN_SCROLL}>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4" style={THIN_SCROLL}>
 
-        {/* TEMPLATE CARD */}
-        <div className="rounded-[14px] border bg-card shadow-sm p-4 space-y-3">
+        {/* Header */}
+        <div className="flex items-center justify-between">
           <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-            Template
+            Platform templates
           </p>
-          <div className="space-y-1">
-            <p className="font-display font-semibold text-[13.5px] text-foreground truncate">
-              {buildState.editionName !== "—" ? buildState.editionName : "No edition"}
-            </p>
-            <p className="text-[11px] text-muted-foreground">
-              {buildState.paperSize} · {buildState.weeklyType === "vertical" ? "side tabs" : "2-page weekly"} · {
-                parseInt(buildState.endMonth) - parseInt(buildState.startMonth) < 0
-                  ? 12 + parseInt(buildState.endMonth) - parseInt(buildState.startMonth) + 1
-                  : parseInt(buildState.endMonth) - parseInt(buildState.startMonth) + 1
-              } mo
-            </p>
-          </div>
-          {/* Colour swatch */}
-          <div className="flex gap-1">
-            {swatchColors.map((c, i) => (
-              <div key={i} className="rounded-full h-3 flex-1" style={{ background: c }} />
-            ))}
-          </div>
+          <button
+            onClick={onNew}
+            style={{ cursor: "pointer", background: CLAY, color: "#fff" }}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold hover:opacity-90 transition-opacity"
+          >
+            <Plus className="w-3 h-3" /> New
+          </button>
         </div>
 
-        {/* SETUP PRESETS */}
-        <div className="space-y-2">
-          <SectionLabel>Setup presets</SectionLabel>
+        {/* Template list */}
+        {loading ? (
+          <SkeletonRows count={3} />
+        ) : templates.length === 0 ? (
+          <div className="text-center py-8 space-y-2">
+            <BookOpen className="w-8 h-8 mx-auto text-muted-foreground/40" />
+            <p className="text-[12px] text-muted-foreground">No templates yet</p>
+            <button
+              onClick={onNew}
+              style={{ cursor: "pointer", background: CLAY, color: "#fff" }}
+              className="mx-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold hover:opacity-90 transition-opacity"
+            >
+              <Plus className="w-3.5 h-3.5" /> Create first template
+            </button>
+          </div>
+        ) : (
           <div className="space-y-1.5">
-            {BUILT_IN_PRESETS.map(preset => (
+            {templates.map(t => (
               <button
-                key={preset.id}
-                onClick={() => onApplyPreset(preset)}
-                style={{ cursor: "pointer", width: "100%", textAlign: "left" }}
-                className="flex items-start gap-2 px-3 py-2.5 rounded-xl border border-border hover:border-foreground/30 hover:bg-muted/30 transition-colors"
+                key={t.id}
+                onClick={() => onSelect(t.id)}
+                style={{
+                  cursor: "pointer", width: "100%", textAlign: "left",
+                  borderColor: selectedId === t.id ? CLAY : undefined,
+                  background: selectedId === t.id ? "#FEF0ED" : undefined,
+                }}
+                className={`flex items-start gap-2.5 px-3 py-2.5 rounded-xl border transition-colors ${
+                  selectedId === t.id
+                    ? "border-[#C87560]"
+                    : "border-border hover:border-foreground/30 hover:bg-muted/30"
+                }`}
               >
-                <div className="flex-1 min-w-0 space-y-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[12.5px] font-semibold text-foreground">{preset.label}</span>
-                    {preset.isDefault && (
-                      <span
-                        className="text-[9.5px] font-bold uppercase tracking-[0.12em] px-1.5 py-0.5 rounded-full"
-                        style={{ background: "#edf4f0", color: "#3f6b4c" }}
-                      >
-                        Default
+                <div className="flex-1 min-w-0 space-y-1">
+                  <p className="text-[12.5px] font-semibold text-foreground truncate">{t.name}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-[9.5px] font-bold uppercase tracking-[0.12em] px-1.5 py-0.5 rounded-full ${
+                      t.status === "published"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-muted text-muted-foreground"
+                    }`}>
+                      {t.status}
+                    </span>
+                    {t.drive.pdfFileId && (
+                      <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                        PDF ready
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-muted-foreground truncate">{preset.summary}</p>
                 </div>
               </button>
             ))}
-            {/* Save current */}
-            <button
-              style={{ cursor: "pointer", width: "100%", textAlign: "left" }}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-border text-[12px] text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-            >
-              <Plus className="w-3 h-3 shrink-0" />
-              Save current as preset
-            </button>
+          </div>
+        )}
+
+      </div>
+
+      {/* Selected template summary pinned at bottom */}
+      {selected && setup && (
+        <div className="border-t p-4 shrink-0" style={{ background: PAPER_TINT }}>
+          <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-2">
+            Selected
+          </p>
+          <div className="space-y-0.5">
+            <p className="text-[11.5px] text-muted-foreground">
+              {(setup as any).datingMode ?? "dated"} · {(setup as any).weekStart ?? "mon"}-start
+            </p>
+            <p className="text-[11.5px] text-muted-foreground">
+              {(setup as any).monthCount ?? 12} mo · {selected.style?.themeId ? "themed" : "no theme"}
+            </p>
+            {selected.editionId && (
+              <p className="text-[11.5px] text-muted-foreground truncate">
+                Edition linked
+              </p>
+            )}
           </div>
         </div>
-
-        {/* Edition quick-switch */}
-        <div className="space-y-2">
-          <SectionLabel>Edition</SectionLabel>
-          <EditionQuickPick
-            value={buildState.editionId}
-            onChange={onNewEdition}
-          />
-        </div>
-
-      </div>
-
-      {/* THIS BUILD — pinned at bottom */}
-      <div className="border-t p-4 shrink-0" style={{ background: PAPER_TINT }}>
-        <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-2">
-          This build
-        </p>
-        <div className="space-y-0.5">
-          {thisBuilSummaryLines.map((line, i) => (
-            <p key={i} className="text-[11.5px] text-muted-foreground leading-relaxed">{line}</p>
-          ))}
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -740,27 +712,88 @@ function PdfPreviewDock({ buildState }: { buildState: BuildState }) {
 const BUILD_EYEBROW    = "text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground";
 const BUILD_CONSEQ     = "text-[12.5px] leading-relaxed text-muted-foreground";
 
-/** Months stepper — computes total month count from start/end, updates end on change */
-function computeMonthCount(startYear: string, startMonth: string, endYear: string, endMonth: string) {
-  return (Number(endYear) - Number(startYear)) * 12 + (Number(endMonth) - Number(startMonth)) + 1;
-}
-function applyMonthCount(startYear: string, startMonth: string, count: number) {
-  const total = Number(startMonth) - 1 + count - 1; // 0-based month offset
-  const eYear = Number(startYear) + Math.floor(total / 12);
-  const eMon  = (total % 12) + 1;
-  return { endYear: String(eYear), endMonth: String(eMon) };
+/** Convert a PlatformPlannerConfig to the BuildState shape used by PdfPreviewDock. */
+function templateToBuildState(t: PlatformPlannerConfig): BuildState {
+  const s  = t.setup as any;
+  const st = t.style  as any;
+  const monthCount  = s.monthCount  ?? 12;
+  const startMonth  = s.startMonth  ?? 0;   // 0-indexed
+  const startYear   = s.startYear   ?? (new Date().getFullYear() + 1);
+  const totalOffset = startMonth + monthCount - 1;
+  const endYear     = startYear + Math.floor(totalOffset / 12);
+  const endMonth    = totalOffset % 12;     // 0-indexed
+  return {
+    ...DEFAULT_BUILD,
+    editionId:   t.editionId  ?? "",
+    editionName: "—",
+    startYear:   String(startYear),
+    startMonth:  String(startMonth + 1),  // BuildState uses 1-indexed
+    endYear:     String(endYear),
+    endMonth:    String(endMonth + 1),    // BuildState uses 1-indexed
+    weeklyType:  s.orientation === "landscape" ? "two-page" : "vertical",
+    themeId:     st.themeId   ?? "",
+    themeName:   "",
+    paletteId:   st.paletteId ?? "",
+    datingMode:  (s.datingMode  ?? "dated")  as BuildState["datingMode"],
+    weekStart:   (s.weekStart   ?? "mon")    as BuildState["weekStart"],
+    tabPos:      (st.tabPos     ?? "right")  as BuildState["tabPos"],
+    sections:    st.sections    ?? [],
+    packIds:     st.packIds     ?? [],
+    insertIds:   st.insertIds   ?? [],
+  };
 }
 
 function BuildCenter({
-  state, setState,
-}: { state: BuildState; setState: React.Dispatch<React.SetStateAction<BuildState>> }) {
-  const set = <K extends keyof BuildState>(key: K, val: BuildState[K]) =>
-    setState(prev => ({ ...prev, [key]: val }));
+  template, onUpdated, onCreateNew,
+}: {
+  template: PlatformPlannerConfig | null;
+  onUpdated: (t: PlatformPlannerConfig) => void;
+  onCreateNew: (t: PlatformPlannerConfig) => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
 
-  // Local section-add UI state
+  // ── Creation form state ──────────────────────────────────────────────────────
+  const [newName,      setNewName]      = useState("");
+  const [newEditionId, setNewEditionId] = useState("");
+
+  // ── Template-backed local state ──────────────────────────────────────────────
+  const isLocked = !!template?.generatedAt;
+  const [datingMode,    setDatingMode]    = useState<"dated" | "undated" | "perpetual">("dated");
+  const [weekStart,     setWeekStart]     = useState<"mon" | "sun">("mon");
+  const [orientation,   setOrientation]   = useState<"vertical" | "landscape">("vertical");
+  const [startMonth,    setStartMonth]    = useState(0);   // 0-indexed
+  const [startYear,     setStartYear]     = useState(new Date().getFullYear() + 1);
+  const [monthCount,    setMonthCount]    = useState(12);
+  const [themeId,       setThemeId]       = useState("");
+  const [paletteId,     setPaletteId]     = useState("");
+  const [tabPos,        setTabPos]        = useState<"right" | "top" | "bottom" | "none">("right");
+  const [sections,      setSections]      = useState<string[]>([]);
+  const [packIds,       setPackIds]       = useState<string[]>([]);
+  const [insertIds,     setInsertIds]     = useState<string[]>([]);
   const [addingSection, setAddingSection] = useState(false);
   const [sectionDraft,  setSectionDraft]  = useState("");
 
+  // Sync from template when template identity changes
+  useEffect(() => {
+    if (!template) return;
+    const s  = template.setup as any;
+    const st = template.style  as any;
+    setDatingMode(s.datingMode  ?? "dated");
+    setWeekStart(s.weekStart    ?? "mon");
+    setOrientation(s.orientation  ?? "vertical");
+    setStartMonth(s.startMonth   ?? 0);
+    setStartYear(s.startYear    ?? new Date().getFullYear() + 1);
+    setMonthCount(s.monthCount  ?? 12);
+    setThemeId(st.themeId    ?? "");
+    setPaletteId(st.paletteId  ?? "");
+    setTabPos(st.tabPos     ?? "right");
+    setSections(st.sections   ?? []);
+    setPackIds(st.packIds    ?? []);
+    setInsertIds(st.insertIds   ?? []);
+  }, [template?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Data queries ─────────────────────────────────────────────────────────────
   const { data: rawThemes = [] } = useQuery({
     queryKey: ["themes-mini"],
     queryFn:  () => catalogApi.themes(),
@@ -769,37 +802,67 @@ function BuildCenter({
   const themes = (rawThemes as any[]).filter(
     (t: any) => t.origin !== "owned" && !String(t.name ?? "").includes("— Auto palette"),
   );
+  const { data: packs     = [] } = useQuery({ queryKey: ["packs-mini"],    queryFn: () => catalogApi.packs(),    staleTime: 60_000 });
+  const { data: inserts   = [] } = useQuery({ queryKey: ["inserts-mini"],  queryFn: () => catalogApi.inserts(),  staleTime: 60_000 });
+  const { data: editions  = [] } = useQuery({ queryKey: ["editions-create"], queryFn: () => catalogApi.editions(), staleTime: 60_000 });
 
-  const { data: packs   = [] } = useQuery({ queryKey: ["packs-mini"],   queryFn: () => catalogApi.packs(),   staleTime: 60_000 });
-  const { data: inserts = [] } = useQuery({ queryKey: ["inserts-mini"], queryFn: () => catalogApi.inserts(), staleTime: 60_000 });
-
-  const generateMutation = useMutation({
-    mutationFn: () =>
-      apiFetch("/planners/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          editionId:        state.editionId,
-          startYear:        Number(state.startYear),
-          startMonth:       Number(state.startMonth),
-          endYear:          Number(state.endYear),
-          endMonth:         Number(state.endMonth),
-          paperSize:        state.paperSize,
-          weeklySpreadType: state.weeklyType,
-          themeId:          state.themeId   || undefined,
-          paletteId:        state.paletteId || undefined,
-          packIds:          state.packIds,
-          insertIds:        state.insertIds,
-          productIds:       state.productIds,
-        }),
-      }),
+  // ── Mutations ────────────────────────────────────────────────────────────────
+  const createMut = useMutation({
+    mutationFn: () => platformPlannersApi.create({
+      name: newName.trim(),
+      editionId: newEditionId || undefined,
+      setup: { weekStart: "mon", orientation: "vertical", startMonth: 0, startYear: new Date().getFullYear() + 1, monthCount: 12, datingMode: "dated" } as any,
+    }),
+    onSuccess: (t) => {
+      qc.invalidateQueries({ queryKey: ["platform-planners"] });
+      onCreateNew(t);
+      setNewName(""); setNewEditionId("");
+    },
+    onError: (err: Error) => toast({ title: "Create failed", description: err.message, variant: "destructive" }),
   });
 
-  // Derived helpers
-  const isDated     = state.datingMode === "dated";
-  const monthCount  = computeMonthCount(state.startYear, state.startMonth, state.endYear, state.endMonth);
-  const selTheme    = (themes as any[]).find((t: any) => t.id === state.themeId) ?? null;
+  const setupMut = useMutation({
+    mutationFn: () => platformPlannersApi.patch(template!.id, {
+      setup: { datingMode, weekStart, orientation, startMonth, startYear, monthCount } as any,
+    }),
+    onSuccess: (t) => { qc.invalidateQueries({ queryKey: ["platform-planners"] }); onUpdated(t); toast({ title: "Setup saved" }); },
+    onError: (err: Error) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+  });
+
+  const styleMut = useMutation({
+    mutationFn: () => platformPlannersApi.patch(template!.id, {
+      style: { themeId: themeId || null, paletteId: paletteId || null, tabPos, sections, packIds, insertIds } as any,
+    }),
+    onSuccess: (t) => { qc.invalidateQueries({ queryKey: ["platform-planners"] }); onUpdated(t); toast({ title: "Style saved" }); },
+    onError: (err: Error) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+  });
+
+  const generateMut = useMutation({
+    mutationFn: () => platformPlannersApi.generate(template!.id),
+    onSuccess: async (result) => {
+      qc.invalidateQueries({ queryKey: ["platform-planners"] });
+      const updated = await platformPlannersApi.get(template!.id);
+      onUpdated(updated);
+      toast({ title: "Generated", description: `${result.pageCount} pages · ${result.fileName}` });
+    },
+    onError: (err: Error) => toast({ title: "Generation failed", description: err.message, variant: "destructive" }),
+  });
+
+  const publishMut = useMutation({
+    mutationFn: () => platformPlannersApi.publish(template!.id),
+    onSuccess: (t) => { qc.invalidateQueries({ queryKey: ["platform-planners"] }); onUpdated(t); toast({ title: "Published to catalog" }); },
+    onError: (err: Error) => toast({ title: "Publish failed", description: err.message, variant: "destructive" }),
+  });
+
+  // ── Derived helpers ──────────────────────────────────────────────────────────
+  const isDated      = datingMode === "dated";
+  const selTheme     = (themes as any[]).find((t: any) => t.id === themeId) ?? null;
   const palettes: Array<{ id: string; name: string; colors: string[] }> = selTheme?.palettes ?? [];
+
+  // End month/year for consequence line (both 0-indexed)
+  const totalOffset  = startMonth + monthCount - 1;
+  const endYear      = startYear + Math.floor(totalOffset / 12);
+  const endMonth     = totalOffset % 12;
 
   const MONTHS_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   const MONTHS_ABB  = MONTHS_FULL.map(m => m.slice(0, 3));
@@ -831,13 +894,83 @@ function BuildCenter({
         : "bg-background text-muted-foreground border-border hover:text-foreground hover:border-foreground/30"
     }`;
 
+  // ── No template: creation form ────────────────────────────────────────────────
+  if (!template) {
+    return (
+      <div className="space-y-6 pb-8" style={{ minWidth: 0, maxWidth: 700 }}>
+        <div>
+          <h2 className="font-display font-semibold text-[17px] text-foreground leading-tight">
+            Start a new template
+          </h2>
+          <p className="text-[12.5px] text-muted-foreground mt-1 max-w-lg">
+            Platform templates are catalog assets — build once, let every store adopt them.
+          </p>
+        </div>
+
+        <div className="rounded-[16px] border overflow-hidden">
+          <div className="border-l-[3px] border-[#1B2A4A] p-6 space-y-5" style={{ background: PAPER_TINT }}>
+            <span className={BUILD_EYEBROW}>Template details</span>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-muted-foreground">Name *</label>
+                <input
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  placeholder="e.g. 2027 Full-Year Planner"
+                  onKeyDown={e => { if (e.key === "Enter" && newName.trim()) createMut.mutate(); }}
+                  className="w-full h-10 rounded-xl border border-border bg-background px-4 text-[13px] outline-none focus:border-foreground/40 transition-colors"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-muted-foreground">
+                  Edition <span className="text-muted-foreground/60">(optional — link later)</span>
+                </label>
+                <select
+                  value={newEditionId}
+                  onChange={e => setNewEditionId(e.target.value)}
+                  style={{ cursor: "pointer" }}
+                  className="w-full h-10 rounded-xl border border-border bg-background px-4 text-[13px] outline-none focus:border-foreground/40 transition-colors"
+                >
+                  <option value="">No edition yet</option>
+                  {(editions as any[])
+                    .filter((e: any) => e.status !== "deleted")
+                    .map((e: any) => (
+                      <option key={e.id} value={e.id}>{e.name ?? e.id}</option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <button
+              onClick={() => createMut.mutate()}
+              disabled={!newName.trim() || createMut.isPending}
+              style={{
+                cursor: !newName.trim() || createMut.isPending ? "not-allowed" : "pointer",
+                background: CHIP_ACTIVE_BG,
+              }}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-full text-white text-[13px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+            >
+              {createMut.isPending
+                ? <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                : <Plus className="w-4 h-4" />
+              }
+              Create template
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Full build UI ─────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5 pb-8" style={{ minWidth: 0, maxWidth: 700 }}>
 
       {/* Page header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="font-display font-semibold text-[17px] text-foreground leading-tight">Build a planner</h2>
+          <h2 className="font-display font-semibold text-[17px] text-foreground leading-tight">
+            {template.name}
+          </h2>
           <p className="text-[12.5px] text-muted-foreground mt-1 max-w-lg">
             Structure is set once. Everything else you can change and re-export later.
           </p>
@@ -852,13 +985,13 @@ function BuildCenter({
       </div>
 
       {/* Edition requirement notice */}
-      {!state.editionId && (
+      {!template.editionId && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
           <BookOpen className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
           <div>
             <p className="text-[13px] font-semibold text-amber-800">No edition linked yet</p>
             <p className={`${BUILD_CONSEQ} text-amber-700`}>
-              An edition defines the page layout and section order. Select one in the left rail before generating.
+              An edition defines the page layout and section order. Link one before generating.
             </p>
           </div>
         </div>
@@ -874,9 +1007,15 @@ function BuildCenter({
           <div className="space-y-1">
             <div className="flex items-center gap-3">
               <span className={BUILD_EYEBROW}>Set up once</span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                <LockIcon className="w-3 h-3" /> Locked after generating
-              </span>
+              {isLocked ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                  <LockIcon className="w-3 h-3" /> Locked — re-generate to change
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                  <LockIcon className="w-3 h-3" /> Locked after generating
+                </span>
+              )}
             </div>
             <p className={BUILD_CONSEQ}>
               These decide the page count and every internal link — they can't change without a fresh planner.
@@ -888,17 +1027,22 @@ function BuildCenter({
             <div className="flex items-center gap-2">
               <span className={BUILD_EYEBROW}>Dating</span>
               <span className="px-2 py-0.5 rounded-full bg-[#1B2A4A]/10 text-[#1B2A4A] text-[11px] font-semibold capitalize leading-none py-[3px]">
-                {state.datingMode}
+                {datingMode}
               </span>
             </div>
             <div className="flex gap-2 flex-wrap">
               {(["dated","undated","perpetual"] as const).map(v => (
-                <button key={v} onClick={() => set("datingMode", v)} className={pillCls(state.datingMode === v)}>
+                <button
+                  key={v} disabled={isLocked}
+                  onClick={() => !isLocked && setDatingMode(v)}
+                  className={pillCls(datingMode === v)}
+                  style={{ cursor: isLocked ? "not-allowed" : "pointer", opacity: isLocked ? 0.6 : 1 }}
+                >
                   {v.charAt(0).toUpperCase() + v.slice(1)}
                 </button>
               ))}
             </div>
-            <p className={BUILD_CONSEQ}>{datingConsequence[state.datingMode]}</p>
+            <p className={BUILD_CONSEQ}>{datingConsequence[datingMode]}</p>
           </div>
 
           {/* PRODUCT TYPE */}
@@ -927,7 +1071,12 @@ function BuildCenter({
               <span className={BUILD_EYEBROW}>Week starts</span>
               <div className="flex gap-1.5">
                 {(["mon","sun"] as const).map(v => (
-                  <button key={v} onClick={() => set("weekStart", v)} className={pillCls(state.weekStart === v)}>
+                  <button
+                    key={v} disabled={isLocked}
+                    onClick={() => !isLocked && setWeekStart(v)}
+                    className={pillCls(weekStart === v)}
+                    style={{ cursor: isLocked ? "not-allowed" : "pointer" }}
+                  >
                     {v === "mon" ? "Mon" : "Sun"}
                   </button>
                 ))}
@@ -938,8 +1087,13 @@ function BuildCenter({
             <div className="space-y-2">
               <span className={BUILD_EYEBROW}>Layout</span>
               <div className="flex gap-1.5">
-                {(["vertical","two-page"] as const).map(v => (
-                  <button key={v} onClick={() => set("weeklyType", v)} className={pillCls(state.weeklyType === v)}>
+                {(["vertical","landscape"] as const).map(v => (
+                  <button
+                    key={v} disabled={isLocked}
+                    onClick={() => !isLocked && setOrientation(v)}
+                    className={pillCls(orientation === v)}
+                    style={{ cursor: isLocked ? "not-allowed" : "pointer" }}
+                  >
                     {v === "vertical" ? "Vertical" : "2-page"}
                   </button>
                 ))}
@@ -951,30 +1105,22 @@ function BuildCenter({
               <span className={`${BUILD_EYEBROW} ${!isDated ? "opacity-40" : ""}`}>Starts</span>
               <div className="flex items-center gap-1">
                 <select
-                  disabled={!isDated}
-                  value={state.startMonth}
-                  onChange={e => {
-                    const sm = e.target.value;
-                    const { endYear, endMonth } = applyMonthCount(state.startYear, sm, monthCount);
-                    setState(prev => ({ ...prev, startMonth: sm, endYear, endMonth }));
-                  }}
+                  disabled={!isDated || isLocked}
+                  value={startMonth}
+                  onChange={e => setStartMonth(Number(e.target.value))}
                   className="h-8 rounded-lg border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-foreground/40 transition-colors disabled:opacity-40"
-                  style={{ cursor: isDated ? "pointer" : "not-allowed" }}
+                  style={{ cursor: isDated && !isLocked ? "pointer" : "not-allowed" }}
                 >
-                  {MONTHS_ABB.map((m, i) => <option key={i} value={String(i+1)}>{m}</option>)}
+                  {MONTHS_ABB.map((m, i) => <option key={i} value={i}>{m}</option>)}
                 </select>
                 <select
-                  disabled={!isDated}
-                  value={state.startYear}
-                  onChange={e => {
-                    const sy = e.target.value;
-                    const { endYear, endMonth } = applyMonthCount(sy, state.startMonth, monthCount);
-                    setState(prev => ({ ...prev, startYear: sy, endYear, endMonth }));
-                  }}
+                  disabled={!isDated || isLocked}
+                  value={startYear}
+                  onChange={e => setStartYear(Number(e.target.value))}
                   className="h-8 rounded-lg border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-foreground/40 transition-colors disabled:opacity-40 w-[72px]"
-                  style={{ cursor: isDated ? "pointer" : "not-allowed" }}
+                  style={{ cursor: isDated && !isLocked ? "pointer" : "not-allowed" }}
                 >
-                  {YEAR_SEL.map(y => <option key={y} value={String(y)}>{y}</option>)}
+                  {YEAR_SEL.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
               </div>
             </div>
@@ -984,25 +1130,19 @@ function BuildCenter({
               <span className={`${BUILD_EYEBROW} ${!isDated ? "opacity-40" : ""}`}>Months</span>
               <div className="flex items-center gap-0">
                 <button
-                  disabled={!isDated || monthCount <= 1}
-                  onClick={() => {
-                    const { endYear, endMonth } = applyMonthCount(state.startYear, state.startMonth, Math.max(1, monthCount - 1));
-                    setState(prev => ({ ...prev, endYear, endMonth }));
-                  }}
+                  disabled={!isDated || isLocked || monthCount <= 1}
+                  onClick={() => setMonthCount(Math.max(1, monthCount - 1))}
                   className="h-8 w-7 rounded-l-lg border border-r-0 text-[13px] font-medium flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  style={{ cursor: isDated && monthCount > 1 ? "pointer" : "not-allowed" }}
+                  style={{ cursor: isDated && !isLocked && monthCount > 1 ? "pointer" : "not-allowed" }}
                 >−</button>
                 <div className="h-8 w-10 border text-[13px] font-medium flex items-center justify-center bg-background">
                   {isDated ? monthCount : "—"}
                 </div>
                 <button
-                  disabled={!isDated || monthCount >= 24}
-                  onClick={() => {
-                    const { endYear, endMonth } = applyMonthCount(state.startYear, state.startMonth, Math.min(24, monthCount + 1));
-                    setState(prev => ({ ...prev, endYear, endMonth }));
-                  }}
+                  disabled={!isDated || isLocked || monthCount >= 24}
+                  onClick={() => setMonthCount(Math.min(24, monthCount + 1))}
                   className="h-8 w-7 rounded-r-lg border border-l-0 text-[13px] font-medium flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  style={{ cursor: isDated && monthCount < 24 ? "pointer" : "not-allowed" }}
+                  style={{ cursor: isDated && !isLocked && monthCount < 24 ? "pointer" : "not-allowed" }}
                 >+</button>
               </div>
             </div>
@@ -1011,9 +1151,27 @@ function BuildCenter({
           {/* Row consequence */}
           <p className={`${BUILD_CONSEQ} -mt-3`}>
             {isDated
-              ? `${state.weekStart === "mon" ? "Monday" : "Sunday"}-start ${state.weeklyType === "vertical" ? "vertical" : "2-page spread"} · ${MONTHS_FULL[Number(state.startMonth)-1]} ${state.startYear} → ${MONTHS_FULL[Number(state.endMonth)-1]} ${state.endYear} · ${monthCount} ${monthCount === 1 ? "month" : "months"}.`
-              : `${state.weekStart === "mon" ? "Monday" : "Sunday"}-start ${state.weeklyType === "vertical" ? "vertical" : "2-page spread"} · no fixed dates.`}
+              ? `${weekStart === "mon" ? "Monday" : "Sunday"}-start ${orientation === "vertical" ? "vertical" : "2-page spread"} · ${MONTHS_FULL[startMonth]} ${startYear} → ${MONTHS_FULL[endMonth]} ${endYear} · ${monthCount} ${monthCount === 1 ? "month" : "months"}.`
+              : `${weekStart === "mon" ? "Monday" : "Sunday"}-start ${orientation === "vertical" ? "vertical" : "2-page spread"} · no fixed dates.`}
           </p>
+
+          {/* Save setup */}
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              onClick={() => setupMut.mutate()}
+              disabled={isLocked || setupMut.isPending}
+              style={{ cursor: isLocked || setupMut.isPending ? "not-allowed" : "pointer", background: CHIP_ACTIVE_BG }}
+              className="flex items-center gap-2 px-5 py-2 rounded-full text-white text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+            >
+              {setupMut.isPending
+                ? <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                : <Check className="w-3.5 h-3.5" />
+              }
+              {isLocked ? "Locked" : "Save setup"}
+            </button>
+            {setupMut.isSuccess && <StatusPill label="Setup saved" kind="success" />}
+            {setupMut.isError   && <StatusPill label="Save failed"  kind="error" />}
+          </div>
 
         </div>
       </div>
@@ -1042,9 +1200,9 @@ function BuildCenter({
             <span className={BUILD_EYEBROW}>Theme &amp; Palette</span>
             <div className="flex gap-1.5 flex-wrap">
               <button
-                onClick={() => setState(prev => ({ ...prev, themeId: "", themeName: "None", paletteId: "" }))}
+                onClick={() => { setThemeId(""); setPaletteId(""); }}
                 style={{ cursor: "pointer" }}
-                className={pillCls(state.themeId === "")}
+                className={pillCls(themeId === "")}
               >
                 No theme
               </button>
@@ -1053,10 +1211,11 @@ function BuildCenter({
                   key={t.id}
                   onClick={() => {
                     const primary = (t.palettes ?? []).find((p: any) => p.isPrimary) ?? (t.palettes ?? [])[0];
-                    setState(prev => ({ ...prev, themeId: t.id, themeName: t.name, paletteId: primary?.id ?? "" }));
+                    setThemeId(t.id);
+                    setPaletteId(primary?.id ?? "");
                   }}
-                  style={{ cursor: "pointer", ...(state.themeId === t.id ? { background: CHIP_ACTIVE_BG } : {}) }}
-                  className={pillCls(state.themeId === t.id)}
+                  style={{ cursor: "pointer", ...(themeId === t.id ? { background: CHIP_ACTIVE_BG } : {}) }}
+                  className={pillCls(themeId === t.id)}
                 >
                   {t.name}
                 </button>
@@ -1064,16 +1223,16 @@ function BuildCenter({
             </div>
 
             {/* Palette swatches */}
-            {state.themeId && palettes.length > 0 && (
+            {themeId && palettes.length > 0 && (
               <div className="flex flex-wrap gap-2 pt-0.5">
                 {palettes.map((pal) => (
                   <button
                     key={pal.id}
-                    onClick={() => set("paletteId", pal.id)}
+                    onClick={() => setPaletteId(pal.id)}
                     title={pal.name}
                     style={{ cursor: "pointer" }}
                     className={`flex flex-col items-center gap-1 p-1.5 rounded-xl border transition-all ${
-                      state.paletteId === pal.id
+                      paletteId === pal.id
                         ? "border-[#1B2A4A] ring-1 ring-[#1B2A4A]/20"
                         : "border-border hover:border-foreground/40"
                     }`}
@@ -1096,17 +1255,17 @@ function BuildCenter({
             <div className="flex items-center justify-between">
               <span className={BUILD_EYEBROW}>Tabs</span>
               <span className="text-[11.5px] text-muted-foreground">
-                {state.tabPos === "right" ? "side tabs" : state.tabPos === "top" ? "top tabs" : state.tabPos === "bottom" ? "bottom tabs" : "no tabs"}
+                {tabPos === "right" ? "side tabs" : tabPos === "top" ? "top tabs" : tabPos === "bottom" ? "bottom tabs" : "no tabs"}
               </span>
             </div>
             <div className="flex gap-2 flex-wrap">
               {([["right","Side"],["top","Top"],["bottom","Bottom"],["none","Home only"]] as const).map(([v, label]) => (
-                <button key={v} onClick={() => set("tabPos", v as BuildState["tabPos"])} className={pillCls(state.tabPos === v)}>
+                <button key={v} onClick={() => setTabPos(v as "right" | "top" | "bottom" | "none")} className={pillCls(tabPos === v)}>
                   {label}
                 </button>
               ))}
             </div>
-            <p className={BUILD_CONSEQ}>{tabConsequence[state.tabPos]}</p>
+            <p className={BUILD_CONSEQ}>{tabConsequence[tabPos]}</p>
           </div>
 
           {/* FONTS */}
@@ -1123,7 +1282,7 @@ function BuildCenter({
               </div>
             ) : (
               <p className="text-[12.5px] text-muted-foreground">
-                {themes.length === 0 ? "Set a theme above to see its font pairing." : state.themeId ? "The selected theme has no font pairing set." : "Select a theme above to see its font pairing."}
+                {themes.length === 0 ? "Set a theme above to see its font pairing." : themeId ? "The selected theme has no font pairing set." : "Select a theme above to see its font pairing."}
               </p>
             )}
             <p className={BUILD_CONSEQ}>Heading and body fonts apply throughout — covers, section titles, and day labels.</p>
@@ -1135,7 +1294,7 @@ function BuildCenter({
               <div className="flex items-center gap-2">
                 <span className={BUILD_EYEBROW}>Note sections</span>
                 <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                  {state.sections.length} OF 10
+                  {sections.length} OF 10
                 </span>
               </div>
               <button
@@ -1146,17 +1305,17 @@ function BuildCenter({
               </button>
             </div>
             <div className="flex flex-wrap gap-1.5 items-center">
-              {state.sections.map((s, i) => (
+              {sections.map((s, i) => (
                 <span key={i} className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full text-[12.5px] border bg-background">
                   {s}
                   <button
-                    onClick={() => set("sections", state.sections.filter((_, j) => j !== i))}
+                    onClick={() => setSections(sections.filter((_, j) => j !== i))}
                     style={{ cursor: "pointer" }}
                     className="w-4 h-4 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-[11px]"
                   >×</button>
                 </span>
               ))}
-              {state.sections.length < 10 && !addingSection && (
+              {sections.length < 10 && !addingSection && (
                 <button
                   onClick={() => setAddingSection(true)}
                   style={{ cursor: "pointer" }}
@@ -1173,7 +1332,7 @@ function BuildCenter({
                     onChange={e => setSectionDraft(e.target.value)}
                     onKeyDown={e => {
                       if (e.key === "Enter" && sectionDraft.trim()) {
-                        set("sections", [...state.sections, sectionDraft.trim()]);
+                        setSections([...sections, sectionDraft.trim()]);
                         setSectionDraft(""); setAddingSection(false);
                       }
                       if (e.key === "Escape") { setSectionDraft(""); setAddingSection(false); }
@@ -1183,7 +1342,7 @@ function BuildCenter({
                   />
                   <button
                     onClick={() => {
-                      if (sectionDraft.trim()) set("sections", [...state.sections, sectionDraft.trim()]);
+                      if (sectionDraft.trim()) setSections([...sections, sectionDraft.trim()]);
                       setSectionDraft(""); setAddingSection(false);
                     }}
                     style={{ cursor: "pointer" }}
@@ -1205,7 +1364,7 @@ function BuildCenter({
             ) : (
               <MultiChipRow
                 options={(packs as any[]).map((p: any) => ({ value: p.id, label: p.name }))}
-                value={state.packIds} onChange={v => set("packIds", v)}
+                value={packIds} onChange={setPackIds}
               />
             )}
             <p className={BUILD_CONSEQ}>Sticker packs add decorative clip-art sheets after the planner pages.</p>
@@ -1221,10 +1380,28 @@ function BuildCenter({
             ) : (
               <MultiChipRow
                 options={(inserts as any[]).map((i: any) => ({ value: i.id, label: i.name }))}
-                value={state.insertIds} onChange={v => set("insertIds", v)}
+                value={insertIds} onChange={setInsertIds}
               />
             )}
             <p className={BUILD_CONSEQ}>Inserts add bonus pages — habit trackers, goal sheets, reading logs — between planner sections.</p>
+          </div>
+
+          {/* Save style */}
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              onClick={() => styleMut.mutate()}
+              disabled={styleMut.isPending}
+              style={{ cursor: styleMut.isPending ? "not-allowed" : "pointer", background: CLAY, color: "#fff" }}
+              className="flex items-center gap-2 px-5 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+            >
+              {styleMut.isPending
+                ? <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                : <Check className="w-3.5 h-3.5" />
+              }
+              Save style
+            </button>
+            {styleMut.isSuccess && <StatusPill label="Style saved" kind="success" />}
+            {styleMut.isError   && <StatusPill label="Save failed"  kind="error" />}
           </div>
 
         </div>
@@ -1240,7 +1417,7 @@ function BuildCenter({
           {[
             { label: "Hyperlinked contents page", sub: "Every section and month, one tap away", badge: "Included", ok: true },
             { label: "Getting-started guide (PDF)", sub: "Written in your brand voice by Claude", badge: "Included", ok: true },
-            { label: "Sticker packs bundled", sub: state.packIds.length > 0 ? `${state.packIds.length} pack${state.packIds.length > 1 ? "s" : ""} attached` : "Attach packs above", badge: "Optional", ok: false },
+            { label: "Sticker packs bundled", sub: packIds.length > 0 ? `${packIds.length} pack${packIds.length > 1 ? "s" : ""} attached` : "Attach packs above", badge: "Optional", ok: false },
             { label: "Calendar starter file", sub: "Pre-built events — coming in v2", badge: "v2", ok: false },
           ].map(item => (
             <div key={item.label} className="flex items-start gap-2.5 p-3 rounded-xl border border-border bg-background">
@@ -1259,35 +1436,41 @@ function BuildCenter({
         </div>
       </div>
 
-      {/* Generate */}
-      <div className="flex items-center gap-3 pt-1">
+      {/* Generate + Publish */}
+      <div className="flex items-center gap-3 flex-wrap pt-1">
         <button
-          onClick={() => generateMutation.mutate()}
-          disabled={!state.editionId || generateMutation.isPending}
+          onClick={() => generateMut.mutate()}
+          disabled={!template.editionId || generateMut.isPending}
           style={{
-            cursor: !state.editionId || generateMutation.isPending ? "not-allowed" : "pointer",
+            cursor: !template.editionId || generateMut.isPending ? "not-allowed" : "pointer",
             background: CHIP_ACTIVE_BG,
           }}
           className="flex items-center gap-2 px-6 py-2.5 rounded-full text-white text-[13px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
         >
-          {generateMutation.isPending ? (
-            <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-          ) : (
-            <Download className="w-4 h-4" />
-          )}
-          Generate planner
+          {generateMut.isPending
+            ? <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+            : <Download className="w-4 h-4" />
+          }
+          {template.drive.pdfFileId ? "Re-generate" : "Generate planner"}
         </button>
         <button
-          style={{ cursor: "pointer" }}
-          className="px-5 py-2.5 rounded-full text-[13px] font-semibold border border-border bg-background hover:bg-muted transition-colors"
+          onClick={() => publishMut.mutate()}
+          disabled={!template.drive.pdfFileId || template.status === "published" || publishMut.isPending}
+          style={{ cursor: !template.drive.pdfFileId || template.status === "published" ? "not-allowed" : "pointer", borderColor: CLAY, color: CLAY }}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-full text-[13px] font-semibold border border-current bg-background disabled:opacity-40 hover:opacity-80 transition-opacity"
         >
-          Save draft
+          {publishMut.isPending
+            ? <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
+            : <Globe className="w-4 h-4" />
+          }
+          {template.status === "published" ? "Published ✓" : "Publish to catalog"}
         </button>
-        {!state.editionId && (
-          <p className="text-[11.5px] text-muted-foreground">Select an edition in the left rail first</p>
+        {!template.editionId && (
+          <p className="text-[11.5px] text-muted-foreground">Link an edition before generating</p>
         )}
-        {generateMutation.isSuccess && <StatusPill label="Saved to Drive" kind="success" />}
-        {generateMutation.isError   && <StatusPill label="Generation failed" kind="error" />}
+        {generateMut.isSuccess && <StatusPill label="Saved to Drive" kind="success" />}
+        {generateMut.isError   && <StatusPill label="Generation failed" kind="error" />}
+        {publishMut.isSuccess  && <StatusPill label="Published" kind="success" />}
       </div>
     </div>
   );
@@ -2534,7 +2717,24 @@ export default function PlannerStudioHub() {
 
   const setMode = (id: string) => navigate(`/studios/planner?mode=${id}`);
 
-  const [buildState, setBuildState] = useState<BuildState>(DEFAULT_BUILD);
+  // ── Platform template state ─────────────────────────────────────────────────
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+
+  const { data: platformPlanners = [], isLoading: templatesLoading } = useQuery({
+    queryKey: ["platform-planners"],
+    queryFn:  () => platformPlannersApi.list(),
+    staleTime: 30_000,
+  });
+  const selectedTemplate = (platformPlanners as PlatformPlannerConfig[]).find(
+    t => t.id === selectedTemplateId,
+  ) ?? null;
+
+  const handleTemplateUpdated = useCallback((t: PlatformPlannerConfig) => {
+    setSelectedTemplateId(t.id);
+  }, []);
+  const handleTemplateCreated = useCallback((t: PlatformPlannerConfig) => {
+    setSelectedTemplateId(t.id);
+  }, []);
 
   // Editions filters
   const [editionTier,        setEditionTier]        = useState("all");
@@ -2542,28 +2742,10 @@ export default function PlannerStudioHub() {
   const [editionProductType, setEditionProductType] = useState(params.get("productType") ?? "all");
   const [showCreate,         setShowCreate]         = useState(false);
 
-  const applyPreset = (preset: Preset) => {
-    setBuildState(prev => ({ ...prev, ...preset.state }));
-  };
-
-  // ── Gap 2: Editions query for productType sync ──────────────────────────────
-  const { data: _hubEditions = [] } = useQuery({
-    queryKey: ["editions"],
-    queryFn:  () => catalogApi.editions(),
-    staleTime: 30_000,
-  });
-  useEffect(() => {
-    if (!buildState.editionId) return;
-    const ed = (_hubEditions as any[]).find((e: any) => e.id === buildState.editionId);
-    const pt: string = ed?.productType ?? "planner";
-    if (pt !== buildState.productType) {
-      setBuildState(prev => ({ ...prev, productType: pt }));
-    }
-  }, [buildState.editionId, _hubEditions]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Mode gating — planner-only modes hidden for non-planner product types ──
   const PLANNER_ONLY = new Set<ModeId>(["build", "paper"]);
-  const visibleModes = (buildState.productType && buildState.productType !== "planner")
+  const _productType = selectedTemplate?.productType ?? "planner";
+  const visibleModes = (_productType && _productType !== "planner")
     ? MODES.filter(m => !PLANNER_ONLY.has(m.id))
     : [...MODES];
 
@@ -2572,17 +2754,17 @@ export default function PlannerStudioHub() {
     ? mode as ModeId
     : (visibleModes[0]?.id ?? "editions") as ModeId;
 
-  // ── Left rail: ALWAYS the unified rail ─────────────────────────────────────
+  // ── Left rail ────────────────────────────────────────────────────────────────
   const leftRail = (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto" style={THIN_SCROLL}>
-        <div className="p-4 space-y-5">
-          <UnifiedRail
-            buildState={buildState}
-            onApplyPreset={applyPreset}
-            onNewEdition={() => setMode("editions")}
-          />
-        </div>
+        <PlatformTemplateRail
+          templates={platformPlanners as PlatformPlannerConfig[]}
+          selectedId={selectedTemplateId}
+          onSelect={setSelectedTemplateId}
+          onNew={() => { setSelectedTemplateId(null); setMode("build"); }}
+          loading={templatesLoading}
+        />
       </div>
       {/* Mode-specific filter section for editions */}
       {validMode === "editions" && (
@@ -2637,11 +2819,11 @@ export default function PlannerStudioHub() {
   // Update preview content separately — only build mode shows the PDF preview
   useEffect(() => {
     setAiContext({
-      previewContent: validMode === "build"
-        ? <PdfPreviewDock buildState={buildState} />
+      previewContent: validMode === "build" && selectedTemplate
+        ? <PdfPreviewDock buildState={templateToBuildState(selectedTemplate)} />
         : null,
     });
-  }, [validMode, buildState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [validMode, selectedTemplate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Primary action (top bar) ────────────────────────────────────────────────
   const primaryAction = (() => {
@@ -2654,10 +2836,10 @@ export default function PlannerStudioHub() {
     }
     if (validMode === "build") {
       return {
-        label: "Generate",
+        label: selectedTemplate ? "Generate" : "New template",
         icon: <Download className="w-3.5 h-3.5" />,
         onClick: () => {},
-        disabled: !buildState.editionId,
+        disabled: !selectedTemplate?.editionId,
       };
     }
     return undefined;
@@ -2665,7 +2847,13 @@ export default function PlannerStudioHub() {
 
   // ── Center content ──────────────────────────────────────────────────────────
   const center = (() => {
-    if (validMode === "build")    return <BuildCenter state={buildState} setState={setBuildState} />;
+    if (validMode === "build")    return (
+      <BuildCenter
+        template={selectedTemplate}
+        onUpdated={handleTemplateUpdated}
+        onCreateNew={handleTemplateCreated}
+      />
+    );
     if (validMode === "editions") return (
       <EditionsListInStudio
         tier={editionTier}

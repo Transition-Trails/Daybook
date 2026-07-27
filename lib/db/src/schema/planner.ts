@@ -134,6 +134,45 @@ export const plannerConfigsTable = pgTable("planner_configs", {
 export type PlannerConfig = typeof plannerConfigsTable.$inferSelect;
 export type InsertPlannerConfig = typeof plannerConfigsTable.$inferInsert;
 
+// ── PLATFORM PLANNER TEMPLATES ────────────────────────────────────────────────
+// Platform-scoped planner templates that become catalog assets.
+// No storeId or userId — owned by the platform, publishable to all stores.
+
+export const platformPlannerTemplatesTable = pgTable("platform_planner_templates", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  description: text("description"),
+  /** draft → published → archived */
+  status: text("status").notNull().default("draft"),
+  editionId: text("edition_id"),
+  productType: text("product_type").notNull().default("planner"),
+  setup: jsonb("setup")
+    .notNull()
+    .default({ weekStart: "mon", orientation: "vertical", startMonth: 0, startYear: 2027, monthCount: 12, datingMode: "dated" })
+    .$type<PlannerSetup>(),
+  style: jsonb("style").notNull().default({}).$type<PlannerStyle>(),
+  output: jsonb("output")
+    .notNull()
+    .default({ calMode: "none", eventMins: 60, aiInPdf: false })
+    .$type<PlannerOutput>(),
+  drive: jsonb("drive")
+    .notNull()
+    .default({ pdfFileId: null, configFileId: null })
+    .$type<PlannerDrive>(),
+  generatedAt: timestamp("generated_at", { withTimezone: true }),
+  publishedAt:  timestamp("published_at",  { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type PlatformPlannerTemplate = typeof platformPlannerTemplatesTable.$inferSelect;
+export type InsertPlatformPlannerTemplate = typeof platformPlannerTemplatesTable.$inferInsert;
+
 export const generationJobsTable = pgTable("generation_jobs", {
   id: text("id")
     .primaryKey()

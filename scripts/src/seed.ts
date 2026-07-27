@@ -65,8 +65,8 @@ async function main() {
   await db
     .insert(themesTable)
     .values([
-      { id: "t1", name: "Terracotta", colors: ["#b75d3f","#a04a30","#c98a2b","#7d8a6a","#2c2822","#f4efe6"], price: 0, status: "live", createdBy: "seed", origin: "starter" },
-      { id: "t2", name: "Sage Calm",  colors: ["#5f7a5a","#49624a","#8a9a76","#c2b280","#2a322a","#eef1e9"], price: 0, status: "live", createdBy: "seed", origin: "starter" },
+      { id: "t1", name: "Terracotta", colors: ["#b75d3f","#a04a30","#c98a2b","#7d8a6a","#2c2822","#f4efe6"], price: 0, status: "live", createdBy: "seed", origin: "starter", fontPairing: { heading: "Playfair Display", body: "Lora" } },
+      { id: "t2", name: "Sage Calm",  colors: ["#5f7a5a","#49624a","#8a9a76","#c2b280","#2a322a","#eef1e9"], price: 0, status: "live", createdBy: "seed", origin: "starter", fontPairing: { heading: "Lora", body: "Lora" } },
       { id: "t3", name: "Ocean",      colors: ["#2f7d8c","#1f5f6c","#5f97a0","#c98a2b","#22333b","#edf3f4"], price: 4, status: "draft", createdBy: "seed", origin: "licensed" },
       { id: "t4", name: "Sunrise",    colors: ["#e07a4a","#c25f30","#f2c14e","#8ab6a6","#3a2e26","#fcf3ea"], price: 4, status: "live", createdBy: "seed", origin: "licensed" },
       { id: "t5", name: "Plum",       colors: ["#8a5a8f","#6e4472","#9a7aa0","#c2a15e","#2f2833","#f3eef4"], price: 5, status: "draft", createdBy: "seed", origin: "licensed" },
@@ -74,7 +74,7 @@ async function main() {
     ])
     .onConflictDoUpdate({
       target: themesTable.id,
-      set: { origin: themesTable.origin },
+      set: { origin: themesTable.origin, fontPairing: themesTable.fontPairing },
     });
   console.log("  ✓ themes (6): t1,t2=starter  t3–t6=licensed");
 

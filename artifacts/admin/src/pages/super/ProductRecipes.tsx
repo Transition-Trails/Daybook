@@ -8,6 +8,7 @@
  */
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import {
   Plus, Pencil, ChevronRight, BookOpen, FlaskConical, Info,
   Layers2, CalendarDays, ArrowRight, CheckCircle2, Clock, Archive,
@@ -440,8 +441,9 @@ function RecipeDrawer({
 export default function ProductRecipesPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [editing, setEditing]       = useState<ProductRecipe | null | "new">(undefined as any);
-  const drawerOpen = editing !== undefined;
+  const drawerOpen = editing !== undefined && editing !== null && editing !== "new" as any;
 
   const { data: recipes = [], isLoading, error, refetch } = useQuery({
     queryKey: ["platform-recipes"],
@@ -530,7 +532,7 @@ export default function ProductRecipesPage() {
             </p>
           </div>
           <button
-            onClick={() => setEditing(null)}
+            onClick={() => navigate("/super/recipes/new")}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white"
             style={{ background: CLAY }}
           >

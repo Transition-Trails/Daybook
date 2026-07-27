@@ -21,15 +21,39 @@ export interface FontPairing {
 // ── Font-loader hook ──────────────────────────────────────────────────────────
 
 /**
+ * Inject Google Fonts preconnect hints once so the browser opens the TCP
+ * connection before the stylesheet <link> is inserted.
+ */
+function ensureGoogleFontsPreconnect() {
+  if (document.getElementById("gf-preconnect-api")) return;
+  const pc1 = document.createElement("link");
+  pc1.id   = "gf-preconnect-api";
+  pc1.rel  = "preconnect";
+  pc1.href = "https://fonts.googleapis.com";
+  document.head.appendChild(pc1);
+
+  const pc2 = document.createElement("link");
+  pc2.id          = "gf-preconnect-static";
+  pc2.rel         = "preconnect";
+  pc2.href        = "https://fonts.gstatic.com";
+  pc2.crossOrigin = "anonymous";
+  document.head.appendChild(pc2);
+}
+
+/**
  * Injects a Google Fonts CSS2 stylesheet for the given families into
  * <head> (idempotent — won't add the same stylesheet twice).
  * Returns `true` once the stylesheet has loaded or settled.
+ *
+ * Exported so other components can reuse the loader without duplicating
+ * the injection logic.
  */
-function useFontLoader(families: string[]): boolean {
+export function useFontLoader(families: string[]): boolean {
   const relevant = families.filter(Boolean);
   const [loaded, setLoaded] = useState(relevant.length === 0);
 
   useEffect(() => {
+    ensureGoogleFontsPreconnect();
     if (!relevant.length) { setLoaded(true); return; }
 
     const id = `gf-specimen-${relevant
@@ -43,15 +67,15 @@ function useFontLoader(families: string[]): boolean {
     link.id   = id;
     link.rel  = "stylesheet";
     link.href = `https://fonts.googleapis.com/css2?${relevant
-      .map((f) => `family=${encodeURIComponent(f)}:wght@400;700`)
+      .map((f) => `family=${encodeURIComponent(f)}:wght@400;600;700`)
       .join("&")}&display=swap`;
 
     let settled = false;
     const settle = () => { if (!settled) { settled = true; setLoaded(true); } };
 
-    // Resolve after 1 s even if the load event never fires (strict CSP, network
+    // Resolve after 2 s even if the load event never fires (strict CSP, network
     // timeout, etc.) so the UI never stays in skeleton state forever.
-    const timer = setTimeout(settle, 1000);
+    const timer = setTimeout(settle, 2000);
 
     link.addEventListener("load",  settle);
     link.addEventListener("error", settle);

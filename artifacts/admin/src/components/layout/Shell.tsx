@@ -236,44 +236,74 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {/* Collapse toggle — left side of header */}
           <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
           <div className="flex-1" />
-          {/* Single ✦ AI pill — the only AI entry point for all catalog pages */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={openAssistant}
-              style={{
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                padding: "4px 12px",
-                borderRadius: 20,
-                fontSize: 12,
-                fontWeight: 600,
-                background: "rgba(200,117,96,0.13)",
-                color: "#C87560",
-                border: "1px solid rgba(200,117,96,0.28)",
-                transition: "background 140ms",
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(200,117,96,0.22)"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(200,117,96,0.13)"; }}
-            >
-              ✦ AI
-            </button>
-            <span
-              className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium"
-              style={{
-                background: "hsl(35 52% 94%)",
-                borderColor: "hsl(37 37% 85%)",
-                color: "hsl(216 27% 40%)",
-              }}
-            >
-              Platform catalog
-            </span>
-          </div>
+          {/*
+            ✦ AI pill — shown on non-studio pages only.
+            Studio pages (StudioLayout) render their own AI toggle in the studio
+            top bar; showing both creates a duplicate. The shell pill is the entry
+            point for catalog / platform pages; studios own theirs.
+          */}
+          {!location.startsWith("/studios") && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={openAssistant}
+                style={{
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "4px 12px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: "rgba(200,117,96,0.13)",
+                  color: "#C87560",
+                  border: "1px solid rgba(200,117,96,0.28)",
+                  transition: "background 140ms",
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(200,117,96,0.22)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(200,117,96,0.13)"; }}
+              >
+                ✦ AI
+              </button>
+              <span
+                className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium"
+                style={{
+                  background: "hsl(35 52% 94%)",
+                  borderColor: "hsl(37 37% 85%)",
+                  color: "hsl(216 27% 40%)",
+                }}
+              >
+                Platform catalog
+              </span>
+            </div>
+          )}
         </header>
-        <div className="flex-1 overflow-auto p-8">
-          <div className="max-w-6xl mx-auto">{children}</div>
-        </div>
+        {/*
+          Content wrapper — two modes:
+          · Studio pages: overflow-hidden, no padding, no max-width. StudioLayout
+            owns both scroll and height via its own internal flex structure.
+            The studio's -mx-8 -mt-8 trick compensates for p-8; removing the
+            padding here also removes that need, but keeping overflow-hidden is
+            what truly eliminates the outer scrollbar.
+          · All other pages: scrollable, padded, constrained to max-w-6xl.
+        */}
+        {location.startsWith("/studios") ? (
+          /*
+           * Studio pages: keep p-8 on top+sides so StudioLayout's -mx-8 -mt-8
+           * bleed-out still cancels the padding correctly, but strip bottom padding
+           * (the -mb-8 is missing from StudioLayout because the bottom never needs
+           * compensating — the studio body has an explicit viewport-anchored height).
+           * overflow-hidden kills the outer scrollbar; the studio center has its
+           * own overflow-y-auto scroll context.
+           */
+          <div className="flex-1 overflow-hidden pt-8 px-8">
+            {children}
+          </div>
+        ) : (
+          <div className="flex-1 overflow-auto p-8">
+            <div className="max-w-6xl mx-auto">{children}</div>
+          </div>
+        )}
       </main>
     </SidebarProvider>
   );

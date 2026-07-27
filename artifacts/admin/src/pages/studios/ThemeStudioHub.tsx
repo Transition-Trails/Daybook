@@ -21,6 +21,7 @@ import { StudioLayout } from "@/components/studio/StudioLayout";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
 import { aiApi } from "@/lib/ai";
 import { apiFetch } from "@/lib/api";
+import { useFontLoader } from "@/components/FontSpecimenCard";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const CLAY         = "#C87560";  // clay / primary – used for CTA buttons, glyphs
@@ -284,6 +285,135 @@ function PartCard({ item, slotId, state, onAttach, onRemove }: PartCardProps) {
   );
 }
 
+// ─── Font-specific part card ──────────────────────────────────────────────────
+// Loads the Google Font for item.name so the "Aa" specimen tile and the part
+// name label actually render in the correct typeface.
+
+function FontPartCard({ item, state, onAttach, onRemove }: PartCardProps) {
+  const loaded      = useFontLoader([item.name]);
+  const borderColor = state === "attached"  ? ATTACHED_BORDER
+                    : state === "suggested" ? SUGGESTED_BORDER
+                    : "#E4DDD5";
+  const isAttached  = state === "attached";
+  const isSuggested = state === "suggested";
+
+  return (
+    <div
+      className="rounded-lg p-3 bg-white flex flex-col gap-2 transition-shadow hover:shadow-sm"
+      style={{ border: `1.5px solid ${borderColor}` }}
+    >
+      <div className="flex items-center gap-2">
+        {/* 44 × 44 specimen tile — "Aa" in the actual typeface */}
+        <div
+          className="shrink-0 flex items-center justify-center"
+          style={{
+            width:      44,
+            height:     44,
+            borderRadius: 8,
+            background: CANVAS_BG,
+            border:     "1px solid #E4DDD5",
+            fontFamily: `'${item.name}', Georgia, serif`,
+            fontSize:   19,
+            fontWeight: 600,
+            color:      INK_NAVY,
+            opacity:    loaded ? 1 : 0.35,
+            transition: "opacity 200ms",
+          }}
+          aria-hidden
+        >
+          Aa
+        </div>
+
+        <div className="flex-1 min-w-0">
+          {/* Part name in the heading face */}
+          <p
+            className="leading-tight truncate"
+            style={{
+              fontFamily: `'${item.name}', Georgia, serif`,
+              fontSize:   14,
+              fontWeight: 600,
+              color:      INK_NAVY,
+            }}
+          >
+            {item.name}
+          </p>
+          {item.kind && (
+            <p
+              className="capitalize"
+              style={{
+                fontFamily: `'${item.name}', system-ui, sans-serif`,
+                fontSize:   10,
+                color:      "#9CA3AF",
+              }}
+            >
+              {item.kind}
+            </p>
+          )}
+        </div>
+
+        {isAttached && (
+          <span
+            className="text-[9px] font-semibold tracking-wide px-1.5 py-0.5 rounded-full shrink-0"
+            style={{ background: "#DCFCE7", color: "#16A34A" }}
+          >
+            IN THEME
+          </span>
+        )}
+        {isSuggested && (
+          <span
+            className="text-[9px] font-semibold tracking-wide px-1.5 py-0.5 rounded-full shrink-0"
+            style={{ background: `${CLAY}22`, color: CLAY }}
+          >
+            ✦ AI PICK
+          </span>
+        )}
+      </div>
+
+      {isAttached ? (
+        <button
+          onClick={() => onRemove(item.id)}
+          className="w-full text-[11px] py-1 rounded border transition-colors"
+          style={{ borderColor: "#E4DDD5", color: "#6B7280" }}
+        >
+          Remove
+        </button>
+      ) : (
+        <button
+          onClick={() => onAttach(item.id)}
+          className="w-full text-[11px] py-1 rounded transition-colors text-white font-medium"
+          style={{ background: isSuggested ? CLAY : INK_NAVY }}
+        >
+          {isSuggested ? "✦ Add suggested" : "Add to theme"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Bundle-summary font row ──────────────────────────────────────────────────
+// Shows the font family name in its own typeface inside the theme preview panel.
+
+function BundleFontRow({ familyName }: { familyName: string }) {
+  const loaded = useFontLoader([familyName]);
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] text-muted-foreground w-14 shrink-0">Font</span>
+      <span
+        style={{
+          fontFamily: `'${familyName}', Georgia, serif`,
+          fontSize:   12,
+          fontWeight: 500,
+          color:      INK_NAVY,
+          opacity:    loaded ? 1 : 0.4,
+          transition: "opacity 200ms",
+        }}
+      >
+        {familyName}
+      </span>
+    </div>
+  );
+}
+
 // ─── Suggestion banner ────────────────────────────────────────────────────────
 interface SuggestionBannerProps {
   slotId:      SlotId;
@@ -408,16 +538,27 @@ function ComposeCenter({
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3">
-            {sorted.map(item => (
-              <PartCard
-                key={item.id}
-                item={item}
-                slotId={activeSlot}
-                state={getPartState(item.id, attached, stagedIds)}
-                onAttach={id => onAttach(activeSlot, id)}
-                onRemove={id => onRemove(activeSlot, id)}
-              />
-            ))}
+            {sorted.map(item =>
+              activeSlot === "fonts" ? (
+                <FontPartCard
+                  key={item.id}
+                  item={item}
+                  slotId={activeSlot}
+                  state={getPartState(item.id, attached, stagedIds)}
+                  onAttach={id => onAttach(activeSlot, id)}
+                  onRemove={id => onRemove(activeSlot, id)}
+                />
+              ) : (
+                <PartCard
+                  key={item.id}
+                  item={item}
+                  slotId={activeSlot}
+                  state={getPartState(item.id, attached, stagedIds)}
+                  onAttach={id => onAttach(activeSlot, id)}
+                  onRemove={id => onRemove(activeSlot, id)}
+                />
+              )
+            )}
           </div>
 
           {/* Pull more footer */}
@@ -946,19 +1087,14 @@ Only include IDs that exist in the catalog above. Leave slots empty ([]) if noth
           </div>
         )}
 
-        {/* Type roles table */}
+        {/* Type roles table — each font name rendered in its own typeface */}
         {(bundle.fonts.length > 0) && (
           <div className="mb-4">
             <p className="text-[10px] text-muted-foreground mb-2">Font pairing</p>
             <div className="flex flex-col gap-1">
               {bundle.fonts.slice(0, 3).map(id => {
                 const font = catalog.fonts.find(f => f.id === id);
-                return font ? (
-                  <div key={id} className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted-foreground w-12 shrink-0">Font</span>
-                    <span className="text-[12px] font-medium">{font.name}</span>
-                  </div>
-                ) : null;
+                return font ? <BundleFontRow key={id} familyName={font.name} /> : null;
               })}
             </div>
           </div>

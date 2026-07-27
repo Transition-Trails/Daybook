@@ -17,6 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Plus, Loader2, ExternalLink } from "lucide-react";
+import { useFontLoader } from "@/components/FontSpecimenCard";
 import { CatalogPageHeader } from "@/components/catalog/CatalogPageHeader";
 
 interface FontVariant  { weight: string; style?: "normal" | "italic" }
@@ -168,19 +169,42 @@ function FontForm({
 function FontCard({ item, onEdit, onDelete }: {
   item: FontItem; onEdit: () => void; onDelete: () => void;
 }) {
+  // Load the font so the specimen tile and name label actually render in the
+  // correct typeface instead of falling back to the UI font.
+  const loaded = useFontLoader([item.familyName]);
+
   return (
     <div className="rounded-[14px] border bg-card flex flex-col overflow-hidden transition-shadow hover:shadow-sm">
-      {/* Preview strip — renders the family name in its own typeface */}
+      {/* Specimen tile — "Aa" in the actual typeface, fades in once loaded */}
       <div
         className="h-16 border-b border-border flex items-center justify-center px-4"
-        style={{ background: "#F7F4F0", fontFamily: `"${item.familyName}", serif`, fontSize: 22, color: "#1B2A4A" }}
+        style={{
+          background: "#F7F4F0",
+          fontFamily: `"${item.familyName}", Georgia, serif`,
+          fontSize:   22,
+          fontWeight: 600,
+          color:      "#1B2A4A",
+          opacity:    loaded ? 1 : 0.35,
+          transition: "opacity 200ms",
+        }}
       >
         Aa
       </div>
 
       <div className="p-4 flex flex-col gap-3 flex-1">
         <div className="min-w-0 flex items-start justify-between gap-2">
-          <p className="font-semibold text-[13.5px] text-foreground truncate">{item.familyName}</p>
+          {/* Family name label in its own typeface */}
+          <p
+            className="truncate"
+            style={{
+              fontFamily: `"${item.familyName}", Georgia, serif`,
+              fontSize:   13.5,
+              fontWeight: 600,
+              color:      "#1B2A4A",
+            }}
+          >
+            {item.familyName}
+          </p>
           {item.sampleUrl && (
             <a href={item.sampleUrl} target="_blank" rel="noopener noreferrer"
               className="text-muted-foreground hover:text-foreground shrink-0">

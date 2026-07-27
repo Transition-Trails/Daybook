@@ -11,7 +11,8 @@
  * API calls use raw fetch because the generated api-client-react types don't
  * model the enriched theme response or the composer sub-routes.
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useFontLoader } from "@/components/FontSpecimenCard";
 import { useLocation, useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Trash2, Loader2, Check, X, AlertTriangle, Star, Palette, Image, Type, Package, Plus, Save } from "lucide-react";
@@ -459,6 +460,15 @@ function FontPairingTab({ theme, onSaved }: { theme: EnrichedTheme; onSaved: () 
   const [fp, setFp] = useState<FontPairing>(theme.fontPairing ?? {});
   const [saving, setSaving] = useState(false);
 
+  // Collect every family referenced by the current pairing state + all suggested
+  // presets, then load them all at once so chips and the live preview render in
+  // the correct typefaces without per-chip waterfalls.
+  const allFamilies = useMemo(() => Array.from(new Set([
+    ...SUGGESTED_PAIRS.flatMap(p => [p.heading, p.body]),
+    ...[fp.heading, fp.subheading, fp.body, fp.accent].filter(Boolean) as string[],
+  ])), [fp.heading, fp.subheading, fp.body, fp.accent]);
+  useFontLoader(allFamilies);
+
   const save = async () => {
     setSaving(true);
     try {
@@ -492,20 +502,47 @@ function FontPairingTab({ theme, onSaved }: { theme: EnrichedTheme; onSaved: () 
         </button>
       </div>
 
-      {/* Suggested presets */}
+      {/* Suggested presets — label in heading face, descriptor in body face */}
       <div className="space-y-2">
         <p className="text-[10.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground">Suggested pairings</p>
         <div className="flex flex-wrap gap-2">
-          {SUGGESTED_PAIRS.map(p => (
-            <button
-              key={p.label}
-              onClick={() => applyPreset(p)}
-              className={`${CHIP_BASE} ${fp.heading === p.heading && fp.body === p.body ? CHIP_ON : CHIP_OFF}`}
-            >
-              {p.label}
-              <span className="text-[10px] opacity-70">{p.heading} / {p.body}</span>
-            </button>
-          ))}
+          {SUGGESTED_PAIRS.map(p => {
+            const isActive = fp.heading === p.heading && fp.body === p.body;
+            return (
+              <button
+                key={p.label}
+                onClick={() => applyPreset(p)}
+                className="flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg border transition-colors cursor-pointer select-none text-left"
+                style={isActive
+                  ? { background: "#1B2A4A", borderColor: "#1B2A4A" }
+                  : { background: "hsl(var(--muted))", borderColor: "hsl(var(--border))" }}
+              >
+                {/* Pairing name in the heading face */}
+                <span
+                  style={{
+                    fontFamily: `'${p.heading}', Georgia, serif`,
+                    fontSize:   13,
+                    fontWeight: 600,
+                    lineHeight: 1.25,
+                    color:      isActive ? "#fff" : "#1B2A4A",
+                  }}
+                >
+                  {p.label}
+                </span>
+                {/* Family names in the body face */}
+                <span
+                  style={{
+                    fontFamily: `'${p.body}', system-ui, sans-serif`,
+                    fontSize:   10,
+                    lineHeight: 1.3,
+                    color:      isActive ? "rgba(255,255,255,0.65)" : "hsl(var(--muted-foreground))",
+                  }}
+                >
+                  {p.heading} / {p.body}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -524,32 +561,77 @@ function FontPairingTab({ theme, onSaved }: { theme: EnrichedTheme; onSaved: () 
         ))}
       </div>
 
-      {/* Live preview */}
+      {/* Live preview — each role label is set in its own assigned face */}
       {(fp.heading || fp.body) && (
-        <div className="rounded-xl border border-border p-6 bg-muted/30 space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground mb-3">Preview</p>
+        <div className="rounded-xl border border-border p-6 bg-muted/30 space-y-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">Preview</p>
+
           {fp.heading && (
-            <p style={{ fontFamily: `'${fp.heading}', serif` }} className="text-2xl font-bold text-foreground">
-              The quick brown fox
-            </p>
+            <div className="space-y-0.5">
+              <p style={{
+                fontFamily: `'${fp.heading}', Georgia, serif`,
+                fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: "0.12em", color: "#9CA3AF",
+              }}>
+                Heading — {fp.heading}
+              </p>
+              <p style={{ fontFamily: `'${fp.heading}', Georgia, serif` }}
+                className="text-2xl font-bold text-foreground leading-tight">
+                The quick brown fox
+              </p>
+            </div>
           )}
+
           {fp.subheading && (
-            <p style={{ fontFamily: `'${fp.subheading}', serif` }} className="text-base text-muted-foreground">
-              A beautiful subheading line
-            </p>
+            <div className="space-y-0.5">
+              <p style={{
+                fontFamily: `'${fp.subheading}', Georgia, serif`,
+                fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: "0.12em", color: "#9CA3AF",
+              }}>
+                Subheading — {fp.subheading}
+              </p>
+              <p style={{ fontFamily: `'${fp.subheading}', Georgia, serif` }}
+                className="text-base text-muted-foreground">
+                A beautiful subheading line
+              </p>
+            </div>
           )}
+
           {fp.body && (
-            <p style={{ fontFamily: `'${fp.body}', sans-serif` }} className="text-sm text-foreground/80 leading-relaxed">
-              Body text uses this font for reading comfort across long-form planner content. Clear, legible, and complementary to the heading above.
-            </p>
+            <div className="space-y-0.5">
+              <p style={{
+                fontFamily: `'${fp.body}', system-ui, sans-serif`,
+                fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: "0.12em", color: "#9CA3AF",
+              }}>
+                Body — {fp.body}
+              </p>
+              <p style={{ fontFamily: `'${fp.body}', system-ui, sans-serif` }}
+                className="text-sm text-foreground/80 leading-relaxed">
+                Body text uses this font for reading comfort across long-form planner content.
+              </p>
+            </div>
           )}
+
           {fp.accent && (
-            <p style={{ fontFamily: `'${fp.accent}', serif` }} className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
-              Accent label — {fp.accent}
-            </p>
+            <div className="space-y-0.5">
+              <p style={{
+                fontFamily: `'${fp.accent}', Georgia, serif`,
+                fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: "0.12em", color: "#9CA3AF",
+              }}>
+                Accent — {fp.accent}
+              </p>
+              <p style={{ fontFamily: `'${fp.accent}', Georgia, serif` }}
+                className="text-xs text-muted-foreground uppercase tracking-wider">
+                Accent label text
+              </p>
+            </div>
           )}
+
           <p className="text-[10px] text-muted-foreground pt-2 border-t border-border">
-            Note: fonts render here only if loaded by the browser. The planner PDF generator will embed them directly.
+            Fonts render here once the Google Fonts stylesheet loads. The PDF generator embeds them directly.
           </p>
         </div>
       )}

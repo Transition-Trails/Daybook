@@ -360,6 +360,32 @@ const SERIF_PDF_FAMILIES = new Set([
 ]);
 
 /**
+ * Every Google Font family reachable from a UI picker (Theme Studio suggested
+ * pairings, fonts-catalog seed rows, Planner Studio theme font slots).
+ *
+ * Used by:
+ *   • font-warmup — cross-checks that every family here has a bundled WOFF file.
+ *   • Generation routes — distinguish "expected gap still un-bundled" from
+ *     "network failure on a family that should be offline-ready".
+ */
+export const UI_REACHABLE_FAMILIES = new Set([
+  // ── Theme Studio SUGGESTED_PAIRS (both slots of every preset) ────────────
+  "Playfair Display",   "Lato",
+  "Cormorant Garamond", "Source Sans Pro",
+  "Spectral",           "Work Sans",
+  "Crimson Pro",        "Instrument Sans",
+  "DM Serif Display",   "DM Sans",
+  "EB Garamond",        "Inter",
+  // ── Fonts-catalog seed (theme_fonts → PDF generation) ───────────────────
+  "Lora",
+  "Space Grotesk",
+  "Nunito Sans",
+  // ── SC variants used directly by the planner generator ──────────────────
+  "Playfair Display SC",
+  "Cormorant SC",
+]);
+
+/**
  * Resolve the nearest StandardFont for a given font family name.
  * Serif families → Times Roman / Times Bold Roman.
  * Everything else → Helvetica / Helvetica Bold (sans default).
@@ -692,6 +718,8 @@ async function resolveEmbeddedFont(
   pdfDoc: PDFDocument,
   familyName: string | undefined,
   bold: boolean,
+  /** Optional per-generation set — populated alongside the global FONT_FALLBACK_FAMILIES. */
+  fallbackLog?: Set<string>,
 ) {
   if (familyName) {
     const bytes = await fetchGoogleFontBytes(familyName, bold ? 700 : 400);
@@ -707,7 +735,10 @@ async function resolveEmbeddedFont(
       }
     }
   }
-  if (familyName) FONT_FALLBACK_FAMILIES.add(familyName);
+  if (familyName) {
+    FONT_FALLBACK_FAMILIES.add(familyName);
+    fallbackLog?.add(familyName);
+  }
   return pdfDoc.embedFont(resolveStandardFont(familyName, bold));
 }
 
@@ -740,7 +771,7 @@ export async function buildPdf(
   hotspotsByTemplate?: Map<string, UserHotspot[]>,
   inkFriendly = false,
   einkDevice?: string,
-): Promise<{ buffer: Uint8Array; pageCount: number }> {
+): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[] }> {
   const { einkPreset, einkMode, lt, lo, skipLinks } = makeEinkHelpers(einkDevice);
   // E-ink mode forces ink-friendly (grayscale is the e-ink asset)
   if (einkMode) inkFriendly = true;
@@ -801,9 +832,10 @@ export async function buildPdf(
   // falls back to StandardFonts on timeout/error.
   const headingFamily = fontPairing?.heading;
   const bodyFamily    = fontPairing?.body ?? fontPairing?.heading; // fall back to heading if body unset
+  const genFallbackLog = new Set<string>();
   const [font, fontBold] = await Promise.all([
-    resolveEmbeddedFont(pdfDoc, bodyFamily, false),
-    resolveEmbeddedFont(pdfDoc, headingFamily, true),
+    resolveEmbeddedFont(pdfDoc, bodyFamily, false, genFallbackLog),
+    resolveEmbeddedFont(pdfDoc, headingFamily, true, genFallbackLog),
   ]);
 
   // 3a. Resolve background rendering spec (once, before the page loop).
@@ -1236,7 +1268,7 @@ export async function buildPdf(
 
   // 8. Serialize
   const pdfBytes = await pdfDoc.save();
-  return { buffer: pdfBytes, pageCount: flat.length };
+  return { buffer: pdfBytes, pageCount: flat.length, fontSubstitutions: [...genFallbackLog] };
 }
 
 // ── Preview PDF ───────────────────────────────────────────────────────────────
@@ -1252,7 +1284,7 @@ export async function buildPreviewPdf(
   background?: BackgroundSpec,
   fontPairing?: ThemeFontPairing,
   einkDevice?: string,
-): Promise<{ buffer: Uint8Array; pageCount: number }> {
+): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[] }> {
   // Shared e-ink helpers — identical logic to buildPdf so the preview is
   // always truthful about what the export will produce.
   const { einkPreset, einkMode, lt, lo, skipLinks } = makeEinkHelpers(einkDevice);
@@ -1278,9 +1310,10 @@ export async function buildPreviewPdf(
   const headingFamilyPv = fontPairing?.heading;
   const bodyFamilyPv    = fontPairing?.body ?? fontPairing?.heading;
   // Real TTF binaries from Google Fonts; falls back to StandardFonts on error.
+  const pvFallbackLog = new Set<string>();
   const [font, fontBold] = await Promise.all([
-    resolveEmbeddedFont(pdfDoc, bodyFamilyPv, false),
-    resolveEmbeddedFont(pdfDoc, headingFamilyPv, true),
+    resolveEmbeddedFont(pdfDoc, bodyFamilyPv, false, pvFallbackLog),
+    resolveEmbeddedFont(pdfDoc, headingFamilyPv, true, pvFallbackLog),
   ]);
 
   // Resolve background spec for preview (same logic as buildPdf).
@@ -1618,5 +1651,5 @@ export async function buildPreviewPdf(
   }
 
   const pdfBytes = await pdfDoc.save();
-  return { buffer: pdfBytes, pageCount: previewIds.length };
+  return { buffer: pdfBytes, pageCount: previewIds.length, fontSubstitutions: [...pvFallbackLog] };
 }

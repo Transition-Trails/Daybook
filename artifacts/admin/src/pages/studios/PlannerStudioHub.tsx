@@ -627,8 +627,9 @@ function EditionQuickPick({ value, onChange }: { value: string; onChange: () => 
 // ── PDF Preview dock panel ────────────────────────────────────────────────────
 
 function PdfPreviewDock({ buildState, einkDevice }: { buildState: BuildState; einkDevice?: string | null }) {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [loading, setLoading]       = useState(false);
+  const [previewUrl, setPreviewUrl]             = useState<string | null>(null);
+  const [loading, setLoading]                   = useState(false);
+  const [fontSubstitutions, setFontSubstitutions] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchPreview = useCallback(async () => {
@@ -668,6 +669,11 @@ function PdfPreviewDock({ buildState, einkDevice }: { buildState: BuildState; ei
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      // Read font substitution header before consuming the body
+      const subHeader = res.headers.get("x-font-substitutions");
+      setFontSubstitutions(subHeader ? subHeader.split(",").map(s => s.trim()).filter(Boolean) : []);
+
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -704,6 +710,16 @@ function PdfPreviewDock({ buildState, einkDevice }: { buildState: BuildState; ei
           <div className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin"
             style={{ borderColor: `${CHIP_ACTIVE_BG} transparent ${CHIP_ACTIVE_BG} ${CHIP_ACTIVE_BG}` }} />
           <span className="text-[11px] text-muted-foreground">Rendering preview…</span>
+        </div>
+      )}
+      {fontSubstitutions.length > 0 && !loading && (
+        <div className="px-3 py-2 flex items-start gap-2 border-b shrink-0 bg-amber-50 dark:bg-amber-950/30">
+          <span className="text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" aria-hidden="true">⚠</span>
+          <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug">
+            <span className="font-semibold">Font substitution active —</span>{" "}
+            {fontSubstitutions.join(", ")} could not be embedded and was replaced with a system font.
+            The exported PDF may look different from your theme's typeface.
+          </p>
         </div>
       )}
       {previewUrl ? (

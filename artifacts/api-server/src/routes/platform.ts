@@ -31,6 +31,9 @@ import {
   resolveStoreActor,
   resolveStoreActorOptional,
 } from "../middleware/requireRole";
+import { getBundleCoverageGaps } from "../lib/font-warmup";
+import { UI_REACHABLE_FAMILIES, _bundledFontPath } from "../lib/pdf-generator";
+import { existsSync } from "fs";
 import { writeAudit } from "../lib/audit";
 import {
   removeBackground,
@@ -69,6 +72,36 @@ router.get("/platform/stats", requireSuperAdmin, async (_req: Request, res: Resp
       amountUsd: Number(proStoreRows[0]?.cnt ?? 0) * 49,
       note: "placeholder — connect Stripe for live data",
     },
+  });
+});
+
+// ── GET /platform/font-coverage ──────────────────────────────────────────────
+// Super-admin endpoint: reports which UI-reachable font families have bundled
+// WOFF files vs which must fall back to a live Google Fonts network call.
+
+router.get("/platform/font-coverage", requireSuperAdmin, (_req: Request, res: Response): void => {
+  const gaps = getBundleCoverageGaps();
+  const covered: string[] = [];
+  const missing: string[] = [];
+
+  for (const family of UI_REACHABLE_FAMILIES) {
+    if (existsSync(_bundledFontPath(family, 400))) {
+      covered.push(family);
+    } else {
+      missing.push(family);
+    }
+  }
+
+  res.json({
+    totalFamilies:  covered.length + missing.length,
+    coveredCount:   covered.length,
+    missingCount:   missing.length,
+    covered,
+    missing,
+    // warmupGaps reflects what the warmup observed at startup (same data, provided
+    // for convenience — gaps here means the server was started without the WOFF files).
+    warmupGaps: gaps,
+    healthy: missing.length === 0,
   });
 });
 

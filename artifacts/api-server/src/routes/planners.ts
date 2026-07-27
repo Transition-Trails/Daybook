@@ -31,7 +31,7 @@ const router: IRouter = Router();
 export async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
   hotspotsByTemplate?: Map<string, import("../lib/pdf-generator").UserHotspot[]>,
-): Promise<{ pdfFileId: string; configFileId: string; inkFriendlyPdfFileId: string | null; pageCount: number; einkCaveat: string | null }> {
+): Promise<{ pdfFileId: string; configFileId: string; inkFriendlyPdfFileId: string | null; pageCount: number; einkCaveat: string | null; fontSubstitutions: string[] }> {
   // Resolve colors for generation.
   // Priority 1: explicit paletteId (buyer picked a palette within the theme)
   // Priority 2: theme.colors for the explicit themeId (backward-compat)
@@ -145,7 +145,7 @@ export async function runGeneration(
   };
 
   // Main build: always colour at standard trim (einkDevice not passed here)
-  const { buffer, pageCount } = await buildPdf(
+  const { buffer, pageCount, fontSubstitutions } = await buildPdf(
     generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
   );
 
@@ -233,7 +233,7 @@ export async function runGeneration(
   const { getEinkPreset } = await import("../lib/eink-presets");
   const einkCaveat = getEinkPreset(einkDeviceKey)?.caveat ?? null;
 
-  return { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount, einkCaveat };
+  return { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount, einkCaveat, fontSubstitutions };
 }
 
 // ── POST /planners/preview ────────────────────────────────────────────────────
@@ -332,7 +332,7 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     }
 
     const sections = (body.style as PlannerStyle | undefined)?.sections ?? [];
-    const { buffer, pageCount } = await buildPreviewPdf(
+    const { buffer, pageCount, fontSubstitutions: pvSubs } = await buildPreviewPdf(
       {
         setup: body.setup,
         style: body.style ?? {},
@@ -351,6 +351,11 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     res.setHeader("Content-Disposition", "inline; filename=preview.pdf");
     res.setHeader("Cache-Control", "no-store, no-cache");
     res.setHeader("X-Preview-Pages", String(pageCount));
+    if (pvSubs.length > 0) {
+      // Comma-separated list of families that fell back to StandardFonts in this preview.
+      // The admin UI reads this header to surface an inline warning.
+      res.setHeader("X-Font-Substitutions", pvSubs.join(","));
+    }
     res.send(Buffer.from(buffer));
   } catch (err) {
     req.log.error({ err }, "Preview generation failed");

@@ -22,7 +22,8 @@
 import { db } from "@workspace/db";
 import { themesTable, themeFontsTable, fontsTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
-import { fetchGoogleFontBytes, getFontFallbacks } from "./pdf-generator";
+import { fetchGoogleFontBytes, getFontFallbacks, _bundledFontPath, UI_REACHABLE_FAMILIES } from "./pdf-generator";
+import { existsSync } from "fs";
 import type { ThemeFontPairing } from "@workspace/db";
 
 const CONCURRENCY = 3;
@@ -105,6 +106,34 @@ async function collectLiveFamilyNames(): Promise<Set<string>> {
   return families;
 }
 
+// ── Bundle coverage API ───────────────────────────────────────────────────────
+/** Populated once by warmFontCache(); empty array until warmup has run. */
+let _lastBundleGaps: string[] = [];
+
+/**
+ * Returns the list of UI-reachable font families that have no bundled WOFF
+ * file in dist/fonts/.  Empty array = full coverage.
+ * Intended for the super-admin font-coverage API endpoint.
+ */
+export function getBundleCoverageGaps(): string[] { return [..._lastBundleGaps]; }
+
+/** Run the bundle coverage cross-check synchronously and update _lastBundleGaps. */
+function checkBundleCoverage(): void {
+  _lastBundleGaps = [...UI_REACHABLE_FAMILIES].filter(
+    (f) => !existsSync(_bundledFontPath(f, 400)),
+  );
+  if (_lastBundleGaps.length > 0) {
+    console.warn(
+      `[font-warmup] ⚠ BUNDLE COVERAGE GAP — ${_lastBundleGaps.length} UI-reachable ` +
+      `family/families have no bundled WOFF file and will fall back to network (or ` +
+      `StandardFonts if offline): ${_lastBundleGaps.join(", ")}. ` +
+      `Run scripts/download-fonts.mjs and redeploy to eliminate this risk.`,
+    );
+  } else {
+    console.log("[font-warmup] ✓ Bundle coverage complete — all UI-reachable families have bundled files.");
+  }
+}
+
 /**
  * Pre-fetch all live-theme font families (weights 400 + 700) in the background.
  * Call this once after the DB pool is ready.  Never awaited by the caller.
@@ -116,6 +145,7 @@ export function warmFontCache(): void {
 
       if (families.size === 0) {
         console.log("[font-warmup] No live theme fonts found — nothing to pre-fetch.");
+        checkBundleCoverage();
         return;
       }
 
@@ -157,6 +187,8 @@ export function warmFontCache(): void {
           `Check that src/lib/fonts/ contains the bundled WOFF files and was copied to dist/fonts/.`,
         );
       }
+
+      checkBundleCoverage();
     } catch (err) {
       // Top-level safety net — should never be reached given inner try/catches
       console.warn("[font-warmup] Unexpected error during font warm-up:", (err as Error).message);

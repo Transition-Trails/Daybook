@@ -422,19 +422,120 @@ const GFONT_TTF_UA =
   "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:26.0) Gecko/20100101 Firefox/26.0";
 
 /**
+ * Validate font binary magic bytes.
+ * TTF:  00 01 00 00  (standard) or  74 72 75 65  ("true" — Apple variant)
+ * OTF:  4F 54 54 4F  ("OTTO")
+ * Returns "TTF", "OTF", or null for WOFF/WOFF2/EOT/other non-embeddable formats.
+ */
+function detectFontFormat(bytes: Uint8Array): "TTF" | "OTF" | null {
+  const isTTF =
+    (bytes[0] === 0x00 && bytes[1] === 0x01 && bytes[2] === 0x00 && bytes[3] === 0x00) ||
+    (bytes[0] === 0x74 && bytes[1] === 0x72 && bytes[2] === 0x75 && bytes[3] === 0x65);
+  if (isTTF) return "TTF";
+  const isOTF =
+    bytes[0] === 0x4f && bytes[1] === 0x54 && bytes[2] === 0x54 && bytes[3] === 0x4f;
+  if (isOTF) return "OTF";
+  return null;
+}
+
+/**
+ * Extract the best candidate font download URL from a Google Fonts CSS response.
+ * Prefers entries explicitly tagged format('truetype') or format('opentype');
+ * falls back to the first bare src: url() if no tagged entry is found.
+ */
+function extractFontUrl(cssText: string): string | null {
+  const ttMatch = cssText.match(
+    /url\(([^)]+)\)\s+format\(['"](?:truetype|opentype)['"]\)/,
+  );
+  if (ttMatch) return ttMatch[1].trim().replace(/['"]/g, "");
+  const anyMatch = cssText.match(/src:\s*url\(([^)]+)\)/);
+  if (anyMatch) return anyMatch[1].trim().replace(/['"]/g, "");
+  return null;
+}
+
+/**
+ * Fetch one CSS stylesheet from Google Fonts and return the text.
+ * Returns null on HTTP error or network timeout.
+ */
+async function fetchGoogleFontsCss(
+  cssUrl: string,
+  timeoutMs: number,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(cssUrl, {
+      headers: { "User-Agent": GFONT_TTF_UA },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      console.warn(`[pdf-generator] Google Fonts CSS HTTP ${res.status} (${cssUrl})`);
+      return null;
+    }
+    return await res.text();
+  } catch (err) {
+    console.warn(
+      `[pdf-generator] Google Fonts CSS fetch error (${cssUrl}):`,
+      (err as Error).message,
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Download a font binary from the given URL and return its bytes.
+ * Returns null on HTTP error or network timeout.
+ */
+async function downloadFontBinary(
+  fontUrl: string,
+  label: string,
+  timeoutMs: number,
+): Promise<Uint8Array | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(fontUrl, { signal: controller.signal });
+    if (!res.ok) {
+      console.warn(
+        `[pdf-generator] Font binary HTTP ${res.status} for "${label}" (${fontUrl})`,
+      );
+      return null;
+    }
+    return new Uint8Array(await res.arrayBuffer());
+  } catch (err) {
+    console.warn(
+      `[pdf-generator] Font binary fetch error for "${label}" (${fontUrl}):`,
+      (err as Error).message,
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Fetch a TTF/OTF binary for a Google Font family + numeric weight.
  *
- * Strategy:
- *  1. Query the CSS v1 API with a Firefox-26 UA so the response contains TTF URLs.
- *  2. Parse @font-face src entries, preferring entries explicitly tagged
- *     format('truetype') or format('opentype'). Fall back to any src url() if
- *     no tagged entry is found.
- *  3. Download the selected URL.
- *  4. Validate magic bytes (TTF: 00 01 00 00 / "true", OTF: "OTTO") before
- *     returning — EOT, WOFF, and WOFF2 are rejected so we never hand an
- *     unembeddable blob to pdf-lib.
+ * Multi-strategy approach for robustness across network environments:
  *
- * Returns null — never throws — on any failure so callers fall back to StandardFonts.
+ *  Strategy A — CSS v1 with Firefox-26 UA:
+ *    `fonts.googleapis.com/css?family=…:weight`
+ *    The Firefox-26 UA directs Google Fonts to emit TTF format URLs.
+ *    Works in most environments but some CDN edge nodes may still serve WOFF.
+ *
+ *  Strategy B — CSS v2 with Firefox-26 UA:
+ *    `fonts.googleapis.com/css2?family=…:wght@weight&display=swap`
+ *    CSS v2 emits explicit `format('truetype')` / `format('woff2')` tags per
+ *    @font-face block.  We only accept entries tagged truetype/opentype, so
+ *    WOFF2 blocks are skipped and we grab a real TTF URL when one exists.
+ *
+ *  In both cases the downloaded bytes are validated against TTF/OTF magic bytes.
+ *  If Strategy A yields WOFF bytes, Strategy B is attempted before giving up.
+ *
+ *  The result is written to both the in-process map and the /tmp disk cache.
+ *  Returns null — never throws — on any failure so callers fall back to StandardFonts.
  */
 export async function fetchGoogleFontBytes(familyName: string, weight: 400 | 700): Promise<Uint8Array | null> {
   const cacheKey = `${familyName}:${weight}`;
@@ -457,92 +558,86 @@ export async function fetchGoogleFontBytes(familyName: string, weight: 400 | 700
   }
 
   const TIMEOUT_MS = 5000;
-  // CSS v1 endpoint — one @font-face block per weight, simpler to parse.
-  const cssUrl = `https://fonts.googleapis.com/css?family=${encodeURIComponent(familyName)}:${weight}`;
+
+  // ── Strategy A: CSS v1 ──────────────────────────────────────────────────────
+  // One @font-face block per weight; Firefox-26 UA should yield TTF format URLs.
+  const cssV1Url = `https://fonts.googleapis.com/css?family=${encodeURIComponent(familyName)}:${weight}`;
 
   try {
-    // Step 1: fetch the CSS stylesheet.
-    const cssController = new AbortController();
-    const cssTimer = setTimeout(() => cssController.abort(), TIMEOUT_MS);
-    let cssText: string;
-    try {
-      const cssRes = await fetch(cssUrl, {
-        headers: { "User-Agent": GFONT_TTF_UA },
-        signal: cssController.signal,
-      });
-      if (!cssRes.ok) {
-        console.warn(`[pdf-generator] Google Fonts CSS HTTP ${cssRes.status} for "${familyName}:${weight}"`);
-        return null;
+    const cssText = await fetchGoogleFontsCss(cssV1Url, TIMEOUT_MS);
+    if (cssText) {
+      const fontUrl = extractFontUrl(cssText);
+      if (fontUrl) {
+        const bytes = await downloadFontBinary(fontUrl, `${familyName}:${weight}`, TIMEOUT_MS);
+        if (bytes) {
+          const fmt = detectFontFormat(bytes);
+          if (fmt) {
+            _googleFontCache.set(cacheKey, bytes);
+            _writeDiskFontCache(diskPath, bytes);
+            console.log(
+              `[pdf-generator] Google Font fetched & cached (CSS v1): "${cacheKey}" ${Math.round(bytes.byteLength / 1024)} KB (${fmt})`,
+            );
+            return bytes;
+          }
+          // CSS v1 returned non-TTF/OTF bytes (e.g. WOFF in restrictive environments)
+          const magic = Array.from(bytes.slice(0, 4))
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join(" ");
+          console.warn(
+            `[pdf-generator] CSS v1 returned non-embeddable format for "${cacheKey}" (magic: ${magic}) — trying CSS v2`,
+          );
+        }
+      } else {
+        console.warn(`[pdf-generator] No font URL in CSS v1 response for "${cacheKey}" — trying CSS v2`);
       }
-      cssText = await cssRes.text();
-    } finally {
-      clearTimeout(cssTimer);
     }
-
-    // Step 2: parse font URL from @font-face.
-    // Prefer an entry explicitly tagged format('truetype') or format('opentype').
-    // Fallback: first src: url() in the stylesheet.
-    const ttMatch = cssText.match(
-      /url\(([^)]+)\)\s+format\(['"](?:truetype|opentype)['"]\)/,
-    );
-    const anyMatch = cssText.match(/src:\s*url\(([^)]+)\)/);
-    const match = ttMatch ?? anyMatch;
-    if (!match) {
-      console.warn(`[pdf-generator] No font URL in CSS for "${familyName}:${weight}"`);
-      return null;
-    }
-    const fontUrl = match[1].trim().replace(/['"]/g, "");
-
-    // Step 3: download the font binary.
-    const fontController = new AbortController();
-    const fontTimer = setTimeout(() => fontController.abort(), TIMEOUT_MS);
-    let bytes: Uint8Array;
-    try {
-      const fontRes = await fetch(fontUrl, { signal: fontController.signal });
-      if (!fontRes.ok) {
-        console.warn(
-          `[pdf-generator] Font binary HTTP ${fontRes.status} for "${familyName}:${weight}" (${fontUrl})`,
-        );
-        return null;
-      }
-      bytes = new Uint8Array(await fontRes.arrayBuffer());
-    } finally {
-      clearTimeout(fontTimer);
-    }
-
-    // Step 4: validate magic bytes — only TTF and OTF are embeddable by pdf-lib + fontkit.
-    // TTF:  00 01 00 00  (OpenType CFF) or  74 72 75 65  ("true" — Apple CFF variant)
-    // OTF:  4F 54 54 4F  ("OTTO")
-    // Anything else (EOT, WOFF 77 4F 46 46, WOFF2 77 4F 46 32) → reject.
-    const isTTF =
-      (bytes[0] === 0x00 && bytes[1] === 0x01 && bytes[2] === 0x00 && bytes[3] === 0x00) ||
-      (bytes[0] === 0x74 && bytes[1] === 0x72 && bytes[2] === 0x75 && bytes[3] === 0x65);
-    const isOTF =
-      bytes[0] === 0x4f && bytes[1] === 0x54 && bytes[2] === 0x54 && bytes[3] === 0x4f;
-    if (!isTTF && !isOTF) {
-      const magic = Array.from(bytes.slice(0, 4))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join(" ");
-      console.warn(
-        `[pdf-generator] Non-embeddable font format for "${familyName}:${weight}" (magic: ${magic}) — falling back to StandardFonts`,
-      );
-      return null;
-    }
-
-    _googleFontCache.set(cacheKey, bytes);
-    // Persist to disk cache fire-and-forget so future restarts skip the download.
-    _writeDiskFontCache(diskPath, bytes);
-    console.log(
-      `[pdf-generator] Google Font fetched & cached: "${familyName}:${weight}" ${Math.round(bytes.byteLength / 1024)} KB (${isTTF ? "TTF" : "OTF"})`,
-    );
-    return bytes;
   } catch (err) {
     console.warn(
-      `[pdf-generator] Google Font fetch error for "${familyName}:${weight}":`,
+      `[pdf-generator] CSS v1 strategy error for "${cacheKey}":`,
       (err as Error).message,
     );
-    return null;
   }
+
+  // ── Strategy B: CSS v2 ──────────────────────────────────────────────────────
+  // CSS v2 emits per-block format() tags. With Firefox-26 UA, TTF-tagged blocks
+  // appear alongside WOFF2 blocks; extractFontUrl() picks format('truetype') first.
+  const cssV2Url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(familyName)}:wght@${weight}&display=swap`;
+
+  try {
+    const cssText = await fetchGoogleFontsCss(cssV2Url, TIMEOUT_MS);
+    if (cssText) {
+      const fontUrl = extractFontUrl(cssText);
+      if (fontUrl) {
+        const bytes = await downloadFontBinary(fontUrl, `${familyName}:${weight}`, TIMEOUT_MS);
+        if (bytes) {
+          const fmt = detectFontFormat(bytes);
+          if (fmt) {
+            _googleFontCache.set(cacheKey, bytes);
+            _writeDiskFontCache(diskPath, bytes);
+            console.log(
+              `[pdf-generator] Google Font fetched & cached (CSS v2): "${cacheKey}" ${Math.round(bytes.byteLength / 1024)} KB (${fmt})`,
+            );
+            return bytes;
+          }
+          const magic = Array.from(bytes.slice(0, 4))
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join(" ");
+          console.warn(
+            `[pdf-generator] CSS v2 also returned non-embeddable format for "${cacheKey}" (magic: ${magic}) — falling back to StandardFonts`,
+          );
+        }
+      } else {
+        console.warn(`[pdf-generator] No TTF-tagged font URL in CSS v2 response for "${cacheKey}" — falling back to StandardFonts`);
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[pdf-generator] CSS v2 strategy error for "${cacheKey}":`,
+      (err as Error).message,
+    );
+  }
+
+  return null;
 }
 
 /**

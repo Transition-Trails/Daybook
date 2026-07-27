@@ -18,6 +18,7 @@ import {
   PDFDict,
   PDFNumber,
 } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
 import { Buffer } from "node:buffer";
 import sharp from "sharp";
 import type { PlannerSetup, PlannerStyle, PlannerOutput, ThemeFontPairing } from "@workspace/db";
@@ -344,9 +345,7 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 /**
  * Google Font families that map to the PDF Times Roman standard font.
  * All others fall back to Helvetica (sans default).
- * This allows theme font choices to be visible in the generated PDF without
- * requiring a remote font fetch; the distinction (serif vs sans) is the primary
- * signal a designer needs when reviewing a planner layout.
+ * Used only as the offline/error fallback path when real font fetch fails.
  */
 const SERIF_PDF_FAMILIES = new Set([
   "Playfair Display",
@@ -362,12 +361,165 @@ const SERIF_PDF_FAMILIES = new Set([
  * Resolve the nearest StandardFont for a given font family name.
  * Serif families → Times Roman / Times Bold Roman.
  * Everything else → Helvetica / Helvetica Bold (sans default).
+ * Used as fallback when Google Fonts fetch fails or family is undefined.
  */
 function resolveStandardFont(familyName: string | undefined, bold: boolean): StandardFonts {
   if (familyName && SERIF_PDF_FAMILIES.has(familyName)) {
     return bold ? StandardFonts.TimesRomanBold : StandardFonts.TimesRoman;
   }
   return bold ? StandardFonts.HelveticaBold : StandardFonts.Helvetica;
+}
+
+// ── Google Fonts embedding ─────────────────────────────────────────────────────
+
+/**
+ * In-process cache of downloaded font binaries.
+ * Key: `${familyName}:${weight}` — e.g. "Lora:400", "Playfair Display:700"
+ * Persists for the lifetime of the process, so repeated generation calls for the
+ * same family skip the network round-trip entirely.
+ */
+const _googleFontCache = new Map<string, Uint8Array>();
+
+/**
+ * Firefox 26 on Linux UA — makes the Google Fonts CSS v1 API return TTF format
+ * URLs (not EOT for old IE, not WOFF2 for modern browsers).
+ */
+const GFONT_TTF_UA =
+  "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:26.0) Gecko/20100101 Firefox/26.0";
+
+/**
+ * Fetch a TTF/OTF binary for a Google Font family + numeric weight.
+ *
+ * Strategy:
+ *  1. Query the CSS v1 API with a Firefox-26 UA so the response contains TTF URLs.
+ *  2. Parse @font-face src entries, preferring entries explicitly tagged
+ *     format('truetype') or format('opentype'). Fall back to any src url() if
+ *     no tagged entry is found.
+ *  3. Download the selected URL.
+ *  4. Validate magic bytes (TTF: 00 01 00 00 / "true", OTF: "OTTO") before
+ *     returning — EOT, WOFF, and WOFF2 are rejected so we never hand an
+ *     unembeddable blob to pdf-lib.
+ *
+ * Returns null — never throws — on any failure so callers fall back to StandardFonts.
+ */
+async function fetchGoogleFontBytes(familyName: string, weight: 400 | 700): Promise<Uint8Array | null> {
+  const cacheKey = `${familyName}:${weight}`;
+  const cached = _googleFontCache.get(cacheKey);
+  if (cached) return cached;
+
+  const TIMEOUT_MS = 5000;
+  // CSS v1 endpoint — one @font-face block per weight, simpler to parse.
+  const cssUrl = `https://fonts.googleapis.com/css?family=${encodeURIComponent(familyName)}:${weight}`;
+
+  try {
+    // Step 1: fetch the CSS stylesheet.
+    const cssController = new AbortController();
+    const cssTimer = setTimeout(() => cssController.abort(), TIMEOUT_MS);
+    let cssText: string;
+    try {
+      const cssRes = await fetch(cssUrl, {
+        headers: { "User-Agent": GFONT_TTF_UA },
+        signal: cssController.signal,
+      });
+      if (!cssRes.ok) {
+        console.warn(`[pdf-generator] Google Fonts CSS HTTP ${cssRes.status} for "${familyName}:${weight}"`);
+        return null;
+      }
+      cssText = await cssRes.text();
+    } finally {
+      clearTimeout(cssTimer);
+    }
+
+    // Step 2: parse font URL from @font-face.
+    // Prefer an entry explicitly tagged format('truetype') or format('opentype').
+    // Fallback: first src: url() in the stylesheet.
+    const ttMatch = cssText.match(
+      /url\(([^)]+)\)\s+format\(['"](?:truetype|opentype)['"]\)/,
+    );
+    const anyMatch = cssText.match(/src:\s*url\(([^)]+)\)/);
+    const match = ttMatch ?? anyMatch;
+    if (!match) {
+      console.warn(`[pdf-generator] No font URL in CSS for "${familyName}:${weight}"`);
+      return null;
+    }
+    const fontUrl = match[1].trim().replace(/['"]/g, "");
+
+    // Step 3: download the font binary.
+    const fontController = new AbortController();
+    const fontTimer = setTimeout(() => fontController.abort(), TIMEOUT_MS);
+    let bytes: Uint8Array;
+    try {
+      const fontRes = await fetch(fontUrl, { signal: fontController.signal });
+      if (!fontRes.ok) {
+        console.warn(
+          `[pdf-generator] Font binary HTTP ${fontRes.status} for "${familyName}:${weight}" (${fontUrl})`,
+        );
+        return null;
+      }
+      bytes = new Uint8Array(await fontRes.arrayBuffer());
+    } finally {
+      clearTimeout(fontTimer);
+    }
+
+    // Step 4: validate magic bytes — only TTF and OTF are embeddable by pdf-lib + fontkit.
+    // TTF:  00 01 00 00  (OpenType CFF) or  74 72 75 65  ("true" — Apple CFF variant)
+    // OTF:  4F 54 54 4F  ("OTTO")
+    // Anything else (EOT, WOFF 77 4F 46 46, WOFF2 77 4F 46 32) → reject.
+    const isTTF =
+      (bytes[0] === 0x00 && bytes[1] === 0x01 && bytes[2] === 0x00 && bytes[3] === 0x00) ||
+      (bytes[0] === 0x74 && bytes[1] === 0x72 && bytes[2] === 0x75 && bytes[3] === 0x65);
+    const isOTF =
+      bytes[0] === 0x4f && bytes[1] === 0x54 && bytes[2] === 0x54 && bytes[3] === 0x4f;
+    if (!isTTF && !isOTF) {
+      const magic = Array.from(bytes.slice(0, 4))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join(" ");
+      console.warn(
+        `[pdf-generator] Non-embeddable font format for "${familyName}:${weight}" (magic: ${magic}) — falling back to StandardFonts`,
+      );
+      return null;
+    }
+
+    _googleFontCache.set(cacheKey, bytes);
+    console.log(
+      `[pdf-generator] Google Font cached: "${familyName}:${weight}" ${Math.round(bytes.byteLength / 1024)} KB (${isTTF ? "TTF" : "OTF"})`,
+    );
+    return bytes;
+  } catch (err) {
+    console.warn(
+      `[pdf-generator] Google Font fetch error for "${familyName}:${weight}":`,
+      (err as Error).message,
+    );
+    return null;
+  }
+}
+
+/**
+ * Embed a font into the PDF document, preferring the real TTF/OTF binary from
+ * Google Fonts over the StandardFonts fallback.
+ * Falls back to StandardFonts on any fetch failure, format-validation failure,
+ * or pdf-lib embed error — with a distinct warning log for each failure mode.
+ */
+async function resolveEmbeddedFont(
+  pdfDoc: PDFDocument,
+  familyName: string | undefined,
+  bold: boolean,
+) {
+  if (familyName) {
+    const bytes = await fetchGoogleFontBytes(familyName, bold ? 700 : 400);
+    if (bytes) {
+      try {
+        return await pdfDoc.embedFont(bytes);
+      } catch (err) {
+        // Distinct log: embed pipeline failure is different from a network failure.
+        console.warn(
+          `[pdf-generator] embedFont pipeline error for "${familyName}" — falling back to StandardFonts:`,
+          (err as Error).message,
+        );
+      }
+    }
+  }
+  return pdfDoc.embedFont(resolveStandardFont(familyName, bold));
 }
 
 export async function buildPdf(
@@ -415,6 +567,8 @@ export async function buildPdf(
 
   // 3. Create PDF
   const pdfDoc = await PDFDocument.create();
+  // Register fontkit so pdfDoc.embedFont(bytes) can handle TTF/OTF binaries.
+  pdfDoc.registerFontkit(fontkit);
   // Page dimensions driven by style.size; fallback to A4
   const sizeKey  = (style as Record<string, unknown>).size as string | undefined;
   const baseSize = PAGE_SIZES[sizeKey ?? "a4"] ?? PAGE_SIZES.a4!;
@@ -423,10 +577,14 @@ export async function buildPdf(
   // 3. Embed fonts — resolve from theme fontPairing when provided.
   // heading slot drives fontBold (large headings/titles);
   // body slot drives font (regular text, labels, dates).
+  // Real TTF binaries are fetched from Google Fonts and cached in-process;
+  // falls back to StandardFonts on timeout/error.
   const headingFamily = fontPairing?.heading;
   const bodyFamily    = fontPairing?.body ?? fontPairing?.heading; // fall back to heading if body unset
-  const font     = await pdfDoc.embedFont(resolveStandardFont(bodyFamily, false));
-  const fontBold = await pdfDoc.embedFont(resolveStandardFont(headingFamily, true));
+  const [font, fontBold] = await Promise.all([
+    resolveEmbeddedFont(pdfDoc, bodyFamily, false),
+    resolveEmbeddedFont(pdfDoc, headingFamily, true),
+  ]);
 
   // 3a. Resolve background rendering spec (once, before the page loop).
   // Gracefully falls back to paper fill on any error — never fails generation.
@@ -872,12 +1030,17 @@ export async function buildPreviewPdf(
   const paper  = hexToRgb(colors[5] ?? "#fafafa");
 
   const pdfDoc = await PDFDocument.create();
+  // Register fontkit so pdfDoc.embedFont(bytes) can handle TTF/OTF binaries.
+  pdfDoc.registerFontkit(fontkit);
   const pageWidth  = orientation === "landscape" ? PAGE_HEIGHT : PAGE_WIDTH;
   const pageHeight = orientation === "landscape" ? PAGE_WIDTH  : PAGE_HEIGHT;
   const headingFamilyPv = fontPairing?.heading;
   const bodyFamilyPv    = fontPairing?.body ?? fontPairing?.heading;
-  const font     = await pdfDoc.embedFont(resolveStandardFont(bodyFamilyPv, false));
-  const fontBold = await pdfDoc.embedFont(resolveStandardFont(headingFamilyPv, true));
+  // Real TTF binaries from Google Fonts; falls back to StandardFonts on error.
+  const [font, fontBold] = await Promise.all([
+    resolveEmbeddedFont(pdfDoc, bodyFamilyPv, false),
+    resolveEmbeddedFont(pdfDoc, headingFamilyPv, true),
+  ]);
 
   // Resolve background spec for preview (same logic as buildPdf)
   let bgColorOverride: { r: number; g: number; b: number } | null = null;

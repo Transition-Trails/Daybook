@@ -410,28 +410,29 @@ describe("store_staff (store-alpha) — allow", () => {
   });
 
   it("POST /api/stores/store-alpha/catalog → 201 (curate catalog)", async () => {
+    // i4 ("Autumn leaf corner") is seeded in insertsTable and not pre-loaded into alpha's catalog
     const res = await request(alphaStaff)
       .post("/api/stores/store-alpha/catalog")
-      .send({ itemType: "insert", itemId: "i6" });
+      .send({ itemType: "insert", itemId: "i4" });
     expect([201, 200]).toContain(res.status);
     cleanups.push(() =>
       db.delete(storeCatalogTable).where(
         and(
           eq(storeCatalogTable.storeId, "store-alpha"),
           eq(storeCatalogTable.itemType, "insert"),
-          eq(storeCatalogTable.itemId, "i6"),
+          eq(storeCatalogTable.itemId, "i4"),
         )
       )
     );
   });
 
-  it("DELETE /api/stores/store-alpha/catalog/insert/i6 → 204 or 404 (curate catalog)", async () => {
-    // Ensure i6 is enabled first so delete works
+  it("DELETE /api/stores/store-alpha/catalog/insert/i4 → 204 or 404 (curate catalog)", async () => {
+    // Ensure i4 is enabled first so delete works
     await request(alphaStaff)
       .post("/api/stores/store-alpha/catalog")
-      .send({ itemType: "insert", itemId: "i6" });
+      .send({ itemType: "insert", itemId: "i4" });
     const res = await request(alphaStaff)
-      .delete("/api/stores/store-alpha/catalog/insert/i6");
+      .delete("/api/stores/store-alpha/catalog/insert/i4");
     expect([204, 404]).toContain(res.status);
   });
 

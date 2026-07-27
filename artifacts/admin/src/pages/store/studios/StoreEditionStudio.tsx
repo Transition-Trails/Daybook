@@ -37,6 +37,7 @@ import {
   storeStudiosApi, studioGenerateApi,
   type CatalogItem, type OwnedList,
 } from "@/lib/api";
+import { FontSpecimenCard } from "@/components/FontSpecimenCard";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -897,6 +898,18 @@ function EditionEdit({
                   <div className="space-y-2">
                     <Label className="text-xs uppercase tracking-wider text-muted-foreground">Themes</Label>
                     <MultiChips items={attachable.data?.themes ?? []} selected={selThemes} onToggle={toggle(setSelThemes)} originBadge />
+                    {/* Font specimens — shown for each selected theme that has a heading or body font */}
+                    {selThemes.length > 0 &&
+                      (owned?.themes ?? [])
+                        .filter((t) => selThemes.includes(t.id) && (t.fontPairing?.heading || t.fontPairing?.body))
+                        .map((t) => (
+                          <FontSpecimenCard
+                            key={t.id}
+                            fontPairing={t.fontPairing!}
+                            themeName={t.name}
+                            compact
+                          />
+                        ))}
                   </div>
                   <div className="space-y-2">
                     <Label className="text-xs uppercase tracking-wider text-muted-foreground">Sticker packs</Label>

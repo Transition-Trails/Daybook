@@ -99,7 +99,9 @@ import {
   type StorePlannerStyle,
   type StorePlannerOutput,
   type Widget,
+  type OwnedList,
 } from "@/lib/api";
+import { FontSpecimenCard } from "@/components/FontSpecimenCard";
 
 interface Props {
   storeId: string;
@@ -414,13 +416,13 @@ function BuildMode({ planner, storeId, onUpdated }: { planner: StorePlannerConfi
 // ── Editions mode ──────────────────────────────────────────────────────────────
 
 function EditionsMode({ planner, storeId, onUpdated }: { planner: StorePlannerConfig; storeId: string; onUpdated: (p: StorePlannerConfig) => void }) {
-  const { data: owned } = useQuery({
+  const { data: owned } = useQuery<OwnedList>({
     queryKey: ["store-owned", storeId],
     queryFn: () => storeStudiosApi.list(storeId),
   });
   const { toast } = useToast();
   const qc = useQueryClient();
-  const editions = (owned as { editions?: { id: string; name: string; status: string }[] })?.editions ?? [];
+  const editions = owned?.editions ?? [];
 
   const patchMutation = useMutation({
     mutationFn: (editionId: string | null) =>
@@ -453,25 +455,44 @@ function EditionsMode({ planner, storeId, onUpdated }: { planner: StorePlannerCo
         <p className="text-sm text-muted-foreground">No edition linked. Select one below.</p>
       )}
 
-      <div className="space-y-2">
-        {editions.map((ed) => (
-          <button
-            key={ed.id}
-            onClick={() => patchMutation.mutate(ed.id)}
-            className={`w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-colors ${
-              planner.editionId === ed.id ? "border-primary bg-primary/5" : "hover:bg-muted/50"
-            }`}
-          >
-            <BookOpen className="w-4 h-4 text-muted-foreground shrink-0" />
-            <div className="min-w-0">
-              <p className="text-sm font-medium truncate">{ed.name}</p>
-              <p className="text-xs text-muted-foreground">{ed.status}</p>
+      <div className="space-y-3">
+        {editions.map((ed) => {
+          // Find themes linked to this edition that carry a font pairing.
+          const edThemeIds: string[] = (ed.themes as string[] | undefined) ?? [];
+          const pairedThemes = (owned?.themes ?? []).filter(
+            (t) => edThemeIds.includes(t.id) && (t.fontPairing?.heading || t.fontPairing?.body),
+          );
+
+          return (
+            <div key={ed.id} className="space-y-1.5">
+              <button
+                onClick={() => patchMutation.mutate(ed.id)}
+                className={`w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-colors ${
+                  planner.editionId === ed.id ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                }`}
+              >
+                <BookOpen className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{ed.name}</p>
+                  <p className="text-xs text-muted-foreground">{ed.status}</p>
+                </div>
+                {planner.editionId === ed.id && (
+                  <Badge className="ml-auto shrink-0">Selected</Badge>
+                )}
+              </button>
+
+              {/* Font specimen cards — one per theme with a font pairing */}
+              {pairedThemes.map((t) => (
+                <FontSpecimenCard
+                  key={t.id}
+                  fontPairing={t.fontPairing!}
+                  themeName={t.name}
+                  compact
+                />
+              ))}
             </div>
-            {planner.editionId === ed.id && (
-              <Badge className="ml-auto shrink-0">Selected</Badge>
-            )}
-          </button>
-        ))}
+          );
+        })}
         {editions.length === 0 && (
           <p className="text-sm text-muted-foreground">No editions found. Create one in Edition Studio first.</p>
         )}

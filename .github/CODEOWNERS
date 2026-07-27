@@ -1,0 +1,11 @@
+# All files — Angela is the default reviewer on every PR.
+# Add more lines below to route specific paths to other reviewers.
+* @alandrith
+
+# CI and deployment config — extra care
+.github/           @alandrith
+artifact.toml      @alandrith
+
+# Database schema and migrations — require explicit sign-off
+lib/db/            @alandrith
+**/migrate-*.mjs   @alandrith

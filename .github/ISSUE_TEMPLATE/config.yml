@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support question
+    url: https://github.com/Transition-Trails/Daybook/discussions
+    about: For general questions, use Discussions instead of opening an issue.

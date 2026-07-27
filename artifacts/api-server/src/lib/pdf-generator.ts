@@ -677,6 +677,7 @@ export async function buildPdf(
   background?: BackgroundSpec,
   fontPairing?: ThemeFontPairing,
   hotspotsByTemplate?: Map<string, UserHotspot[]>,
+  inkFriendly = false,
 ): Promise<{ buffer: Uint8Array; pageCount: number }> {
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, monthCount, weekStart, orientation } = setup;
@@ -698,19 +699,21 @@ export async function buildPdf(
 
   // 2. Resolve theme colors
   const colors = themeColors ?? ["#6366f1", "#4f46e5", "#a5b4fc", "#c7d2fe", "#1e1b4b", "#fafafa"];
-  const accent = hexToRgb(colors[0] ?? "#6366f1");
-  const ink    = hexToRgb(colors[4] ?? "#1e1b4b");
+  // In ink-friendly mode: pure black for all ink/accent, pure white for paper
+  const accent = inkFriendly ? { r: 0, g: 0, b: 0 } : hexToRgb(colors[0] ?? "#6366f1");
+  const ink    = inkFriendly ? { r: 0, g: 0, b: 0 } : hexToRgb(colors[4] ?? "#1e1b4b");
 
-  // Paper colour — explicit paperColour in style overrides theme[5]
+  // Paper colour — explicit paperColour in style overrides theme[5]; ink-friendly always uses white
   const PAPER_COLOUR_HEX: Record<string, string> = {
     cream: "#FAFAF7", white: "#FFFFFF", ivory: "#FFFFF0",
     kraft: "#B5926A", slate: "#94A3B8",
   };
   const paperColourKey = (style as PlannerStyle & { paperColour?: string }).paperColour;
-  if (paperColourKey === "kraft" || paperColourKey === "slate") {
+  if (!inkFriendly && (paperColourKey === "kraft" || paperColourKey === "slate")) {
     console.warn(`[pdf-generator] Contrast warning: paperColour="${paperColourKey}" may reduce ink text readability`);
   }
-  const paperHex = paperColourKey ? (PAPER_COLOUR_HEX[paperColourKey] ?? colors[5]) : (colors[5] ?? "#fafafa");
+  const paperHex = inkFriendly ? "#FFFFFF"
+    : (paperColourKey ? (PAPER_COLOUR_HEX[paperColourKey] ?? colors[5]) : (colors[5] ?? "#fafafa"));
   const paper = hexToRgb(paperHex as string);
 
   // 3. Create PDF
@@ -740,7 +743,8 @@ export async function buildPdf(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let bgEmbedded: any = null; // PDFImage, kept as any to avoid pdf-lib internals
 
-  if (background) {
+  // In ink-friendly mode: skip all backgrounds (photographic art omitted, not greyed).
+  if (!inkFriendly && background) {
     if (background.type === "color" && background.assetRef) {
       try { bgColorOverride = hexToRgb(background.assetRef); } catch { /* ignore malformed hex */ }
     } else if (
@@ -761,7 +765,8 @@ export async function buildPdf(
 
   // 3b. Realistic render style: generate template overlays ONCE, embed as reusable XObjects.
   // Default is "realistic"; pass renderStyle:"flat" to opt out.
-  const renderStyle = (style as PlannerStyle & { renderStyle?: string }).renderStyle ?? "realistic";
+  // Ink-friendly always uses flat — no grain, gutter, or ring overlays.
+  const renderStyle = inkFriendly ? "flat" : ((style as PlannerStyle & { renderStyle?: string }).renderStyle ?? "realistic");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let realisticGutterImg: any = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -864,9 +869,17 @@ export async function buildPdf(
     // Layer 2c: binding hardware art (vector, rendered per page but is lightweight)
     drawBindingHardware(page, pageWidth, pageHeight, bindingType, bindingFinish, orientation === "landscape");
 
-    // Layer 3: accent header + page ID (always on top of background, under content)
-    page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: rgb(accent.r, accent.g, accent.b) });
-    page.drawText(id, { x: MARGIN, y: pageHeight - 14, size: 7, font, color: rgb(1, 1, 1) });
+    // Layer 3: accent header + page ID
+    // Colour: solid accent fill with white text.
+    // Ink-friendly: white panel with hairline black border and black text.
+    if (inkFriendly) {
+      page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20,
+        color: rgb(1, 1, 1), borderColor: rgb(0, 0, 0), borderWidth: 0.5 });
+      page.drawText(id, { x: MARGIN, y: pageHeight - 14, size: 7, font, color: rgb(0, 0, 0) });
+    } else {
+      page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: rgb(accent.r, accent.g, accent.b) });
+      page.drawText(id, { x: MARGIN, y: pageHeight - 14, size: 7, font, color: rgb(1, 1, 1) });
+    }
   }
 
   // 5. Convenience accessors

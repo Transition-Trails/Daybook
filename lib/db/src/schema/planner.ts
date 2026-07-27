@@ -88,6 +88,10 @@ export type PlannerOutput = {
   calMode: "link" | "overlay" | "none";
   eventMins: 30 | 60 | 90;
   aiInPdf: boolean;
+  /** When true the generator produces both a colour PDF and an ink-friendly B&W line-art PDF. */
+  inkFriendly?: boolean;
+  /** Drive file ID for the ink-friendly variant; populated only when inkFriendly=true. */
+  inkFriendlyPdfFileId?: string | null;
 };
 
 // ── DRIVE REFERENCES ──────────────────────────────────────────────────────────

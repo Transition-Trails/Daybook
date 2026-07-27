@@ -31,7 +31,7 @@ const router: IRouter = Router();
 export async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
   hotspotsByTemplate?: Map<string, import("../lib/pdf-generator").UserHotspot[]>,
-): Promise<{ pdfFileId: string; configFileId: string; pageCount: number }> {
+): Promise<{ pdfFileId: string; configFileId: string; inkFriendlyPdfFileId: string | null; pageCount: number }> {
   // Resolve colors for generation.
   // Priority 1: explicit paletteId (buyer picked a palette within the theme)
   // Priority 2: theme.colors for the explicit themeId (backward-compat)
@@ -129,21 +129,36 @@ export async function runGeneration(
   }
 
   const sections = (config.style as PlannerStyle).sections ?? [];
+  const output   = config.output as PlannerOutput;
+  const inkFriendlyEnabled = !!output.inkFriendly;
+
+  const generatorConfig = {
+    setup: config.setup as PlannerSetup,
+    style: config.style as PlannerStyle,
+    output,
+    sections,
+    editionId: config.editionId ?? undefined,
+    userId: config.userId,
+  };
+
   const { buffer, pageCount } = await buildPdf(
-    {
-      setup: config.setup as PlannerSetup,
-      style: config.style as PlannerStyle,
-      output: config.output as PlannerOutput,
-      sections,
-      editionId: config.editionId ?? undefined,
-      userId: config.userId,
-    },
-    themeColors,
-    undefined,   // use DEFAULT_TEMPLATE
-    background,
-    fontPairing,
-    hotspotsByTemplate,
+    generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
   );
+
+  // If ink-friendly is requested, generate the B&W variant.
+  let inkFriendlyBuffer: Uint8Array | null = null;
+  if (inkFriendlyEnabled) {
+    try {
+      const result = await buildPdf(
+        generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
+        /* inkFriendly */ true,
+      );
+      inkFriendlyBuffer = result.buffer;
+      console.log(`[pdf-generator] Ink-friendly variant produced (${result.pageCount} pages)`);
+    } catch (err) {
+      console.warn("[pdf-generator] Ink-friendly generation failed — skipping:", (err as Error).message);
+    }
+  }
 
   // Resolve a valid (possibly refreshed) Google token; fall back gracefully if unavailable.
   let googleAccessToken: string | null = null;
@@ -159,6 +174,7 @@ export async function runGeneration(
   // so planner generation never fails solely because of Drive unavailability.
   let pdfFileId: string;
   let configFileId: string;
+  let inkFriendlyPdfFileId: string | null = null;
   try {
     pdfFileId =
       (await uploadPlannerPdf(googleAccessToken, config.id as string, buffer)) ??
@@ -171,13 +187,21 @@ export async function runGeneration(
         editionId: config.editionId,
         generatedAt: new Date().toISOString(),
       })) ?? `cfg-${config.id}-${Date.now()}`;
+    if (inkFriendlyBuffer) {
+      inkFriendlyPdfFileId =
+        (await uploadPlannerPdf(googleAccessToken, `${config.id as string}-inkfriendly`, inkFriendlyBuffer)) ??
+        `pdf-${config.id}-inkfriendly-${Date.now()}`;
+    }
   } catch {
     // Drive unavailable — planner is still saved; Drive IDs will be stub values.
     pdfFileId = `pdf-${config.id}-${Date.now()}`;
     configFileId = `cfg-${config.id}-${Date.now()}`;
+    if (inkFriendlyBuffer) {
+      inkFriendlyPdfFileId = `pdf-${config.id}-inkfriendly-${Date.now()}`;
+    }
   }
 
-  return { pdfFileId, configFileId, pageCount };
+  return { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount };
 }
 
 // ── POST /planners/preview ────────────────────────────────────────────────────

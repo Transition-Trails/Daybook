@@ -9,6 +9,7 @@
     "seed-stickers": "tsx ./src/seed-stickers.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "seed-backgrounds": "tsx ./src/seed-backgrounds.ts",
+    "seed-recipes": "tsx ./src/seed-recipes.ts",
     "migrate-themes": "tsx ./src/migrate-themes.ts",
     "migrate-notebooks": "tsx ./src/migrate-notebooks.ts",
     "migrate-theme-studio": "tsx ./src/migrate-theme-studio.ts",

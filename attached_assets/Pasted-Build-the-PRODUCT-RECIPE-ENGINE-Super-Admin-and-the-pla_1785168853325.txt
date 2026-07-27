@@ -1,0 +1,77 @@
+Build the PRODUCT RECIPE ENGINE (Super Admin) and the platform-wide B&W EXPORT.
+The attached screenshot is the target UX — match its structure and copy tone.
+Do not touch auth, planner generation, or the artifact guarantee.
+
+=== WHY THIS EXISTS ===
+A "recipe" is a named arrangement of engines the platform ALREADY has (page recipes,
+cut paths, imposition, photo layouts, prompt decks, trackers, themes, Claude grounding).
+Defining a recipe makes a new product type available inside a studio WITHOUT writing a
+new studio. This is the subscription mechanic: stores renew for the recipes that arrive,
+not for software they already have. Recipes ship on a monthly cadence.
+
+=== PART 1 — SUPER ADMIN: PRODUCT RECIPES ===
+New nav item "Product recipes" in the Platform group, between Stores and Global catalog.
+
+Page structure, top to bottom (see screenshot):
+1. An explainer card with a navy left accent rule, stating the model in plain language.
+2. Four stat tiles: Live recipes / In draft / Ships next month / Renewals citing new recipes.
+3. RECIPES list — one row per recipe: name + studio it appears in, a truncated one-line
+   parts list naming the engines it draws on, plan tier, build count, a status badge
+   (LIVE green / NEW clay / DRAFT muted), and a visible "Edit →" chip. Plus "+ New recipe".
+   NOT a data table with column headers — rows on warm sunken cards, like the screenshot.
+4. Two cards side by side: "What a recipe defines" (the six fields) and
+   "Release schedule" (month, recipe, status with a coloured dot).
+
+DATA MODEL — a recipe row has exactly these six authorable fields:
+ - name + category (which studio it appears in)
+ - decision card: the one either/or the buyer answers first, each option carrying a
+   plain-language consequence line
+ - parts list: which engines it composes (multi-select from a registry of existing
+   engine capabilities — page recipe, cut path, imposition, photo layouts, deck,
+   oracle table, tracker, cover, dividers, ephemera shapes, paper generator, tiling)
+ - physical path: does it print, what sheet it imposes onto, which templates ship with it
+ - Claude brief: what the assistant asks for, and what it generates from a premise
+ - release: which plan tiers get it, and the month it drops
+
+BEHAVIOUR:
+ - Recipes are platform-owned. Only super_admin creates/edits/publishes/retires them.
+ - Publishing a recipe makes it appear in the relevant studio's product picker for
+   stores on an entitled plan, with a "New this month" badge for its release month.
+ - Retiring a recipe hides it for new builds but NEVER affects existing artifacts.
+ - audit_log on create / edit / publish / retire.
+ - Track build counts per recipe so the list shows real usage.
+ - Defensive JSON parsing, loading/empty/error states.
+
+Seed the eleven recipes shown in the screenshot (Dated planner, Undated notebook,
+Sticker pack, Ephemera set, Junk journal kit, Memory book, Solo journaling game,
+SVG cut pack, Digital paper pack, plus Wedding suite and Classroom pack as drafts),
+with their parts lists pointing at the engines that actually exist today.
+
+=== PART 2 — PLATFORM-WIDE INK-FRIENDLY B&W EXPORT ===
+This is a real feature, not a toggle: nearly every competing listing advertises
+"Color + Ink-Friendly Black & White Version Included" on its cover, because buyers
+printing at home care about ink cost more than almost anything.
+
+ - Add a B&W export option that EVERY recipe inherits — planners, journals, kits,
+   sticker packs, games. Not per-studio.
+ - It is not a desaturation. Generate a genuine line-art variant: drop full-bleed
+   colour fills and photographic backgrounds, keep outlines and rules, convert tinted
+   panels to white with a hairline border, keep text pure black. Backgrounds and
+   heavy art are omitted rather than greyed.
+ - Export BOTH versions in the bundle when enabled, clearly named
+   (e.g. name-color.pdf and name-inkfriendly.pdf), in A4 and US Letter.
+ - Surface it as a checkbox in each studio's export step with a one-line explanation
+   of why it exists, and reflect it in the bundle contents list.
+ - Store the flag per build so re-exports are consistent.
+
+Report: the recipes surface with real seeded data, publishing a recipe making it
+appear in a studio picker for entitled plans only, and a B&W export produced from
+an existing build with both files in the bundle.
+
+Pixel Perfect Plans Design System
+
+
+
+Daybook Super Admin
+17 pages
+

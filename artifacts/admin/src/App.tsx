@@ -53,6 +53,7 @@ import SuperRevenue from "@/pages/super/Revenue";
 import SuperHelp from "@/pages/super/HelpCenter";
 import SuperFlags from "@/pages/super/FeatureFlags";
 import SuperAudit from "@/pages/super/AuditLog";
+import SuperRecipes from "@/pages/super/ProductRecipes";
 
 // ── Store Admin pages ─────────────────────────────────────────────────────────
 import StoreDashboard from "@/pages/store/Dashboard";
@@ -147,6 +148,9 @@ function RootRouter() {
       </Route>
       <Route path="/super/flags">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperFlags /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/recipes">
+        <RequireSuperAdmin state={state}><SuperAdminShell><SuperRecipes /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       <Route path="/super/audit">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperAudit /></SuperAdminShell></RequireSuperAdmin>

@@ -773,6 +773,7 @@ function BuildCenter({
   const [insertIds,     setInsertIds]     = useState<string[]>([]);
   const [addingSection, setAddingSection] = useState(false);
   const [sectionDraft,  setSectionDraft]  = useState("");
+  const [inkFriendly,   setInkFriendly]   = useState(false);
 
   // Sync from template when template identity changes
   useEffect(() => {
@@ -838,12 +839,13 @@ function BuildCenter({
   });
 
   const generateMut = useMutation({
-    mutationFn: () => platformPlannersApi.generate(template!.id),
+    mutationFn: () => platformPlannersApi.generate(template!.id, { inkFriendly }),
     onSuccess: async (result) => {
       qc.invalidateQueries({ queryKey: ["platform-planners"] });
       const updated = await platformPlannersApi.get(template!.id);
       onUpdated(updated);
-      toast({ title: "Generated", description: `${result.pageCount} pages · ${result.fileName}` });
+      const bwNote = inkFriendly ? " · + ink-friendly" : "";
+      toast({ title: "Generated", description: `${result.pageCount} pages · ${result.fileName}${bwNote}` });
     },
     onError: (err: Error) => toast({ title: "Generation failed", description: err.message, variant: "destructive" }),
   });
@@ -1434,6 +1436,23 @@ function BuildCenter({
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Ink-friendly B&W export checkbox */}
+      <div className="flex items-center gap-2 pt-2 pb-1">
+        <input
+          id="ink-friendly-check"
+          type="checkbox"
+          checked={inkFriendly}
+          onChange={e => setInkFriendly(e.target.checked)}
+          className="w-3.5 h-3.5 accent-[#1B2A4A]"
+        />
+        <label htmlFor="ink-friendly-check" className="text-xs cursor-pointer select-none" style={{ color: "hsl(216 15% 40%)" }}>
+          Include ink-friendly B&W version{" "}
+          <span className="text-[10px] ml-1" style={{ color: "hsl(216 15% 60%)" }}>
+            — line art, no colour fills; named <em>…-inkfriendly.pdf</em>
+          </span>
+        </label>
       </div>
 
       {/* Generate + Publish */}

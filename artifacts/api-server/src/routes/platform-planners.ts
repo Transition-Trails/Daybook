@@ -241,16 +241,24 @@ router.post(
     }
 
     try {
+      const body = req.body as { inkFriendly?: boolean } | undefined;
+
       // runGeneration expects a PlannerConfig shape; platform templates are compatible
+      // Merge inkFriendly flag into the output JSONB so runGeneration picks it up.
+      const mergedOutput = {
+        ...(template.output as Record<string, unknown> ?? {}),
+        ...(body?.inkFriendly ? { inkFriendly: true } : {}),
+      };
       const fakeConfig = {
         ...template,
+        output: mergedOutput,
         userId: actor.userId,
         storeId: null,
         year: (template.setup as PlannerSetup).startYear,
         productType: template.productType,
       } as unknown as typeof plannerConfigsTable.$inferSelect;
 
-      const { pdfFileId, configFileId, pageCount } = await runGeneration(fakeConfig);
+      const { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount } = await runGeneration(fakeConfig);
 
       // Resolve names for the filename
       let editionName: string | null = null;
@@ -275,7 +283,14 @@ router.post(
 
       const [updated] = await db
         .update(platformPlannerTemplatesTable)
-        .set({ drive: { pdfFileId, configFileId }, generatedAt: new Date() })
+        .set({
+          drive: {
+            pdfFileId,
+            configFileId,
+            ...(inkFriendlyPdfFileId ? { inkFriendlyPdfFileId } : {}),
+          },
+          generatedAt: new Date(),
+        })
         .where(eq(platformPlannerTemplatesTable.id, id))
         .returning();
 

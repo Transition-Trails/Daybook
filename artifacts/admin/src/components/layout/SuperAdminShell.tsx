@@ -23,17 +23,19 @@ import {
   Layers3,
   ArrowUpRight,
   Sparkles,
+  FlaskConical,
 } from "lucide-react";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
 
 const NAV = [
-  { label: "Dashboard",      icon: LayoutDashboard, href: "/super" },
-  { label: "Stores",         icon: Store,           href: "/super/stores" },
-  { label: "Global catalog", icon: Globe,           href: "/super/catalog" },
-  { label: "Revenue",        icon: TrendingUp,      href: "/super/revenue" },
-  { label: "Help center",    icon: BookOpen,        href: "/super/help" },
-  { label: "Feature flags",  icon: ToggleLeft,      href: "/super/flags" },
-  { label: "Audit log",      icon: ClipboardList,   href: "/super/audit" },
+  { label: "Dashboard",       icon: LayoutDashboard, href: "/super" },
+  { label: "Stores",          icon: Store,           href: "/super/stores" },
+  { label: "Product recipes", icon: FlaskConical,    href: "/super/recipes" },
+  { label: "Global catalog",  icon: Globe,           href: "/super/catalog" },
+  { label: "Revenue",         icon: TrendingUp,      href: "/super/revenue" },
+  { label: "Help center",     icon: BookOpen,        href: "/super/help" },
+  { label: "Feature flags",   icon: ToggleLeft,      href: "/super/flags" },
+  { label: "Audit log",       icon: ClipboardList,   href: "/super/audit" },
 ];
 
 // ── AI button shared style ────────────────────────────────────────────────────

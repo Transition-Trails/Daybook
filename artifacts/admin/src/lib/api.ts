@@ -1320,10 +1320,10 @@ export const platformPlannersApi = {
       body: JSON.stringify(data),
     }),
 
-  generate: (id: string) =>
-    apiFetch<{ id: string; drive: { pdfFileId: string | null; configFileId: string | null }; pageCount: number; fileName: string }>(
+  generate: (id: string, opts?: { inkFriendly?: boolean }) =>
+    apiFetch<{ id: string; drive: { pdfFileId: string | null; configFileId: string | null; inkFriendlyPdfFileId?: string | null }; pageCount: number; fileName: string }>(
       `/platform/planners/${id}/generate`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify(opts ?? {}) },
     ),
 
   publish: (id: string) =>
@@ -1526,3 +1526,69 @@ export const themeApi = {
 };
 
 // (insert + widget generate methods are part of studioGenerateApi above)
+
+// ─── PRODUCT RECIPES ──────────────────────────────────────────────────────────
+
+export interface ProductRecipeDecisionCard {
+  prompt:  string;
+  optionA: { label: string; consequence: string };
+  optionB: { label: string; consequence: string };
+}
+
+export interface ProductRecipeRelease {
+  planTiers: string[];
+  month:     number;
+  year:      number;
+}
+
+export interface ProductRecipe {
+  id:           string;
+  name:         string;
+  category:     string;
+  decisionCard: ProductRecipeDecisionCard | null;
+  parts:        string[];
+  physicalPath: { prints: boolean; impositionSheet?: string; templates?: string[] } | null;
+  claudeBrief:  { asks: string[]; generates: string } | null;
+  release:      ProductRecipeRelease | null;
+  status:       "draft" | "live" | "retired";
+  buildCount:   number;
+  createdAt:    string;
+  updatedAt:    string;
+}
+
+export interface RecipeStats {
+  live:              number;
+  draft:             number;
+  shipsNext:         number;
+  renewalsCitingNew: number;
+}
+
+export const recipesApi = {
+  list: () =>
+    apiFetch<ProductRecipe[]>("/platform/recipes"),
+
+  stats: () =>
+    apiFetch<RecipeStats>("/platform/recipes/stats"),
+
+  get: (id: string) =>
+    apiFetch<ProductRecipe>(`/platform/recipes/${id}`),
+
+  create: (data: Partial<ProductRecipe>) =>
+    apiFetch<ProductRecipe>("/platform/recipes", {
+      method: "POST", body: JSON.stringify(data),
+    }),
+
+  update: (id: string, data: Partial<ProductRecipe>) =>
+    apiFetch<ProductRecipe>(`/platform/recipes/${id}`, {
+      method: "PATCH", body: JSON.stringify(data),
+    }),
+
+  publish: (id: string) =>
+    apiFetch<ProductRecipe>(`/platform/recipes/${id}/publish`, { method: "POST" }),
+
+  retire: (id: string) =>
+    apiFetch<ProductRecipe>(`/platform/recipes/${id}/retire`, { method: "POST" }),
+
+  delete: (id: string) =>
+    apiFetch<{ ok: boolean; status: string }>(`/platform/recipes/${id}`, { method: "DELETE" }),
+};

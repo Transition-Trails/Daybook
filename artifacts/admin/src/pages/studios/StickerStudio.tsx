@@ -46,7 +46,7 @@ async function createPack(data: {
   editionIds: string[];
   status: "draft" | "live";
 }) {
-  const res = await fetch("/api/sticker-packs", {
+  const res = await fetch("/api/packs", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },

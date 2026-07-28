@@ -35,6 +35,7 @@
  */
 import { useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 export interface AppDrawerProps {
   open: boolean;
@@ -95,10 +96,9 @@ export function AppDrawer({
     return () => window.removeEventListener("keydown", handler, { capture: true });
   }, [open, onClose]);
 
-  // ── Focus panel when opened ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (open) panelRef.current?.focus();
-  }, [open]);
+  // ── Focus trap — cycles Tab/Shift+Tab within the panel while open ────────────
+  // Saves the triggering element on open and restores focus to it on close.
+  useFocusTrap(panelRef, open);
 
   const translateOut =
     side === "right" ? "translateX(100%)" : "translateX(-100%)";

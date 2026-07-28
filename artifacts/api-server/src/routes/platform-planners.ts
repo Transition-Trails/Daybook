@@ -60,6 +60,8 @@ router.post(
       name: string;
       description?: string;
       editionId?: string;
+      /** "planner" | "journal" | "notebook" | "memory-keeping" — defaults to "planner" */
+      productType?: string;
       setup?: Partial<PlannerSetup & { datingMode?: string }>;
       style?: Partial<PlannerStyle>;
       output?: Partial<PlannerOutput>;
@@ -80,12 +82,18 @@ router.post(
       ...body.setup,
     };
 
+    const validProductTypes = ["planner", "journal", "notebook", "memory-keeping"];
+    const productType = validProductTypes.includes(body.productType ?? "")
+      ? (body.productType as string)
+      : "planner";
+
     const [template] = await db
       .insert(platformPlannerTemplatesTable)
       .values({
         name: body.name.trim(),
         description: body.description ?? null,
         editionId: body.editionId ?? null,
+        productType,
         setup: defaultSetup,
         style: body.style ?? {},
         output: {

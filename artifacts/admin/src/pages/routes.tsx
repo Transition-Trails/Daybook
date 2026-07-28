@@ -32,6 +32,7 @@ import Dashboard from '@/pages/dashboard';
 
 // Studio hubs
 import PlannerStudioHub from '@/pages/studios/PlannerStudioHub';
+import JournalStudioHub from '@/pages/studios/JournalStudioHub';
 import StickerStudioHub from '@/pages/studios/StickerStudioHub';
 import MarketingStudioHub from '@/pages/studios/MarketingStudioHub';
 import ThemeStudioHub from '@/pages/studios/ThemeStudioHub';
@@ -79,6 +80,7 @@ export const routes = [
 
   // ── Studio hubs ────────────────────────────────────────────────────────────
   { path: "/studios/planner",        component: PlannerStudioHub },
+  { path: "/studios/journal",        component: JournalStudioHub },
   { path: "/studios/stickers",       component: StickerStudioHub },
   { path: "/studios/marketing",      component: MarketingStudioHub },
   { path: "/studios/theme-builder",  component: ThemeStudioHub },

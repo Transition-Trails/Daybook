@@ -14,7 +14,8 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BuildCenter, type PlatformPlannerConfig } from "@/pages/studios/PlannerStudioHub";
+import { BuildCenter } from "@/pages/studios/PlannerStudioHub";
+import { type PlatformPlannerConfig } from "@/lib/api";
 
 // ── Module-level mocks ──────────────────────────────────────────────────────
 

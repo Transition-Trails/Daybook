@@ -47,6 +47,7 @@ import {
   WifiOff,
   RotateCcw,
   X,
+  Hammer,
 } from "lucide-react";
 import { resolveStoreId, storesApi, flagsQueryOptions, type MeStore } from "@/lib/api";
 
@@ -99,6 +100,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
 
   const NAV = [
     { label: "Dashboard",       icon: LayoutDashboard, href: base },
+    { label: "Product Builder", icon: Hammer,          href: `${base}/build` },
     { label: "Shop catalog",    icon: ShoppingBag,     href: `${base}/catalog` },
     { label: "Planner builds",  icon: BookCopy,        href: `${base}/builds` },
     { label: "My content",      icon: LibraryBig,      href: `${base}/my-content` },

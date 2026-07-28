@@ -98,6 +98,7 @@ import StoreEditionStudio from "@/pages/store/studios/StoreEditionStudio";
 import StoreTrendResearch from "@/pages/store/studios/StoreTrendResearch";
 import MarketingStudio from "@/pages/store/studios/MarketingStudio";
 import PlannerStudio from "@/pages/store/studios/PlannerStudio";
+import ProductBuilder from "@/pages/build/ProductBuilder";
 
 // ── Store: Widgets ────────────────────────────────────────────────────────────
 import StoreWidgets from "@/pages/store/Widgets";
@@ -192,6 +193,19 @@ function RootRouter() {
       </Route>
       <Route path="/super/support/patterns">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperSupportPatterns /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+
+      {/* ── Product Builder ────────────────────────────────────── */}
+      <Route path="/store/:storeId/build">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <ProductBuilder storeId={p.storeId!} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
       </Route>
 
       {/* ── Store Admin console ────────────────────────────────── */}

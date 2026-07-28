@@ -17,7 +17,9 @@
     "migrate-sticker-set-id": "tsx ./src/migrate-sticker-set-id.ts",
     "migrate-related-products": "tsx ./src/migrate-related-products.ts",
     "seed-theme-catalog": "tsx ./src/seed-theme-catalog.ts",
-    "seed:ci": "tsx ./src/seed-ci.ts"
+    "seed:ci": "tsx ./src/seed-ci.ts",
+    "seed-house": "tsx ./src/seed-house.ts",
+    "seed-house:clear": "tsx ./src/seed-house-clear.ts"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",

@@ -151,3 +151,47 @@ describe("BuildCenter — Save style button disabled invariant", () => {
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe("BuildCenter — Save setup button disabled invariant", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("does NOT render a Save setup button when template is null", () => {
+    renderBuildCenter(null);
+    // Creation form is shown — no setup save path exists
+    expect(screen.queryByRole("button", { name: /save setup/i })).toBeNull();
+  });
+
+  it("renders the Save setup button when a template is selected", () => {
+    renderBuildCenter(makeTemplate());
+    expect(screen.getByRole("button", { name: /save setup/i })).toBeTruthy();
+  });
+
+  it("Save setup button is NOT disabled when a template is selected (initial idle state, not locked)", () => {
+    // generatedAt: null → isLocked = false → disabled = false
+    renderBuildCenter(makeTemplate({ generatedAt: null }));
+    const btn = screen.getByRole("button", { name: /save setup/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("BuildCenter — Generate button disabled invariant", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("does NOT render a Generate button when template is null", () => {
+    renderBuildCenter(null);
+    // Creation form is shown — no generate path exists
+    expect(screen.queryByRole("button", { name: /generate planner/i })).toBeNull();
+  });
+
+  it("renders the Generate planner button when a template is selected", () => {
+    renderBuildCenter(makeTemplate());
+    expect(screen.getByRole("button", { name: /generate planner/i })).toBeTruthy();
+  });
+
+  it("Generate planner button is NOT disabled when template has an editionId (initial idle state)", () => {
+    // editionId: "ed-1" → !template.editionId = false → disabled = false
+    renderBuildCenter(makeTemplate({ editionId: "ed-1" }));
+    const btn = screen.getByRole("button", { name: /generate planner/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+  });
+});

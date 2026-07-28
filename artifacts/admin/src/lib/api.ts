@@ -1230,6 +1230,13 @@ export interface StorePlannerStyle {
   coverTitle?: string;
   coverSubtitle?: string;
   coverYear?: number;
+  /** Per-role font overrides — empty string means use theme default. */
+  fonts?: {
+    heading?: string;
+    subheading?: string;
+    script?: string;
+    accent?: string;
+  } | null;
 }
 
 export interface StorePlannerOutput {

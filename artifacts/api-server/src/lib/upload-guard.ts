@@ -53,3 +53,54 @@ export function detectImageMagicBytes(bytes: Uint8Array): string | null {
   }
   return null;
 }
+
+/**
+ * Validate a base64 data URL image by inspecting its actual bytes.
+ *
+ * Applies to every upload path where image bytes pass through the server
+ * (sticker source images, widget SVGs, recipe reference images, cover art).
+ * Object-storage presigned-URL paths never pass bytes through the server so
+ * only the content-type header check applies there.
+ *
+ * Returns an error string on failure, or `null` when the bytes are valid.
+ *
+ * @param dataUrl   Full data URL: "data:image/png;base64,…"
+ * @param fieldName Human-readable field name for the error message.
+ */
+export function validateBase64ImageMagicBytes(
+  dataUrl: string,
+  fieldName = "image",
+): string | null {
+  if (!dataUrl.startsWith("data:")) {
+    return `${fieldName}: expected a data URL (data:image/…)`;
+  }
+  const commaIdx = dataUrl.indexOf(",");
+  if (commaIdx === -1) {
+    return `${fieldName}: malformed data URL (no comma separator)`;
+  }
+  const b64 = dataUrl.slice(commaIdx + 1);
+  let raw: Uint8Array;
+  try {
+    const bin = atob(b64);
+    raw = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) raw[i] = bin.charCodeAt(i);
+  } catch {
+    return `${fieldName}: data URL contains invalid base64`;
+  }
+  if (raw.length < 12) {
+    return `${fieldName}: image data is too short to be a valid image file`;
+  }
+  const detected = detectImageMagicBytes(raw);
+  if (!detected) {
+    return `${fieldName}: file bytes do not match any recognised image format (JPEG, PNG, GIF, WebP). ` +
+           `A renamed or spoofed file was detected.`;
+  }
+  // Cross-check declared MIME vs detected type.  We allow image/jpg as alias.
+  const declaredMime = dataUrl.slice(5, commaIdx).split(";")[0] ?? "";
+  const normDeclared = declaredMime === "image/jpg" ? "image/jpeg" : declaredMime;
+  if (normDeclared && normDeclared !== detected && declaredMime !== "image/svg+xml") {
+    return `${fieldName}: declared MIME type '${declaredMime}' does not match ` +
+           `detected file type '${detected}'`;
+  }
+  return null;
+}

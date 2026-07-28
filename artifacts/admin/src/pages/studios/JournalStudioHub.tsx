@@ -7,7 +7,8 @@
  *
  * Uses the same StudioLayout shell and design tokens as the other studio hubs.
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -738,6 +739,8 @@ function NewTemplateModal({ open, onClose, onCreated }: {
   const [name, setName] = useState("");
   const [type, setType] = useState<"journal" | "notebook">("journal");
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef, open);
 
   useEffect(() => {
     if (open) { setName(""); setTimeout(() => inputRef.current?.focus(), 80); }
@@ -762,7 +765,7 @@ function NewTemplateModal({ open, onClose, onCreated }: {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-background rounded-2xl shadow-xl p-6 w-full max-w-sm space-y-4">
+      <div ref={panelRef} className="bg-background rounded-2xl shadow-xl p-6 w-full max-w-sm space-y-4">
         <h2 className="text-[15px] font-semibold">New journal template</h2>
 
         <div className="space-y-1.5">

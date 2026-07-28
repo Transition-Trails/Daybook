@@ -649,12 +649,17 @@ router.post(
       return;
     }
 
-    // Size guard — reject before the expensive pipeline (5 MB decoded ≈ 6.7 MB base64)
+    // Size guard — reject before magic-byte decode and the expensive pipeline (5 MB decoded ≈ 6.7 MB base64)
     const b64Payload = imageBase64.replace(/^data:image\/[a-z+]+;base64,/, "");
     const approxBytes = Math.ceil(b64Payload.length * 0.75);
     if (approxBytes > 5 * 1024 * 1024) {
       res.status(400).json({ error: "Image too large — maximum 5 MB per sticker" });
       return;
+    }
+    {
+      const { validateBase64ImageMagicBytes } = await import("../lib/upload-guard.js");
+      const magicErr = validateBase64ImageMagicBytes(imageBase64, "imageBase64");
+      if (magicErr) { res.status(400).json({ error: magicErr }); return; }
     }
 
     const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";

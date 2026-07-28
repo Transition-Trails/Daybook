@@ -7,6 +7,7 @@
 import { useParams, useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, BookMarked, CheckCircle2, Palette, Package, FileText, Sparkles } from "lucide-react";
+import { inkApi } from "@/lib/api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,13 @@ export default function EditionDetail() {
     queryFn: () => fetchEdition(storeSlug!, editionId!),
     retry: false,
   });
+
+  const { data: inkStatus } = useQuery({
+    queryKey: ["ink/enabled", storeSlug],
+    queryFn: () => inkApi.enabled(storeSlug),
+    staleTime: 60_000,
+  });
+  const inkEnabled = inkStatus?.enabled ?? false;
 
   // ── States ─────────────────────────────────────────────────────────────────
 
@@ -292,7 +300,7 @@ export default function EditionDetail() {
                     `${themes.length} theme${themes.length !== 1 ? "s" : ""}`,
                     `${packs.length} sticker pack${packs.length !== 1 ? "s" : ""}`,
                     "Saved to your Google Drive",
-                    "Annotate with Daybook Ink",
+                    ...(inkEnabled ? ["Annotate with Daybook Ink"] : []),
                   ].map((item, i) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.slate }}>
                       <CheckCircle2 size={13} color={T.clay} />

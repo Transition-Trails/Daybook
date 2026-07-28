@@ -944,6 +944,34 @@ function extractIds(body: unknown): string[] {
   return raw.filter((x): x is string => typeof x === "string");
 }
 
+/**
+ * Shared slot-type validator.
+ *
+ * Verifies that every supplied ID actually exists in the target entity table.
+ * Returns true (caller may proceed) or false (response already sent with 422).
+ *
+ * Using a single helper rather than per-slot inline checks is how we avoid
+ * repeating the mistake that left 7 of 9 slots unguarded.
+ */
+async function assertEntityIdsExist(
+  slot: string,
+  ids: string[],
+  queryFn: (ids: string[]) => Promise<{ id: string }[]>,
+  res: Response,
+): Promise<boolean> {
+  if (!ids.length) return true;
+  const found = await queryFn(ids);
+  const foundSet = new Set(found.map(r => r.id));
+  const missing = ids.filter(i => !foundSet.has(i));
+  if (missing.length) {
+    res.status(422).json({
+      error: `Slot '${slot}': IDs not found in the ${slot} catalog: ${missing.join(", ")}`,
+    });
+    return false;
+  }
+  return true;
+}
+
 router.put("/themes/:id/inserts", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
   const id = await requireThemeGuard(req, res);
   if (!id) return;
@@ -969,6 +997,8 @@ router.put("/themes/:id/widgets", requireSuperAdmin, async (req: Request, res: R
   const id = await requireThemeGuard(req, res);
   if (!id) return;
   const ids = extractIds(req.body);
+  const ok = await assertEntityIdsExist("widgets", ids, (ids) => db.select({ id: widgetsTable.id }).from(widgetsTable).where(inArray(widgetsTable.id, ids)), res);
+  if (!ok) return;
   await db.delete(themeWidgetsTable).where(eq(themeWidgetsTable.themeId, id));
   if (ids.length) await db.insert(themeWidgetsTable).values(ids.map((widgetId, position) => ({ themeId: id, widgetId, position })));
   await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.widgets.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
@@ -1000,6 +1030,8 @@ router.put("/themes/:id/hardware", requireSuperAdmin, async (req: Request, res: 
   const id = await requireThemeGuard(req, res);
   if (!id) return;
   const ids = extractIds(req.body);
+  const ok = await assertEntityIdsExist("hardware", ids, (ids) => db.select({ id: hardwareTable.id }).from(hardwareTable).where(inArray(hardwareTable.id, ids)), res);
+  if (!ok) return;
   await db.delete(themeHardwareTable).where(eq(themeHardwareTable.themeId, id));
   if (ids.length) await db.insert(themeHardwareTable).values(ids.map((hardwareId, position) => ({ themeId: id, hardwareId, position })));
   await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.hardware.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
@@ -1010,6 +1042,8 @@ router.put("/themes/:id/accessories", requireSuperAdmin, async (req: Request, re
   const id = await requireThemeGuard(req, res);
   if (!id) return;
   const ids = extractIds(req.body);
+  const ok = await assertEntityIdsExist("accessories", ids, (ids) => db.select({ id: accessoriesTable.id }).from(accessoriesTable).where(inArray(accessoriesTable.id, ids)), res);
+  if (!ok) return;
   await db.delete(themeAccessoriesTable).where(eq(themeAccessoriesTable.themeId, id));
   if (ids.length) await db.insert(themeAccessoriesTable).values(ids.map((accessoryId, position) => ({ themeId: id, accessoryId, position })));
   await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.accessories.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
@@ -1020,6 +1054,8 @@ router.put("/themes/:id/fonts", requireSuperAdmin, async (req: Request, res: Res
   const id = await requireThemeGuard(req, res);
   if (!id) return;
   const ids = extractIds(req.body);
+  const ok = await assertEntityIdsExist("fonts", ids, (ids) => db.select({ id: fontsTable.id }).from(fontsTable).where(inArray(fontsTable.id, ids)), res);
+  if (!ok) return;
   await db.delete(themeFontsTable).where(eq(themeFontsTable.themeId, id));
   if (ids.length) await db.insert(themeFontsTable).values(ids.map((fontId, position) => ({ themeId: id, fontId, position })));
   await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.fonts.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
@@ -1065,50 +1101,81 @@ router.post("/themes/:id/commit-bundle", requireSuperAdmin, async (req: Request,
     if (!Array.isArray(rawIds)) continue;
     const ids = rawIds.filter((x): x is string => typeof x === "string");
     switch (slot) {
+      case "palettes": {
+        const ok = await assertEntityIdsExist("palettes", ids, (ids) => db.select({ id: palettesTable.id }).from(palettesTable).where(inArray(palettesTable.id, ids)), res);
+        if (!ok) return;
+        await db.delete(themePalettesTable).where(eq(themePalettesTable.themeId, id));
+        if (ids.length) await db.insert(themePalettesTable).values(ids.map((paletteId, i) => ({ themeId: id, paletteId, position: i, isPrimary: i === 0 })));
+        break;
+      }
+      case "backgrounds": {
+        const ok = await assertEntityIdsExist("backgrounds", ids, (ids) => db.select({ id: backgroundsTable.id }).from(backgroundsTable).where(inArray(backgroundsTable.id, ids)), res);
+        if (!ok) return;
+        await db.delete(themeBackgroundsTable).where(eq(themeBackgroundsTable.themeId, id));
+        if (ids.length) await db.insert(themeBackgroundsTable).values(ids.map((backgroundId, position) => ({ themeId: id, backgroundId, position })));
+        break;
+      }
+      case "packs": {
+        const ok = await assertEntityIdsExist("packs", ids, (ids) => db.select({ id: stickerPacksTable.id }).from(stickerPacksTable).where(inArray(stickerPacksTable.id, ids)), res);
+        if (!ok) return;
+        await db.delete(themePacksTable).where(eq(themePacksTable.themeId, id));
+        if (ids.length) await db.insert(themePacksTable).values(ids.map((packId, position) => ({ themeId: id, packId, position })));
+        break;
+      }
       case "inserts": {
-        // Guard: inserts slot must not contain Cover-art rows
-        if (ids.length) {
-          const rows = await db.select({ id: insertsTable.id, cat: insertsTable.cat }).from(insertsTable).where(inArray(insertsTable.id, ids));
-          const coverRows = rows.filter(r => r.cat === "Cover art");
-          if (coverRows.length) {
-            res.status(422).json({ error: `Slot 'inserts' requires a non-cover asset; IDs ${coverRows.map(r => r.id).join(", ")} have cat='Cover art'. Use the 'covers' slot instead.` });
-            return;
-          }
+        const rows = ids.length ? await db.select({ id: insertsTable.id, cat: insertsTable.cat }).from(insertsTable).where(inArray(insertsTable.id, ids)) : [];
+        const missing = ids.filter(i => !rows.find(r => r.id === i));
+        if (missing.length) { res.status(422).json({ error: `Slot 'inserts': IDs not found: ${missing.join(", ")}` }); return; }
+        const coverRows = rows.filter(r => r.cat === "Cover art");
+        if (coverRows.length) {
+          res.status(422).json({ error: `Slot 'inserts' requires a non-cover asset; IDs ${coverRows.map(r => r.id).join(", ")} have cat='Cover art'. Use the 'covers' slot instead.` });
+          return;
         }
         await db.delete(themeInsertsTable).where(eq(themeInsertsTable.themeId, id));
         if (ids.length) await db.insert(themeInsertsTable).values(ids.map((insertId, position) => ({ themeId: id, insertId, position })));
         break;
       }
-      case "widgets":
-        await db.delete(themeWidgetsTable).where(eq(themeWidgetsTable.themeId, id));
-        if (ids.length) await db.insert(themeWidgetsTable).values(ids.map((widgetId, position) => ({ themeId: id, widgetId, position })));
-        break;
       case "covers": {
-        // Guard: covers slot must only contain cat='Cover art' rows
-        if (ids.length) {
-          const rows = await db.select({ id: insertsTable.id, cat: insertsTable.cat }).from(insertsTable).where(inArray(insertsTable.id, ids));
-          const nonCoverRows = rows.filter(r => r.cat !== "Cover art");
-          if (nonCoverRows.length) {
-            res.status(422).json({ error: `Slot 'covers' requires a cover asset, not an insert. IDs ${nonCoverRows.map(r => r.id).join(", ")} have cat='${nonCoverRows[0].cat}'. Use the 'inserts' slot instead.` });
-            return;
-          }
+        const rows = ids.length ? await db.select({ id: insertsTable.id, cat: insertsTable.cat }).from(insertsTable).where(inArray(insertsTable.id, ids)) : [];
+        const missing = ids.filter(i => !rows.find(r => r.id === i));
+        if (missing.length) { res.status(422).json({ error: `Slot 'covers': IDs not found: ${missing.join(", ")}` }); return; }
+        const nonCoverRows = rows.filter(r => r.cat !== "Cover art");
+        if (nonCoverRows.length) {
+          res.status(422).json({ error: `Slot 'covers' requires a cover asset, not an insert. IDs ${nonCoverRows.map(r => r.id).join(", ")} have cat='${nonCoverRows[0].cat}'. Use the 'inserts' slot instead.` });
+          return;
         }
         await db.delete(themeCoversTable).where(eq(themeCoversTable.themeId, id));
         if (ids.length) await db.insert(themeCoversTable).values(ids.map((insertId, position) => ({ themeId: id, insertId, position })));
         break;
       }
-      case "hardware":
+      case "widgets": {
+        const ok = await assertEntityIdsExist("widgets", ids, (ids) => db.select({ id: widgetsTable.id }).from(widgetsTable).where(inArray(widgetsTable.id, ids)), res);
+        if (!ok) return;
+        await db.delete(themeWidgetsTable).where(eq(themeWidgetsTable.themeId, id));
+        if (ids.length) await db.insert(themeWidgetsTable).values(ids.map((widgetId, position) => ({ themeId: id, widgetId, position })));
+        break;
+      }
+      case "hardware": {
+        const ok = await assertEntityIdsExist("hardware", ids, (ids) => db.select({ id: hardwareTable.id }).from(hardwareTable).where(inArray(hardwareTable.id, ids)), res);
+        if (!ok) return;
         await db.delete(themeHardwareTable).where(eq(themeHardwareTable.themeId, id));
         if (ids.length) await db.insert(themeHardwareTable).values(ids.map((hardwareId, position) => ({ themeId: id, hardwareId, position })));
         break;
-      case "accessories":
+      }
+      case "accessories": {
+        const ok = await assertEntityIdsExist("accessories", ids, (ids) => db.select({ id: accessoriesTable.id }).from(accessoriesTable).where(inArray(accessoriesTable.id, ids)), res);
+        if (!ok) return;
         await db.delete(themeAccessoriesTable).where(eq(themeAccessoriesTable.themeId, id));
         if (ids.length) await db.insert(themeAccessoriesTable).values(ids.map((accessoryId, position) => ({ themeId: id, accessoryId, position })));
         break;
-      case "fonts":
+      }
+      case "fonts": {
+        const ok = await assertEntityIdsExist("fonts", ids, (ids) => db.select({ id: fontsTable.id }).from(fontsTable).where(inArray(fontsTable.id, ids)), res);
+        if (!ok) return;
         await db.delete(themeFontsTable).where(eq(themeFontsTable.themeId, id));
         if (ids.length) await db.insert(themeFontsTable).values(ids.map((fontId, position) => ({ themeId: id, fontId, position })));
         break;
+      }
       default:
         continue;
     }

@@ -244,12 +244,18 @@ async function main() {
     })
     .onConflictDoNothing();
 
-  // Link the bad asset into the bad pack as a sticker so the checker can find
-  // it via the stickers → assets join.
+  // Link the bad asset into the GOOD pack (ci_pack_a) as a sticker so the
+  // checker can find it via the stickers → assets join.
+  //
+  // Important: ci_bad_pack must stay empty (no stickers, no instruction sheet)
+  // so the pack checker can correctly flag it.  Linking the bad asset to
+  // ci_bad_pack would make that pack non-empty and produce a false green.
+  // ci_pack_a has an instruction sheet so it passes the pack check regardless.
   await db
     .insert(stickersTable)
     .values({
-      packId:  CI_IDS.badPack,
+      id:      "ci_bad_sticker",  // explicit id — stickers.id has no DB default
+      packId:  CI_IDS.packA,      // ← good pack, not bad pack
       assetId: CI_IDS.badAsset,
       name:    "ci_bad_sticker",
       position: 0,

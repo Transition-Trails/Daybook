@@ -16,7 +16,7 @@
  * Approximate row counts per table:
  *   palettes          10   (4 Warm Earth + 3 Vintage Christmas + 2 Botanicals + 1 Ocean)
  *   backgrounds       10
- *   inserts           10   (8 functional/seasonal + 2 cover art)
+ *   inserts           11   (8 functional/seasonal + 3 cover art)
  *   widgets            6
  *   themes             4   (3 complete bundles + 1 intentionally incomplete)
  *   sticker_packs      7
@@ -153,8 +153,9 @@ const INSERT_DEFS = [
   { id: "hs_ins_contacts",     name: "Contact Directory",      cat: "Functional", collection: null },
 
   // ── Cover art (needed for theme_covers linkage) ─────────────────────────────
-  { id: "hs_ins_cover_earth",  name: "Warm Earth Cover Art",   cat: "Cover art",  collection: "Warm Earth"        },
-  { id: "hs_ins_cover_xmas",   name: "Vintage Christmas Cover",cat: "Cover art",  collection: "Vintage Christmas" },
+  { id: "hs_ins_cover_earth",       name: "Warm Earth Cover Art",   cat: "Cover art",  collection: "Warm Earth"        },
+  { id: "hs_ins_cover_xmas",        name: "Vintage Christmas Cover",cat: "Cover art",  collection: "Vintage Christmas" },
+  { id: "hs_ins_cover_botanicals",  name: "Botanicals Cover Art",   cat: "Cover art",  collection: "Botanicals"        },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -871,7 +872,7 @@ const THEME_DEFS = [
     backgroundIds: ["hs_bg_bot_stone","hs_bg_bot_linen"],
     packIds: ["hs_pack_pressed_botanicals","hs_pack_weekdays"],
     insertIds: ["hs_ins_meal_grid","hs_ins_recipe_card","hs_ins_brain_dump"],
-    coverInsertId: null,
+    coverInsertId: "hs_ins_cover_botanicals",
     hardwareId: "hw_silver_discs",
     accessoryId: "acc_tab_set",
     fontIds: ["font_dm_serif","font_cormorant","font_lora","font_libre_baskerville"],

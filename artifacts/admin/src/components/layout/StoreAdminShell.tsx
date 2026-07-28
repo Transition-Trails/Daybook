@@ -60,19 +60,30 @@ interface StoreAdminShellProps {
   allStores?: MeStore[];
 }
 
+/** The platform's own shop. Super admins operate here as normal store owners. */
+const HOUSE_STORE_ID = "store-house";
+
 export function StoreAdminShell({ children, store, role, allStores = [] }: StoreAdminShellProps) {
   const [location] = useLocation();
   const { data: user } = useGetMe();
   const logout = useLogout();
   const { openAssistant } = useAiDrawer();
-  // When super_admin is browsing a store, they start in read-only mode
-  // and can explicitly "take control" to allow mutations.
+  // When super_admin is browsing a customer store, they start in read-only mode.
   const [hasControl, setHasControl] = useState(false);
-
-  const isSuperAdminBrowsing = role === "super_admin";
 
   const base = `/store/${resolveStoreId(store)}`;
   const storeId = resolveStoreId(store);
+
+  // Visual mode detection:
+  //   isHouseStoreView  — super admin in their own house store (normal, quiet)
+  //   isSuperAdminBrowsing — super admin entered a customer store (support mode, warning)
+  const isActingSuperAdmin = (user as any)?.platformRole === "super_admin";
+  const isHouseStore = storeId === HOUSE_STORE_ID;
+  const isHouseStoreView = isActingSuperAdmin && isHouseStore;
+  // role === "super_admin" only when RequireStore synthesised a store object for a
+  // non-member store.  When the super admin IS a store_owner of the house store
+  // their role comes back as "store_owner", so isHouseStoreView handles that case.
+  const isSuperAdminBrowsing = role === "super_admin" && !isHouseStore;
 
   // Fetch flags to determine if AI studios should be shown.
   // Uses shared flagsQueryOptions: 8 s AbortController + retry:1/retryDelay:1 s.
@@ -96,7 +107,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     if (!flagsLoading && !flagsError) setBannerDismissed(false);
   }, [flagsLoading, flagsError]);
 
-  const showAiBanner = !isSuperAdminBrowsing && !bannerDismissed && (flagsError || flagsTimedOut);
+  const showAiBanner = !isSuperAdminBrowsing && !isHouseStoreView && !bannerDismissed && (flagsError || flagsTimedOut);
 
   const NAV = [
     { label: "Dashboard",       icon: LayoutDashboard, href: base },
@@ -186,32 +197,49 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
         className="w-60 shrink-0 flex flex-col"
         style={{ background: "#F7F0E6", borderRight: "1px solid #E7DCCB" }}
       >
-        {/* Scope identity: Store: <name> */}
+        {/* Scope identity */}
         <div
           className="h-14 flex items-center px-5 gap-2 border-b shrink-0"
-          style={{ borderColor: "#E7DCCB" }}
+          style={{
+            borderColor: isHouseStoreView ? "hsl(150 40% 80%)" : "#E7DCCB",
+            background: isHouseStoreView ? "hsl(150 30% 97%)" : undefined,
+          }}
         >
-          <BookMarked className="w-5 h-5 text-[#C87560] shrink-0" />
+          <BookMarked className="w-5 h-5 shrink-0" style={{ color: isHouseStoreView ? "hsl(150 45% 40%)" : "#C87560" }} />
           <div className="flex-1 min-w-0">
             <p className="font-display font-semibold text-sm truncate leading-tight" style={{ color: "#1B2A4A" }}>
               {store.name}
             </p>
-            <p className="text-[10px] leading-tight" style={{ color: "#8A7B6A" }}>
-              Store admin
+            <p className="text-[10px] leading-tight" style={{ color: isHouseStoreView ? "hsl(150 40% 40%)" : "#8A7B6A" }}>
+              {isHouseStoreView ? "Your shop" : "Store admin"}
             </p>
           </div>
         </div>
 
-        {/* Super admin quick exit */}
+        {/* Platform link — house store gets a quiet link; customer store gets amber quick-exit */}
+        {isHouseStoreView && (
+          <div className="px-2 pt-2 pb-0">
+            <a
+              href="/super"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs no-underline transition-colors"
+              style={{ color: "hsl(150 40% 42%)" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "hsl(150 30% 93%)"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ""; }}
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Platform console
+            </a>
+          </div>
+        )}
         {isSuperAdminBrowsing && (
           <div className="px-2 pt-2 pb-0">
             <a
-              href="/super/stores"
+              href="/super"
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs no-underline transition-colors"
               style={{ background: "hsl(38 80% 55% / 0.15)", color: "hsl(38 80% 72%)" }}
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              Back to super admin
+              Back to platform
             </a>
           </div>
         )}
@@ -278,7 +306,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
             )}
 
             {/* Super admins can always navigate to studios regardless of store plan */}
-            {(aiEnabled || isSuperAdminBrowsing) ? (
+            {(aiEnabled || isSuperAdminBrowsing || isHouseStoreView) ? (
               STUDIO_NAV.map(({ label, icon: Icon, href }) => navItem(label, Icon, href))
             ) : (
               <span
@@ -347,10 +375,10 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
 
       {/* ── Main area ────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Super admin impersonation banner */}
+        {/* Super admin support-mode banner — persistent, cannot be dismissed */}
         {isSuperAdminBrowsing && (
           <div
-            className="px-5 py-2 flex items-center gap-3 shrink-0 border-b text-sm"
+            className="px-4 py-2 flex items-center gap-2.5 shrink-0 border-b text-sm flex-wrap"
             style={{
               background: "hsl(38 90% 55% / 0.12)",
               borderColor: "hsl(38 80% 60% / 0.3)",
@@ -358,9 +386,13 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
             }}
           >
             <ShieldAlert className="w-4 h-4 shrink-0" style={{ color: "hsl(38 80% 50%)" }} />
-            <span className="font-medium">Super admin</span>
-            <span className="text-muted-foreground">·</span>
-            <span>Browsing <strong>{store.name}</strong> — all actions are audited</span>
+            <span>
+              Viewing <strong>{store.name}</strong> as super admin
+            </span>
+            <span style={{ color: "hsl(38 40% 60%)" }}>·</span>
+            <span className="text-xs" style={{ color: "hsl(38 55% 45%)" }}>
+              All mutations are recorded as admin actions in the audit log
+            </span>
             {!hasControl ? (
               <button
                 className="ml-auto text-xs px-2.5 py-1 rounded border font-medium transition-colors"
@@ -369,7 +401,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
                   color: "hsl(38 70% 35%)",
                 }}
                 onClick={() => setHasControl(true)}
-                title="Allow mutations in this store — actions will be attributed to super_admin acting as store"
+                title="Enable write access — mutations will be attributed to super_admin acting in this store's scope"
               >
                 Take control
               </button>
@@ -386,11 +418,21 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
               </span>
             )}
             <a
-              href="/super/stores"
-              className="text-xs underline underline-offset-2 ml-2 shrink-0"
-              style={{ color: "hsl(38 60% 40%)" }}
+              href="/super"
+              className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded border no-underline transition-colors shrink-0"
+              style={{
+                borderColor: "hsl(38 60% 55% / 0.45)",
+                color: "hsl(38 65% 35%)",
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLAnchorElement).style.background = "hsl(38 80% 55% / 0.15)";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLAnchorElement).style.background = "";
+              }}
+              title="Return to the platform console"
             >
-              Exit store
+              ← Leave store
             </a>
           </div>
         )}

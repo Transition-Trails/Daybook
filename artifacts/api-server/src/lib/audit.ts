@@ -19,6 +19,14 @@ export interface AuditEntry {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function writeAudit(db: NodePgDatabase<any>, entry: AuditEntry): Promise<void> {
   try {
+    // When a super admin acts within a store scope, auto-flag the row so that
+    // support mutations are always distinguishable from store-owner actions.
+    const isAdminSupportAction =
+      entry.actorRole === "super_admin" && entry.scope !== "platform";
+    const metadata = isAdminSupportAction
+      ? { ...entry.metadata, adminSupportAction: true }
+      : (entry.metadata ?? null);
+
     await db.insert(auditLogTable).values({
       actorUserId: entry.actorUserId,
       actorRole: entry.actorRole,
@@ -26,7 +34,7 @@ export async function writeAudit(db: NodePgDatabase<any>, entry: AuditEntry): Pr
       action: entry.action,
       targetType: entry.targetType ?? null,
       targetId: entry.targetId ?? null,
-      metadata: entry.metadata ?? null,
+      metadata,
     });
   } catch (err) {
     // Audit failures must never break the main request path.

@@ -143,9 +143,21 @@ export default function SuperStores() {
                           <Search className="w-3 h-3" />Inspect
                         </span>
                       </Link>
-                      {/* Enter store — opens store admin console as super_admin */}
+                      {/* Enter store — opens store admin console in support mode */}
                       <Link href={`/store/${s.id}`}>
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer">
+                        <span
+                          className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md cursor-pointer transition-colors"
+                          style={{
+                            background: "hsl(221 46% 17%)",
+                            color: "hsl(35 50% 82%)",
+                          }}
+                          onMouseEnter={e => {
+                            (e.currentTarget as HTMLElement).style.background = "hsl(221 46% 24%)";
+                          }}
+                          onMouseLeave={e => {
+                            (e.currentTarget as HTMLElement).style.background = "hsl(221 46% 17%)";
+                          }}
+                        >
                           <ArrowRight className="w-3 h-3" />Enter store
                         </span>
                       </Link>

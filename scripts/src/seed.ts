@@ -14,7 +14,7 @@
  * Everything else is 'licensed'.
  * No 'owned' items seeded — those are created by stores later via AI studios.
  */
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import {
   themesTable,
   stickerPacksTable,
@@ -114,6 +114,7 @@ async function main() {
   // ── Notebook / Journal Editions (formerly related_products) ──────────────
   // These rows were migrated from the retired related_products table into editions.
   // Seeds are idempotent via ON CONFLICT DO NOTHING.
+  const defaultArt = { cover: null, first: null, divider: null, weekly: null, daily: null, notes: null };
   await db
     .insert(editionsTable)
     .values([
@@ -127,7 +128,6 @@ async function main() {
 
   // ── Editions ───────────────────────────────────────────────────────────────
   // e4 Basic 2026 = starter (minimum viable planner, no licensed extras)
-  const defaultArt = { cover: null, first: null, divider: null, weekly: null, daily: null, notes: null };
   await db
     .insert(editionsTable)
     .values([
@@ -177,10 +177,25 @@ async function main() {
 
   console.log("  ✓ users (owner, super_admin + 7 store users)");
 
+  // Resolve the actual DB id for the owner — the upsert above conflicts on email
+  // and preserves the existing row's id, so "u-owner" may not exist if the owner
+  // signed in via OAuth before the seed ran.
+  // Resolve actual DB ids for the two super admin accounts — the upserts above
+  // conflict on email and preserve the existing row's id, so "u-owner" / "u-sa"
+  // may not exist as literal ids if these users signed in via OAuth before seeding.
+  const [ownerLookup, saLookup] = await Promise.all([
+    pool.query<{ id: string }>("SELECT id FROM users WHERE email = $1 LIMIT 1", [OWNER_EMAIL]),
+    pool.query<{ id: string }>("SELECT id FROM users WHERE email = $1 LIMIT 1", [SA_EMAIL]),
+  ]);
+  const houseOwnerUserId = ownerLookup.rows[0]?.id ?? "u-owner";
+  const houseSaUserId    = saLookup.rows[0]?.id    ?? "u-sa";
+
   // ── Stores ─────────────────────────────────────────────────────────────────
   // alpha/beta/gamma: curated + subscriptionActive=true
   // delta: independent mode + subscriptionActive=false (demonstrates the gated state)
   await db.insert(storesTable).values([
+    // House store — this is the platform's own shop. super admins build here.
+    { id: "store-house", name: "Pixel Perfect Plans", slug: "pixel-perfect-plans", ownerUserId: houseOwnerUserId, plan: "pro", status: "active", defaultMode: "curated", subscriptionActive: true },
     { id: "store-alpha", name: "Alpha Planners", slug: "store-alpha", ownerUserId: "u-alpha-owner", plan: "pro",     status: "active",    defaultMode: "curated",      subscriptionActive: true },
     { id: "store-beta",  name: "Beta Studio",    slug: "store-beta",  ownerUserId: "u-beta-owner",  plan: "pro",     status: "active",    defaultMode: "curated",      subscriptionActive: true },
     { id: "store-gamma", name: "Gamma Designs",  slug: "store-gamma", ownerUserId: "u-gamma-owner", plan: "starter", status: "trial",     defaultMode: "curated",      subscriptionActive: true },
@@ -192,7 +207,7 @@ async function main() {
       subscriptionActive: storesTable.subscriptionActive,
     },
   });
-  console.log("  ✓ stores (4): alpha/beta/gamma=curated+active  delta=independent+inactive");
+  console.log("  ✓ stores (5): store-house=pro+curated  alpha/beta/gamma=curated+active  delta=independent+inactive");
 
   // ── Store members ──────────────────────────────────────────────────────────
   await db.insert(storeMembersTable).values([
@@ -203,6 +218,9 @@ async function main() {
     { storeId: "store-beta",  userId: "u-beta-support",role: "support" },
     { storeId: "store-gamma", userId: "u-gamma-owner", role: "store_owner" },
     { storeId: "store-delta", userId: "u-delta-owner", role: "store_owner" },
+    // Both super admin accounts are owners of the house store (use resolved IDs)
+    { storeId: "store-house", userId: houseOwnerUserId, role: "store_owner" },
+    { storeId: "store-house", userId: houseSaUserId,    role: "store_owner" },
   ]).onConflictDoNothing();
   console.log("  ✓ store members");
 
@@ -237,6 +255,30 @@ async function main() {
     { storeId: "store-delta", itemType: "edition", itemId: "e4" },
     { storeId: "store-delta", itemType: "insert",  itemId: "i1" },
     { storeId: "store-delta", itemType: "insert",  itemId: "i2" },
+    // House store — full platform catalog (we build with everything)
+    { storeId: "store-house", itemType: "theme",   itemId: "t1" },
+    { storeId: "store-house", itemType: "theme",   itemId: "t2" },
+    { storeId: "store-house", itemType: "theme",   itemId: "t3" },
+    { storeId: "store-house", itemType: "theme",   itemId: "t4" },
+    { storeId: "store-house", itemType: "theme",   itemId: "t5" },
+    { storeId: "store-house", itemType: "theme",   itemId: "t6" },
+    { storeId: "store-house", itemType: "pack",    itemId: "p1" },
+    { storeId: "store-house", itemType: "pack",    itemId: "p2" },
+    { storeId: "store-house", itemType: "pack",    itemId: "p3" },
+    { storeId: "store-house", itemType: "insert",  itemId: "i1" },
+    { storeId: "store-house", itemType: "insert",  itemId: "i2" },
+    { storeId: "store-house", itemType: "insert",  itemId: "i3" },
+    { storeId: "store-house", itemType: "insert",  itemId: "i4" },
+    { storeId: "store-house", itemType: "insert",  itemId: "i5" },
+    { storeId: "store-house", itemType: "insert",  itemId: "i6" },
+    { storeId: "store-house", itemType: "edition", itemId: "e1" },
+    { storeId: "store-house", itemType: "edition", itemId: "e2" },
+    { storeId: "store-house", itemType: "edition", itemId: "e3" },
+    { storeId: "store-house", itemType: "edition", itemId: "e4" },
+    { storeId: "store-house", itemType: "product", itemId: "r1" },
+    { storeId: "store-house", itemType: "product", itemId: "r2" },
+    { storeId: "store-house", itemType: "product", itemId: "r3" },
+    { storeId: "store-house", itemType: "product", itemId: "r4" },
   ]).onConflictDoNothing();
   console.log("  ✓ store catalog selections");
 
@@ -245,7 +287,9 @@ async function main() {
     { storeId: "store-alpha", aiEnabled: true,  customDomain: true,  editionsCap: 20, storageQuota: 5120 },
     { storeId: "store-beta",  aiEnabled: true,  customDomain: false, editionsCap: 10, storageQuota: 2048 },
     { storeId: "store-gamma", aiEnabled: false, customDomain: false, editionsCap: 5,  storageQuota: 1024 },
-    { storeId: "store-delta", aiEnabled: false, customDomain: false, editionsCap: 5,  storageQuota: 1024 },
+    { storeId: "store-delta", aiEnabled: false, customDomain: false, editionsCap: 5,   storageQuota: 1024  },
+    // House store — full access, unlimited
+    { storeId: "store-house", aiEnabled: true,  customDomain: true,  editionsCap: 999, storageQuota: 51200 },
   ]).onConflictDoUpdate({
     target: storeFlagsTable.storeId,
     set: { aiEnabled: storeFlagsTable.aiEnabled, editionsCap: storeFlagsTable.editionsCap, storageQuota: storeFlagsTable.storageQuota },

@@ -112,6 +112,7 @@ import EmailSettings from "@/pages/store/settings/EmailSettings";
 import Deliverability from "@/pages/super/Deliverability";
 import StoreSupportPatterns from "@/pages/store/SupportPatterns";
 import SuperSupportPatterns from "@/pages/super/SupportPatterns";
+import PromoteCatalog from "@/pages/super/PromoteCatalog";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -190,6 +191,9 @@ function RootRouter() {
       </Route>
       <Route path="/super/email/deliverability">
         <RequireSuperAdmin state={state}><SuperAdminShell><Deliverability /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/promote">
+        <RequireSuperAdmin state={state}><SuperAdminShell><PromoteCatalog /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       <Route path="/super/support/patterns">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperSupportPatterns /></SuperAdminShell></RequireSuperAdmin>

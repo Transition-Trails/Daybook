@@ -1876,3 +1876,50 @@ export const supportApi = {
     return apiFetch<CloseReasonPatternsResult>(`/support/close-reason-patterns${qs ? `?${qs}` : ""}`);
   },
 };
+
+// ── House store constant (mirrors api-server) ─────────────────────────────────
+export const HOUSE_STORE_ID = "store-house";
+
+// ── Catalog promotion / demotion ──────────────────────────────────────────────
+
+export type CatalogItemType =
+  | "theme" | "pack" | "insert" | "edition"
+  | "palette" | "background" | "widget" | "hardware" | "accessory";
+
+export interface HouseOwnedItem {
+  id: string;
+  name: string;
+  itemType: CatalogItemType;
+  origin: ItemOrigin;
+  status: string;
+  authoredByStoreId: string | null;
+}
+
+export interface AdoptionBlockError {
+  error: string;
+  code: "ADOPTION_BLOCK";
+  adoptedByCount: number;
+  adopters: { storeId: string; name: string }[];
+}
+
+export const promoteCatalogApi = {
+  /** List all items authored by the house store (any origin). */
+  listHouseOwned: () =>
+    apiFetch<HouseOwnedItem[]>("/platform/catalog/house-owned"),
+
+  /** Move an owned house-store item to the platform catalog. */
+  promote: (itemType: CatalogItemType, itemId: string, targetOrigin: "starter" | "licensed") =>
+    apiFetch<HouseOwnedItem>("/platform/catalog/promote", {
+      method: "POST",
+      body: JSON.stringify({ itemType, itemId, targetOrigin }),
+      headers: { "Content-Type": "application/json" },
+    }),
+
+  /** Return a promoted item back to owned status (blocked if adopted). */
+  demote: (itemType: CatalogItemType, itemId: string) =>
+    apiFetch<HouseOwnedItem>("/platform/catalog/demote", {
+      method: "POST",
+      body: JSON.stringify({ itemType, itemId }),
+      headers: { "Content-Type": "application/json" },
+    }),
+};

@@ -474,6 +474,71 @@ export async function addDropShadow(
   return bufferToDataUrl(result);
 }
 
+// ── Shadow-expansion helpers (used by sticker export pipeline) ───────────────
+
+/**
+ * Returns the uniform canvas expansion (px per side) that addDropShadow will
+ * apply for a given style and liftPx.  Kept byte-for-byte in sync with the
+ * formula inside addDropShadow so callers can predict the final PNG size.
+ */
+export function shadowExpansionPad(style: string, liftPx = 4): number {
+  const blurRadius =
+    style === "flat" ? 2 : style === "soft" ? 8 : style === "lifted" ? 12 : 3;
+  const offX =
+    style === "flat"
+      ? 1
+      : style === "soft"
+        ? liftPx
+        : style === "lifted"
+          ? Math.round(liftPx * 1.5)
+          : 2;
+  return blurRadius * 2 + Math.max(Math.abs(offX), Math.abs(offX)) + 4;
+}
+
+/**
+ * Re-wraps a cutline SVG (traced from the PRE-shadow image) so its viewBox
+ * and path coordinates align with the POST-shadow exported PNG.
+ *
+ * addDropShadow expands the canvas by `pad` pixels on every side and places
+ * the original artwork at (pad, pad) in the new canvas.  Without this
+ * correction the SVG viewBox is smaller than the exported PNG, causing Cricut
+ * Design Space to misalign the cut contour relative to the artwork — the
+ * machine cuts offset and the entire sheet is wasted.
+ *
+ * Fix: widen the viewBox to (origW + 2·pad) × (origH + 2·pad) and wrap the
+ * path in a `translate(pad, pad)` group so the contour stays on the subject.
+ */
+export function adjustCutlineSvgForShadow(
+  svg: string,
+  shadowStyle: string,
+  liftPx = 4,
+): string {
+  const pad = shadowExpansionPad(shadowStyle, liftPx);
+  if (pad <= 0) return svg;
+
+  // Extract original viewBox dimensions
+  const vbMatch = svg.match(/viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"/);
+  if (!vbMatch) return svg; // unparseable — return unchanged
+
+  const origW = parseFloat(vbMatch[1]);
+  const origH = parseFloat(vbMatch[2]);
+  const newW  = origW + pad * 2;
+  const newH  = origH + pad * 2;
+
+  return svg
+    // Expand the viewBox
+    .replace(
+      /viewBox="0 0 \d+(?:\.\d+)? \d+(?:\.\d+)?"/,
+      `viewBox="0 0 ${newW} ${newH}"`,
+    )
+    // Expand the px size attributes
+    .replace(/width="\d+(?:\.\d+)?px"/, `width="${newW}px"`)
+    .replace(/height="\d+(?:\.\d+)?px"/, `height="${newH}px"`)
+    // Translate the path so the cut contour sits over the artwork
+    .replace(/<path /, `<g transform="translate(${pad},${pad})"><path `)
+    .replace(/<\/svg>/, `</g>\n</svg>`);
+}
+
 // ── Ramer-Douglas-Peucker polyline simplification ────────────────────────────
 
 function rdp(

@@ -109,6 +109,7 @@ export const storeFlagsTable = pgTable("store_flags", {
   customDomain: boolean("custom_domain").notNull().default(false),
   editionsCap: integer("editions_cap").notNull().default(5),
   storageQuota: integer("storage_quota").notNull().default(1024), // MB
+  inkEnabled: boolean("ink_enabled").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

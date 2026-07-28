@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "DRT1Fbs9sxQgVd6cQfUqB"
+uri = "file://.local/outputs/Daybook-App.pdf"
+type = "pdf"
+title = "Daybook App.pdf"

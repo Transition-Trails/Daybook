@@ -52,6 +52,7 @@ import {
   removeBackground,
   applyBorderAndSize,
   generateCutlineSvg,
+  adjustCutlineSvgForShadow,
   edgeFeather,
   addDropShadow,
   UserImageError,
@@ -187,13 +188,19 @@ async function runPipeline(params: {
 
   // Step 4: trace cutline from the PRE-shadow image
   // (shadow halo must not inflate the cut path)
-  const cutlineSvg = exportTargets.cricut
+  let cutlineSvg = exportTargets.cricut
     ? await generateCutlineSvg(processed)
     : null;
 
   // Step 5: bake drop shadow (expands the canvas — must come AFTER cutline tracing)
   if (shadowStyle && shadowStyle !== "none") {
     processed = await addDropShadow(processed, shadowStyle, shadowLiftPx ?? 4);
+    // FIX #41: the shadow expands the PNG canvas by `pad` pixels on every side.
+    // Without this adjustment the SVG viewBox is smaller than the exported PNG,
+    // causing Cricut Design Space to misalign the cut path relative to the artwork.
+    if (cutlineSvg) {
+      cutlineSvg = adjustCutlineSvgForShadow(cutlineSvg, shadowStyle, shadowLiftPx ?? 4);
+    }
   }
 
   return { processedImageData: processed, cutlineSvg };

@@ -13,7 +13,13 @@
  */
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { plannerConfigsTable, annotationLayersTable } from "@workspace/db";
+import {
+  plannerConfigsTable,
+  annotationLayersTable,
+  storeMembersTable,
+  storeFlagsTable,
+  storesTable,
+} from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { PDFDocument, rgb } from "pdf-lib";
 import { requireAuth } from "../lib/auth-middleware";
@@ -135,6 +141,41 @@ function shapeToSvgPath(shape: ShapeData, pw: number, ph: number, bw: number): s
   }
 }
 
+// ── Ink feature-flag gate ─────────────────────────────────────────────────────
+
+/**
+ * Returns true if the user may use Ink.
+ *
+ * Rules:
+ *   · super_admin always has access (testing / dogfooding)
+ *   · Any other user must be a member of at least one store that has
+ *     inkEnabled = true in store_flags
+ *
+ * Annotation data is NEVER deleted or altered by this check — toggling the
+ * flag only gates the editor and API; existing layers are preserved intact.
+ */
+async function isInkEnabledForUser(
+  userId: string,
+  isSuperAdmin: boolean,
+): Promise<boolean> {
+  if (isSuperAdmin) return true;
+  const rows = await db
+    .select({ inkEnabled: storeFlagsTable.inkEnabled })
+    .from(storeMembersTable)
+    .innerJoin(
+      storeFlagsTable,
+      eq(storeFlagsTable.storeId, storeMembersTable.storeId),
+    )
+    .where(
+      and(
+        eq(storeMembersTable.userId, userId),
+        eq(storeFlagsTable.inkEnabled, true),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
 async function requirePlanner(userId: string, plannerId: string) {
   const [config] = await db
     .select().from(plannerConfigsTable)
@@ -142,10 +183,48 @@ async function requirePlanner(userId: string, plannerId: string) {
   return config ?? null;
 }
 
+// ── GET /ink/enabled ─────────────────────────────────────────────────────────
+// Used by the frontend InkGate component to decide whether to render or redirect.
+// Accepts optional ?storeSlug=<slug> to check a specific store's flag directly
+// (used by the shop-facing /s/:storeSlug/ink/:id route for buyers).
+
+router.get("/ink/enabled", requireAuth, async (req, res): Promise<void> => {
+  const user = req.user as User & { platformRole?: string };
+  const userId = user.id as string;
+  const isSuperAdmin = user.platformRole === "super_admin";
+
+  const storeSlug = typeof req.query.storeSlug === "string" ? req.query.storeSlug : null;
+
+  if (storeSlug) {
+    // Shop-route context: check the specific store's flag by slug
+    const [storeRow] = await db
+      .select({ id: storesTable.id })
+      .from(storesTable)
+      .where(eq(storesTable.slug, storeSlug))
+      .limit(1);
+
+    if (!storeRow) { res.json({ enabled: false }); return; }
+
+    const [flags] = await db
+      .select({ inkEnabled: storeFlagsTable.inkEnabled })
+      .from(storeFlagsTable)
+      .where(eq(storeFlagsTable.storeId, storeRow.id));
+
+    res.json({ enabled: isSuperAdmin || (flags?.inkEnabled ?? false) });
+    return;
+  }
+
+  const enabled = await isInkEnabledForUser(userId, isSuperAdmin);
+  res.json({ enabled });
+});
+
 // ── GET /planners/:id/pages ───────────────────────────────────────────────────
 
 router.get("/planners/:id/pages", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as User;
+  const user = req.user as User & { platformRole?: string };
+  if (!(await isInkEnabledForUser(user.id as string, user.platformRole === "super_admin"))) {
+    res.status(403).json({ error: "Ink is not enabled. Contact your store admin to enable it in Feature Flags." }); return;
+  }
   const config = await requirePlanner(user.id as string, String(req.params.id));
   if (!config) { res.status(404).json({ error: "Planner not found" }); return; }
   const sections = (config.style as PlannerStyle).sections ?? [];
@@ -159,7 +238,10 @@ router.get("/planners/:id/pages", requireAuth, async (req, res): Promise<void> =
 // ── GET /planners/:id/pdf-proxy ───────────────────────────────────────────────
 
 router.get("/planners/:id/pdf-proxy", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as User;
+  const user = req.user as User & { platformRole?: string };
+  if (!(await isInkEnabledForUser(user.id as string, user.platformRole === "super_admin"))) {
+    res.status(403).json({ error: "Ink is not enabled. Contact your store admin to enable it in Feature Flags." }); return;
+  }
   const config = await requirePlanner(user.id as string, String(req.params.id));
   if (!config) { res.status(404).json({ error: "Planner not found" }); return; }
   const drive = config.drive as PlannerDrive;
@@ -189,7 +271,10 @@ router.get("/planners/:id/pdf-proxy", requireAuth, async (req, res): Promise<voi
 // ── GET /planners/:id/pages/:pageId/layer ────────────────────────────────────
 
 router.get("/planners/:id/pages/:pageId/layer", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as User;
+  const user = req.user as User & { platformRole?: string };
+  if (!(await isInkEnabledForUser(user.id as string, user.platformRole === "super_admin"))) {
+    res.status(403).json({ error: "Ink is not enabled. Contact your store admin to enable it in Feature Flags." }); return;
+  }
   const plannerId = String(req.params.id), pageId = String(req.params.pageId);
   const config = await requirePlanner(user.id as string, plannerId);
   if (!config) { res.status(404).json({ error: "Planner not found" }); return; }
@@ -206,7 +291,10 @@ router.get("/planners/:id/pages/:pageId/layer", requireAuth, async (req, res): P
 // ── PUT /planners/:id/pages/:pageId/layer ────────────────────────────────────
 
 router.put("/planners/:id/pages/:pageId/layer", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as User;
+  const user = req.user as User & { platformRole?: string };
+  if (!(await isInkEnabledForUser(user.id as string, user.platformRole === "super_admin"))) {
+    res.status(403).json({ error: "Ink is not enabled. Contact your store admin to enable it in Feature Flags." }); return;
+  }
   const plannerId = String(req.params.id), pageId = String(req.params.pageId);
   const body = req.body as { strokes?: unknown[]; objects?: unknown[] };
   const config = await requirePlanner(user.id as string, plannerId);
@@ -229,7 +317,10 @@ router.put("/planners/:id/pages/:pageId/layer", requireAuth, async (req, res): P
 // ── GET /planners/:id/layers ──────────────────────────────────────────────────
 
 router.get("/planners/:id/layers", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as User;
+  const user = req.user as User & { platformRole?: string };
+  if (!(await isInkEnabledForUser(user.id as string, user.platformRole === "super_admin"))) {
+    res.status(403).json({ error: "Ink is not enabled. Contact your store admin to enable it in Feature Flags." }); return;
+  }
   const plannerId = String(req.params.id);
   const config = await requirePlanner(user.id as string, plannerId);
   if (!config) { res.status(404).json({ error: "Planner not found" }); return; }
@@ -242,7 +333,10 @@ router.get("/planners/:id/layers", requireAuth, async (req, res): Promise<void> 
 // ── POST /planners/:id/export ─────────────────────────────────────────────────
 
 router.post("/planners/:id/export", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as User;
+  const user = req.user as User & { platformRole?: string };
+  if (!(await isInkEnabledForUser(user.id as string, user.platformRole === "super_admin"))) {
+    res.status(403).json({ error: "Ink is not enabled. Contact your store admin to enable it in Feature Flags." }); return;
+  }
   const plannerId = String(req.params.id);
   const config = await requirePlanner(user.id as string, plannerId);
   if (!config) { res.status(404).json({ error: "Planner not found" }); return; }

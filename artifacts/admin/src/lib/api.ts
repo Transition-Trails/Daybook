@@ -100,6 +100,7 @@ export interface StoreFlags {
   customDomain: boolean;
   editionsCap: number;
   storageQuota: number;
+  inkEnabled: boolean;
 }
 
 export interface StoreCatalogEntry {
@@ -403,6 +404,18 @@ export const storesApi = {
 };
 
 // ── Help endpoints ──────────────────────────────────────────────────────────
+
+export const inkApi = {
+  /**
+   * Check whether Ink is enabled for the current user.
+   * Pass storeSlug when calling from a shop route so the flag is checked
+   * against that specific store (for buyers who aren't store members).
+   */
+  enabled: (storeSlug?: string) =>
+    apiFetch<{ enabled: boolean }>(
+      `/ink/enabled${storeSlug ? `?storeSlug=${encodeURIComponent(storeSlug)}` : ""}`,
+    ),
+};
 
 export const helpApi = {
   list: (params?: { scope?: string; kind?: string }) => {

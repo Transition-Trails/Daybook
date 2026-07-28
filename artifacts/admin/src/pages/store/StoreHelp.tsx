@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { helpApi, type HelpArticle } from "@/lib/api";
 import { PageHeader, StatusPill, SkeletonRows, ErrorState, EmptyState } from "@/components/shared";
@@ -31,10 +31,30 @@ function makeId(prefix: string) {
 }
 
 export default function StoreHelp({ storeId, role }: Props) {
-  const [open, setOpen] = useState(false);
+  // Read ?draft=1&area=<area>&areaLabel=<label> set by "Draft the article" in SupportPatterns.
+  const params         = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  const draftParam     = params.get("draft") === "1";
+  const draftAreaLabel = params.get("areaLabel") ?? params.get("area") ?? "";
+
+  const [open, setOpen] = useState(draftParam);
+  const [prefill, setPrefill] = useState<{ category: string; title: string } | null>(
+    draftParam ? { category: draftAreaLabel, title: `Guide: ${draftAreaLabel}` } : null,
+  );
   const [editing, setEditing] = useState<HelpArticle | null>(null);
   const { toast } = useToast();
   const qc = useQueryClient();
+
+  // Remove draft query params once opened so re-close/re-open works normally.
+  useEffect(() => {
+    if (draftParam && typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("draft");
+      url.searchParams.delete("area");
+      url.searchParams.delete("areaLabel");
+      window.history.replaceState({}, "", url.toString());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const canWrite = role === "store_owner" || role === "store_staff" || role === "super_admin";
 
@@ -166,9 +186,11 @@ export default function StoreHelp({ storeId, role }: Props) {
                 <StoreHelpForm
                   storeId={storeId}
                   initial={editing ?? undefined}
+                  prefill={editing ? undefined : prefill ?? undefined}
                   onDone={() => {
                     setOpen(false);
                     setEditing(null);
+                    setPrefill(null);
                     qc.invalidateQueries({ queryKey: ["help/store", storeId] });
                   }}
                 />
@@ -218,18 +240,20 @@ export default function StoreHelp({ storeId, role }: Props) {
 function StoreHelpForm({
   storeId,
   initial,
+  prefill,
   onDone,
 }: {
   storeId: string;
   initial?: HelpArticle;
+  prefill?: { category: string; title: string };
   onDone: () => void;
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState({
     id:       initial?.id ?? makeId("sh"),
-    title:    initial?.title ?? "",
+    title:    initial?.title ?? prefill?.title ?? "",
     body:     initial?.body ?? "",
-    category: initial?.category ?? "general",
+    category: initial?.category ?? prefill?.category ?? "general",
     kind:     initial?.kind ?? ("article" as "article" | "faq"),
     scope:    storeId,
     status:   initial?.status ?? ("draft" as "draft" | "live"),

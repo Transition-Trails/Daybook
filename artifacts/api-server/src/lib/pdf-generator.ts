@@ -23,6 +23,7 @@ import { Buffer } from "node:buffer";
 import { promises as fsPromises } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
+import { getEinkPreset } from "./eink-presets";
 import type { PlannerSetup, PlannerStyle, PlannerOutput, ThemeFontPairing } from "@workspace/db";
 import {
   type PageIdMap,
@@ -767,8 +768,6 @@ async function resolveEmbeddedFont(
  * identical — the preview is always truthful about what the export produces.
  */
 function makeEinkHelpers(einkDevice: string | null | undefined) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getEinkPreset } = require("./eink-presets") as typeof import("./eink-presets");
   const einkPreset = getEinkPreset(einkDevice ?? null);
   const einkMode = !!einkPreset;
   /** Enforce ≥ 0.75 pt on any drawn line in e-ink mode so hairlines survive rendering. */

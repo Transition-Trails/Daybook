@@ -845,7 +845,7 @@ export function buildStateToStylePatch(b: BuildState) {
   };
 }
 
-function BuildCenter({
+export function BuildCenter({
   template, onUpdated, onCreateNew, onEinkDeviceChange,
 }: {
   template: PlatformPlannerConfig | null;
@@ -1567,8 +1567,8 @@ function BuildCenter({
           <div className="flex items-center gap-3 pt-1">
             <button
               onClick={() => styleMut.mutate()}
-              disabled={styleMut.isPending}
-              style={{ cursor: styleMut.isPending ? "not-allowed" : "pointer", background: CLAY, color: "#fff" }}
+              disabled={!template || styleMut.isPending}
+              style={{ cursor: (!template || styleMut.isPending) ? "not-allowed" : "pointer", background: CLAY, color: "#fff" }}
               className="flex items-center gap-2 px-5 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
             >
               {styleMut.isPending

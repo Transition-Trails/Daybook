@@ -33,3 +33,4 @@
 - [Support system](support-system.md) — two-tier ticket system; area arrays in support-areas.ts (separate file, Fast Refresh); DB tables via migrate-tickets.mjs; 3 surfaces: /s/:slug/support, /super/support, /store/:id/support-inbox
 - [Transactional email layer](email-layer.md) — Resend provider; adapter pattern; identity resolver (tier-1/tier-2); per-store rate limiting; webhook handler; 3 DB tables via migrate-email.mjs
 - [Ink feature flag](ink-feature-flag.md) — inkEnabled in store_flags; super_admin bypasses; API guard + InkGate component; annotation data is NEVER deleted on flag toggle
+- [WOFF subset corruption](woff-subset-corruption.md) — bundled Playfair Display + Lato WOFFs crash at TTFGlyph._getCBox during save(); full-round-trip probe in resolveEmbeddedFont catches it; test script uses FONT_OVERRIDE to bypass

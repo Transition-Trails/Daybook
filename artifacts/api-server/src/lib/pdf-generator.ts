@@ -22,6 +22,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { Buffer } from "node:buffer";
 import { promises as fsPromises } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { getEinkPreset } from "./eink-presets";
 import type { PlannerSetup, PlannerStyle, PlannerOutput, ThemeFontPairing } from "@workspace/db";
@@ -457,8 +458,9 @@ function _writeDiskFontCache(filePath: string, bytes: Uint8Array): void {
 // build.mjs copies src/lib/fonts → dist/fonts so these are co-located with
 // the compiled bundle.  Loading from disk here means font rendering is
 // completely independent of network availability.
-// __dirname is set by the esbuild banner to the directory of dist/index.mjs.
-const BUNDLED_FONT_DIR = path.join(__dirname, "fonts");
+// import.meta.url works in both tsx (ESM source) and the esbuild bundle
+// (where the banner also provides globalThis.__dirname for compat).
+const BUNDLED_FONT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fonts");
 
 export function _bundledFontPath(familyName: string, weight: 400 | 700): string {
   const safe = `${familyName.replace(/\s+/g, "_")}-${weight}.woff`
@@ -744,7 +746,24 @@ async function resolveEmbeddedFont(
     const bytes = await fetchGoogleFontBytes(familyName, (bold && !isSingleWeight) ? 700 : 400);
     if (bytes) {
       try {
-        return await pdfDoc.embedFont(bytes);
+        const embedded = await pdfDoc.embedFont(bytes);
+        // Validation: full round-trip render on a throw-away document so we exercise
+        // TTFGlyph._getCBox (glyph bounding-box access).  widthOfTextAtSize only touches
+        // advanceWidth tables, which succeed even when the glyph data is truncated.
+        // save() forces pdf-lib to finalise all glyph streams, triggering the same
+        // crash path as buildPdf/drawText — but here inside the try-catch.
+        //
+        // We test ALL 95 printable ASCII characters (0x20–0x7E) because WOFF subsets
+        // can be truncated at specific glyph indices — testing only a name-plus-digit
+        // sample misses corruptions that show up on less-common printable chars.
+        const probeChars = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join("");
+        const probeDoc = await PDFDocument.create();
+        probeDoc.registerFontkit(fontkit);
+        const probeFont = await probeDoc.embedFont(bytes);
+        const probePg = probeDoc.addPage([500, 50]);
+        probePg.drawText(probeChars, { font: probeFont, size: 9 });
+        await probeDoc.save();  // forces full glyph-table access
+        return embedded;
       } catch (err) {
         // Distinct log: embed pipeline failure is different from a network failure.
         console.warn(
@@ -788,7 +807,10 @@ export async function buildPdf(
   hotspotsByTemplate?: Map<string, UserHotspot[]>,
   inkFriendly = false,
   einkDevice?: string,
-): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[] }> {
+  /** When true, append a final diagnostic page carrying build metadata.
+   *  Gate this behind a flag — never set it on buyer-facing generations. */
+  diagnosticPage = false,
+): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[]; totalLinkAnnotations?: number }> {
   const { einkPreset, einkMode, lt, lo, skipLinks } = makeEinkHelpers(einkDevice);
   // E-ink mode forces ink-friendly (grayscale is the e-ink asset)
   if (einkMode) inkFriendly = true;
@@ -1287,9 +1309,87 @@ export async function buildPdf(
     stampUserHotspots(npCtx, hs("note-paper"));
   }
 
-  // 8. Serialize
+  // 8. Optional diagnostic page — test builds only; never set on buyer-facing planners.
+  // Appended as the very last page so GoTo destinations (which reference PDFRef objects,
+  // not page indices) are never shifted.
+  let totalLinkAnnotations: number | undefined;
+  if (diagnosticPage) {
+    // Count all link annotations that were stamped during steps 4-7 above.
+    let annotCount = 0;
+    for (const pg of pdfDoc.getPages()) {
+      const annots = pg.node.get(PDFName.of("Annots"));
+      if (annots instanceof PDFArray) annotCount += annots.size();
+    }
+    totalLinkAnnotations = annotCount;
+
+    const { createHash } = await import("node:crypto");
+    const configHash = createHash("sha256")
+      .update(JSON.stringify({ setup: config.setup, style: config.style, output: config.output }))
+      .digest("hex")
+      .slice(0, 16);
+
+    const diagPg = pdfDoc.addPage([pageWidth, pageHeight]);
+    const clayR = rgb(0.78, 0.46, 0.38); // Daybook clay — readable in both colour and B&W
+    const diagInk = rgb(0.08, 0.08, 0.08);
+    const lineH = 16;
+
+    // Header band
+    diagPg.drawRectangle({ x: 0, y: pageHeight - 80, width: pageWidth, height: 80, color: clayR });
+    diagPg.drawText("DAYBOOK TEST BUILD — NOT FOR RELEASE", {
+      x: 40, y: pageHeight - 50, size: 12, font: fontBold, color: rgb(1, 1, 1),
+    });
+    diagPg.drawText("This page is injected by diagnosticPage=true and must not appear in buyer exports.", {
+      x: 40, y: pageHeight - 68, size: 7.5, font, color: rgb(0.95, 0.95, 0.95),
+    });
+
+    const styleTyped = config.style as PlannerStyle & {
+      themeId?: string; paletteId?: string; backgroundId?: string;
+    };
+    const setupTyped = config.setup as PlannerSetup & { datingMode?: string };
+    const outputTyped = config.output as PlannerOutput & { einkDevice?: string };
+
+    const rows: [string, string][] = [
+      ["Generated",       new Date().toISOString()],
+      ["Config hash",     configHash],
+      ["Template",        "DEFAULT_TEMPLATE"],
+      ["", ""],
+      ["Dating mode",     setupTyped.datingMode ?? "dated"],
+      ["Orientation",     `${config.setup.orientation}  ·  weekStart: ${config.setup.weekStart}`],
+      ["Year / months",   `${config.setup.startYear}-${String(config.setup.startMonth + 1).padStart(2,"0")} × ${config.setup.monthCount} months`],
+      ["Sections",        sections.length > 0 ? sections.join(", ") : "none"],
+      ["", ""],
+      ["Theme ID",        styleTyped.themeId ?? "—"],
+      ["Palette ID",      styleTyped.paletteId ?? "—"],
+      ["Background ID",   styleTyped.backgroundId ?? "—"],
+      ["E-ink device",    einkDevice ?? outputTyped.einkDevice ?? "—"],
+      ["", ""],
+      ["Content pages",   String(flat.length)],
+      ["Link annotations",String(annotCount)],
+    ];
+
+    let dy = pageHeight - 100;
+    const col1x = 40;
+    const col2x = 160;
+    for (const [label, value] of rows) {
+      if (!label && !value) { dy -= lineH * 0.6; continue; }
+      diagPg.drawText(label + ":", { x: col1x, y: dy, size: 8.5, font: fontBold, color: diagInk });
+      diagPg.drawText(value,      { x: col2x, y: dy, size: 8.5, font,             color: diagInk });
+      dy -= lineH;
+    }
+
+    // Footer rule
+    diagPg.drawLine({
+      start: { x: 40, y: 50 }, end: { x: pageWidth - 40, y: 50 },
+      thickness: 0.5, color: clayR,
+    });
+    diagPg.drawText("Daybook PDF engine — diagnostic build", {
+      x: 40, y: 36, size: 7, font, color: rgb(0.5, 0.5, 0.5),
+    });
+  }
+
+  // 9. Serialize
   const pdfBytes = await pdfDoc.save();
-  return { buffer: pdfBytes, pageCount: flat.length, fontSubstitutions: [...genFallbackLog] };
+  return { buffer: pdfBytes, pageCount: flat.length, fontSubstitutions: [...genFallbackLog], totalLinkAnnotations };
 }
 
 // ── Preview PDF ───────────────────────────────────────────────────────────────

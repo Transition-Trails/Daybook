@@ -403,6 +403,34 @@ export const storesApi = {
   },
 };
 
+/**
+ * Shared React Query options for the store flags endpoint.
+ *
+ * - Adds an 8 s AbortController to the fetch so a hung network call never
+ *   blocks indefinitely.
+ * - retry: 1 / retryDelay: 1 000 ms — one quiet retry before surfacing an
+ *   error to the UI.
+ * - staleTime: 60 s — avoids redundant re-fetches within a session.
+ *
+ * Both StoreAdminShell and StoreStudioLoader use this same options object so
+ * React Query deduplicates the request and shares the cached result.
+ */
+export function flagsQueryOptions(storeId: string) {
+  return {
+    queryKey: ["store-flags", storeId] as const,
+    queryFn: (): Promise<StoreFlags> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8_000);
+      return apiFetch<StoreFlags>(`/stores/${storeId}/flags`, {
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timer));
+    },
+    staleTime: 60_000,
+    retry: 1,
+    retryDelay: 1_000,
+  };
+}
+
 // ── Help endpoints ──────────────────────────────────────────────────────────
 
 export const inkApi = {

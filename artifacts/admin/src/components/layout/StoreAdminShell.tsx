@@ -15,7 +15,7 @@
  * Note: actual form-level read-only guards are a TODO; the banner and state
  * hook are in place so any form can check `useSuperAdminBrowsing()`.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
@@ -44,8 +44,11 @@ import {
   Shapes,
   AlertTriangle,
   ShieldAlert,
+  WifiOff,
+  RotateCcw,
+  X,
 } from "lucide-react";
-import { resolveStoreId, storesApi, type MeStore } from "@/lib/api";
+import { resolveStoreId, storesApi, flagsQueryOptions, type MeStore } from "@/lib/api";
 
 interface StoreAdminShellProps {
   children: React.ReactNode;
@@ -70,13 +73,29 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
   const base = `/store/${resolveStoreId(store)}`;
   const storeId = resolveStoreId(store);
 
-  // Fetch flags to determine if AI studios should be shown
-  const { data: flags } = useQuery({
-    queryKey: ["store-flags", storeId],
-    queryFn: () => storesApi.flags.get(storeId),
-    staleTime: 60_000,
-  });
+  // Fetch flags to determine if AI studios should be shown.
+  // Uses shared flagsQueryOptions: 8 s AbortController + retry:1/retryDelay:1 s.
+  const { data: flags, isLoading: flagsLoading, isError: flagsError, refetch: refetchFlags } = useQuery(
+    flagsQueryOptions(storeId),
+  );
   const aiEnabled = flags?.aiEnabled ?? false;
+
+  // 4-second soft deadline: show "unavailable" banner if flags haven't arrived
+  // yet.  Does NOT block the studio page — aiEnabled just stays false.
+  // Once flags arrive (even after 4 s) the banner disappears automatically.
+  const [flagsTimedOut, setFlagsTimedOut] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  useEffect(() => {
+    if (!flagsLoading) { setFlagsTimedOut(false); return; }
+    const timer = setTimeout(() => setFlagsTimedOut(true), 4_000);
+    return () => clearTimeout(timer);
+  }, [flagsLoading]);
+  // Reset dismissed state whenever a new refetch resolves successfully
+  useEffect(() => {
+    if (!flagsLoading && !flagsError) setBannerDismissed(false);
+  }, [flagsLoading, flagsError]);
+
+  const showAiBanner = !isSuperAdminBrowsing && !bannerDismissed && (flagsError || flagsTimedOut);
 
   const NAV = [
     { label: "Dashboard",       icon: LayoutDashboard, href: base },
@@ -224,6 +243,38 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
                 AI Studios
               </p>
             </div>
+
+            {/* Quiet banner: flags slow / unavailable — non-blocking */}
+            {showAiBanner && (
+              <div
+                className="mx-2 mb-2 rounded-lg px-2.5 py-2 text-[11px] leading-snug"
+                style={{
+                  background: "rgba(200,117,96,0.08)",
+                  border: "1px solid rgba(200,117,96,0.22)",
+                  color: "#7A5040",
+                }}
+              >
+                <div className="flex items-start gap-2">
+                  <WifiOff className="w-3 h-3 mt-0.5 shrink-0" />
+                  <span className="flex-1">AI features unavailable</span>
+                  <button
+                    onClick={() => setBannerDismissed(true)}
+                    aria-label="Dismiss"
+                    className="shrink-0 opacity-50 hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                <button
+                  onClick={() => { setBannerDismissed(false); void refetchFlags(); }}
+                  className="mt-1.5 flex items-center gap-1 font-medium underline underline-offset-2 hover:no-underline transition-all"
+                >
+                  <RotateCcw className="w-2.5 h-2.5" />
+                  Retry
+                </button>
+              </div>
+            )}
+
             {/* Super admins can always navigate to studios regardless of store plan */}
             {(aiEnabled || isSuperAdminBrowsing) ? (
               STUDIO_NAV.map(({ label, icon: Icon, href }) => navItem(label, Icon, href))

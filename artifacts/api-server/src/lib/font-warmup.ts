@@ -22,7 +22,7 @@
 import { db } from "@workspace/db";
 import { themesTable, themeFontsTable, fontsTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
-import { fetchGoogleFontBytes, getFontFallbacks, _bundledFontPath, UI_REACHABLE_FAMILIES, SINGLE_WEIGHT_FAMILIES } from "./pdf-generator";
+import { fetchGoogleFontBytes, getFontFallbacks, _bundledFontPath, _googleFontCache, UI_REACHABLE_FAMILIES, SINGLE_WEIGHT_FAMILIES } from "./pdf-generator";
 import { existsSync, readFileSync } from "fs";
 import type { ThemeFontPairing } from "@workspace/db";
 
@@ -106,6 +106,57 @@ async function collectLiveFamilyNames(): Promise<Set<string>> {
   return families;
 }
 
+// ── Warmup status ─────────────────────────────────────────────────────────────
+
+export type WarmupPhase = "pending" | "running" | "done" | "error";
+
+export interface WarmupStatus {
+  /** Lifecycle phase of the warmup. "pending" = not yet started. */
+  phase: WarmupPhase;
+  /** ISO timestamp when warmFontCache() was invoked. null until started. */
+  startedAt: string | null;
+  /** ISO timestamp when warmup finished (success or error). null while running. */
+  completedAt: string | null;
+  /** How many distinct font family names were found across live themes. */
+  familiesFound: number;
+  /** Total (family × weight) pairs scheduled for fetching. */
+  pairsTotal: number;
+  /** Pairs successfully loaded (bundle, disk cache, or network). */
+  pairsLoaded: number;
+  /** Pairs that returned null (network failure or unsupported format). */
+  pairsFailed: number;
+  /** Families currently in the in-process cache after warmup. */
+  familiesCached: string[];
+  /** Families that fell back to StandardFonts (Helvetica/TimesRoman). */
+  fallbacks: string[];
+  /** UI-reachable families with no bundled WOFF on disk. */
+  bundleGaps: string[];
+  /** Error message if phase === "error". */
+  errorMessage: string | null;
+}
+
+let _warmupStatus: WarmupStatus = {
+  phase: "pending",
+  startedAt: null,
+  completedAt: null,
+  familiesFound: 0,
+  pairsTotal: 0,
+  pairsLoaded: 0,
+  pairsFailed: 0,
+  familiesCached: [],
+  fallbacks: [],
+  bundleGaps: [],
+  errorMessage: null,
+};
+
+/**
+ * Returns a snapshot of the font warmup status.
+ * Intended for the /healthz/fonts endpoint and diagnostics.
+ */
+export function getWarmupStatus(): WarmupStatus {
+  return { ..._warmupStatus };
+}
+
 // ── Bundle coverage API ───────────────────────────────────────────────────────
 /** Populated once by warmFontCache(); empty array until warmup has run. */
 let _lastBundleGaps: string[] = [];
@@ -176,6 +227,14 @@ function checkBundleCoverage(): void {
  * Call this once after the DB pool is ready.  Never awaited by the caller.
  */
 export function warmFontCache(): void {
+  _warmupStatus = {
+    ..._warmupStatus,
+    phase: "running",
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    errorMessage: null,
+  };
+
   (async () => {
     try {
       const families = await collectLiveFamilyNames();
@@ -183,6 +242,18 @@ export function warmFontCache(): void {
       if (families.size === 0) {
         console.log("[font-warmup] No live theme fonts found — nothing to pre-fetch.");
         checkBundleCoverage();
+        _warmupStatus = {
+          ..._warmupStatus,
+          phase: "done",
+          completedAt: new Date().toISOString(),
+          familiesFound: 0,
+          pairsTotal: 0,
+          pairsLoaded: 0,
+          pairsFailed: 0,
+          familiesCached: [],
+          fallbacks: getFontFallbacks(),
+          bundleGaps: getBundleCoverageGaps(),
+        };
         return;
       }
 
@@ -193,6 +264,12 @@ export function warmFontCache(): void {
           pairs.push({ family, weight });
         }
       }
+
+      _warmupStatus = {
+        ..._warmupStatus,
+        familiesFound: families.size,
+        pairsTotal: pairs.length,
+      };
 
       console.log(
         `[font-warmup] Pre-fetching ${families.size} font family/families × ${WEIGHTS.length} weights = ${pairs.length} files (concurrency ${CONCURRENCY})…`,
@@ -210,6 +287,8 @@ export function warmFontCache(): void {
         CONCURRENCY,
       );
 
+      checkBundleCoverage();
+
       const fallbacks = getFontFallbacks();
       const loadedFamilies = [...families].filter(f => !fallbacks.includes(f));
       const ok   = loadedFamilies.length > 0 ? `✓ ${loadedFamilies.join(", ")}` : "none";
@@ -217,6 +296,13 @@ export function warmFontCache(): void {
       console.log(
         `[font-warmup] Done — ${loaded}/${pairs.length} files loaded. ${ok} | ${fail}`,
       );
+      if (failed > 0) {
+        console.warn(
+          `[font-warmup] ⚠ ${failed}/${pairs.length} font file(s) failed to load. ` +
+          `PDFs for affected families will fall back to Helvetica/TimesRoman. ` +
+          `Check network connectivity and that bundled WOFF files exist in dist/fonts/.`,
+        );
+      }
       if (fallbacks.length > 0) {
         console.warn(
           `[font-warmup] ⚠ FONT FALLBACK ACTIVE — the following families will render in ` +
@@ -225,10 +311,36 @@ export function warmFontCache(): void {
         );
       }
 
-      checkBundleCoverage();
+      // Snapshot which families are now in the in-process cache
+      const cachedFamilies = [...new Set(
+        [..._googleFontCache.keys()].map((k) => k.split(":")[0] as string),
+      )].sort();
+
+      _warmupStatus = {
+        ..._warmupStatus,
+        phase: "done",
+        completedAt: new Date().toISOString(),
+        pairsLoaded: loaded,
+        pairsFailed: failed,
+        familiesCached: cachedFamilies,
+        fallbacks,
+        bundleGaps: getBundleCoverageGaps(),
+      };
     } catch (err) {
       // Top-level safety net — should never be reached given inner try/catches
-      console.warn("[font-warmup] Unexpected error during font warm-up:", (err as Error).message);
+      const msg = (err as Error).message;
+      console.warn(
+        `[font-warmup] ⚠ Unexpected error during font warm-up: ${msg}. ` +
+        `Font cache may be empty — the first PDF export will pay full network latency ` +
+        `and risk timeout if Google Fonts is unreachable.`,
+      );
+      _warmupStatus = {
+        ..._warmupStatus,
+        phase: "error",
+        completedAt: new Date().toISOString(),
+        errorMessage: msg,
+        bundleGaps: getBundleCoverageGaps(),
+      };
     }
   })();
 }

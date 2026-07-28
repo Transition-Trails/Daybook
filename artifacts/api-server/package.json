@@ -9,6 +9,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:links": "vitest run --config vitest.links.config.ts",
     "test:watch": "vitest",
     "migrate-related-products": "npx tsx src/migrate-related-products.ts"
   },

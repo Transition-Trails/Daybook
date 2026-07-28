@@ -1155,8 +1155,12 @@ export async function buildPdf(
         if (calMode === "link" || calMode === "overlay") {
           const nextDay = new Date(date);
           nextDay.setDate(date.getDate() + 1);
+          // Use proportional column widths so links stay within any page size.
+          // A hardcoded 70-pt step overflows A5 (420 pt) and e-ink (447 pt) on days 5–6.
+          const colW = (pageWidth - 2 * MARGIN) / 7;
+          const colX1 = MARGIN + d * colW;
           const calRect: [number, number, number, number] = [
-            MARGIN + d * 70, pageHeight - 120, MARGIN + d * 70 + 65, pageHeight - 102,
+            colX1, pageHeight - 120, colX1 + Math.min(65, colW - 2), pageHeight - 102,
           ];
           if (calMode === "link") {
             addUriAnnotation(pdfDoc, wPage, googleCalendarLink(yyyymmdd(date), yyyymmdd(nextDay)), calRect, "+Cal", font, accent);

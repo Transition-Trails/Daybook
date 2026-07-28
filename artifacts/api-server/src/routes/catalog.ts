@@ -43,6 +43,7 @@ import { eq, ne, and, inArray, asc } from "drizzle-orm";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { isSuperAdmin } from "../lib/roles";
 import { writeAudit } from "../lib/audit";
+import { KNOWN_TEXTURE_SLUGS } from "../lib/texture-registry";
 import type { User } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -108,7 +109,7 @@ async function loadBackgrounds(themeIds: string[]): Promise<Record<string, RichB
       id:       r.background.id,
       name:     r.background.name,
       type:     r.background.type,
-      value:    (r.background as Record<string, unknown>).value as string | null,
+      value:    r.background.assetRef,
       position: r.position,
     });
   }
@@ -689,13 +690,26 @@ router.put(
     if (body.length) {
       const ids = body.map(b => b.backgroundId);
       const found = await db
-        .select({ id: backgroundsTable.id })
+        .select({ id: backgroundsTable.id, type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
         .from(backgroundsTable)
         .where(inArray(backgroundsTable.id, ids));
       const foundIds = new Set(found.map(r => r.id));
       const missing = ids.filter(i => !foundIds.has(i));
       if (missing.length) {
         res.status(422).json({ error: `Background IDs not found: ${missing.join(", ")}` });
+        return;
+      }
+      // ── Texture slug guard ────────────────────────────────────────────────
+      // Reject any texture background whose assetRef is not a known CSS slug.
+      // An unrecognised slug produces a blank page in the PDF generator.
+      const badTextures = found.filter(
+        r => r.type === "texture" && r.assetRef != null && !KNOWN_TEXTURE_SLUGS.has(r.assetRef),
+      );
+      if (badTextures.length) {
+        res.status(422).json({
+          error: `Texture slug(s) not recognised: ${badTextures.map(r => r.assetRef).join(", ")}. ` +
+                 `Known slugs: ${[...KNOWN_TEXTURE_SLUGS].join(", ")}`,
+        });
         return;
       }
     }
@@ -934,6 +948,17 @@ router.put("/themes/:id/inserts", requireSuperAdmin, async (req: Request, res: R
   const id = await requireThemeGuard(req, res);
   if (!id) return;
   const ids = extractIds(req.body);
+  // ── Slot-type guard: inserts slot must not contain Cover-art rows ─────────
+  if (ids.length) {
+    const rows = await db.select({ id: insertsTable.id, cat: insertsTable.cat }).from(insertsTable).where(inArray(insertsTable.id, ids));
+    const missing = ids.filter(i => !rows.find(r => r.id === i));
+    if (missing.length) { res.status(422).json({ error: `Insert IDs not found: ${missing.join(", ")}` }); return; }
+    const coverRows = rows.filter(r => r.cat === "Cover art");
+    if (coverRows.length) {
+      res.status(422).json({ error: `Slot 'inserts' requires a non-cover asset; IDs ${coverRows.map(r => r.id).join(", ")} have cat='Cover art'. Use the 'covers' slot instead.` });
+      return;
+    }
+  }
   await db.delete(themeInsertsTable).where(eq(themeInsertsTable.themeId, id));
   if (ids.length) await db.insert(themeInsertsTable).values(ids.map((insertId, position) => ({ themeId: id, insertId, position })));
   await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.inserts.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
@@ -954,6 +979,17 @@ router.put("/themes/:id/covers", requireSuperAdmin, async (req: Request, res: Re
   const id = await requireThemeGuard(req, res);
   if (!id) return;
   const ids = extractIds(req.body);
+  // ── Slot-type guard: covers slot must only contain cat='Cover art' rows ───
+  if (ids.length) {
+    const rows = await db.select({ id: insertsTable.id, cat: insertsTable.cat }).from(insertsTable).where(inArray(insertsTable.id, ids));
+    const missing = ids.filter(i => !rows.find(r => r.id === i));
+    if (missing.length) { res.status(422).json({ error: `Insert IDs not found: ${missing.join(", ")}` }); return; }
+    const nonCoverRows = rows.filter(r => r.cat !== "Cover art");
+    if (nonCoverRows.length) {
+      res.status(422).json({ error: `Slot 'covers' requires a cover asset, not an insert. IDs ${nonCoverRows.map(r => r.id).join(", ")} have cat='${nonCoverRows[0].cat}'. Use the 'inserts' slot instead.` });
+      return;
+    }
+  }
   await db.delete(themeCoversTable).where(eq(themeCoversTable.themeId, id));
   if (ids.length) await db.insert(themeCoversTable).values(ids.map((insertId, position) => ({ themeId: id, insertId, position })));
   await writeAudit(db, { actorUserId: req.actor!.userId, actorRole: req.actor!.effectiveRole, scope: "platform", action: "catalog.theme.covers.set", targetType: "theme", targetId: id, metadata: { count: ids.length } });
@@ -1029,18 +1065,38 @@ router.post("/themes/:id/commit-bundle", requireSuperAdmin, async (req: Request,
     if (!Array.isArray(rawIds)) continue;
     const ids = rawIds.filter((x): x is string => typeof x === "string");
     switch (slot) {
-      case "inserts":
+      case "inserts": {
+        // Guard: inserts slot must not contain Cover-art rows
+        if (ids.length) {
+          const rows = await db.select({ id: insertsTable.id, cat: insertsTable.cat }).from(insertsTable).where(inArray(insertsTable.id, ids));
+          const coverRows = rows.filter(r => r.cat === "Cover art");
+          if (coverRows.length) {
+            res.status(422).json({ error: `Slot 'inserts' requires a non-cover asset; IDs ${coverRows.map(r => r.id).join(", ")} have cat='Cover art'. Use the 'covers' slot instead.` });
+            return;
+          }
+        }
         await db.delete(themeInsertsTable).where(eq(themeInsertsTable.themeId, id));
         if (ids.length) await db.insert(themeInsertsTable).values(ids.map((insertId, position) => ({ themeId: id, insertId, position })));
         break;
+      }
       case "widgets":
         await db.delete(themeWidgetsTable).where(eq(themeWidgetsTable.themeId, id));
         if (ids.length) await db.insert(themeWidgetsTable).values(ids.map((widgetId, position) => ({ themeId: id, widgetId, position })));
         break;
-      case "covers":
+      case "covers": {
+        // Guard: covers slot must only contain cat='Cover art' rows
+        if (ids.length) {
+          const rows = await db.select({ id: insertsTable.id, cat: insertsTable.cat }).from(insertsTable).where(inArray(insertsTable.id, ids));
+          const nonCoverRows = rows.filter(r => r.cat !== "Cover art");
+          if (nonCoverRows.length) {
+            res.status(422).json({ error: `Slot 'covers' requires a cover asset, not an insert. IDs ${nonCoverRows.map(r => r.id).join(", ")} have cat='${nonCoverRows[0].cat}'. Use the 'inserts' slot instead.` });
+            return;
+          }
+        }
         await db.delete(themeCoversTable).where(eq(themeCoversTable.themeId, id));
         if (ids.length) await db.insert(themeCoversTable).values(ids.map((insertId, position) => ({ themeId: id, insertId, position })));
         break;
+      }
       case "hardware":
         await db.delete(themeHardwareTable).where(eq(themeHardwareTable.themeId, id));
         if (ids.length) await db.insert(themeHardwareTable).values(ids.map((hardwareId, position) => ({ themeId: id, hardwareId, position })));

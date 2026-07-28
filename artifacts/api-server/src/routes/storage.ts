@@ -10,6 +10,7 @@ import {
   ObjectNotFoundError,
   ObjectStorageService,
 } from '../lib/objectStorage';
+import { MAX_UPLOAD_BYTES, ALLOWED_IMAGE_TYPES } from '../lib/upload-guard';
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -33,9 +34,21 @@ router.post(
       return;
     }
 
-    try {
-      const { name, size, contentType } = parsed.data;
+    const { name, size, contentType } = parsed.data;
 
+    // ── Guard 1: size cap ─────────────────────────────────────────────────────
+    if (size > MAX_UPLOAD_BYTES) {
+      res.status(400).json({ error: "File exceeds maximum upload size of 8 MB" });
+      return;
+    }
+
+    // ── Guard 2: content-type allowlist ───────────────────────────────────────
+    if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
+      res.status(400).json({ error: "Only image files are accepted (JPEG, PNG, WebP, GIF, AVIF)" });
+      return;
+    }
+
+    try {
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
       const objectPath =
         objectStorageService.normalizeObjectEntityPath(uploadURL);
@@ -44,7 +57,7 @@ router.post(
         RequestUploadUrlResponse.parse({
           uploadURL,
           objectPath,
-          metadata: { name, size, contentType },
+          metadata: { name, size, contentType: contentType },
         }),
       );
     } catch (error) {

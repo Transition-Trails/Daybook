@@ -195,3 +195,27 @@ describe("BuildCenter — Generate button disabled invariant", () => {
     expect((btn as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+describe("BuildCenter — Publish button disabled invariant", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("does NOT render a Publish button when template is null", () => {
+    renderBuildCenter(null);
+    // Creation form is shown — no publish path exists
+    expect(screen.queryByRole("button", { name: /publish to catalog/i })).toBeNull();
+  });
+
+  it("Publish button is present but disabled when pdfFileId is null", () => {
+    // drive.pdfFileId === null → PDF not yet generated → must stay blocked
+    renderBuildCenter(makeTemplate({ drive: { pdfFileId: null, configFileId: null } }));
+    const btn = screen.getByRole("button", { name: /publish to catalog/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("Publish button is present but disabled when template is already published", () => {
+    // status === "published" → already live → re-publishing must stay blocked
+    renderBuildCenter(makeTemplate({ status: "published", drive: { pdfFileId: "file-1", configFileId: null } }));
+    const btn = screen.getByRole("button", { name: /published/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  });
+});

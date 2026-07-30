@@ -1,0 +1,59 @@
+name: PDF Link Survival
+
+# Runs on a weekly schedule so broken internal links, missing calendar URIs,
+# and out-of-bounds hotspots are caught before a release ships.
+# Excluded from the fast CI path (push/PR) because generation takes ~60–120 s.
+# Trigger manually via workflow_dispatch for a pre-release spot-check.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"   # Monday 04:00 UTC — weekly cadence
+  workflow_dispatch:        # manual trigger from the Actions tab
+
+concurrency:
+  group: link-survival
+  cancel-in-progress: true  # cancel a stale Monday run if a manual one fires
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "10"
+
+jobs:
+  link-survival:
+    name: 12-month PDF link survival
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build lib/db (required before api-server typecheck)
+        run: npx tsc -b lib/db
+
+      - name: Run 12-month link survival suite
+        run: pnpm --filter @workspace/api-server run test:links
+        env:
+          NODE_ENV: test
+          DATABASE_URL: ""   # pdf-generator is pure-compute; no DB needed
+
+      # Upload the full Vitest output as an artifact so failures are inspectable
+      # even after the run page expires.
+      - name: Upload test output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: link-survival-output
+          path: artifacts/api-server/test-results/
+          retention-days: 14

@@ -54,12 +54,17 @@ export function RequireStore({
 // ── StoreStudioLoader ──────────────────────────────────────────────────────
 
 import { useQuery } from "@tanstack/react-query";
-import { storesApi } from "./api";
+import { flagsQueryOptions } from "./api";
 
 /**
  * Fetches store AI flags once (cached by React Query) and passes aiEnabled to
  * the studio child. Super admins bypass the loading gate — they can always
  * access studios regardless of the store's AI plan.
+ *
+ * Intentionally never blocks on isLoading: the studio page renders immediately
+ * with aiEnabled=false while the flags fetch is in-flight, then re-renders once
+ * the data arrives.  The retry banner in StoreAdminShell handles the slow / error
+ * case visibly so there is no need for a spinner here.
  */
 export function StoreStudioLoader({
   storeId,
@@ -70,19 +75,10 @@ export function StoreStudioLoader({
   isSuperAdmin?: boolean;
   children: (aiEnabled: boolean) => React.ReactNode;
 }) {
-  const { data: flags, isLoading } = useQuery({
-    queryKey: ["store-flags", storeId],
-    queryFn: () => storesApi.flags.get(storeId),
-    staleTime: 60_000,
-    retry: false,
-  });
-
-  if (isLoading && !isSuperAdmin) {
-    return (
-      <div className="flex items-center justify-center min-h-[300px]">
-        <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    );
-  }
+  const { data: flags } = useQuery(flagsQueryOptions(storeId));
+  // isSuperAdmin is kept in the signature for call-site compatibility; super
+  // admins receive aiEnabled=true from the shell guard that wraps them, so the
+  // value here doesn't matter — fall through regardless.
+  void isSuperAdmin;
   return <>{children(flags?.aiEnabled ?? false)}</>;
 }

@@ -54,19 +54,19 @@ function ReasonBar({ item, total }: { item: CloseReasonPattern; total: number })
 }
 
 function NoArticleClusterCard({ cluster, storeId }: { cluster: NoArticleCluster; storeId: string }) {
-  const href = `/store/${storeId}/support-inbox`;
+  const label = areaLabel(cluster.area);
   return (
     <div style={{ padding: "14px 16px", background: T.amberBg, borderRadius: 10, border: `1px solid ${T.clay}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
       <div>
         <div style={{ fontSize: 13, fontWeight: 700, color: T.navy, marginBottom: 3 }}>
-          {areaLabel(cluster.area)}
+          {label}
         </div>
         <div style={{ fontSize: 12, color: T.slate }}>
           {cluster.count} ticket{cluster.count !== 1 ? "s" : ""} closed with "no article yet" — this topic has no written guide.
         </div>
       </div>
       <a
-        href={`${href}?area=${encodeURIComponent(cluster.area)}`}
+        href={`/store/${storeId}/help?draft=1&area=${encodeURIComponent(cluster.area)}&areaLabel=${encodeURIComponent(label)}`}
         style={{
           display: "flex", alignItems: "center", gap: 6,
           padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 700,

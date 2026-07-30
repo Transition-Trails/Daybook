@@ -39,7 +39,10 @@ function NoArticleCard({ cluster }: { cluster: NoArticleCluster }) {
         <div style={{ fontSize: 13, fontWeight: 700, color: T.navy, marginBottom: 3 }}>{cluster.areaLabel}</div>
         <div style={{ fontSize: 12, color: T.slate }}>{cluster.count} ticket{cluster.count !== 1 ? "s" : ""} closed "no article yet" — no guide exists for this topic.</div>
       </div>
-      <a href="/super/content/new" style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 700, background: T.navy, color: "white", textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0 }}>
+      <a
+        href={`/super/help?draft=1&area=${encodeURIComponent(cluster.area)}&areaLabel=${encodeURIComponent(cluster.areaLabel)}`}
+        style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 700, background: T.navy, color: "white", textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0 }}
+      >
         <BookOpen size={13} /> Draft the article
       </a>
     </div>

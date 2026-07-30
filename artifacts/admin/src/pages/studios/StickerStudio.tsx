@@ -46,7 +46,7 @@ async function createPack(data: {
   editionIds: string[];
   status: "draft" | "live";
 }) {
-  const res = await fetch("/api/sticker-packs", {
+  const res = await fetch("/api/packs", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -80,7 +80,9 @@ export default function StickerStudio() {
   const editions = useQuery({
     queryKey: ["editions"],
     queryFn: () => catalogApi.editions(),
-    staleTime: 60_000,
+    // staleTime: 0 — compose picker; deleted editions must not remain selectable
+    // when an admin removes them in the Editions tab.
+    staleTime: 0,
   });
 
   const generate = useMutation({

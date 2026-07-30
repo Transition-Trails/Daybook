@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft, Wand2, Loader2, CheckCircle2, AlertCircle, PenLine, BookMarked,
 } from "lucide-react";
+import { inkApi } from "@/lib/api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -272,6 +273,12 @@ interface BuilderFormProps {
 }
 
 function BuilderForm({ data, storeSlug }: BuilderFormProps) {
+  const { data: inkStatus } = useQuery({
+    queryKey: ["ink/enabled", storeSlug],
+    queryFn: () => inkApi.enabled(storeSlug),
+    staleTime: 60_000,
+  });
+  const inkEnabled = inkStatus?.enabled ?? false;
   const { store, edition, themes, packs, inserts } = data;
   const [, navigate] = useLocation();
 
@@ -599,7 +606,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
                   style={{
                     background: T.navy, color: "#fff", border: "none", borderRadius: 8,
                     padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                    fontFamily: "var(--app-font-sans)", display: "flex", alignItems: "center", gap: 6,
+                    fontFamily: "var(--app-font-sans)", display: inkEnabled ? "flex" : "none", alignItems: "center", gap: 6,
                   }}
                 >
                   <PenLine size={13} /> Open in Ink ✦

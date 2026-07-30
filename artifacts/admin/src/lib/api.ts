@@ -100,6 +100,7 @@ export interface StoreFlags {
   customDomain: boolean;
   editionsCap: number;
   storageQuota: number;
+  inkEnabled: boolean;
 }
 
 export interface StoreCatalogEntry {
@@ -402,7 +403,47 @@ export const storesApi = {
   },
 };
 
+/**
+ * Shared React Query options for the store flags endpoint.
+ *
+ * - Adds an 8 s AbortController to the fetch so a hung network call never
+ *   blocks indefinitely.
+ * - retry: 1 / retryDelay: 1 000 ms — one quiet retry before surfacing an
+ *   error to the UI.
+ * - staleTime: 60 s — avoids redundant re-fetches within a session.
+ *
+ * Both StoreAdminShell and StoreStudioLoader use this same options object so
+ * React Query deduplicates the request and shares the cached result.
+ */
+export function flagsQueryOptions(storeId: string) {
+  return {
+    queryKey: ["store-flags", storeId] as const,
+    queryFn: (): Promise<StoreFlags> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8_000);
+      return apiFetch<StoreFlags>(`/stores/${storeId}/flags`, {
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timer));
+    },
+    staleTime: 60_000,
+    retry: 1,
+    retryDelay: 1_000,
+  };
+}
+
 // ── Help endpoints ──────────────────────────────────────────────────────────
+
+export const inkApi = {
+  /**
+   * Check whether Ink is enabled for the current user.
+   * Pass storeSlug when calling from a shop route so the flag is checked
+   * against that specific store (for buyers who aren't store members).
+   */
+  enabled: (storeSlug?: string) =>
+    apiFetch<{ enabled: boolean }>(
+      `/ink/enabled${storeSlug ? `?storeSlug=${encodeURIComponent(storeSlug)}` : ""}`,
+    ),
+};
 
 export const helpApi = {
   list: (params?: { scope?: string; kind?: string }) => {
@@ -660,6 +701,20 @@ export const storeStudiosApi = {
       apiFetch<OwnedBackground[]>(`/stores/${storeId}/owned/themes/${themeId}/backgrounds`, {
         headers: { "x-store-id": storeId },
       }),
+    /** Generate an AI background image. When saveToStore=true, inserts a background row. */
+    generate: (
+      storeId: string,
+      data: {
+        brief: string;
+        name: string;
+        backgroundType?: "texture" | "image";
+        saveToStore: boolean;
+      },
+    ) =>
+      apiFetch<{ expandedPrompt: string; assetRef: string; savedId: string | null }>(
+        `/stores/${storeId}/backgrounds/generate`,
+        { method: "POST", body: JSON.stringify(data), headers: { "x-store-id": storeId } },
+      ),
   },
 
   editions: {
@@ -1189,6 +1244,13 @@ export interface StorePlannerStyle {
   coverTitle?: string;
   coverSubtitle?: string;
   coverYear?: number;
+  /** Per-role font overrides — empty string means use theme default. */
+  fonts?: {
+    heading?: string;
+    subheading?: string;
+    script?: string;
+    accent?: string;
+  } | null;
 }
 
 export interface StorePlannerOutput {
@@ -1827,4 +1889,51 @@ export const supportApi = {
     const qs = q.toString();
     return apiFetch<CloseReasonPatternsResult>(`/support/close-reason-patterns${qs ? `?${qs}` : ""}`);
   },
+};
+
+// ── House store constant (mirrors api-server) ─────────────────────────────────
+export const HOUSE_STORE_ID = "store-house";
+
+// ── Catalog promotion / demotion ──────────────────────────────────────────────
+
+export type CatalogItemType =
+  | "theme" | "pack" | "insert" | "edition"
+  | "palette" | "background" | "widget" | "hardware" | "accessory";
+
+export interface HouseOwnedItem {
+  id: string;
+  name: string;
+  itemType: CatalogItemType;
+  origin: ItemOrigin;
+  status: string;
+  authoredByStoreId: string | null;
+}
+
+export interface AdoptionBlockError {
+  error: string;
+  code: "ADOPTION_BLOCK";
+  adoptedByCount: number;
+  adopters: { storeId: string; name: string }[];
+}
+
+export const promoteCatalogApi = {
+  /** List all items authored by the house store (any origin). */
+  listHouseOwned: () =>
+    apiFetch<HouseOwnedItem[]>("/platform/catalog/house-owned"),
+
+  /** Move an owned house-store item to the platform catalog. */
+  promote: (itemType: CatalogItemType, itemId: string, targetOrigin: "starter" | "licensed") =>
+    apiFetch<HouseOwnedItem>("/platform/catalog/promote", {
+      method: "POST",
+      body: JSON.stringify({ itemType, itemId, targetOrigin }),
+      headers: { "Content-Type": "application/json" },
+    }),
+
+  /** Return a promoted item back to owned status (blocked if adopted). */
+  demote: (itemType: CatalogItemType, itemId: string) =>
+    apiFetch<HouseOwnedItem>("/platform/catalog/demote", {
+      method: "POST",
+      body: JSON.stringify({ itemType, itemId }),
+      headers: { "Content-Type": "application/json" },
+    }),
 };

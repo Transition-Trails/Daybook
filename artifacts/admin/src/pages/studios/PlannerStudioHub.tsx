@@ -95,52 +95,84 @@ const YEARS  = [2025, 2026, 2027, 2028];
 const MONTH_OPTIONS = MONTHS.map((m, i) => ({ value: String(i + 1), label: m }));
 const YEAR_OPTIONS  = YEARS.map(y => ({ value: String(y), label: String(y) }));
 
+// ── Bundled font families available as per-role overrides ─────────────────────
+/** Families that have WOFF files bundled on the API server — safe to request offline. */
+export const PLANNER_FONT_FAMILIES = [
+  // Serif / display
+  "Playfair Display", "Cormorant Garamond", "Spectral", "Crimson Pro",
+  "DM Serif Display", "EB Garamond", "Lora",
+  // Sans / modern
+  "Lato", "Source Sans Pro", "Work Sans", "Instrument Sans", "DM Sans",
+  "Inter", "Space Grotesk", "Nunito Sans",
+];
+
 // ── Build form state ──────────────────────────────────────────────────────────
 
 interface BuildState {
-  editionId:   string;
-  editionName: string;
-  startYear:   string;
-  startMonth:  string;
-  endYear:     string;
-  endMonth:    string;
-  paperSize:   "A5" | "HalfLetter";
-  weeklyType:  "vertical" | "two-page";
-  themeId:     string;
-  themeName:   string;
-  paletteId:   string;
-  packIds:     string[];
-  insertIds:   string[];
-  productIds:  string[];
+  editionId:      string;
+  editionName:    string;
+  startYear:      string;
+  startMonth:     string;
+  endYear:        string;
+  endMonth:       string;
+  paperSize:      "A5" | "HalfLetter";
+  weeklyType:     "vertical" | "two-page";
+  themeId:        string;
+  themeName:      string;
+  paletteId:      string;
+  packIds:        string[];
+  insertIds:      string[];
+  productIds:     string[];
   /** Derived from the selected edition — controls which modes are visible */
-  productType: string;
+  productType:    string;
   /** New fields for the two-card build UI */
-  datingMode:  "dated" | "undated" | "perpetual";
-  weekStart:   "mon" | "sun";
-  tabPos:      "right" | "top" | "bottom" | "none";
-  sections:    string[];
+  datingMode:     "dated" | "undated" | "perpetual";
+  weekStart:      "mon" | "sun";
+  tabPos:         "right" | "top" | "bottom" | "none";
+  sections:       string[];
+  /** Per-role font overrides — saved as style.fonts.  Empty = use theme default. */
+  headingFont:    string;
+  subheadingFont: string;
+  /** Saved as style.fonts.script (the script/body role in PlannerStyle). */
+  bodyFont:       string;
+  accentFont:     string;
+  /** Background override — saved as style.backgroundId. */
+  backgroundId:   string;
+  /** Binding hardware — saved as style.binding.{ type, finish }. */
+  bindingType:    string;
+  bindingFinish:  string;
+  /** Paper colour key — saved as style.paperColour. */
+  paperColour:    string;
 }
 
-const DEFAULT_BUILD: BuildState = {
-  editionId:   "",
-  editionName: "—",
-  startYear:   String(new Date().getFullYear()),
-  startMonth:  "1",
-  endYear:     String(new Date().getFullYear()),
-  endMonth:    "12",
-  paperSize:   "A5",
-  weeklyType:  "vertical",
-  themeId:     "",
-  themeName:   "None",
-  paletteId:   "",
-  packIds:     [],
-  insertIds:   [],
-  productIds:  [],
-  productType: "planner",
-  datingMode:  "dated",
-  weekStart:   "mon",
-  tabPos:      "right",
-  sections:    [],
+export const DEFAULT_BUILD: BuildState = {
+  editionId:      "",
+  editionName:    "—",
+  startYear:      String(new Date().getFullYear()),
+  startMonth:     "1",
+  endYear:        String(new Date().getFullYear()),
+  endMonth:       "12",
+  paperSize:      "A5",
+  weeklyType:     "vertical",
+  themeId:        "",
+  themeName:      "None",
+  paletteId:      "",
+  packIds:        [],
+  insertIds:      [],
+  productIds:     [],
+  productType:    "planner",
+  datingMode:     "dated",
+  weekStart:      "mon",
+  tabPos:         "right",
+  sections:       [],
+  headingFont:    "",
+  subheadingFont: "",
+  bodyFont:       "",
+  accentFont:     "",
+  backgroundId:   "",
+  bindingType:    "coil",
+  bindingFinish:  "gold",
+  paperColour:    "white",
 };
 
 // ── Compose-context chip (clay active fill) ───────────────────────────────────
@@ -589,7 +621,8 @@ function EditionQuickPick({ value, onChange }: { value: string; onChange: () => 
   const { data: editions = [], isLoading } = useQuery({
     queryKey: ["editions-list-mini"],
     queryFn:  () => catalogApi.editions(),
-    staleTime: 60_000,
+    // staleTime: 0 — always re-fetch on mount; rail must not show a deleted edition
+    staleTime: 0,
   });
   const live = (editions as any[]).filter((e: any) => e.status !== "deleted").slice(0, 4);
 
@@ -741,7 +774,8 @@ const BUILD_EYEBROW    = "text-[10px] font-semibold uppercase tracking-[0.18em] 
 const BUILD_CONSEQ     = "text-[12.5px] leading-relaxed text-muted-foreground";
 
 /** Convert a PlatformPlannerConfig to the BuildState shape used by PdfPreviewDock. */
-function templateToBuildState(t: PlatformPlannerConfig): BuildState {
+/** Exported so round-trip tests can call it directly. */
+export function templateToBuildState(t: PlatformPlannerConfig): BuildState {
   const s  = t.setup as any;
   const st = t.style  as any;
   const monthCount  = s.monthCount  ?? 12;
@@ -752,26 +786,67 @@ function templateToBuildState(t: PlatformPlannerConfig): BuildState {
   const endMonth    = totalOffset % 12;     // 0-indexed
   return {
     ...DEFAULT_BUILD,
-    editionId:   t.editionId  ?? "",
-    editionName: "—",
-    startYear:   String(startYear),
-    startMonth:  String(startMonth + 1),  // BuildState uses 1-indexed
-    endYear:     String(endYear),
-    endMonth:    String(endMonth + 1),    // BuildState uses 1-indexed
-    weeklyType:  s.orientation === "landscape" ? "two-page" : "vertical",
-    themeId:     st.themeId   ?? "",
-    themeName:   "",
-    paletteId:   st.paletteId ?? "",
-    datingMode:  (s.datingMode  ?? "dated")  as BuildState["datingMode"],
-    weekStart:   (s.weekStart   ?? "mon")    as BuildState["weekStart"],
-    tabPos:      (st.tabPos     ?? "right")  as BuildState["tabPos"],
-    sections:    st.sections    ?? [],
-    packIds:     st.packIds     ?? [],
-    insertIds:   st.insertIds   ?? [],
+    editionId:      t.editionId  ?? "",
+    editionName:    "—",
+    startYear:      String(startYear),
+    startMonth:     String(startMonth + 1),  // BuildState uses 1-indexed
+    endYear:        String(endYear),
+    endMonth:       String(endMonth + 1),    // BuildState uses 1-indexed
+    weeklyType:     s.orientation === "landscape" ? "two-page" : "vertical",
+    themeId:        st.themeId   ?? "",
+    themeName:      "",
+    paletteId:      st.paletteId ?? "",
+    datingMode:     (s.datingMode  ?? "dated")  as BuildState["datingMode"],
+    weekStart:      (s.weekStart   ?? "mon")    as BuildState["weekStart"],
+    tabPos:         (st.tabPos     ?? "right")  as BuildState["tabPos"],
+    sections:       st.sections    ?? [],
+    packIds:        st.packIds     ?? [],
+    insertIds:      st.insertIds   ?? [],
+    // Font overrides — restored from style.fonts on draft reopen
+    headingFont:    (st.fonts as any)?.heading    ?? "",
+    subheadingFont: (st.fonts as any)?.subheading ?? "",
+    bodyFont:       (st.fonts as any)?.script     ?? "",
+    accentFont:     (st.fonts as any)?.accent     ?? "",
+    // Background, binding, paper colour
+    backgroundId:   st.backgroundId           ?? "",
+    bindingType:    (st.binding as any)?.type   ?? "coil",
+    bindingFinish:  (st.binding as any)?.finish ?? "gold",
+    paperColour:    st.paperColour             ?? "white",
   };
 }
 
-function BuildCenter({
+/**
+ * Serialize font/background/binding/paper fields from a BuildState to a
+ * PlannerStyle-compatible style patch fragment.
+ * Exported for unit tests.
+ */
+export function buildStateToStylePatch(b: BuildState) {
+  const fonts = b.headingFont || b.subheadingFont || b.bodyFont || b.accentFont
+    ? {
+        ...(b.headingFont    ? { heading:    b.headingFont }    : {}),
+        ...(b.subheadingFont ? { subheading: b.subheadingFont } : {}),
+        ...(b.bodyFont       ? { script:     b.bodyFont }       : {}),
+        ...(b.accentFont     ? { accent:     b.accentFont }     : {}),
+      }
+    : undefined;
+  const binding = b.bindingType && b.bindingType !== "none"
+    ? { type: b.bindingType, finish: b.bindingFinish }
+    : undefined;
+  return {
+    themeId:       b.themeId   || null,
+    paletteId:     b.paletteId || null,
+    tabPos:        b.tabPos,
+    sections:      b.sections,
+    packIds:       b.packIds,
+    insertIds:     b.insertIds,
+    ...(fonts          ? { fonts }                              : {}),
+    backgroundId:  b.backgroundId || null,
+    ...(binding        ? { binding }                            : {}),
+    ...(b.paperColour  ? { paperColour: b.paperColour }         : {}),
+  };
+}
+
+export function BuildCenter({
   template, onUpdated, onCreateNew, onEinkDeviceChange,
 }: {
   template: PlatformPlannerConfig | null;
@@ -800,9 +875,15 @@ function BuildCenter({
   const [sections,      setSections]      = useState<string[]>([]);
   const [packIds,       setPackIds]       = useState<string[]>([]);
   const [insertIds,     setInsertIds]     = useState<string[]>([]);
-  const [addingSection, setAddingSection] = useState(false);
-  const [sectionDraft,  setSectionDraft]  = useState("");
-  const [inkFriendly,   setInkFriendly]   = useState(false);
+  const [addingSection,  setAddingSection]  = useState(false);
+  const [sectionDraft,   setSectionDraft]   = useState("");
+  const [inkFriendly,    setInkFriendly]    = useState(false);
+  // ── Font / background overrides ──────────────────────────────────────────────
+  const [headingFont,    setHeadingFont]    = useState("");
+  const [subheadingFont, setSubheadingFont] = useState("");
+  const [bodyFont,       setBodyFont]       = useState("");
+  const [accentFont,     setAccentFont]     = useState("");
+  const [backgroundId,   setBackgroundId]   = useState("");
   const [einkDevice,    setEinkDevice]    = useState<string | null>(null);
   const setEinkDeviceAndNotify = (device: string | null) => {
     setEinkDevice(device);
@@ -826,20 +907,30 @@ function BuildCenter({
     setSections(st.sections   ?? []);
     setPackIds(st.packIds    ?? []);
     setInsertIds(st.insertIds   ?? []);
+    // Font overrides
+    setHeadingFont((st.fonts as any)?.heading    ?? "");
+    setSubheadingFont((st.fonts as any)?.subheading ?? "");
+    setBodyFont((st.fonts as any)?.script     ?? "");
+    setAccentFont((st.fonts as any)?.accent    ?? "");
+    // Background
+    setBackgroundId(st.backgroundId ?? "");
   }, [template?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Data queries ─────────────────────────────────────────────────────────────
   const { data: rawThemes = [] } = useQuery({
     queryKey: ["themes-mini"],
     queryFn:  () => catalogApi.themes(),
-    staleTime: 60_000,
+    // staleTime: 0 — always re-fetch on mount; deleted/unpublished themes must not
+    // remain selectable in the Build picker after an admin removes them elsewhere.
+    staleTime: 0,
   });
   const themes = (rawThemes as any[]).filter(
     (t: any) => t.origin !== "owned" && !String(t.name ?? "").includes("— Auto palette"),
   );
-  const { data: packs     = [] } = useQuery({ queryKey: ["packs-mini"],    queryFn: () => catalogApi.packs(),    staleTime: 60_000 });
-  const { data: inserts   = [] } = useQuery({ queryKey: ["inserts-mini"],  queryFn: () => catalogApi.inserts(),  staleTime: 60_000 });
-  const { data: editions  = [] } = useQuery({ queryKey: ["editions-create"], queryFn: () => catalogApi.editions(), staleTime: 60_000 });
+  // staleTime: 0 — picker queries always re-fetch on mount so deletions surface immediately
+  const { data: packs     = [] } = useQuery({ queryKey: ["packs-mini"],    queryFn: () => catalogApi.packs(),    staleTime: 0 });
+  const { data: inserts   = [] } = useQuery({ queryKey: ["inserts-mini"],  queryFn: () => catalogApi.inserts(),  staleTime: 0 });
+  const { data: editions  = [] } = useQuery({ queryKey: ["editions-create"], queryFn: () => catalogApi.editions(), staleTime: 0 });
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const createMut = useMutation({
@@ -865,9 +956,21 @@ function BuildCenter({
   });
 
   const styleMut = useMutation({
-    mutationFn: () => platformPlannersApi.patch(template!.id, {
-      style: { themeId: themeId || null, paletteId: paletteId || null, tabPos, sections, packIds, insertIds } as any,
-    }),
+    mutationFn: () => {
+      // Carry forward the template's already-persisted binding and paperColour so
+      // that a Build-tab save never resets PaperCompose choices to defaults.
+      const savedSt = template?.style as any;
+      return platformPlannersApi.patch(template!.id, {
+        style: buildStateToStylePatch({
+          ...DEFAULT_BUILD,
+          themeId, paletteId, tabPos, sections, packIds, insertIds,
+          headingFont, subheadingFont, bodyFont, accentFont, backgroundId,
+          bindingType:   (savedSt?.binding as any)?.type   ?? DEFAULT_BUILD.bindingType,
+          bindingFinish: (savedSt?.binding as any)?.finish  ?? DEFAULT_BUILD.bindingFinish,
+          paperColour:   savedSt?.paperColour               ?? DEFAULT_BUILD.paperColour,
+        }) as any,
+      });
+    },
     onSuccess: (t) => { qc.invalidateQueries({ queryKey: ["platform-planners"] }); onUpdated(t); toast({ title: "Style saved" }); },
     onError: (err: Error) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
   });
@@ -1311,23 +1414,59 @@ function BuildCenter({
           </div>
 
           {/* FONTS */}
-          <div className="space-y-2">
-            <span className={BUILD_EYEBROW}>Fonts</span>
-            {selTheme?.fontPairing ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className={BUILD_EYEBROW}>Fonts</span>
+              {(headingFont || subheadingFont || bodyFont || accentFont) && (
+                <button
+                  style={{ cursor: "pointer" }}
+                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+                  onClick={() => { setHeadingFont(""); setSubheadingFont(""); setBodyFont(""); setAccentFont(""); }}
+                >
+                  Reset to theme
+                </button>
+              )}
+            </div>
+            {/* Theme fontPairing preview (read-only) */}
+            {selTheme?.fontPairing && (
               <div className="flex flex-wrap gap-1.5">
                 {selTheme.fontPairing.heading && (
-                  <span className="px-3 py-1.5 rounded-full text-[12.5px] font-medium border bg-[#1B2A4A] text-white border-[#1B2A4A]">{selTheme.fontPairing.heading}</span>
+                  <span className="px-2.5 py-1 rounded-full text-[11.5px] font-medium border bg-[#1B2A4A]/10 text-[#1B2A4A] border-[#1B2A4A]/20">
+                    Theme heading: {selTheme.fontPairing.heading}
+                  </span>
                 )}
                 {selTheme.fontPairing.body && (
-                  <span className="px-3 py-1.5 rounded-full text-[12.5px] font-medium border border-border bg-background text-foreground">{selTheme.fontPairing.body}</span>
+                  <span className="px-2.5 py-1 rounded-full text-[11.5px] font-medium border border-border bg-background text-muted-foreground">
+                    Theme body: {selTheme.fontPairing.body}
+                  </span>
                 )}
               </div>
-            ) : (
-              <p className="text-[12.5px] text-muted-foreground">
-                {themes.length === 0 ? "Set a theme above to see its font pairing." : themeId ? "The selected theme has no font pairing set." : "Select a theme above to see its font pairing."}
-              </p>
             )}
-            <p className={BUILD_CONSEQ}>Heading and body fonts apply throughout — covers, section titles, and day labels.</p>
+            {/* Per-role overrides — saved in style.fonts and restored on draft reopen */}
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ["Heading",    headingFont,    setHeadingFont],
+                ["Subheading", subheadingFont, setSubheadingFont],
+                ["Body/Script", bodyFont,      setBodyFont],
+                ["Accent",     accentFont,     setAccentFont],
+              ] as Array<[string, string, (v: string) => void]>).map(([label, val, setter]) => (
+                <div key={label} className="space-y-1">
+                  <p className="text-[10.5px] font-medium text-muted-foreground">{label}</p>
+                  <select
+                    value={val}
+                    onChange={e => setter(e.target.value)}
+                    style={{ cursor: "pointer" }}
+                    className="w-full h-8 rounded-lg border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-foreground/40 transition-colors"
+                  >
+                    <option value="">— Theme default —</option>
+                    {PLANNER_FONT_FAMILIES.map(f => (
+                      <option key={f} value={f}>{f}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <p className={BUILD_CONSEQ}>Overrides apply throughout — covers, section titles, and day labels. Empty = use theme pairing.</p>
           </div>
 
           {/* NOTE SECTIONS */}
@@ -1432,8 +1571,8 @@ function BuildCenter({
           <div className="flex items-center gap-3 pt-1">
             <button
               onClick={() => styleMut.mutate()}
-              disabled={styleMut.isPending}
-              style={{ cursor: styleMut.isPending ? "not-allowed" : "pointer", background: CLAY, color: "#fff" }}
+              disabled={!template || styleMut.isPending}
+              style={{ cursor: (!template || styleMut.isPending) ? "not-allowed" : "pointer", background: CLAY, color: "#fff" }}
               className="flex items-center gap-2 px-5 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
             >
               {styleMut.isPending
@@ -1681,6 +1820,8 @@ function EditionsListInStudio({
   const { data: rawEditions = [], isLoading, error, refetch } = useQuery({
     queryKey: ["editions"],
     queryFn:  () => catalogApi.editions(),
+    // staleTime: 30_000 — management list view; users see the full list and a
+    // manual refetch button is present, so a short cache is acceptable here.
     staleTime: 30_000,
   });
 
@@ -2070,7 +2211,9 @@ function InsertsCompose() {
   const { data: rawInserts = [], isLoading } = useQuery({
     queryKey: ["inserts-library"],
     queryFn:  () => catalogApi.inserts(),
-    staleTime: 60_000,
+    // staleTime: 0 — compose picker; deleted inserts must not appear as selectable
+    // library items after a platform admin removes them in another tab.
+    staleTime: 0,
   });
 
   const libraryItems: LibraryItem[] = (rawInserts as any[]).map((ins: any) => ({
@@ -2297,7 +2440,9 @@ function ThemeCompose() {
   const { data: rawThemes = [], isLoading } = useQuery({
     queryKey: ["themes-compose"],
     queryFn:  () => catalogApi.themes(),
-    staleTime: 60_000,
+    // staleTime: 0 — compose picker; deleted themes must not appear as selectable
+    // library items when a platform admin removes one in another tab.
+    staleTime: 0,
   });
 
   const themes = (rawThemes as any[]).filter(
@@ -2468,14 +2613,46 @@ const PAPER_COLOUR_OPTIONS = [
   { value: "sage",   label: "Sage",   hex: "#EDF2EE" },
 ];
 
-function PaperCompose() {
+interface PaperComposeProps {
+  /** Binding type from saved draft — restored on reopen. */
+  initialBindingType?:   string;
+  /** Binding finish/hardware from saved draft. */
+  initialBindingFinish?: string;
+  /** Paper colour key from saved draft. */
+  initialPaperColour?:   string;
+  /** Called immediately when binding type changes so the parent can persist. */
+  onBindingTypeChange?:   (value: string) => void;
+  /** Called immediately when binding finish changes. */
+  onBindingFinishChange?: (value: string) => void;
+  /** Called immediately when paper colour changes. */
+  onPaperColourChange?:   (value: string) => void;
+}
+
+function PaperCompose({
+  initialBindingType   = "coil",
+  initialBindingFinish = "gold",
+  initialPaperColour   = "white",
+  onBindingTypeChange,
+  onBindingFinishChange,
+  onPaperColourChange,
+}: PaperComposeProps) {
   const [renderStyle, setRenderStyle] = useState("realistic");
   const [size,        setSize]        = useState("a5");
-  const [binding,     setBinding]     = useState("coil");
-  const [hardware,    setHardware]    = useState("gold");
-  const [paperColour, setPaperColour] = useState("white");
+  const [binding,     setBinding]     = useState(initialBindingType);
+  const [hardware,    setHardware]    = useState(initialBindingFinish);
+  const [paperColour, setPaperColour] = useState(initialPaperColour);
   const [weight,      setWeight]      = useState("80");
   const [finish,      setFinish]      = useState("matte");
+
+  // Re-sync when parent restores from a different template
+  const prevInitRef = useRef({ initialBindingType, initialBindingFinish, initialPaperColour });
+  useEffect(() => {
+    const prev = prevInitRef.current;
+    if (prev.initialBindingType   !== initialBindingType)   setBinding(initialBindingType);
+    if (prev.initialBindingFinish !== initialBindingFinish) setHardware(initialBindingFinish);
+    if (prev.initialPaperColour   !== initialPaperColour)   setPaperColour(initialPaperColour);
+    prevInitRef.current = { initialBindingType, initialBindingFinish, initialPaperColour };
+  }, [initialBindingType, initialBindingFinish, initialPaperColour]);
 
   const SIZE_NOTES: Record<string, string> = {
     a5:           "148 × 210 mm — most popular globally for printed planners.",
@@ -2559,7 +2736,10 @@ function PaperCompose() {
             { value: "3-ring",     label: "3-ring" },
             { value: "none",       label: "None" },
           ].map(o => (
-            <ComposeChip key={o.value} label={o.label} active={binding === o.value} onClick={() => setBinding(o.value)} />
+            <ComposeChip key={o.value} label={o.label} active={binding === o.value} onClick={() => {
+              setBinding(o.value);
+              onBindingTypeChange?.(o.value);
+            }} />
           ))}
         </div>
         <p className="text-[12.5px] text-muted-foreground leading-relaxed">{BINDING_DESCRIPTIONS[binding]}</p>
@@ -2575,7 +2755,7 @@ function PaperCompose() {
               return (
                 <button
                   key={o.value}
-                  onClick={() => setHardware(o.value)}
+                  onClick={() => { setHardware(o.value); onBindingFinishChange?.(o.value); }}
                   style={{
                     cursor: "pointer",
                     background: active ? "#FEF0ED" : PAPER_TINT,
@@ -2610,7 +2790,7 @@ function PaperCompose() {
             return (
               <button
                 key={o.value}
-                onClick={() => setPaperColour(o.value)}
+                onClick={() => { setPaperColour(o.value); onPaperColourChange?.(o.value); }}
                 style={{
                   cursor: "pointer",
                   background: active ? "#FEF0ED" : PAPER_TINT,
@@ -2822,7 +3002,10 @@ export default function PlannerStudioHub() {
   const { data: platformPlanners = [], isLoading: templatesLoading } = useQuery({
     queryKey: ["platform-planners"],
     queryFn:  () => platformPlannersApi.list(),
-    staleTime: 30_000,
+    // staleTime: 0 — always re-fetch on mount so a deleted template never lingers
+    // in the rail after SPA navigation or tab-switch.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
   const selectedTemplate = (platformPlanners as PlatformPlannerConfig[]).find(
     t => t.id === selectedTemplateId,
@@ -2834,6 +3017,45 @@ export default function PlannerStudioHub() {
   const handleTemplateCreated = useCallback((t: PlatformPlannerConfig) => {
     setSelectedTemplateId(t.id);
   }, []);
+
+  // ── Paper & binding state — persisted via PaperCompose callbacks ────────────
+  const qcHub = useQueryClient();
+  const [paperBindingType,   setPaperBindingType]   = useState("coil");
+  const [paperBindingFinish, setPaperBindingFinish] = useState("gold");
+  const [paperPaperColour,   setPaperPaperColour]   = useState("white");
+
+  // Sync paper state whenever the selected template changes
+  useEffect(() => {
+    if (!selectedTemplate) return;
+    const st = selectedTemplate.style as any;
+    setPaperBindingType(  (st.binding as any)?.type   ?? "coil");
+    setPaperBindingFinish((st.binding as any)?.finish  ?? "gold");
+    setPaperPaperColour(  st.paperColour               ?? "white");
+  }, [selectedTemplate?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const paperStyleMut = useMutation({
+    mutationFn: (patch: Record<string, unknown>) =>
+      selectedTemplate
+        ? platformPlannersApi.patch(selectedTemplate.id, { style: patch as any })
+        : Promise.reject(new Error("No template selected")),
+    onSuccess: (t: PlatformPlannerConfig) => {
+      qcHub.invalidateQueries({ queryKey: ["platform-planners"] });
+      handleTemplateUpdated(t);
+    },
+  });
+
+  const handleBindingTypeChange   = (v: string) => {
+    setPaperBindingType(v);
+    paperStyleMut.mutate({ binding: { type: v, finish: paperBindingFinish } });
+  };
+  const handleBindingFinishChange = (v: string) => {
+    setPaperBindingFinish(v);
+    paperStyleMut.mutate({ binding: { type: paperBindingType, finish: v } });
+  };
+  const handlePaperColourChange   = (v: string) => {
+    setPaperPaperColour(v);
+    paperStyleMut.mutate({ paperColour: v });
+  };
 
   // Editions filters
   const [editionTier,        setEditionTier]        = useState("all");
@@ -2969,7 +3191,16 @@ export default function PlannerStudioHub() {
     if (validMode === "theme")    return <ThemeCompose />;
     if (validMode === "cover")    return <CoverCompose />;
     if (validMode === "dividers") return <DividersCompose />;
-    if (validMode === "paper")    return <PaperCompose />;
+    if (validMode === "paper")    return (
+      <PaperCompose
+        initialBindingType={paperBindingType}
+        initialBindingFinish={paperBindingFinish}
+        initialPaperColour={paperPaperColour}
+        onBindingTypeChange={handleBindingTypeChange}
+        onBindingFinishChange={handleBindingFinishChange}
+        onPaperColourChange={handlePaperColourChange}
+      />
+    );
     if (validMode === "quality")  return <QualityCompose />;
     return null;
   })();

@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -17,7 +17,7 @@ import { AiDrawerProvider } from "@/contexts/AiDrawerContext";
 import { RequireStore, RequireSuperAdmin, StoreStudioLoader } from "@/lib/guards";
 import { GlobalAiDrawer } from "@/components/layout/GlobalAiDrawer";
 import { useConsole } from "@/lib/useConsole";
-import { resolveStoreId } from "@/lib/api";
+import { resolveStoreId, inkApi } from "@/lib/api";
 import Login from "@/pages/login";
 import Unauthorized from "@/pages/unauthorized";
 import NotFound from "@/pages/not-found";
@@ -43,6 +43,24 @@ function usePreloadShopChunks() {
     import("@/pages/shop/StoreBuilder");
     import("@/pages/shop/StorefrontHome");
   }, []);
+}
+
+// ── Ink feature-flag gate ─────────────────────────────────────────────────────
+// Redirects to the store root when the ink flag is off so a direct URL visit
+// doesn't render a broken shell.  Existing annotation data is NEVER touched.
+function InkGate({ storeSlug, children }: { storeSlug?: string; children: React.ReactNode }) {
+  const [, navigate] = useLocation();
+  const { data, isLoading } = useQuery({
+    queryKey: ["ink/enabled", storeSlug ?? ""],
+    queryFn:  () => inkApi.enabled(storeSlug),
+    staleTime: 60_000,
+  });
+  if (isLoading) return null;
+  if (!data?.enabled) {
+    navigate(storeSlug ? `/s/${storeSlug}` : "/");
+    return null;
+  }
+  return <>{children}</>;
 }
 
 // ── Super Admin pages ─────────────────────────────────────────────────────────
@@ -80,6 +98,7 @@ import StoreEditionStudio from "@/pages/store/studios/StoreEditionStudio";
 import StoreTrendResearch from "@/pages/store/studios/StoreTrendResearch";
 import MarketingStudio from "@/pages/store/studios/MarketingStudio";
 import PlannerStudio from "@/pages/store/studios/PlannerStudio";
+import ProductBuilder from "@/pages/build/ProductBuilder";
 
 // ── Store: Widgets ────────────────────────────────────────────────────────────
 import StoreWidgets from "@/pages/store/Widgets";
@@ -93,6 +112,7 @@ import EmailSettings from "@/pages/store/settings/EmailSettings";
 import Deliverability from "@/pages/super/Deliverability";
 import StoreSupportPatterns from "@/pages/store/SupportPatterns";
 import SuperSupportPatterns from "@/pages/super/SupportPatterns";
+import PromoteCatalog from "@/pages/super/PromoteCatalog";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -172,8 +192,24 @@ function RootRouter() {
       <Route path="/super/email/deliverability">
         <RequireSuperAdmin state={state}><SuperAdminShell><Deliverability /></SuperAdminShell></RequireSuperAdmin>
       </Route>
+      <Route path="/super/promote">
+        <RequireSuperAdmin state={state}><SuperAdminShell><PromoteCatalog /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
       <Route path="/super/support/patterns">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperSupportPatterns /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+
+      {/* ── Product Builder ────────────────────────────────────── */}
+      <Route path="/store/:storeId/build">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <ProductBuilder storeId={p.storeId!} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
       </Route>
 
       {/* ── Store Admin console ────────────────────────────────── */}
@@ -642,13 +678,15 @@ function AppRouter() {
         )}
       </Route>
 
-      {/* Shop-facing Ink editor — auth-only (not super_admin) */}
+      {/* Shop-facing Ink editor — gated by per-store inkEnabled flag */}
       <Route path="/s/:storeSlug/ink/:id">
         {(p) => (
           <ShopRouteShell>
-            <Suspense fallback={<ShopPageLoading />}>
-              <InkEditor key={p.id} />
-            </Suspense>
+            <InkGate storeSlug={p.storeSlug}>
+              <Suspense fallback={<ShopPageLoading />}>
+                <InkEditor key={p.id} />
+              </Suspense>
+            </InkGate>
           </ShopRouteShell>
         )}
       </Route>

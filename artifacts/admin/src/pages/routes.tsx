@@ -30,8 +30,14 @@
  */
 import Dashboard from '@/pages/dashboard';
 
+// Product Builder (platform preview — store-scoped wizard runs at /store/:id/build)
+import _ProductBuilder from '@/pages/build/ProductBuilder';
+/** Platform wrapper: no storeId → Step 1 only, prompts to pick a store before proceeding. */
+function ProductBuilderPage() { return <_ProductBuilder />; }
+
 // Studio hubs
 import PlannerStudioHub from '@/pages/studios/PlannerStudioHub';
+import JournalStudioHub from '@/pages/studios/JournalStudioHub';
 import StickerStudioHub from '@/pages/studios/StickerStudioHub';
 import MarketingStudioHub from '@/pages/studios/MarketingStudioHub';
 import ThemeStudioHub from '@/pages/studios/ThemeStudioHub';
@@ -78,7 +84,9 @@ export const routes = [
   { path: "/", component: Dashboard },
 
   // ── Studio hubs ────────────────────────────────────────────────────────────
+  { path: "/studios/build",          component: ProductBuilderPage },
   { path: "/studios/planner",        component: PlannerStudioHub },
+  { path: "/studios/journal",        component: JournalStudioHub },
   { path: "/studios/stickers",       component: StickerStudioHub },
   { path: "/studios/marketing",      component: MarketingStudioHub },
   { path: "/studios/theme-builder",  component: ThemeStudioHub },

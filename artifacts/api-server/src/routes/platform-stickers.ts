@@ -541,6 +541,11 @@ router.post(
       res.status(400).json({ error: "imageBase64 must be a base64-encoded image data URL (data:image/...)" });
       return;
     }
+    {
+      const { validateBase64ImageMagicBytes } = await import("../lib/upload-guard.js");
+      const magicErr = validateBase64ImageMagicBytes(imageBase64, "imageBase64");
+      if (magicErr) { res.status(400).json({ error: magicErr }); return; }
+    }
 
     const status: "draft" | "live" = reqStatus === "live" ? "live" : "draft";
 

@@ -6,11 +6,13 @@
  * The "Generate & Save" button calls POST /api/planners (full render, saves to Drive).
  */
 import { useState, useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   useListEditions, useListThemes, useListStickerPacks, useListInserts,
   type Edition, type Theme, type StickerPack, type Insert,
 } from '@workspace/api-client-react';
 import { customFetch } from '@workspace/api-client-react';
+import { inkApi } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -57,6 +59,13 @@ function buildBody(params: {
 export default function PlannerBuilder() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
+
+  const { data: inkStatus } = useQuery({
+    queryKey: ["ink/enabled", ""],
+    queryFn: () => inkApi.enabled(),
+    staleTime: 60_000,
+  });
+  const inkEnabled = inkStatus?.enabled ?? false;
 
   // Catalog data
   const { data: allEditions = [] } = useListEditions();
@@ -429,15 +438,17 @@ export default function PlannerBuilder() {
                     <div>ID: {result.id}</div>
                     <div>PDF: {result.drive.pdfFileId}</div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-1 gap-2 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
-                    onClick={() => navigate(`/ink/${result.id}`)}
-                  >
-                    <PenLine className="w-3.5 h-3.5" />
-                    Open in Ink ✦
-                  </Button>
+                  {inkEnabled && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-1 gap-2 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
+                      onClick={() => navigate(`/ink/${result.id}`)}
+                    >
+                      <PenLine className="w-3.5 h-3.5" />
+                      Open in Ink ✦
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

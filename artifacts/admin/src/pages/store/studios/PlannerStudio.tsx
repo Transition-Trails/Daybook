@@ -53,6 +53,7 @@ import {
   type StorePlannerOutput, type Widget, type OwnedList,
 } from "@/lib/api";
 import { FontSpecimenCard } from "@/components/FontSpecimenCard";
+import { PLANNER_FONT_FAMILIES } from "@/pages/studios/PlannerStudioHub";
 
 // ── Types & constants ─────────────────────────────────────────────────────────
 
@@ -599,6 +600,12 @@ function BuildMode({
   const [sectionDraft,  setSectionDraft] = useState("");
   const [addingSection, setAddingSection] = useState(false);
 
+  // ── Font override state ─────────────────────────────────────────────────
+  const [headingFont,    setHeadingFont]    = useState<string>(planner.style.fonts?.heading    ?? "");
+  const [subheadingFont, setSubheadingFont] = useState<string>(planner.style.fonts?.subheading ?? "");
+  const [bodyFont,       setBodyFont]       = useState<string>(planner.style.fonts?.script     ?? "");
+  const [accentFont,     setAccentFont]     = useState<string>(planner.style.fonts?.accent     ?? "");
+
   // ── Data ───────────────────────────────────────────────────────────────
   const { data: owned } = useQuery<OwnedList>({
     queryKey: ["store-owned", storeId],
@@ -992,18 +999,36 @@ function BuildMode({
           </div>
 
           {/* ── FONTS ─────────────────────────────────────────────────── */}
-          <div className="space-y-2">
-            <span className={EYEBROW}>Fonts</span>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className={EYEBROW}>Fonts</span>
+              {(headingFont || subheadingFont || bodyFont || accentFont) && (
+                <button
+                  style={{ cursor: "pointer" }}
+                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+                  onClick={() => {
+                    setHeadingFont("");
+                    setSubheadingFont("");
+                    setBodyFont("");
+                    setAccentFont("");
+                    styleMut.mutate({ fonts: null });
+                  }}
+                >
+                  Reset to theme
+                </button>
+              )}
+            </div>
+            {/* Theme fontPairing preview (read-only) */}
             {selectedTheme?.fontPairing ? (
               <div className="flex flex-wrap gap-1.5">
                 {selectedTheme.fontPairing.heading && (
-                  <span className="px-3 py-1.5 rounded-full text-sm border bg-[#1B2A4A] text-white border-[#1B2A4A]">
-                    {selectedTheme.fontPairing.heading}
+                  <span className="px-2.5 py-1 rounded-full text-[11.5px] font-medium border bg-[#1B2A4A]/10 text-[#1B2A4A] border-[#1B2A4A]/20">
+                    Theme heading: {selectedTheme.fontPairing.heading}
                   </span>
                 )}
                 {selectedTheme.fontPairing.body && (
-                  <span className="px-3 py-1.5 rounded-full text-sm border border-border bg-background text-foreground">
-                    {selectedTheme.fontPairing.body}
+                  <span className="px-2.5 py-1 rounded-full text-[11.5px] font-medium border border-border bg-background text-muted-foreground">
+                    Theme body: {selectedTheme.fontPairing.body}
                   </span>
                 )}
               </div>
@@ -1012,7 +1037,41 @@ function BuildMode({
                 {themes.length === 0 ? "Set a theme above to see its font pairing." : "The selected theme has no font pairing set."}
               </p>
             )}
-            <p className={CONSEQUENCE}>Heading and body fonts apply throughout — covers, section titles, and day labels.</p>
+            {/* Per-role overrides */}
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ["Heading",     headingFont,    setHeadingFont,    "heading"]    as const,
+                ["Subheading",  subheadingFont, setSubheadingFont, "subheading"] as const,
+                ["Body/Script", bodyFont,       setBodyFont,       "script"]     as const,
+                ["Accent",      accentFont,     setAccentFont,     "accent"]     as const,
+              ]).map(([label, val, setter, role]) => (
+                <div key={label} className="space-y-1">
+                  <p className="text-[10.5px] font-medium text-muted-foreground">{label}</p>
+                  <select
+                    value={val}
+                    onChange={e => {
+                      setter(e.target.value);
+                      const next = {
+                        ...(headingFont    ? { heading:    headingFont }    : {}),
+                        ...(subheadingFont ? { subheading: subheadingFont } : {}),
+                        ...(bodyFont       ? { script:     bodyFont }       : {}),
+                        ...(accentFont     ? { accent:     accentFont }     : {}),
+                        [role === "script" ? "script" : role]: e.target.value || undefined,
+                      };
+                      styleMut.mutate({ fonts: Object.keys(next).length ? next : null });
+                    }}
+                    style={{ cursor: "pointer" }}
+                    className="w-full h-8 rounded-lg border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-foreground/40 transition-colors"
+                  >
+                    <option value="">— Theme default —</option>
+                    {PLANNER_FONT_FAMILIES.map(f => (
+                      <option key={f} value={f}>{f}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <p className={CONSEQUENCE}>Overrides apply throughout — covers, section titles, and day labels. Empty = use theme pairing.</p>
           </div>
 
           {/* ── NOTE SECTIONS ─────────────────────────────────────────── */}

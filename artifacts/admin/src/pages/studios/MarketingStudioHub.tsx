@@ -281,7 +281,9 @@ function ListingCenter() {
   const { data: rawEditions = [] } = useQuery({
     queryKey: ["editions"],
     queryFn: () => catalogApi.editions(),
-    staleTime: 60_000,
+    // staleTime: 0 — compose picker; deleted editions must not remain selectable
+    // in the listing-generator after a platform admin removes them elsewhere.
+    staleTime: 0,
   });
   const editions = (rawEditions as any[]).filter((e: any) => e.status !== "deleted");
   const selected = editions.find((e: any) => e.id === selectedEditionId);

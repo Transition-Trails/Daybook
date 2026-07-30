@@ -19,6 +19,7 @@ import { useState, useEffect, useRef } from "react";
 import { PanelLeft, X, Bot, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -91,7 +92,11 @@ export function StudioLayout({
   const [railOpen, setRailOpen] = useState(false);
   const [band,     setBand]     = useState<Band>("wide");
 
-  const wrapperRef = useRef<HTMLDivElement>(null);
+  const wrapperRef   = useRef<HTMLDivElement>(null);
+  /** Ref to the narrow-viewport hamburger button — used to restore focus when the rail overlay closes. */
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  /** Ref to the rail overlay panel — focus trap container. */
+  const railPanelRef = useRef<HTMLDivElement>(null);
 
   // ── Measure container width ────────────────────────────────────────────────
   useEffect(() => {
@@ -121,6 +126,12 @@ export function StudioLayout({
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // ── Focus trap for the narrow-viewport rail overlay ───────────────────────
+  // Saves focus on open, moves it to the first focusable element inside the
+  // overlay, cycles Tab/Shift+Tab within it, and restores to the hamburger
+  // button when the overlay closes.
+  useFocusTrap(railPanelRef, railOpen, hamburgerRef);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div ref={wrapperRef} className={cn("-mx-8 -mt-8 flex flex-col", className)}>
@@ -133,6 +144,7 @@ export function StudioLayout({
         {/* Narrow: rail hamburger (44×44 touch target) */}
         {band === "narrow" && (
           <button
+            ref={hamburgerRef}
             onClick={() => setRailOpen((v) => !v)}
             aria-label={railOpen ? "Close panel" : "Open panel"}
             style={{ cursor: "pointer" }}
@@ -302,8 +314,10 @@ export function StudioLayout({
             )}
             {railOpen && (
               <div
+                ref={railPanelRef}
                 role="dialog"
                 aria-modal="true"
+                aria-label={`${scope} panel`}
                 className="fixed inset-y-0 left-0 z-50 flex flex-col bg-[#FFFDF9] border-r shadow-xl"
                 style={{ width: 280 }}
               >

@@ -18,6 +18,7 @@ import {
   auditLogTable,
   themesTable,
   helpContentTable,
+  insertsTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { makeApp, USERS } from "./helpers.js";
@@ -26,12 +27,16 @@ import { makeApp, USERS } from "./helpers.js";
 // Prevents collisions when the suite is run multiple times against the same DB.
 const RUN = Math.random().toString(36).slice(2, 10);
 const ids = {
-  testStore:       `test-store-${RUN}`,
-  noGlobalTheme:   `test-theme-noglobal-${RUN}`,
-  platformLiveHelp:`test-h-plat-live-${RUN}`,
+  testStore:        `test-store-${RUN}`,
+  noGlobalTheme:    `test-theme-noglobal-${RUN}`,
+  platformLiveHelp: `test-h-plat-live-${RUN}`,
   platformDraftHelp:`test-h-plat-draft-${RUN}`,
-  alphaHelp:       `test-h-alpha-${RUN}`,
-  betaHelp:        `test-h-beta-${RUN}`,
+  alphaHelp:        `test-h-alpha-${RUN}`,
+  betaHelp:         `test-h-beta-${RUN}`,
+  // Self-seeded insert fixtures — used by store_owner and store_staff catalog tests.
+  // Per-run IDs ensure no collision with production seed data.
+  rbacInsert4:      `rbac-insert-4-${RUN}`,
+  rbacInsert5:      `rbac-insert-5-${RUN}`,
 };
 
 // ── Apps keyed by actor ────────────────────────────────────────────────────────
@@ -75,7 +80,22 @@ beforeAll(async () => {
     db.delete(usersTable).where(eq(usersTable.id, USERS.alphaCustomer.id))
   );
 
-  // 2. Theme with globalAvailable=false (catalog guard test)
+  // 2. Insert fixtures used by store_owner and store_staff catalog tests.
+  //    Seeded here so tests pass on a fresh database with no pre-existing seed data.
+  await db.insert(insertsTable)
+    .values([
+      { id: ids.rbacInsert4, name: "RBAC Test Insert 4", cat: "Functional", globalAvailable: true, status: "live" },
+      { id: ids.rbacInsert5, name: "RBAC Test Insert 5", cat: "Functional", globalAvailable: true, status: "live" },
+    ])
+    .onConflictDoNothing();
+  cleanups.push(() =>
+    db.delete(insertsTable).where(eq(insertsTable.id, ids.rbacInsert4))
+  );
+  cleanups.push(() =>
+    db.delete(insertsTable).where(eq(insertsTable.id, ids.rbacInsert5))
+  );
+
+  // 3. Theme with globalAvailable=false (catalog guard test)
   await db.insert(themesTable)
     .values({ id: ids.noGlobalTheme, name: "No-Global Theme", colors: ["#000"], price: 0, status: "live", globalAvailable: false, createdBy: "test" })
     .onConflictDoNothing();
@@ -269,18 +289,18 @@ describe("store_owner (store-alpha) — allow", () => {
   });
 
   it("POST /api/stores/store-alpha/catalog → 201 (enable available item)", async () => {
-    // t4 is globally available; enable it for alpha if not already there
-    // Use a catalog item not already enabled — t6 is draft but globalAvailable=true
+    // Use a self-seeded insert fixture (globalAvailable=true) so this test passes
+    // on a fresh database with no pre-existing seed data.
     const res = await request(alphaOwner)
       .post("/api/stores/store-alpha/catalog")
-      .send({ itemType: "insert", itemId: "i5" }); // i5 exists, not in alpha catalog
+      .send({ itemType: "insert", itemId: ids.rbacInsert5 });
     expect([201, 200]).toContain(res.status); // 201 created or already existed is fine
     cleanups.push(() =>
       db.delete(storeCatalogTable).where(
         and(
           eq(storeCatalogTable.storeId, "store-alpha"),
           eq(storeCatalogTable.itemType, "insert"),
-          eq(storeCatalogTable.itemId, "i5"),
+          eq(storeCatalogTable.itemId, ids.rbacInsert5),
         )
       )
     );
@@ -410,29 +430,29 @@ describe("store_staff (store-alpha) — allow", () => {
   });
 
   it("POST /api/stores/store-alpha/catalog → 201 (curate catalog)", async () => {
-    // i4 ("Autumn leaf corner") is seeded in insertsTable and not pre-loaded into alpha's catalog
+    // Use a self-seeded insert fixture so this test passes on a fresh database.
     const res = await request(alphaStaff)
       .post("/api/stores/store-alpha/catalog")
-      .send({ itemType: "insert", itemId: "i4" });
+      .send({ itemType: "insert", itemId: ids.rbacInsert4 });
     expect([201, 200]).toContain(res.status);
     cleanups.push(() =>
       db.delete(storeCatalogTable).where(
         and(
           eq(storeCatalogTable.storeId, "store-alpha"),
           eq(storeCatalogTable.itemType, "insert"),
-          eq(storeCatalogTable.itemId, "i4"),
+          eq(storeCatalogTable.itemId, ids.rbacInsert4),
         )
       )
     );
   });
 
-  it("DELETE /api/stores/store-alpha/catalog/insert/i4 → 204 or 404 (curate catalog)", async () => {
-    // Ensure i4 is enabled first so delete works
+  it("DELETE /api/stores/store-alpha/catalog/insert/:rbacInsert4 → 204 or 404 (curate catalog)", async () => {
+    // Ensure the fixture insert is enabled first so delete has something to remove.
     await request(alphaStaff)
       .post("/api/stores/store-alpha/catalog")
-      .send({ itemType: "insert", itemId: "i4" });
+      .send({ itemType: "insert", itemId: ids.rbacInsert4 });
     const res = await request(alphaStaff)
-      .delete("/api/stores/store-alpha/catalog/insert/i4");
+      .delete(`/api/stores/store-alpha/catalog/insert/${ids.rbacInsert4}`);
     expect([204, 404]).toContain(res.status);
   });
 

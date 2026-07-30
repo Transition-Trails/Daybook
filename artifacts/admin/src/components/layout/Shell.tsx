@@ -25,7 +25,7 @@ import {
   Users, Settings, RefreshCw, BarChart2, LogOut,
   CalendarDays, ArrowLeft, Pen, Image, Sticker,
   Store, Megaphone, LayoutTemplate, Shapes, Brush,
-  Link2, Paperclip, Type,
+  Link2, Paperclip, Type, BookMarked, Hammer,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
@@ -35,7 +35,9 @@ import { useAiDrawer } from "@/contexts/AiDrawerContext";
 
 const NAV_ITEMS = [
   { label: "Dashboard",          icon: Home,           href: "/" },
+  { label: "Product Builder",    icon: Hammer,         href: "/studios/build",         group: "Studios" },
   { label: "Planner Studio",     icon: LayoutTemplate, href: "/studios/planner",       group: "Studios" },
+  { label: "Journal Studio",     icon: BookMarked,     href: "/studios/journal",       group: "Studios" },
   { label: "Sticker Studio",     icon: Sticker,        href: "/studios/stickers",      group: "Studios" },
   { label: "Marketing Studio",   icon: Megaphone,      href: "/studios/marketing",     group: "Studios" },
   { label: "Theme Studio",       icon: Brush,          href: "/studios/theme-builder", group: "Studios" },

@@ -1,0 +1,122 @@
+BUILD A NEW SURFACE: "PRODUCT BUILDER". This is NOT a change to Planner Studio — it is a
+new, single, recipe-driven builder that will eventually REPLACE Planner Studio and Journal
+Studio. See the five attached screenshots (pb-step1 … pb-step3-all-confirmed).
+
+ROUND 1 SCOPE: build Product Builder and get its flow and navigation right. Add it to the
+nav ALONGSIDE the existing studios — do NOT remove or hide anything yet. Nav cleanup is
+Round 2. Do not touch generation, auth, or the artifact guarantee.
+
+=== WHY THIS EXISTS ===
+Planner Studio presents nine free-floating mode pills. That implies "go anywhere," but
+building a product is a SEQUENCE, and there is no start, no order, and no moment where
+choosing a theme visibly pays off. The result is unusable — a store owner cannot tell how
+to proceed. Product Builder replaces that with three steps.
+
+Naming from here on: PRODUCT BUILDER assembles a sellable product from existing parts.
+STUDIOS (Sticker, Theme, Marketing) create the parts. Studios make the parts; the builder
+assembles them.
+
+=== THE ARCHITECTURAL RULE — READ THIS TWICE ===
+The builder must be DUMB. Define a SECTION LIBRARY once, and let each product RECIPE list
+which section ids it uses. The builder renders that list.
+
+  THE BUILDER MUST CONTAIN ZERO PRODUCT-TYPE BRANCHES.
+
+No `if (productType === 'planner')` anywhere in the render path. Every difference between
+products lives in recipe DATA. Even "Part 3 of 7" is computed from the recipe's list length,
+so an Advent calendar says "Part 3 of 4" with no conditional code. If you find yourself
+branching on product type, the data model is wrong — fix the data, not the component.
+
+This is what makes a new product a new RECIPE rather than an engineering project. It is the
+whole point.
+
+=== SECTION LIBRARY (define once) ===
+Each section: id, name, title, description, "why the theme chose this" line, option-group
+label + note, an options list (id, name, one-line desc, swatch), and an optional limit note.
+  hardware · tabs · inserts · doors · paper · prompts · palette · stickers · cover · dating
+
+=== RECIPES (the only thing that differs) ===
+  Dated planner   → hardware, tabs, inserts, palette, stickers, cover, dating   (7 parts)
+  Advent calendar → doors, palette, stickers, cover                             (4 parts)
+  Guided journal  → paper, prompts, tabs, palette, cover, hardware              (6 parts)
+  Plain notebook  → paper, tabs, palette, cover, hardware                       (5 parts)
+Read the real recipe list from the product_recipes table — these four are the seed set.
+Each recipe also carries a plain-language EXCLUSION line explaining what it does not ask
+for and why ("No tabs (too few pages to need them), no hardware (not bound), and no dating
+question — December is the date.").
+
+=== STEP 1 · WHAT ARE YOU MAKING? (screenshot 1) ===
+· Eyebrow "STEP 1 OF 3", display-serif heading, one-line subtitle.
+· FIRST, above everything, the fastest path as a full-width card with a navy left rule:
+  "Next year of something you already sell" · FASTEST badge · "Carries every setting forward
+  and rolls the dates. Your 2026 Daily becomes the 2027 Daily — nothing to re-decide." with
+  a right-aligned "N editions ready →". This is the most common real job; it goes first.
+· Then a "OR START SOMETHING NEW" divider and a 2×2 grid of recipe cards. Each card: glyph,
+  name, NEW badge where applicable, blurb, then A ROW OF CHIPS NAMING ITS PARTS, then the
+  exclusion line. The chips are how a store owner sees the shape of the work before
+  committing — keep them, and set white-space:nowrap so no chip label wraps out of its pill.
+· Close with a clay-ruled Claude card: "Something not on this list? New product types arrive
+  as recipes — you don't wait for an update."
+
+=== STEP 2 · START FROM A THEME (screenshot 2) ===
+Two columns. LEFT: theme rows — colour-stack swatch, name, origin badge (Yours / Licensed /
+Starter), a GOOD FIT badge when the theme suits the chosen recipe, and a CONTENTS line
+stating what it bundles ("3 palettes · 2 backgrounds · Spectral / Instrument Sans · 2 packs ·
+brass coil"). A dashed "Start without a theme" row at the end, honestly labelled slower.
+
+RIGHT — THE PAYOFF PANEL, and do not omit it. This is the moment the current studio is
+missing entirely. Clay-bordered card titled "WHAT THIS FILLS IN", the theme name and note,
+then ONE ROW PER SECTION THE RECIPE USES with a green check and the value the theme supplies
+(Hardware → Brass coil, Tabs → Side tabs, Palette → Cranberry …). Close with "All N parts
+filled in. Confirm each one, change what you like, or accept the lot in one click." then
+"Use this theme →". The row list is generated from the recipe's section ids — not hardcoded.
+
+=== STEP 3 · CONFIRM EACH PART (screenshots 3, 4, 5) ===
+LEFT RAIL is a CHECKLIST, not navigation:
+· Header: "STEP 3 OF 3", the recipe name with a "Change" link, the theme line
+  ("Pre-filled from Vintage Christmas") with its own "Change" link.
+· A progress bar + "0/7" counter. Give the track a VISIBLE warm colour (#E7DCCB) — a track
+  the same colour as the card reads as a missing component at zero progress.
+· One row per section: a numbered tile that becomes a green check when confirmed, the
+  section name, and BELOW IT the current value ("Brass coil"). An EDITED pill when the value
+  differs from the theme default.
+· A muted "NOT USED BY THIS PRODUCT" card at the bottom carrying the recipe's exclusion
+  line, so an absent section reads as intentional rather than missing.
+· Pinned footer: "Generate the <noun>", DISABLED until every part is confirmed, with
+  "N parts left to confirm." beneath.
+
+CENTRE shows the current section only:
+· Eyebrow "PART n OF N" (computed), display-serif title, description, and a "✦ Ask Claude"
+  button top-right.
+· A blush "FROM YOUR THEME" card naming the default AND WHY it was chosen. When the user has
+  changed it, this card gains a "Put it back" button.
+· The options grid — swatch, name, one-line desc — with a THEME pill on whichever option the
+  theme supplied. Only options the system actually allows: palettes are limited to the ones
+  that theme carries; the inserts section states the 10-note-section ceiling.
+· Footer: "Confirm · next part →" (reads "Confirm · done" on the last), a secondary
+  "Accept the rest as-is" that confirms everything remaining in one click, and the line
+  "Anything you don't touch stays as the theme set it."
+
+=== NAVIGATION — THE THING THAT WAS MISSING ===
+A clickable BREADCRUMB in the top bar that grows with progress and shows position:
+  Advent calendar / Vintage Christmas / Confirm parts
+Every segment navigates back. The current segment is filled (accent-soft + cocoa). Plus the
+two "Change" links in the rail, so the way back also sits where the user is already looking.
+
+STATE RULES on going back:
+· Changing the THEME keeps the user's explicit edits — only the defaults shift, and edited
+  sections stay flagged EDITED.
+· Changing the PRODUCT resets sections, because a different recipe means a different set of
+  parts. Warn before discarding if any part was edited.
+
+=== ALSO ===
+· Persist an in-progress build as a draft, so closing the tab does not lose it.
+· One scroll context per region; the rail and centre scroll independently.
+· short labels (option names, theme names, part chips) get white-space:nowrap.
+· Follow the design system: warm hairline borders (#E7DCCB), paper surfaces, clay accent,
+  Spectral display / Instrument Sans body, uppercase 0.18em eyebrows.
+
+Report: the section library and recipe data as you implemented them, confirmation that the
+render path contains no product-type conditionals, and screenshots of all three steps for
+the planner (7 parts) and the Advent calendar (4 parts) showing the section list differing
+from data alone.

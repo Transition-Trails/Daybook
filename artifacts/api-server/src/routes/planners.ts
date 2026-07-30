@@ -31,7 +31,7 @@ const router: IRouter = Router();
 export async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
   hotspotsByTemplate?: Map<string, import("../lib/pdf-generator").UserHotspot[]>,
-): Promise<{ pdfFileId: string; configFileId: string; inkFriendlyPdfFileId: string | null; pageCount: number; einkCaveat: string | null; fontSubstitutions: string[] }> {
+): Promise<{ pdfFileId: string; configFileId: string; inkFriendlyPdfFileId: string | null; pageCount: number; einkCaveat: string | null; fontSubstitutions: string[]; totalLinkAnnotations?: number }> {
   // Resolve colors for generation.
   // Priority 1: explicit paletteId (buyer picked a palette within the theme)
   // Priority 2: theme.colors for the explicit themeId (backward-compat)
@@ -128,6 +128,17 @@ export async function runGeneration(
     }
   }
 
+  // Apply per-instance font overrides (style.fonts) on top of theme pairing.
+  // Seller/buyer overrides take priority; empty/absent values fall through to theme defaults.
+  const styleFonts = (style as PlannerStyle & { fonts?: { heading?: string; subheading?: string; script?: string; accent?: string } | null }).fonts;
+  if (styleFonts) {
+    fontPairing = { ...fontPairing };
+    if (styleFonts.heading)    fontPairing.heading    = styleFonts.heading;
+    if (styleFonts.subheading) fontPairing.subheading = styleFonts.subheading;
+    if (styleFonts.script)     fontPairing.body       = styleFonts.script;
+    if (styleFonts.accent)     fontPairing.accent     = styleFonts.accent;
+  }
+
   const sections = (config.style as PlannerStyle).sections ?? [];
   const output   = config.output as PlannerOutput;
   const inkFriendlyEnabled = !!output.inkFriendly;
@@ -144,9 +155,16 @@ export async function runGeneration(
     userId: config.userId,
   };
 
+  // diagnosticPage flag — read as a cast so PlannerOutput type stays unchanged.
+  // Only honoured when callers (admin scripts, test routes) explicitly set it true.
+  const diagnosticEnabled = (output as Record<string, unknown>).diagnosticPage === true;
+
   // Main build: always colour at standard trim (einkDevice not passed here)
-  const { buffer, pageCount, fontSubstitutions } = await buildPdf(
+  const { buffer, pageCount, fontSubstitutions, totalLinkAnnotations } = await buildPdf(
     generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
+    /* inkFriendly */ false,
+    /* einkDevice  */ undefined,
+    /* diagnosticPage */ diagnosticEnabled,
   );
 
   // B&W / e-ink variant: inkFriendly=true + optional device trim
@@ -233,7 +251,7 @@ export async function runGeneration(
   const { getEinkPreset } = await import("../lib/eink-presets");
   const einkCaveat = getEinkPreset(einkDeviceKey)?.caveat ?? null;
 
-  return { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount, einkCaveat, fontSubstitutions };
+  return { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount, einkCaveat, fontSubstitutions, totalLinkAnnotations };
 }
 
 // ── POST /planners/preview ────────────────────────────────────────────────────
@@ -329,6 +347,16 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
           .where(eq(themesTable.id, previewStyle.themeId));
         if (themeRow?.fontPairing) previewFontPairing = themeRow.fontPairing as ThemeFontPairing;
       }
+    }
+
+    // Apply per-instance font overrides from body.style.fonts
+    const previewStyleFonts = (body.style as PlannerStyle & { fonts?: { heading?: string; subheading?: string; script?: string; accent?: string } | null } | undefined)?.fonts;
+    if (previewStyleFonts) {
+      previewFontPairing = { ...previewFontPairing };
+      if (previewStyleFonts.heading)    previewFontPairing.heading    = previewStyleFonts.heading;
+      if (previewStyleFonts.subheading) previewFontPairing.subheading = previewStyleFonts.subheading;
+      if (previewStyleFonts.script)     previewFontPairing.body       = previewStyleFonts.script;
+      if (previewStyleFonts.accent)     previewFontPairing.accent     = previewStyleFonts.accent;
     }
 
     const sections = (body.style as PlannerStyle | undefined)?.sections ?? [];

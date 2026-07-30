@@ -161,6 +161,61 @@ async function callGemini(
   };
 }
 
+// ── Image generation ─────────────────────────────────────────────────────────
+
+/**
+ * Call DALL-E 3 for image generation.
+ * Returns a base64 PNG data URL: `data:image/png;base64,...`
+ * Enforces a 60-second hard timeout via AbortController.
+ */
+export async function callDallE(
+  prompt: string,
+  options: {
+    size?: "1024x1024" | "1792x1024" | "1024x1792";
+    quality?: "standard" | "hd";
+    style?: "natural" | "vivid";
+  } = {},
+): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+
+  const body = {
+    model: "dall-e-3",
+    prompt,
+    n: 1,
+    size: options.size ?? "1024x1024",
+    quality: options.quality ?? "standard",
+    style: options.style ?? "natural",
+    response_format: "b64_json",
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const res = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`DALL-E error ${res.status}: ${err}`);
+    }
+
+    const data = (await res.json()) as { data: Array<{ b64_json: string }> };
+    const b64 = data.data[0]?.b64_json;
+    if (!b64) throw new Error("DALL-E returned no image data");
+    return `data:image/png;base64,${b64}`;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // Structured AI helpers for admin studio features
 export async function aiDraftTheme(concept: string, season?: string, audience?: string): Promise<Record<string, unknown>> {
   const prompt = `You are a design expert specializing in digital planners for GoodNotes, Notability, and Noteshelf.

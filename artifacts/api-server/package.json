@@ -9,6 +9,10 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "generate:test": "tsx scripts/generate-test-planners.ts",
+    "generate:house": "tsx scripts/generate-house-planner.ts",
+    "quality:check-ci": "tsx scripts/run-quality-check.ts",
+    "test:links": "vitest run --config vitest.links.config.ts",
     "test:watch": "vitest",
     "migrate-related-products": "npx tsx src/migrate-related-products.ts"
   },

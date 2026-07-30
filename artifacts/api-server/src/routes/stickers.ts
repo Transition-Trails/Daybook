@@ -52,11 +52,12 @@ import {
   removeBackground,
   applyBorderAndSize,
   generateCutlineSvg,
+  adjustCutlineSvgForShadow,
   edgeFeather,
   addDropShadow,
   UserImageError,
 } from "../lib/imageProcessing";
-import { callAi } from "../lib/ai-proxy";
+import { callAi, callDallE } from "../lib/ai-proxy";
 import { buildProfileGrounding } from "../lib/profile-grounding";
 import { renderLabelPng } from "../lib/labelImageGen";
 import { storeProfilesTable, storeFlagsTable } from "@workspace/db";
@@ -187,13 +188,19 @@ async function runPipeline(params: {
 
   // Step 4: trace cutline from the PRE-shadow image
   // (shadow halo must not inflate the cut path)
-  const cutlineSvg = exportTargets.cricut
+  let cutlineSvg = exportTargets.cricut
     ? await generateCutlineSvg(processed)
     : null;
 
   // Step 5: bake drop shadow (expands the canvas — must come AFTER cutline tracing)
   if (shadowStyle && shadowStyle !== "none") {
     processed = await addDropShadow(processed, shadowStyle, shadowLiftPx ?? 4);
+    // FIX #41: the shadow expands the PNG canvas by `pad` pixels on every side.
+    // Without this adjustment the SVG viewBox is smaller than the exported PNG,
+    // causing Cricut Design Space to misalign the cut path relative to the artwork.
+    if (cutlineSvg) {
+      cutlineSvg = adjustCutlineSvgForShadow(cutlineSvg, shadowStyle, shadowLiftPx ?? 4);
+    }
   }
 
   return { processedImageData: processed, cutlineSvg };
@@ -642,12 +649,17 @@ router.post(
       return;
     }
 
-    // Size guard — reject before the expensive pipeline (5 MB decoded ≈ 6.7 MB base64)
+    // Size guard — reject before magic-byte decode and the expensive pipeline (5 MB decoded ≈ 6.7 MB base64)
     const b64Payload = imageBase64.replace(/^data:image\/[a-z+]+;base64,/, "");
     const approxBytes = Math.ceil(b64Payload.length * 0.75);
     if (approxBytes > 5 * 1024 * 1024) {
       res.status(400).json({ error: "Image too large — maximum 5 MB per sticker" });
       return;
+    }
+    {
+      const { validateBase64ImageMagicBytes } = await import("../lib/upload-guard.js");
+      const magicErr = validateBase64ImageMagicBytes(imageBase64, "imageBase64");
+      if (magicErr) { res.status(400).json({ error: magicErr }); return; }
     }
 
     const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
@@ -1301,6 +1313,68 @@ router.post(
     } catch (err) {
       req.log?.error({ err }, "illustrative prompt generation failed");
       res.status(502).json({ error: `AI error: ${String(err)}` });
+    }
+  },
+);
+
+// ── POST /stores/:storeId/stickers/generate/illustrative-image ────────────────
+// Takes a DALL-E-ready prompt (from the previous illustrative-prompt step or
+// written directly) and returns a fully-processed sticker image.
+// Calls DALL-E 3, then runs the full pipeline (bg removal → shadow → cutline).
+// Does NOT persist — returns processedImageData for the frontend to preview.
+
+router.post(
+  "/stores/:storeId/stickers/generate/illustrative-image",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId } = req.params as { storeId: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+    if (!(await assertAiEnabled(storeId, res))) return;
+
+    const { prompt, processingOptions } = req.body as {
+      prompt?: string;
+      processingOptions?: {
+        borderStyle?: string;
+        borderColor?: string;
+        sizeInMm?: number;
+        shadowStyle?: string;
+        shadowLiftPx?: number;
+      };
+    };
+
+    if (!prompt?.trim()) {
+      res.status(400).json({ error: "prompt is required" });
+      return;
+    }
+
+    try {
+      // 1. Generate the image with DALL-E 3
+      const rawImageDataUrl = await callDallE(prompt.trim(), { quality: "hd", style: "natural" });
+
+      // 2. Process through the sticker pipeline (bg removal → border → shadow → cutline)
+      const { processedImageData, cutlineSvg } = await runPipeline({
+        imageBase64: rawImageDataUrl,
+        borderStyle: processingOptions?.borderStyle ?? "none",
+        borderColor: processingOptions?.borderColor ?? null,
+        sizeInMm: processingOptions?.sizeInMm ?? 50,
+        shadowStyle: processingOptions?.shadowStyle ?? "soft",
+        shadowLiftPx: processingOptions?.shadowLiftPx ?? 8,
+      });
+
+      await writeAudit(db, {
+        actorUserId: actor.userId,
+        actorRole: actor.effectiveRole,
+        scope: storeId,
+        action: "sticker.generate.illustrative-image",
+        targetType: "sticker",
+        metadata: { storeId, promptLength: prompt.length },
+      });
+
+      res.json({ processedImageData, cutlineSvg, prompt: prompt.trim() });
+    } catch (err) {
+      req.log?.error({ err }, "illustrative image generation failed");
+      res.status(500).json({ error: "Image generation failed. Please try again." });
     }
   },
 );

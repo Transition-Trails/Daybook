@@ -3,14 +3,15 @@
  * Generates a 6-color palette from a mood prompt, saves as owned theme.
  * Staff can draft; only store_owner can publish.
  */
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Save, Globe, Palette, Lock, Sparkles } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, RefreshCw, Save, Globe, Palette, Lock, Sparkles, Image, CheckCircle2, Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
@@ -50,6 +51,17 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   // rather than insert. Cleared on unmount (navigate away) automatically.
   const [savedId, setSavedId] = useState<string | null>(null);
 
+  // Background generator state
+  const [bgBrief, setBgBrief] = useState("");
+  const [bgName, setBgName] = useState("");
+  const [bgPreview, setBgPreview] = useState<string | null>(null);
+  const [bgSavedId, setBgSavedId] = useState<string | null>(null);
+  const [bgError, setBgError] = useState<string | null>(null);
+
+  // Theme-link state (post-save)
+  const [bgLinkThemeId, setBgLinkThemeId] = useState<string>("");
+  const [bgLinkedThemeIds, setBgLinkedThemeIds] = useState<Set<string>>(new Set());
+
   const generate = useMutation({
     mutationFn: () => studioGenerateApi.generateTheme(storeId, { prompt: prompt.trim() }),
     onSuccess: (res) => {
@@ -81,7 +93,86 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
     },
   });
 
+  // Owned themes list — for the theme-link picker
+  const ownedThemes = useQuery({
+    queryKey: ["store-owned", storeId, "themes"],
+    queryFn: () => storeStudiosApi.list(storeId),
+    select: (data) => data.themes ?? [],
+    staleTime: 60_000,
+  });
+
+  const linkBgToTheme = useMutation({
+    mutationFn: async (themeId: string) => {
+      // Fetch existing backgrounds for the theme so we do an additive link
+      const current = await storeStudiosApi.backgrounds.getForTheme(storeId, themeId);
+      const existingIds = current.map((b) => b.id);
+      const merged = existingIds.includes(bgSavedId!)
+        ? existingIds
+        : [...existingIds, bgSavedId!];
+      return storeStudiosApi.backgrounds.setForTheme(storeId, themeId, merged);
+    },
+    onSuccess: (_data, themeId) => {
+      setBgLinkedThemeIds((prev) => new Set([...prev, themeId]));
+      qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
+      const themeName = ownedThemes.data?.find((t) => t.id === themeId)?.name ?? "theme";
+      toast({ title: "Background linked!", description: `"${bgName}" is now attached to "${themeName}".` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Link failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const unlinkBgFromTheme = useMutation({
+    mutationFn: async (themeId: string) => {
+      const current = await storeStudiosApi.backgrounds.getForTheme(storeId, themeId);
+      const remainder = current.map((b) => b.id).filter((id) => id !== bgSavedId!);
+      return storeStudiosApi.backgrounds.setForTheme(storeId, themeId, remainder);
+    },
+    onSuccess: (_data, themeId) => {
+      setBgLinkedThemeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(themeId);
+        return next;
+      });
+      qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
+      const themeName = ownedThemes.data?.find((t) => t.id === themeId)?.name ?? "theme";
+      toast({ title: "Background unlinked", description: `"${bgName}" removed from "${themeName}".` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Unlink failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const generateBg = useMutation({
+    mutationFn: (saveToStore: boolean) =>
+      storeStudiosApi.backgrounds.generate(storeId, {
+        brief: bgBrief.trim(),
+        name: bgName.trim() || "Untitled background",
+        backgroundType: "texture",
+        saveToStore,
+      }),
+    onSuccess: (data, saveToStore) => {
+      setBgError(null);
+      setBgPreview(data.assetRef);
+      if (saveToStore && data.savedId) {
+        setBgSavedId(data.savedId);
+        qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
+        toast({ title: "Background saved!", description: `"${bgName}" added to your backgrounds as a draft.` });
+      }
+    },
+    onError: (err: Error) => setBgError(err.message),
+  });
+
   const canSave = !!name && colors.length === 6 && colors.every(isValidHex);
+
+  // Auto-select the theme saved in this session when the link dropdown first appears.
+  // Only runs when bgLinkThemeId is still empty so manual selections are never overridden.
+  useEffect(() => {
+    if (!savedId || bgLinkThemeId || !ownedThemes.data) return;
+    if (ownedThemes.data.some((t) => t.id === savedId)) {
+      setBgLinkThemeId(savedId);
+    }
+  }, [savedId, bgLinkThemeId, ownedThemes.data]);
 
   // All hooks declared above — safe to return early now.
   if (!aiEnabled) return role === "super_admin" ? <SuperAdminAiBanner /> : <AiDisabledState />;
@@ -207,6 +298,177 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Background Generator ──────────────────────────────────────────── */}
+      <div className="border-t border-border pt-8 mt-8">
+        <h3 className="text-sm font-semibold mb-1">Generate a Background</h3>
+        <p className="text-xs text-muted-foreground mb-6">
+          Describe a texture or paper style — Claude expands the brief, DALL·E 3 generates the art.
+        </p>
+
+        <Card className="mb-4">
+          <CardContent className="pt-6 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="bg-brief">Background brief</Label>
+              <Textarea
+                id="bg-brief"
+                rows={2}
+                placeholder={"e.g. \"Aged cream linen with subtle grain and soft floral watercolour edges\""}
+                value={bgBrief}
+                onChange={(e) => setBgBrief(e.target.value)}
+                className="resize-none font-sans"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bg-name">Background name</Label>
+              <Input
+                id="bg-name"
+                placeholder="e.g. Aged Linen"
+                value={bgName}
+                onChange={(e) => { setBgName(e.target.value); setBgSavedId(null); }}
+              />
+            </div>
+            <Button
+              onClick={() => generateBg.mutate(false)}
+              disabled={generateBg.isPending || !bgBrief.trim() || !bgName.trim()}
+              variant="outline"
+            >
+              {generateBg.isPending
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating… (up to 30 s)</>
+                : <><Image className="w-4 h-4 mr-2" />Preview background</>}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {bgError && !generateBg.isPending && (
+          <div className="mb-4">
+            <ErrorState message={bgError} onRetry={() => generateBg.mutate(false)} />
+          </div>
+        )}
+
+        {bgPreview && !generateBg.isPending && (
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Preview</p>
+                <div className="rounded-lg overflow-hidden border border-border aspect-video">
+                  <img src={bgPreview} alt="Generated background" className="w-full h-full object-cover" />
+                </div>
+              </div>
+              <div className="flex items-center gap-3 pt-2 border-t border-border">
+                <Button variant="outline" size="sm" onClick={() => generateBg.mutate(false)} disabled={generateBg.isPending}>
+                  <RefreshCw className="w-3.5 h-3.5 mr-2" />Regenerate
+                </Button>
+                <div className="flex-1" />
+                {bgSavedId ? (
+                  <span className="text-xs text-emerald-600 font-medium flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />Saved to your backgrounds
+                  </span>
+                ) : isOwner ? (
+                  <Button
+                    size="sm"
+                    className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
+                    onClick={() => generateBg.mutate(true)}
+                    disabled={generateBg.isPending}
+                  >
+                    {generateBg.isPending
+                      ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Saving…</>
+                      : <><Save className="w-3.5 h-3.5 mr-2" />Save to my backgrounds</>}
+                  </Button>
+                ) : (
+                  <Button size="sm" disabled className="opacity-50 cursor-not-allowed">
+                    <Lock className="w-3.5 h-3.5 mr-2" />Save (owner only)
+                  </Button>
+                )}
+              </div>
+
+              {/* ── Theme-link panel (appears after background is saved) ── */}
+              {bgSavedId && (
+                <div className="pt-4 border-t border-border space-y-3">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <Link2 className="w-3.5 h-3.5" />Add to a theme
+                  </p>
+                  {ownedThemes.isLoading ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />Loading your themes…
+                    </div>
+                  ) : (ownedThemes.data?.length ?? 0) === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No owned themes yet — save a theme above first.
+                    </p>
+                  ) : (
+                    <>
+                      {/* Linked themes list with unlink buttons */}
+                      {bgLinkedThemeIds.size > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {[...bgLinkedThemeIds].map((themeId) => {
+                            const themeName = ownedThemes.data!.find((t) => t.id === themeId)?.name ?? "theme";
+                            const isUnlinking = unlinkBgFromTheme.isPending && unlinkBgFromTheme.variables === themeId;
+                            return (
+                              <span
+                                key={themeId}
+                                className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs font-medium bg-emerald-50 border border-emerald-200 text-emerald-700"
+                              >
+                                <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                {themeName}
+                                <button
+                                  type="button"
+                                  aria-label={`Unlink from ${themeName}`}
+                                  disabled={isUnlinking}
+                                  onClick={() => unlinkBgFromTheme.mutate(themeId)}
+                                  className="ml-0.5 rounded-full hover:bg-emerald-200 p-0.5 disabled:opacity-50 transition-colors"
+                                >
+                                  {isUnlinking
+                                    ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                    : <X className="w-2.5 h-2.5" />}
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Select value={bgLinkThemeId} onValueChange={setBgLinkThemeId}>
+                          <SelectTrigger className="h-8 text-xs w-52">
+                            <SelectValue placeholder="Pick a theme…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ownedThemes.data!.map((t) => (
+                              <SelectItem key={t.id} value={t.id} className="text-xs">
+                                <span className="flex items-center gap-1.5">
+                                  {bgLinkedThemeIds.has(t.id) && (
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                                  )}
+                                  {t.name}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          disabled={!bgLinkThemeId || linkBgToTheme.isPending || bgLinkedThemeIds.has(bgLinkThemeId)}
+                          onClick={() => linkBgToTheme.mutate(bgLinkThemeId)}
+                        >
+                          {linkBgToTheme.isPending ? (
+                            <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Linking…</>
+                          ) : bgLinkThemeId && bgLinkedThemeIds.has(bgLinkThemeId) ? (
+                            <><CheckCircle2 className="w-3 h-3 mr-1.5 text-emerald-500" />Linked</>
+                          ) : (
+                            <>Add to {bgLinkThemeId ? `"${ownedThemes.data!.find((t) => t.id === bgLinkThemeId)?.name ?? "theme"}"` : "theme"}</>
+                          )}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

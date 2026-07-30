@@ -2992,7 +2992,10 @@ export default function PlannerStudioHub() {
   const { data: platformPlanners = [], isLoading: templatesLoading } = useQuery({
     queryKey: ["platform-planners"],
     queryFn:  () => platformPlannersApi.list(),
-    staleTime: 30_000,
+    // staleTime: 0 — always re-fetch on mount so a deleted template never lingers
+    // in the rail after SPA navigation or tab-switch.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
   const selectedTemplate = (platformPlanners as PlatformPlannerConfig[]).find(
     t => t.id === selectedTemplateId,

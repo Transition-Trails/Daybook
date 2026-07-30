@@ -3,7 +3,7 @@
  * Generates a 6-color palette from a mood prompt, saves as owned theme.
  * Staff can draft; only store_owner can publish.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw, Save, Globe, Palette, Lock, Sparkles, Image, CheckCircle2, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -143,6 +143,15 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   });
 
   const canSave = !!name && colors.length === 6 && colors.every(isValidHex);
+
+  // Auto-select the theme saved in this session when the link dropdown first appears.
+  // Only runs when bgLinkThemeId is still empty so manual selections are never overridden.
+  useEffect(() => {
+    if (!savedId || bgLinkThemeId || !ownedThemes.data) return;
+    if (ownedThemes.data.some((t) => t.id === savedId)) {
+      setBgLinkThemeId(savedId);
+    }
+  }, [savedId, bgLinkThemeId, ownedThemes.data]);
 
   // All hooks declared above — safe to return early now.
   if (!aiEnabled) return role === "super_admin" ? <SuperAdminAiBanner /> : <AiDisabledState />;

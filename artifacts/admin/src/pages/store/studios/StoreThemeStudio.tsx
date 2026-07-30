@@ -5,7 +5,7 @@
  */
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Save, Globe, Palette, Lock, Sparkles, Image, CheckCircle2, Link2 } from "lucide-react";
+import { Loader2, RefreshCw, Save, Globe, Palette, Lock, Sparkles, Image, CheckCircle2, Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -119,6 +119,27 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
     },
     onError: (err: Error) => {
       toast({ title: "Link failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const unlinkBgFromTheme = useMutation({
+    mutationFn: async (themeId: string) => {
+      const current = await storeStudiosApi.backgrounds.getForTheme(storeId, themeId);
+      const remainder = current.map((b) => b.id).filter((id) => id !== bgSavedId!);
+      return storeStudiosApi.backgrounds.setForTheme(storeId, themeId, remainder);
+    },
+    onSuccess: (_data, themeId) => {
+      setBgLinkedThemeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(themeId);
+        return next;
+      });
+      qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
+      const themeName = ownedThemes.data?.find((t) => t.id === themeId)?.name ?? "theme";
+      toast({ title: "Background unlinked", description: `"${bgName}" removed from "${themeName}".` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Unlink failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -376,40 +397,71 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
                       No owned themes yet — save a theme above first.
                     </p>
                   ) : (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Select value={bgLinkThemeId} onValueChange={setBgLinkThemeId}>
-                        <SelectTrigger className="h-8 text-xs w-52">
-                          <SelectValue placeholder="Pick a theme…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ownedThemes.data!.map((t) => (
-                            <SelectItem key={t.id} value={t.id} className="text-xs">
-                              <span className="flex items-center gap-1.5">
-                                {bgLinkedThemeIds.has(t.id) && (
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
-                                )}
-                                {t.name}
+                    <>
+                      {/* Linked themes list with unlink buttons */}
+                      {bgLinkedThemeIds.size > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {[...bgLinkedThemeIds].map((themeId) => {
+                            const themeName = ownedThemes.data!.find((t) => t.id === themeId)?.name ?? "theme";
+                            const isUnlinking = unlinkBgFromTheme.isPending && unlinkBgFromTheme.variables === themeId;
+                            return (
+                              <span
+                                key={themeId}
+                                className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs font-medium bg-emerald-50 border border-emerald-200 text-emerald-700"
+                              >
+                                <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                {themeName}
+                                <button
+                                  type="button"
+                                  aria-label={`Unlink from ${themeName}`}
+                                  disabled={isUnlinking}
+                                  onClick={() => unlinkBgFromTheme.mutate(themeId)}
+                                  className="ml-0.5 rounded-full hover:bg-emerald-200 p-0.5 disabled:opacity-50 transition-colors"
+                                >
+                                  {isUnlinking
+                                    ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                    : <X className="w-2.5 h-2.5" />}
+                                </button>
                               </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 text-xs"
-                        disabled={!bgLinkThemeId || linkBgToTheme.isPending || bgLinkedThemeIds.has(bgLinkThemeId)}
-                        onClick={() => linkBgToTheme.mutate(bgLinkThemeId)}
-                      >
-                        {linkBgToTheme.isPending ? (
-                          <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Linking…</>
-                        ) : bgLinkThemeId && bgLinkedThemeIds.has(bgLinkThemeId) ? (
-                          <><CheckCircle2 className="w-3 h-3 mr-1.5 text-emerald-500" />Linked</>
-                        ) : (
-                          <>Add to {bgLinkThemeId ? `"${ownedThemes.data!.find((t) => t.id === bgLinkThemeId)?.name ?? "theme"}"` : "theme"}</>
-                        )}
-                      </Button>
-                    </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Select value={bgLinkThemeId} onValueChange={setBgLinkThemeId}>
+                          <SelectTrigger className="h-8 text-xs w-52">
+                            <SelectValue placeholder="Pick a theme…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ownedThemes.data!.map((t) => (
+                              <SelectItem key={t.id} value={t.id} className="text-xs">
+                                <span className="flex items-center gap-1.5">
+                                  {bgLinkedThemeIds.has(t.id) && (
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                                  )}
+                                  {t.name}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          disabled={!bgLinkThemeId || linkBgToTheme.isPending || bgLinkedThemeIds.has(bgLinkThemeId)}
+                          onClick={() => linkBgToTheme.mutate(bgLinkThemeId)}
+                        >
+                          {linkBgToTheme.isPending ? (
+                            <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Linking…</>
+                          ) : bgLinkThemeId && bgLinkedThemeIds.has(bgLinkThemeId) ? (
+                            <><CheckCircle2 className="w-3 h-3 mr-1.5 text-emerald-500" />Linked</>
+                          ) : (
+                            <>Add to {bgLinkThemeId ? `"${ownedThemes.data!.find((t) => t.id === bgLinkThemeId)?.name ?? "theme"}"` : "theme"}</>
+                          )}
+                        </Button>
+                      </div>
+                    </>
                   )}
                 </div>
               )}

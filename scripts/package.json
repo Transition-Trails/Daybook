@@ -19,6 +19,7 @@
     "seed-theme-catalog": "tsx ./src/seed-theme-catalog.ts",
     "seed:ci": "tsx ./src/seed-ci.ts",
     "seed-house": "tsx ./src/seed-house.ts",
+    "seed-kit-vgj": "tsx ./src/seed-kit-vgj.ts",
     "seed-house:clear": "tsx ./src/seed-house-clear.ts"
   },
   "dependencies": {

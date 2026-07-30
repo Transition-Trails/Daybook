@@ -701,6 +701,20 @@ export const storeStudiosApi = {
       apiFetch<OwnedBackground[]>(`/stores/${storeId}/owned/themes/${themeId}/backgrounds`, {
         headers: { "x-store-id": storeId },
       }),
+    /** Generate an AI background image. When saveToStore=true, inserts a background row. */
+    generate: (
+      storeId: string,
+      data: {
+        brief: string;
+        name: string;
+        backgroundType?: "texture" | "image";
+        saveToStore: boolean;
+      },
+    ) =>
+      apiFetch<{ expandedPrompt: string; assetRef: string; savedId: string | null }>(
+        `/stores/${storeId}/backgrounds/generate`,
+        { method: "POST", body: JSON.stringify(data), headers: { "x-store-id": storeId } },
+      ),
   },
 
   editions: {

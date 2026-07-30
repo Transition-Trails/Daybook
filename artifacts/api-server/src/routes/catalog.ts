@@ -40,9 +40,10 @@ import {
   fontsTable,
 } from "@workspace/db";
 import { eq, ne, and, inArray, asc } from "drizzle-orm";
-import { requireSuperAdmin } from "../middleware/requireRole";
-import { isSuperAdmin } from "../lib/roles";
+import { requireSuperAdmin, requireStoreAccess } from "../middleware/requireRole";
+import { isSuperAdmin, type ActorContext } from "../lib/roles";
 import { writeAudit } from "../lib/audit";
+import { callAi, callDallE } from "../lib/ai-proxy";
 import { KNOWN_TEXTURE_SLUGS } from "../lib/texture-registry";
 import type { User } from "@workspace/db";
 
@@ -1232,5 +1233,101 @@ router.get("/catalog/asset-types", requireSuperAdmin, async (_req: Request, res:
     { slot: "fonts",       label: "Font pairings",      glyph: "Aa", count: fontCount.length,        studios: ["Theme Studio"] },
   ]);
 });
+
+// ── POST /stores/:storeId/backgrounds/generate ───────────────────────────────
+// Store-staff route: Claude expands a brief → DALL-E 3 generates a background
+// image → optionally saves to backgroundsTable (when saveToStore: true).
+// Returns { expandedPrompt, assetRef, savedId }.
+
+router.post(
+  "/stores/:storeId/backgrounds/generate",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor as ActorContext;
+    const storeId = req.params.storeId as string;
+
+    // Cross-store guard: super_admin may access any store; others must match.
+    if (actor.platformRole !== "super_admin" && actor.storeId !== storeId) {
+      res.status(403).json({ error: "Access denied: store mismatch" });
+      return;
+    }
+
+    const { brief, backgroundType, name, saveToStore } = req.body as {
+      brief?: string;
+      backgroundType?: string;
+      name?: string;
+      saveToStore?: boolean;
+    };
+
+    if (!brief?.trim()) {
+      res.status(400).json({ error: "brief is required" });
+      return;
+    }
+    if (!name?.trim()) {
+      res.status(400).json({ error: "name is required" });
+      return;
+    }
+
+    const type = backgroundType === "image" ? "image" : "texture";
+
+    try {
+      // Step 1: Claude expands the brief into a DALL-E 3 prompt
+      const expansionResult = await callAi(
+        [{
+          role: "user",
+          content: `Background brief: "${brief.trim()}".\nBackground type: ${type}.\n\nExpand this into a detailed DALL-E 3 prompt for a digital planner paper/background. Output ONLY the prompt — no JSON, no preamble.`,
+        }],
+        "claude",
+        `You are an art director specialising in digital planner and journal aesthetics.
+When given a background brief, write a precise, evocative DALL-E 3 prompt. Requirements:
+- Beautiful, subtle ${type} texture suited for journaling and planning
+- Seamlessly repeating pattern if possible, suitable as a PDF page background
+- Muted, sophisticated colour palette — not overpowering the text on the page
+- No text, no icons, no watermarks
+- High resolution; photorealistic or fine-art quality
+Respond with ONLY the prompt text — nothing else.`,
+      );
+      const expandedPrompt = expansionResult.content.trim().replace(/^["']|["']$/g, "");
+
+      // Step 2: Generate the image with DALL-E 3
+      const imageDataUrl = await callDallE(expandedPrompt, {
+        size: "1024x1024",
+        quality: "hd",
+        style: "natural",
+      });
+
+      let savedId: string | null = null;
+      if (saveToStore) {
+        savedId = `bg_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+        await db.insert(backgroundsTable).values({
+          id: savedId,
+          name: name.trim(),
+          type,
+          assetRef: imageDataUrl,
+          status: "draft",
+          origin: "owned",
+          authoredByStoreId: storeId,
+          globalAvailable: false,
+        });
+      }
+
+      const user = req.user as User;
+      await writeAudit(db, {
+        actorUserId: user.id,
+        actorRole: actor.effectiveRole ?? "store_staff",
+        scope: storeId,
+        action: "backgrounds.generate",
+        targetType: "background",
+        targetId: savedId ?? undefined,
+        metadata: { storeId, type, saveToStore: !!saveToStore },
+      });
+
+      res.json({ expandedPrompt, assetRef: imageDataUrl, savedId });
+    } catch (err) {
+      req.log?.error({ err }, "background generation failed");
+      res.status(500).json({ error: "Background generation failed. Please try again." });
+    }
+  },
+);
 
 export default router;

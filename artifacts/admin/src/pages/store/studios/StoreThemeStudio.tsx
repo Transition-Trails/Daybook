@@ -5,7 +5,7 @@
  */
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Save, Globe, Palette, Lock, Sparkles } from "lucide-react";
+import { Loader2, RefreshCw, Save, Globe, Palette, Lock, Sparkles, Image } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -50,6 +50,13 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   // rather than insert. Cleared on unmount (navigate away) automatically.
   const [savedId, setSavedId] = useState<string | null>(null);
 
+  // Background generator state
+  const [bgBrief, setBgBrief] = useState("");
+  const [bgName, setBgName] = useState("");
+  const [bgPreview, setBgPreview] = useState<string | null>(null);
+  const [bgSavedId, setBgSavedId] = useState<string | null>(null);
+  const [bgError, setBgError] = useState<string | null>(null);
+
   const generate = useMutation({
     mutationFn: () => studioGenerateApi.generateTheme(storeId, { prompt: prompt.trim() }),
     onSuccess: (res) => {
@@ -79,6 +86,26 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
     onError: (err: Error) => {
       toast({ title: "Save failed", description: err.message, variant: "destructive" });
     },
+  });
+
+  const generateBg = useMutation({
+    mutationFn: (saveToStore: boolean) =>
+      storeStudiosApi.backgrounds.generate(storeId, {
+        brief: bgBrief.trim(),
+        name: bgName.trim() || "Untitled background",
+        backgroundType: "texture",
+        saveToStore,
+      }),
+    onSuccess: (data, saveToStore) => {
+      setBgError(null);
+      setBgPreview(data.assetRef);
+      if (saveToStore && data.savedId) {
+        setBgSavedId(data.savedId);
+        qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
+        toast({ title: "Background saved!", description: `"${bgName}" added to your backgrounds as a draft.` });
+      }
+    },
+    onError: (err: Error) => setBgError(err.message),
   });
 
   const canSave = !!name && colors.length === 6 && colors.every(isValidHex);
@@ -207,6 +234,93 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Background Generator ──────────────────────────────────────────── */}
+      <div className="border-t border-border pt-8 mt-8">
+        <h3 className="text-sm font-semibold mb-1">Generate a Background</h3>
+        <p className="text-xs text-muted-foreground mb-6">
+          Describe a texture or paper style — Claude expands the brief, DALL·E 3 generates the art.
+        </p>
+
+        <Card className="mb-4">
+          <CardContent className="pt-6 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="bg-brief">Background brief</Label>
+              <Textarea
+                id="bg-brief"
+                rows={2}
+                placeholder={"e.g. \"Aged cream linen with subtle grain and soft floral watercolour edges\""}
+                value={bgBrief}
+                onChange={(e) => setBgBrief(e.target.value)}
+                className="resize-none font-sans"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bg-name">Background name</Label>
+              <Input
+                id="bg-name"
+                placeholder="e.g. Aged Linen"
+                value={bgName}
+                onChange={(e) => { setBgName(e.target.value); setBgSavedId(null); }}
+              />
+            </div>
+            <Button
+              onClick={() => generateBg.mutate(false)}
+              disabled={generateBg.isPending || !bgBrief.trim() || !bgName.trim()}
+              variant="outline"
+            >
+              {generateBg.isPending
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating… (up to 30 s)</>
+                : <><Image className="w-4 h-4 mr-2" />Preview background</>}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {bgError && !generateBg.isPending && (
+          <div className="mb-4">
+            <ErrorState message={bgError} onRetry={() => generateBg.mutate(false)} />
+          </div>
+        )}
+
+        {bgPreview && !generateBg.isPending && (
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Preview</p>
+                <div className="rounded-lg overflow-hidden border border-border aspect-video">
+                  <img src={bgPreview} alt="Generated background" className="w-full h-full object-cover" />
+                </div>
+              </div>
+              <div className="flex items-center gap-3 pt-2 border-t border-border">
+                <Button variant="outline" size="sm" onClick={() => generateBg.mutate(false)} disabled={generateBg.isPending}>
+                  <RefreshCw className="w-3.5 h-3.5 mr-2" />Regenerate
+                </Button>
+                <div className="flex-1" />
+                {bgSavedId ? (
+                  <span className="text-xs text-emerald-600 font-medium flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />Saved to your backgrounds
+                  </span>
+                ) : isOwner ? (
+                  <Button
+                    size="sm"
+                    className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
+                    onClick={() => generateBg.mutate(true)}
+                    disabled={generateBg.isPending}
+                  >
+                    {generateBg.isPending
+                      ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Saving…</>
+                      : <><Save className="w-3.5 h-3.5 mr-2" />Save to my backgrounds</>}
+                  </Button>
+                ) : (
+                  <Button size="sm" disabled className="opacity-50 cursor-not-allowed">
+                    <Lock className="w-3.5 h-3.5 mr-2" />Save (owner only)
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

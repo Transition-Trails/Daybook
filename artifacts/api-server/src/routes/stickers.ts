@@ -57,7 +57,7 @@ import {
   addDropShadow,
   UserImageError,
 } from "../lib/imageProcessing";
-import { callAi } from "../lib/ai-proxy";
+import { callAi, callDallE } from "../lib/ai-proxy";
 import { buildProfileGrounding } from "../lib/profile-grounding";
 import { renderLabelPng } from "../lib/labelImageGen";
 import { storeProfilesTable, storeFlagsTable } from "@workspace/db";
@@ -1313,6 +1313,68 @@ router.post(
     } catch (err) {
       req.log?.error({ err }, "illustrative prompt generation failed");
       res.status(502).json({ error: `AI error: ${String(err)}` });
+    }
+  },
+);
+
+// ── POST /stores/:storeId/stickers/generate/illustrative-image ────────────────
+// Takes a DALL-E-ready prompt (from the previous illustrative-prompt step or
+// written directly) and returns a fully-processed sticker image.
+// Calls DALL-E 3, then runs the full pipeline (bg removal → shadow → cutline).
+// Does NOT persist — returns processedImageData for the frontend to preview.
+
+router.post(
+  "/stores/:storeId/stickers/generate/illustrative-image",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId } = req.params as { storeId: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+    if (!(await assertAiEnabled(storeId, res))) return;
+
+    const { prompt, processingOptions } = req.body as {
+      prompt?: string;
+      processingOptions?: {
+        borderStyle?: string;
+        borderColor?: string;
+        sizeInMm?: number;
+        shadowStyle?: string;
+        shadowLiftPx?: number;
+      };
+    };
+
+    if (!prompt?.trim()) {
+      res.status(400).json({ error: "prompt is required" });
+      return;
+    }
+
+    try {
+      // 1. Generate the image with DALL-E 3
+      const rawImageDataUrl = await callDallE(prompt.trim(), { quality: "hd", style: "natural" });
+
+      // 2. Process through the sticker pipeline (bg removal → border → shadow → cutline)
+      const { processedImageData, cutlineSvg } = await runPipeline({
+        imageBase64: rawImageDataUrl,
+        borderStyle: processingOptions?.borderStyle ?? "none",
+        borderColor: processingOptions?.borderColor ?? null,
+        sizeInMm: processingOptions?.sizeInMm ?? 50,
+        shadowStyle: processingOptions?.shadowStyle ?? "soft",
+        shadowLiftPx: processingOptions?.shadowLiftPx ?? 8,
+      });
+
+      await writeAudit(db, {
+        actorUserId: actor.userId,
+        actorRole: actor.effectiveRole,
+        scope: storeId,
+        action: "sticker.generate.illustrative-image",
+        targetType: "sticker",
+        metadata: { storeId, promptLength: prompt.length },
+      });
+
+      res.json({ processedImageData, cutlineSvg, prompt: prompt.trim() });
+    } catch (err) {
+      req.log?.error({ err }, "illustrative image generation failed");
+      res.status(500).json({ error: "Image generation failed. Please try again." });
     }
   },
 );

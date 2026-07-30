@@ -503,22 +503,62 @@ function TextSetTab({ storeId }: { storeId: string }) {
 
 function IllustrativeTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; aiEnabled: boolean; isSuperAdmin?: boolean }) {
   const { toast } = useToast();
+  const qc = useQueryClient();
   const [brief, setBrief] = useState("");
   const [refImage, setRefImage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<{ prompt: string; reasoning: string; qaChecklist?: string[] | null } | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [stickerName, setStickerName] = useState("");
 
-  if (!aiEnabled) return isSuperAdmin ? <SuperAdminAiBanner /> : <AiDisabledState />;
-
+  // All hooks must come before conditional returns
   const generate = useMutation({
     mutationFn: () =>
       apiFetch<typeof result>(`/stores/${storeId}/stickers/generate/illustrative-prompt`, {
         method: "POST",
         body: JSON.stringify({ brief: brief.trim(), referenceImageBase64: refImage ?? undefined }),
       }),
-    onSuccess: (data) => setResult(data),
+    onSuccess: (data) => { setResult(data); setPreviewImage(null); setStickerName(""); },
     onError: (err: Error) => toast({ title: "Generation failed", description: err.message, variant: "destructive" }),
   });
+
+  const generateImage = useMutation({
+    mutationFn: (prompt: string) =>
+      apiFetch<{ processedImageData: string; cutlineSvg: string | null; prompt: string }>(
+        `/stores/${storeId}/stickers/generate/illustrative-image`,
+        { method: "POST", body: JSON.stringify({ prompt }) },
+      ),
+    onSuccess: (data) => setPreviewImage(data.processedImageData),
+    onError: (err: Error) => toast({ title: "Image generation failed", description: err.message, variant: "destructive" }),
+  });
+
+  const saveSticker = useMutation({
+    mutationFn: () => {
+      if (!previewImage || !stickerName.trim()) throw new Error("Name and image required");
+      return apiFetch<{ id: string }>(
+        `/stores/${storeId}/stickers`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            imageBase64: previewImage,
+            name: stickerName.trim(),
+            borderStyle: "none",
+            shadowStyle: "none",
+          }),
+        },
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["store-stickers", storeId] });
+      toast({ title: "Sticker saved!", description: `"${stickerName}" added to your library as a draft.` });
+      setPreviewImage(null);
+      setStickerName("");
+    },
+    onError: (err: Error) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+  });
+
+  // All hooks declared above — safe to return early now
+  if (!aiEnabled) return isSuperAdmin ? <SuperAdminAiBanner /> : <AiDisabledState />;
 
   const loadRef = async (file: File) => {
     const dataUrl = await fileToDataUrl(file);
@@ -528,7 +568,7 @@ function IllustrativeTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string
   return (
     <div className="space-y-6 max-w-2xl">
       <p className="text-sm text-muted-foreground">
-        Claude writes a detailed image-generation prompt grounded in your store profile. Take the prompt to Midjourney, DALL·E, or Firefly.
+        Describe a sticker concept — Claude writes a detailed prompt, then DALL·E 3 generates and processes the art.
       </p>
 
       <div className="space-y-1.5">
@@ -565,15 +605,28 @@ function IllustrativeTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string
           : <><Lightbulb className="w-4 h-4 mr-2" />Write prompt</>}
       </Button>
 
-      {result && (
+      {result && !generate.isPending && (
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-sm">Generated prompt</CardTitle></CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
               <p className="text-sm leading-relaxed bg-muted/30 rounded-lg p-3 font-mono text-xs select-all">{result.prompt}</p>
-              <Button variant="ghost" size="sm" className="mt-2 text-xs" onClick={() => navigator.clipboard.writeText(result!.prompt)}>
-                Copy to clipboard
-              </Button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button variant="ghost" size="sm" className="text-xs"
+                  onClick={() => navigator.clipboard.writeText(result!.prompt)}>
+                  Copy to clipboard
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-[#C87560] hover:bg-[#A85E4E] text-white text-xs"
+                  onClick={() => generateImage.mutate(result!.prompt)}
+                  disabled={generateImage.isPending}
+                >
+                  {generateImage.isPending
+                    ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Generating image (up to 30s)…</>
+                    : <><Sparkles className="w-3.5 h-3.5 mr-1.5" />Generate image</>}
+                </Button>
+              </div>
             </CardContent>
           </Card>
           {result.reasoning && (
@@ -594,6 +647,54 @@ function IllustrativeTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string
             </Card>
           )}
         </div>
+      )}
+
+      {/* ── Generated image preview + save ──────────────────────────────────── */}
+      {previewImage && !generateImage.isPending && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Image className="w-4 h-4" />Generated sticker
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-start gap-4">
+              <div className="bg-muted/40 rounded-lg border border-border p-4 shrink-0">
+                <img src={previewImage} alt="Generated sticker" className="w-32 h-32 object-contain drop-shadow-md" />
+              </div>
+              <div className="flex-1 space-y-2 min-w-0">
+                <p className="text-xs text-muted-foreground">Background removed. Give it a name to save as a draft sticker.</p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Sticker name</Label>
+                  <Input
+                    placeholder="e.g. Autumn reading nook"
+                    value={stickerName}
+                    onChange={(e) => setStickerName(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1 border-t border-border">
+              <Button variant="outline" size="sm"
+                onClick={() => result && generateImage.mutate(result.prompt)}
+                disabled={generateImage.isPending || !result}>
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />Regenerate
+              </Button>
+              <div className="flex-1" />
+              <Button
+                size="sm"
+                className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
+                onClick={() => saveSticker.mutate()}
+                disabled={!stickerName.trim() || saveSticker.isPending}
+              >
+                {saveSticker.isPending
+                  ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Saving…</>
+                  : <><Save className="w-3.5 h-3.5 mr-1.5" />Save as draft</>}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

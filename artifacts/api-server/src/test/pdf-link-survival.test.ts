@@ -399,6 +399,41 @@ describe("PDF link survival — standard 12-month portrait 2024 (leap year)", ()
     expect(failures, "Release blockers — see log above").toHaveLength(0);
   }, 60_000);
 
+  it("calendar.google.com URI annotations appear on dated day pages (calMode=link)", async () => {
+    // Regression guard: calMode="link" must emit real Google Calendar deep-links,
+    // not just any URI.  Previously this was vacuously true because neither dated
+    // nor undated variants produced URI annotations — the generator silently
+    // ignored a non-supported calMode value.
+    //
+    // Architecture note: calendar integration is annotation-only (no QR codes,
+    // no separate ICS file).  calMode="link" → calendar.google.com deep-links;
+    // calMode="overlay" → data:text/calendar ICS URIs; calMode="none" → no URIs.
+    const doc  = await PDFDocument.load(standardResult.buffer);
+    const uris = extractAllLinks(doc).filter((l): l is UriLink => l.kind === "uri");
+
+    const calendarUris = uris.filter((l) => l.url.includes("calendar.google.com"));
+    console.log(
+      `[link-survival/standard] ${calendarUris.length} calendar.google.com URI annotations ` +
+      `out of ${uris.length} total URIs`,
+    );
+    expect(
+      calendarUris.length,
+      "🚨 RELEASE BLOCKER — calMode=link must produce calendar.google.com annotations on dated pages",
+    ).toBeGreaterThan(0);
+
+    // Spot-check: every google calendar URI must carry the expected query params.
+    const malformed = calendarUris.filter(
+      (l) => !l.url.includes("action=TEMPLATE") || !l.url.includes("dates="),
+    );
+    if (malformed.length) {
+      console.error(
+        "Malformed Google Calendar URIs:\n" +
+        malformed.slice(0, 5).map((l) => `  page ${l.pageIndex + 1}: ${l.url}`).join("\n"),
+      );
+    }
+    expect(malformed, "Google Calendar URIs must include action=TEMPLATE and dates= params").toHaveLength(0);
+  }, 60_000);
+
   it("no link rect extends outside the page trim", async () => {
     const doc      = await PDFDocument.load(standardResult.buffer);
     const failures = assertWithinTrim(extractAllLinks(doc));

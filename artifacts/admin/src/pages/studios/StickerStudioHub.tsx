@@ -648,7 +648,9 @@ function CreatePackModal({ onClose }: { onClose: () => void }) {
   const { data: stickers = [], isLoading } = useQuery<LibrarySticker[]>({
     queryKey: ["platform-stickers-for-pack-picker"],
     queryFn:  () => platformApi.stickers({ status: "live" }) as Promise<LibrarySticker[]>,
-    staleTime: 60_000,
+    // staleTime: 0 — pack-composer picker; deleted stickers must not remain
+    // selectable after an admin removes them in the Stickers tab.
+    staleTime: 0,
   });
 
   const filtered = stickers.filter(
@@ -1340,6 +1342,8 @@ function LibraryCenter({
   const { data: stickers, isLoading, error, refetch } = useQuery<PlatformStickerExt[]>({
     queryKey: ["platform-stickers", params],
     queryFn: () => platformApi.stickers(params) as Promise<PlatformStickerExt[]>,
+    // staleTime: 30_000 — management list view with explicit refetch button;
+    // short cache acceptable, mutations also invalidate this key.
     staleTime: 30_000,
   });
 
@@ -2209,6 +2213,8 @@ function PacksCenter({
   const { data: rawPacks, isLoading, error, refetch } = useQuery<PlatformStickerPack[]>({
     queryKey: ["platform-sticker-packs"],
     queryFn:  () => platformStickersApi.listPacks(),
+    // staleTime: 30_000 — management list view with explicit refetch button;
+    // short cache acceptable, mutations also invalidate this key.
     staleTime: 30_000,
   });
   const [pendingToggles, setPendingToggles] = useState<Set<string>>(new Set());

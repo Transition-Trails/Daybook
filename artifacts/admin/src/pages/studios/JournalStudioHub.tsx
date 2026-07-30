@@ -577,7 +577,9 @@ function ThemePanel({ template, onUpdated }: { template: PlatformPlannerConfig |
   const { data: themes = [] } = useQuery({
     queryKey: ["themes-live"],
     queryFn:  () => catalogApi.themes(),
-    staleTime: 60_000,
+    // staleTime: 0 — compose picker; deleted or unpublished themes must not remain
+    // selectable after a platform admin removes them in another tab.
+    staleTime: 0,
   });
 
   const selTheme = (themes as any[]).find((t: any) => t.id === themeId);
@@ -823,6 +825,8 @@ export default function JournalStudioHub() {
   const { data: allTemplates = [], isLoading, isError } = useQuery({
     queryKey: ["platform-journals"],
     queryFn:  () => platformPlannersApi.list(),
+    // staleTime: 30_000 — management rail; users see the full list and mutations
+    // invalidate this key, so a short cache is acceptable.
     staleTime: 30_000,
     select:    (data) => data.filter(isJournal),
   });

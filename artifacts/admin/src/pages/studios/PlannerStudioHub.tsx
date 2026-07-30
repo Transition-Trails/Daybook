@@ -621,7 +621,8 @@ function EditionQuickPick({ value, onChange }: { value: string; onChange: () => 
   const { data: editions = [], isLoading } = useQuery({
     queryKey: ["editions-list-mini"],
     queryFn:  () => catalogApi.editions(),
-    staleTime: 60_000,
+    // staleTime: 0 — always re-fetch on mount; rail must not show a deleted edition
+    staleTime: 0,
   });
   const live = (editions as any[]).filter((e: any) => e.status !== "deleted").slice(0, 4);
 
@@ -919,14 +920,17 @@ export function BuildCenter({
   const { data: rawThemes = [] } = useQuery({
     queryKey: ["themes-mini"],
     queryFn:  () => catalogApi.themes(),
-    staleTime: 60_000,
+    // staleTime: 0 — always re-fetch on mount; deleted/unpublished themes must not
+    // remain selectable in the Build picker after an admin removes them elsewhere.
+    staleTime: 0,
   });
   const themes = (rawThemes as any[]).filter(
     (t: any) => t.origin !== "owned" && !String(t.name ?? "").includes("— Auto palette"),
   );
-  const { data: packs     = [] } = useQuery({ queryKey: ["packs-mini"],    queryFn: () => catalogApi.packs(),    staleTime: 60_000 });
-  const { data: inserts   = [] } = useQuery({ queryKey: ["inserts-mini"],  queryFn: () => catalogApi.inserts(),  staleTime: 60_000 });
-  const { data: editions  = [] } = useQuery({ queryKey: ["editions-create"], queryFn: () => catalogApi.editions(), staleTime: 60_000 });
+  // staleTime: 0 — picker queries always re-fetch on mount so deletions surface immediately
+  const { data: packs     = [] } = useQuery({ queryKey: ["packs-mini"],    queryFn: () => catalogApi.packs(),    staleTime: 0 });
+  const { data: inserts   = [] } = useQuery({ queryKey: ["inserts-mini"],  queryFn: () => catalogApi.inserts(),  staleTime: 0 });
+  const { data: editions  = [] } = useQuery({ queryKey: ["editions-create"], queryFn: () => catalogApi.editions(), staleTime: 0 });
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const createMut = useMutation({
@@ -1816,6 +1820,8 @@ function EditionsListInStudio({
   const { data: rawEditions = [], isLoading, error, refetch } = useQuery({
     queryKey: ["editions"],
     queryFn:  () => catalogApi.editions(),
+    // staleTime: 30_000 — management list view; users see the full list and a
+    // manual refetch button is present, so a short cache is acceptable here.
     staleTime: 30_000,
   });
 
@@ -2205,7 +2211,9 @@ function InsertsCompose() {
   const { data: rawInserts = [], isLoading } = useQuery({
     queryKey: ["inserts-library"],
     queryFn:  () => catalogApi.inserts(),
-    staleTime: 60_000,
+    // staleTime: 0 — compose picker; deleted inserts must not appear as selectable
+    // library items after a platform admin removes them in another tab.
+    staleTime: 0,
   });
 
   const libraryItems: LibraryItem[] = (rawInserts as any[]).map((ins: any) => ({
@@ -2432,7 +2440,9 @@ function ThemeCompose() {
   const { data: rawThemes = [], isLoading } = useQuery({
     queryKey: ["themes-compose"],
     queryFn:  () => catalogApi.themes(),
-    staleTime: 60_000,
+    // staleTime: 0 — compose picker; deleted themes must not appear as selectable
+    // library items when a platform admin removes one in another tab.
+    staleTime: 0,
   });
 
   const themes = (rawThemes as any[]).filter(

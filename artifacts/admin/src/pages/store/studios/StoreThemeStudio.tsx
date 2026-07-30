@@ -4,13 +4,14 @@
  * Staff can draft; only store_owner can publish.
  */
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Save, Globe, Palette, Lock, Sparkles, Image } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, RefreshCw, Save, Globe, Palette, Lock, Sparkles, Image, CheckCircle2, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
@@ -57,6 +58,10 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   const [bgSavedId, setBgSavedId] = useState<string | null>(null);
   const [bgError, setBgError] = useState<string | null>(null);
 
+  // Theme-link state (post-save)
+  const [bgLinkThemeId, setBgLinkThemeId] = useState<string>("");
+  const [bgLinkedThemeIds, setBgLinkedThemeIds] = useState<Set<string>>(new Set());
+
   const generate = useMutation({
     mutationFn: () => studioGenerateApi.generateTheme(storeId, { prompt: prompt.trim() }),
     onSuccess: (res) => {
@@ -85,6 +90,35 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
     },
     onError: (err: Error) => {
       toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Owned themes list — for the theme-link picker
+  const ownedThemes = useQuery({
+    queryKey: ["store-owned", storeId, "themes"],
+    queryFn: () => storeStudiosApi.list(storeId),
+    select: (data) => data.themes ?? [],
+    staleTime: 60_000,
+  });
+
+  const linkBgToTheme = useMutation({
+    mutationFn: async (themeId: string) => {
+      // Fetch existing backgrounds for the theme so we do an additive link
+      const current = await storeStudiosApi.backgrounds.getForTheme(storeId, themeId);
+      const existingIds = current.map((b) => b.id);
+      const merged = existingIds.includes(bgSavedId!)
+        ? existingIds
+        : [...existingIds, bgSavedId!];
+      return storeStudiosApi.backgrounds.setForTheme(storeId, themeId, merged);
+    },
+    onSuccess: (_data, themeId) => {
+      setBgLinkedThemeIds((prev) => new Set([...prev, themeId]));
+      qc.invalidateQueries({ queryKey: ["store-catalog", storeId] });
+      const themeName = ownedThemes.data?.find((t) => t.id === themeId)?.name ?? "theme";
+      toast({ title: "Background linked!", description: `"${bgName}" is now attached to "${themeName}".` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Link failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -317,6 +351,59 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
                   </Button>
                 )}
               </div>
+
+              {/* ── Theme-link panel (appears after background is saved) ── */}
+              {bgSavedId && (
+                <div className="pt-4 border-t border-border space-y-3">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <Link2 className="w-3.5 h-3.5" />Add to a theme
+                  </p>
+                  {ownedThemes.isLoading ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />Loading your themes…
+                    </div>
+                  ) : (ownedThemes.data?.length ?? 0) === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No owned themes yet — save a theme above first.
+                    </p>
+                  ) : (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Select value={bgLinkThemeId} onValueChange={setBgLinkThemeId}>
+                        <SelectTrigger className="h-8 text-xs w-52">
+                          <SelectValue placeholder="Pick a theme…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ownedThemes.data!.map((t) => (
+                            <SelectItem key={t.id} value={t.id} className="text-xs">
+                              <span className="flex items-center gap-1.5">
+                                {bgLinkedThemeIds.has(t.id) && (
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                                )}
+                                {t.name}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        disabled={!bgLinkThemeId || linkBgToTheme.isPending || bgLinkedThemeIds.has(bgLinkThemeId)}
+                        onClick={() => linkBgToTheme.mutate(bgLinkThemeId)}
+                      >
+                        {linkBgToTheme.isPending ? (
+                          <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Linking…</>
+                        ) : bgLinkThemeId && bgLinkedThemeIds.has(bgLinkThemeId) ? (
+                          <><CheckCircle2 className="w-3 h-3 mr-1.5 text-emerald-500" />Linked</>
+                        ) : (
+                          <>Add to {bgLinkThemeId ? `"${ownedThemes.data!.find((t) => t.id === bgLinkThemeId)?.name ?? "theme"}"` : "theme"}</>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

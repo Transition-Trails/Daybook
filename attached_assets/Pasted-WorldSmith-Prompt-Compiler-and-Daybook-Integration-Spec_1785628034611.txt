@@ -1,0 +1,633 @@
+WorldSmith Prompt Compiler and Daybook Integration Specification
+
+You can share the following directly with Replit.
+
+1. Project objective
+
+Build a WorldSmith Prompt Compiler inside the existing Replit production service.
+
+The compiler must:
+
+Read a governed Production Specification from Notion.
+Resolve all inherited design, canon, and production records.
+Validate the record against CS-000: Production Payload Specification.
+Assemble the exact prompt that will be sent to the image provider.
+Calculate a deterministic prompt hash.
+Create or update the corresponding Visual Asset.
+Store complete generation provenance.
+Submit the generation request through a replaceable provider adapter.
+Store the generated file in Google Drive.
+register or update the asset in Daybook using its stable Asset ID.
+Return the Production Specification to the governed Artwork Review workflow.
+
+The system must preserve the WorldSmith principle:
+
+Inherit before generating. Missing dependencies must block the workflow rather than being guessed.
+
+This aligns with the existing WorldSmith Automation Contract, which assigns orchestration, validation, prompt assembly, task creation, workflow transitions, retries, and provenance preservation to the WorldSmith Engine.
+
+2. System boundaries
+System	Responsibility
+Notion	Governance, specifications, canon relations, approval state, workflow controls, Visual Asset metadata
+Replit WorldSmith Engine	Inheritance resolution, validation, prompt compilation, provider orchestration, retries, logging
+Google Drive	Authoritative storage for generated masters, versions, derivatives, and release files
+Daybook	Stable asset identity, production-ready asset resolution, execution history, downstream lookup
+Image provider	Image generation or transformation
+Artwork Reviews	Human creative QA and approval
+
+Do not create a separate Notion Generation Jobs database for the MVP. Operational run state belongs in the Replit run_repository; durable generation provenance belongs on the Visual Asset. This is consistent with the current automation design, which already specifies a persistent run ID, retries, idempotency keys, structured logs, and a run-status endpoint.
+
+3. Primary user flow
+
+A creator opens a Production Specification in Notion and initiates:
+
+Compile and Generate
+
+The Replit interface should:
+
+Accept or infer the Notion Production Specification page ID.
+Fetch and display the record.
+Run preflight validation.
+Show:
+Production Item
+Component Type
+Payload Version
+Canon Dependency
+proposed Asset ID
+proposed filename
+generation provider and model
+validation result
+Allow the creator to:
+compile only
+compile and generate
+run a dry run
+Display step-by-step progress.
+Return exact, actionable errors.
+Permit safe retries without duplicate files or records.
+4. Required Production Specification inputs
+
+The compiler must read the following from the selected Production Specification:
+
+Core identity
+Production Item
+Spec ID or stable production-record ID
+Component Type
+Component Set
+Hero Family, when applicable
+World
+Volume or collection context
+Current Version
+Creative definition
+Design Intent
+Narrative Purpose
+Required Content
+Review Criteria
+Print Specification
+Writing Space percentage, when applicable
+Orientation
+Front/Back Style, when applicable
+Prompt governance
+Payload Version
+Prompt Payload
+Component Specification
+Style Guide
+Prompt Modules
+Canon Dependency
+Canon Records
+Workflow
+Status
+Compiled Prompt Status
+Next Action
+Existing Visual Asset relation
+Google Drive Link, when present
+5. CS-000 payload contract
+
+The initial supported payload version is:
+
+PP-1.0
+
+The compiler must reject unsupported or blank payload versions.
+
+Required common payload keys
+
+Every PP-1.0 payload must contain:
+
+asset_role:
+composition:
+materials:
+visual_hierarchy:
+text_rule:
+canon_rule:
+print_rule:
+negative_constraints:
+
+The following keys are optional when relevant:
+
+lighting:
+writing_space:
+crop_rule:
+object_rule:
+color_rule:
+derivative_rule:
+approved_text:
+
+Component specifications may require additional keys.
+
+Decorative and coordinating papers
+paper_role:
+pattern_behavior:
+repeat_rule:
+Hero papers
+primary_focal_area:
+secondary_narrative_cluster:
+supporting_objects:
+story_signal:
+Journal cards
+card_role:
+front_layout:
+back_layout:
+front_prompt:
+Ephemera sheets
+featured_artifact:
+document_type:
+supporting_objects:
+scale_mix:
+cutting_rule:
+
+The payload is stored as YAML-like plain text, not nested JSON. Keys use lowercase snake_case; each key appears once; blank optional keys are omitted.
+
+6. Inheritance and compilation order
+
+The compiler must resolve records in this order:
+
+World
+Collection or volume context
+Component Set
+Style Guide
+Component Specification
+Prompt Modules
+Prompt Module dependencies
+Production Specification fields
+Prompt Payload
+Canon Records and restrictions
+Negative constraints
+Print and output requirements
+
+The existing Automation Contract requires governed prompts to be assembled from layered records rather than from one manually copied prompt block.
+
+Prompt assembly sections
+
+The generated prompt should have deterministic sections:
+
+[CREATIVE TASK]
+
+[WORLD AND COLLECTION CONTEXT]
+
+[STYLE SYSTEM]
+
+[COMPONENT REQUIREMENTS]
+
+[ASSET-SPECIFIC INTENT]
+
+[COMPOSITION AND CONTENT]
+
+[MATERIALS AND LIGHTING]
+
+[TEXT POLICY]
+
+[CANON POLICY]
+
+[NEGATIVE CONSTRAINTS]
+
+[PRINT AND OUTPUT REQUIREMENTS]
+
+The order must remain stable so the same inputs produce the same compiled prompt.
+
+7. Canon validation
+
+Canon validation must occur before a prompt is marked ready.
+
+None
+No Canon Record is required.
+The asset must remain generic.
+It must not introduce named people, places, institutions, dates, discoveries, ownership facts, or historical claims.
+Supports Canon
+The asset may express accepted themes, atmosphere, and material culture.
+It must not define new facts.
+Linked Canon Records, when used, must be Accepted.
+Canon Reference
+At least one appropriate Canon Record is required.
+Every linked Canon Record used for generation must have Status = Accepted.
+Visible text, identifiers, evidence marks, names, dates, locations, and symbols must be approved.
+approved_text is required when readable narrative text is present.
+Canon Defining
+Generation remains blocked until the relevant canon decision is explicitly Accepted.
+The compiler must not convert a proposal into production canon.
+
+Proposed, Under Review, Superseded, Rejected, conflicted, malformed, or placeholder Canon Records must block compilation when the dependency requires canon.
+
+8. Validation result
+
+Return a structured validation response.
+
+{
+  "production_spec_id": "notion-page-id",
+  "payload_version": "PP-1.0",
+  "valid": false,
+  "compiled_prompt_status": "Validation Failed",
+  "errors": [
+    {
+      "code": "MISSING_REQUIRED_KEY",
+      "field": "canon_rule",
+      "governing_rule": "CS-000 PP-1.0",
+      "message": "Prompt Payload is missing canon_rule.",
+      "recommended_action": "Add canon_rule to the Prompt Payload."
+    }
+  ],
+  "warnings": []
+}
+Validation categories
+Missing Notion property
+Missing relation
+Unsupported Payload Version
+Missing required payload key
+Duplicate payload key
+Empty placeholder value
+Invalid Component Specification
+Print-specification mismatch
+Canon dependency mismatch
+Canon Record not Accepted
+Unapproved visible text
+Conflicting Prompt Modules
+Unsupported provider or model
+Invalid output dimensions
+
+The Engine must stop at the first unresolved required dependency during inheritance, but it may return all asset-level payload validation errors once inheritance succeeds.
+
+9. Compiled Prompt Status behavior
+
+Update the Production Specification using these values:
+
+Status	Meaning
+Not Compiled	No successful compilation has occurred
+Ready to Compile	Required governed inputs appear complete
+Compiled	Exact prompt was compiled and stored successfully
+Validation Failed	A non-canon validation error blocks compilation
+Requires Canon Review	Canon or visible-text approval blocks compilation
+
+Suggested transitions:
+
+Not Compiled
+    ↓
+Ready to Compile
+    ↓
+Compiled
+
+Failure branches:
+
+Ready to Compile → Validation Failed
+Ready to Compile → Requires Canon Review
+
+A compiled prompt should become stale if any governed source record changes. The initial MVP may detect this through a source fingerprint or by recalculating the prompt hash on demand.
+
+10. Prompt hash
+
+Calculate a deterministic SHA-256 hash.
+
+Recommended hash input:
+
+{
+  "payload_version": "PP-1.0",
+  "compiled_prompt": "exact compiled prompt",
+  "negative_prompt": "exact negative prompt if separated",
+  "generation_provider": "provider",
+  "model_name": "model",
+  "model_version": "version",
+  "generation_settings": {}
+}
+
+Rules:
+
+Normalize line endings to \n.
+Preserve meaningful whitespace inside approved text.
+Serialize settings using stable key ordering.
+Store the lowercase hexadecimal SHA-256 result.
+Do not hash timestamps, request IDs, costs, or generated filenames.
+11. Visual Asset upsert
+
+Search for an existing Visual Asset using the stable logical Asset ID or the Production Specification relation.
+
+Do not create duplicate Visual Assets for the same logical asset and version.
+
+Populate or update:
+
+Existing creative metadata
+Asset Name
+Asset Type
+Intended Use
+World
+Style Guide
+Canon Record
+Volume I Production Spec
+Status
+Version
+Aspect Ratio
+Prompt
+Negative Prompt
+Prompt Variables
+Image
+Reference Images
+Spec Sheet
+Visual Summary
+Continuity Notes
+Immutable generation provenance
+Compiled Prompt
+Prompt Hash
+Generation Provider
+Model Name
+Model Version
+Generation Settings
+Seed
+Provider Request ID
+Generation Cost
+
+The Compiled Prompt must contain the exact prompt sent to the provider, not a shortened summary or an editable authoring version.
+
+12. Stable asset identity
+
+Use a stable logical Asset ID and a versioned filename.
+
+Recommended pattern from the current automation design:
+
+Asset ID:
+WS-{WORLD}-{VOLUME}-{TYPE}{SEQUENCE}-{ROLE}
+
+Example:
+
+WS-WYC-V01-HP001-MASTER
+
+Filename:
+
+{WORLD}_{VOLUME}_{TYPE}{SEQUENCE}_{ROLE}_v{VERSION}.{EXT}
+
+Example:
+
+WYC_V01_HP001_Master_v001.png
+
+Rules:
+
+Asset ID is immutable.
+Version starts at v001.
+Never overwrite an approved or reviewed binary.
+Version increments only when a new binary revision is intentionally requested.
+Asset ID is the logical idempotency key.
+Asset ID plus version is the binary idempotency key.
+
+These rules are already part of the Replit production automation specification.
+
+13. API endpoints
+Validate and compile
+POST /api/v1/prompt-compilations
+Request
+{
+  "notion_production_spec_id": "page-id",
+  "operation": "validate_and_compile",
+  "dry_run": false
+}
+Success
+{
+  "status": "compiled",
+  "run_id": "uuid",
+  "production_spec_id": "page-id",
+  "payload_version": "PP-1.0",
+  "compiled_prompt_status": "Compiled",
+  "prompt_hash": "sha256-hex",
+  "compiled_prompt": "exact prompt text",
+  "visual_asset_id": "notion-visual-asset-id",
+  "warnings": [],
+  "next_action": "Generate image"
+}
+Compile and generate
+POST /api/v1/production-packages
+Request
+{
+  "notion_production_spec_id": "page-id",
+  "operation": "compile_and_generate",
+  "provider": "openai",
+  "model": "provider-model-name",
+  "generation_settings": {
+    "size": "1024x1024",
+    "quality": "high"
+  },
+  "dry_run": false
+}
+Run status
+GET /api/v1/runs/{run_id}
+Optional compile-only preview
+POST /api/v1/prompt-compilations/preview
+
+This should validate and return the proposed compiled prompt without writing a Visual Asset or changing workflow status.
+
+14. Provider adapter contract
+
+Generation providers must be interchangeable.
+
+class ImageProvider:
+    def generate(self, request: GenerationRequest) -> GenerationResult:
+        ...
+GenerationRequest
+{
+  "compiled_prompt": "exact prompt",
+  "negative_prompt": "optional exact negative prompt",
+  "model_name": "model",
+  "model_version": "optional version",
+  "settings": {},
+  "seed": "optional"
+}
+GenerationResult
+{
+  "binary": "image bytes or temporary path",
+  "mime_type": "image/png",
+  "provider": "OpenAI",
+  "model_name": "model",
+  "model_version": "version",
+  "settings": {},
+  "seed": "optional",
+  "provider_request_id": "request-id",
+  "cost_usd": 0.0,
+  "width": 1024,
+  "height": 1024,
+  "metadata": {}
+}
+
+Missing optional provider metadata should remain blank. The adapter must not invent a seed, cost, request ID, or model version.
+
+15. Google Drive behavior
+Resolve the folder using World, volume, component type, and Asset ID.
+Search before creating folders.
+Reuse an existing folder when the stable Asset ID matches.
+Store the generated master before updating downstream systems.
+Record:
+Drive file ID
+parent folder ID
+filename
+MIME type
+checksum, when available
+created timestamp
+Drive URL
+Attach a synchronized preview to Notion.
+Treat Google Drive as the authoritative binary location.
+
+The existing automation specification already defines this storage and synchronization flow.
+
+16. Daybook adapter contract
+
+Create a replaceable Daybook adapter.
+
+class DaybookClient:
+    def upsert_asset(self, asset: DaybookAsset) -> DaybookResult:
+        ...
+Daybook payload
+{
+  "asset_id": "WS-WYC-V01-HP001-MASTER",
+  "filename": "WYC_V01_HP001_Master_v001.png",
+  "version": "v001",
+  "world": "Wychcombe",
+  "volume": "Volume I",
+  "component_type": "Hero Paper",
+  "production_specification_id": "notion-page-id",
+  "visual_asset_id": "notion-page-id",
+  "google_drive_file_id": "drive-file-id",
+  "google_drive_url": "drive-url",
+  "prompt_hash": "sha256-hex",
+  "generation_provider": "OpenAI",
+  "model_name": "model-name",
+  "provider_request_id": "provider-request-id",
+  "readiness_state": "Under Review",
+  "updated_at": "ISO-8601 timestamp"
+}
+
+Rules:
+
+Daybook resolves by stable Asset ID, not filename.
+Upserts must be idempotent.
+A retry must not create a duplicate asset.
+Daybook failure after successful generation must not delete the Drive file or Visual Asset.
+Preserve successful intermediate IDs for recovery.
+Isolate the integration behind an adapter if the final Daybook API is not yet available. The current Replit automation specification already calls for this adapter approach.
+17. Execution stages
+1. Authenticate request
+2. Fetch Production Specification
+3. Resolve inherited governing records
+4. Parse Prompt Payload
+5. Validate PP-1.0 schema
+6. Validate Component Specification requirements
+7. Validate canon
+8. Validate print and output requirements
+9. Assemble Compiled Prompt
+10. Calculate Prompt Hash
+11. Create or update Visual Asset shell
+12. Update Compiled Prompt Status
+13. Generate image, unless compile-only
+14. Validate returned file
+15. Store master in Google Drive
+16. Attach synchronized Notion preview
+17. Update Visual Asset provenance
+18. Link Visual Asset to Production Specification
+19. Upsert asset in Daybook
+20. Update Production Specification status and Next Action
+21. Write structured run log
+22. Return final result
+18. Failure and recovery rules
+
+On failure, return:
+
+{
+  "status": "failed",
+  "run_id": "uuid",
+  "failed_stage": "canon_validation",
+  "error_code": "CANON_NOT_ACCEPTED",
+  "message": "Linked Canon Record WC-PUB-001 is Under Review.",
+  "retry_safe": true,
+  "recommended_action": "Link an Accepted Canon Record or complete canon review.",
+  "created_resources": {
+    "visual_asset_id": null,
+    "drive_file_id": null
+  }
+}
+
+Rules:
+
+Do not silently substitute missing data.
+Do not generate if required validation fails.
+Do not approve artwork automatically.
+Do not accept canon automatically.
+Do not overwrite an approved binary.
+Preserve successful intermediate work.
+Retries resume from the last safe confirmed stage.
+Re-running identical input must not create duplicates.
+19. Audit log requirements
+
+Persist the following by run_id:
+
+initiating user or process
+Production Specification ID
+resolved source-record IDs
+Payload Version
+validation result
+compiled-prompt hash
+Visual Asset ID
+Asset ID and version
+generation provider
+model and model version
+provider request ID
+Drive file and folder IDs
+Daybook response ID
+started and completed timestamps
+duration
+retry count
+failed stage
+error code
+recovery action
+
+Do not log API keys, OAuth tokens, service-account secrets, or unrestricted provider responses containing sensitive information.
+
+20. MVP scope
+
+For the first working release:
+
+Support only PP-1.0.
+Support one Production Specification database.
+Support one pilot Hero Paper.
+Support one image provider.
+Support compile-only and compile-and-generate.
+Store the generated master in Google Drive.
+Create or update one Visual Asset.
+Record the complete provenance fields.
+Upsert one stable asset into Daybook.
+Create or route to an Artwork Review.
+Demonstrate safe retry after at least three simulated failure stages.
+
+Start with a deterministic test image if necessary. The existing Replit plan explicitly recommends proving orchestration and data integrity before replacing the test fixture with live image generation.
+
+21. MVP acceptance criteria
+
+The compiler is complete when one pilot Production Specification can be processed end to end and:
+
+All required records are inherited automatically.
+PP-1.0 validates correctly.
+Missing fields return precise errors.
+Canon restrictions block generation appropriately.
+The exact Compiled Prompt is written to Visual Assets.
+Prompt Hash is deterministic.
+Generation Provider, Model Name, Model Version, Settings, Seed, Request ID, and Cost are stored when supplied.
+The master file is stored in the correct Drive location.
+The image is visible in Notion.
+The Production Specification and Visual Asset are mutually linked.
+Daybook resolves the asset by stable Asset ID.
+Retrying does not create duplicate files, Visual Assets, or Daybook entries.
+The asset proceeds to Artwork Review rather than being automatically approved.
+An approved generation can later be reconstructed from its governed metadata.
+Suggested Replit build instruction
+
+Build this as an extension of the existing Replit Production Asset Automation & Daybook Sync service, not as a separate application. Use a modular architecture with notion_client, payload_parser, inheritance_resolver, validator, prompt_compiler, canon_validator, image_provider, drive_client, visual_asset_service, daybook_client, run_repository, workflow_service, api, and a lightweight control panel. Implement the compile-only path first, then provider generation, Drive storage, Visual Asset provenance, and Daybook synchronization.

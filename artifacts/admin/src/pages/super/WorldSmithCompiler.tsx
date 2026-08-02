@@ -426,25 +426,19 @@ export default function WorldSmithCompiler() {
             result.status === "compiled"
               ? (
                 <>
-                  {/* If preview produced an image (success or partial), show the full preview success screen */}
-                  {(previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed") ? (
-                    <PreviewSuccessScreen
-                      result={previewResult}
-                      onGenerateNew={() => previewMutation.mutate({
-                        specId: resolvedId!,
-                        hash: result.prompt_hash!,
-                        forceNew: true,
-                      })}
-                      isGenerating={previewMutation.isPending}
-                      onReturnToCompiler={() => { setResult(null); setPreviewResult(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
-                    />
-                  ) : (
-                    <InspectorScreen
-                      result={result}
-                      preflight={preflight}
-                      onReset={() => { setResult(null); setPreviewResult(null); setPreviewError(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
-                    />
-                  )}
+                  {/* Inspector always shown after compile — pipeline advances inside it once a board is generated */}
+                  <InspectorScreen
+                    result={result}
+                    preflight={preflight}
+                    previewResult={previewResult}
+                    onReset={() => { setResult(null); setPreviewResult(null); setPreviewError(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
+                    onGenerateNewBoard={() => previewMutation.mutate({
+                      specId: resolvedId!,
+                      hash: result.prompt_hash!,
+                      forceNew: true,
+                    })}
+                    isGeneratingBoard={previewMutation.isPending}
+                  />
 
                   {/* Preview section — shown while generating, after dry-run, or after failure.
                       Not shown once a real preview image has been uploaded. */}
@@ -691,19 +685,32 @@ function PublishingPipeline({
   const errCount = (result.errors ?? []).length;
   const warnCount = (result.warnings ?? []).length;
 
+  // Post-compile stages in pipeline order; used to derive done/current/future dynamically.
+  const POST_COMPILE_STAGES: Array<{ key: PipelineStageKey; label: string }> = [
+    { key: "ready-for-spec-board", label: "Ready for Specification Board" },
+    { key: "specification-review", label: "Specification Review" },
+    { key: "ready-for-artwork",    label: "Ready for Artwork" },
+    { key: "artwork-generation",   label: "Artwork Generation" },
+    { key: "artwork-review",       label: "Artwork Review" },
+    { key: "ready-for-publish",    label: "Ready for Publish" },
+    { key: "published",            label: "Published" },
+  ];
+  const currentPostIdx = POST_COMPILE_STAGES.findIndex(s => s.key === activeStage);
+
   const stages: PipelineStageShape[] = [
-    { key: "resolve",               label: "Resolve",                      status: "done" },
-    { key: "validate",              label: "Validate",                     status: errCount > 0 ? "error" : warnCount > 0 ? "warning" : "done", badge: errCount + warnCount || undefined },
-    { key: "inheritance",           label: "Inheritance",                  status: "done" },
-    { key: "prompt-assembly",       label: "Prompt Assembly",              status: "done" },
-    { key: "hash-generation",       label: "Hash Generation",              status: "done" },
-    { key: "ready-for-spec-board",  label: "Ready for Specification Board",status: "current" },
-    { key: "specification-review",  label: "Specification Review",         status: "future" },
-    { key: "ready-for-artwork",     label: "Ready for Artwork",            status: "future" },
-    { key: "artwork-generation",    label: "Artwork Generation",           status: "future" },
-    { key: "artwork-review",        label: "Artwork Review",               status: "future" },
-    { key: "ready-for-publish",     label: "Ready for Publish",            status: "future" },
-    { key: "published",             label: "Published",                    status: "future" },
+    { key: "resolve",         label: "Resolve",         status: "done" },
+    { key: "validate",        label: "Validate",        status: errCount > 0 ? "error" : warnCount > 0 ? "warning" : "done", badge: errCount + warnCount || undefined },
+    { key: "inheritance",     label: "Inheritance",     status: "done" },
+    { key: "prompt-assembly", label: "Prompt Assembly", status: "done" },
+    { key: "hash-generation", label: "Hash Generation", status: "done" },
+    ...POST_COMPILE_STAGES.map((s, i): PipelineStageShape => ({
+      key: s.key,
+      label: s.label,
+      // When activeStage is a compile-phase stage (not in post-compile list), treat ready-for-spec-board as current.
+      status: currentPostIdx < 0
+        ? (i === 0 ? "current" : "future")
+        : i < currentPostIdx ? "done" : i === currentPostIdx ? "current" : "future",
+    })),
   ];
 
   const baseCls = "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-[11px] font-medium transition-colors cursor-pointer select-none";
@@ -747,14 +754,20 @@ function PublishingPipeline({
 // ── Publishing Engine Inspector ────────────────────────────────────────────────
 
 function InspectorScreen({
-  result, preflight, onReset,
+  result, preflight, previewResult, onReset, onGenerateNewBoard, isGeneratingBoard,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
+  previewResult?: SpecPreviewResult | null;
   onReset: () => void;
+  onGenerateNewBoard?: () => void;
+  isGeneratingBoard?: boolean;
 }) {
+  const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
   const [workspaceTab, setWorkspaceTab]     = useState<"overview" | "inspector" | "history">("overview");
-  const [inspectorStage, setInspectorStage] = useState<PipelineStageKey>("ready-for-spec-board");
+  const [inspectorStage, setInspectorStage] = useState<PipelineStageKey>(
+    boardSuccess ? "specification-review" : "ready-for-spec-board"
+  );
   const prov = result.provenance;
 
   /** Navigate to a specific pipeline stage — switches to Inspector tab */
@@ -762,6 +775,14 @@ function InspectorScreen({
     setInspectorStage(stage);
     setWorkspaceTab("inspector");
   }
+
+  // Advance pipeline when the spec board is successfully generated
+  useEffect(() => {
+    if (boardSuccess) {
+      setInspectorStage("specification-review");
+      setWorkspaceTab("inspector");
+    }
+  }, [boardSuccess]);
 
   return (
     <div className="space-y-3">
@@ -772,10 +793,20 @@ function InspectorScreen({
         prov={prov ?? null}
         onReset={onReset}
         setActiveStage={goToStage}
+        previewResult={previewResult}
+        inspectorStage={inspectorStage}
       />
 
       {/* Zone 2 — Primary Action */}
-      <ActionCenter result={result} prov={prov ?? null} setActiveStage={goToStage} />
+      <ActionCenter
+        result={result}
+        prov={prov ?? null}
+        setActiveStage={goToStage}
+        previewResult={previewResult}
+        onReset={onReset}
+        onGenerateNewBoard={onGenerateNewBoard}
+        isGeneratingBoard={isGeneratingBoard}
+      />
 
       {/* Zone 3 — Publishing Workspace */}
       <WorkspacePanel
@@ -787,6 +818,9 @@ function InspectorScreen({
         inspectorStage={inspectorStage}
         setInspectorStage={setInspectorStage}
         goToStage={goToStage}
+        previewResult={previewResult}
+        onGenerateNewBoard={onGenerateNewBoard}
+        isGeneratingBoard={isGeneratingBoard}
       />
 
       {result.visual_asset_id && (
@@ -806,6 +840,7 @@ function WorkspacePanel({
   workspaceTab, setWorkspaceTab,
   inspectorStage, setInspectorStage,
   goToStage,
+  previewResult, onGenerateNewBoard, isGeneratingBoard,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
@@ -815,6 +850,9 @@ function WorkspacePanel({
   inspectorStage: PipelineStageKey;
   setInspectorStage: (s: PipelineStageKey) => void;
   goToStage: (s: PipelineStageKey) => void;
+  previewResult?: SpecPreviewResult | null;
+  onGenerateNewBoard?: () => void;
+  isGeneratingBoard?: boolean;
 }) {
   const TABS = [
     { id: "overview",  label: "Overview"  },
@@ -842,7 +880,8 @@ function WorkspacePanel({
       )}
       {workspaceTab === "inspector" && (
         <InspectorWorkspaceTab result={result} preflight={preflight} prov={prov}
-          stage={inspectorStage} setStage={setInspectorStage} />
+          stage={inspectorStage} setStage={setInspectorStage}
+          previewResult={previewResult} onGenerateNewBoard={onGenerateNewBoard} isGeneratingBoard={isGeneratingBoard} />
       )}
       {workspaceTab === "history" && (
         <HistoryTab result={result} />
@@ -1227,16 +1266,21 @@ function NextAfterThisCard({ result }: { result: CompileResponse }) {
 
 function InspectorWorkspaceTab({
   result, preflight, prov, stage, setStage,
+  previewResult, onGenerateNewBoard, isGeneratingBoard,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
   prov: ProvenanceRecord | null;
   stage: PipelineStageKey;
   setStage: (s: PipelineStageKey) => void;
+  previewResult?: SpecPreviewResult | null;
+  onGenerateNewBoard?: () => void;
+  isGeneratingBoard?: boolean;
 }) {
   const isLegacy = prov?.payload_format === "legacy";
-  const FUTURE_STAGES: PipelineStageKey[] = [
-    "specification-review", "ready-for-artwork", "artwork-generation",
+  const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
+  const PLACEHOLDER_STAGES: PipelineStageKey[] = [
+    "ready-for-artwork", "artwork-generation",
     "artwork-review", "ready-for-publish", "published",
   ];
 
@@ -1250,7 +1294,12 @@ function InspectorWorkspaceTab({
       {stage === "prompt-assembly"      && <PromptSectionsTab sections={result.compiled_sections ?? []} fullPrompt={result.compiled_prompt ?? ""} promptHash={result.prompt_hash} isLegacy={isLegacy} />}
       {stage === "hash-generation"      && <TechnicalTab result={result} />}
       {stage === "ready-for-spec-board" && <ReadinessPanel result={result} preflight={preflight} prov={prov} />}
-      {FUTURE_STAGES.includes(stage)    && <FuturePlaceholderPanel stage={stage} />}
+      {stage === "specification-review" && (
+        boardSuccess && previewResult
+          ? <SpecificationReviewPanel previewResult={previewResult} prov={prov} onGenerateNew={onGenerateNewBoard} isGenerating={isGeneratingBoard} />
+          : <FuturePlaceholderPanel stage="specification-review" />
+      )}
+      {PLACEHOLDER_STAGES.includes(stage) && <FuturePlaceholderPanel stage={stage} />}
     </div>
   );
 }
@@ -1370,16 +1419,178 @@ function componentAbbr(componentType: string | null | undefined): string {
     .join("");
 }
 
-// ── Sticky Publishing Header ──────────────────────────────────────────────────
-
-function StickyPublishingHeader({
-  result, preflight, prov, onReset, setActiveStage,
+function StatusOverviewCard({
+  result, preflight, prov, onReset, setActiveStage, activeStage, previewResult,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
   prov: ProvenanceRecord | null;
   onReset: () => void;
   setActiveStage: (s: PipelineStageKey) => void;
+  activeStage: PipelineStageKey;
+  previewResult?: SpecPreviewResult | null;
+}) {
+  const specTitle   = prov?.production_spec_title ?? preflight?.production_specification ?? "Production Specification";
+  const compType    = prov?.component_type ?? preflight?.component_type;
+  const abbr        = componentAbbr(compType);
+  const specUrl     = notionUrl(prov?.production_spec_notion_id);
+  const readiness   = calcReadiness(result, prov, preflight);
+  const errCount    = (result.errors ?? []).length;
+  const recCount    = (result.warnings ?? []).filter(w => RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const warnCount   = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const isLegacy    = prov?.payload_format === "legacy";
+  const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
+
+  const nextAction  = errCount > 0
+    ? "Resolve Validation Errors"
+    : boardSuccess
+    ? "Open Notion Record"
+    : "Generate Specification Board";
+
+  const validationLine =
+    errCount > 0
+      ? `${errCount} Error${errCount !== 1 ? "s" : ""}${warnCount > 0 ? ` • ${warnCount} Warning${warnCount !== 1 ? "s" : ""}` : ""}${recCount > 0 ? ` • ${recCount} Recommendation${recCount !== 1 ? "s" : ""}` : ""}`
+      : warnCount > 0
+      ? `0 Errors • ${warnCount} Warning${warnCount !== 1 ? "s" : ""}${recCount > 0 ? ` • ${recCount} Recommendation${recCount !== 1 ? "s" : ""}` : ""}`
+      : recCount > 0
+      ? `0 Errors • ${recCount} Recommendation${recCount !== 1 ? "s" : ""}`
+      : "0 Errors • Passed";
+
+  // progress bar colour
+  const barColor = errCount > 0 ? "bg-red-500" : readiness >= 90 ? "bg-emerald-500" : readiness >= 70 ? "bg-amber-400" : "bg-orange-400";
+  const readinessLabel = errCount > 0 ? "text-red-600" : readiness >= 90 ? "text-emerald-700" : "text-amber-600";
+
+  return (
+    <Card className="border-[#1B2A4A]/20 bg-[#1B2A4A]/[0.02] overflow-hidden">
+      {/* Top strip — spec identity */}
+      <div className="px-5 pt-4 pb-3 border-b border-[#1B2A4A]/10">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              {abbr && (
+                <span className="text-[11px] font-bold text-[#1B2A4A] bg-[#1B2A4A]/10 px-2 py-0.5 rounded font-mono tracking-wide">{abbr}</span>
+              )}
+              <h2 className="text-base font-semibold text-[#1B2A4A] leading-tight">{specTitle}</h2>
+            </div>
+            {compType && <p className="text-xs text-muted-foreground mt-0.5">{compType}{isLegacy ? " · PP-1.0 legacy" : " · PP-2.0"}</p>}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {specUrl && (
+              <a href={specUrl} target="_blank" rel="noopener noreferrer">
+                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Button>
+              </a>
+            )}
+            <Button size="sm" variant="ghost" onClick={onReset} className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1">
+              <RefreshCw className="w-3 h-3" />New
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Three stat columns */}
+      <div className="grid grid-cols-3 divide-x divide-[#1B2A4A]/10">
+        {/* Publishing Stage */}
+        <div className="px-5 py-4">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">Publishing Stage</p>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-[#1B2A4A] animate-pulse shrink-0" />
+            <p className="text-sm font-semibold text-[#1B2A4A]">
+              {activeStage === "specification-review"
+                ? "Specification Review"
+                : activeStage === "ready-for-artwork" || activeStage === "artwork-generation" || activeStage === "artwork-review"
+                ? "Artwork Phase"
+                : activeStage === "ready-for-publish" || activeStage === "published"
+                ? "Ready for Publish"
+                : "Ready for Specification Board"}
+            </p>
+          </div>
+        </div>
+
+        {/* Production Readiness */}
+        <div className="px-5 py-4">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">Production Readiness</p>
+          <div className="flex items-end gap-2">
+            <p className={`text-2xl font-bold leading-none ${readinessLabel}`}>{readiness}%</p>
+          </div>
+          <div className="mt-2 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+            <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${readiness}%` }} />
+          </div>
+        </div>
+
+        {/* Validation */}
+        <div className="px-5 py-4">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">Validation</p>
+          <button
+            type="button"
+            onClick={() => setActiveStage("validate")}
+            className="text-left group"
+          >
+            {errCount > 0 && (
+              <p className="text-sm font-semibold text-red-600 group-hover:underline">
+                {errCount} Error{errCount !== 1 ? "s" : ""}
+              </p>
+            )}
+            {warnCount > 0 && (
+              <p className="text-sm font-semibold text-amber-600 group-hover:underline">
+                {warnCount} Warning{warnCount !== 1 ? "s" : ""}
+              </p>
+            )}
+            {errCount === 0 && warnCount === 0 && (
+              <p className="text-sm font-semibold text-emerald-700">0 Errors</p>
+            )}
+            {recCount > 0 && (
+              <p className="text-xs text-blue-600 mt-0.5 group-hover:underline">
+                {recCount} Recommendation{recCount !== 1 ? "s" : ""}
+              </p>
+            )}
+            {errCount === 0 && warnCount === 0 && recCount === 0 && (
+              <p className="text-xs text-emerald-600">Passed</p>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Next Action footer */}
+      <div className="px-5 py-3 border-t border-[#1B2A4A]/10 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest shrink-0">Next Action</p>
+          <p className="text-sm font-semibold text-[#1B2A4A] truncate">{nextAction}</p>
+        </div>
+        {errCount > 0 ? (
+          <Button size="sm" className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white shrink-0 gap-1.5"
+            onClick={() => setActiveStage("validate")}>
+            <XCircle className="w-3.5 h-3.5" />Review Errors
+          </Button>
+        ) : boardSuccess && previewResult?.notion_page_url ? (
+          <a href={previewResult.notion_page_url} target="_blank" rel="noopener noreferrer">
+            <Button size="sm" className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white shrink-0 gap-1.5">
+              <ExternalLink className="w-3.5 h-3.5" />Open Notion Record
+            </Button>
+          </a>
+        ) : (
+          <Button size="sm" className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white shrink-0 gap-1.5"
+            onClick={() => document.getElementById("spec-preview-card")?.scrollIntoView({ behavior: "smooth" })}>
+            <ImagePlus className="w-3.5 h-3.5" />Generate
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
+// ── Sticky Publishing Header ──────────────────────────────────────────────────
+
+function StickyPublishingHeader({
+  result, preflight, prov, onReset, setActiveStage, previewResult, inspectorStage,
+}: {
+  result: CompileResponse;
+  preflight: PreflightResponse | null;
+  prov: ProvenanceRecord | null;
+  onReset: () => void;
+  setActiveStage: (s: PipelineStageKey) => void;
+  previewResult?: SpecPreviewResult | null;
+  inspectorStage?: PipelineStageKey;
 }) {
   const [stuck, setStuck] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -1407,12 +1618,18 @@ function StickyPublishingHeader({
 
   const barColor       = errCount > 0 ? "bg-red-500" : readiness >= 90 ? "bg-emerald-500" : readiness >= 70 ? "bg-amber-400" : "bg-orange-400";
   const readinessColor = errCount > 0 ? "text-red-600" : readiness >= 90 ? "text-emerald-700" : "text-amber-600";
-  const stageLabel     = errCount > 0 ? "Errors — Review Required" : "Ready for Specification Board";
+  const boardSuccess   = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
+  const stageLabel     = errCount > 0
+    ? "Errors — Review Required"
+    : boardSuccess
+    ? "Specification Review"
+    : "Ready for Specification Board";
 
   const breadcrumb = [world, collection, volume, compType].filter(Boolean) as string[];
 
   function handlePrimaryClick() {
     if (errCount > 0) setActiveStage("validate");
+    else if (boardSuccess && previewResult?.notion_page_url) window.open(previewResult.notion_page_url, "_blank");
     else document.getElementById("spec-preview-card")?.scrollIntoView({ behavior: "smooth" });
   }
 
@@ -1442,7 +1659,7 @@ function StickyPublishingHeader({
               <Button size="sm"
                 className={`h-7 gap-1 text-xs shrink-0 ${errCount > 0 ? "bg-red-600 hover:bg-red-700 text-white" : "bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white"}`}
                 onClick={handlePrimaryClick}>
-                {errCount > 0 ? <><XCircle className="w-3 h-3" />Review</> : <><ImagePlus className="w-3 h-3" />Generate</>}
+                {errCount > 0 ? <><XCircle className="w-3 h-3" />Review</> : boardSuccess ? <><ExternalLink className="w-3 h-3" />Open Notion</> : <><ImagePlus className="w-3 h-3" />Generate</>}
               </Button>
             </div>
           </div>
@@ -1508,6 +1725,8 @@ function StickyPublishingHeader({
                 onClick={handlePrimaryClick}>
                 {errCount > 0
                   ? <><XCircle className="w-3 h-3" />Review Errors</>
+                  : boardSuccess
+                  ? <><ExternalLink className="w-3 h-3" />Open Notion</>
                   : <><ImagePlus className="w-3 h-3" />Generate</>
                 }
               </Button>
@@ -1522,48 +1741,86 @@ function StickyPublishingHeader({
 // ── Action Center ─────────────────────────────────────────────────────────────
 
 function ActionCenter({
-  result, prov, setActiveStage,
+  result, prov, setActiveStage, previewResult, onReset, onGenerateNewBoard, isGeneratingBoard,
 }: {
   result: CompileResponse;
   prov: ProvenanceRecord | null;
   setActiveStage: (s: PipelineStageKey) => void;
+  previewResult?: SpecPreviewResult | null;
+  onReset?: () => void;
+  onGenerateNewBoard?: () => void;
+  isGeneratingBoard?: boolean;
 }) {
-  const errCount  = (result.errors ?? []).length;
-  const warnCount = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const errCount    = (result.errors ?? []).length;
+  const warnCount   = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
 
-  type SecAction = { label: string; href?: string; onClick?: () => void; icon: React.ReactNode };
+  type SecAction = { label: string; href?: string; onClick?: () => void; icon: React.ReactNode; disabled?: boolean };
 
-  const primaryLabel  = errCount > 0 ? "Resolve Validation Errors"    : "Generate Specification Board";
-  const primaryIcon   = errCount > 0 ? <XCircle className="w-4 h-4" /> : <ImagePlus className="w-4 h-4" />;
-  const primaryDanger = errCount > 0;
-  function handlePrimary() {
-    if (errCount > 0) setActiveStage("validate");
-    else document.getElementById("spec-preview-card")?.scrollIntoView({ behavior: "smooth" });
+  // ── Primary action ──────────────────────────────────────────────────────────
+  let primaryLabel: string;
+  let primaryIcon: React.ReactNode;
+  let primaryDanger = false;
+  let primaryHref: string | undefined;
+  let handlePrimary: (() => void) | undefined;
+
+  if (errCount > 0) {
+    primaryLabel  = "Resolve Validation Errors";
+    primaryIcon   = <XCircle className="w-4 h-4" />;
+    primaryDanger = true;
+    handlePrimary = () => setActiveStage("validate");
+  } else if (boardSuccess && previewResult?.notion_page_url) {
+    primaryLabel = "Open Notion Record";
+    primaryIcon  = <ExternalLink className="w-4 h-4" />;
+    primaryHref  = previewResult.notion_page_url;
+  } else {
+    primaryLabel  = "Generate Specification Board";
+    primaryIcon   = <ImagePlus className="w-4 h-4" />;
+    handlePrimary = () => document.getElementById("spec-preview-card")?.scrollIntoView({ behavior: "smooth" });
   }
 
-  const secondary: (SecAction | null)[] = errCount > 0 ? [
-    prov?.prompt_payload_notion_id  ? { label: "Open Prompt Payload",          icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.prompt_payload_notion_id) }  : null,
-    prov?.component_spec_notion_id  ? { label: "Component Specification",      icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.component_spec_notion_id) }  : null,
-    prov?.production_spec_notion_id ? { label: "Production Specification",     icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.production_spec_notion_id) } : null,
-  ] : [
-    prov?.production_spec_notion_id ? { label: "Production Specification",     icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.production_spec_notion_id) } : null,
-    prov?.component_spec_notion_id  ? { label: "Component Specification",      icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.component_spec_notion_id) }  : null,
-    warnCount > 0                   ? { label: "Review Validation",            icon: <AlertTriangle className="w-3 h-3" />, onClick: () => setActiveStage("validate") }       : null,
-    { label: "Inspect Records",    icon: <GitBranch className="w-3 h-3" />, onClick: () => setActiveStage("resolve") },
-    { label: "Prompt Assembly",    icon: <Layers    className="w-3 h-3" />, onClick: () => setActiveStage("prompt-assembly") },
-    { label: "Technical Details",  icon: <Hash      className="w-3 h-3" />, onClick: () => setActiveStage("hash-generation") },
-  ];
+  // ── Secondary actions ───────────────────────────────────────────────────────
+  let secondary: (SecAction | null)[];
+
+  if (errCount > 0) {
+    secondary = [
+      prov?.prompt_payload_notion_id  ? { label: "Open Prompt Payload",      icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.prompt_payload_notion_id) }  : null,
+      prov?.component_spec_notion_id  ? { label: "Component Specification",  icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.component_spec_notion_id) }  : null,
+      prov?.production_spec_notion_id ? { label: "Production Specification", icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.production_spec_notion_id) } : null,
+    ];
+  } else if (boardSuccess) {
+    secondary = [
+      { label: "Generate New Board", icon: <ImagePlus className="w-3 h-3" />, onClick: onGenerateNewBoard, disabled: isGeneratingBoard },
+      prov?.production_spec_notion_id ? { label: "Production Specification", icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.production_spec_notion_id) } : null,
+      warnCount > 0 ? { label: "Review Validation", icon: <AlertTriangle className="w-3 h-3" />, onClick: () => setActiveStage("validate") } : null,
+      { label: "Inspect Records",  icon: <GitBranch className="w-3 h-3" />, onClick: () => setActiveStage("resolve") },
+      { label: "Return to Engine", icon: <RotateCcw className="w-3 h-3" />, onClick: onReset },
+    ];
+  } else {
+    secondary = [
+      prov?.production_spec_notion_id ? { label: "Production Specification", icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.production_spec_notion_id) } : null,
+      prov?.component_spec_notion_id  ? { label: "Component Specification",  icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.component_spec_notion_id) }  : null,
+      warnCount > 0                   ? { label: "Review Validation",        icon: <AlertTriangle className="w-3 h-3" />, onClick: () => setActiveStage("validate") }       : null,
+      { label: "Inspect Records",   icon: <GitBranch className="w-3 h-3" />, onClick: () => setActiveStage("resolve") },
+      { label: "Prompt Assembly",   icon: <Layers    className="w-3 h-3" />, onClick: () => setActiveStage("prompt-assembly") },
+      { label: "Technical Details", icon: <Hash      className="w-3 h-3" />, onClick: () => setActiveStage("hash-generation") },
+    ];
+  }
   const secondaryFiltered = secondary.filter(Boolean) as SecAction[];
+
+  const primaryCls = `w-full h-11 gap-2 text-sm font-semibold transition-colors ${primaryDanger ? "bg-red-600 hover:bg-red-700 text-white" : "bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white"}`;
 
   return (
     <div className="space-y-2">
-      {/* Primary — one large, prominent button */}
-      <Button
-        className={`w-full h-11 gap-2 text-sm font-semibold transition-colors ${primaryDanger ? "bg-red-600 hover:bg-red-700 text-white" : "bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white"}`}
-        onClick={handlePrimary}
-      >
-        {primaryIcon}{primaryLabel}
-      </Button>
+      {/* Primary — one large, prominent button or link */}
+      {primaryHref
+        ? <a href={primaryHref} target="_blank" rel="noopener noreferrer" className="block">
+            <Button className={primaryCls}>{primaryIcon}{primaryLabel}</Button>
+          </a>
+        : <Button className={primaryCls} onClick={handlePrimary}>
+            {primaryIcon}{primaryLabel}
+          </Button>
+      }
 
       {/* Secondary — smaller, supporting actions */}
       {secondaryFiltered.length > 0 && (
@@ -1573,7 +1830,7 @@ function ActionCenter({
               ? <a key={i} href={a.href} target="_blank" rel="noopener noreferrer">
                   <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs font-medium">{a.icon}{a.label}</Button>
                 </a>
-              : <Button key={i} size="sm" variant="outline" className="h-8 gap-1.5 text-xs font-medium" onClick={a.onClick}>
+              : <Button key={i} size="sm" variant="outline" className="h-8 gap-1.5 text-xs font-medium" onClick={a.onClick} disabled={a.disabled}>
                   {a.icon}{a.label}
                 </Button>
           )}
@@ -2107,8 +2364,122 @@ function ResolvePanel({
   );
 }
 
-// ── Future Stage Placeholder ───────────────────────────────────────────────────
+function SpecificationReviewPanel({
+  previewResult, prov, onGenerateNew, isGenerating,
+}: {
+  previewResult: SpecPreviewResult;
+  prov: ProvenanceRecord | null;
+  onGenerateNew?: () => void;
+  isGenerating?: boolean;
+}) {
+  const { toast } = useToast();
+  const uploadPartial = previewResult.status === "upload_success_status_failed";
 
+  return (
+    <div className="space-y-4">
+      {/* Spec board success banner */}
+      <Card className="border-emerald-200 bg-emerald-50/60 overflow-hidden">
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-emerald-800">Specification Board Generated</p>
+              <p className="text-xs text-emerald-700 mt-0.5">
+                {previewResult.preview_filename ?? "The specification board image has been uploaded to Notion."}
+                {uploadPartial && " Status update was skipped — the board image was uploaded successfully."}
+              </p>
+              {previewResult.provider && (
+                <p className="text-[11px] text-emerald-600 mt-1">
+                  Provider: {previewResult.provider}{previewResult.model ? ` · ${previewResult.model}` : ""}
+                </p>
+              )}
+            </div>
+            {uploadPartial && (
+              <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full shrink-0">Partial</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Key identifiers */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <FileText className="w-4 h-4 text-[#1B2A4A]" />
+            Specification Record
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <div>
+              <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Production Item</p>
+              <p className="font-medium truncate" title={previewResult.production_item}>{previewResult.production_item || "—"}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Prompt Hash</p>
+              <p className="font-mono text-xs truncate" title={previewResult.prompt_hash}>{previewResult.prompt_hash?.slice(0, 20)}…</p>
+            </div>
+            {previewResult.previous_status && (
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Previous Status</p>
+                <p className="font-medium">{previewResult.previous_status}</p>
+              </div>
+            )}
+            {previewResult.new_status && (
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">New Status</p>
+                <p className="font-medium text-emerald-700">{previewResult.new_status}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Copy hash */}
+          <div className="flex items-start gap-2 p-3 rounded-md border border-border bg-muted/20">
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Notion Page ID</p>
+              <code className="text-xs font-mono break-all">{previewResult.notion_page_id}</code>
+            </div>
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0"
+              onClick={() => { navigator.clipboard.writeText(previewResult.notion_page_id); toast({ title: "Notion page ID copied" }); }}>
+              <Copy className="w-3 h-3" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Reviewer instruction */}
+      <div className="flex items-start gap-3 p-4 rounded-lg border border-[#1B2A4A]/15 bg-[#1B2A4A]/[0.03]">
+        <Cpu className="w-4 h-4 text-[#1B2A4A] shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-[#1B2A4A]">Awaiting Human Review</p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Open the Notion record to review the generated Specification Board. Once approved, the asset will advance to artwork generation.
+          </p>
+        </div>
+        {previewResult.notion_page_url && (
+          <a href={previewResult.notion_page_url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+            <Button size="sm" variant="outline" className="h-7 gap-1.5">
+              <ExternalLink className="w-3 h-3" />Open in Notion
+            </Button>
+          </a>
+        )}
+      </div>
+
+      {/* Generate new board */}
+      {onGenerateNew && (
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" onClick={onGenerateNew} disabled={isGenerating} className="gap-1.5">
+            {isGenerating
+              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generating…</>
+              : <><RefreshCw className="w-3.5 h-3.5" />Regenerate Board</>}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 function FuturePlaceholderPanel({ stage }: { stage: PipelineStageKey }) {
   const labels: Partial<Record<PipelineStageKey, { title: string; description: string }>> = {
     "specification-review": { title: "Specification Review",  description: "A human reviewer opens the generated Specification Board in Notion and approves the compiled prompt before artwork generation begins." },

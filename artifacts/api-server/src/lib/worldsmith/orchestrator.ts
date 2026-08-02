@@ -101,8 +101,14 @@ export async function runCompilation(
       return failResponse(specId, "inheritance_resolution", "INHERITANCE_ERROR", msg, [], true, null, null, runId);
     }
 
+    // Extend resolvedSourceIds with human-readable collection name so run history
+    // can show it even after the Notion record is renamed.
+    const extendedSourceIds: Record<string, string | string[]> = {
+      ...chain.resolvedSourceIds,
+      ...(chain.productionSpec.collection ? { collection_name: chain.productionSpec.collection } : {}),
+    };
     await updateRun(runId, {
-      resolvedSourceIds: chain.resolvedSourceIds,
+      resolvedSourceIds: extendedSourceIds,
       payloadVersion: chain.productionSpec.payloadVersion,
     });
 

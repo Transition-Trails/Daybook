@@ -149,6 +149,8 @@ interface RunRecord {
   completed_at?: string;
   retry_count: number;
   notion_retries?: NotionRetryEvent[];
+  /** Resolved Notion IDs keyed by role. Also carries `collection_name` (human-readable, captured at compile time). */
+  resolved_source_ids?: Record<string, string | string[]>;
 }
 
 interface SpecPreviewResult {
@@ -974,11 +976,19 @@ function ProductionSummaryCard({
     );
   }
 
-  function Row({ label, value, color }: { label: string; value: string; color?: string }) {
+  function Row({ label, value, color, notionId }: { label: string; value: string; color?: string; notionId?: string }) {
+    const url = notionUrl(notionId);
     return (
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted-foreground shrink-0">{label}</span>
-        <span className={`text-xs font-medium text-right truncate max-w-[60%] ${color ?? ""}`}>{value}</span>
+        {url ? (
+          <a href={url} target="_blank" rel="noopener noreferrer"
+            className={`text-xs font-medium text-right truncate max-w-[60%] flex items-center gap-1 hover:underline ${color ?? ""}`}>
+            {value}<ExternalLink className="w-3 h-3 shrink-0 opacity-60" />
+          </a>
+        ) : (
+          <span className={`text-xs font-medium text-right truncate max-w-[60%] ${color ?? ""}`}>{value}</span>
+        )}
       </div>
     );
   }
@@ -995,7 +1005,7 @@ function ProductionSummaryCard({
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Identity</p>
           <div className="space-y-1.5">
             <Row label="World"          value={prov?.world ?? preflight?.world ?? "—"} />
-            <Row label="Collection"     value={prov?.collection ?? "—"} />
+            <Row label="Collection"     value={prov?.collection ?? "—"} notionId={prov?.collection_notion_id} />
             <Row label="Volume"         value={prov?.volume ?? preflight?.volume ?? "—"} />
             <Row label="Component"      value={prov?.component_type ?? result.component_type ?? preflight?.component_type ?? "—"} />
             <Row label="Component Set"  value={prov?.component_set ?? "—"} />
@@ -1923,17 +1933,30 @@ function ReadinessPanel({
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Identity</p>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3">
               {([
-                { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification },
-                { label: "World",                    value: prov?.world ?? preflight?.world },
-                { label: "Collection",               value: prov?.collection ?? "—" },
-                { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—" },
-                { label: "Component Set",            value: prov?.component_set ?? "—" },
-              ] as Array<{label:string;value:string|undefined|null}>).map(({ label, value }) => (
-                <div key={label}>
-                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
-                  <p className="text-sm font-medium truncate" title={value ?? "—"}>{value || "—"}</p>
-                </div>
-              ))}
+                { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification, notionId: undefined as string | undefined },
+                { label: "World",                    value: prov?.world ?? preflight?.world,        notionId: undefined as string | undefined },
+                { label: "Collection",               value: prov?.collection ?? "—",                notionId: prov?.collection_notion_id },
+                { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—", notionId: undefined as string | undefined },
+                { label: "Component Set",            value: prov?.component_set ?? "—",             notionId: undefined as string | undefined },
+              ]).map(({ label, value, notionId }) => {
+                const url = notionUrl(notionId);
+                return (
+                  <div key={label}>
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">
+                      {label}
+                      {label === "Collection" && <span className="ml-1 text-[10px] text-muted-foreground/60 normal-case tracking-normal">(at compile time)</span>}
+                    </p>
+                    {url ? (
+                      <a href={url} target="_blank" rel="noopener noreferrer"
+                        className="text-sm font-medium truncate flex items-center gap-1 hover:underline" title={value ?? "—"}>
+                        {value || "—"}<ExternalLink className="w-3 h-3 shrink-0 opacity-60" />
+                      </a>
+                    ) : (
+                      <p className="text-sm font-medium truncate" title={value ?? "—"}>{value || "—"}</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -2331,7 +2354,7 @@ function ResolvePanel({
   const records: Array<{ label: string; value: string | null | undefined; resolved: boolean; notionId?: string; detail?: string }> = [
     { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification, resolved: true,               notionId: prov?.production_spec_notion_id },
     { label: "World",                    value: prov?.world ?? preflight?.world,                                    resolved: !!(prov?.world ?? preflight?.world) },
-    { label: "Collection",               value: prov?.collection ?? "—",                                            resolved: !!prov?.collection,  notionId: prov?.collection_notion_id },
+    { label: "Collection",               value: prov?.collection ?? "—",                                            resolved: !!prov?.collection,  notionId: prov?.collection_notion_id, detail: "Name captured at compile time — open the Notion link to verify it hasn't been renamed." },
     { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—",                           resolved: !!(prov?.volume ?? preflight?.volume) },
     { label: "Component Set",            value: prov?.component_set ?? "—",                                         resolved: !!prov?.component_set },
     { label: "Component Specification",  value: prov?.component_specification ?? preflight?.component_specification, resolved: !!(prov?.component_specification ?? preflight?.component_specification), notionId: prov?.component_spec_notion_id },
@@ -3666,6 +3689,34 @@ function RunRow({ run }: { run: RunRecord }) {
                 <div><p className="text-muted-foreground mb-0.5">Prompt hash</p><code className="font-mono">{detail.prompt_hash ? `${detail.prompt_hash.slice(0, 16)}…` : "—"}</code></div>
                 <div><p className="text-muted-foreground mb-0.5">Compiled status</p><span>{detail.compiled_prompt_status ?? "—"}</span></div>
               </div>
+
+              {/* ── Collection provenance ─────────────────────────────────── */}
+              {(() => {
+                const src = detail.resolved_source_ids ?? {};
+                const collectionName = typeof src.collection_name === "string" ? src.collection_name : null;
+                const collectionNotionId = typeof src.collection === "string" ? src.collection : null;
+                const url = notionUrl(collectionNotionId ?? undefined);
+                if (!collectionName && !collectionNotionId) return null;
+                return (
+                  <div className="rounded-md border border-border bg-background p-3 space-y-1.5">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                      <Info className="w-3.5 h-3.5" />Collection (captured at compile time)
+                    </p>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium">{collectionName ?? "—"}</span>
+                      {url && (
+                        <a href={url} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground shrink-0">
+                          <ExternalLink className="w-3.5 h-3.5" />Open in Notion
+                        </a>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      This name was recorded when the run compiled. If the Collection was renamed in Notion since then, open the Notion link to verify the current name.
+                    </p>
+                  </div>
+                );
+              })()}
 
               {detail.compiled_prompt && (
                 <div className="space-y-1.5">

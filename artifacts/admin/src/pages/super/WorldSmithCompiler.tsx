@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Loader2, Sparkles, CheckCircle2, XCircle, AlertTriangle,
-  ChevronDown, ChevronUp, Copy, RefreshCw, FileText, Clock,
+  ChevronDown, ChevronUp, Copy, RefreshCw, FileText, Clock, Hash,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,13 +49,16 @@ interface RunRecord {
   run_id: string;
   status: string;
   production_spec_id: string;
+  payload_version?: string;
   compiled_prompt_status?: string;
   prompt_hash?: string;
+  compiled_prompt?: string | null;
   asset_id?: string;
   errors?: ValidationError[];
   warnings?: ValidationError[];
   failed_stage?: string;
   error_code?: string;
+  initiated_by?: string;
   started_at: string;
   completed_at?: string;
   retry_count: number;
@@ -454,6 +457,16 @@ function ErrorList({
 }
 
 function RunRow({ run }: { run: RunRecord }) {
+  const { toast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+
+  const detailQuery = useQuery({
+    queryKey: ["worldsmith-run-detail", run.run_id],
+    queryFn: () => worldsmithApi.getRun(run.run_id),
+    enabled: expanded,
+    staleTime: 30_000,
+  });
+
   const statusColors: Record<string, string> = {
     compiled: "bg-emerald-100 text-emerald-700",
     validation_failed: "bg-red-100 text-red-700",
@@ -463,36 +476,129 @@ function RunRow({ run }: { run: RunRecord }) {
     compiling: "bg-blue-100 text-blue-700",
   };
 
-  // Interrupted runs are a distinct case — failed due to server restart, not a data error.
   const isInterrupted = run.status === "failed" && run.error_code === "INTERRUPTED";
   const badgeClass = isInterrupted
     ? "bg-orange-100 text-orange-700"
     : (statusColors[run.status] ?? "bg-gray-100 text-gray-600");
   const badgeLabel = isInterrupted ? "interrupted" : run.status;
 
+  const detail = detailQuery.data;
+
   return (
-    <Card>
-      <CardContent className="pt-3 pb-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeClass}`}>
-            {badgeLabel}
-          </span>
-          <code className="text-xs font-mono text-muted-foreground">{run.run_id.slice(0, 8)}…</code>
-          <code className="text-xs font-mono flex-1 truncate min-w-0">{run.production_spec_id}</code>
-          <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
-            <Clock className="w-3 h-3" />
-            {new Date(run.started_at).toLocaleString()}
-          </span>
-          {run.prompt_hash && (
-            <code className="text-xs font-mono text-muted-foreground shrink-0">{run.prompt_hash.slice(0, 12)}…</code>
+    <Card className="overflow-hidden">
+      {/* Summary row — click to expand */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full text-left"
+      >
+        <CardContent className="pt-3 pb-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeClass}`}>
+              {badgeLabel}
+            </span>
+            <code className="text-xs font-mono text-muted-foreground">{run.run_id.slice(0, 8)}…</code>
+            <code className="text-xs font-mono flex-1 truncate min-w-0">{run.production_spec_id}</code>
+            {run.payload_version && (
+              <span className="text-xs text-muted-foreground shrink-0 font-mono">v{run.payload_version}</span>
+            )}
+            <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
+              <Clock className="w-3 h-3" />
+              {new Date(run.started_at).toLocaleString()}
+            </span>
+            {run.prompt_hash && (
+              <span className="text-xs font-mono text-muted-foreground shrink-0 flex items-center gap-1">
+                <Hash className="w-3 h-3" />
+                {run.prompt_hash.slice(0, 12)}…
+              </span>
+            )}
+            <span className="ml-auto shrink-0 text-muted-foreground">
+              {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </span>
+          </div>
+
+          {/* Inline error preview (collapsed state only) */}
+          {!expanded && (run.errors ?? []).length > 0 && (
+            <p className="text-xs text-red-600 mt-1.5 pl-0.5">
+              {run.errors![0].code}: {run.errors![0].message}
+            </p>
+          )}
+        </CardContent>
+      </button>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="border-t border-border bg-muted/20 px-4 py-4 space-y-4">
+          {detailQuery.isLoading && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading details…
+            </div>
+          )}
+
+          {detail && (
+            <>
+              {/* Meta row */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Run ID</p>
+                  <code className="font-mono">{detail.run_id.slice(0, 8)}…</code>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Payload version</p>
+                  <code className="font-mono">{detail.payload_version ?? "—"}</code>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Prompt hash</p>
+                  <code className="font-mono">{detail.prompt_hash ? `${detail.prompt_hash.slice(0, 16)}…` : "—"}</code>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Compiled status</p>
+                  <span>{detail.compiled_prompt_status ?? "—"}</span>
+                </div>
+              </div>
+
+              {/* Full compiled prompt */}
+              {detail.compiled_prompt && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Compiled Prompt</p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => {
+                        navigator.clipboard.writeText(detail.compiled_prompt!);
+                        toast({ title: "Copied to clipboard" });
+                      }}
+                    >
+                      <Copy className="w-3 h-3 mr-1" />Copy
+                    </Button>
+                  </div>
+                  <Textarea
+                    readOnly
+                    value={detail.compiled_prompt}
+                    className="font-mono text-xs resize-none h-48 bg-background"
+                  />
+                </div>
+              )}
+
+              {/* Errors */}
+              {(detail.errors ?? []).length > 0 && (
+                <ErrorList title="Errors" items={detail.errors!} variant="error" />
+              )}
+
+              {/* Warnings */}
+              {(detail.warnings ?? []).length > 0 && (
+                <ErrorList title="Warnings" items={detail.warnings!} variant="warning" />
+              )}
+
+              {!detail.compiled_prompt && (detail.errors ?? []).length === 0 && (detail.warnings ?? []).length === 0 && (
+                <p className="text-xs text-muted-foreground">No prompt or diagnostic details available for this run.</p>
+              )}
+            </>
           )}
         </div>
-        {(run.errors ?? []).length > 0 && (
-          <p className="text-xs text-red-600 mt-1.5">
-            {run.errors![0].code}: {run.errors![0].message}
-          </p>
-        )}
-      </CardContent>
+      )}
     </Card>
   );
 }

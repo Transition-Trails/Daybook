@@ -41,3 +41,4 @@
 - [IllustrativeTab hooks fix](illustrative-tab-hooks.md) — original IllustrativeTab had useMutation declared after an early return (hooks violation); fixed by moving all hooks before the if(!aiEnabled) guard
 - [WorldSmith Prompt Compiler](worldsmith-compiler.md) — Phase 1 compile-only pipeline; orchestrator + Notion client + 8 core modules; `worldsmith_runs`+`worldsmith_assets` tables; admin UI at /super/worldsmith
 - [WorldSmith chosen concept](worldsmith-chosen-concept.md) — user approved World Gallery for promotion to production landing page
+- [WorldSmith payload aliases](worldsmith-payload-aliases.md) — card_role/paper_and_materials/front_layout are normalised onto asset_role/materials/composition before PP-1.0 validation

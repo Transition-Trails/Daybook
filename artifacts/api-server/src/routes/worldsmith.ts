@@ -95,6 +95,7 @@ router.post("/v1/prompt-compilations", requireAuth, async (req: Request, res: Re
       : result.status === "failed" ? 503
       : 500;
 
+    logger.info({ httpStatus, status: result.status, code: (result as any).code, errors: (result as any).errors, warnings: (result as any).warnings, message: (result as any).message }, "WorldSmith compile result");
     res.status(httpStatus).json(result);
   } catch (err) {
     logger.error({ err }, "WorldSmith compile endpoint error");

@@ -389,7 +389,32 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
   const productionSpec = extractProductionSpec(page);
   resolvedSourceIds["production_spec"] = pageId;
 
-  // Debug: log what was extracted so we can diagnose missing fields
+  // ── Stage 2b: Resolve linked Collection record name ──────────────────────
+  // When Collection is stored as a Notion relation (collectionId is set) the
+  // inline extractRichText / extractSelect calls above return nothing — the
+  // only value captured is the relation page ID.  Follow up with a getPage
+  // call to read the Collection record's title into spec.collection so it is
+  // available for prompt compilation and the ProvenanceRecord.
+  if (productionSpec.collectionId && !productionSpec.collection) {
+    try {
+      const collectionPage = await getPage(productionSpec.collectionId);
+      resolvedSourceIds["collection"] = productionSpec.collectionId;
+      const collectionName =
+        extractTitle(collectionPage.properties["Name"]) ||
+        extractTitle(collectionPage.properties["Collection"]) ||
+        extractRichText(collectionPage.properties["Name"]);
+      if (collectionName) {
+        productionSpec.collection = collectionName;
+      }
+    } catch (err) {
+      // Non-fatal: a missing collection name does not block compilation.
+      // Log it so operators can investigate, then continue.
+      logger.warn(
+        { err, collectionId: productionSpec.collectionId },
+        "WorldSmith: Could not resolve linked Collection page — collection name will be blank in provenance",
+      );
+    }
+  }
 
   // ── Stage 3a: Validate core identity ────────────────────────────────────
   if (!productionSpec.world) {

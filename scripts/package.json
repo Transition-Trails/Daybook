@@ -24,6 +24,7 @@
     "publish-vgj-kit": "tsx ./src/publish-vgj-kit.ts",
     "migrate-worldsmith": "tsx ./src/migrate-worldsmith.ts",
     "migrate-worldsmith-worlds": "tsx ./src/migrate-worldsmith-worlds.ts",
+    "seed-worldsmith-wychcombe": "tsx ./src/seed-worldsmith-wychcombe.ts",
     "migrate-spec-preview": "tsx ./src/migrate-spec-preview.ts"
   },
   "dependencies": {

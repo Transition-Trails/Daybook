@@ -377,6 +377,16 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
   const productionSpec = extractProductionSpec(page);
   resolvedSourceIds["production_spec"] = pageId;
 
+  // Debug: log what was extracted so we can diagnose missing fields
+  logger.info({
+    specPageId: pageId,
+    productionItem: productionSpec.productionItem,
+    payloadVersion: productionSpec.payloadVersion || "(blank)",
+    promptPayload: productionSpec.promptPayload || "(blank)",
+    promptPayloadId: productionSpec.promptPayloadId || "(none — not a relation)",
+    allPropertyKeys: Object.keys(page.properties),
+  }, "WorldSmith: Production Spec extracted");
+
   // ── Stage 3a: Validate core identity ────────────────────────────────────
   if (!productionSpec.world) {
     throw new InheritanceError(
@@ -405,6 +415,8 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
       const payloadPage = await getPage(productionSpec.promptPayloadId);
       resolvedSourceIds["prompt_payload"] = productionSpec.promptPayloadId;
       const pp = payloadPage.properties;
+      // Log all property keys so we can see what's actually on the page
+      logger.info({ promptPayloadId: productionSpec.promptPayloadId, propertyKeys: Object.keys(pp) }, "WorldSmith: Prompt Payload page properties");
       const versionFromPayload =
         extractSelect(pp["Payload Version"]) ||
         extractRichText(pp["Payload Version"]) ||

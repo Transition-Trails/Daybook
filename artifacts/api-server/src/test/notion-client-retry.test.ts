@@ -178,6 +178,174 @@ describe("notionFetch — 429 retry", () => {
   });
 });
 
+describe("notionFetch — network-level retry", () => {
+  it("succeeds on the second attempt when the first throws AbortError", async () => {
+    const abortError = Object.assign(new Error("The operation was aborted"), {
+      name: "AbortError",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(abortError)
+      .mockResolvedValueOnce(makeResponse(200, { id: "page-net-1", properties: {}, url: "" }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { _setSleep, getPage } = await import("../lib/notion-client.js");
+    const sleepMock = vi.fn().mockResolvedValue(undefined);
+    _setSleep(sleepMock);
+
+    const page = await getPage("page-net-1");
+    expect(page.id).toBe("page-net-1");
+    // fetch called twice: once for AbortError, once for the successful retry
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // sleep called once between attempts
+    expect(sleepMock).toHaveBeenCalledTimes(1);
+    // delay should be 1 s (2^0 * 1000) for the first retry
+    expect(sleepMock).toHaveBeenCalledWith(1_000);
+  });
+
+  it("throws after three consecutive AbortErrors", async () => {
+    const abortError = Object.assign(new Error("The operation was aborted"), {
+      name: "AbortError",
+    });
+    const fetchMock = vi.fn().mockRejectedValue(abortError);
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { _setSleep, getPage } = await import("../lib/notion-client.js");
+    const sleepMock = vi.fn().mockResolvedValue(undefined);
+    _setSleep(sleepMock);
+
+    await expect(getPage("page-net-err")).rejects.toThrow(/aborted/i);
+
+    // 1 initial attempt + 3 retries = 4 total fetch calls
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // sleep called for each of the 3 retry intervals
+    expect(sleepMock).toHaveBeenCalledTimes(3);
+  });
+
+  // Helpers to build realistic Node fetch error shapes.
+  // Node's native fetch (undici) wraps socket errors as:
+  //   TypeError("fetch failed") { cause: Error { code: "ECONNRESET" } }
+  function makeNodeFetchError(code: string): TypeError {
+    const cause = Object.assign(new Error(`connect ${code}`), { code });
+    return Object.assign(new TypeError("fetch failed"), { cause });
+  }
+
+  it("retries on ECONNRESET wrapped in a Node-style TypeError cause", async () => {
+    const connError = makeNodeFetchError("ECONNRESET");
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(connError)
+      .mockResolvedValueOnce(makeResponse(200, { id: "page-net-2", properties: {}, url: "" }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { _setSleep, getPage } = await import("../lib/notion-client.js");
+    const sleepMock = vi.fn().mockResolvedValue(undefined);
+    _setSleep(sleepMock);
+
+    const page = await getPage("page-net-2");
+    expect(page.id).toBe("page-net-2");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleepMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries on ECONNREFUSED wrapped in a Node-style TypeError cause", async () => {
+    const connError = makeNodeFetchError("ECONNREFUSED");
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(connError)
+      .mockResolvedValueOnce(makeResponse(200, { id: "page-net-4", properties: {}, url: "" }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { _setSleep, getPage } = await import("../lib/notion-client.js");
+    const sleepMock = vi.fn().mockResolvedValue(undefined);
+    _setSleep(sleepMock);
+
+    const page = await getPage("page-net-4");
+    expect(page.id).toBe("page-net-4");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleepMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries on ETIMEDOUT wrapped in a Node-style TypeError cause", async () => {
+    const connError = makeNodeFetchError("ETIMEDOUT");
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(connError)
+      .mockResolvedValueOnce(makeResponse(200, { id: "page-net-5", properties: {}, url: "" }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { _setSleep, getPage } = await import("../lib/notion-client.js");
+    const sleepMock = vi.fn().mockResolvedValue(undefined);
+    _setSleep(sleepMock);
+
+    const page = await getPage("page-net-5");
+    expect(page.id).toBe("page-net-5");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleepMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry on non-retryable fetch errors", async () => {
+    const genericError = new Error("some unexpected error");
+    const fetchMock = vi.fn().mockRejectedValue(genericError);
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { _setSleep, getPage } = await import("../lib/notion-client.js");
+    const sleepMock = vi.fn().mockResolvedValue(undefined);
+    _setSleep(sleepMock);
+
+    await expect(getPage("page-net-noretry")).rejects.toThrow("some unexpected error");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("does not retry on a TypeError whose cause has a non-retryable code", async () => {
+    const cause = Object.assign(new Error("something else"), { code: "ENOENT" });
+    const wrappedError = Object.assign(new TypeError("fetch failed"), { cause });
+    const fetchMock = vi.fn().mockRejectedValue(wrappedError);
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { _setSleep, getPage } = await import("../lib/notion-client.js");
+    const sleepMock = vi.fn().mockResolvedValue(undefined);
+    _setSleep(sleepMock);
+
+    await expect(getPage("page-net-noretry-2")).rejects.toThrow("fetch failed");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sleepMock).not.toHaveBeenCalled();
+  });
+
+  it("uses exponential back-off for consecutive Node-style network errors", async () => {
+    const connError = makeNodeFetchError("ECONNRESET");
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(connError)
+      .mockRejectedValueOnce(connError)
+      .mockRejectedValueOnce(connError)
+      .mockResolvedValueOnce(makeResponse(200, { id: "page-net-3", properties: {}, url: "" }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { _setSleep, getPage } = await import("../lib/notion-client.js");
+    const sleepDelays: number[] = [];
+    _setSleep(async (ms) => { sleepDelays.push(ms); });
+
+    await getPage("page-net-3");
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(sleepDelays).toHaveLength(3);
+    // Exponential: 1s, 2s, 4s (2^0, 2^1, 2^2)
+    expect(sleepDelays[0]).toBe(1_000);
+    expect(sleepDelays[1]).toBe(2_000);
+    expect(sleepDelays[2]).toBe(4_000);
+  });
+});
+
 describe("notionFetch — 429 error message / classifyNotionErr compatibility", () => {
   it("thrown error message is recognisable as NOTION_RATE_LIMITED by classifyNotionErr", async () => {
     const fetchMock = vi.fn().mockResolvedValue(makeResponse(429, "rate limited"));

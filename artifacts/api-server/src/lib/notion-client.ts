@@ -30,10 +30,32 @@ export function _setSleep(fn: (ms: number) => Promise<void>): void {
   _sleep = fn;
 }
 
+const RETRYABLE_CODES = new Set(["ETIMEDOUT", "ECONNREFUSED", "ECONNRESET"]);
+
+/**
+ * Returns true for connection-level errors that are safe to retry:
+ * AbortError (request timeout), ETIMEDOUT, ECONNREFUSED, ECONNRESET.
+ *
+ * Node's native fetch (undici) wraps socket errors as:
+ *   TypeError("fetch failed") { cause: Error { code: "ECONNREFUSED" } }
+ * so we walk the cause chain in addition to checking the top-level error.
+ */
+function isRetryableNetworkError(err: unknown): boolean {
+  let current: unknown = err;
+  while (current instanceof Error) {
+    if (current.name === "AbortError") return true;
+    const code = (current as NodeJS.ErrnoException).code;
+    if (code && RETRYABLE_CODES.has(code)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /**
  * Fetch wrapper around the Notion REST API.
- * Automatically retries on HTTP 429 (rate-limited) with exponential back-off,
- * honouring the Retry-After header when present.
+ * Automatically retries on HTTP 429 (rate-limited) and on connection-level
+ * errors (AbortError, ETIMEDOUT, ECONNREFUSED, ECONNRESET) with exponential
+ * back-off, honouring the Retry-After header when present for 429s.
  *
  * - Up to NOTION_MAX_RETRIES retry attempts after the first failure.
  * - Each delay is capped at NOTION_MAX_DELAY_MS (30 s).
@@ -46,10 +68,22 @@ async function notionFetch<T>(path: string, options: RequestInit = {}): Promise<
   let attempt = 0;
 
   while (true) {
-    const res = await fetch(`${NOTION_API}${path}`, {
-      ...options,
-      headers: { ...headers(), ...(options.headers as Record<string, string> ?? {}) },
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${NOTION_API}${path}`, {
+        ...options,
+        headers: { ...headers(), ...(options.headers as Record<string, string> ?? {}) },
+      });
+    } catch (err) {
+      // Network-level error — retry if retryable and attempts remain.
+      if (attempt < NOTION_MAX_RETRIES && isRetryableNetworkError(err)) {
+        const delay = Math.min(1_000 * Math.pow(2, attempt), NOTION_MAX_DELAY_MS);
+        attempt++;
+        await _sleep(delay);
+        continue;
+      }
+      throw err;
+    }
 
     if (res.status === 429 && attempt < NOTION_MAX_RETRIES) {
       // Honour Retry-After header (seconds) when present; otherwise exponential back-off.

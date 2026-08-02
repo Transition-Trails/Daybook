@@ -109,6 +109,13 @@ function extractProductionSpec(page: NotionPage): ProductionSpec {
     extractRichText(p["Prompt Payload"]) ||
     extractRichText(p["Payload"]);
 
+  // The Prompt Payload may be a linked database record rather than inline text.
+  // If so, capture the relation ID so the resolver can fetch it and read
+  // Payload Version (and any other governed fields) from that page.
+  const promptPayloadId =
+    extractRelation(p["Prompt Payload"])?.[0] ||
+    extractRelation(p["Payload"])?.[0];
+
   const componentSpecificationId =
     extractRelation(p["Component Specification"])?.[0] ||
     extractRelation(p["Component Spec"])?.[0];
@@ -169,6 +176,7 @@ function extractProductionSpec(page: NotionPage): ProductionSpec {
     frontBackStyle,
     payloadVersion,
     promptPayload,
+    promptPayloadId,
     componentSpecificationId,
     styleGuideId,
     promptModuleIds,
@@ -388,9 +396,37 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
     );
   }
 
+  // ── Stage 3a-ii: Resolve linked Prompt Payload record ───────────────────
+  // If the Production Spec links to a Prompt Payload page via a relation,
+  // fetch it and read Payload Version from that record — falling back to any
+  // value already extracted inline from the Production Spec itself.
+  if (productionSpec.promptPayloadId && !productionSpec.payloadVersion) {
+    try {
+      const payloadPage = await getPage(productionSpec.promptPayloadId);
+      resolvedSourceIds["prompt_payload"] = productionSpec.promptPayloadId;
+      const pp = payloadPage.properties;
+      const versionFromPayload =
+        extractSelect(pp["Payload Version"]) ||
+        extractRichText(pp["Payload Version"]) ||
+        extractSelect(pp["Version"]) ||
+        extractRichText(pp["Version"]);
+      if (versionFromPayload) {
+        productionSpec.payloadVersion = versionFromPayload;
+      }
+    } catch (err) {
+      const classified = classifyNotionErr(err);
+      throw new InheritanceError(
+        `Failed to resolve Prompt Payload record (${productionSpec.promptPayloadId}): ${String(err)}`,
+        "resolve_prompt_payload",
+        classified?.code ?? "PROMPT_PAYLOAD_NOT_FOUND",
+        classified?.retryable ?? true,
+      );
+    }
+  }
+
   if (!productionSpec.payloadVersion) {
     throw new InheritanceError(
-      "Payload Version is blank. Set it to PP-1.0 in the Production Specification.",
+      "Payload Version is blank. Set it to PP-1.0 on the linked Prompt Payload record (or directly on the Production Specification if no Prompt Payload is linked).",
       "validate_payload_version",
       "MISSING_PAYLOAD_VERSION",
       false,

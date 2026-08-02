@@ -25,6 +25,7 @@ export interface ProductionSpec {
   // Prompt governance
   payloadVersion: string;
   promptPayload: string;
+  promptPayloadId?: string;  // relation ID of the linked Prompt Payload record
   componentSpecificationId?: string;
   styleGuideId?: string;
   promptModuleIds: string[];

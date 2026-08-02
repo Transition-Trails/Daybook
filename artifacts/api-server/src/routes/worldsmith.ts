@@ -14,7 +14,7 @@ import { getRun, getRunsBySpec, failStaleRunsForSpec } from "../lib/worldsmith/r
 import { getAsset, getAssetBySpec } from "../lib/worldsmith/daybook-adapter";
 import { db } from "@workspace/db";
 import { worldsmithAssetsTable, worldsmithRunsTable } from "@workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import type { Request, Response } from "express";
 import type { User } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -139,22 +139,54 @@ router.get("/v1/runs/:run_id", requireAuth, async (req: Request, res: Response) 
   }
 });
 
-// ── GET /api/v1/worldsmith/runs?spec_id=…  ───────────────────────────────────
+// ── GET /api/v1/worldsmith/runs?spec_id=…&status=…  ─────────────────────────
 
 router.get("/v1/worldsmith/runs", requireAuth, async (req: Request, res: Response) => {
   const specId = req.query.spec_id as string | undefined;
+  const statusFilter = req.query.status as string | undefined;
+
+  // Build where conditions
+  const conditions = [];
+
+  if (specId) {
+    conditions.push(eq(worldsmithRunsTable.productionSpecId, specId));
+  }
+
+  if (statusFilter && statusFilter !== "all") {
+    if (statusFilter === "interrupted") {
+      // interrupted = failed rows whose error_code is 'INTERRUPTED'
+      conditions.push(
+        and(
+          eq(worldsmithRunsTable.status, "failed"),
+          eq(worldsmithRunsTable.errorCode, "INTERRUPTED"),
+        ),
+      );
+    } else if (statusFilter === "in_progress") {
+      conditions.push(inArray(worldsmithRunsTable.status, ["pending", "compiling"]));
+    } else if (statusFilter === "failed") {
+      // "failed" excludes interrupted so both filter options are mutually exclusive
+      conditions.push(
+        and(
+          eq(worldsmithRunsTable.status, "failed"),
+          or(
+            isNull(worldsmithRunsTable.errorCode),
+            ne(worldsmithRunsTable.errorCode, "INTERRUPTED"),
+          ),
+        ),
+      );
+    } else {
+      conditions.push(eq(worldsmithRunsTable.status, statusFilter));
+    }
+  }
 
   try {
-    let rawRuns;
-    if (specId) {
-      rawRuns = await getRunsBySpec(specId, 20);
-    } else {
-      rawRuns = await db
-        .select()
-        .from(worldsmithRunsTable)
-        .orderBy(desc(worldsmithRunsTable.startedAt))
-        .limit(50);
-    }
+    const rawRuns = await db
+      .select()
+      .from(worldsmithRunsTable)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(worldsmithRunsTable.startedAt))
+      .limit(50);
+
     const runs = rawRuns.map((run) => ({
       run_id: run.id,
       status: run.status,

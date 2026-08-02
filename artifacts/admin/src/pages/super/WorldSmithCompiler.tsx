@@ -87,8 +87,13 @@ const worldsmithApi = {
     }),
   getRun: (runId: string) =>
     apiFetch<RunRecord>(`/v1/runs/${runId}`),
-  listRuns: (specId?: string) =>
-    apiFetch<{ runs: RunRecord[] }>(`/v1/worldsmith/runs${specId ? `?spec_id=${specId}` : ""}`),
+  listRuns: (specId?: string, status?: string) => {
+    const params = new URLSearchParams();
+    if (specId) params.set("spec_id", specId);
+    if (status && status !== "all") params.set("status", status);
+    const qs = params.toString();
+    return apiFetch<{ runs: RunRecord[] }>(`/v1/worldsmith/runs${qs ? `?${qs}` : ""}`);
+  },
   listAssets: () =>
     apiFetch<{ assets: Array<{ id: string; asset_name: string; component_type: string; world: string; current_version: string; readiness_state: string; updated_at: string }> }>("/v1/worldsmith/assets"),
 };
@@ -102,6 +107,7 @@ export default function WorldSmithCompiler() {
   const [result, setResult] = useState<CompileResponse | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [activeTab, setActiveTab] = useState<"compiler" | "runs" | "assets">("compiler");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   // ── Mutations ───────────────────────────────────────────────────────────────
   const compile = useMutation({
@@ -131,8 +137,8 @@ export default function WorldSmithCompiler() {
 
   // ── Queries ─────────────────────────────────────────────────────────────────
   const runsQuery = useQuery({
-    queryKey: ["worldsmith-runs", specId],
-    queryFn: () => worldsmithApi.listRuns(specId.trim() || undefined),
+    queryKey: ["worldsmith-runs", specId, statusFilter],
+    queryFn: () => worldsmithApi.listRuns(specId.trim() || undefined, statusFilter),
     enabled: activeTab === "runs",
     staleTime: 10_000,
   });
@@ -243,13 +249,24 @@ export default function WorldSmithCompiler() {
       {/* ── Runs tab ─────────────────────────────────────────────────────── */}
       {activeTab === "runs" && (
         <div className="space-y-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Input
               placeholder="Filter by spec ID (optional)"
               value={specId}
               onChange={(e) => setSpecId(e.target.value)}
               className="max-w-sm font-mono text-sm"
             />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <option value="all">All statuses</option>
+              <option value="compiled">Compiled</option>
+              <option value="failed">Failed</option>
+              <option value="interrupted">Interrupted</option>
+              <option value="in_progress">In Progress</option>
+            </select>
             <Button variant="outline" size="sm" onClick={() => runsQuery.refetch()}>
               <RefreshCw className="w-3.5 h-3.5" />
             </Button>
@@ -260,8 +277,12 @@ export default function WorldSmithCompiler() {
               <Loader2 className="w-4 h-4 animate-spin" /> Loading runs…
             </div>
           )}
-          {(runsQuery.data?.runs ?? []).length === 0 && !runsQuery.isLoading && (
-            <p className="text-sm text-muted-foreground">No runs found.</p>
+          {!runsQuery.isLoading && (
+            <p className="text-xs text-muted-foreground">
+              {(runsQuery.data?.runs ?? []).length === 0
+                ? "No runs found."
+                : `${(runsQuery.data?.runs ?? []).length} run${(runsQuery.data?.runs ?? []).length === 1 ? "" : "s"} shown`}
+            </p>
           )}
           <div className="space-y-2">
             {(runsQuery.data?.runs ?? []).map((run) => (

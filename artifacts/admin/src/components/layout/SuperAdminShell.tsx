@@ -53,6 +53,7 @@ const PLATFORM_NAV = [
   { label: "Deliverability",  icon: Mail,            href: "/super/email/deliverability" },
   { label: "Audit log",       icon: ClipboardList,   href: "/super/audit" },
   { label: "Promote content", icon: ArrowUpFromLine, href: "/super/promote" },
+  { label: "WorldSmith",       icon: Sparkles,       href: "/super/worldsmith" },
 ];
 
 // ── House-store surfaces — go directly to /store/store-house/... ──────────────

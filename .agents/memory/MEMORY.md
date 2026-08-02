@@ -39,3 +39,4 @@
 - [DALL-E image generation](dalle-image-generation.md) — callDallE() in ai-proxy.ts; 60s AbortController timeout; b64_json format; ItemOrigin has no "platform" value — use "licensed" for platform content, "owned" for store-generated
 - [VGJ kit catalog](vgj-kit-catalog.md) — 8 Victorian Garden Journal kits seeded (vgj_ prefix); 24 backgrounds have assetRef: null (status: draft) until images generated via POST /stores/:storeId/backgrounds/generate
 - [IllustrativeTab hooks fix](illustrative-tab-hooks.md) — original IllustrativeTab had useMutation declared after an early return (hooks violation); fixed by moving all hooks before the if(!aiEnabled) guard
+- [WorldSmith Prompt Compiler](worldsmith-compiler.md) — Phase 1 compile-only pipeline; orchestrator + Notion client + 8 core modules; `worldsmith_runs`+`worldsmith_assets` tables; admin UI at /super/worldsmith

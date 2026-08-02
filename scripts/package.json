@@ -21,7 +21,8 @@
     "seed-house": "tsx ./src/seed-house.ts",
     "seed-kit-vgj": "tsx ./src/seed-kit-vgj.ts",
     "seed-house:clear": "tsx ./src/seed-house-clear.ts",
-    "publish-vgj-kit": "tsx ./src/publish-vgj-kit.ts"
+    "publish-vgj-kit": "tsx ./src/publish-vgj-kit.ts",
+    "migrate-worldsmith": "tsx ./src/migrate-worldsmith.ts"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",

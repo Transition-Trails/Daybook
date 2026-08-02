@@ -113,6 +113,7 @@ import Deliverability from "@/pages/super/Deliverability";
 import StoreSupportPatterns from "@/pages/store/SupportPatterns";
 import SuperSupportPatterns from "@/pages/super/SupportPatterns";
 import PromoteCatalog from "@/pages/super/PromoteCatalog";
+import WorldSmithCompiler from "@/pages/super/WorldSmithCompiler";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -197,6 +198,9 @@ function RootRouter() {
       </Route>
       <Route path="/super/support/patterns">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperSupportPatterns /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith">
+        <RequireSuperAdmin state={state}><SuperAdminShell><WorldSmithCompiler /></SuperAdminShell></RequireSuperAdmin>
       </Route>
 
       {/* ── Product Builder ────────────────────────────────────── */}

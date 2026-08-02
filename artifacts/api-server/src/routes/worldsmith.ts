@@ -307,6 +307,10 @@ router.get("/v1/worldsmith/preflight", requireAuth, async (req: Request, res: Re
     const version = extractRichText(p["Current Version"]) || extractSelect(p["Current Version"]) || "1";
     const status = extractSelect(p["Status"]) || extractSelect(p["Workflow Status"]) || "";
     const world = extractRichText(p["World"]) || extractSelect(p["World"]) || "";
+    const collection =
+      extractRichText(p["Collection"]) ||
+      extractSelect(p["Collection"]) ||
+      extractRichText(p["Collection Name"]);
     const volume = extractRichText(p["Volume"]) || extractSelect(p["Volume"]) || extractRichText(p["Volume / Collection"]);
 
     const componentSpecId = extractRelation(p["Component Specification"])?.[0] || extractRelation(p["Component Spec"])?.[0];
@@ -349,6 +353,7 @@ router.get("/v1/worldsmith/preflight", requireAuth, async (req: Request, res: Re
       prompt_module_count: promptModuleIds.length,
       canon_record_count: canonRecordIds.length,
       world,
+      collection: collection || undefined,
       volume: volume || undefined,
       status,
     });

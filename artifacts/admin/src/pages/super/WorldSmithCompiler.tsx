@@ -60,6 +60,7 @@ interface PreflightResponse {
   prompt_module_count: number;
   canon_record_count: number;
   world: string;
+  collection?: string;
   volume?: string;
   status: string;
 }
@@ -563,6 +564,9 @@ function PreflightCard({
     { label: "Compiled Prompt Status",   value: preflight.compiled_prompt_status },
     { label: "Generation Readiness",     value: preflight.generation_readiness },
     { label: "Version",                  value: preflight.version },
+    { label: "World",                    value: preflight.world || "—" },
+    { label: "Collection",               value: preflight.collection || "—" },
+    { label: "Volume",                   value: preflight.volume || "—" },
   ];
 
   return (

@@ -123,6 +123,25 @@ function makePage(
   return { id, properties, url: `https://notion.so/${id}` };
 }
 
+/**
+ * Build a page whose given keys are Notion relation properties pointing to the
+ * supplied page IDs.  Other keys are built as rich_text, exactly like makePage.
+ */
+function makePageWithRelations(
+  id: string,
+  textFields: Record<string, string | undefined>,
+  relationFields: Record<string, string[]>,
+) {
+  const page = makePage(id, textFields);
+  for (const [key, ids] of Object.entries(relationFields)) {
+    page.properties[key] = {
+      type: "relation",
+      relation: ids.map((rid) => ({ id: rid })),
+    };
+  }
+  return page;
+}
+
 const SPEC_ID = "spec-test-abc123";
 
 const superAdminUser: User = {
@@ -450,5 +469,147 @@ describe("POST /api/v1/prompt-compilations — HTTP status codes", () => {
     expect(res.body.code).toBe("MISSING_SPEC_ID");
     // getPage should never have been called
     expect(mockGetPage).not.toHaveBeenCalled();
+  });
+});
+
+// ── Inner resolver error classification ───────────────────────────────────────
+// These tests confirm that timeout / 429 errors that occur while fetching a
+// *dependent* record (Style Guide, Component Spec, Prompt Module, Canon Record)
+// surface as NOTION_UNREACHABLE / NOTION_RATE_LIMITED rather than the generic
+// "_NOT_FOUND" codes that used to mask the real failure.
+
+const STYLE_GUIDE_ID = "sg-test-001";
+const MODULE_ID = "mod-test-001";
+
+/** A valid production spec page that links a Style Guide and a Prompt Module. */
+function makeFullSpecPage() {
+  return makePageWithRelations(
+    SPEC_ID,
+    {
+      World: "Thornvale",
+      "Component Type": "Cover Art",
+      "Payload Version": "PP-1.0",
+    },
+    {
+      "Style Guide": [STYLE_GUIDE_ID],
+      "Prompt Modules": [MODULE_ID],
+    },
+  );
+}
+
+describe("runCompilation — Style Guide network timeout", () => {
+  it("returns NOTION_UNREACHABLE (not STYLE_GUIDE_NOT_FOUND) when the Style Guide fetch times out", async () => {
+    // First call: production spec succeeds
+    mockGetPage.mockResolvedValueOnce(makeFullSpecPage());
+    // Second call: style guide times out
+    mockGetPage.mockRejectedValueOnce(
+      new Error("connect ETIMEDOUT 2a00:1450:4001:82b::200a:443"),
+    );
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_UNREACHABLE");
+    expect(result.failed_stage).toBe("resolve_style_guide");
+    expect(result.retry_safe).toBe(true);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors![0].code).toBe("NOTION_UNREACHABLE");
+  });
+
+  it("treats Style Guide AbortError as NOTION_UNREACHABLE", async () => {
+    mockGetPage.mockResolvedValueOnce(makeFullSpecPage());
+    const abortErr = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+    mockGetPage.mockRejectedValueOnce(abortErr);
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_UNREACHABLE");
+    expect(result.failed_stage).toBe("resolve_style_guide");
+    expect(result.retry_safe).toBe(true);
+  });
+});
+
+describe("runCompilation — Style Guide 429 rate-limit", () => {
+  it("returns NOTION_RATE_LIMITED (not STYLE_GUIDE_NOT_FOUND) when Notion rate-limits the Style Guide fetch", async () => {
+    mockGetPage.mockResolvedValueOnce(makeFullSpecPage());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("Notion API GET /pages/sg-test-001 → 429: Too Many Requests"),
+    );
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_RATE_LIMITED");
+    expect(result.failed_stage).toBe("resolve_style_guide");
+    expect(result.retry_safe).toBe(true);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors![0].code).toBe("NOTION_RATE_LIMITED");
+  });
+});
+
+describe("runCompilation — Style Guide genuine 404", () => {
+  it("returns STYLE_GUIDE_NOT_FOUND when the Style Guide page truly does not exist", async () => {
+    mockGetPage.mockResolvedValueOnce(makeFullSpecPage());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("Notion API GET /pages/sg-test-001 → 404: Could not find page with ID"),
+    );
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("STYLE_GUIDE_NOT_FOUND");
+    expect(result.failed_stage).toBe("resolve_style_guide");
+    expect(result.retry_safe).toBe(true);
+  });
+});
+
+describe("POST /api/v1/prompt-compilations — inner resolver HTTP status codes", () => {
+  it("Style Guide timeout → 503 NOTION_UNREACHABLE (not 500 crash)", async () => {
+    mockGetPage.mockResolvedValueOnce(makeFullSpecPage());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("connect ETIMEDOUT 2a00:1450:4001:82b::200a:443"),
+    );
+
+    const res = await request(app)
+      .post("/api/v1/prompt-compilations")
+      .send({ notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true });
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error_code).toBe("NOTION_UNREACHABLE");
+    expect(res.body.retry_safe).toBe(true);
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+  });
+
+  it("Style Guide 429 → 503 NOTION_RATE_LIMITED (not 500 crash)", async () => {
+    mockGetPage.mockResolvedValueOnce(makeFullSpecPage());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("Notion API GET /pages/sg-test-001 → 429: Too Many Requests"),
+    );
+
+    const res = await request(app)
+      .post("/api/v1/prompt-compilations")
+      .send({ notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true });
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error_code).toBe("NOTION_RATE_LIMITED");
+    expect(res.body.retry_safe).toBe(true);
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(res.body.errors.length).toBeGreaterThan(0);
   });
 });

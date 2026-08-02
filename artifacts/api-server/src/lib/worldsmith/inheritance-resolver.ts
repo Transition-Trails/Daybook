@@ -259,6 +259,35 @@ async function resolveCanonRecord(pageId: string): Promise<CanonRecord> {
   return { notionPageId: pageId, name, status };
 }
 
+// ── Error classification helper ───────────────────────────────────────────────
+
+/**
+ * Classify a raw error thrown by the Notion client into one of three buckets:
+ *  - NOTION_RATE_LIMITED  (HTTP 429 or rate-limit language in the message)
+ *  - NOTION_UNREACHABLE   (AbortError, ETIMEDOUT, ECONNREFUSED, etc.)
+ *  - null                 (genuine 404 / page-not-found or unknown)
+ *
+ * Returns the error code string and its retryable flag, or null when the
+ * error should fall through to the caller's generic "_NOT_FOUND" code.
+ */
+function classifyNotionErr(
+  err: unknown,
+): { code: "NOTION_RATE_LIMITED" | "NOTION_UNREACHABLE"; retryable: true } | null {
+  const msg = String(err);
+  const name = err instanceof Error ? err.name : "";
+
+  if (/429|rate.?limit/i.test(msg)) {
+    return { code: "NOTION_RATE_LIMITED", retryable: true };
+  }
+  if (
+    name === "AbortError" ||
+    /ETIMEDOUT|ENOTFOUND|ECONNREFUSED|ECONNRESET|network|timeout|unreachable/i.test(msg)
+  ) {
+    return { code: "NOTION_UNREACHABLE", retryable: true };
+  }
+  return null;
+}
+
 // ── Main resolver ─────────────────────────────────────────────────────────────
 
 export class InheritanceError extends Error {
@@ -349,11 +378,12 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
       styleGuide = await resolveStyleGuide(productionSpec.styleGuideId);
       resolvedSourceIds["style_guide"] = productionSpec.styleGuideId;
     } catch (err) {
+      const classified = classifyNotionErr(err);
       throw new InheritanceError(
         `Failed to resolve Style Guide (${productionSpec.styleGuideId}): ${String(err)}`,
         "resolve_style_guide",
-        "STYLE_GUIDE_NOT_FOUND",
-        true,
+        classified?.code ?? "STYLE_GUIDE_NOT_FOUND",
+        classified?.retryable ?? true,
       );
     }
   }
@@ -365,11 +395,12 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
       componentSpec = await resolveComponentSpec(productionSpec.componentSpecificationId);
       resolvedSourceIds["component_spec"] = productionSpec.componentSpecificationId;
     } catch (err) {
+      const classified = classifyNotionErr(err);
       throw new InheritanceError(
         `Failed to resolve Component Specification (${productionSpec.componentSpecificationId}): ${String(err)}`,
         "resolve_component_spec",
-        "COMPONENT_SPEC_NOT_FOUND",
-        true,
+        classified?.code ?? "COMPONENT_SPEC_NOT_FOUND",
+        classified?.retryable ?? true,
       );
     }
   }
@@ -382,11 +413,12 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
       const mod = await resolvePromptModule(modId, visitedModules);
       promptModules.push(mod);
     } catch (err) {
+      const classified = classifyNotionErr(err);
       throw new InheritanceError(
         `Failed to resolve Prompt Module (${modId}): ${String(err)}`,
         "resolve_prompt_modules",
-        "PROMPT_MODULE_NOT_FOUND",
-        true,
+        classified?.code ?? "PROMPT_MODULE_NOT_FOUND",
+        classified?.retryable ?? true,
       );
     }
   }
@@ -401,11 +433,12 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
       const rec = await resolveCanonRecord(recId);
       canonRecords.push(rec);
     } catch (err) {
+      const classified = classifyNotionErr(err);
       throw new InheritanceError(
         `Failed to resolve Canon Record (${recId}): ${String(err)}`,
         "resolve_canon_records",
-        "CANON_RECORD_NOT_FOUND",
-        true,
+        classified?.code ?? "CANON_RECORD_NOT_FOUND",
+        classified?.retryable ?? true,
       );
     }
   }

@@ -23,6 +23,7 @@
     "seed-house:clear": "tsx ./src/seed-house-clear.ts",
     "publish-vgj-kit": "tsx ./src/publish-vgj-kit.ts",
     "migrate-worldsmith": "tsx ./src/migrate-worldsmith.ts",
+    "migrate-worldsmith-worlds": "tsx ./src/migrate-worldsmith-worlds.ts",
     "migrate-spec-preview": "tsx ./src/migrate-spec-preview.ts"
   },
   "dependencies": {

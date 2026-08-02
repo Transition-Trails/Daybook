@@ -79,6 +79,30 @@ export function validatePayload(
   // ── 4. Parse the payload ─────────────────────────────────────────────────
   const { payload, duplicateKeys } = parsePayload(raw);
 
+  // ── 4a. Alias normalisation ──────────────────────────────────────────────
+  // Domain-specific key variants that map onto required canonical keys.
+  // Apply only when the canonical key is absent so authors can use either form.
+  if (!payload.asset_role && payload.card_role) {
+    payload.asset_role = payload.card_role;
+  }
+  if (!payload.asset_role && payload.paper_role) {
+    payload.asset_role = payload.paper_role;
+  }
+  if (!payload.materials && (payload as Record<string, string | undefined>)["paper_and_materials"]) {
+    payload.materials = (payload as Record<string, string | undefined>)["paper_and_materials"];
+  }
+  if (!payload.composition) {
+    // Synthesise from front_layout + back_layout for card-format components
+    if (payload.front_layout || payload.back_layout) {
+      const parts = [payload.front_layout, payload.back_layout].filter(Boolean);
+      payload.composition = parts.join(" / ");
+    }
+    // Decorative / coordinating papers: treat pattern_behavior as composition
+    if (!payload.composition && payload.pattern_behavior) {
+      payload.composition = payload.pattern_behavior;
+    }
+  }
+
   // Duplicate keys
   for (const key of duplicateKeys) {
     errors.push({

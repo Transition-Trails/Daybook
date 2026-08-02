@@ -234,14 +234,18 @@ export async function runCompilation(
     }
 
     // ── Stage 21 + 22: Finalize run and return ───────────────────────────
+    const allWarnings = [
+      ...payloadValidation.warnings,
+      ...canonValidation.warnings,
+      ...(chain.warnings ?? []),
+    ];
+
     await updateRun(runId, {
       status: "compiled",
       compiledPromptStatus: "Compiled",
-      warnings: [...payloadValidation.warnings, ...canonValidation.warnings],
+      warnings: allWarnings,
       completedAt: new Date(),
     });
-
-    const allWarnings = [...payloadValidation.warnings, ...canonValidation.warnings];
 
     return {
       status: "compiled",

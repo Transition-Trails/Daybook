@@ -25,7 +25,9 @@ import type {
   PromptModule,
   CanonRecord,
   InheritanceChain,
+  ValidationError,
 } from "./types";
+import { logger } from "../logger";
 
 const PRODUCTION_SPEC_DB = () => process.env.NOTION_PRODUCTION_SPEC_DB_ID ?? "";
 const VISUAL_ASSETS_DB = () => process.env.NOTION_VISUAL_ASSETS_DB_ID ?? "";
@@ -210,7 +212,11 @@ async function resolveComponentSpec(pageId: string): Promise<ComponentSpec> {
 
 // ── Prompt Module ─────────────────────────────────────────────────────────────
 
-async function resolvePromptModule(pageId: string, visited = new Set<string>()): Promise<PromptModule> {
+async function resolvePromptModule(
+  pageId: string,
+  visited = new Set<string>(),
+  warnings: ValidationError[] = [],
+): Promise<PromptModule> {
   if (visited.has(pageId)) {
     return { notionPageId: pageId, name: pageId, content: "", dependencies: [] };
   }
@@ -230,10 +236,23 @@ async function resolvePromptModule(pageId: string, visited = new Set<string>()):
   for (const depId of dependencyIds) {
     if (!visited.has(depId)) {
       try {
-        const dep = await resolvePromptModule(depId, visited);
+        const dep = await resolvePromptModule(depId, visited, warnings);
         resolvedDeps.push(dep.content);
-      } catch {
-        // Non-fatal: log dependency resolution failure as a warning
+      } catch (err) {
+        // Non-fatal: log the failure and record a warning so operators can see it
+        const msg = String(err);
+        logger.warn(
+          { err, depId, parentModuleId: pageId },
+          "Prompt Module dependency fetch failed — dependency content dropped from compiled prompt",
+        );
+        warnings.push({
+          code: "PROMPT_MODULE_DEP_FETCH_FAILED",
+          field: `prompt_module_dependency:${depId}`,
+          governing_rule: "CS-000 Inheritance",
+          message: `Dependency module ${depId} could not be fetched and was dropped from the compiled prompt: ${msg}`,
+          recommended_action:
+            "Check Notion connectivity and the dependency page permissions, then recompile.",
+        });
       }
     }
   }
@@ -408,9 +427,10 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
   // ── Stage 3d: Resolve Prompt Modules ────────────────────────────────────
   const promptModules: PromptModule[] = [];
   const visitedModules = new Set<string>();
+  const inheritanceWarnings: ValidationError[] = [];
   for (const modId of productionSpec.promptModuleIds) {
     try {
-      const mod = await resolvePromptModule(modId, visitedModules);
+      const mod = await resolvePromptModule(modId, visitedModules, inheritanceWarnings);
       promptModules.push(mod);
     } catch (err) {
       const classified = classifyNotionErr(err);
@@ -453,5 +473,6 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
     promptModules,
     canonRecords,
     resolvedSourceIds,
+    warnings: inheritanceWarnings,
   };
 }

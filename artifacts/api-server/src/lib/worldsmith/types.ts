@@ -71,6 +71,8 @@ export interface InheritanceChain {
   promptModules: PromptModule[];
   canonRecords: CanonRecord[];
   resolvedSourceIds: Record<string, string | string[]>;
+  /** Non-fatal warnings collected during inheritance resolution (e.g. dropped module dependencies). */
+  warnings: ValidationError[];
 }
 
 // ── PP-1.0 Payload ────────────────────────────────────────────────────────────

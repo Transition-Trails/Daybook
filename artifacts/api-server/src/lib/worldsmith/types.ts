@@ -253,13 +253,28 @@ export interface CompiledSectionRecord {
 
 /** Compilation provenance — the full resolution chain that produced a compiled prompt. */
 export interface ProvenanceRecord {
+  // ── Human-readable names ─────────────────────────────────────────────────
+  production_spec_title: string;
+  component_type: string;
+  component_set?: string;
   world: string;
   volume?: string;
   style_guide?: string;
   component_specification?: string;
-  prompt_payload: string;
   prompt_modules: string[];
   canon_records: string[];
+  // ── Run context ───────────────────────────────────────────────────────────
+  run_id: string;
+  compilation_timestamp: string;
+  // ── Notion IDs for deep-linking (raw — never shown in primary UI) ─────────
+  production_spec_notion_id: string;
+  style_guide_notion_id?: string;
+  component_spec_notion_id?: string;
+  prompt_payload_notion_id?: string;
+  prompt_module_notion_ids: string[];
+  canon_record_notion_ids: string[];
+  prompt_payload_type: "linked" | "inline";
+  // ── Payload governance ────────────────────────────────────────────────────
   prompt_hash: string;
   payload_version: string;
   /** "legacy" for PP-1.0 flat format, "2.0" for PP-2.0 section-based format */

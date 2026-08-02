@@ -279,13 +279,28 @@ export async function runCompilation(
     });
 
     const provenance: ProvenanceRecord = {
+      // Human-readable names
+      production_spec_title: spec.productionItem || spec.specId,
+      component_type: spec.componentType,
+      component_set: spec.componentSet,
       world: spec.world,
       volume: spec.volume,
       style_guide: chain.styleGuide?.name,
       component_specification: chain.componentSpec?.name,
-      prompt_payload: spec.promptPayloadId ? `Linked record: ${spec.promptPayloadId}` : "Inline (Production Spec)",
       prompt_modules: chain.promptModules.map((m) => m.name),
       canon_records: chain.canonRecords.map((r) => r.name),
+      // Run context
+      run_id: runId,
+      compilation_timestamp: new Date().toISOString(),
+      // Notion IDs
+      production_spec_notion_id: spec.notionPageId,
+      style_guide_notion_id: chain.styleGuide?.notionPageId,
+      component_spec_notion_id: chain.componentSpec?.notionPageId,
+      prompt_payload_notion_id: spec.promptPayloadId,
+      prompt_module_notion_ids: chain.promptModules.map((m) => m.notionPageId),
+      canon_record_notion_ids: chain.canonRecords.map((r) => r.notionPageId),
+      prompt_payload_type: spec.promptPayloadId ? "linked" : "inline",
+      // Payload governance
       prompt_hash: promptHash,
       payload_version: spec.payloadVersion,
       payload_format: compiled.isLegacyFormat ? "legacy" : "2.0",

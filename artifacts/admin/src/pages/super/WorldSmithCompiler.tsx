@@ -11,6 +11,7 @@ import {
   ChevronDown, ChevronUp, Copy, RefreshCw, FileText, Clock,
   Hash, RotateCcw, Search, ArrowRight, BookOpen,
   ImagePlus, ExternalLink, ImageOff, ArrowLeft, Layers, GitBranch,
+  Download, Link2, ShieldCheck, Cpu, Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,13 +71,24 @@ interface CompiledSectionRecord {
 }
 
 interface ProvenanceRecord {
+  production_spec_title: string;
+  component_type: string;
+  component_set?: string;
   world: string;
   volume?: string;
   style_guide?: string;
   component_specification?: string;
-  prompt_payload: string;
   prompt_modules: string[];
   canon_records: string[];
+  run_id: string;
+  compilation_timestamp: string;
+  production_spec_notion_id: string;
+  style_guide_notion_id?: string;
+  component_spec_notion_id?: string;
+  prompt_payload_notion_id?: string;
+  prompt_module_notion_ids: string[];
+  canon_record_notion_ids: string[];
+  prompt_payload_type: "linked" | "inline";
   prompt_hash: string;
   payload_version: string;
   payload_format: "legacy" | "2.0";
@@ -205,7 +217,6 @@ export default function WorldSmithCompiler() {
   const [preflight, setPreflight] = useState<PreflightResponse | null>(null);
   const [dryRun, setDryRun] = useState(false);
   const [result, setResult] = useState<CompileResponse | null>(null);
-  const [showPrompt, setShowPrompt] = useState(false);
   const [activeTab, setActiveTab] = useState<"compiler" | "runs" | "assets">("compiler");
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -425,11 +436,9 @@ export default function WorldSmithCompiler() {
                       onReturnToCompiler={() => { setResult(null); setPreviewResult(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
                     />
                   ) : (
-                    <SuccessScreen
+                    <InspectorScreen
                       result={result}
                       preflight={preflight}
-                      showPrompt={showPrompt}
-                      setShowPrompt={setShowPrompt}
                       onReset={() => { setResult(null); setPreviewResult(null); setPreviewError(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
                     />
                   )}
@@ -625,46 +634,109 @@ function PreflightCard({
   );
 }
 
-// ── Success Screen ────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function SuccessScreen({
-  result, preflight, showPrompt, setShowPrompt, onReset,
+function notionUrl(id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  return `https://www.notion.so/${id.replace(/-/g, "")}`;
+}
+
+function exportJson(data: unknown, filename: string): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function fmtTs(iso?: string): string {
+  if (!iso) return "—";
+  try { return new Date(iso).toLocaleString(); } catch { return iso; }
+}
+
+// ── Build Pipeline ─────────────────────────────────────────────────────────────
+
+type StageStatus = "done" | "warning" | "error" | "pending";
+
+function BuildPipeline({ result }: { result: CompileResponse }) {
+  const hasErrors = (result.errors ?? []).length > 0;
+  const hasWarnings = (result.warnings ?? []).length > 0;
+  const validateStatus: StageStatus = hasErrors ? "error" : hasWarnings ? "warning" : "done";
+
+  const stages: Array<{ key: string; label: string; status: StageStatus }> = [
+    { key: "resolve",  label: "Resolve",           status: "done" },
+    { key: "validate", label: "Validate",           status: validateStatus },
+    { key: "inherit",  label: "Inheritance",        status: "done" },
+    { key: "assemble", label: "Prompt Assembly",    status: "done" },
+    { key: "hash",     label: "Hash Generation",    status: "done" },
+    { key: "preview",  label: "Ready for Preview",  status: "pending" },
+    { key: "artwork",  label: "Generate Artwork",   status: "pending" },
+  ];
+
+  const cls: Record<StageStatus, string> = {
+    done:    "bg-emerald-50 text-emerald-700 border-emerald-200",
+    warning: "bg-amber-50 text-amber-700 border-amber-200",
+    error:   "bg-red-50 text-red-700 border-red-200",
+    pending: "bg-muted/40 text-muted-foreground border-border",
+  };
+  const StageIcon = ({ s }: { s: StageStatus }) =>
+    s === "done"    ? <CheckCircle2 className="w-3 h-3" />
+    : s === "warning" ? <AlertTriangle className="w-3 h-3" />
+    : s === "error"   ? <XCircle className="w-3 h-3" />
+    : <Clock className="w-3 h-3" />;
+
+  return (
+    <div className="flex items-center gap-0 overflow-x-auto pb-1">
+      {stages.map((s, i) => (
+        <div key={s.key} className="flex items-center shrink-0">
+          <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-[11px] font-medium ${cls[s.status]}`}>
+            <StageIcon s={s.status} />{s.label}
+          </div>
+          {i < stages.length - 1 && <ArrowRight className="w-3 h-3 text-muted-foreground mx-0.5 shrink-0" />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Compiled Production Specification Inspector ────────────────────────────────
+
+type InspectorView = "summary" | "inspector" | "sections" | "validation" | "technical";
+
+function InspectorScreen({
+  result, preflight, onReset,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
-  showPrompt: boolean;
-  setShowPrompt: (v: boolean) => void;
   onReset: () => void;
 }) {
-  const { toast } = useToast();
-  const [activeView, setActiveView] = useState<"summary" | "sections" | "provenance">("summary");
+  const [activeView, setActiveView] = useState<InspectorView>("summary");
+  const prov = result.provenance;
+  const isLegacy = prov?.payload_format === "legacy";
+  const errCount = (result.errors ?? []).length;
+  const warnCount = (result.warnings ?? []).length;
 
-  const hasSections = (result.compiled_sections ?? []).length > 0;
-  const hasProvenance = !!result.provenance;
-  const isLegacy = result.provenance?.payload_format === "legacy";
-
-  const successFields: Array<{ label: string; value: string | number | null | undefined }> = [
-    { label: "Production Specification", value: result.production_specification ?? preflight?.production_specification },
-    { label: "Component",                value: result.component_type ?? preflight?.component_type },
-    { label: "Payload Version",          value: result.payload_version },
-    { label: "Payload Format",           value: isLegacy ? "PP-1.0 (legacy)" : "PP-2.0 (sections)" },
-    { label: "Prompt Modules Loaded",    value: result.prompt_modules_loaded ?? preflight?.prompt_module_count },
-    { label: "Compiled Prompt Length",   value: result.compiled_prompt ? `${result.compiled_prompt.length.toLocaleString()} chars` : "—" },
-    { label: "Prompt Hash",              value: result.prompt_hash ? `${result.prompt_hash.slice(0, 24)}…` : "—" },
-    { label: "Validation Status",        value: (result.warnings ?? []).length === 0 ? "Clean" : `${result.warnings.length} warning${result.warnings.length > 1 ? "s" : ""}` },
+  const tabs: Array<{ key: InspectorView; label: string; icon: React.ReactNode; badge?: number }> = [
+    { key: "summary",    label: "Summary",    icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+    { key: "inspector",  label: "Inspector",  icon: <GitBranch className="w-3.5 h-3.5" /> },
+    { key: "sections",   label: "Sections",   icon: <Layers className="w-3.5 h-3.5" /> },
+    { key: "validation", label: "Validation", icon: <ShieldCheck className="w-3.5 h-3.5" />, badge: errCount + warnCount },
+    { key: "technical",  label: "Technical",  icon: <Cpu className="w-3.5 h-3.5" /> },
   ];
 
   return (
     <div className="space-y-4">
       {/* Banner */}
-      <div className="flex items-center gap-3 p-4 rounded-lg border border-emerald-200 bg-emerald-50">
-        <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+      <div className={`flex items-center gap-3 p-4 rounded-lg border ${errCount > 0 ? "border-red-200 bg-red-50" : warnCount > 0 ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+        <CheckCircle2 className={`w-5 h-5 shrink-0 ${errCount > 0 ? "text-red-500" : warnCount > 0 ? "text-amber-500" : "text-emerald-500"}`} />
         <div className="flex-1">
-          <p className="text-sm font-semibold text-emerald-800">Compilation Successful</p>
-          <p className="text-xs text-emerald-700 mt-0.5">
-            {isLegacy
-              ? "Compiled from legacy PP-1.0 flat format. Consider migrating to PP-2.0 section format."
-              : "Compiled from PP-2.0 structured payload sections."}
+          <p className={`text-sm font-semibold ${errCount > 0 ? "text-red-800" : warnCount > 0 ? "text-amber-800" : "text-emerald-800"}`}>
+            Compiled Production Specification
+          </p>
+          <p className={`text-xs mt-0.5 ${errCount > 0 ? "text-red-700" : warnCount > 0 ? "text-amber-700" : "text-emerald-700"}`}>
+            {isLegacy ? "PP-1.0 legacy format — consider migrating to PP-2.0." : "PP-2.0 structured payload."}
+            {errCount > 0 && ` ${errCount} contract error${errCount !== 1 ? "s" : ""} — review Validation tab.`}
+            {errCount === 0 && warnCount > 0 && ` ${warnCount} warning${warnCount !== 1 ? "s" : ""}.`}
           </p>
         </div>
         <Button size="sm" variant="ghost" onClick={onReset} className="shrink-0 text-muted-foreground hover:text-foreground">
@@ -672,166 +744,461 @@ function SuccessScreen({
         </Button>
       </div>
 
-      {/* View tabs */}
-      <div className="flex gap-1 border-b border-border">
-        {([
-          { key: "summary",    label: "Summary",    icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-          { key: "sections",   label: "Sections",   icon: <Layers className="w-3.5 h-3.5" /> },
-          { key: "provenance", label: "Provenance", icon: <GitBranch className="w-3.5 h-3.5" /> },
-        ] as const).map(({ key, label, icon }) => (
+      {/* Build Pipeline */}
+      <BuildPipeline result={result} />
+
+      {/* 5-tab nav */}
+      <div className="flex gap-0 border-b border-border overflow-x-auto">
+        {tabs.map(({ key, label, icon, badge }) => (
           <button key={key} onClick={() => setActiveView(key)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-b-2 -mb-px ${
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
               activeView === key
                 ? "border-[#1B2A4A] text-[#1B2A4A]"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}>
             {icon}{label}
+            {badge != null && badge > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">{badge}</span>
+            )}
           </button>
         ))}
       </div>
 
-      {/* ── Summary view ──────────────────────────────────────────────────── */}
-      {activeView === "summary" && (
-        <>
-          <Card>
-            <CardContent className="pt-5 pb-4">
-              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                {successFields.map(({ label, value }) => (
-                  <div key={label}>
-                    <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
-                    <p className="text-sm font-medium" title={String(value ?? "—")}>{value ?? "—"}</p>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+      {activeView === "summary"    && <SummaryTab    result={result} preflight={preflight} prov={prov ?? null} />}
+      {activeView === "inspector"  && <InspectorTab  result={result} preflight={preflight} prov={prov ?? null} />}
+      {activeView === "sections"   && <PromptSectionsTab sections={result.compiled_sections ?? []} fullPrompt={result.compiled_prompt ?? ""} promptHash={result.prompt_hash} isLegacy={isLegacy} />}
+      {activeView === "validation" && <ValidationTab errors={result.errors ?? []} warnings={result.warnings ?? []} prov={prov ?? null} />}
+      {activeView === "technical"  && <TechnicalTab  result={result} />}
 
-          {/* Full compiled prompt (monolithic copy) */}
-          {result.compiled_prompt && (
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">Full Compiled Prompt</CardTitle>
-                  <div className="flex items-center gap-1">
-                    <code className="text-xs text-muted-foreground font-mono bg-muted px-2 py-0.5 rounded">
-                      {result.prompt_hash?.slice(0, 16)}…
-                    </code>
-                    <Button size="sm" variant="ghost" className="h-7 px-2"
-                      onClick={() => { navigator.clipboard.writeText(result.compiled_prompt!); toast({ title: "Copied" }); }}>
-                      <Copy className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPrompt(!showPrompt)}>
-                      {showPrompt ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              {showPrompt && (
-                <CardContent className="pt-0">
-                  <Textarea readOnly value={result.compiled_prompt}
-                    className="font-mono text-xs resize-none h-64 bg-muted/30" />
-                </CardContent>
-              )}
-            </Card>
-          )}
-
-          {(result.warnings ?? []).length > 0 && <IssueList title="Warnings" items={result.warnings} variant="warning" />}
-          {result.visual_asset_id && (
-            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-              Visual Asset updated in Notion: <code className="font-mono">{result.visual_asset_id}</code>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── Sections view ─────────────────────────────────────────────────── */}
-      {activeView === "sections" && (
-        <PromptSectionsViewer
-          sections={result.compiled_sections ?? []}
-          isLegacy={isLegacy}
-          hasSections={hasSections}
-        />
-      )}
-
-      {/* ── Provenance view ───────────────────────────────────────────────── */}
-      {activeView === "provenance" && (
-        <ProvenancePanel provenance={result.provenance ?? null} />
+      {result.visual_asset_id && (
+        <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+          Visual Asset updated in Notion: <code className="font-mono">{result.visual_asset_id}</code>
+        </div>
       )}
     </div>
   );
 }
 
-// ── Prompt Sections Viewer ────────────────────────────────────────────────────
+// ── Tab 1: Summary ────────────────────────────────────────────────────────────
 
-function PromptSectionsViewer({
-  sections, isLegacy, hasSections,
+function SummaryTab({
+  result, preflight, prov,
+}: {
+  result: CompileResponse;
+  preflight: PreflightResponse | null;
+  prov: ProvenanceRecord | null;
+}) {
+  const { toast } = useToast();
+  const [showTech, setShowTech] = useState(false);
+
+  const artifactId = prov?.run_id ?? result.run_id ?? "—";
+  const promptHash = result.prompt_hash ?? "—";
+  const errCount = (result.errors ?? []).length;
+  const warnCount = (result.warnings ?? []).length;
+  const validationLabel = errCount > 0
+    ? `${errCount} error${errCount !== 1 ? "s" : ""}`
+    : warnCount > 0 ? `${warnCount} warning${warnCount !== 1 ? "s" : ""}` : "Clean";
+
+  const mainFields: Array<{ label: string; value: string | number | null | undefined }> = [
+    { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification },
+    { label: "Component",                value: prov?.component_type ?? preflight?.component_type },
+    { label: "World",                    value: prov?.world ?? preflight?.world },
+    { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—" },
+    { label: "Component Set",            value: prov?.component_set ?? "—" },
+    { label: "Component Specification",  value: prov?.component_specification ?? preflight?.component_specification ?? "—" },
+    { label: "Payload Version",          value: prov?.payload_version ?? result.payload_version },
+    { label: "Payload Format",           value: prov?.payload_format === "legacy" ? "PP-1.0 (legacy flat keys)" : "PP-2.0 (structured sections)" },
+    { label: "Compiled Artifact ID",     value: artifactId.length > 24 ? `${artifactId.slice(0, 20)}…` : artifactId },
+    { label: "Compiled Prompt Length",   value: result.compiled_prompt ? `${result.compiled_prompt.length.toLocaleString()} chars` : "—" },
+    { label: "Compiler Version",         value: prov?.compiler_version ?? "—" },
+    { label: "Compilation Timestamp",    value: fmtTs(prov?.compilation_timestamp) },
+    { label: "Validation Status",        value: validationLabel },
+    { label: "Next Step",                value: result.next_action ?? "Generate Preview" },
+  ];
+
+  const techFields: Array<{ label: string; value: string }> = [
+    { label: "Run ID (Compiled Artifact ID)", value: artifactId },
+    { label: "Prompt Hash (full)",             value: promptHash },
+    { label: "Production Spec (Notion)",       value: prov?.production_spec_notion_id ?? "—" },
+    { label: "Component Spec (Notion)",        value: prov?.component_spec_notion_id ?? "—" },
+    { label: "Style Guide (Notion)",           value: prov?.style_guide_notion_id ?? "—" },
+    { label: "Prompt Payload (Notion)",        value: prov?.prompt_payload_notion_id ?? "Inline" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="pt-5 pb-4">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+            {mainFields.map(({ label, value }) => (
+              <div key={label}>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
+                <p className="text-sm font-medium" title={String(value ?? "—")}>{value ?? "—"}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Artifact ID + Prompt Hash callout */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex items-start gap-2 p-3 rounded-md border border-[#1B2A4A]/20 bg-[#1B2A4A]/5">
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Compiled Artifact ID · Primary</p>
+            <code className="text-xs font-mono break-all">{artifactId}</code>
+          </div>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0 mt-1"
+            onClick={() => { navigator.clipboard.writeText(artifactId); toast({ title: "Artifact ID copied" }); }}>
+            <Copy className="w-3 h-3" />
+          </Button>
+        </div>
+        <div className="flex items-start gap-2 p-3 rounded-md border border-border bg-muted/20">
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Prompt Hash · Secondary</p>
+            <code className="text-xs font-mono break-all">{promptHash}</code>
+          </div>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0 mt-1"
+            onClick={() => { navigator.clipboard.writeText(promptHash); toast({ title: "Prompt hash copied" }); }}>
+            <Copy className="w-3 h-3" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Expandable Technical Details */}
+      <Card>
+        <button type="button" onClick={() => setShowTech(!showTech)} className="w-full text-left">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Cpu className="w-3.5 h-3.5" />
+                <span className="font-medium">Technical Details</span>
+                <span>— raw IDs and compiler metadata</span>
+              </div>
+              {showTech ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+            </div>
+          </CardContent>
+        </button>
+        {showTech && (
+          <div className="border-t border-border divide-y divide-border">
+            {techFields.map(({ label, value }) => (
+              <div key={label} className="grid grid-cols-[220px_1fr] gap-3 px-4 py-2.5 text-xs">
+                <span className="text-muted-foreground font-medium self-start">{label}</span>
+                <code className="font-mono break-all">{value}</code>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ── Tab 2: Compilation Inspector (Inheritance Tree) ───────────────────────────
+
+interface InheritanceNode {
+  label: string;
+  value?: string;
+  source?: string;
+  status: "ok" | "missing" | "warning";
+  notionId?: string;
+  preview?: string;
+  children?: Array<{ label: string; value?: string; source?: string; notionId?: string; preview?: string }>;
+}
+
+function InspectorTab({
+  result, preflight, prov,
+}: {
+  result: CompileResponse;
+  preflight: PreflightResponse | null;
+  prov: ProvenanceRecord | null;
+}) {
+  const sections = result.compiled_sections ?? [];
+
+  const tree: InheritanceNode[] = [
+    {
+      label: "Production Specification",
+      value: prov?.production_spec_title ?? preflight?.production_specification ?? "—",
+      source: "Notion",
+      status: "ok",
+      notionId: prov?.production_spec_notion_id,
+    },
+    {
+      label: "Creative Task",
+      source: "Production Specification",
+      status: "ok",
+      preview: prov ? `Component: ${prov.component_type}${prov.component_set ? ` · Set: ${prov.component_set}` : ""}` : undefined,
+    },
+    {
+      label: "World",
+      value: prov?.world ?? "—",
+      source: "World record",
+      status: prov?.world ? "ok" : "missing",
+    },
+    ...(prov?.volume ? [{ label: "Volume", value: prov.volume, source: "Volume record", status: "ok" as const }] : []),
+    {
+      label: "Style Guide",
+      value: prov?.style_guide ?? "Not linked",
+      source: prov?.style_guide ? "Notion record" : "None",
+      status: prov?.style_guide ? "ok" : "missing",
+      notionId: prov?.style_guide_notion_id,
+    },
+    {
+      label: "Component Specification",
+      value: prov?.component_specification ?? "Not linked",
+      source: prov?.component_specification ? "Notion record" : "None",
+      status: prov?.component_specification ? "ok" : "missing",
+      notionId: prov?.component_spec_notion_id,
+    },
+    ...(prov?.component_set ? [{ label: "Component Set", value: prov.component_set, source: "Production Specification", status: "ok" as const }] : []),
+    {
+      label: "Prompt Modules",
+      value: (prov?.prompt_modules.length ?? 0) > 0 ? `${prov!.prompt_modules.length} module${prov!.prompt_modules.length !== 1 ? "s" : ""} loaded` : "None linked",
+      source: "Prompt Module records",
+      status: (prov?.prompt_modules.length ?? 0) > 0 ? "ok" : "warning",
+      children: (prov?.prompt_modules ?? []).map((name, i) => ({
+        label: name,
+        notionId: prov?.prompt_module_notion_ids[i],
+      })),
+    },
+    {
+      label: "Prompt Payload",
+      value: prov ? `${prov.payload_version} — ${prov.payload_format === "legacy" ? "Legacy flat keys" : "Structured sections"}` : "—",
+      source: prov?.prompt_payload_type === "linked" ? "Linked Notion record" : "Inline (Production Spec)",
+      status: "ok",
+      notionId: prov?.prompt_payload_notion_id,
+      children: sections
+        .filter(s => ["shared_prompt","front_prompt","back_prompt","inside_prompt","outside_prompt","assembly_prompt","negative_prompt"].includes(s.key))
+        .map(s => ({ label: s.label, value: `${s.content.length.toLocaleString()} chars`, source: s.source, preview: s.content.slice(0, 120) + (s.content.length > 120 ? "…" : "") })),
+    },
+    {
+      label: "Canon",
+      value: (prov?.canon_records.length ?? 0) > 0 ? `${prov!.canon_records.length} record${prov!.canon_records.length !== 1 ? "s" : ""}` : "No canon records",
+      source: "Canon Records",
+      status: (prov?.canon_records.length ?? 0) > 0 ? "ok" : "warning",
+      children: (prov?.canon_records ?? []).map((name, i) => ({ label: name, notionId: prov?.canon_record_notion_ids[i] })),
+    },
+    {
+      label: "Print Specification",
+      source: "Production Specification",
+      status: "ok",
+      preview: prov ? `Component: ${prov.component_type}` : "—",
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        {tree.map((node, i) => <InheritanceNodeCard key={i} node={node} />)}
+      </div>
+
+      {/* Provenance chain */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <GitBranch className="w-4 h-4 text-[#1B2A4A]" />
+            Compilation Provenance
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <ProvenanceChain prov={prov} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function InheritanceNodeCard({ node }: { node: InheritanceNode }) {
+  const [open, setOpen] = useState(false);
+  const hasChildren = (node.children ?? []).length > 0;
+  const isExpandable = hasChildren || !!node.preview;
+
+  const statusCls = { ok: "bg-emerald-100 text-emerald-700", missing: "bg-gray-100 text-gray-500", warning: "bg-amber-100 text-amber-700" };
+  const StatusIcon = ({ s }: { s: "ok" | "missing" | "warning" }) =>
+    s === "ok" ? <CheckCircle2 className="w-3 h-3" /> : s === "warning" ? <AlertTriangle className="w-3 h-3" /> : <Info className="w-3 h-3" />;
+  const statusLabel = { ok: "Inherited", missing: "Not linked", warning: "No records" };
+
+  const url = notionUrl(node.notionId);
+
+  return (
+    <Card className="overflow-hidden">
+      <button type="button" onClick={() => isExpandable && setOpen(!open)}
+        className={`w-full text-left ${isExpandable ? "cursor-pointer" : "cursor-default"}`}>
+        <CardContent className="py-3 px-4">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-medium">{node.label}</span>
+                {node.value && <span className="text-sm text-[#1B2A4A] font-medium">{node.value}</span>}
+                <span className={`flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full font-medium ${statusCls[node.status]}`}>
+                  <StatusIcon s={node.status} />{statusLabel[node.status]}
+                </span>
+              </div>
+              {node.source && <p className="text-[11px] text-muted-foreground mt-0.5">Source: {node.source}</p>}
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {url && (
+                <a href={url} target="_blank" rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted/50">
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+              {isExpandable && (open ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />)}
+            </div>
+          </div>
+        </CardContent>
+      </button>
+
+      {open && (
+        <div className="border-t border-border bg-muted/20">
+          {node.preview && (
+            <div className="px-4 py-3 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-words">
+              {node.preview}
+            </div>
+          )}
+          {hasChildren && (
+            <div className="divide-y divide-border">
+              {node.children!.map((child, ci) => {
+                const childUrl = notionUrl(child.notionId);
+                return (
+                  <div key={ci} className="flex items-start gap-3 px-4 py-2.5 text-xs">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium">{child.label}</span>
+                        {child.value && <span className="text-muted-foreground">{child.value}</span>}
+                      </div>
+                      {child.source && <p className="text-muted-foreground mt-0.5">{child.source}</p>}
+                      {child.preview && <p className="text-muted-foreground mt-0.5 truncate" title={child.preview}>{child.preview}</p>}
+                    </div>
+                    {childUrl && (
+                      <a href={childUrl} target="_blank" rel="noopener noreferrer"
+                        className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 shrink-0">
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ProvenanceChain({ prov }: { prov: ProvenanceRecord | null }) {
+  if (!prov) return <p className="text-xs text-muted-foreground">Provenance data not available.</p>;
+
+  const items: Array<{ label: string; value: string; notionId?: string }> = [
+    { label: "Production Specification", value: prov.production_spec_title, notionId: prov.production_spec_notion_id },
+    ...(prov.component_specification ? [{ label: "Component Specification", value: prov.component_specification, notionId: prov.component_spec_notion_id }] : []),
+    ...(prov.style_guide ? [{ label: "Style Guide", value: prov.style_guide, notionId: prov.style_guide_notion_id }] : []),
+    ...(prov.prompt_modules.length > 0 ? [{ label: "Prompt Modules", value: prov.prompt_modules.join(", ") }] : []),
+    { label: "Prompt Payload", value: prov.payload_version, notionId: prov.prompt_payload_notion_id },
+    ...(prov.canon_records.length > 0 ? [{ label: "Canon Records", value: prov.canon_records.join(", ") }] : []),
+    { label: "Print Specification", value: prov.component_type },
+  ];
+
+  return (
+    <div className="space-y-0">
+      {items.map((item, i) => {
+        const url = notionUrl(item.notionId);
+        return (
+          <div key={i} className="flex flex-col">
+            <div className={`flex items-center gap-2 px-3 py-2.5 rounded-md text-xs ${url ? "hover:bg-muted/40 cursor-pointer" : ""}`}
+              onClick={() => url && window.open(url, "_blank")}>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{item.label}</p>
+                <p className="font-medium text-sm">{item.value}</p>
+              </div>
+              {url && <Link2 className="w-3 h-3 text-muted-foreground shrink-0" />}
+            </div>
+            {i < items.length - 1 && (
+              <div className="flex items-center ml-3 my-0.5">
+                <div className="w-px h-4 bg-border" />
+                <span className="text-[10px] text-muted-foreground ml-1.5">↓</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Tab 3: Prompt Sections ─────────────────────────────────────────────────────
+
+function PromptSectionsTab({
+  sections, fullPrompt, promptHash, isLegacy,
 }: {
   sections: CompiledSectionRecord[];
+  fullPrompt: string;
+  promptHash?: string;
   isLegacy: boolean;
-  hasSections: boolean;
 }) {
-  const [openKeys, setOpenKeys] = useState<Set<string>>(new Set(["shared_prompt", "front_prompt"]));
   const { toast } = useToast();
+  const [openKeys, setOpenKeys] = useState<Set<string>>(new Set(["shared_prompt", "front_prompt"]));
 
   const toggle = (key: string) =>
-    setOpenKeys((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
+    setOpenKeys((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
 
-  if (!hasSections) {
+  if (sections.length === 0) {
     return (
       <div className="flex items-center gap-3 p-4 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-        <Layers className="w-4 h-4 shrink-0" />
-        No structured sections available for this compile.
+        <Layers className="w-4 h-4 shrink-0" />No structured sections available for this compile.
       </div>
     );
   }
+
+  const handleExport = () => exportJson({
+    prompt_hash: promptHash, is_legacy_format: isLegacy,
+    sections: sections.map(s => ({ key: s.key, label: s.label, source: s.source, char_count: s.content.length, content: s.content })),
+    full_prompt: fullPrompt,
+  }, `compiled-prompt-${promptHash?.slice(0, 12) ?? "export"}.json`);
 
   return (
     <div className="space-y-3">
       {isLegacy && (
         <div className="flex items-start gap-2 p-3 rounded-md border border-amber-200 bg-amber-50 text-xs text-amber-800">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Legacy PP-1.0 format</p>
-            <p className="mt-0.5">These sections are derived from the flat-key payload. Migrate to PP-2.0 to unlock richer per-section provenance and contract-driven validation.</p>
-          </div>
+          <div><p className="font-medium">Legacy PP-1.0 format</p><p className="mt-0.5">Sections derived from flat-key payload. Migrate to PP-2.0 for richer provenance.</p></div>
         </div>
       )}
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button size="sm" variant="outline" className="h-7"
+          onClick={() => { navigator.clipboard.writeText(fullPrompt); toast({ title: "Full prompt copied" }); }}>
+          <Copy className="w-3 h-3 mr-1.5" />Copy Entire Prompt
+        </Button>
+        <Button size="sm" variant="outline" className="h-7" onClick={handleExport}>
+          <Download className="w-3 h-3 mr-1.5" />Export JSON
+        </Button>
+        <span className="text-xs text-muted-foreground ml-auto">
+          {fullPrompt.length.toLocaleString()} total chars · {sections.length} section{sections.length !== 1 ? "s" : ""}
+        </span>
+      </div>
 
       <div className="space-y-2">
         {sections.map((s) => (
           <Card key={s.key} className="overflow-hidden">
-            <button
-              type="button"
-              onClick={() => toggle(s.key)}
-              className="w-full text-left"
-            >
+            <button type="button" onClick={() => toggle(s.key)} className="w-full text-left">
               <CardContent className="py-3 px-4">
                 <div className="flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium">{s.label}</span>
-                      <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full truncate max-w-[240px]" title={s.source}>
-                        {s.source}
-                      </span>
+                      <span className="text-xs text-muted-foreground bg-muted/80 px-2 py-0.5 rounded-full">{s.content.length.toLocaleString()} chars</span>
+                      <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={s.source}>{s.source}</span>
                     </div>
                     {!openKeys.has(s.key) && (
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.content.slice(0, 100)}…</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.content.slice(0, 100)}{s.content.length > 100 ? "…" : ""}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      size="sm" variant="ghost" className="h-6 w-6 p-0"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigator.clipboard.writeText(s.content);
-                        toast({ title: `"${s.label}" copied` });
-                      }}
-                    >
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0"
+                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(s.content); toast({ title: `"${s.label}" copied` }); }}>
                       <Copy className="w-3 h-3" />
                     </Button>
                     {openKeys.has(s.key) ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
@@ -841,9 +1208,7 @@ function PromptSectionsViewer({
             </button>
             {openKeys.has(s.key) && (
               <div className="border-t border-border bg-muted/20 px-4 py-3">
-                <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground leading-relaxed">
-                  {s.content}
-                </pre>
+                <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground leading-relaxed">{s.content}</pre>
               </div>
             )}
           </Card>
@@ -853,58 +1218,182 @@ function PromptSectionsViewer({
   );
 }
 
-// ── Provenance Panel ──────────────────────────────────────────────────────────
+// ── Tab 4: Validation ─────────────────────────────────────────────────────────
 
-function ProvenancePanel({ provenance }: { provenance: ProvenanceRecord | null }) {
-  if (!provenance) {
-    return (
-      <div className="flex items-center gap-3 p-4 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-        <GitBranch className="w-4 h-4 shrink-0" />
-        Provenance data not available for this compile.
+function ValidationTab({
+  errors, warnings, prov,
+}: {
+  errors: ValidationError[];
+  warnings: ValidationError[];
+  prov: ProvenanceRecord | null;
+}) {
+  const allClean = errors.length === 0 && warnings.length === 0;
+  const specUrl    = notionUrl(prov?.production_spec_notion_id);
+  const payloadUrl = notionUrl(prov?.prompt_payload_notion_id);
+  const compUrl    = notionUrl(prov?.component_spec_notion_id);
+
+  return (
+    <div className="space-y-4">
+      {/* Notion navigation */}
+      {(specUrl || payloadUrl || compUrl) && (
+        <div className="flex flex-wrap gap-2">
+          {specUrl && <a href={specUrl} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1.5"><ExternalLink className="w-3 h-3" />Production Specification</Button></a>}
+          {payloadUrl && <a href={payloadUrl} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1.5"><ExternalLink className="w-3 h-3" />Prompt Payload</Button></a>}
+          {compUrl && <a href={compUrl} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1.5"><ExternalLink className="w-3 h-3" />Component Specification</Button></a>}
+        </div>
+      )}
+
+      {allClean && (
+        <div className="flex items-center gap-3 p-4 rounded-lg border border-emerald-200 bg-emerald-50">
+          <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-emerald-800">Validation passed</p>
+            <p className="text-xs text-emerald-700 mt-0.5">No errors or warnings. Ready for preview generation.</p>
+          </div>
+        </div>
+      )}
+
+      {errors.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-red-600">
+            <XCircle className="w-4 h-4" />Errors ({errors.length})
+          </div>
+          {errors.map((e, i) => e.code === "MISSING_REQUIRED_SECTION"
+            ? <ContractViolationCard key={i} e={e} variant="error" />
+            : <GenericIssueRow key={i} e={e} variant="error" />
+          )}
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-amber-600">
+            <AlertTriangle className="w-4 h-4" />Warnings ({warnings.length})
+          </div>
+          {warnings.map((w, i) => w.code === "MISSING_REQUIRED_SECTION"
+            ? <ContractViolationCard key={i} e={w} variant="warning" />
+            : <GenericIssueRow key={i} e={w} variant="warning" />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GenericIssueRow({ e, variant }: { e: ValidationError; variant: "error" | "warning" }) {
+  return (
+    <div className={`rounded-md p-3 text-xs space-y-1 ${variant === "error" ? "bg-red-50" : "bg-amber-50"}`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <code className="font-mono font-medium">{e.code}</code>
+        <span className="text-muted-foreground">·</span>
+        <span className="font-medium">{e.field}</span>
+        <span className="text-muted-foreground ml-auto text-right">{e.governing_rule}</span>
       </div>
-    );
-  }
+      <p>{e.message}</p>
+      <p className={`font-medium ${variant === "error" ? "text-red-700" : "text-amber-700"}`}>→ {e.recommended_action}</p>
+    </div>
+  );
+}
 
-  const rows: Array<{ label: string; value: string }> = [
-    { label: "World",                value: provenance.world },
-    { label: "Volume",               value: provenance.volume ?? "—" },
-    { label: "Style Guide",          value: provenance.style_guide ?? "Not linked" },
-    { label: "Component Spec",       value: provenance.component_specification ?? "Not linked" },
-    { label: "Prompt Payload",       value: provenance.prompt_payload },
-    { label: "Prompt Modules",       value: provenance.prompt_modules.length > 0 ? provenance.prompt_modules.join(", ") : "None" },
-    { label: "Canon Records",        value: provenance.canon_records.length > 0 ? provenance.canon_records.join(", ") : "None" },
-    { label: "Payload Version",      value: provenance.payload_version },
-    { label: "Payload Format",       value: provenance.payload_format === "legacy" ? "PP-1.0 (legacy flat keys)" : "PP-2.0 (structured sections)" },
-    { label: "Compiler Version",     value: provenance.compiler_version },
+// ── Tab 5: Technical Details ──────────────────────────────────────────────────
+
+function TechnicalTab({ result }: { result: CompileResponse }) {
+  const { toast } = useToast();
+  const [showIds, setShowIds] = useState(false);
+  const prov = result.provenance;
+
+  const metaRows: Array<{ label: string; value: string }> = [
+    { label: "Compiler Version",       value: prov?.compiler_version ?? "—" },
+    { label: "Compiler Build",         value: "worldsmith-2.0" },
+    { label: "Provider",               value: "Notion + Anthropic" },
+    { label: "Compilation Timestamp",  value: fmtTs(prov?.compilation_timestamp) },
+    { label: "Prompt Length",          value: result.compiled_prompt ? `${result.compiled_prompt.length.toLocaleString()} chars` : "—" },
+    { label: "Prompt Hash",            value: result.prompt_hash ?? "—" },
+    { label: "Prompt Modules Loaded",  value: String(prov?.prompt_modules.length ?? "—") },
+    { label: "Canon Records",          value: String(prov?.canon_records.length ?? "—") },
+  ];
+
+  const idRows: Array<{ label: string; value?: string }> = [
+    { label: "Run ID (Compiled Artifact ID)",   value: prov?.run_id ?? result.run_id },
+    { label: "Production Spec (Notion ID)",     value: prov?.production_spec_notion_id },
+    { label: "Component Spec (Notion ID)",      value: prov?.component_spec_notion_id },
+    { label: "Style Guide (Notion ID)",         value: prov?.style_guide_notion_id },
+    { label: "Prompt Payload (Notion ID)",      value: prov?.prompt_payload_notion_id },
+    ...(prov?.prompt_module_notion_ids ?? []).map((id, i) => ({ label: `Prompt Module ${i + 1} (Notion ID)`, value: id })),
+    ...(prov?.canon_record_notion_ids ?? []).map((id, i) => ({ label: `Canon Record ${i + 1} (Notion ID)`, value: id })),
   ];
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {/* Export actions */}
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" className="h-7"
+          onClick={() => exportJson(result, `compilation-report-${result.run_id?.slice(0, 12) ?? "export"}.json`)}>
+          <Download className="w-3 h-3 mr-1.5" />Export Report
+        </Button>
+        <Button size="sm" variant="outline" className="h-7"
+          onClick={() => exportJson(prov, `provenance-${result.run_id?.slice(0, 12) ?? "export"}.json`)}>
+          <Download className="w-3 h-3 mr-1.5" />Export Provenance
+        </Button>
+        <Button size="sm" variant="outline" className="h-7"
+          onClick={() => exportJson({ prompt: result.compiled_prompt, hash: result.prompt_hash }, `compiled-prompt-${result.prompt_hash?.slice(0, 12) ?? "export"}.json`)}>
+          <Download className="w-3 h-3 mr-1.5" />Export Prompt
+        </Button>
+      </div>
+
+      {/* Compiler metadata */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
-            <GitBranch className="w-4 h-4 text-[#1B2A4A]" />
-            Compilation Provenance
+            <Cpu className="w-4 h-4 text-[#1B2A4A]" />Compiler Metadata
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0 space-y-2">
-          {rows.map(({ label, value }) => (
-            <div key={label} className="grid grid-cols-[160px_1fr] gap-3 text-sm">
-              <span className="text-[11px] text-muted-foreground uppercase tracking-wide self-start pt-0.5">{label}</span>
-              <span className="text-sm break-words" title={value}>{value}</span>
+        <CardContent className="pt-0 divide-y divide-border">
+          {metaRows.map(({ label, value }) => (
+            <div key={label} className="grid grid-cols-[220px_1fr] gap-3 py-2.5 text-xs">
+              <span className="text-muted-foreground font-medium">{label}</span>
+              <span className="font-mono break-all">{value}</span>
             </div>
           ))}
         </CardContent>
       </Card>
 
-      {/* Prompt hash */}
-      <div className="flex items-center gap-2 p-3 rounded-md bg-muted/30 border border-border">
-        <Hash className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Prompt Hash</p>
-          <code className="text-xs font-mono break-all">{provenance.prompt_hash}</code>
-        </div>
-      </div>
+      {/* UUID toggle */}
+      <Card>
+        <button type="button" onClick={() => setShowIds(!showIds)} className="w-full text-left">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs">
+                <Hash className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="font-medium">Notion IDs / UUIDs</span>
+                <span className="text-muted-foreground">— {showIds ? "showing raw identifiers" : "hidden by default"}</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                {showIds ? "Hide IDs" : "Show Technical IDs"}
+                {showIds ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </div>
+            </div>
+          </CardContent>
+        </button>
+        {showIds && (
+          <div className="border-t border-border divide-y divide-border">
+            {idRows.map(({ label, value }) => (
+              <div key={label} className="flex items-start gap-3 px-4 py-2.5 text-xs">
+                <span className="text-muted-foreground font-medium shrink-0 w-[220px]">{label}</span>
+                <div className="flex-1 flex items-start gap-2 min-w-0">
+                  <code className="font-mono break-all flex-1">{value ?? "—"}</code>
+                  {value && (
+                    <Button size="sm" variant="ghost" className="h-5 w-5 p-0 shrink-0"
+                      onClick={() => { navigator.clipboard.writeText(value); toast({ title: "ID copied" }); }}>
+                      <Copy className="w-3 h-3" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

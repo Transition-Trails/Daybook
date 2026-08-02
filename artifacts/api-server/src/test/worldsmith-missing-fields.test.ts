@@ -480,6 +480,8 @@ describe("POST /api/v1/prompt-compilations — HTTP status codes", () => {
 
 const STYLE_GUIDE_ID = "sg-test-001";
 const MODULE_ID = "mod-test-001";
+const COMPONENT_SPEC_ID = "cs-test-001";
+const CANON_RECORD_ID = "cr-test-001";
 
 /** A valid production spec page that links a Style Guide and a Prompt Module. */
 function makeFullSpecPage() {
@@ -493,6 +495,43 @@ function makeFullSpecPage() {
     {
       "Style Guide": [STYLE_GUIDE_ID],
       "Prompt Modules": [MODULE_ID],
+    },
+  );
+}
+
+/**
+ * A valid production spec page that links a Component Specification.
+ * No Style Guide so the resolver reaches Component Spec on the second getPage call.
+ */
+function makeSpecWithComponentSpec() {
+  return makePageWithRelations(
+    SPEC_ID,
+    {
+      World: "Thornvale",
+      "Component Type": "Cover Art",
+      "Payload Version": "PP-1.0",
+    },
+    {
+      "Component Specification": [COMPONENT_SPEC_ID],
+    },
+  );
+}
+
+/**
+ * A valid production spec page that links Canon Records.
+ * No Style Guide, Component Spec, or Prompt Modules so the resolver reaches
+ * Canon Records on the second getPage call.
+ */
+function makeSpecWithCanonRecords() {
+  return makePageWithRelations(
+    SPEC_ID,
+    {
+      World: "Thornvale",
+      "Component Type": "Cover Art",
+      "Payload Version": "PP-1.0",
+    },
+    {
+      "Canon Records": [CANON_RECORD_ID],
     },
   );
 }
@@ -608,6 +647,246 @@ describe("POST /api/v1/prompt-compilations — inner resolver HTTP status codes"
     expect(res.status).toBe(503);
     expect(res.body.status).toBe("failed");
     expect(res.body.error_code).toBe("NOTION_RATE_LIMITED");
+    expect(res.body.retry_safe).toBe(true);
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+  });
+});
+
+// ── Component Spec error classification ───────────────────────────────────────
+
+describe("runCompilation — Component Spec network timeout", () => {
+  it("returns NOTION_UNREACHABLE (not COMPONENT_SPEC_NOT_FOUND) when the Component Spec fetch times out", async () => {
+    // First call: production spec succeeds (with a Component Specification relation)
+    mockGetPage.mockResolvedValueOnce(makeSpecWithComponentSpec());
+    // Second call: component spec times out
+    mockGetPage.mockRejectedValueOnce(
+      new Error("connect ETIMEDOUT 2a00:1450:4001:82b::200a:443"),
+    );
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_UNREACHABLE");
+    expect(result.failed_stage).toBe("resolve_component_spec");
+    expect(result.retry_safe).toBe(true);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors![0].code).toBe("NOTION_UNREACHABLE");
+  });
+
+  it("treats Component Spec AbortError as NOTION_UNREACHABLE", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecWithComponentSpec());
+    const abortErr = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+    mockGetPage.mockRejectedValueOnce(abortErr);
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_UNREACHABLE");
+    expect(result.failed_stage).toBe("resolve_component_spec");
+    expect(result.retry_safe).toBe(true);
+  });
+});
+
+describe("runCompilation — Component Spec 429 rate-limit", () => {
+  it("returns NOTION_RATE_LIMITED (not COMPONENT_SPEC_NOT_FOUND) when Notion rate-limits the Component Spec fetch", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecWithComponentSpec());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("Notion API GET /pages/cs-test-001 → 429: Too Many Requests"),
+    );
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_RATE_LIMITED");
+    expect(result.failed_stage).toBe("resolve_component_spec");
+    expect(result.retry_safe).toBe(true);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors![0].code).toBe("NOTION_RATE_LIMITED");
+  });
+});
+
+describe("runCompilation — Component Spec genuine 404", () => {
+  it("returns COMPONENT_SPEC_NOT_FOUND when the Component Spec page truly does not exist", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecWithComponentSpec());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("Notion API GET /pages/cs-test-001 → 404: Could not find page with ID"),
+    );
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("COMPONENT_SPEC_NOT_FOUND");
+    expect(result.failed_stage).toBe("resolve_component_spec");
+    expect(result.retry_safe).toBe(true);
+  });
+});
+
+// ── Canon Record error classification ────────────────────────────────────────
+
+describe("runCompilation — Canon Record network timeout", () => {
+  it("returns NOTION_UNREACHABLE (not CANON_RECORD_NOT_FOUND) when the Canon Record fetch times out", async () => {
+    // First call: production spec succeeds (with a Canon Records relation, no other deps)
+    mockGetPage.mockResolvedValueOnce(makeSpecWithCanonRecords());
+    // Second call: canon record times out
+    mockGetPage.mockRejectedValueOnce(
+      new Error("connect ETIMEDOUT 2a00:1450:4001:82b::200a:443"),
+    );
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_UNREACHABLE");
+    expect(result.failed_stage).toBe("resolve_canon_records");
+    expect(result.retry_safe).toBe(true);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors![0].code).toBe("NOTION_UNREACHABLE");
+  });
+
+  it("treats Canon Record AbortError as NOTION_UNREACHABLE", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecWithCanonRecords());
+    const abortErr = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+    mockGetPage.mockRejectedValueOnce(abortErr);
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_UNREACHABLE");
+    expect(result.failed_stage).toBe("resolve_canon_records");
+    expect(result.retry_safe).toBe(true);
+  });
+});
+
+describe("runCompilation — Canon Record 429 rate-limit", () => {
+  it("returns NOTION_RATE_LIMITED (not CANON_RECORD_NOT_FOUND) when Notion rate-limits the Canon Record fetch", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecWithCanonRecords());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("Notion API GET /pages/cr-test-001 → 429: Too Many Requests"),
+    );
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_RATE_LIMITED");
+    expect(result.failed_stage).toBe("resolve_canon_records");
+    expect(result.retry_safe).toBe(true);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors![0].code).toBe("NOTION_RATE_LIMITED");
+  });
+});
+
+describe("runCompilation — Canon Record genuine 404", () => {
+  it("returns CANON_RECORD_NOT_FOUND when the Canon Record page truly does not exist", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecWithCanonRecords());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("Notion API GET /pages/cr-test-001 → 404: Could not find page with ID"),
+    );
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("CANON_RECORD_NOT_FOUND");
+    expect(result.failed_stage).toBe("resolve_canon_records");
+    expect(result.retry_safe).toBe(true);
+  });
+});
+
+describe("POST /api/v1/prompt-compilations — Component Spec and Canon Record HTTP status codes", () => {
+  it("Component Spec timeout → 503 NOTION_UNREACHABLE (not 500 crash)", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecWithComponentSpec());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("connect ETIMEDOUT 2a00:1450:4001:82b::200a:443"),
+    );
+
+    const res = await request(app)
+      .post("/api/v1/prompt-compilations")
+      .send({ notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true });
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error_code).toBe("NOTION_UNREACHABLE");
+    expect(res.body.failed_stage).toBe("resolve_component_spec");
+    expect(res.body.retry_safe).toBe(true);
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+  });
+
+  it("Component Spec 429 → 503 NOTION_RATE_LIMITED (not 500 crash)", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecWithComponentSpec());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("Notion API GET /pages/cs-test-001 → 429: Too Many Requests"),
+    );
+
+    const res = await request(app)
+      .post("/api/v1/prompt-compilations")
+      .send({ notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true });
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error_code).toBe("NOTION_RATE_LIMITED");
+    expect(res.body.failed_stage).toBe("resolve_component_spec");
+    expect(res.body.retry_safe).toBe(true);
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+  });
+
+  it("Canon Record timeout → 503 NOTION_UNREACHABLE (not 500 crash)", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecWithCanonRecords());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("connect ETIMEDOUT 2a00:1450:4001:82b::200a:443"),
+    );
+
+    const res = await request(app)
+      .post("/api/v1/prompt-compilations")
+      .send({ notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true });
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error_code).toBe("NOTION_UNREACHABLE");
+    expect(res.body.failed_stage).toBe("resolve_canon_records");
+    expect(res.body.retry_safe).toBe(true);
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+  });
+
+  it("Canon Record 429 → 503 NOTION_RATE_LIMITED (not 500 crash)", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecWithCanonRecords());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("Notion API GET /pages/cr-test-001 → 429: Too Many Requests"),
+    );
+
+    const res = await request(app)
+      .post("/api/v1/prompt-compilations")
+      .send({ notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true });
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error_code).toBe("NOTION_RATE_LIMITED");
+    expect(res.body.failed_stage).toBe("resolve_canon_records");
     expect(res.body.retry_safe).toBe(true);
     expect(Array.isArray(res.body.errors)).toBe(true);
     expect(res.body.errors.length).toBeGreaterThan(0);

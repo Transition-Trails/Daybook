@@ -1,0 +1,658 @@
+Refine the WorldSmith Publishing Engine into a polished, production-ready publishing workflow.
+
+The underlying architecture is now strong. This work is NOT about adding major new features. It is about improving usability, reducing cognitive load, and making the application feel like professional publishing software rather than a compiler UI.
+
+The goal is for a Creative Director, Product Manager, or Publishing Coordinator to immediately understand:
+
+• What am I working on?
+• Is it healthy?
+• What should I do next?
+• Can I safely continue?
+
+without scrolling through the page.
+
+==================================================
+DESIGN GOAL
+==================================================
+
+The Publishing Engine should feel closer to:
+
+• Adobe InDesign Preflight
+• GitHub Actions
+• Figma Dev Mode
+• Azure DevOps Release Pipelines
+
+and less like:
+
+• a developer debugging screen
+• a prompt engineering tool
+• a long inspection report
+
+==================================================
+1. STICKY PUBLISHING STATUS HEADER
+==================================================
+
+Create a compact sticky header that remains visible while scrolling.
+
+Display:
+
+--------------------------------------------------
+
+Production Specification
+JC-002 · Daily Garden Observations
+
+Publishing Stage
+Ready for Specification Board
+
+Production Readiness
+
+Overall Readiness
+Ready for Specification Board
+
+Validation
+
+0 Errors
+
+0 Warnings
+
+2 Recommendations
+
+Primary Next Action
+
+Generate Specification Board
+
+--------------------------------------------------
+
+Include:
+
+World
+
+Collection
+
+Volume
+
+Current Component
+
+Status badge
+
+This header should collapse into a compact version while scrolling.
+
+==================================================
+2. FRIENDLY NAMES
+==================================================
+
+Never display UUIDs in the primary interface.
+
+Resolve and display:
+
+World
+
+Collection
+
+Volume
+
+Component Set
+
+Style Guide
+
+Component Specification
+
+Canon
+
+Prompt Payload
+
+Prompt Modules
+
+If a friendly title cannot be resolved:
+
+Display:
+
+Unknown Record
+
+with an information icon.
+
+UUIDs belong only inside:
+
+Technical Details
+
+==================================================
+3. SMART ACTION CENTER
+==================================================
+
+Replace the current flat button layout.
+
+Use:
+
+PRIMARY ACTION
+
+One large button.
+
+Examples:
+
+Generate Specification Board
+
+Review Specification Board
+
+Generate Artwork
+
+Review Artwork
+
+Publish Asset
+
+Only display the action that advances the workflow.
+
+--------------------------------------
+
+SECONDARY ACTIONS
+
+Smaller buttons.
+
+Examples:
+
+Inspect Records
+
+Review Validation
+
+Prompt Assembly
+
+Open Production Specification
+
+Open Component Specification
+
+Technical Details
+
+The Action Center should adapt automatically to workflow stage.
+
+==================================================
+4. PUBLISHING PROGRESS
+==================================================
+
+Replace:
+
+Ready For
+
+with:
+
+Publishing Progress
+
+Display:
+
+✓ Resolved
+
+✓ Validated
+
+✓ Inherited
+
+✓ Compiled
+
+✓ Ready for Specification Board
+
+○ Awaiting Specification Review
+
+○ Ready for Artwork
+
+○ Artwork Generation
+
+○ Artwork QA
+
+○ Ready to Publish
+
+○ Published
+
+Current stage highlighted.
+
+Completed stages green.
+
+Future stages muted.
+
+==================================================
+5. READINESS PANEL
+==================================================
+
+Keep the existing checklist.
+
+Enhance it.
+
+Display:
+
+Production Specification
+
+✓
+
+Component Specification
+
+✓
+
+Style Guide
+
+✓
+
+Prompt Modules
+
+✓
+
+Prompt Payload
+
+✓
+
+Canon
+
+✓
+
+Print Specification
+
+✓
+
+Compiled Artifact
+
+✓
+
+Payload Contract
+
+Legacy PP-1.0
+
+--------------------------------------
+
+Below the checklist add:
+
+Blocking Issues
+
+None
+
+Warnings
+
+None
+
+Recommendations
+
+Upgrade Payload Contract to PP-2.0
+
+Do not mix these together.
+
+==================================================
+6. RECOMMENDATIONS PANEL
+==================================================
+
+Create a separate card.
+
+Recommendations should no longer appear as warnings.
+
+Example:
+
+Upgrade Payload Contract
+
+Current
+
+PP-1.0
+
+Recommended
+
+PP-2.0
+
+Benefits
+
+✓ Structured prompts
+
+✓ Front/back support
+
+✓ Assembly prompts
+
+✓ Future components
+
+Estimated Migration
+
+Less than two minutes
+
+Action
+
+Upgrade Payload
+
+Recommendations should never prevent Specification Board generation.
+
+==================================================
+7. PRODUCTION SUMMARY
+==================================================
+
+Refine the layout.
+
+Instead of two loose columns, organize into groups.
+
+Identity
+
+Production Specification
+
+World
+
+Collection
+
+Volume
+
+Component
+
+Component Set
+
+--------------------------------------
+
+Compilation
+
+Compiled Artifact ID
+
+Prompt Hash
+
+Compiler Version
+
+Compilation Time
+
+Prompt Length
+
+--------------------------------------
+
+Current State
+
+Publishing Stage
+
+Payload Format
+
+Validation
+
+Next Action
+
+==================================================
+8. COMPILATION TIMELINE
+==================================================
+
+Add a timeline card.
+
+Example
+
+2:10 PM
+
+Resolved
+
+2:10 PM
+
+Validated
+
+2:10 PM
+
+Inherited
+
+2:10 PM
+
+Compiled
+
+2:10 PM
+
+Prompt Hash Generated
+
+Pending
+
+Specification Board
+
+Pending
+
+Artwork
+
+Pending
+
+QA
+
+Pending
+
+Publish
+
+Display elapsed time.
+
+==================================================
+9. COST ESTIMATE
+==================================================
+
+Add a small publishing cost estimate.
+
+Example
+
+Specification Board
+
+Estimated
+
+$0.01
+
+Artwork
+
+Estimated
+
+$0.07
+
+QA
+
+No Cost
+
+Estimated Total
+
+$0.08
+
+Display provider and model used.
+
+Future-proof this panel.
+
+==================================================
+10. CONTEXTUAL HELP
+==================================================
+
+Replace technical status messages with coaching.
+
+Instead of:
+
+Legacy PP-1.0
+
+Display:
+
+Upgrade Available
+
+Benefits
+
+Structured prompt sections
+
+Front and back artwork support
+
+Construction assets
+
+Future-proof publishing workflow
+
+Estimated effort
+
+Under two minutes
+
+Button
+
+Upgrade Now
+
+==================================================
+11. SPECIFICATION BOARD CARD
+==================================================
+
+Improve the final card.
+
+Display:
+
+Specification Board
+
+Status
+
+Not Generated
+
+or
+
+Generated
+
+If generated:
+
+Show thumbnail.
+
+Show generation timestamp.
+
+Buttons
+
+Open Board
+
+Generate New Board
+
+Open Notion Record
+
+Only show Generate when appropriate.
+
+==================================================
+12. PUBLISHING ENGINE TERMINOLOGY
+==================================================
+
+Use consistent publishing language.
+
+Replace:
+
+Generate Image
+
+↓
+
+Generate Artwork
+
+Generate Preview
+
+↓
+
+Generate Specification Board
+
+Compiled Prompt
+
+↓
+
+Compiled Production Specification
+
+Validation Status
+
+↓
+
+Production Readiness
+
+Prompt Hash
+
+↓
+
+Compiled Artifact ID
+
+==================================================
+13. VISUAL POLISH
+==================================================
+
+Improve spacing.
+
+Increase white space.
+
+Reduce card density.
+
+Use subtle separators.
+
+Improve typography hierarchy.
+
+Primary actions should stand out.
+
+Secondary information should recede.
+
+Status colors should be consistent throughout the application.
+
+==================================================
+14. MICROINTERACTIONS
+==================================================
+
+Add:
+
+Smooth workflow transitions.
+
+Animated stage completion.
+
+Copy confirmations.
+
+Loading skeletons.
+
+Success checkmarks.
+
+Hover states.
+
+Expandable sections.
+
+Preserve scroll position.
+
+==================================================
+15. RESPONSIVENESS
+==================================================
+
+Ensure the Publishing Engine works well on:
+
+Desktop
+
+Tablet
+
+Mobile
+
+Sticky header should collapse gracefully.
+
+Publishing pipeline should become horizontally scrollable.
+
+Action Center should stack intelligently.
+
+==================================================
+16. ACCEPTANCE CRITERIA
+==================================================
+
+The Publishing Engine should feel like a polished publishing platform.
+
+Users should immediately understand:
+
+• what asset they are working on
+
+• what publishing stage it is in
+
+• whether it is healthy
+
+• whether it is ready for the next step
+
+• what they should do next
+
+The UI should guide users naturally from:
+
+Resolve
+
+↓
+
+Validate
+
+↓
+
+Inspect
+
+↓
+
+Generate Specification Board
+
+↓
+
+Specification Review
+
+↓
+
+Generate Artwork
+
+↓
+
+Artwork Review
+
+↓
+
+Publish
+
+without exposing unnecessary implementation details.
+
+Nothing in this refinement should change the underlying compiler logic or governance model.
+
+This is a user experience and workflow refinement only.
+
+The result should be polished enough that it could be demonstrated to executives, creative directors, and production managers as the flagship experience for the WorldSmith Publishing Engine.

@@ -7,6 +7,11 @@
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
+/** Maximum number of 429-retry attempts before giving up. */
+const NOTION_MAX_RETRIES = 3;
+/** Hard ceiling on any single retry delay (ms). */
+const NOTION_MAX_DELAY_MS = 30_000;
+
 function headers() {
   const token = process.env.NOTION_TOKEN;
   if (!token) throw new Error("NOTION_TOKEN environment variable is not set");
@@ -17,16 +22,54 @@ function headers() {
   };
 }
 
+/** Resolves after `ms` milliseconds (test-injectable via the module-level setter). */
+let _sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Override the sleep implementation (for unit tests). */
+export function _setSleep(fn: (ms: number) => Promise<void>): void {
+  _sleep = fn;
+}
+
+/**
+ * Fetch wrapper around the Notion REST API.
+ * Automatically retries on HTTP 429 (rate-limited) with exponential back-off,
+ * honouring the Retry-After header when present.
+ *
+ * - Up to NOTION_MAX_RETRIES retry attempts after the first failure.
+ * - Each delay is capped at NOTION_MAX_DELAY_MS (30 s).
+ * - After all retries are exhausted a 429 is re-thrown as a plain Error whose
+ *   message contains "429" so classifyNotionErr() recognises it as
+ *   NOTION_RATE_LIMITED / retry_safe=true.
+ */
 async function notionFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${NOTION_API}${path}`, {
-    ...options,
-    headers: { ...headers(), ...(options.headers as Record<string, string> ?? {}) },
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Notion API ${options.method ?? "GET"} ${path} → ${res.status}: ${body}`);
+  const method = options.method ?? "GET";
+  let attempt = 0;
+
+  while (true) {
+    const res = await fetch(`${NOTION_API}${path}`, {
+      ...options,
+      headers: { ...headers(), ...(options.headers as Record<string, string> ?? {}) },
+    });
+
+    if (res.status === 429 && attempt < NOTION_MAX_RETRIES) {
+      // Honour Retry-After header (seconds) when present; otherwise exponential back-off.
+      const retryAfterHeader = res.headers.get("Retry-After");
+      const baseDelay = retryAfterHeader
+        ? parseFloat(retryAfterHeader) * 1_000
+        : 1_000 * Math.pow(2, attempt);
+      const delay = Math.min(baseDelay, NOTION_MAX_DELAY_MS);
+      attempt++;
+      await _sleep(delay);
+      continue;
+    }
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Notion API ${method} ${path} → ${res.status}: ${body}`);
+    }
+
+    return res.json() as Promise<T>;
   }
-  return res.json() as Promise<T>;
 }
 
 // ── Property value extractors ─────────────────────────────────────────────────

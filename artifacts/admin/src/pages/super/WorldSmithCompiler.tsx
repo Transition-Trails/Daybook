@@ -3490,6 +3490,38 @@ function IssueList({ title, items, variant }: { title: string; items: Validation
   );
 }
 
+// ── Run-level readiness score (no ProvenanceRecord required) ─────────────────
+// Derives a Production Readiness score entirely from fields present on a
+// RunRecord. Works on both the list-level row (no compiled_prompt) and the
+// detail-level row (with compiled_prompt). Returns the score and a labelled
+// checklist so callers can render both.
+
+interface RunReadinessItem {
+  label: string;
+  ok: boolean;
+  weight: number;
+}
+
+interface RunReadiness {
+  score: number;
+  items: RunReadinessItem[];
+}
+
+function calcReadinessFromRun(run: RunRecord): RunReadiness {
+  const items: RunReadinessItem[] = [
+    { label: "Production Specification",  ok: !!run.production_spec_id,                    weight: 15 },
+    { label: "Compiled successfully",      ok: run.status === "compiled",                   weight: 20 },
+    { label: "Prompt Hash",               ok: !!run.prompt_hash,                           weight: 12 },
+    { label: "Payload Version",           ok: !!run.payload_version,                       weight: 12 },
+    { label: "Asset ID assigned",         ok: !!run.asset_id,                              weight: 11 },
+    { label: "No validation errors",      ok: (run.errors?.length ?? 0) === 0,             weight: 18 },
+    { label: "Prompt content stored",     ok: !!run.compiled_prompt,                       weight: 12 },
+  ];
+  const total  = items.reduce((s, i) => s + i.weight, 0);
+  const earned = items.reduce((s, i) => s + (i.ok ? i.weight : 0), 0);
+  return { score: Math.round((earned / total) * 100), items };
+}
+
 // ── Run Row ───────────────────────────────────────────────────────────────────
 
 function RunRow({ run }: { run: RunRecord }) {
@@ -3518,12 +3550,27 @@ function RunRow({ run }: { run: RunRecord }) {
   const badgeLabel = isInterrupted ? "interrupted" : run.status;
   const detail = detailQuery.data;
 
+  // Readiness: use full detail (which includes compiled_prompt) when loaded,
+  // otherwise fall back to the list-level run record.
+  const rowReadiness = calcReadinessFromRun(run);
+  const detailReadiness = detail ? calcReadinessFromRun(detail) : rowReadiness;
+  const readinessBarColor = detailReadiness.score >= 90 ? "bg-emerald-500" : detailReadiness.score >= 70 ? "bg-amber-400" : "bg-orange-400";
+  const readinessScoreColor = detailReadiness.score >= 90 ? "text-emerald-700" : detailReadiness.score >= 70 ? "text-amber-600" : "text-orange-600";
+
   return (
     <Card className="overflow-hidden">
       <button type="button" onClick={() => setExpanded((v) => !v)} className="w-full text-left">
         <CardContent className="pt-3 pb-3 space-y-1.5">
           <div className="flex items-center gap-3 flex-wrap">
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeClass}`}>{badgeLabel}</span>
+            {/* Readiness score badge — always shown so past runs are easy to compare */}
+            <span className={`text-xs px-1.5 py-0.5 rounded font-mono font-semibold shrink-0 ${
+              rowReadiness.score >= 90 ? "bg-emerald-50 text-emerald-700" :
+              rowReadiness.score >= 70 ? "bg-amber-50 text-amber-700" :
+              "bg-orange-50 text-orange-700"
+            }`} title="Production Readiness score">
+              <ShieldCheck className="w-3 h-3 inline mr-0.5 opacity-70" />{rowReadiness.score}%
+            </span>
             <code className="text-xs font-mono text-muted-foreground">{run.run_id.slice(0, 8)}…</code>
             <code className="text-xs font-mono flex-1 truncate min-w-0">{run.production_spec_id}</code>
             {run.payload_version && <span className="text-xs text-muted-foreground font-mono shrink-0">v{run.payload_version}</span>}
@@ -3568,6 +3615,35 @@ function RunRow({ run }: { run: RunRecord }) {
 
           {detail && (
             <>
+              {/* ── Production Readiness ──────────────────────────────────── */}
+              <div className="rounded-md border border-border bg-background p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5" />Production Readiness
+                  </p>
+                  <span className={`text-sm font-bold tabular-nums ${readinessScoreColor}`}>
+                    {detailReadiness.score}%
+                  </span>
+                </div>
+                <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${readinessBarColor}`}
+                    style={{ width: `${detailReadiness.score}%` }}
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 pt-0.5">
+                  {detailReadiness.items.map((item) => (
+                    <div key={item.label} className="flex items-center gap-1.5 text-xs">
+                      {item.ok
+                        ? <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                        : <XCircle className="w-3 h-3 text-red-400 shrink-0" />}
+                      <span className={item.ok ? "text-foreground" : "text-muted-foreground line-through"}>{item.label}</span>
+                      <span className="ml-auto text-muted-foreground tabular-nums shrink-0">{item.weight}pt</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div><p className="text-muted-foreground mb-0.5">Run ID</p><code className="font-mono">{detail.run_id.slice(0, 8)}…</code></div>
                 <div><p className="text-muted-foreground mb-0.5">Payload version</p><code className="font-mono">{detail.payload_version ?? "—"}</code></div>

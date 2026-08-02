@@ -156,6 +156,8 @@ function makePageWithRelations(
 const SPEC_ID = "spec-dep-test-abc123";
 const MODULE_ID = "mod-dep-test-001";
 const DEP_ID = "dep-dep-test-002";
+const DEP_A_ID = "dep-multi-test-A01";
+const DEP_B_ID = "dep-multi-test-B02";
 
 /**
  * A minimal PP-1.0 payload string that passes validatePayload for a Cover Art spec.
@@ -199,6 +201,15 @@ function makeModulePageWithDependency() {
     MODULE_ID,
     { Name: "Thornvale Style Module" },
     { Dependencies: [DEP_ID] },
+  );
+}
+
+/** A module page that declares TWO dependencies (DEP_A_ID, DEP_B_ID). */
+function makeModulePageWithTwoDependencies() {
+  return makePageWithRelations(
+    MODULE_ID,
+    { Name: "Thornvale Style Module" },
+    { Dependencies: [DEP_A_ID, DEP_B_ID] },
   );
 }
 
@@ -280,6 +291,42 @@ describe("resolveInheritanceChain — Prompt Module dependency fetch failure", (
 
     // The module itself is still present; its content is the module body (dep dropped)
     expect(chain.promptModules[0].content).toBe("Module body text");
+  });
+
+  it("records a separate PROMPT_MODULE_DEP_FETCH_FAILED warning for each failing dependency when two deps both fail", async () => {
+    // Spec fetch succeeds
+    mockGetPage.mockResolvedValueOnce(makeSpecPageWithModule());
+    // Module fetch succeeds, with TWO dependencies
+    mockGetPage.mockResolvedValueOnce(makeModulePageWithTwoDependencies());
+    // Both dependency fetches fail
+    const errA = new Error(`Notion API GET /pages/${DEP_A_ID} → 404: page not found`);
+    const errB = new Error(`Notion API GET /pages/${DEP_B_ID} → 503: service unavailable`);
+    mockGetPage.mockRejectedValueOnce(errA);
+    mockGetPage.mockRejectedValueOnce(errB);
+
+    const chain = await resolveInheritanceChain(SPEC_ID);
+
+    // The chain itself still resolves (dep failures are non-fatal)
+    expect(chain.productionSpec.notionPageId).toBe(SPEC_ID);
+    expect(chain.promptModules).toHaveLength(1);
+
+    // Each failing dep must produce its own warning entry
+    expect(chain.warnings).toHaveLength(2);
+    expect(chain.warnings.every((w) => w.code === "PROMPT_MODULE_DEP_FETCH_FAILED")).toBe(true);
+
+    const fieldA = chain.warnings.find((w) => w.field.includes(DEP_A_ID));
+    const fieldB = chain.warnings.find((w) => w.field.includes(DEP_B_ID));
+    expect(fieldA).toBeDefined();
+    expect(fieldB).toBeDefined();
+    expect(fieldA!.message).toContain(DEP_A_ID);
+    expect(fieldB!.message).toContain(DEP_B_ID);
+
+    // logger.warn must be called once per failing dep
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(2);
+    const warnCalls = mockLoggerWarn.mock.calls as Array<[Record<string, unknown>, string]>;
+    const calledDepIds = warnCalls.map(([ctx]) => ctx.depId);
+    expect(calledDepIds).toContain(DEP_A_ID);
+    expect(calledDepIds).toContain(DEP_B_ID);
   });
 });
 

@@ -18,6 +18,8 @@ import {
   richTextProp,
   selectProp,
   relationProp,
+  _setOnRetry,
+  type NotionRetryEvent,
 } from "../notion-client";
 import type { CompileRequest, CompileResponse, ValidationError } from "./types";
 import { logger } from "../logger";
@@ -43,6 +45,15 @@ export async function runCompilation(
   // ── Create run record ────────────────────────────────────────────────────
   const runId = await createRun({ productionSpecId: specId, operation: req.operation, dryRun, initiatedBy });
 
+  // ── Install per-run Notion retry collector ───────────────────────────────
+  // Note: _setOnRetry is module-level; concurrent admin compiles are rare but
+  // would share the collector. Acceptable for a low-traffic admin tool.
+  const notionRetryEvents: NotionRetryEvent[] = [];
+  _setOnRetry((event) => {
+    logger.warn({ runId, ...event }, "WorldSmith: Notion retry");
+    notionRetryEvents.push(event);
+  });
+
   try {
     await updateRun(runId, { status: "compiling" });
 
@@ -61,6 +72,13 @@ export async function runCompilation(
             recommended_action: "Resolve the missing dependency in Notion before retrying.",
           },
         ]);
+        // Persist retry events even when inheritance resolution fails
+        if (notionRetryEvents.length > 0) {
+          await updateRun(runId, {
+            retryCount: notionRetryEvents.length,
+            notionRetries: notionRetryEvents,
+          }).catch(() => { /* best-effort */ });
+        }
         return failResponse(specId, err.stage, err.errorCode, err.message, [], err.retryable, null, null, runId);
       }
       const msg = String(err);
@@ -73,6 +91,13 @@ export async function runCompilation(
           recommended_action: "Check Notion connectivity and page permissions.",
         },
       ]);
+      // Persist retry events even on generic inheritance fetch failure
+      if (notionRetryEvents.length > 0) {
+        await updateRun(runId, {
+          retryCount: notionRetryEvents.length,
+          notionRetries: notionRetryEvents,
+        }).catch(() => { /* best-effort */ });
+      }
       return failResponse(specId, "inheritance_resolution", "INHERITANCE_ERROR", msg, [], true, null, null, runId);
     }
 
@@ -98,6 +123,8 @@ export async function runCompilation(
         compiledPromptStatus: compiledStatus,
         errors: payloadValidation.errors,
         warnings: payloadValidation.warnings,
+        retryCount: notionRetryEvents.length,
+        notionRetries: notionRetryEvents.length > 0 ? notionRetryEvents : undefined,
         completedAt: new Date(),
       });
 
@@ -132,6 +159,8 @@ export async function runCompilation(
         compiledPromptStatus: compiledStatus,
         errors: canonValidation.errors,
         warnings: [...payloadValidation.warnings, ...canonValidation.warnings],
+        retryCount: notionRetryEvents.length,
+        notionRetries: notionRetryEvents.length > 0 ? notionRetryEvents : undefined,
         completedAt: new Date(),
       });
 
@@ -244,6 +273,8 @@ export async function runCompilation(
       status: "compiled",
       compiledPromptStatus: "Compiled",
       warnings: allWarnings,
+      retryCount: notionRetryEvents.length,
+      notionRetries: notionRetryEvents.length > 0 ? notionRetryEvents : undefined,
       completedAt: new Date(),
     });
 
@@ -271,7 +302,16 @@ export async function runCompilation(
         recommended_action: "Check server logs for this run_id and retry.",
       },
     ]);
+    // Persist retry events even on failure paths
+    if (notionRetryEvents.length > 0) {
+      await updateRun(runId, {
+        retryCount: notionRetryEvents.length,
+        notionRetries: notionRetryEvents,
+      }).catch(() => { /* best-effort */ });
+    }
     return failResponse(specId, "orchestration", "INTERNAL_ERROR", msg, [], true, null, null, runId);
+  } finally {
+    _setOnRetry(null);
   }
 }
 

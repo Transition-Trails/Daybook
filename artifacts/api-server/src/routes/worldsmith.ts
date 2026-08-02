@@ -130,6 +130,7 @@ router.get("/v1/runs/:run_id", requireAuth, async (req: Request, res: Response) 
       error_code: run.errorCode,
       resolved_source_ids: run.resolvedSourceIds,
       retry_count: run.retryCount,
+      notion_retries: run.notionRetries ?? [],
       started_at: run.startedAt,
       completed_at: run.completedAt,
     });

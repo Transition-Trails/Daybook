@@ -42,6 +42,7 @@ export const worldsmithRunsTable = pgTable("worldsmith_runs", {
   // Audit — all resolved Notion page IDs keyed by role
   resolvedSourceIds: jsonb("resolved_source_ids").$type<Record<string, string | string[]>>(),
   retryCount: integer("retry_count").notNull().default(0),
+  notionRetries: jsonb("notion_retries").$type<NotionRetryEvent[]>(),
   initiatedBy: text("initiated_by"),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -94,4 +95,13 @@ export interface ValidationErrorRecord {
   governing_rule: string;
   message: string;
   recommended_action: string;
+}
+
+// Structured record of a single Notion API retry attempt
+export interface NotionRetryEvent {
+  attempt: number;      // 1-based retry number
+  path: string;         // Notion API path, e.g. /pages/abc
+  reason: "rate_limited" | "network_error";
+  delay_ms: number;     // actual sleep duration in milliseconds
+  at: string;           // ISO-8601 timestamp when the retry was initiated
 }

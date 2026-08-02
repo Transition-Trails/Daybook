@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Loader2, Sparkles, CheckCircle2, XCircle, AlertTriangle,
-  ChevronDown, ChevronUp, Copy, RefreshCw, FileText, Clock, Hash,
+  ChevronDown, ChevronUp, Copy, RefreshCw, FileText, Clock, Hash, RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,14 @@ interface CompileResponse {
   retry_safe?: boolean;
 }
 
+interface NotionRetryEvent {
+  attempt: number;
+  path: string;
+  reason: "rate_limited" | "network_error";
+  delay_ms: number;
+  at: string;
+}
+
 interface RunRecord {
   run_id: string;
   status: string;
@@ -62,6 +70,7 @@ interface RunRecord {
   started_at: string;
   completed_at?: string;
   retry_count: number;
+  notion_retries?: NotionRetryEvent[];
 }
 
 // ── API helpers ───────────────────────────────────────────────────────────────
@@ -557,6 +566,14 @@ function RunRow({ run }: { run: RunRecord }) {
             </span>
           </div>
 
+          {/* Retry badge (collapsed) */}
+          {run.retry_count > 0 && (
+            <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 shrink-0">
+              <RotateCcw className="w-3 h-3" />
+              {run.retry_count} {run.retry_count === 1 ? "retry" : "retries"}
+            </span>
+          )}
+
           {/* Inline error preview (collapsed state only) */}
           {!expanded && (run.errors ?? []).length > 0 && (
             <p className="text-xs text-red-600 mt-1.5 pl-0.5">
@@ -642,6 +659,35 @@ function RunRow({ run }: { run: RunRecord }) {
                 </div>
               )}
 
+              {/* Notion retry detail */}
+              {(detail.notion_retries ?? []).length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-amber-700 uppercase tracking-wide flex items-center gap-1.5">
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Notion Retries ({detail.notion_retries!.length})
+                  </p>
+                  <div className="rounded-md border border-amber-200 bg-amber-50 divide-y divide-amber-100 overflow-hidden">
+                    {detail.notion_retries!.map((r, i) => (
+                      <div key={i} className="px-3 py-2 text-xs flex items-center gap-3 flex-wrap">
+                        <span className="font-mono text-amber-800 shrink-0">#{r.attempt}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium shrink-0 ${
+                          r.reason === "rate_limited"
+                            ? "bg-orange-100 text-orange-700"
+                            : "bg-red-100 text-red-700"
+                        }`}>
+                          {r.reason === "rate_limited" ? "Rate limited" : "Network error"}
+                        </span>
+                        <code className="font-mono text-muted-foreground flex-1 min-w-0 truncate">{r.path}</code>
+                        <span className="text-muted-foreground shrink-0">{r.delay_ms.toLocaleString()} ms delay</span>
+                        <span className="text-muted-foreground shrink-0 tabular-nums">
+                          {new Date(r.at).toLocaleTimeString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Errors */}
               {(detail.errors ?? []).length > 0 && (
                 <ErrorList title="Errors" items={detail.errors!} variant="error" />
@@ -652,7 +698,7 @@ function RunRow({ run }: { run: RunRecord }) {
                 <ErrorList title="Warnings" items={detail.warnings!} variant="warning" />
               )}
 
-              {!detail.compiled_prompt && (detail.errors ?? []).length === 0 && (detail.warnings ?? []).length === 0 && (
+              {!detail.compiled_prompt && (detail.errors ?? []).length === 0 && (detail.warnings ?? []).length === 0 && (detail.notion_retries ?? []).length === 0 && (
                 <p className="text-xs text-muted-foreground">No prompt or diagnostic details available for this run.</p>
               )}
             </>

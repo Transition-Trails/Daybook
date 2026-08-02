@@ -30,6 +30,23 @@ export function _setSleep(fn: (ms: number) => Promise<void>): void {
   _sleep = fn;
 }
 
+/** Structured event emitted on every retry attempt. */
+export interface NotionRetryEvent {
+  attempt: number;                              // 1-based retry number
+  path: string;                                 // Notion API path, e.g. /pages/abc
+  reason: "rate_limited" | "network_error";     // what triggered the retry
+  delay_ms: number;                             // sleep duration in milliseconds
+  at: string;                                   // ISO-8601 timestamp
+}
+
+/** Module-level retry observer — set by orchestrator, cleared after each run. */
+let _onRetry: ((event: NotionRetryEvent) => void) | null = null;
+
+/** Register a callback that fires on every Notion retry attempt. Pass null to clear. */
+export function _setOnRetry(fn: ((event: NotionRetryEvent) => void) | null): void {
+  _onRetry = fn;
+}
+
 const RETRYABLE_CODES = new Set(["ETIMEDOUT", "ECONNREFUSED", "ECONNRESET"]);
 
 /**
@@ -79,6 +96,15 @@ async function notionFetch<T>(path: string, options: RequestInit = {}): Promise<
       if (attempt < NOTION_MAX_RETRIES && isRetryableNetworkError(err)) {
         const delay = Math.min(1_000 * Math.pow(2, attempt), NOTION_MAX_DELAY_MS);
         attempt++;
+        const event: NotionRetryEvent = {
+          attempt,
+          path,
+          reason: "network_error",
+          delay_ms: delay,
+          at: new Date().toISOString(),
+        };
+        console.warn(`[notion-client] retry attempt=${attempt} reason=network_error path=${path} delay_ms=${delay}`);
+        _onRetry?.(event);
         await _sleep(delay);
         continue;
       }
@@ -93,6 +119,15 @@ async function notionFetch<T>(path: string, options: RequestInit = {}): Promise<
         : 1_000 * Math.pow(2, attempt);
       const delay = Math.min(baseDelay, NOTION_MAX_DELAY_MS);
       attempt++;
+      const event: NotionRetryEvent = {
+        attempt,
+        path,
+        reason: "rate_limited",
+        delay_ms: delay,
+        at: new Date().toISOString(),
+      };
+      console.warn(`[notion-client] retry attempt=${attempt} reason=rate_limited path=${path} delay_ms=${delay}`);
+      _onRetry?.(event);
       await _sleep(delay);
       continue;
     }

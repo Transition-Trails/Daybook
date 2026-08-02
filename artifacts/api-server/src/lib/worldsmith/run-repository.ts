@@ -3,7 +3,7 @@
  * Persists and queries compilation/generation runs for audit and recovery.
  */
 import { db } from "@workspace/db";
-import { worldsmithRunsTable, type InsertWorldsmithRun } from "@workspace/db";
+import { worldsmithRunsTable, type InsertWorldsmithRun, type NotionRetryEvent } from "@workspace/db";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { ValidationError } from "./types";
@@ -57,6 +57,7 @@ export interface RunUpdate {
   errorCode?: string;
   resolvedSourceIds?: Record<string, string | string[]>;
   retryCount?: number;
+  notionRetries?: NotionRetryEvent[];
   completedAt?: Date;
 }
 
@@ -88,6 +89,7 @@ export async function updateRun(runId: string, update: RunUpdate): Promise<void>
   if (update.errorCode !== undefined) patch.errorCode = update.errorCode;
   if (update.resolvedSourceIds !== undefined) patch.resolvedSourceIds = update.resolvedSourceIds;
   if (update.retryCount !== undefined) patch.retryCount = update.retryCount;
+  if (update.notionRetries !== undefined) patch.notionRetries = update.notionRetries;
   if (update.completedAt !== undefined) patch.completedAt = update.completedAt;
 
   if (Object.keys(patch).length === 0) return;

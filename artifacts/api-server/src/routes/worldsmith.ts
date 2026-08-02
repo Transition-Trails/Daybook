@@ -24,7 +24,7 @@ const router = Router();
 // ── POST /api/v1/prompt-compilations ─────────────────────────────────────────
 // validate_and_compile or preview
 
-router.post("/api/v1/prompt-compilations", requireAuth, async (req: Request, res: Response) => {
+router.post("/v1/prompt-compilations", requireAuth, async (req: Request, res: Response) => {
   const body = req.body as {
     notion_production_spec_id?: string;
     operation?: string;
@@ -78,7 +78,7 @@ router.post("/api/v1/prompt-compilations", requireAuth, async (req: Request, res
 // ── POST /api/v1/production-packages ─────────────────────────────────────────
 // compile_and_generate — Phase 2 stub
 
-router.post("/api/v1/production-packages", requireAuth, async (_req: Request, res: Response) => {
+router.post("/v1/production-packages", requireAuth, async (_req: Request, res: Response) => {
   res.status(501).json({
     error: "compile_and_generate (image generation) is not yet implemented. Use validate_and_compile first.",
     code: "NOT_IMPLEMENTED",
@@ -88,7 +88,7 @@ router.post("/api/v1/production-packages", requireAuth, async (_req: Request, re
 
 // ── GET /api/v1/runs/:run_id ──────────────────────────────────────────────────
 
-router.get("/api/v1/runs/:run_id", requireAuth, async (req: Request, res: Response) => {
+router.get("/v1/runs/:run_id", requireAuth, async (req: Request, res: Response) => {
   const run_id = req.params.run_id as string;
 
   try {
@@ -129,7 +129,7 @@ router.get("/api/v1/runs/:run_id", requireAuth, async (req: Request, res: Respon
 
 // ── GET /api/v1/worldsmith/runs?spec_id=…  ───────────────────────────────────
 
-router.get("/api/v1/worldsmith/runs", requireAuth, async (req: Request, res: Response) => {
+router.get("/v1/worldsmith/runs", requireAuth, async (req: Request, res: Response) => {
   const specId = req.query.spec_id as string | undefined;
 
   try {
@@ -152,7 +152,7 @@ router.get("/api/v1/worldsmith/runs", requireAuth, async (req: Request, res: Res
 
 // ── GET /api/v1/worldsmith/assets ─────────────────────────────────────────────
 
-router.get("/api/v1/worldsmith/assets", requireAuth, async (_req: Request, res: Response) => {
+router.get("/v1/worldsmith/assets", requireAuth, async (_req: Request, res: Response) => {
   try {
     const assets = await db
       .select()
@@ -168,7 +168,7 @@ router.get("/api/v1/worldsmith/assets", requireAuth, async (_req: Request, res: 
 
 // ── GET /api/v1/worldsmith/assets/:assetId ────────────────────────────────────
 
-router.get("/api/v1/worldsmith/assets/:assetId", requireAuth, async (req: Request, res: Response) => {
+router.get("/v1/worldsmith/assets/:assetId", requireAuth, async (req: Request, res: Response) => {
   const assetId = req.params.assetId as string;
   try {
     const asset = await getAsset(assetId);

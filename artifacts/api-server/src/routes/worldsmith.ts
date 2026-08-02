@@ -12,12 +12,21 @@ import { requireAuth } from "../lib/auth-middleware";
 import { runCompilation } from "../lib/worldsmith/orchestrator";
 import { getRun, getRunsBySpec, failStaleRunsForSpec } from "../lib/worldsmith/run-repository";
 import { getAsset, getAssetBySpec } from "../lib/worldsmith/daybook-adapter";
+import { normalizeNotionId } from "../lib/worldsmith/normalize-id";
 import { db } from "@workspace/db";
 import { worldsmithAssetsTable, worldsmithRunsTable } from "@workspace/db";
 import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import type { Request, Response } from "express";
 import type { User } from "@workspace/db";
 import { logger } from "../lib/logger";
+import {
+  getPage,
+  extractTitle,
+  extractRichText,
+  extractSelect,
+  extractRelation,
+  extractNumber,
+} from "../lib/notion-client";
 
 const router = Router();
 
@@ -31,13 +40,18 @@ router.post("/v1/prompt-compilations", requireAuth, async (req: Request, res: Re
     dry_run?: boolean;
   };
 
-  const { notion_production_spec_id, operation = "validate_and_compile", dry_run = false } = body;
+  const { notion_production_spec_id: rawSpecId, operation = "validate_and_compile", dry_run = false } = body;
 
-  if (!notion_production_spec_id) {
-    res.status(400).json({
-      error: "notion_production_spec_id is required",
-      code: "MISSING_SPEC_ID",
-    });
+  if (!rawSpecId) {
+    res.status(400).json({ error: "notion_production_spec_id is required", code: "MISSING_SPEC_ID" });
+    return;
+  }
+
+  let notion_production_spec_id: string;
+  try {
+    notion_production_spec_id = normalizeNotionId(rawSpecId);
+  } catch (normErr) {
+    res.status(400).json({ error: String(normErr), code: "INVALID_SPEC_ID" });
     return;
   }
 
@@ -215,6 +229,104 @@ router.get("/v1/worldsmith/runs", requireAuth, async (req: Request, res: Respons
   } catch (err) {
     logger.error({ err }, "Failed to list runs");
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /v1/worldsmith/preflight?spec_id=… ───────────────────────────────────
+// Lightweight: fetch the Production Spec page only (no full inheritance chain),
+// return the summary fields needed to populate the preflight card in the UI.
+
+router.get("/v1/worldsmith/preflight", requireAuth, async (req: Request, res: Response) => {
+  const rawId = req.query.spec_id as string | undefined;
+  if (!rawId) {
+    res.status(400).json({ error: "spec_id is required", code: "MISSING_SPEC_ID" });
+    return;
+  }
+
+  let specId: string;
+  try {
+    specId = normalizeNotionId(rawId);
+  } catch (normErr) {
+    res.status(400).json({ error: String(normErr), code: "INVALID_SPEC_ID" });
+    return;
+  }
+
+  try {
+    const page = await getPage(specId);
+    const p = page.properties;
+
+    // Core identity
+    const productionSpecification =
+      extractTitle(p["Production Item"]) || extractTitle(p["Name"]) || extractRichText(p["Production Item"]) || specId;
+    const componentType = extractSelect(p["Component Type"]) || extractRichText(p["Component Type"]) || "";
+    const payloadVersion = extractSelect(p["Payload Version"]) || extractRichText(p["Payload Version"]) || "";
+    const canonDependency = extractSelect(p["Canon Dependency"]) || extractSelect(p["Canon"]) || "None";
+    const compiledPromptStatus =
+      extractSelect(p["Compiled Prompt Status"]) || extractRichText(p["Compiled Prompt Status"]) || "Not Compiled";
+    const version = extractRichText(p["Current Version"]) || extractSelect(p["Current Version"]) || "1";
+    const status = extractSelect(p["Status"]) || extractSelect(p["Workflow Status"]) || "";
+    const world = extractRichText(p["World"]) || extractSelect(p["World"]) || "";
+    const volume = extractRichText(p["Volume"]) || extractSelect(p["Volume"]) || extractRichText(p["Volume / Collection"]);
+
+    const componentSpecId = extractRelation(p["Component Specification"])?.[0] || extractRelation(p["Component Spec"])?.[0];
+    const promptModuleIds = extractRelation(p["Prompt Modules"]) || extractRelation(p["Modules"]) || [];
+    const canonRecordIds = extractRelation(p["Canon Records"]) || extractRelation(p["Canon"]) || [];
+
+    // Optionally resolve Component Spec name (one extra fetch, lightweight)
+    let componentSpecification: string | null = null;
+    if (componentSpecId) {
+      try {
+        const csPage = await getPage(componentSpecId);
+        componentSpecification =
+          extractTitle(csPage.properties["Name"]) ||
+          extractTitle(csPage.properties["Component Specification"]) ||
+          componentSpecId;
+      } catch {
+        componentSpecification = componentSpecId;
+      }
+    }
+
+    // Derive generation readiness
+    const promptPayload = extractRichText(p["Prompt Payload"]) || extractRichText(p["Payload"]) || "";
+    const generationReadiness: string =
+      compiledPromptStatus === "Compiled" ? "Compiled"
+      : compiledPromptStatus === "Artwork Review" ? "Ready"
+      : (canonDependency !== "None" && canonRecordIds.length === 0) ? "Needs Canon Review"
+      : (!payloadVersion || !promptPayload) ? "Draft"
+      : "Not Compiled";
+
+    res.json({
+      spec_id: specId,
+      production_specification: productionSpecification,
+      component_type: componentType,
+      component_specification: componentSpecification,
+      payload_version: payloadVersion,
+      canon_dependency: canonDependency,
+      compiled_prompt_status: compiledPromptStatus,
+      generation_readiness: generationReadiness,
+      version,
+      prompt_module_count: promptModuleIds.length,
+      canon_record_count: canonRecordIds.length,
+      world,
+      volume: volume || undefined,
+      status,
+    });
+  } catch (err) {
+    const msg = String(err);
+    const isNotFound = /404|not_found|object_not_found/i.test(msg);
+    const isUnreachable = /ETIMEDOUT|ENOTFOUND|ECONNREFUSED|AbortError|timeout/i.test(msg);
+    const isRateLimited = /429|rate.?limit/i.test(msg);
+
+    if (isNotFound) {
+      res.status(404).json({ error: "Production Specification page not found. Check the page ID and that the Notion integration has access.", code: "SPEC_NOT_FOUND" });
+    } else if (isRateLimited) {
+      res.status(429).json({ error: "Notion rate limit hit. Wait a moment and try again.", code: "NOTION_RATE_LIMITED" });
+    } else if (isUnreachable) {
+      res.status(503).json({ error: "Notion is unreachable. Check connectivity and retry.", code: "NOTION_UNREACHABLE" });
+    } else {
+      logger.error({ err, specId }, "WorldSmith preflight error");
+      res.status(500).json({ error: "Failed to resolve Production Specification.", code: "PREFLIGHT_ERROR" });
+    }
   }
 });
 

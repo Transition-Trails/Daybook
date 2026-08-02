@@ -143,7 +143,7 @@ function makeSelectProp(value: string) {
  * No style guide, component spec, prompt modules, or canon records are linked,
  * so only a single getPage call is needed.
  */
-function makeValidSpecPage() {
+function makeValidSpecPage(): { id: string; properties: Record<string, unknown>; url: string } {
   // PP-1.0 payload with all 8 required keys
   const promptPayload = [
     "asset_role: Decorative cover art for Thornvale Volume I",

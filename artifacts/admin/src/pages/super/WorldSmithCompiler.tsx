@@ -176,15 +176,27 @@ const worldsmithApi = {
   preflight: (specId: string) =>
     apiFetch<PreflightResponse>(`/v1/worldsmith/preflight?spec_id=${encodeURIComponent(specId)}`),
 
-  compile: (specId: string, dryRun: boolean) =>
-    apiFetch<CompileResponse>("/v1/prompt-compilations", {
+  compile: async (specId: string, dryRun: boolean): Promise<CompileResponse> => {
+    const res = await fetch("/api/v1/prompt-compilations", {
       method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         notion_production_spec_id: specId,
         operation: "validate_and_compile",
         dry_run: dryRun,
       }),
-    }),
+    });
+    // 200, 422 (validation_failed / requires_canon_review), 503 all carry
+    // a structured CompileResponse body — return it so the UI can render
+    // errors. Only hard-fail on unexpected non-JSON or 4xx without a body.
+    const body = await res.json().catch(() => null);
+    if (body === null) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok && body.status === undefined) {
+      throw new Error(body?.error ?? `HTTP ${res.status}`);
+    }
+    return body as CompileResponse;
+  },
 
   listRuns: (specId?: string, status?: string) => {
     const params = new URLSearchParams();

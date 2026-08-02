@@ -1,0 +1,669 @@
+Enhance the WorldSmith Compiler into the WorldSmith Publishing Engine.
+
+The compiler has matured beyond simply assembling prompts. The next iteration should feel like a governed publishing workflow where each stage produces an inspectable artifact and prepares the asset for the next stage.
+
+This feature is a UX and workflow refinement. Do not change the underlying compiler logic unless explicitly required to support these improvements.
+
+==================================================
+VISION
+==================================================
+
+The application should no longer feel like:
+
+Compile
+↓
+Big Prompt
+↓
+Generate Image
+
+It should feel like:
+
+Resolve
+↓
+Validate
+↓
+Compile
+↓
+Inspect
+↓
+Generate Specification Board
+↓
+Human Review
+↓
+Generate Artwork
+↓
+QA Review
+↓
+Publish
+
+The UI should reinforce this publishing pipeline.
+
+==================================================
+WORKFLOW HEADER
+==================================================
+
+Replace the current horizontal status strip with a persistent Publishing Pipeline.
+
+Display each stage as a clickable workflow node.
+
+Stages:
+
+Resolve
+
+Validate
+
+Inheritance
+
+Prompt Assembly
+
+Hash Generation
+
+Ready for Specification Board
+
+Specification Review
+
+Ready for Artwork
+
+Artwork Generation
+
+Artwork Review
+
+Ready for Publish
+
+Published
+
+Rules:
+
+Completed stages
+
+Green
+
+Current stage
+
+Blue
+
+Warnings
+
+Amber badge
+
+Blocked
+
+Red
+
+Future stages
+
+Muted
+
+Each stage should be clickable.
+
+Selecting a stage opens its corresponding inspector.
+
+==================================================
+INSPECTOR NAVIGATION
+==================================================
+
+The workflow stages become navigation.
+
+Resolve
+
+Shows:
+
+Resolved Production Specification
+
+Resolved World
+
+Resolved Component Specification
+
+Resolved Prompt Modules
+
+Resolved Canon
+
+Resolved Style Guide
+
+Resolved Print Specification
+
+--------------------------------------
+
+Validate
+
+Shows structured validation.
+
+Grouped into:
+
+Errors
+
+Warnings
+
+Recommendations
+
+Each item contains:
+
+Status
+
+Rule
+
+Description
+
+Source
+
+Suggested Fix
+
+Open Record button
+
+Auto Fix button (when supported)
+
+--------------------------------------
+
+Inheritance
+
+Displays the provenance tree.
+
+Production Specification
+
+↓
+
+World
+
+↓
+
+Collection
+
+↓
+
+Volume
+
+↓
+
+Component Set
+
+↓
+
+Component Specification
+
+↓
+
+Style Guide
+
+↓
+
+Prompt Modules
+
+↓
+
+Prompt Payload
+
+↓
+
+Canon
+
+↓
+
+Print Specification
+
+Each record is clickable.
+
+--------------------------------------
+
+Prompt Assembly
+
+Shows compiled prompt sections.
+
+Shared Prompt
+
+Front Prompt
+
+Back Prompt
+
+Assembly Prompt
+
+Negative Prompt
+
+Each section shows:
+
+Source
+
+Character count
+
+Preview
+
+Copy
+
+Expand
+
+--------------------------------------
+
+Hash Generation
+
+Shows:
+
+Compiled Artifact ID
+
+Prompt Hash
+
+Compiler Version
+
+Compilation Timestamp
+
+Provider
+
+Model
+
+Payload Version
+
+Payload Format
+
+==================================================
+VALIDATION REFINEMENT
+==================================================
+
+The current warnings are mixing governance recommendations with actual compilation concerns.
+
+Replace with three categories.
+
+--------------------------------------
+
+ERROR
+
+Compilation cannot continue.
+
+Examples:
+
+Missing Component Specification
+
+Missing Payload Version
+
+Broken Relation
+
+Missing Style Guide
+
+------------------------------------------------
+
+WARNING
+
+Compilation completed but quality may be affected.
+
+Examples:
+
+Missing Front Prompt
+
+Missing Optional Prompt Module
+
+Canon Recommendation
+
+------------------------------------------------
+
+RECOMMENDATION
+
+Modernization or best practices.
+
+Examples:
+
+Legacy Payload Format
+
+Suggested Migration
+
+Optional Prompt Module
+
+Payload Optimization
+
+Recommendations should not visually compete with Errors.
+
+==================================================
+READINESS PANEL
+==================================================
+
+Replace Validation Status with a Production Readiness panel.
+
+Display checklist.
+
+Production Specification
+
+✓
+
+Component Specification
+
+✓
+
+Style Guide
+
+✓
+
+Prompt Modules
+
+✓
+
+Prompt Payload
+
+✓
+
+Canon
+
+✓
+
+Print Specification
+
+✓
+
+Prompt Hash
+
+✓
+
+Payload Contract
+
+Legacy PP-1.0
+
+Ready For
+
+✓ Specification Board
+
+✗ Final Artwork
+
+The purpose is to answer:
+
+Can I move to the next publishing stage?
+
+==================================================
+SPECIFICATION BOARD
+==================================================
+
+Rename:
+
+Generate Preview
+
+to
+
+Generate Specification Board
+
+Subtitle
+
+Creates a lightweight Product Specification Board for review and advances the asset to Ready for Review.
+
+Button should remain disabled only when blocking Errors exist.
+
+Warnings and Recommendations should not prevent board generation.
+
+==================================================
+REVIEW WORKFLOW
+==================================================
+
+After Specification Board generation:
+
+Status automatically becomes:
+
+Ready for Specification Review
+
+Show:
+
+Open Notion Record
+
+Open Specification Board
+
+Return to Compiler
+
+Generate New Board
+
+Do not automatically proceed to artwork generation.
+
+==================================================
+ACTION CENTER
+==================================================
+
+Add an Action Center at the top of the page.
+
+Display prioritized actions.
+
+Examples:
+
+Review Specification Board
+
+Resolve Validation Error
+
+Open Prompt Payload
+
+Update Component Specification
+
+Generate Artwork
+
+Review Artwork
+
+Publish Asset
+
+Actions should change based on workflow stage.
+
+==================================================
+COMPILATION SUMMARY
+==================================================
+
+Replace UUIDs with friendly names.
+
+Display:
+
+Production Specification
+
+World
+
+Collection
+
+Volume
+
+Component Set
+
+Component Specification
+
+Payload Version
+
+Payload Format
+
+Compiled Artifact ID
+
+Prompt Hash
+
+Compiler Version
+
+Compilation Timestamp
+
+UUIDs belong only in Technical Details.
+
+==================================================
+PROVENANCE
+==================================================
+
+Every compiled section should display:
+
+Originating Record
+
+Originating Database
+
+Version
+
+Approval Status
+
+Clicking a source opens the related Notion record.
+
+==================================================
+TECHNICAL DETAILS
+==================================================
+
+Move all implementation details here.
+
+Include:
+
+UUIDs
+
+Timing
+
+Compiler Build
+
+Prompt Length
+
+Loaded Records
+
+Resolved Relations
+
+Hash Details
+
+Provider
+
+Model
+
+Compilation Log
+
+API Timing
+
+==================================================
+VISUAL DESIGN
+==================================================
+
+Reduce visual emphasis on validation.
+
+Increase emphasis on:
+
+Workflow
+
+Readiness
+
+Next Action
+
+Inspector
+
+The page should feel like:
+
+Adobe InDesign Preflight
+
+GitHub Actions
+
+Professional publishing software
+
+not a developer debugging screen.
+
+==================================================
+LANGUAGE
+==================================================
+
+Rename user-facing labels.
+
+Compiled Prompt
+
+↓
+
+Compiled Production Specification
+
+Prompt Hash
+
+↓
+
+Compiled Artifact ID
+
+Generate Preview
+
+↓
+
+Generate Specification Board
+
+Validation Status
+
+↓
+
+Production Readiness
+
+Warnings
+
+↓
+
+Validation Report
+
+==================================================
+EMPTY STATES
+==================================================
+
+If no validation issues exist:
+
+Display:
+
+All governance checks passed.
+
+This Production Specification is ready for the next publishing stage.
+
+If only recommendations exist:
+
+Display:
+
+This asset is production-ready.
+
+Modernization improvements are available but optional.
+
+==================================================
+FUTURE STAGES
+==================================================
+
+Reserve placeholders for future workflow.
+
+Specification Review
+
+Artwork Generation
+
+Artwork QA
+
+Publishing
+
+Do not implement these yet.
+
+Only provide navigation placeholders.
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+The Publishing Engine should feel like a governed publishing system rather than a prompt compiler.
+
+Users should immediately understand:
+
+• where the asset is in the publishing lifecycle
+
+• what was compiled
+
+• where each instruction originated
+
+• whether the asset is ready for the next stage
+
+• what action should be taken next
+
+Validation should distinguish between:
+
+Errors
+
+Warnings
+
+Recommendations
+
+The workflow should naturally guide users from:
+
+Compilation
+
+↓
+
+Inspection
+
+↓
+
+Specification Board
+
+↓
+
+Review
+
+↓
+
+Artwork
+
+↓
+
+QA
+
+↓
+
+Publishing
+
+without overwhelming them with technical implementation details.
+
+The result should be polished enough that a Creative Director, Product Manager, or Publishing Coordinator can confidently use it without understanding prompt engineering.

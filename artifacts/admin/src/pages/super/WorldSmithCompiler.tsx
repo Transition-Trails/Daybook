@@ -349,8 +349,8 @@ export default function WorldSmithCompiler() {
           <Sparkles className="w-4 h-4 text-[#C87560]" />
         </div>
         <div>
-          <h1 className="text-lg font-semibold">WorldSmith Prompt Compiler</h1>
-          <p className="text-xs text-muted-foreground">Notion Production Specification → validated, hashed compiled prompt</p>
+          <h1 className="text-lg font-semibold">WorldSmith Publishing Engine</h1>
+          <p className="text-xs text-muted-foreground">Governed publishing workflow — Resolve · Compile · Inspect · Specify · Review · Publish</p>
         </div>
       </div>
 
@@ -654,54 +654,94 @@ function fmtTs(iso?: string): string {
   try { return new Date(iso).toLocaleString(); } catch { return iso; }
 }
 
-// ── Build Pipeline ─────────────────────────────────────────────────────────────
+// ── Publishing Pipeline ────────────────────────────────────────────────────────
 
-type StageStatus = "done" | "warning" | "error" | "pending";
+type PipelineStageKey =
+  | "resolve" | "validate" | "inheritance" | "prompt-assembly" | "hash-generation"
+  | "ready-for-spec-board" | "specification-review" | "ready-for-artwork"
+  | "artwork-generation" | "artwork-review" | "ready-for-publish" | "published";
 
-function BuildPipeline({ result }: { result: CompileResponse }) {
-  const hasErrors = (result.errors ?? []).length > 0;
-  const hasWarnings = (result.warnings ?? []).length > 0;
-  const validateStatus: StageStatus = hasErrors ? "error" : hasWarnings ? "warning" : "done";
+type PipelineStageStatus = "done" | "current" | "warning" | "error" | "future";
 
-  const stages: Array<{ key: string; label: string; status: StageStatus }> = [
-    { key: "resolve",  label: "Resolve",           status: "done" },
-    { key: "validate", label: "Validate",           status: validateStatus },
-    { key: "inherit",  label: "Inheritance",        status: "done" },
-    { key: "assemble", label: "Prompt Assembly",    status: "done" },
-    { key: "hash",     label: "Hash Generation",    status: "done" },
-    { key: "preview",  label: "Ready for Preview",  status: "pending" },
-    { key: "artwork",  label: "Generate Artwork",   status: "pending" },
+interface PipelineStageShape {
+  key: PipelineStageKey;
+  label: string;
+  status: PipelineStageStatus;
+  badge?: number;
+}
+
+function PipelineStageIcon({ status }: { status: PipelineStageStatus }) {
+  if (status === "done")    return <CheckCircle2 className="w-3 h-3 shrink-0" />;
+  if (status === "current") return <div className="w-2 h-2 rounded-full bg-white animate-pulse shrink-0" />;
+  if (status === "warning") return <AlertTriangle className="w-3 h-3 shrink-0" />;
+  if (status === "error")   return <XCircle className="w-3 h-3 shrink-0" />;
+  return <Clock className="w-3 h-3 shrink-0 opacity-50" />;
+}
+
+function PublishingPipeline({
+  result, activeStage, setActiveStage,
+}: {
+  result: CompileResponse;
+  activeStage: PipelineStageKey;
+  setActiveStage: (s: PipelineStageKey) => void;
+}) {
+  const errCount = (result.errors ?? []).length;
+  const warnCount = (result.warnings ?? []).length;
+
+  const stages: PipelineStageShape[] = [
+    { key: "resolve",               label: "Resolve",                      status: "done" },
+    { key: "validate",              label: "Validate",                     status: errCount > 0 ? "error" : warnCount > 0 ? "warning" : "done", badge: errCount + warnCount || undefined },
+    { key: "inheritance",           label: "Inheritance",                  status: "done" },
+    { key: "prompt-assembly",       label: "Prompt Assembly",              status: "done" },
+    { key: "hash-generation",       label: "Hash Generation",              status: "done" },
+    { key: "ready-for-spec-board",  label: "Ready for Specification Board",status: "current" },
+    { key: "specification-review",  label: "Specification Review",         status: "future" },
+    { key: "ready-for-artwork",     label: "Ready for Artwork",            status: "future" },
+    { key: "artwork-generation",    label: "Artwork Generation",           status: "future" },
+    { key: "artwork-review",        label: "Artwork Review",               status: "future" },
+    { key: "ready-for-publish",     label: "Ready for Publish",            status: "future" },
+    { key: "published",             label: "Published",                    status: "future" },
   ];
 
-  const cls: Record<StageStatus, string> = {
-    done:    "bg-emerald-50 text-emerald-700 border-emerald-200",
-    warning: "bg-amber-50 text-amber-700 border-amber-200",
-    error:   "bg-red-50 text-red-700 border-red-200",
-    pending: "bg-muted/40 text-muted-foreground border-border",
+  const baseCls = "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-[11px] font-medium transition-colors cursor-pointer select-none";
+  const statusCls: Record<PipelineStageStatus, string> = {
+    done:    "bg-emerald-50  text-emerald-700  border-emerald-200  hover:bg-emerald-100",
+    current: "bg-[#1B2A4A]  text-white         border-[#1B2A4A]    hover:bg-[#2a3d6a]",
+    warning: "bg-amber-50   text-amber-700    border-amber-200    hover:bg-amber-100",
+    error:   "bg-red-50     text-red-700      border-red-200      hover:bg-red-100",
+    future:  "bg-muted/30   text-muted-foreground border-border   hover:bg-muted/50",
   };
-  const StageIcon = ({ s }: { s: StageStatus }) =>
-    s === "done"    ? <CheckCircle2 className="w-3 h-3" />
-    : s === "warning" ? <AlertTriangle className="w-3 h-3" />
-    : s === "error"   ? <XCircle className="w-3 h-3" />
-    : <Clock className="w-3 h-3" />;
+  const selectedRing = "ring-2 ring-offset-1 ring-[#1B2A4A]/40";
 
   return (
-    <div className="flex items-center gap-0 overflow-x-auto pb-1">
-      {stages.map((s, i) => (
-        <div key={s.key} className="flex items-center shrink-0">
-          <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-[11px] font-medium ${cls[s.status]}`}>
-            <StageIcon s={s.status} />{s.label}
+    <div className="overflow-x-auto pb-2 -mx-1 px-1">
+      <div className="flex items-center gap-0 min-w-max">
+        {stages.map((s, i) => (
+          <div key={s.key} className="flex items-center shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveStage(s.key)}
+              className={`${baseCls} ${statusCls[s.status]} ${activeStage === s.key ? selectedRing : ""}`}
+            >
+              <PipelineStageIcon status={s.status} />
+              <span>{s.label}</span>
+              {s.badge != null && s.badge > 0 && (
+                <span className={`ml-0.5 px-1.5 py-0 rounded-full text-[9px] font-bold leading-4 ${s.status === "error" ? "bg-red-600 text-white" : "bg-amber-500 text-white"}`}>
+                  {s.badge}
+                </span>
+              )}
+            </button>
+            {i < stages.length - 1 && (
+              <ArrowRight className="w-3 h-3 text-muted-foreground mx-0.5 shrink-0 opacity-50" />
+            )}
           </div>
-          {i < stages.length - 1 && <ArrowRight className="w-3 h-3 text-muted-foreground mx-0.5 shrink-0" />}
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
 
-// ── Compiled Production Specification Inspector ────────────────────────────────
-
-type InspectorView = "summary" | "inspector" | "sections" | "validation" | "technical";
+// ── Publishing Engine Inspector ────────────────────────────────────────────────
 
 function InspectorScreen({
   result, preflight, onReset,
@@ -710,33 +750,30 @@ function InspectorScreen({
   preflight: PreflightResponse | null;
   onReset: () => void;
 }) {
-  const [activeView, setActiveView] = useState<InspectorView>("summary");
+  const [activeStage, setActiveStage] = useState<PipelineStageKey>("ready-for-spec-board");
   const prov = result.provenance;
   const isLegacy = prov?.payload_format === "legacy";
   const errCount = (result.errors ?? []).length;
   const warnCount = (result.warnings ?? []).length;
 
-  const tabs: Array<{ key: InspectorView; label: string; icon: React.ReactNode; badge?: number }> = [
-    { key: "summary",    label: "Summary",    icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-    { key: "inspector",  label: "Inspector",  icon: <GitBranch className="w-3.5 h-3.5" /> },
-    { key: "sections",   label: "Sections",   icon: <Layers className="w-3.5 h-3.5" /> },
-    { key: "validation", label: "Validation", icon: <ShieldCheck className="w-3.5 h-3.5" />, badge: errCount + warnCount },
-    { key: "technical",  label: "Technical",  icon: <Cpu className="w-3.5 h-3.5" /> },
+  const FUTURE_STAGES: PipelineStageKey[] = [
+    "specification-review", "ready-for-artwork", "artwork-generation",
+    "artwork-review", "ready-for-publish", "published",
   ];
 
   return (
     <div className="space-y-4">
-      {/* Banner */}
-      <div className={`flex items-center gap-3 p-4 rounded-lg border ${errCount > 0 ? "border-red-200 bg-red-50" : warnCount > 0 ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
-        <CheckCircle2 className={`w-5 h-5 shrink-0 ${errCount > 0 ? "text-red-500" : warnCount > 0 ? "text-amber-500" : "text-emerald-500"}`} />
-        <div className="flex-1">
-          <p className={`text-sm font-semibold ${errCount > 0 ? "text-red-800" : warnCount > 0 ? "text-amber-800" : "text-emerald-800"}`}>
-            Compiled Production Specification
-          </p>
-          <p className={`text-xs mt-0.5 ${errCount > 0 ? "text-red-700" : warnCount > 0 ? "text-amber-700" : "text-emerald-700"}`}>
-            {isLegacy ? "PP-1.0 legacy format — consider migrating to PP-2.0." : "PP-2.0 structured payload."}
-            {errCount > 0 && ` ${errCount} contract error${errCount !== 1 ? "s" : ""} — review Validation tab.`}
-            {errCount === 0 && warnCount > 0 && ` ${warnCount} warning${warnCount !== 1 ? "s" : ""}.`}
+      {/* Engine header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[11px] font-semibold text-[#1B2A4A] uppercase tracking-widest">Publishing Pipeline</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {errCount > 0
+              ? <span className="text-red-600 font-medium">{errCount} error{errCount !== 1 ? "s" : ""} — review Validate stage before proceeding</span>
+              : warnCount > 0
+              ? <span className="text-amber-600">{warnCount} warning{warnCount !== 1 ? "s" : ""} · {isLegacy ? "PP-1.0 legacy format" : "PP-2.0 structured payload"}</span>
+              : <span className="text-emerald-700 font-medium">All governance checks passed · {isLegacy ? "PP-1.0" : "PP-2.0"} · ready for Specification Board</span>
+            }
           </p>
         </div>
         <Button size="sm" variant="ghost" onClick={onReset} className="shrink-0 text-muted-foreground hover:text-foreground">
@@ -744,34 +781,23 @@ function InspectorScreen({
         </Button>
       </div>
 
-      {/* Build Pipeline */}
-      <BuildPipeline result={result} />
+      {/* Publishing Pipeline — the navigation */}
+      <PublishingPipeline result={result} activeStage={activeStage} setActiveStage={setActiveStage} />
 
-      {/* 5-tab nav */}
-      <div className="flex gap-0 border-b border-border overflow-x-auto">
-        {tabs.map(({ key, label, icon, badge }) => (
-          <button key={key} onClick={() => setActiveView(key)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
-              activeView === key
-                ? "border-[#1B2A4A] text-[#1B2A4A]"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}>
-            {icon}{label}
-            {badge != null && badge > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">{badge}</span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* Action Center */}
+      <ActionCenter result={result} prov={prov ?? null} setActiveStage={setActiveStage} />
 
-      {activeView === "summary"    && <SummaryTab    result={result} preflight={preflight} prov={prov ?? null} />}
-      {activeView === "inspector"  && <InspectorTab  result={result} preflight={preflight} prov={prov ?? null} />}
-      {activeView === "sections"   && <PromptSectionsTab sections={result.compiled_sections ?? []} fullPrompt={result.compiled_prompt ?? ""} promptHash={result.prompt_hash} isLegacy={isLegacy} />}
-      {activeView === "validation" && <ValidationTab errors={result.errors ?? []} warnings={result.warnings ?? []} prov={prov ?? null} />}
-      {activeView === "technical"  && <TechnicalTab  result={result} />}
+      {/* Stage-driven inspector panel */}
+      {activeStage === "resolve"              && <ResolvePanel result={result} preflight={preflight} prov={prov ?? null} />}
+      {activeStage === "validate"             && <ValidationTab errors={result.errors ?? []} warnings={result.warnings ?? []} prov={prov ?? null} />}
+      {activeStage === "inheritance"          && <InspectorTab result={result} preflight={preflight} prov={prov ?? null} />}
+      {activeStage === "prompt-assembly"      && <PromptSectionsTab sections={result.compiled_sections ?? []} fullPrompt={result.compiled_prompt ?? ""} promptHash={result.prompt_hash} isLegacy={isLegacy} />}
+      {activeStage === "hash-generation"      && <TechnicalTab result={result} />}
+      {activeStage === "ready-for-spec-board" && <ReadinessPanel result={result} preflight={preflight} prov={prov ?? null} />}
+      {FUTURE_STAGES.includes(activeStage)    && <FuturePlaceholderPanel stage={activeStage} />}
 
       {result.visual_asset_id && (
-        <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+        <div className="text-xs text-muted-foreground flex items-center gap-1.5 pt-1">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
           Visual Asset updated in Notion: <code className="font-mono">{result.visual_asset_id}</code>
         </div>
@@ -780,9 +806,62 @@ function InspectorScreen({
   );
 }
 
-// ── Tab 1: Summary ────────────────────────────────────────────────────────────
+// ── Action Center ─────────────────────────────────────────────────────────────
 
-function SummaryTab({
+function ActionCenter({
+  result, prov, setActiveStage,
+}: {
+  result: CompileResponse;
+  prov: ProvenanceRecord | null;
+  setActiveStage: (s: PipelineStageKey) => void;
+}) {
+  const errCount = (result.errors ?? []).length;
+  const warnCount = (result.warnings ?? []).length;
+
+  type ActionItem = { label: string; primary?: boolean; href?: string; onClick?: () => void; icon: React.ReactNode };
+  const actions: ActionItem[] = [];
+
+  if (errCount > 0) {
+    actions.push({ label: "Resolve Validation Errors", primary: true, icon: <XCircle className="w-3.5 h-3.5" />, onClick: () => setActiveStage("validate") });
+    if (prov?.prompt_payload_notion_id) actions.push({ label: "Open Prompt Payload",          icon: <ExternalLink className="w-3.5 h-3.5" />, href: notionUrl(prov.prompt_payload_notion_id) });
+    if (prov?.component_spec_notion_id) actions.push({ label: "Update Component Specification",icon: <ExternalLink className="w-3.5 h-3.5" />, href: notionUrl(prov.component_spec_notion_id) });
+    if (prov?.production_spec_notion_id) actions.push({ label: "Open Production Specification", icon: <ExternalLink className="w-3.5 h-3.5" />, href: notionUrl(prov.production_spec_notion_id) });
+  } else {
+    actions.push({ label: "Generate Specification Board", primary: true, icon: <ImagePlus className="w-3.5 h-3.5" />, onClick: () => { document.getElementById("spec-preview-card")?.scrollIntoView({ behavior: "smooth" }); } });
+    if (prov?.production_spec_notion_id) actions.push({ label: "Open Production Specification", icon: <ExternalLink className="w-3.5 h-3.5" />, href: notionUrl(prov.production_spec_notion_id) });
+    if (warnCount > 0) actions.push({ label: "Review Validation Report", icon: <AlertTriangle className="w-3.5 h-3.5" />, onClick: () => setActiveStage("validate") });
+    actions.push({ label: "Inspect Resolved Records", icon: <GitBranch className="w-3.5 h-3.5" />, onClick: () => setActiveStage("resolve") });
+    actions.push({ label: "Review Prompt Assembly",   icon: <Layers className="w-3.5 h-3.5" />,    onClick: () => setActiveStage("prompt-assembly") });
+  }
+
+  return (
+    <div className="rounded-lg border border-[#1B2A4A]/15 bg-[#1B2A4A]/[0.03] px-4 py-3">
+      <div className="flex items-start gap-3 flex-wrap">
+        <p className="text-[11px] font-semibold text-[#1B2A4A] uppercase tracking-widest mt-0.5 shrink-0">Actions</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          {actions.map((action, i) => (
+            action.href
+              ? <a key={i} href={action.href} target="_blank" rel="noopener noreferrer">
+                  <Button size="sm" variant={action.primary ? "default" : "outline"}
+                    className={`h-7 gap-1.5 ${action.primary ? "bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white" : ""}`}>
+                    {action.icon}{action.label}
+                  </Button>
+                </a>
+              : <Button key={i} size="sm" variant={action.primary ? "default" : "outline"}
+                  className={`h-7 gap-1.5 ${action.primary ? "bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white" : ""}`}
+                  onClick={action.onClick}>
+                  {action.icon}{action.label}
+                </Button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Production Readiness Panel (Ready for Specification Board stage) ───────────
+
+function ReadinessPanel({
   result, preflight, prov,
 }: {
   result: CompileResponse;
@@ -790,106 +869,224 @@ function SummaryTab({
   prov: ProvenanceRecord | null;
 }) {
   const { toast } = useToast();
-  const [showTech, setShowTech] = useState(false);
-
   const artifactId = prov?.run_id ?? result.run_id ?? "—";
   const promptHash = result.prompt_hash ?? "—";
   const errCount = (result.errors ?? []).length;
-  const warnCount = (result.warnings ?? []).length;
-  const validationLabel = errCount > 0
-    ? `${errCount} error${errCount !== 1 ? "s" : ""}`
-    : warnCount > 0 ? `${warnCount} warning${warnCount !== 1 ? "s" : ""}` : "Clean";
 
-  const mainFields: Array<{ label: string; value: string | number | null | undefined }> = [
+  const summaryFields: Array<{ label: string; value: string | null | undefined }> = [
     { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification },
-    { label: "Component",                value: prov?.component_type ?? preflight?.component_type },
     { label: "World",                    value: prov?.world ?? preflight?.world },
+    { label: "Component",                value: prov?.component_type ?? preflight?.component_type },
     { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—" },
     { label: "Component Set",            value: prov?.component_set ?? "—" },
-    { label: "Component Specification",  value: prov?.component_specification ?? preflight?.component_specification ?? "—" },
-    { label: "Payload Version",          value: prov?.payload_version ?? result.payload_version },
-    { label: "Payload Format",           value: prov?.payload_format === "legacy" ? "PP-1.0 (legacy flat keys)" : "PP-2.0 (structured sections)" },
-    { label: "Compiled Artifact ID",     value: artifactId.length > 24 ? `${artifactId.slice(0, 20)}…` : artifactId },
-    { label: "Compiled Prompt Length",   value: result.compiled_prompt ? `${result.compiled_prompt.length.toLocaleString()} chars` : "—" },
-    { label: "Compiler Version",         value: prov?.compiler_version ?? "—" },
+    { label: "Payload Format",           value: prov?.payload_format === "legacy" ? "PP-1.0 (legacy)" : "PP-2.0 (structured)" },
     { label: "Compilation Timestamp",    value: fmtTs(prov?.compilation_timestamp) },
-    { label: "Validation Status",        value: validationLabel },
-    { label: "Next Step",                value: result.next_action ?? "Generate Preview" },
+    { label: "Next Action",              value: result.next_action ?? "Generate Specification Board" },
   ];
 
-  const techFields: Array<{ label: string; value: string }> = [
-    { label: "Run ID (Compiled Artifact ID)", value: artifactId },
-    { label: "Prompt Hash (full)",             value: promptHash },
-    { label: "Production Spec (Notion)",       value: prov?.production_spec_notion_id ?? "—" },
-    { label: "Component Spec (Notion)",        value: prov?.component_spec_notion_id ?? "—" },
-    { label: "Style Guide (Notion)",           value: prov?.style_guide_notion_id ?? "—" },
-    { label: "Prompt Payload (Notion)",        value: prov?.prompt_payload_notion_id ?? "Inline" },
+  const moduleCount = prov?.prompt_modules.length ?? preflight?.prompt_module_count ?? 0;
+  const canonCount  = prov?.canon_records.length ?? preflight?.canon_record_count ?? 0;
+
+  const checklist: Array<{ label: string; ok: boolean; note: string; notionId?: string }> = [
+    { label: "Production Specification", ok: true,                                       note: prov?.production_spec_title ?? preflight?.production_specification ?? "Resolved", notionId: prov?.production_spec_notion_id },
+    { label: "Component Specification",  ok: !!(prov?.component_specification ?? preflight?.component_specification), note: prov?.component_specification ?? preflight?.component_specification ?? "Not linked", notionId: prov?.component_spec_notion_id },
+    { label: "Style Guide",              ok: !!prov?.style_guide,                        note: prov?.style_guide ?? "Not linked", notionId: prov?.style_guide_notion_id },
+    { label: "Prompt Modules",           ok: moduleCount > 0,                            note: moduleCount > 0 ? `${moduleCount} linked` : "None linked" },
+    { label: "Prompt Payload",           ok: true,                                       note: prov?.payload_version ?? result.payload_version ?? "Present", notionId: prov?.prompt_payload_notion_id },
+    { label: "Canon",                    ok: canonCount > 0,                             note: canonCount > 0 ? `${canonCount} records` : "No canon records" },
+    { label: "Print Specification",      ok: !!prov?.component_type,                    note: prov?.component_type ?? "Not resolved" },
+    { label: "Prompt Hash",              ok: !!result.prompt_hash,                      note: result.prompt_hash ? `${result.prompt_hash.slice(0, 16)}…` : "Not generated" },
+    { label: "Payload Contract",         ok: prov?.payload_format !== "legacy",         note: prov?.payload_format === "legacy" ? "Legacy PP-1.0" : "PP-2.0 ✓" },
   ];
+
+  const isReadyForSpecBoard = errCount === 0;
+  const isReadyForArtwork   = isReadyForSpecBoard && prov?.payload_format !== "legacy" && !!prov?.style_guide;
 
   return (
     <div className="space-y-4">
+      {/* Summary card */}
       <Card>
-        <CardContent className="pt-5 pb-4">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-            {mainFields.map(({ label, value }) => (
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Production Summary</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            {summaryFields.map(({ label, value }) => (
               <div key={label}>
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
-                <p className="text-sm font-medium" title={String(value ?? "—")}>{value ?? "—"}</p>
+                <p className="text-sm font-medium truncate" title={value ?? "—"}>{value ?? "—"}</p>
               </div>
             ))}
+          </div>
+
+          {/* Artifact ID + Prompt Hash callout */}
+          <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-border">
+            <div className="flex items-start gap-2 p-3 rounded-md border border-[#1B2A4A]/20 bg-[#1B2A4A]/5">
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Compiled Artifact ID</p>
+                <code className="text-xs font-mono break-all">{artifactId}</code>
+              </div>
+              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0"
+                onClick={() => { navigator.clipboard.writeText(artifactId); toast({ title: "Artifact ID copied" }); }}>
+                <Copy className="w-3 h-3" />
+              </Button>
+            </div>
+            <div className="flex items-start gap-2 p-3 rounded-md border border-border bg-muted/20">
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Prompt Hash</p>
+                <code className="text-xs font-mono break-all">{promptHash}</code>
+              </div>
+              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0"
+                onClick={() => { navigator.clipboard.writeText(promptHash); toast({ title: "Prompt hash copied" }); }}>
+                <Copy className="w-3 h-3" />
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Artifact ID + Prompt Hash callout */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex items-start gap-2 p-3 rounded-md border border-[#1B2A4A]/20 bg-[#1B2A4A]/5">
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Compiled Artifact ID · Primary</p>
-            <code className="text-xs font-mono break-all">{artifactId}</code>
-          </div>
-          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0 mt-1"
-            onClick={() => { navigator.clipboard.writeText(artifactId); toast({ title: "Artifact ID copied" }); }}>
-            <Copy className="w-3 h-3" />
-          </Button>
-        </div>
-        <div className="flex items-start gap-2 p-3 rounded-md border border-border bg-muted/20">
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Prompt Hash · Secondary</p>
-            <code className="text-xs font-mono break-all">{promptHash}</code>
-          </div>
-          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0 mt-1"
-            onClick={() => { navigator.clipboard.writeText(promptHash); toast({ title: "Prompt hash copied" }); }}>
-            <Copy className="w-3 h-3" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Expandable Technical Details */}
+      {/* Production Readiness checklist */}
       <Card>
-        <button type="button" onClick={() => setShowTech(!showTech)} className="w-full text-left">
-          <CardContent className="py-3 px-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Cpu className="w-3.5 h-3.5" />
-                <span className="font-medium">Technical Details</span>
-                <span>— raw IDs and compiler metadata</span>
-              </div>
-              {showTech ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
-            </div>
-          </CardContent>
-        </button>
-        {showTech && (
-          <div className="border-t border-border divide-y divide-border">
-            {techFields.map(({ label, value }) => (
-              <div key={label} className="grid grid-cols-[220px_1fr] gap-3 px-4 py-2.5 text-xs">
-                <span className="text-muted-foreground font-medium self-start">{label}</span>
-                <code className="font-mono break-all">{value}</code>
-              </div>
-            ))}
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-[#1B2A4A]" />
+            Production Readiness
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="space-y-2.5">
+            {checklist.map(({ label, ok, note, notionId }) => {
+              const url = notionUrl(notionId);
+              return (
+                <div key={label} className="flex items-center gap-3 text-sm">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${ok ? "bg-emerald-100" : "bg-gray-100"}`}>
+                    {ok
+                      ? <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      : <Info className="w-3 h-3 text-gray-400" />}
+                  </div>
+                  <span className="font-medium flex-1">{label}</span>
+                  <span className={`text-xs ${ok ? "text-muted-foreground" : "text-amber-600 font-medium"}`}>{note}</span>
+                  {url && (
+                    <a href={url} target="_blank" rel="noopener noreferrer"
+                      className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 shrink-0">
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        )}
+
+          <div className="mt-4 pt-4 border-t border-border space-y-2">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Ready For</p>
+            <div className="flex items-center gap-2 text-sm">
+              {isReadyForSpecBoard
+                ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                : <XCircle className="w-4 h-4 text-red-400 shrink-0" />}
+              <span className={isReadyForSpecBoard ? "" : "text-muted-foreground"}>Specification Board</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              {isReadyForArtwork
+                ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                : <XCircle className="w-4 h-4 text-muted-foreground shrink-0" />}
+              <span className={isReadyForArtwork ? "" : "text-muted-foreground"}>Final Artwork</span>
+              {!isReadyForArtwork && <span className="text-xs text-muted-foreground">{prov?.payload_format === "legacy" ? "(requires PP-2.0 migration)" : !prov?.style_guide ? "(requires Style Guide)" : "(resolve errors first)"}</span>}
+            </div>
+          </div>
+        </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ── Resolve Panel (all resolved records) ──────────────────────────────────────
+
+function ResolvePanel({
+  result, preflight, prov,
+}: {
+  result: CompileResponse;
+  preflight: PreflightResponse | null;
+  prov: ProvenanceRecord | null;
+}) {
+  const moduleCount = prov?.prompt_modules.length ?? preflight?.prompt_module_count ?? 0;
+  const canonCount  = prov?.canon_records.length ?? preflight?.canon_record_count ?? 0;
+
+  const records: Array<{ label: string; value: string | null | undefined; resolved: boolean; notionId?: string; detail?: string }> = [
+    { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification, resolved: true,               notionId: prov?.production_spec_notion_id },
+    { label: "World",                    value: prov?.world ?? preflight?.world,                                    resolved: !!(prov?.world ?? preflight?.world) },
+    { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—",                           resolved: !!(prov?.volume ?? preflight?.volume) },
+    { label: "Component Set",            value: prov?.component_set ?? "—",                                         resolved: !!prov?.component_set },
+    { label: "Component Specification",  value: prov?.component_specification ?? preflight?.component_specification, resolved: !!(prov?.component_specification ?? preflight?.component_specification), notionId: prov?.component_spec_notion_id },
+    { label: "Style Guide",              value: prov?.style_guide ?? "Not linked",                                  resolved: !!prov?.style_guide, notionId: prov?.style_guide_notion_id },
+    { label: "Prompt Modules",           value: moduleCount > 0 ? `${moduleCount} module${moduleCount !== 1 ? "s" : ""} loaded` : "None linked",  resolved: moduleCount > 0, detail: prov?.prompt_modules.join(", ") },
+    { label: "Prompt Payload",           value: prov?.payload_version ?? result.payload_version,                    resolved: true,               notionId: prov?.prompt_payload_notion_id, detail: prov?.prompt_payload_type === "linked" ? "Linked record" : "Inline (from Production Spec)" },
+    { label: "Canon",                    value: canonCount > 0 ? `${canonCount} record${canonCount !== 1 ? "s" : ""}` : "No canon records",       resolved: canonCount > 0, detail: prov?.canon_records.join(", ") },
+    { label: "Print Specification",      value: prov?.component_type ?? "Not resolved",                             resolved: !!prov?.component_type },
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+          Resolved Records
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">All records resolved from the Notion Production Specification chain.</p>
+      </CardHeader>
+      <CardContent className="pt-0 divide-y divide-border">
+        {records.map(({ label, value, resolved, notionId, detail }) => {
+          const url = notionUrl(notionId);
+          return (
+            <div key={label} className="flex items-start gap-3 py-3 text-sm">
+              <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${resolved ? "bg-emerald-100" : "bg-gray-100"}`}>
+                {resolved
+                  ? <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  : <Info className="w-3 h-3 text-gray-400" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
+                <p className={`font-medium mt-0.5 ${!resolved ? "text-muted-foreground" : ""}`}>{value || "—"}</p>
+                {detail && <p className="text-[11px] text-muted-foreground mt-0.5 break-words">{detail}</p>}
+              </div>
+              {url && (
+                <a href={url} target="_blank" rel="noopener noreferrer"
+                  className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 shrink-0 mt-0.5">
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Future Stage Placeholder ───────────────────────────────────────────────────
+
+function FuturePlaceholderPanel({ stage }: { stage: PipelineStageKey }) {
+  const labels: Partial<Record<PipelineStageKey, { title: string; description: string }>> = {
+    "specification-review": { title: "Specification Review",  description: "A human reviewer opens the generated Specification Board in Notion and approves the compiled prompt before artwork generation begins." },
+    "ready-for-artwork":    { title: "Ready for Artwork",     description: "The Specification Board has been approved. The asset is queued for artwork generation once the review gate is cleared." },
+    "artwork-generation":   { title: "Artwork Generation",    description: "The approved compiled prompt is submitted to the image provider. The generated artwork is uploaded back to Notion for review." },
+    "artwork-review":       { title: "Artwork Review",        description: "A quality reviewer inspects the generated artwork against the Specification Board and approves or rejects it." },
+    "ready-for-publish":    { title: "Ready for Publish",     description: "Artwork has passed QA review. The asset is cleared for final publication to the product catalog." },
+    "published":            { title: "Published",             description: "The asset has been published to the product catalog and is live for end users." },
+  };
+  const info = labels[stage];
+
+  return (
+    <div className="flex flex-col items-center gap-4 py-12 px-8 rounded-lg border border-dashed border-border text-center">
+      <div className="w-10 h-10 rounded-full bg-muted/50 flex items-center justify-center">
+        <Clock className="w-5 h-5 text-muted-foreground" />
+      </div>
+      <div className="space-y-1.5 max-w-sm">
+        <p className="text-sm font-semibold">{info?.title ?? stage}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{info?.description ?? "This publishing stage is reserved for a future workflow phase."}</p>
+      </div>
+      <div className="px-3 py-1.5 rounded-full bg-muted/50 text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
+        Coming Soon
+      </div>
     </div>
   );
 }
@@ -1220,6 +1417,12 @@ function PromptSectionsTab({
 
 // ── Tab 4: Validation ─────────────────────────────────────────────────────────
 
+// Codes that represent best-practice modernization — not quality or blocking concerns.
+const RECOMMENDATION_CODES = new Set([
+  "LEGACY_PAYLOAD_FORMAT", "MIGRATION_SUGGESTED", "PAYLOAD_OPTIMIZATION",
+  "OPTIONAL_PROMPT_MODULE", "OPTIONAL_MODULE",
+]);
+
 function ValidationTab({
   errors, warnings, prov,
 }: {
@@ -1227,36 +1430,62 @@ function ValidationTab({
   warnings: ValidationError[];
   prov: ProvenanceRecord | null;
 }) {
-  const allClean = errors.length === 0 && warnings.length === 0;
+  const realWarnings = warnings.filter(w => !RECOMMENDATION_CODES.has(w.code ?? ""));
+  const recs         = warnings.filter(w =>  RECOMMENDATION_CODES.has(w.code ?? ""));
+  const allClean     = errors.length === 0 && realWarnings.length === 0 && recs.length === 0;
+  const recsOnly     = errors.length === 0 && realWarnings.length === 0 && recs.length > 0;
+
   const specUrl    = notionUrl(prov?.production_spec_notion_id);
   const payloadUrl = notionUrl(prov?.prompt_payload_notion_id);
   const compUrl    = notionUrl(prov?.component_spec_notion_id);
 
   return (
     <div className="space-y-4">
+      {/* Page title */}
+      <div>
+        <p className="text-[11px] font-semibold text-[#1B2A4A] uppercase tracking-widest">Validation Report</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {allClean ? "All governance checks passed." : recsOnly ? "Production-ready — modernization recommendations available." : `${errors.length} error${errors.length !== 1 ? "s" : ""} · ${realWarnings.length} warning${realWarnings.length !== 1 ? "s" : ""} · ${recs.length} recommendation${recs.length !== 1 ? "s" : ""}`}
+        </p>
+      </div>
+
       {/* Notion navigation */}
       {(specUrl || payloadUrl || compUrl) && (
         <div className="flex flex-wrap gap-2">
-          {specUrl && <a href={specUrl} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1.5"><ExternalLink className="w-3 h-3" />Production Specification</Button></a>}
+          {specUrl    && <a href={specUrl}    target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1.5"><ExternalLink className="w-3 h-3" />Production Specification</Button></a>}
           {payloadUrl && <a href={payloadUrl} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1.5"><ExternalLink className="w-3 h-3" />Prompt Payload</Button></a>}
-          {compUrl && <a href={compUrl} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1.5"><ExternalLink className="w-3 h-3" />Component Specification</Button></a>}
+          {compUrl    && <a href={compUrl}    target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1.5"><ExternalLink className="w-3 h-3" />Component Specification</Button></a>}
         </div>
       )}
 
+      {/* All-clear banner */}
       {allClean && (
         <div className="flex items-center gap-3 p-4 rounded-lg border border-emerald-200 bg-emerald-50">
           <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-emerald-800">Validation passed</p>
-            <p className="text-xs text-emerald-700 mt-0.5">No errors or warnings. Ready for preview generation.</p>
+            <p className="text-sm font-semibold text-emerald-800">All governance checks passed</p>
+            <p className="text-xs text-emerald-700 mt-0.5">This Production Specification is ready for the next publishing stage.</p>
           </div>
         </div>
       )}
 
+      {/* Recommendations-only banner */}
+      {recsOnly && (
+        <div className="flex items-center gap-3 p-4 rounded-lg border border-blue-200 bg-blue-50">
+          <Sparkles className="w-5 h-5 text-blue-400 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-blue-800">This asset is production-ready</p>
+            <p className="text-xs text-blue-700 mt-0.5">Modernization improvements are available but optional.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Errors */}
       {errors.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-red-600">
-            <XCircle className="w-4 h-4" />Errors ({errors.length})
+            <XCircle className="w-4 h-4" />
+            Errors <span className="font-normal text-red-500">({errors.length}) — compilation blocked</span>
           </div>
           {errors.map((e, i) => e.code === "MISSING_REQUIRED_SECTION"
             ? <ContractViolationCard key={i} e={e} variant="error" />
@@ -1265,15 +1494,39 @@ function ValidationTab({
         </div>
       )}
 
-      {warnings.length > 0 && (
+      {/* Warnings */}
+      {realWarnings.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-amber-600">
-            <AlertTriangle className="w-4 h-4" />Warnings ({warnings.length})
+            <AlertTriangle className="w-4 h-4" />
+            Warnings <span className="font-normal text-amber-500">({realWarnings.length}) — quality may be affected</span>
           </div>
-          {warnings.map((w, i) => w.code === "MISSING_REQUIRED_SECTION"
+          {realWarnings.map((w, i) => w.code === "MISSING_REQUIRED_SECTION"
             ? <ContractViolationCard key={i} e={w} variant="warning" />
             : <GenericIssueRow key={i} e={w} variant="warning" />
           )}
+        </div>
+      )}
+
+      {/* Recommendations */}
+      {recs.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-blue-600">
+            <Sparkles className="w-4 h-4" />
+            Recommendations <span className="font-normal text-blue-500">({recs.length}) — optional modernization</span>
+          </div>
+          {recs.map((r, i) => (
+            <div key={i} className="rounded-md p-3 text-xs space-y-1 bg-blue-50 border border-blue-100">
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="font-mono font-medium text-blue-700">{r.code}</code>
+                <span className="text-muted-foreground">·</span>
+                <span className="font-medium">{r.field}</span>
+                <span className="text-muted-foreground ml-auto">{r.governing_rule}</span>
+              </div>
+              <p className="text-blue-900">{r.message}</p>
+              <p className="font-medium text-blue-700">→ {r.recommended_action}</p>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1463,12 +1716,12 @@ function SpecPreviewSection({
   const isGenerating = previewMutation.isPending;
 
   return (
-    <Card className="border-[#1B2A4A]/20">
+    <Card id="spec-preview-card" className="border-[#1B2A4A]/20">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm flex items-center gap-2">
             <ImagePlus className="w-4 h-4 text-[#C87560]" />
-            Specification Board Preview
+            Specification Board
           </CardTitle>
           <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-muted-foreground">
             <input
@@ -1534,7 +1787,7 @@ function SpecPreviewSection({
               onClick={() => previewMutation.mutate({ specId: resolvedId!, hash: result.prompt_hash! })}
             >
               <ImagePlus className="w-3.5 h-3.5 mr-1.5" />
-              {previewError ? "Retry Preview" : "Generate Preview"}
+              {previewError ? "Retry Specification Board" : "Generate Specification Board"}
             </Button>
             <Button
               size="sm"
@@ -1554,8 +1807,8 @@ function SpecPreviewSection({
 
         <p className="text-xs text-muted-foreground">
           Uploads a{" "}
-          <span className="font-medium">1600×2000 px PNG</span> specification board to Notion and advances Status to{" "}
-          <span className="font-medium">Ready for Review</span>.
+          <span className="font-medium">1600×2000 px PNG</span> Specification Board to Notion and advances Status to{" "}
+          <span className="font-medium">Ready for Specification Review</span>. Warnings and recommendations do not prevent generation.
         </p>
       </CardContent>
     </Card>
@@ -1597,12 +1850,12 @@ function PreviewSuccessScreen({
         <CheckCircle2 className={`w-5 h-5 shrink-0 ${isPartialSuccess ? "text-amber-500" : "text-emerald-500"}`} />
         <div className="flex-1">
           <p className={`text-sm font-semibold ${isPartialSuccess ? "text-amber-800" : "text-emerald-800"}`}>
-            {isPartialSuccess ? "Specification board uploaded (status not updated)" : "Specification board generated"}
+            {isPartialSuccess ? "Specification Board uploaded — status not updated" : "Specification Board generated"}
           </p>
           <p className={`text-xs mt-0.5 ${isPartialSuccess ? "text-amber-700" : "text-emerald-700"}`}>
             {isPartialSuccess
-              ? "The image was uploaded to Notion, but the Status field could not be updated automatically."
-              : `Status advanced: ${result.previous_status || "Active"} → ${result.new_status || "Ready for Review"}`}
+              ? "The image was uploaded to Notion, but the Status field could not be updated automatically. Set it to Ready for Specification Review manually."
+              : `Status advanced: ${result.previous_status || "Active"} → ${result.new_status || "Ready for Specification Review"}`}
           </p>
         </div>
       </div>
@@ -1637,11 +1890,11 @@ function PreviewSuccessScreen({
         >
           {isGenerating
             ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating…</>
-            : <><ImagePlus className="w-4 h-4 mr-2" />Generate New Preview</>}
+            : <><ImagePlus className="w-4 h-4 mr-2" />Generate New Board</>}
         </Button>
         <Button variant="ghost" onClick={onReturnToCompiler}>
           <ArrowLeft className="w-4 h-4 mr-2" />
-          Return to Compiler
+          Return to Publishing Engine
         </Button>
         <Button
           variant="ghost"

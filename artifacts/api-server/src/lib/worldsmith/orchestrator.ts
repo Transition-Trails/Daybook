@@ -226,7 +226,7 @@ export async function runCompilation(
       try {
         await updatePage(specId, {
           ...(spec.compiledPromptStatus !== "Compiled" ? { "Compiled Prompt Status": selectProp("Compiled") } : {}),
-          "Next Action": selectProp("Generate image"),
+          "Next Action": richTextProp("Generate image"),
         });
       } catch (err) {
         logger.warn({ err, specId }, "Could not update Production Specification Next Action — non-fatal");

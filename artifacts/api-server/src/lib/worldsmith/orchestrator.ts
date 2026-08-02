@@ -21,7 +21,7 @@ import {
   _setOnRetry,
   type NotionRetryEvent,
 } from "../notion-client";
-import type { CompileRequest, CompileResponse, ValidationError } from "./types";
+import type { CompileRequest, CompileResponse, ValidationError, ProvenanceRecord } from "./types";
 import { logger } from "../logger";
 
 const VISUAL_ASSETS_DB = () => process.env.NOTION_VISUAL_ASSETS_DB_ID ?? "";
@@ -278,6 +278,20 @@ export async function runCompilation(
       completedAt: new Date(),
     });
 
+    const provenance: ProvenanceRecord = {
+      world: spec.world,
+      volume: spec.volume,
+      style_guide: chain.styleGuide?.name,
+      component_specification: chain.componentSpec?.name,
+      prompt_payload: spec.promptPayloadId ? `Linked record: ${spec.promptPayloadId}` : "Inline (Production Spec)",
+      prompt_modules: chain.promptModules.map((m) => m.name),
+      canon_records: chain.canonRecords.map((r) => r.name),
+      prompt_hash: promptHash,
+      payload_version: spec.payloadVersion,
+      payload_format: compiled.isLegacyFormat ? "legacy" : "2.0",
+      compiler_version: "2.0.0",
+    };
+
     return {
       status: "compiled",
       run_id: runId,
@@ -286,6 +300,8 @@ export async function runCompilation(
       compiled_prompt_status: "Compiled",
       prompt_hash: promptHash,
       compiled_prompt: compiled.fullPrompt,
+      compiled_sections: compiled.sectionRecords,
+      provenance,
       visual_asset_id: visualAssetNotionId ?? undefined,
       warnings: allWarnings,
       next_action: "Generate image",

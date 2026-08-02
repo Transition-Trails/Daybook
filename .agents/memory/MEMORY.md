@@ -42,3 +42,4 @@
 - [WorldSmith Prompt Compiler](worldsmith-compiler.md) — Phase 1 compile-only pipeline; orchestrator + Notion client + 8 core modules; `worldsmith_runs`+`worldsmith_assets` tables; admin UI at /super/worldsmith
 - [WorldSmith chosen concept](worldsmith-chosen-concept.md) — user approved World Gallery for promotion to production landing page
 - [WorldSmith payload aliases](worldsmith-payload-aliases.md) — card_role/paper_and_materials/front_layout are normalised onto asset_role/materials/composition before PP-1.0 validation
+- [WorldSmith PP-2.0 payload contract](worldsmith-payload-contract.md) — section-based format (shared_prompt/front_prompt/negative_prompt); detection by shared_prompt presence; full backward compat with PP-1.0

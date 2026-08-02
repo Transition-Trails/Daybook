@@ -1,0 +1,516 @@
+Enhance the WorldSmith Prompt Compiler to support a formal Prompt Payload Contract that distinguishes shared content from surface-specific content. This change establishes the long-term architecture for all printable assets and replaces the current ad hoc "front_prompt" validation warning.
+
+The objective is to make the payload contract extensible enough to support:
+
+• Single-sided assets
+• Double-sided assets
+• Folded assets
+• Construction templates
+• Multi-page products
+• Future interactive paper engineering
+
+==================================================
+WHY
+==================================================
+
+The compiler currently warns:
+
+MISSING_COMPONENT_KEY
+front_prompt
+
+This should become part of the official payload specification instead of a special-case validation.
+
+We are formalizing the payload contract rather than simply adding one missing property.
+
+==================================================
+UPDATE CS-000
+==================================================
+
+Revise the Production Payload Specification (CS-000) to define payload sections.
+
+The payload should support the following top-level structure.
+
+shared_prompt
+
+Contains instructions that apply to the entire asset regardless of surface.
+
+Examples:
+
+• artistic style
+• rendering medium
+• historical period
+• palette
+• atmosphere
+• illustration technique
+• print characteristics
+• world context
+• narrative intent
+• global composition rules
+
+----------------------------------------
+
+front_prompt
+
+Contains instructions specific to the front face.
+
+Examples:
+
+• artwork
+• composition
+• labels
+• writing areas
+• decorative elements
+• page layout
+• title placement
+
+----------------------------------------
+
+back_prompt
+
+Contains instructions specific to the reverse side.
+
+Examples:
+
+• coordinating artwork
+• reverse printing
+• continuation graphics
+• decorative back
+• writing surface
+• texture
+
+This section is optional.
+
+----------------------------------------
+
+inside_prompt
+
+Optional.
+
+Used for:
+
+• pockets
+• envelopes
+• folders
+• folios
+• fold-outs
+
+----------------------------------------
+
+outside_prompt
+
+Optional.
+
+Used for construction assets.
+
+----------------------------------------
+
+assembly_prompt
+
+Optional.
+
+Used for:
+
+• pockets
+• envelopes
+• tags
+• tuck-ins
+• folios
+• paper engineering
+
+Examples:
+
+• cut lines
+• fold lines
+• glue tabs
+• scoring
+• construction guidance
+
+----------------------------------------
+
+negative_prompt
+
+Required.
+
+Contains:
+
+• prohibited styles
+• prohibited objects
+• rendering exclusions
+• modern exclusions
+• canon restrictions
+• print exclusions
+
+==================================================
+COMPONENT CONTRACTS
+==================================================
+
+Each Component Specification should define which payload sections are required.
+
+Journal Card
+
+Required
+
+shared_prompt
+front_prompt
+negative_prompt
+
+Optional
+
+back_prompt
+
+----------------------------------------
+
+Hero Paper
+
+Required
+
+shared_prompt
+front_prompt
+negative_prompt
+
+Optional
+
+back_prompt
+
+----------------------------------------
+
+Coordinating Paper
+
+Required
+
+shared_prompt
+front_prompt
+negative_prompt
+
+Optional
+
+back_prompt
+
+----------------------------------------
+
+Pocket
+
+Required
+
+shared_prompt
+front_prompt
+assembly_prompt
+negative_prompt
+
+Optional
+
+inside_prompt
+outside_prompt
+
+----------------------------------------
+
+Envelope
+
+Required
+
+shared_prompt
+front_prompt
+assembly_prompt
+negative_prompt
+
+Optional
+
+inside_prompt
+outside_prompt
+back_prompt
+
+----------------------------------------
+
+Tag
+
+Required
+
+shared_prompt
+front_prompt
+negative_prompt
+
+Optional
+
+back_prompt
+
+----------------------------------------
+
+Tab
+
+Required
+
+shared_prompt
+front_prompt
+negative_prompt
+
+Optional
+
+back_prompt
+
+----------------------------------------
+
+Label
+
+Required
+
+shared_prompt
+front_prompt
+negative_prompt
+
+Optional
+
+back_prompt
+
+==================================================
+COMPILER
+==================================================
+
+Update the compiler to assemble prompts using the new structure.
+
+Compilation order becomes:
+
+World
+
+↓
+
+Collection
+
+↓
+
+Component Set
+
+↓
+
+Style Guide
+
+↓
+
+Component Specification
+
+↓
+
+Prompt Modules
+
+↓
+
+shared_prompt
+
+↓
+
+front_prompt
+
+↓
+
+back_prompt (if present)
+
+↓
+
+inside_prompt (if present)
+
+↓
+
+outside_prompt (if present)
+
+↓
+
+assembly_prompt (if present)
+
+↓
+
+negative_prompt
+
+↓
+
+Canon
+
+↓
+
+Print Requirements
+
+Each section should be clearly labeled internally during compilation.
+
+==================================================
+VALIDATION
+==================================================
+
+Validation should become contract-driven.
+
+Do NOT hardcode "Journal Cards require front_prompt."
+
+Instead:
+
+Read the Component Specification.
+
+Determine which payload sections are required.
+
+Validate dynamically.
+
+Errors should become:
+
+Missing Required Payload Section
+
+Component
+
+Journal Card
+
+Missing Section
+
+front_prompt
+
+Expected by
+
+CS-001 Journal Card
+
+Suggested Fix
+
+Populate front_prompt in the linked Prompt Payload.
+
+==================================================
+PROMPT VIEWER
+==================================================
+
+Improve the Compiled Prompt viewer.
+
+Display each section separately.
+
+Example:
+
+Shared Prompt
+
+▼
+
+Front Prompt
+
+▼
+
+Back Prompt
+
+▼
+
+Assembly Prompt
+
+▼
+
+Negative Prompt
+
+▼
+
+Each section should show:
+
+• source record
+• originating specification
+• originating prompt module when applicable
+
+==================================================
+PROVENANCE
+==================================================
+
+Add a "Compilation Provenance" panel.
+
+Display:
+
+World
+
+Collection
+
+Volume
+
+Style Guide
+
+Component Specification
+
+Prompt Payload
+
+Prompt Modules
+
+Canon Records
+
+Print Specification
+
+Prompt Hash
+
+Payload Version
+
+Compiler Version
+
+==================================================
+BACKWARD COMPATIBILITY
+==================================================
+
+Existing Prompt Payloads should continue to work.
+
+If the payload is in the legacy flat format:
+
+Automatically map:
+
+legacy prompt
+
+↓
+
+shared_prompt
+
+until migrated.
+
+Produce a migration warning rather than an error.
+
+==================================================
+MIGRATION
+==================================================
+
+Create a migration helper.
+
+For existing Prompt Payloads:
+
+If no structured payload exists:
+
+Create:
+
+shared_prompt
+
+front_prompt (empty)
+
+back_prompt (empty)
+
+assembly_prompt (empty)
+
+negative_prompt
+
+Populate shared_prompt using the existing compiled prompt instructions where appropriate.
+
+Do not overwrite curated content.
+
+==================================================
+UI
+==================================================
+
+Update the Prompt Payload editor.
+
+Group fields into expandable sections.
+
+Shared Prompt
+
+Front Prompt
+
+Back Prompt
+
+Assembly Prompt
+
+Negative Prompt
+
+Hide optional sections until enabled.
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+The feature is complete when:
+
+• CS-000 formally defines payload sections.
+• Component Specifications define required payload sections.
+• Validation is driven by Component Specifications instead of hardcoded rules.
+• The compiler assembles prompts using the new payload hierarchy.
+• Existing Prompt Payloads continue to compile.
+• Legacy payloads generate migration warnings instead of errors.
+• The Prompt Viewer displays structured prompt sections.
+• Compilation Provenance is visible.
+• Future components such as folios, folders, flip-outs, and multi-page products can be added without changing compiler architecture.

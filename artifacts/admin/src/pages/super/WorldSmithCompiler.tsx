@@ -10,7 +10,7 @@ import {
   Loader2, Sparkles, CheckCircle2, XCircle, AlertTriangle,
   ChevronDown, ChevronUp, Copy, RefreshCw, FileText, Clock,
   Hash, RotateCcw, Search, ArrowRight, BookOpen,
-  ImagePlus, ExternalLink, ImageOff, ArrowLeft,
+  ImagePlus, ExternalLink, ImageOff, ArrowLeft, Layers, GitBranch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +62,27 @@ interface PreflightResponse {
   status: string;
 }
 
+interface CompiledSectionRecord {
+  key: string;
+  label: string;
+  content: string;
+  source: string;
+}
+
+interface ProvenanceRecord {
+  world: string;
+  volume?: string;
+  style_guide?: string;
+  component_specification?: string;
+  prompt_payload: string;
+  prompt_modules: string[];
+  canon_records: string[];
+  prompt_hash: string;
+  payload_version: string;
+  payload_format: "legacy" | "2.0";
+  compiler_version: string;
+}
+
 interface CompileResponse {
   status: "compiled" | "validation_failed" | "requires_canon_review" | "failed";
   run_id: string;
@@ -70,6 +91,8 @@ interface CompileResponse {
   compiled_prompt_status: string;
   prompt_hash?: string;
   compiled_prompt?: string;
+  compiled_sections?: CompiledSectionRecord[];
+  provenance?: ProvenanceRecord;
   visual_asset_id?: string;
   warnings: ValidationError[];
   next_action?: string;
@@ -614,16 +637,21 @@ function SuccessScreen({
   onReset: () => void;
 }) {
   const { toast } = useToast();
+  const [activeView, setActiveView] = useState<"summary" | "sections" | "provenance">("summary");
+
+  const hasSections = (result.compiled_sections ?? []).length > 0;
+  const hasProvenance = !!result.provenance;
+  const isLegacy = result.provenance?.payload_format === "legacy";
 
   const successFields: Array<{ label: string; value: string | number | null | undefined }> = [
     { label: "Production Specification", value: result.production_specification ?? preflight?.production_specification },
     { label: "Component",                value: result.component_type ?? preflight?.component_type },
     { label: "Payload Version",          value: result.payload_version },
+    { label: "Payload Format",           value: isLegacy ? "PP-1.0 (legacy)" : "PP-2.0 (sections)" },
     { label: "Prompt Modules Loaded",    value: result.prompt_modules_loaded ?? preflight?.prompt_module_count },
     { label: "Compiled Prompt Length",   value: result.compiled_prompt ? `${result.compiled_prompt.length.toLocaleString()} chars` : "—" },
     { label: "Prompt Hash",              value: result.prompt_hash ? `${result.prompt_hash.slice(0, 24)}…` : "—" },
     { label: "Validation Status",        value: (result.warnings ?? []).length === 0 ? "Clean" : `${result.warnings.length} warning${result.warnings.length > 1 ? "s" : ""}` },
-    { label: "Next Step",                value: result.next_action ?? "Generate image" },
   ];
 
   return (
@@ -633,66 +661,250 @@ function SuccessScreen({
         <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
         <div className="flex-1">
           <p className="text-sm font-semibold text-emerald-800">Compilation Successful</p>
-          <p className="text-xs text-emerald-700 mt-0.5">The compiled prompt and hash are ready.</p>
+          <p className="text-xs text-emerald-700 mt-0.5">
+            {isLegacy
+              ? "Compiled from legacy PP-1.0 flat format. Consider migrating to PP-2.0 section format."
+              : "Compiled from PP-2.0 structured payload sections."}
+          </p>
         </div>
         <Button size="sm" variant="ghost" onClick={onReset} className="shrink-0 text-muted-foreground hover:text-foreground">
           <RefreshCw className="w-3.5 h-3.5 mr-1.5" />New
         </Button>
       </div>
 
-      {/* Fields grid */}
-      <Card>
-        <CardContent className="pt-5 pb-4">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-            {successFields.map(({ label, value }) => (
-              <div key={label}>
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
-                <p className="text-sm font-medium" title={String(value ?? "—")}>{value ?? "—"}</p>
+      {/* View tabs */}
+      <div className="flex gap-1 border-b border-border">
+        {([
+          { key: "summary",    label: "Summary",    icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+          { key: "sections",   label: "Sections",   icon: <Layers className="w-3.5 h-3.5" /> },
+          { key: "provenance", label: "Provenance", icon: <GitBranch className="w-3.5 h-3.5" /> },
+        ] as const).map(({ key, label, icon }) => (
+          <button key={key} onClick={() => setActiveView(key)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-b-2 -mb-px ${
+              activeView === key
+                ? "border-[#1B2A4A] text-[#1B2A4A]"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}>
+            {icon}{label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Summary view ──────────────────────────────────────────────────── */}
+      {activeView === "summary" && (
+        <>
+          <Card>
+            <CardContent className="pt-5 pb-4">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                {successFields.map(({ label, value }) => (
+                  <div key={label}>
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
+                    <p className="text-sm font-medium" title={String(value ?? "—")}>{value ?? "—"}</p>
+                  </div>
+                ))}
               </div>
-            ))}
+            </CardContent>
+          </Card>
+
+          {/* Full compiled prompt (monolithic copy) */}
+          {result.compiled_prompt && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">Full Compiled Prompt</CardTitle>
+                  <div className="flex items-center gap-1">
+                    <code className="text-xs text-muted-foreground font-mono bg-muted px-2 py-0.5 rounded">
+                      {result.prompt_hash?.slice(0, 16)}…
+                    </code>
+                    <Button size="sm" variant="ghost" className="h-7 px-2"
+                      onClick={() => { navigator.clipboard.writeText(result.compiled_prompt!); toast({ title: "Copied" }); }}>
+                      <Copy className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPrompt(!showPrompt)}>
+                      {showPrompt ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              {showPrompt && (
+                <CardContent className="pt-0">
+                  <Textarea readOnly value={result.compiled_prompt}
+                    className="font-mono text-xs resize-none h-64 bg-muted/30" />
+                </CardContent>
+              )}
+            </Card>
+          )}
+
+          {(result.warnings ?? []).length > 0 && <IssueList title="Warnings" items={result.warnings} variant="warning" />}
+          {result.visual_asset_id && (
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+              Visual Asset updated in Notion: <code className="font-mono">{result.visual_asset_id}</code>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Sections view ─────────────────────────────────────────────────── */}
+      {activeView === "sections" && (
+        <PromptSectionsViewer
+          sections={result.compiled_sections ?? []}
+          isLegacy={isLegacy}
+          hasSections={hasSections}
+        />
+      )}
+
+      {/* ── Provenance view ───────────────────────────────────────────────── */}
+      {activeView === "provenance" && (
+        <ProvenancePanel provenance={result.provenance ?? null} />
+      )}
+    </div>
+  );
+}
+
+// ── Prompt Sections Viewer ────────────────────────────────────────────────────
+
+function PromptSectionsViewer({
+  sections, isLegacy, hasSections,
+}: {
+  sections: CompiledSectionRecord[];
+  isLegacy: boolean;
+  hasSections: boolean;
+}) {
+  const [openKeys, setOpenKeys] = useState<Set<string>>(new Set(["shared_prompt", "front_prompt"]));
+  const { toast } = useToast();
+
+  const toggle = (key: string) =>
+    setOpenKeys((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
+  if (!hasSections) {
+    return (
+      <div className="flex items-center gap-3 p-4 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+        <Layers className="w-4 h-4 shrink-0" />
+        No structured sections available for this compile.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {isLegacy && (
+        <div className="flex items-start gap-2 p-3 rounded-md border border-amber-200 bg-amber-50 text-xs text-amber-800">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">Legacy PP-1.0 format</p>
+            <p className="mt-0.5">These sections are derived from the flat-key payload. Migrate to PP-2.0 to unlock richer per-section provenance and contract-driven validation.</p>
           </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {sections.map((s) => (
+          <Card key={s.key} className="overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggle(s.key)}
+              className="w-full text-left"
+            >
+              <CardContent className="py-3 px-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">{s.label}</span>
+                      <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full truncate max-w-[240px]" title={s.source}>
+                        {s.source}
+                      </span>
+                    </div>
+                    {!openKeys.has(s.key) && (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.content.slice(0, 100)}…</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      size="sm" variant="ghost" className="h-6 w-6 p-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigator.clipboard.writeText(s.content);
+                        toast({ title: `"${s.label}" copied` });
+                      }}
+                    >
+                      <Copy className="w-3 h-3" />
+                    </Button>
+                    {openKeys.has(s.key) ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                  </div>
+                </div>
+              </CardContent>
+            </button>
+            {openKeys.has(s.key) && (
+              <div className="border-t border-border bg-muted/20 px-4 py-3">
+                <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground leading-relaxed">
+                  {s.content}
+                </pre>
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Provenance Panel ──────────────────────────────────────────────────────────
+
+function ProvenancePanel({ provenance }: { provenance: ProvenanceRecord | null }) {
+  if (!provenance) {
+    return (
+      <div className="flex items-center gap-3 p-4 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+        <GitBranch className="w-4 h-4 shrink-0" />
+        Provenance data not available for this compile.
+      </div>
+    );
+  }
+
+  const rows: Array<{ label: string; value: string }> = [
+    { label: "World",                value: provenance.world },
+    { label: "Volume",               value: provenance.volume ?? "—" },
+    { label: "Style Guide",          value: provenance.style_guide ?? "Not linked" },
+    { label: "Component Spec",       value: provenance.component_specification ?? "Not linked" },
+    { label: "Prompt Payload",       value: provenance.prompt_payload },
+    { label: "Prompt Modules",       value: provenance.prompt_modules.length > 0 ? provenance.prompt_modules.join(", ") : "None" },
+    { label: "Canon Records",        value: provenance.canon_records.length > 0 ? provenance.canon_records.join(", ") : "None" },
+    { label: "Payload Version",      value: provenance.payload_version },
+    { label: "Payload Format",       value: provenance.payload_format === "legacy" ? "PP-1.0 (legacy flat keys)" : "PP-2.0 (structured sections)" },
+    { label: "Compiler Version",     value: provenance.compiler_version },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <GitBranch className="w-4 h-4 text-[#1B2A4A]" />
+            Compilation Provenance
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-2">
+          {rows.map(({ label, value }) => (
+            <div key={label} className="grid grid-cols-[160px_1fr] gap-3 text-sm">
+              <span className="text-[11px] text-muted-foreground uppercase tracking-wide self-start pt-0.5">{label}</span>
+              <span className="text-sm break-words" title={value}>{value}</span>
+            </div>
+          ))}
         </CardContent>
       </Card>
 
-      {/* Compiled prompt */}
-      {result.compiled_prompt && (
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">Compiled Prompt</CardTitle>
-              <div className="flex items-center gap-1">
-                <code className="text-xs text-muted-foreground font-mono bg-muted px-2 py-0.5 rounded">
-                  {result.prompt_hash?.slice(0, 16)}…
-                </code>
-                <Button size="sm" variant="ghost" className="h-7 px-2"
-                  onClick={() => { navigator.clipboard.writeText(result.compiled_prompt!); toast({ title: "Copied" }); }}>
-                  <Copy className="w-3.5 h-3.5" />
-                </Button>
-                <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPrompt(!showPrompt)}>
-                  {showPrompt ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          {showPrompt && (
-            <CardContent className="pt-0">
-              <Textarea readOnly value={result.compiled_prompt}
-                className="font-mono text-xs resize-none h-64 bg-muted/30" />
-            </CardContent>
-          )}
-        </Card>
-      )}
-
-      {/* Warnings */}
-      {(result.warnings ?? []).length > 0 && <IssueList title="Warnings" items={result.warnings} variant="warning" />}
-
-      {/* Visual Asset */}
-      {result.visual_asset_id && (
-        <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-          Visual Asset updated in Notion: <code className="font-mono">{result.visual_asset_id}</code>
+      {/* Prompt hash */}
+      <div className="flex items-center gap-2 p-3 rounded-md bg-muted/30 border border-border">
+        <Hash className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Prompt Hash</p>
+          <code className="text-xs font-mono break-all">{provenance.prompt_hash}</code>
         </div>
-      )}
+      </div>
     </div>
   );
 }

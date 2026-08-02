@@ -79,15 +79,25 @@ export interface InheritanceChain {
 // ── PP-1.0 Payload ────────────────────────────────────────────────────────────
 
 export interface ParsedPayload {
-  // Required keys
-  asset_role: string;
-  composition: string;
-  materials: string;
-  visual_hierarchy: string;
-  text_rule: string;
-  canon_rule: string;
-  print_rule: string;
-  negative_constraints: string;
+  // ── PP-2.0 structured section keys ────────────────────────────────────────
+  // Presence of shared_prompt signals the new section-based format.
+  shared_prompt?: string;
+  front_prompt?: string;
+  back_prompt?: string;
+  inside_prompt?: string;
+  outside_prompt?: string;
+  assembly_prompt?: string;
+  negative_prompt?: string;
+
+  // ── PP-1.0 legacy flat keys (kept for backward compat) ────────────────────
+  asset_role?: string;
+  composition?: string;
+  materials?: string;
+  visual_hierarchy?: string;
+  text_rule?: string;
+  canon_rule?: string;
+  print_rule?: string;
+  negative_constraints?: string;
   // Optional common
   lighting?: string;
   writing_space?: string;
@@ -105,11 +115,10 @@ export interface ParsedPayload {
   secondary_narrative_cluster?: string;
   supporting_objects?: string;
   story_signal?: string;
-  // Journal cards
+  // Journal cards (legacy)
   card_role?: string;
   front_layout?: string;
   back_layout?: string;
-  front_prompt?: string;
   // Ephemera sheets
   featured_artifact?: string;
   document_type?: string;
@@ -119,7 +128,47 @@ export interface ParsedPayload {
   [key: string]: string | undefined;
 }
 
-export const PP1_REQUIRED_KEYS: ReadonlyArray<keyof ParsedPayload> = [
+// ── PP-2.0 section contract ───────────────────────────────────────────────────
+
+/** Ordered list of payload section keys for compilation and display. */
+export const PROMPT_SECTION_ORDER: ReadonlyArray<{ key: string; label: string }> = [
+  { key: "shared_prompt",   label: "Shared Prompt" },
+  { key: "front_prompt",    label: "Front Prompt" },
+  { key: "back_prompt",     label: "Back Prompt" },
+  { key: "inside_prompt",   label: "Inside Prompt" },
+  { key: "outside_prompt",  label: "Outside Prompt" },
+  { key: "assembly_prompt", label: "Assembly Prompt" },
+  { key: "negative_prompt", label: "Negative Prompt" },
+] as const;
+
+export interface SectionContract {
+  required: string[];
+  optional: string[];
+}
+
+/** Per-component required and optional payload sections. */
+export const COMPONENT_SECTION_CONTRACT: Record<string, SectionContract> = {
+  "Journal Card":       { required: ["shared_prompt", "front_prompt", "negative_prompt"], optional: ["back_prompt"] },
+  "Hero Paper":         { required: ["shared_prompt", "front_prompt", "negative_prompt"], optional: ["back_prompt"] },
+  "Coordinating Paper": { required: ["shared_prompt", "front_prompt", "negative_prompt"], optional: ["back_prompt"] },
+  "Decorative Paper":   { required: ["shared_prompt", "front_prompt", "negative_prompt"], optional: ["back_prompt"] },
+  "Ephemera Sheet":     { required: ["shared_prompt", "front_prompt", "negative_prompt"], optional: ["back_prompt", "assembly_prompt"] },
+  "Pocket":             { required: ["shared_prompt", "front_prompt", "assembly_prompt", "negative_prompt"], optional: ["inside_prompt", "outside_prompt"] },
+  "Envelope":           { required: ["shared_prompt", "front_prompt", "assembly_prompt", "negative_prompt"], optional: ["inside_prompt", "outside_prompt", "back_prompt"] },
+  "Tag":                { required: ["shared_prompt", "front_prompt", "negative_prompt"], optional: ["back_prompt"] },
+  "Tab":                { required: ["shared_prompt", "front_prompt", "negative_prompt"], optional: ["back_prompt"] },
+  "Label":              { required: ["shared_prompt", "front_prompt", "negative_prompt"], optional: ["back_prompt"] },
+};
+
+/** Fallback contract for component types not yet listed. */
+export const DEFAULT_SECTION_CONTRACT: SectionContract = {
+  required: ["shared_prompt", "negative_prompt"],
+  optional: ["front_prompt", "back_prompt"],
+};
+
+// ── PP-1.0 legacy constants (still used for legacy payload validation) ─────────
+
+export const PP1_REQUIRED_KEYS: ReadonlyArray<string> = [
   "asset_role",
   "composition",
   "materials",
@@ -190,10 +239,42 @@ export interface CompiledPromptSections {
   print_and_output_requirements: string;
 }
 
+/** A single labeled section in the structured compiled prompt (PP-2.0+). */
+export interface CompiledSectionRecord {
+  /** Machine key, e.g. "shared_prompt", "front_prompt", "world_and_collection_context" */
+  key: string;
+  /** Human-readable label shown in the viewer */
+  label: string;
+  /** Full assembled text content of this section */
+  content: string;
+  /** Human description of where this content originated */
+  source: string;
+}
+
+/** Compilation provenance — the full resolution chain that produced a compiled prompt. */
+export interface ProvenanceRecord {
+  world: string;
+  volume?: string;
+  style_guide?: string;
+  component_specification?: string;
+  prompt_payload: string;
+  prompt_modules: string[];
+  canon_records: string[];
+  prompt_hash: string;
+  payload_version: string;
+  /** "legacy" for PP-1.0 flat format, "2.0" for PP-2.0 section-based format */
+  payload_format: "legacy" | "2.0";
+  compiler_version: string;
+}
+
 export interface CompiledPrompt {
+  /** Legacy flat sections map — populated for all compiles for backward compat */
   sections: CompiledPromptSections;
+  /** Structured per-section records for the viewer (PP-2.0 new format gives richer entries) */
+  sectionRecords: CompiledSectionRecord[];
   fullPrompt: string;
   negativePrompt?: string;
+  isLegacyFormat: boolean;
 }
 
 // ── Provider adapter contract ─────────────────────────────────────────────────
@@ -273,6 +354,10 @@ export interface CompileResponse {
   compiled_prompt_status: string;
   prompt_hash?: string;
   compiled_prompt?: string;
+  /** Structured per-section records for the prompt viewer */
+  compiled_sections?: CompiledSectionRecord[];
+  /** Full resolution provenance for the compilation */
+  provenance?: ProvenanceRecord;
   visual_asset_id?: string;
   warnings: ValidationError[];
   next_action?: string;

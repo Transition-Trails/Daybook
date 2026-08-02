@@ -1,15 +1,20 @@
 /**
  * WorldSmith Prompt Compiler
  * Assembles the final compiled prompt from the inheritance chain and payload.
- * Sections are always produced in the same order so identical inputs produce
- * identical prompts (deterministic for hashing).
+ *
+ * PP-2.0 (section-based): uses shared_prompt / front_prompt / back_prompt … structure.
+ * PP-1.0 (legacy flat):   uses original flat key assembly for backward compat.
+ *
+ * Both paths produce a deterministic fullPrompt for stable hashing.
  */
 import type {
   InheritanceChain,
   ParsedPayload,
   CompiledPrompt,
   CompiledPromptSections,
+  CompiledSectionRecord,
 } from "./types";
+import { PROMPT_SECTION_ORDER } from "./types";
 
 const SECTION_DIVIDER = "\n\n";
 
@@ -19,130 +24,259 @@ function section(tag: string, content: string): string {
   return `[${tag}]\n${trimmed}`;
 }
 
+function rec(
+  key: string,
+  label: string,
+  content: string,
+  source: string,
+): CompiledSectionRecord {
+  return { key, label, content: content.trim(), source };
+}
+
 export function compilePrompt(
+  chain: InheritanceChain,
+  payload: ParsedPayload,
+): CompiledPrompt {
+  const isNewFormat = payload.shared_prompt !== undefined;
+  return isNewFormat
+    ? compileNewFormat(chain, payload)
+    : compileLegacyFormat(chain, payload);
+}
+
+// ── PP-2.0 section-based compilation ─────────────────────────────────────────
+
+function compileNewFormat(
+  chain: InheritanceChain,
+  payload: ParsedPayload,
+): CompiledPrompt {
+  const spec = chain.productionSpec;
+  const parts: string[] = [];
+  const sectionRecords: CompiledSectionRecord[] = [];
+
+  // ── Inherited context ──────────────────────────────────────────────────────
+
+  // [WORLD AND COLLECTION CONTEXT]
+  const worldParts: string[] = [`World: ${spec.world}`];
+  if (spec.volume) worldParts.push(`Volume: ${spec.volume}`);
+  const worldModules = chain.promptModules.filter(
+    (m) => m.name.toLowerCase().includes("world") || m.name.toLowerCase().includes("collection"),
+  );
+  for (const m of worldModules) {
+    if (m.content.trim()) worldParts.push(m.content.trim());
+  }
+  const worldContent = worldParts.join("\n");
+  const worldSrc = worldModules.length > 0
+    ? `World record + ${worldModules.map((m) => m.name).join(", ")}`
+    : "World record";
+  pushSection("world_and_collection_context", "WORLD AND COLLECTION CONTEXT", worldContent, worldSrc, parts, sectionRecords);
+
+  // [STYLE SYSTEM]
+  const styleParts: string[] = [];
+  if (chain.styleGuide?.content) styleParts.push(chain.styleGuide.content.trim());
+  const styleModules = chain.promptModules.filter(
+    (m) => m.name.toLowerCase().includes("style") || m.name.toLowerCase().includes("aesthetic"),
+  );
+  for (const m of styleModules) {
+    if (m.content.trim()) styleParts.push(m.content.trim());
+  }
+  const styleContent = styleParts.join("\n\n");
+  const styleSrc = chain.styleGuide
+    ? `Style Guide: ${chain.styleGuide.name}`
+    : "No Style Guide linked";
+  pushSection("style_system", "STYLE SYSTEM", styleContent, styleSrc, parts, sectionRecords);
+
+  // [COMPONENT REQUIREMENTS]
+  const componentParts: string[] = [];
+  if (chain.componentSpec?.content) componentParts.push(chain.componentSpec.content.trim());
+  const componentContent = componentParts.join("\n");
+  const componentSrc = chain.componentSpec
+    ? `Component Specification: ${chain.componentSpec.name}`
+    : "No Component Specification linked";
+  pushSection("component_requirements", "COMPONENT REQUIREMENTS", componentContent, componentSrc, parts, sectionRecords);
+
+  // Additional prompt modules (non-world, non-style, non-aesthetic)
+  const additionalModules = chain.promptModules.filter(
+    (m) =>
+      !m.name.toLowerCase().includes("world") &&
+      !m.name.toLowerCase().includes("collection") &&
+      !m.name.toLowerCase().includes("style") &&
+      !m.name.toLowerCase().includes("aesthetic"),
+  );
+  for (const m of additionalModules) {
+    if (m.content.trim()) {
+      const tag = m.name.toUpperCase().replace(/\s+/g, " ").trim();
+      pushSection(`module_${m.notionPageId}`, tag, m.content, `Prompt Module: ${m.name}`, parts, sectionRecords);
+    }
+  }
+
+  // ── Payload sections (PP-2.0 order) ───────────────────────────────────────
+  for (const { key, label } of PROMPT_SECTION_ORDER) {
+    const content = (payload as Record<string, string | undefined>)[key];
+    if (content && content.trim()) {
+      pushSection(key, label.toUpperCase(), content, "Prompt Payload", parts, sectionRecords);
+    }
+  }
+
+  // ── Canon policy ───────────────────────────────────────────────────────────
+  const canonParts: string[] = [];
+  if (spec.canonDependency && spec.canonDependency !== "None") {
+    canonParts.push(`Canon Dependency: ${spec.canonDependency}`);
+  }
+  for (const rec_ of chain.canonRecords) {
+    canonParts.push(`Canon Record: ${rec_.name} (${rec_.status})`);
+  }
+  const canonContent = canonParts.join("\n");
+  const canonSrc = chain.canonRecords.length > 0
+    ? `Canon Records: ${chain.canonRecords.map((r) => r.name).join(", ")}`
+    : "No Canon Records linked";
+  pushSection("canon_policy", "CANON POLICY", canonContent, canonSrc, parts, sectionRecords);
+
+  // ── Print requirements ─────────────────────────────────────────────────────
+  const printParts: string[] = [];
+  if (spec.orientation) printParts.push(`Orientation: ${spec.orientation}`);
+  if (spec.frontBackStyle) printParts.push(`Front/Back Style: ${spec.frontBackStyle}`);
+  if (spec.writingSpacePercent != null) printParts.push(`Writing Space: ${spec.writingSpacePercent}%`);
+  if (spec.reviewCriteria) printParts.push(`Review Criteria: ${spec.reviewCriteria}`);
+  const printContent = printParts.join("\n");
+  pushSection("print_and_output_requirements", "PRINT AND OUTPUT REQUIREMENTS", printContent, "Production Specification", parts, sectionRecords);
+
+  const fullPrompt = parts.filter(Boolean).join(SECTION_DIVIDER);
+  const negativePrompt = (payload.negative_prompt ?? "").trim() || undefined;
+
+  // Build a compatible legacy sections map
+  const sections = buildLegacySectionsFromNewFormat(chain, payload);
+
+  return { sections, sectionRecords, fullPrompt, negativePrompt, isLegacyFormat: false };
+}
+
+function pushSection(
+  key: string,
+  tag: string,
+  content: string,
+  source: string,
+  parts: string[],
+  sectionRecords: CompiledSectionRecord[],
+): void {
+  const trimmed = content.trim();
+  if (!trimmed) return;
+  parts.push(section(tag, trimmed));
+  sectionRecords.push(rec(key, toTitleCase(tag), trimmed, source));
+}
+
+function toTitleCase(upper: string): string {
+  return upper
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ── PP-1.0 legacy flat compilation ───────────────────────────────────────────
+
+function compileLegacyFormat(
   chain: InheritanceChain,
   payload: ParsedPayload,
 ): CompiledPrompt {
   const spec = chain.productionSpec;
 
-  // ── [CREATIVE TASK] ───────────────────────────────────────────────────────
+  // ── [CREATIVE TASK] ─────────────────────────────────────────────────────
   const creativeTask = [
     `Component Type: ${spec.componentType}`,
     spec.componentSet ? `Component Set: ${spec.componentSet}` : null,
     spec.heroFamily ? `Hero Family: ${spec.heroFamily}` : null,
-    `Asset Role: ${payload.asset_role}`,
+    payload.asset_role ? `Asset Role: ${payload.asset_role}` : null,
   ]
     .filter(Boolean)
     .join("\n");
 
-  // ── [WORLD AND COLLECTION CONTEXT] ────────────────────────────────────────
+  // ── [WORLD AND COLLECTION CONTEXT] ──────────────────────────────────────
   const worldParts: string[] = [`World: ${spec.world}`];
   if (spec.volume) worldParts.push(`Volume: ${spec.volume}`);
-
-  // Inject collection/world context from prompt modules tagged as world context
-  const worldModules = chain.promptModules.filter((m) =>
-    m.name.toLowerCase().includes("world") || m.name.toLowerCase().includes("collection"),
+  const worldModules = chain.promptModules.filter(
+    (m) => m.name.toLowerCase().includes("world") || m.name.toLowerCase().includes("collection"),
   );
   for (const m of worldModules) {
     if (m.content.trim()) worldParts.push(m.content.trim());
   }
-
   const worldContext = worldParts.join("\n");
 
-  // ── [STYLE SYSTEM] ────────────────────────────────────────────────────────
+  // ── [STYLE SYSTEM] ──────────────────────────────────────────────────────
   const styleParts: string[] = [];
-  if (chain.styleGuide?.content) {
-    styleParts.push(chain.styleGuide.content.trim());
-  }
-
-  const styleModules = chain.promptModules.filter((m) =>
-    m.name.toLowerCase().includes("style") || m.name.toLowerCase().includes("aesthetic"),
+  if (chain.styleGuide?.content) styleParts.push(chain.styleGuide.content.trim());
+  const styleModules = chain.promptModules.filter(
+    (m) => m.name.toLowerCase().includes("style") || m.name.toLowerCase().includes("aesthetic"),
   );
   for (const m of styleModules) {
     if (m.content.trim()) styleParts.push(m.content.trim());
   }
-
   const styleSystem = styleParts.join("\n\n");
 
-  // ── [COMPONENT REQUIREMENTS] ──────────────────────────────────────────────
+  // ── [COMPONENT REQUIREMENTS] ────────────────────────────────────────────
   const componentParts: string[] = [];
-  if (chain.componentSpec?.content) {
-    componentParts.push(chain.componentSpec.content.trim());
-  }
-
-  // Component-specific payload keys
-  if (payload.paper_role) componentParts.push(`Paper Role: ${payload.paper_role}`);
-  if (payload.pattern_behavior) componentParts.push(`Pattern Behavior: ${payload.pattern_behavior}`);
-  if (payload.repeat_rule) componentParts.push(`Repeat Rule: ${payload.repeat_rule}`);
-  if (payload.primary_focal_area) componentParts.push(`Primary Focal Area: ${payload.primary_focal_area}`);
-  if (payload.secondary_narrative_cluster) componentParts.push(`Secondary Narrative Cluster: ${payload.secondary_narrative_cluster}`);
-  if (payload.story_signal) componentParts.push(`Story Signal: ${payload.story_signal}`);
-  if (payload.card_role) componentParts.push(`Card Role: ${payload.card_role}`);
-  if (payload.front_layout) componentParts.push(`Front Layout: ${payload.front_layout}`);
-  if (payload.back_layout) componentParts.push(`Back Layout: ${payload.back_layout}`);
-  if (payload.front_prompt) componentParts.push(`Front Prompt: ${payload.front_prompt}`);
-  if (payload.featured_artifact) componentParts.push(`Featured Artifact: ${payload.featured_artifact}`);
-  if (payload.document_type) componentParts.push(`Document Type: ${payload.document_type}`);
-  if (payload.scale_mix) componentParts.push(`Scale Mix: ${payload.scale_mix}`);
-  if (payload.cutting_rule) componentParts.push(`Cutting Rule: ${payload.cutting_rule}`);
-
+  if (chain.componentSpec?.content) componentParts.push(chain.componentSpec.content.trim());
+  if (payload.paper_role)                   componentParts.push(`Paper Role: ${payload.paper_role}`);
+  if (payload.pattern_behavior)             componentParts.push(`Pattern Behavior: ${payload.pattern_behavior}`);
+  if (payload.repeat_rule)                  componentParts.push(`Repeat Rule: ${payload.repeat_rule}`);
+  if (payload.primary_focal_area)           componentParts.push(`Primary Focal Area: ${payload.primary_focal_area}`);
+  if (payload.secondary_narrative_cluster)  componentParts.push(`Secondary Narrative Cluster: ${payload.secondary_narrative_cluster}`);
+  if (payload.story_signal)                 componentParts.push(`Story Signal: ${payload.story_signal}`);
+  if (payload.card_role)                    componentParts.push(`Card Role: ${payload.card_role}`);
+  if (payload.front_layout)                 componentParts.push(`Front Layout: ${payload.front_layout}`);
+  if (payload.back_layout)                  componentParts.push(`Back Layout: ${payload.back_layout}`);
+  if (payload.front_prompt)                 componentParts.push(`Front Prompt: ${payload.front_prompt}`);
+  if (payload.featured_artifact)            componentParts.push(`Featured Artifact: ${payload.featured_artifact}`);
+  if (payload.document_type)                componentParts.push(`Document Type: ${payload.document_type}`);
+  if (payload.scale_mix)                    componentParts.push(`Scale Mix: ${payload.scale_mix}`);
+  if (payload.cutting_rule)                 componentParts.push(`Cutting Rule: ${payload.cutting_rule}`);
   const componentRequirements = componentParts.join("\n");
 
-  // ── [ASSET-SPECIFIC INTENT] ───────────────────────────────────────────────
+  // ── [ASSET-SPECIFIC INTENT] ─────────────────────────────────────────────
   const intentParts: string[] = [];
-  if (spec.designIntent) intentParts.push(`Design Intent: ${spec.designIntent}`);
+  if (spec.designIntent)     intentParts.push(`Design Intent: ${spec.designIntent}`);
   if (spec.narrativePurpose) intentParts.push(`Narrative Purpose: ${spec.narrativePurpose}`);
-  if (spec.requiredContent) intentParts.push(`Required Content: ${spec.requiredContent}`);
-
+  if (spec.requiredContent)  intentParts.push(`Required Content: ${spec.requiredContent}`);
   const assetSpecificIntent = intentParts.join("\n");
 
-  // ── [COMPOSITION AND CONTENT] ─────────────────────────────────────────────
-  const compositionParts: string[] = [payload.composition];
-  if (payload.visual_hierarchy) compositionParts.push(`Visual Hierarchy: ${payload.visual_hierarchy}`);
-  if (payload.object_rule) compositionParts.push(`Object Rule: ${payload.object_rule}`);
-  if (payload.crop_rule) compositionParts.push(`Crop Rule: ${payload.crop_rule}`);
+  // ── [COMPOSITION AND CONTENT] ────────────────────────────────────────────
+  const compositionParts: string[] = [payload.composition ?? ""].filter(Boolean);
+  if (payload.visual_hierarchy)  compositionParts.push(`Visual Hierarchy: ${payload.visual_hierarchy}`);
+  if (payload.object_rule)       compositionParts.push(`Object Rule: ${payload.object_rule}`);
+  if (payload.crop_rule)         compositionParts.push(`Crop Rule: ${payload.crop_rule}`);
   if (payload.supporting_objects) compositionParts.push(`Supporting Objects: ${payload.supporting_objects}`);
-  if (payload.writing_space) compositionParts.push(`Writing Space: ${payload.writing_space}`);
+  if (payload.writing_space)     compositionParts.push(`Writing Space: ${payload.writing_space}`);
+  const compositionAndContent = compositionParts.join("\n");
 
-  const compositionAndContent = compositionParts.filter(Boolean).join("\n");
+  // ── [MATERIALS AND LIGHTING] ─────────────────────────────────────────────
+  const materialsParts: string[] = [payload.materials ?? ""].filter(Boolean);
+  if (payload.lighting)    materialsParts.push(`Lighting: ${payload.lighting}`);
+  if (payload.color_rule)  materialsParts.push(`Color Rule: ${payload.color_rule}`);
+  const materialsAndLighting = materialsParts.join("\n");
 
-  // ── [MATERIALS AND LIGHTING] ──────────────────────────────────────────────
-  const materialsParts: string[] = [payload.materials];
-  if (payload.lighting) materialsParts.push(`Lighting: ${payload.lighting}`);
-  if (payload.color_rule) materialsParts.push(`Color Rule: ${payload.color_rule}`);
-
-  const materialsAndLighting = materialsParts.filter(Boolean).join("\n");
-
-  // ── [TEXT POLICY] ─────────────────────────────────────────────────────────
-  const textParts: string[] = [payload.text_rule];
+  // ── [TEXT POLICY] ────────────────────────────────────────────────────────
+  const textParts: string[] = [payload.text_rule ?? ""].filter(Boolean);
   if (payload.approved_text) textParts.push(`Approved Text: ${payload.approved_text}`);
+  const textPolicy = textParts.join("\n");
 
-  const textPolicy = textParts.filter(Boolean).join("\n");
-
-  // ── [CANON POLICY] ────────────────────────────────────────────────────────
-  const canonParts: string[] = [payload.canon_rule];
+  // ── [CANON POLICY] ───────────────────────────────────────────────────────
+  const canonParts: string[] = [payload.canon_rule ?? ""].filter(Boolean);
   if (spec.canonDependency && spec.canonDependency !== "None") {
     canonParts.push(`Canon Dependency: ${spec.canonDependency}`);
   }
-  for (const rec of chain.canonRecords) {
-    canonParts.push(`Canon Record: ${rec.name} (${rec.status})`);
+  for (const r of chain.canonRecords) {
+    canonParts.push(`Canon Record: ${r.name} (${r.status})`);
   }
+  const canonPolicy = canonParts.join("\n");
 
-  const canonPolicy = canonParts.filter(Boolean).join("\n");
+  // ── [NEGATIVE CONSTRAINTS] ──────────────────────────────────────────────
+  const negativeConstraints = payload.negative_constraints ?? "";
 
-  // ── [NEGATIVE CONSTRAINTS] ────────────────────────────────────────────────
-  const negativeConstraints = payload.negative_constraints;
-
-  // ── [PRINT AND OUTPUT REQUIREMENTS] ──────────────────────────────────────
-  const printParts: string[] = [payload.print_rule];
-  if (spec.orientation) printParts.push(`Orientation: ${spec.orientation}`);
-  if (spec.frontBackStyle) printParts.push(`Front/Back Style: ${spec.frontBackStyle}`);
+  // ── [PRINT AND OUTPUT REQUIREMENTS] ─────────────────────────────────────
+  const printParts: string[] = [payload.print_rule ?? ""].filter(Boolean);
+  if (spec.orientation)            printParts.push(`Orientation: ${spec.orientation}`);
+  if (spec.frontBackStyle)         printParts.push(`Front/Back Style: ${spec.frontBackStyle}`);
   if (spec.writingSpacePercent != null) printParts.push(`Writing Space: ${spec.writingSpacePercent}%`);
-  if (spec.reviewCriteria) printParts.push(`Review Criteria: ${spec.reviewCriteria}`);
+  if (spec.reviewCriteria)         printParts.push(`Review Criteria: ${spec.reviewCriteria}`);
+  const printAndOutputRequirements = printParts.join("\n");
 
-  const printAndOutputRequirements = printParts.filter(Boolean).join("\n");
-
-  // ── Additional prompt modules (non-world, non-style) ─────────────────────
+  // Additional modules
   const additionalModules = chain.promptModules.filter(
     (m) =>
       !m.name.toLowerCase().includes("world") &&
@@ -151,7 +285,6 @@ export function compilePrompt(
       !m.name.toLowerCase().includes("aesthetic"),
   );
 
-  // ── Assemble full prompt ──────────────────────────────────────────────────
   const sections: CompiledPromptSections = {
     creative_task: creativeTask,
     world_and_collection_context: worldContext,
@@ -167,38 +300,72 @@ export function compilePrompt(
   };
 
   const orderedSectionKeys: Array<[keyof CompiledPromptSections, string]> = [
-    ["creative_task", "CREATIVE TASK"],
-    ["world_and_collection_context", "WORLD AND COLLECTION CONTEXT"],
-    ["style_system", "STYLE SYSTEM"],
-    ["component_requirements", "COMPONENT REQUIREMENTS"],
-    ["asset_specific_intent", "ASSET-SPECIFIC INTENT"],
-    ["composition_and_content", "COMPOSITION AND CONTENT"],
-    ["materials_and_lighting", "MATERIALS AND LIGHTING"],
-    ["text_policy", "TEXT POLICY"],
-    ["canon_policy", "CANON POLICY"],
-    ["negative_constraints", "NEGATIVE CONSTRAINTS"],
-    ["print_and_output_requirements", "PRINT AND OUTPUT REQUIREMENTS"],
+    ["creative_task",               "CREATIVE TASK"],
+    ["world_and_collection_context","WORLD AND COLLECTION CONTEXT"],
+    ["style_system",                "STYLE SYSTEM"],
+    ["component_requirements",      "COMPONENT REQUIREMENTS"],
+    ["asset_specific_intent",       "ASSET-SPECIFIC INTENT"],
+    ["composition_and_content",     "COMPOSITION AND CONTENT"],
+    ["materials_and_lighting",      "MATERIALS AND LIGHTING"],
+    ["text_policy",                 "TEXT POLICY"],
+    ["canon_policy",                "CANON POLICY"],
+    ["negative_constraints",        "NEGATIVE CONSTRAINTS"],
+    ["print_and_output_requirements","PRINT AND OUTPUT REQUIREMENTS"],
   ];
 
   const parts: string[] = [];
-
   for (const [key, tag] of orderedSectionKeys) {
     const s = section(tag, sections[key]);
     if (s) parts.push(s);
   }
 
   // Inject additional modules before negative constraints
-  for (const mod of additionalModules) {
-    if (mod.content.trim()) {
-      const tag = mod.name.toUpperCase().replace(/\s+/g, " ").trim();
-      parts.splice(parts.length - 2, 0, section(tag, mod.content));
+  for (const m of additionalModules) {
+    if (m.content.trim()) {
+      const tag = m.name.toUpperCase().replace(/\s+/g, " ").trim();
+      parts.splice(parts.length - 2, 0, section(tag, m.content));
     }
   }
 
   const fullPrompt = parts.join(SECTION_DIVIDER);
-
-  // Negative prompt is extracted separately from the negative_constraints section
   const negativePrompt = negativeConstraints.trim() || undefined;
 
-  return { sections, fullPrompt, negativePrompt };
+  // Build sectionRecords from legacy sections for the viewer
+  const sectionRecords: CompiledSectionRecord[] = orderedSectionKeys
+    .map(([key, label]) => rec(key, toTitleCase(label), sections[key], legacySectionSource(key as string, chain)))
+    .filter((r) => r.content.length > 0);
+
+  return { sections, sectionRecords, fullPrompt, negativePrompt, isLegacyFormat: true };
+}
+
+function legacySectionSource(key: string, chain: InheritanceChain): string {
+  if (key === "world_and_collection_context") return "World record + Prompt Modules";
+  if (key === "style_system") return chain.styleGuide ? `Style Guide: ${chain.styleGuide.name}` : "No Style Guide";
+  if (key === "component_requirements") return chain.componentSpec ? `Component Spec: ${chain.componentSpec.name}` : "Prompt Payload (flat keys)";
+  if (key === "canon_policy") return "Canon Records";
+  if (key === "print_and_output_requirements") return "Production Specification";
+  return "Prompt Payload";
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Build a legacy CompiledPromptSections from a PP-2.0 payload for compat. */
+function buildLegacySectionsFromNewFormat(
+  chain: InheritanceChain,
+  payload: ParsedPayload,
+): CompiledPromptSections {
+  const spec = chain.productionSpec;
+  return {
+    creative_task: `Component Type: ${spec.componentType}`,
+    world_and_collection_context: `World: ${spec.world}${spec.volume ? `\nVolume: ${spec.volume}` : ""}`,
+    style_system: chain.styleGuide?.content ?? "",
+    component_requirements: chain.componentSpec?.content ?? "",
+    asset_specific_intent: [spec.designIntent, spec.narrativePurpose, spec.requiredContent].filter(Boolean).join("\n"),
+    composition_and_content: payload.front_prompt ?? "",
+    materials_and_lighting: payload.shared_prompt ?? "",
+    text_policy: "",
+    canon_policy: chain.canonRecords.map((r) => `${r.name} (${r.status})`).join("\n"),
+    negative_constraints: payload.negative_prompt ?? "",
+    print_and_output_requirements: [spec.orientation, spec.frontBackStyle].filter(Boolean).join("\n"),
+  };
 }

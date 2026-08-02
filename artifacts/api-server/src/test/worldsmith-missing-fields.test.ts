@@ -46,6 +46,7 @@ type NP = any;
 
 vi.mock("../lib/notion-client.js", () => {
   return {
+    _setOnRetry: vi.fn(),
     getPage: mockGetPage,
     getPageText: vi.fn().mockResolvedValue(""),
     updatePage: vi.fn().mockResolvedValue(undefined),

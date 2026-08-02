@@ -77,9 +77,11 @@ interface ProvenanceRecord {
   component_type: string;
   component_set?: string;
   world: string;
+  world_notion_id?: string;
   collection?: string;
   collection_notion_id?: string;
   volume?: string;
+  volume_notion_id?: string;
   style_guide?: string;
   component_specification?: string;
   prompt_modules: string[];
@@ -1004,9 +1006,9 @@ function ProductionSummaryCard({
         <div>
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Identity</p>
           <div className="space-y-1.5">
-            <Row label="World"          value={prov?.world ?? preflight?.world ?? "—"} />
+            <Row label="World"          value={prov?.world ?? preflight?.world ?? "—"} notionId={prov?.world_notion_id} />
             <Row label="Collection"     value={prov?.collection ?? "—"} notionId={prov?.collection_notion_id} />
-            <Row label="Volume"         value={prov?.volume ?? preflight?.volume ?? "—"} />
+            <Row label="Volume"         value={prov?.volume ?? preflight?.volume ?? "—"} notionId={prov?.volume_notion_id} />
             <Row label="Component"      value={prov?.component_type ?? result.component_type ?? preflight?.component_type ?? "—"} />
             <Row label="Component Set"  value={prov?.component_set ?? "—"} />
           </div>

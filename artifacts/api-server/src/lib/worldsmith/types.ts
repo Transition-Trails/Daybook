@@ -262,9 +262,11 @@ export interface ProvenanceRecord {
   component_type: string;
   component_set?: string;
   world: string;
+  world_notion_id?: string;
   collection?: string;
   collection_notion_id?: string;
   volume?: string;
+  volume_notion_id?: string;
   style_guide?: string;
   component_specification?: string;
   prompt_modules: string[];

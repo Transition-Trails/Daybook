@@ -62,10 +62,14 @@ router.post("/v1/prompt-compilations", requireAuth, async (req: Request, res: Re
       user?.id ?? "anonymous",
     );
 
+    // "failed" with retry_safe=false means a client-fixable data problem (422).
+    // "failed" with retry_safe=true means a dependency/server error (503).
     const httpStatus =
       result.status === "compiled" ? 200
       : result.status === "validation_failed" ? 422
       : result.status === "requires_canon_review" ? 422
+      : result.status === "failed" && result.retry_safe === false ? 422
+      : result.status === "failed" ? 503
       : 500;
 
     res.status(httpStatus).json(result);

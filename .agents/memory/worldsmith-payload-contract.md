@@ -1,6 +1,6 @@
 ---
 name: WorldSmith PP-2.0 payload contract + Publishing Engine
-description: PP-2.0 section-based payload format, format detection, validator aliases, and the Publishing Engine UX architecture.
+description: PP-2.0 section-based payload format, format detection, validator aliases, and the Publishing Engine UX architecture (four-zone, three-tab workspace).
 ---
 
 ## PP-2.0 format detection
@@ -20,29 +20,65 @@ These are normalised before flat-key validation runs. A `LEGACY_PAYLOAD_FORMAT` 
 - **Warnings** — quality affected (warnings not in RECOMMENDATION_CODES)
 - **Recommendations** — modernization only (`LEGACY_PAYLOAD_FORMAT`, `MIGRATION_SUGGESTED`, `PAYLOAD_OPTIMIZATION`, `OPTIONAL_PROMPT_MODULE`, `OPTIONAL_MODULE`)
 
-## Publishing Engine UX architecture
-`PipelineStageKey` type (12 stages) drives `activeStage` state in `InspectorScreen`.
-Pipeline IS the navigation — clicking a stage opens its inspector panel.
+## Publishing Engine UX architecture (v3 — four-zone cockpit)
 
-Stage → panel mapping:
-- `resolve` → `ResolvePanel` (clean list of resolved records)
-- `validate` → `ValidationTab` (3-tier)
-- `inheritance` → `InspectorTab` (node cards + ProvenanceChain)
-- `prompt-assembly` → `PromptSectionsTab`
-- `hash-generation` → `TechnicalTab`
-- `ready-for-spec-board` → `ReadinessPanel` (checklist + summary) — **default**
-- `specification-review` … `published` → `FuturePlaceholderPanel`
+### Four zones
+- **Zone 1** — `StickyPublishingHeader`: compact 2-row card (identity row + stats row). IntersectionObserver collapses it to a backdrop-blur strip when scrolled.
+- **Zone 2** — `ActionCenter`: single full-width `h-11` primary button + secondary row. Primary is red when errors, navy when clean.
+- **Zone 3** — `WorkspacePanel`: three-tab workspace (Overview / Inspector / History).
+- **Zone 4** — `SpecPreviewSection`: rendered below the workspace by the parent, only visible when no successful board has been generated yet.
 
-`ActionCenter` shows prioritised actions above the pipeline, driven by `errCount`.
+### WorkspacePanel tabs
 
-## ProvenanceRecord fields
-All human-readable names (no raw UUIDs in primary UI). Raw IDs in TechnicalTab behind "Show Technical IDs" toggle.
-Fields: `production_spec_title`, `component_type`, `component_set`, `world`, `volume`, `style_guide`, `component_specification`, `prompt_modules[]`, `canon_records[]`, `run_id`, `compilation_timestamp`, `production_spec_notion_id`, `style_guide_notion_id`, `component_spec_notion_id`, `prompt_payload_notion_id`, `prompt_module_notion_ids[]`, `canon_record_notion_ids[]`, `prompt_payload_type`, `prompt_hash`, `payload_version`, `payload_format`, `compiler_version`.
+**Overview tab** (`OverviewTab`):
+- Top row (5-col grid): `ProductionSummaryCard` (3 cols: Identity / Workflow / Compilation groups) + `PublishingJourneyCard` (2 cols: vertical 11-stage clickable timeline)
+- `GroupedReadinessCard`: 4 collapsible groups (Governance / Compilation / Output / Publishing), arranged in a 4-col grid
+- `CompilationTimeline`: per-stage timestamps (existing component)
+- Bottom row: `ProductionContextCard` (volume progress placeholder) + `NextAfterThisCard` (forward path from current stage)
 
-**Why:** UUIDs overwhelm non-technical reviewers; ProvenanceRecord keeps human names front-and-centre.
+**Inspector tab** (`InspectorWorkspaceTab`):
+- `PublishingPipeline` (horizontal stage nav, existing)
+- Stage panel below: ResolvePanel / ValidationTab / InspectorTab / PromptSectionsTab / TechnicalTab / ReadinessPanel / FuturePlaceholderPanel
 
-## Key language
+**History tab** (`HistoryTab`):
+- `useQuery` for runs keyed by `result.production_spec_id`
+- Sections: Compile History (live) / Spec Board History (placeholder) / Artwork / QA / Publishing (future placeholders)
+
+### State model (InspectorScreen)
+```tsx
+const [workspaceTab, setWorkspaceTab]     = useState<"overview"|"inspector"|"history">("overview");
+const [inspectorStage, setInspectorStage] = useState<PipelineStageKey>("ready-for-spec-board");
+function goToStage(stage) { setInspectorStage(stage); setWorkspaceTab("inspector"); }
+```
+`goToStage` is threaded into `StickyPublishingHeader`, `ActionCenter`, `WorkspacePanel`, and `PublishingJourneyCard` — clicking any stage in the journey, or clicking a validation shortcut, navigates to the Inspector tab at the right stage.
+
+### PublishingJourneyCard stages (11)
+Resolve → Validate → Inheritance → Prompt Assembly → Hash Generation → Specification Board (current) → Human Review → Artwork Generation → Artwork QA → Publishing Approval → Published.
+Completed stages are emerald, current stage has a pulsing navy dot. Clicking a completed or current stage calls `goToStage`.
+
+### Compact header (Zone 1 non-sticky state)
+Row 1: `[abbr] title [PP-1.0] · component · volume · world  [↗] [New]`
+Row 2: `[●] stage | readiness% [bar] | errors/warnings/recs | [Generate →]`
+
+### SpecPreviewSection (Zone 4) status model
+Status badge: Not Generated / Generating… / Failed / Dry Run Complete. Idle state has a dashed placeholder. Primary = full-width Generate; Secondary = full-width Dry Run.
+
+### Key language conventions
 - "Generate Preview" → "Generate Specification Board"
-- "Validation Status" → "Production Readiness" 
-- "Warnings" (page title) → "Validation Report"
-- `SpecPreviewSection` card has `id="spec-preview-card"` for ActionCenter scroll target
+- "Validation Status" → "Production Readiness"
+- "Prompt Hash" → "Compiled Artifact ID" (in UI summary rows)
+- "Publishing Progress" / "Ready For" → "Publishing Journey"
+
+**Why:** The page must feel like a professional publishing cockpit (Adobe InDesign Preflight / GitHub Actions), not a compiler output screen. Every label and layout decision serves the "Where am I / What am I working on / What should I do next / How does this affect the pipeline?" orientation model.
+
+## ProvenanceRecord fields (post-task-201 merge)
+Includes `collection?: string` and `collection_notion_id?: string`.
+
+## ProductionSummaryCard field sources
+- World: `prov?.world ?? preflight?.world`
+- Collection: `prov?.collection`
+- Volume: `prov?.volume ?? preflight?.volume`
+- Component: `prov?.component_type ?? result.component_type ?? preflight?.component_type`
+- Component Set: `prov?.component_set`
+- Compilation timestamp: `prov?.compilation_timestamp`
+- Compiled Artifact ID: `result.run_id`

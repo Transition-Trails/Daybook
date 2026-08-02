@@ -1,0 +1,537 @@
+Refine the WorldSmith Publishing Engine into a production cockpit.
+
+The compiler experience is now strong. The next goal is to evolve the page from an "asset details" screen into a publishing workspace.
+
+The user should always understand:
+
+• Where am I?
+• What am I working on?
+• What should I do next?
+• How does this asset affect the rest of the production pipeline?
+
+Do not redesign the page from scratch.
+
+Preserve the existing architecture.
+
+Reorganize the experience around publishing.
+
+==================================================
+PRIMARY LAYOUT
+==================================================
+
+Divide the page into four zones.
+
+ZONE 1
+
+Publishing Status
+
+ZONE 2
+
+Primary Action
+
+ZONE 3
+
+Publishing Workspace
+
+ZONE 4
+
+Supporting Information
+
+==================================================
+ZONE 1
+Publishing Status
+==================================================
+
+Reduce vertical height.
+
+Display as one compact card.
+
+--------------------------------------------------
+
+JC-002
+
+Daily Garden Observations
+
+Journal Card
+
+Volume I
+
+Wychcombe
+
+Publishing Stage
+
+Ready for Specification Board
+
+Production Readiness
+
+86%
+
+Validation
+
+0 Errors
+
+1 Warning
+
+1 Recommendation
+
+Primary Action
+
+Generate Specification Board
+
+--------------------------------------------------
+
+Do not display UUIDs.
+
+Always resolve titles.
+
+==================================================
+ZONE 2
+Primary Action
+==================================================
+
+Only one large button.
+
+Display only the next workflow action.
+
+Examples
+
+Generate Specification Board
+
+Review Specification Board
+
+Generate Artwork
+
+Review Artwork
+
+Publish Asset
+
+Below it display smaller utilities.
+
+Inspect
+
+Validation
+
+Prompt Assembly
+
+Open Notion
+
+Technical Details
+
+==================================================
+ZONE 3
+Publishing Workspace
+==================================================
+
+This becomes the largest section.
+
+Create three tabs.
+
+--------------------------------------------------
+
+Overview
+
+--------------------------------------------------
+
+Shows
+
+Production Summary
+
+Publishing Progress
+
+Readiness
+
+Timeline
+
+--------------------------------------------------
+
+Inspector
+
+--------------------------------------------------
+
+Shows
+
+Resolved Records
+
+Inheritance
+
+Prompt Sections
+
+Prompt Modules
+
+Canon
+
+Print Specification
+
+--------------------------------------------------
+
+History
+
+--------------------------------------------------
+
+Shows
+
+Compile History
+
+Specification Board History
+
+Artwork History
+
+QA History
+
+Publishing History
+
+Eventually this becomes the complete publishing audit trail.
+
+==================================================
+PUBLISHING PROGRESS
+==================================================
+
+Replace
+
+Ready For
+
+with
+
+Publishing Journey
+
+Display vertically.
+
+✓ Resolve
+
+✓ Validate
+
+✓ Inheritance
+
+✓ Prompt Assembly
+
+✓ Hash Generation
+
+✓ Specification Board
+
+○ Human Review
+
+○ Artwork Generation
+
+○ Artwork QA
+
+○ Publishing Approval
+
+○ Published
+
+Clicking any stage opens that stage.
+
+==================================================
+TIMELINE
+==================================================
+
+Create a chronological timeline.
+
+Example
+
+2:14 PM
+
+Compilation Started
+
+2:14 PM
+
+Validation Passed
+
+2:14 PM
+
+Prompt Compiled
+
+2:14 PM
+
+Hash Generated
+
+Pending
+
+Specification Board
+
+Pending
+
+Artwork
+
+Pending
+
+QA
+
+Pending
+
+Publish
+
+Each event should link to the related artifact.
+
+==================================================
+READINESS
+==================================================
+
+Keep the checklist.
+
+Group it.
+
+Governance
+
+Production Specification
+
+Component Specification
+
+Style Guide
+
+Canon
+
+Compilation
+
+Prompt Modules
+
+Prompt Payload
+
+Prompt Hash
+
+Compiled Artifact
+
+Output
+
+Specification Board
+
+Artwork
+
+Publishing
+
+Each group collapsible.
+
+==================================================
+SUMMARY
+==================================================
+
+Reorganize.
+
+Identity
+
+World
+
+Collection
+
+Volume
+
+Component
+
+Component Set
+
+Workflow
+
+Publishing Stage
+
+Current Status
+
+Next Action
+
+Compilation
+
+Compiled Artifact ID
+
+Prompt Hash
+
+Compiler Version
+
+Compilation Time
+
+==================================================
+SMART RECOMMENDATIONS
+==================================================
+
+Recommendations should become actionable.
+
+Example
+
+Upgrade Payload Contract
+
+Current
+
+PP-1.0
+
+Recommended
+
+PP-2.0
+
+Benefits
+
+Structured Prompt Sections
+
+Front / Back Surfaces
+
+Assembly Prompts
+
+Construction Components
+
+Future-proof Publishing
+
+Action
+
+Upgrade Payload
+
+Estimate
+
+Under 2 minutes
+
+==================================================
+SPECIFICATION BOARD
+==================================================
+
+If generated
+
+Display
+
+Thumbnail
+
+Created
+
+Created By
+
+Provider
+
+Model
+
+Version
+
+Buttons
+
+Open Board
+
+Open Notion
+
+Generate Again
+
+Compare Versions
+
+If not generated
+
+Display placeholder.
+
+==================================================
+FRIENDLY NAMES
+==================================================
+
+Every UUID visible today should resolve to a title.
+
+Examples
+
+Current
+
+3ae04eb4...
+
+Replace with
+
+Wychcombe
+
+Current
+
+3ae04eb4...
+
+Replace with
+
+Greenhouse Workbench
+
+UUIDs belong only inside Technical Details.
+
+==================================================
+PRODUCTION CONTEXT
+==================================================
+
+Add one new card.
+
+This Asset in Production
+
+Example
+
+Volume I Progress
+
+65%
+
+Journal Cards
+
+24
+
+Complete
+
+18
+
+Awaiting Review
+
+4
+
+Blocked
+
+2
+
+Hero Papers
+
+4 Approved
+
+Coordinating Papers
+
+12
+
+Pockets
+
+4 Planned
+
+Envelopes
+
+4 Planned
+
+This gives the asset context.
+
+==================================================
+NEXT AFTER THIS
+==================================================
+
+Display
+
+After this asset completes...
+
+Specification Review
+
+↓
+
+Artwork Generation
+
+↓
+
+Artwork QA
+
+↓
+
+Volume Progress becomes 67%
+
+↓
+
+Ready for Publishing
+
+Users should always understand why this asset matters.
+
+==================================================
+DESIGN
+==================================================
+
+Reduce vertical scrolling.
+
+Increase information density without clutter.
+
+Make Overview the default tab.
+
+Collapse advanced information.
+
+Use whitespace intentionally.
+
+Keep the page calm.
+
+==================================================
+SUCCESS
+==================================================
+
+When complete, the page should no longer feel like a compiler output.
+
+It should feel like a professional publishing workspace where a user can confidently manage an asset from compilation through publication while always understanding where that asset fits within the larger World, Collection, and Volume production pipeline.
+
+The experience should feel production-ready for WorldSmith Version 1.

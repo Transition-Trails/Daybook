@@ -4,14 +4,15 @@
  * ─ Flow:  Input → Resolve → Preflight summary card → Compile / Dry Run
  * ─ Post:  Success screen with all key fields called out
  */
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Loader2, Sparkles, CheckCircle2, XCircle, AlertTriangle,
   ChevronDown, ChevronUp, Copy, RefreshCw, FileText, Clock,
   Hash, RotateCcw, Search, ArrowRight, BookOpen,
   ImagePlus, ExternalLink, ImageOff, ArrowLeft, Layers, GitBranch,
-  Download, Link2, ShieldCheck, Cpu, Info,
+  Download, Link2, ShieldCheck, Cpu, Info, Zap, ArrowUpRight,
+  CircleDot, TrendingUp, DollarSign, CheckSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -752,12 +753,488 @@ function InspectorScreen({
   preflight: PreflightResponse | null;
   onReset: () => void;
 }) {
-  const [activeStage, setActiveStage] = useState<PipelineStageKey>("ready-for-spec-board");
+  const [workspaceTab, setWorkspaceTab]     = useState<"overview" | "inspector" | "history">("overview");
+  const [inspectorStage, setInspectorStage] = useState<PipelineStageKey>("ready-for-spec-board");
   const prov = result.provenance;
-  const isLegacy = prov?.payload_format === "legacy";
-  const errCount = (result.errors ?? []).length;
-  const warnCount = (result.warnings ?? []).length;
 
+  /** Navigate to a specific pipeline stage — switches to Inspector tab */
+  function goToStage(stage: PipelineStageKey) {
+    setInspectorStage(stage);
+    setWorkspaceTab("inspector");
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Zone 1 — Publishing Status */}
+      <StickyPublishingHeader
+        result={result}
+        preflight={preflight}
+        prov={prov ?? null}
+        onReset={onReset}
+        setActiveStage={goToStage}
+      />
+
+      {/* Zone 2 — Primary Action */}
+      <ActionCenter result={result} prov={prov ?? null} setActiveStage={goToStage} />
+
+      {/* Zone 3 — Publishing Workspace */}
+      <WorkspacePanel
+        result={result}
+        preflight={preflight}
+        prov={prov ?? null}
+        workspaceTab={workspaceTab}
+        setWorkspaceTab={setWorkspaceTab}
+        inspectorStage={inspectorStage}
+        setInspectorStage={setInspectorStage}
+        goToStage={goToStage}
+      />
+
+      {result.visual_asset_id && (
+        <div className="text-xs text-muted-foreground flex items-center gap-1.5 pt-1">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+          Visual Asset ID: <code className="font-mono">{result.visual_asset_id}</code>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Workspace Panel (Zone 3) ─────────────────────────────────────────────────
+
+function WorkspacePanel({
+  result, preflight, prov,
+  workspaceTab, setWorkspaceTab,
+  inspectorStage, setInspectorStage,
+  goToStage,
+}: {
+  result: CompileResponse;
+  preflight: PreflightResponse | null;
+  prov: ProvenanceRecord | null;
+  workspaceTab: "overview" | "inspector" | "history";
+  setWorkspaceTab: (t: "overview" | "inspector" | "history") => void;
+  inspectorStage: PipelineStageKey;
+  setInspectorStage: (s: PipelineStageKey) => void;
+  goToStage: (s: PipelineStageKey) => void;
+}) {
+  const TABS = [
+    { id: "overview",  label: "Overview"  },
+    { id: "inspector", label: "Inspector" },
+    { id: "history",   label: "History"   },
+  ] as const;
+
+  return (
+    <div>
+      <div className="flex border-b border-[#1B2A4A]/15 mb-4">
+        {TABS.map(tab => (
+          <button key={tab.id} onClick={() => setWorkspaceTab(tab.id)}
+            className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              workspaceTab === tab.id
+                ? "border-[#1B2A4A] text-[#1B2A4A]"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {workspaceTab === "overview" && (
+        <OverviewTab result={result} preflight={preflight} prov={prov} goToStage={goToStage} />
+      )}
+      {workspaceTab === "inspector" && (
+        <InspectorWorkspaceTab result={result} preflight={preflight} prov={prov}
+          stage={inspectorStage} setStage={setInspectorStage} />
+      )}
+      {workspaceTab === "history" && (
+        <HistoryTab result={result} />
+      )}
+    </div>
+  );
+}
+
+// ── Overview Tab ──────────────────────────────────────────────────────────────
+
+function OverviewTab({
+  result, preflight, prov, goToStage,
+}: {
+  result: CompileResponse;
+  preflight: PreflightResponse | null;
+  prov: ProvenanceRecord | null;
+  goToStage: (s: PipelineStageKey) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      {/* Top row — Summary (left) + Publishing Journey (right) */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-3">
+          <ProductionSummaryCard result={result} preflight={preflight} prov={prov} />
+        </div>
+        <div className="lg:col-span-2">
+          <PublishingJourneyCard result={result} prov={prov} goToStage={goToStage} />
+        </div>
+      </div>
+
+      {/* Grouped Readiness */}
+      <GroupedReadinessCard result={result} preflight={preflight} prov={prov} />
+
+      {/* Timeline */}
+      <CompilationTimeline prov={prov} result={result} />
+
+      {/* Bottom row — Context + Next After This */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ProductionContextCard prov={prov} preflight={preflight} />
+        <NextAfterThisCard result={result} />
+      </div>
+    </div>
+  );
+}
+
+// ── Production Summary Card ───────────────────────────────────────────────────
+
+function ProductionSummaryCard({
+  result, preflight, prov,
+}: {
+  result: CompileResponse;
+  preflight: PreflightResponse | null;
+  prov: ProvenanceRecord | null;
+}) {
+  const { useToast: _ut } = { useToast: () => ({ toast: (_: unknown) => {} }) }; // local copy-toast
+  const { toast } = useToast();
+  const errCount  = (result.errors ?? []).length;
+  const stageLabel = errCount > 0 ? "Validation Blocked" : "Ready for Specification Board";
+
+  function CopyRow({ label, value, copy }: { label: string; value: string; copy?: string }) {
+    return (
+      <div className="flex items-center justify-between gap-3 group">
+        <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+        <div className="flex items-center gap-1 min-w-0">
+          <span className="text-xs font-medium font-mono truncate text-right max-w-[160px]" title={copy ?? value}>{value}</span>
+          {copy && (
+            <button onClick={() => { navigator.clipboard.writeText(copy); toast({ title: `${label} copied` }); }}
+              className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-foreground text-muted-foreground transition-opacity shrink-0">
+              <Copy className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function Row({ label, value, color }: { label: string; value: string; color?: string }) {
+    return (
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+        <span className={`text-xs font-medium text-right truncate max-w-[60%] ${color ?? ""}`}>{value}</span>
+      </div>
+    );
+  }
+
+  const ts = prov?.compilation_timestamp;
+
+  return (
+    <Card className="h-full">
+      <CardHeader className="pb-2"><CardTitle className="text-sm">Production Summary</CardTitle></CardHeader>
+      <CardContent className="pt-0 space-y-4">
+
+        {/* Identity */}
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Identity</p>
+          <div className="space-y-1.5">
+            <Row label="World"          value={prov?.world ?? preflight?.world ?? "—"} />
+            <Row label="Collection"     value={prov?.collection ?? "—"} />
+            <Row label="Volume"         value={prov?.volume ?? preflight?.volume ?? "—"} />
+            <Row label="Component"      value={prov?.component_type ?? result.component_type ?? preflight?.component_type ?? "—"} />
+            <Row label="Component Set"  value={prov?.component_set ?? "—"} />
+          </div>
+        </div>
+
+        {/* Workflow */}
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Workflow</p>
+          <div className="space-y-1.5">
+            <Row label="Publishing Stage" value={stageLabel} color={errCount > 0 ? "text-red-600" : "text-[#1B2A4A]"} />
+            <Row label="Current Status"   value={errCount > 0 ? "Blocked — validation errors" : "Compiled successfully"} />
+            <Row label="Next Action"      value={errCount > 0 ? "Fix validation errors" : "Generate Specification Board"} />
+          </div>
+        </div>
+
+        {/* Compilation */}
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Compilation</p>
+          <div className="space-y-1.5">
+            <CopyRow label="Compiled Artifact ID" value={result.run_id ? result.run_id.slice(0, 12) + "…" : "—"} copy={result.run_id} />
+            <CopyRow label="Prompt Hash"  value={result.prompt_hash ? result.prompt_hash.slice(0, 12) + "…" : "—"} copy={result.prompt_hash} />
+            <Row     label="Compiler Version" value={prov?.compiler_version ?? "—"} />
+            <Row     label="Compilation Time" value={ts ? fmtTs(ts) : "—"} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Publishing Journey Card ───────────────────────────────────────────────────
+
+function PublishingJourneyCard({
+  result, prov, goToStage,
+}: {
+  result: CompileResponse;
+  prov: ProvenanceRecord | null;
+  goToStage: (s: PipelineStageKey) => void;
+}) {
+  const errCount = (result.errors ?? []).length;
+
+  const stages: Array<{ key: PipelineStageKey; label: string; done: boolean; current?: boolean }> = [
+    { key: "resolve",              label: "Resolve",             done: true },
+    { key: "validate",             label: "Validate",            done: errCount === 0 },
+    { key: "inheritance",          label: "Inheritance",         done: !!prov },
+    { key: "prompt-assembly",      label: "Prompt Assembly",     done: !!result.compiled_prompt },
+    { key: "hash-generation",      label: "Hash Generation",     done: !!result.prompt_hash },
+    { key: "ready-for-spec-board", label: "Specification Board", done: false, current: true },
+    { key: "specification-review", label: "Human Review",        done: false },
+    { key: "ready-for-artwork",    label: "Artwork Generation",  done: false },
+    { key: "artwork-review",       label: "Artwork QA",          done: false },
+    { key: "ready-for-publish",    label: "Publishing Approval", done: false },
+    { key: "published",            label: "Published",           done: false },
+  ];
+
+  return (
+    <Card className="h-full">
+      <CardHeader className="pb-2"><CardTitle className="text-sm">Publishing Journey</CardTitle></CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-0">
+          {stages.map((stage, i) => {
+            const isLast    = i === stages.length - 1;
+            const clickable = stage.done || stage.current;
+            return (
+              <div key={stage.key} className="flex gap-3">
+                {/* Track */}
+                <div className="flex flex-col items-center shrink-0">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] border-2 mt-0.5 ${
+                    stage.done    ? "bg-emerald-500 border-emerald-500 text-white"
+                    : stage.current ? "bg-[#1B2A4A] border-[#1B2A4A] text-white"
+                    : "bg-white border-muted-foreground/20"
+                  }`}>
+                    {stage.done ? "✓" : stage.current ? <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse inline-block" /> : ""}
+                  </div>
+                  {!isLast && <div className={`w-0.5 flex-1 my-0.5 ${stage.done ? "bg-emerald-300" : "bg-muted/40"}`} style={{ minHeight: 14 }} />}
+                </div>
+                {/* Label */}
+                <button
+                  type="button"
+                  disabled={!clickable}
+                  onClick={() => clickable && goToStage(stage.key)}
+                  className={`pb-2.5 text-left leading-none ${
+                    clickable ? "hover:underline cursor-pointer" : "cursor-default"
+                  } ${
+                    stage.done    ? "text-xs font-medium text-emerald-700"
+                    : stage.current ? "text-xs font-semibold text-[#1B2A4A]"
+                    : "text-xs text-muted-foreground/60"
+                  }`}>
+                  {stage.label}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Grouped Readiness Card ────────────────────────────────────────────────────
+
+function GroupedReadinessCard({
+  result, preflight, prov,
+}: {
+  result: CompileResponse;
+  preflight: PreflightResponse | null;
+  prov: ProvenanceRecord | null;
+}) {
+  const [open, setOpen] = useState<Record<string, boolean>>({ governance: true, compilation: true, output: false, publishing: false });
+  const toggle = (k: string) => setOpen(prev => ({ ...prev, [k]: !prev[k] }));
+
+  const govItems = [
+    { label: "Production Specification", ok: true },
+    { label: "Component Specification",  ok: !!(prov?.component_specification ?? preflight?.component_specification) },
+    { label: "Style Guide",              ok: !!prov?.style_guide },
+    { label: "Canon Records",            ok: (prov?.canon_records.length ?? preflight?.canon_record_count ?? 0) > 0 },
+  ];
+  const compileItems = [
+    { label: "Prompt Modules",   ok: (prov?.prompt_modules.length ?? preflight?.prompt_module_count ?? 0) > 0 },
+    { label: "Prompt Payload",   ok: true },
+    { label: "Prompt Hash",      ok: !!result.prompt_hash },
+    { label: "Compiled Artifact",ok: true },
+    { label: "PP-2.0 Contract",  ok: prov?.payload_format !== "legacy" },
+  ];
+  const outputItems = [
+    { label: "Specification Board", ok: false, pending: true },
+    { label: "Artwork",             ok: false, pending: true },
+  ];
+  const publishItems = [
+    { label: "Publishing Approval", ok: false, pending: true },
+    { label: "Published",           ok: false, pending: true },
+  ];
+
+  const groups = [
+    { key: "governance",  label: "Governance",  items: govItems },
+    { key: "compilation", label: "Compilation", items: compileItems },
+    { key: "output",      label: "Output",      items: outputItems },
+    { key: "publishing",  label: "Publishing",  items: publishItems },
+  ];
+
+  function Item({ label, ok, pending }: { label: string; ok: boolean; pending?: boolean }) {
+    return (
+      <div className="flex items-center gap-2 py-1">
+        <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold ${
+          pending   ? "border border-dashed border-muted-foreground/30 text-transparent"
+          : ok      ? "bg-emerald-100 text-emerald-700"
+          :           "bg-red-100 text-red-600"
+        }`}>
+          {!pending && (ok ? "✓" : "✗")}
+        </div>
+        <span className={`text-xs ${pending ? "text-muted-foreground/50 italic" : ok ? "text-foreground" : "text-red-700 font-medium"}`}>
+          {label}{pending ? " — pending" : ""}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-sm">Readiness</CardTitle></CardHeader>
+      <CardContent className="pt-0">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-0 divide-x divide-border">
+          {groups.map(group => (
+            <div key={group.key} className="px-3 first:pl-0 last:pr-0">
+              <button onClick={() => toggle(group.key)}
+                className="flex items-center justify-between w-full py-1.5 group">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">{group.label}</p>
+                <ChevronDown className={`w-3 h-3 text-muted-foreground transition-transform ${open[group.key] ? "rotate-180" : ""}`} />
+              </button>
+              {open[group.key] && (
+                <div className="pb-2">
+                  {group.items.map(item => <Item key={item.label} {...item} />)}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Production Context Card ───────────────────────────────────────────────────
+
+function ProductionContextCard({
+  prov, preflight,
+}: {
+  prov: ProvenanceRecord | null;
+  preflight: PreflightResponse | null;
+}) {
+  const volume    = prov?.volume ?? preflight?.volume ?? "Volume I";
+  const compType  = prov?.component_type ?? preflight?.component_type ?? "Component";
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-[#C87560]" />
+          This Asset in Production
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-3">
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-[#1B2A4A]">{volume} Progress</span>
+            <span className="text-xs font-bold text-[#1B2A4A] tabular-nums">—%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
+            <div className="h-full rounded-full bg-[#1B2A4A]/20" style={{ width: "0%" }} />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">{compType}s in volume</span>
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-emerald-700 font-medium">— complete</span>
+              <span className="text-amber-600">— in review</span>
+              <span className="text-red-600">— blocked</span>
+            </div>
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground/60 italic pt-1">
+          Volume pipeline data will connect when production tracking is enabled.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Next After This Card ──────────────────────────────────────────────────────
+
+function NextAfterThisCard({ result }: { result: CompileResponse }) {
+  const errCount = (result.errors ?? []).length;
+
+  const steps = errCount > 0
+    ? [
+        { label: "Fix validation errors",      note: "Required before proceeding" },
+        { label: "Recompile",                  note: "Run a fresh compilation" },
+        { label: "Generate Specification Board", note: "Upload to Notion for review" },
+      ]
+    : [
+        { label: "Generate Specification Board", note: "Upload 1600×2000 px board to Notion" },
+        { label: "Specification Review",         note: "Human review in Notion" },
+        { label: "Artwork Generation",           note: "DALL-E HD render" },
+        { label: "Artwork QA",                   note: "Quality check and approval" },
+        { label: "Publishing Approval",          note: "Final sign-off" },
+        { label: "Published",                    note: "Volume progress advances" },
+      ];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <ArrowRight className="w-4 h-4 text-[#C87560]" />
+          After This Asset…
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-0">
+          {steps.map((step, i) => (
+            <div key={step.label} className="flex gap-2.5">
+              <div className="flex flex-col items-center shrink-0">
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center text-[8px] font-bold mt-0.5 ${
+                  i === 0 ? "border-[#1B2A4A] bg-[#1B2A4A] text-white" : "border-muted-foreground/20 bg-white"
+                }`}>
+                  {i === 0 ? "→" : ""}
+                </div>
+                {i < steps.length - 1 && <div className="w-0.5 flex-1 bg-muted/30 my-0.5" style={{ minHeight: 14 }} />}
+              </div>
+              <div className="pb-2.5">
+                <p className={`text-xs font-medium leading-none ${i === 0 ? "text-[#1B2A4A]" : "text-muted-foreground/70"}`}>{step.label}</p>
+                <p className="text-[11px] text-muted-foreground/50 mt-0.5">{step.note}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Inspector Workspace Tab ────────────────────────────────────────────────────
+
+function InspectorWorkspaceTab({
+  result, preflight, prov, stage, setStage,
+}: {
+  result: CompileResponse;
+  preflight: PreflightResponse | null;
+  prov: ProvenanceRecord | null;
+  stage: PipelineStageKey;
+  setStage: (s: PipelineStageKey) => void;
+}) {
+  const isLegacy = prov?.payload_format === "legacy";
   const FUTURE_STAGES: PipelineStageKey[] = [
     "specification-review", "ready-for-artwork", "artwork-generation",
     "artwork-review", "ready-for-publish", "published",
@@ -765,36 +1242,97 @@ function InspectorScreen({
 
   return (
     <div className="space-y-4">
-      {/* Status Overview Card */}
-      <StatusOverviewCard
-        result={result}
-        preflight={preflight}
-        prov={prov ?? null}
-        onReset={onReset}
-        setActiveStage={setActiveStage}
-      />
+      <PublishingPipeline result={result} activeStage={stage} setActiveStage={setStage} />
 
-      {/* Publishing Pipeline — the navigation */}
-      <PublishingPipeline result={result} activeStage={activeStage} setActiveStage={setActiveStage} />
+      {stage === "resolve"              && <ResolvePanel result={result} preflight={preflight} prov={prov} />}
+      {stage === "validate"             && <ValidationTab errors={result.errors ?? []} warnings={result.warnings ?? []} prov={prov} />}
+      {stage === "inheritance"          && <InspectorTab result={result} preflight={preflight} prov={prov} />}
+      {stage === "prompt-assembly"      && <PromptSectionsTab sections={result.compiled_sections ?? []} fullPrompt={result.compiled_prompt ?? ""} promptHash={result.prompt_hash} isLegacy={isLegacy} />}
+      {stage === "hash-generation"      && <TechnicalTab result={result} />}
+      {stage === "ready-for-spec-board" && <ReadinessPanel result={result} preflight={preflight} prov={prov} />}
+      {FUTURE_STAGES.includes(stage)    && <FuturePlaceholderPanel stage={stage} />}
+    </div>
+  );
+}
 
-      {/* Action Center */}
-      <ActionCenter result={result} prov={prov ?? null} setActiveStage={setActiveStage} />
+// ── History Tab ────────────────────────────────────────────────────────────────
 
-      {/* Stage-driven inspector panel */}
-      {activeStage === "resolve"              && <ResolvePanel result={result} preflight={preflight} prov={prov ?? null} />}
-      {activeStage === "validate"             && <ValidationTab errors={result.errors ?? []} warnings={result.warnings ?? []} prov={prov ?? null} />}
-      {activeStage === "inheritance"          && <InspectorTab result={result} preflight={preflight} prov={prov ?? null} />}
-      {activeStage === "prompt-assembly"      && <PromptSectionsTab sections={result.compiled_sections ?? []} fullPrompt={result.compiled_prompt ?? ""} promptHash={result.prompt_hash} isLegacy={isLegacy} />}
-      {activeStage === "hash-generation"      && <TechnicalTab result={result} />}
-      {activeStage === "ready-for-spec-board" && <ReadinessPanel result={result} preflight={preflight} prov={prov ?? null} />}
-      {FUTURE_STAGES.includes(activeStage)    && <FuturePlaceholderPanel stage={activeStage} />}
+function HistoryTab({ result }: { result: CompileResponse }) {
+  const runsQuery = useQuery({
+    queryKey: ["workspace-history", result.production_spec_id],
+    queryFn:  () => worldsmithApi.listRuns(result.production_spec_id, "all"),
+    staleTime: 30_000,
+  });
 
-      {result.visual_asset_id && (
-        <div className="text-xs text-muted-foreground flex items-center gap-1.5 pt-1">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-          Visual Asset updated in Notion: <code className="font-mono">{result.visual_asset_id}</code>
+  const sections = [
+    {
+      title: "Compile History",
+      content: (
+        <div className="space-y-2">
+          {runsQuery.isLoading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />Loading runs…
+            </div>
+          )}
+          {runsQuery.isError && (
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-700">
+              <XCircle className="w-4 h-4 shrink-0" />
+              {(runsQuery.error as Error)?.message}
+              <Button size="sm" variant="outline" className="ml-auto border-red-300 text-red-700 h-7" onClick={() => runsQuery.refetch()}>
+                <RefreshCw className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
+          {!runsQuery.isLoading && !runsQuery.isError && (runsQuery.data?.runs ?? []).length === 0 && (
+            <p className="text-sm text-muted-foreground">No previous runs.</p>
+          )}
+          {(runsQuery.data?.runs ?? []).map(run => <RunRow key={run.run_id} run={run} />)}
         </div>
-      )}
+      ),
+    },
+    {
+      title: "Specification Board History",
+      content: (
+        <div className="p-4 rounded-lg border border-dashed border-muted/60 text-center">
+          <ImagePlus className="w-6 h-6 text-muted-foreground/30 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">Board history will appear here once boards have been generated.</p>
+        </div>
+      ),
+    },
+    {
+      title: "Artwork History",
+      content: (
+        <div className="p-4 rounded-lg border border-dashed border-muted/60 text-center">
+          <p className="text-sm text-muted-foreground/50 italic">Not yet reached — artwork generation follows specification review.</p>
+        </div>
+      ),
+    },
+    {
+      title: "QA History",
+      content: (
+        <div className="p-4 rounded-lg border border-dashed border-muted/60 text-center">
+          <p className="text-sm text-muted-foreground/50 italic">Not yet reached.</p>
+        </div>
+      ),
+    },
+    {
+      title: "Publishing History",
+      content: (
+        <div className="p-4 rounded-lg border border-dashed border-muted/60 text-center">
+          <p className="text-sm text-muted-foreground/50 italic">Not yet reached.</p>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {sections.map(s => (
+        <div key={s.title}>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2.5">{s.title}</h3>
+          {s.content}
+        </div>
+      ))}
     </div>
   );
 }
@@ -832,9 +1370,9 @@ function componentAbbr(componentType: string | null | undefined): string {
     .join("");
 }
 
-// ── Status Overview Card ───────────────────────────────────────────────────────
+// ── Sticky Publishing Header ──────────────────────────────────────────────────
 
-function StatusOverviewCard({
+function StickyPublishingHeader({
   result, preflight, prov, onReset, setActiveStage,
 }: {
   result: CompileResponse;
@@ -843,135 +1381,141 @@ function StatusOverviewCard({
   onReset: () => void;
   setActiveStage: (s: PipelineStageKey) => void;
 }) {
-  const specTitle   = prov?.production_spec_title ?? preflight?.production_specification ?? "Production Specification";
-  const compType    = prov?.component_type ?? preflight?.component_type;
-  const abbr        = componentAbbr(compType);
-  const specUrl     = notionUrl(prov?.production_spec_notion_id);
-  const readiness   = calcReadiness(result, prov, preflight);
-  const errCount    = (result.errors ?? []).length;
-  const recCount    = (result.warnings ?? []).filter(w => RECOMMENDATION_CODES.has(w.code ?? "")).length;
-  const warnCount   = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? "")).length;
-  const isLegacy    = prov?.payload_format === "legacy";
+  const [stuck, setStuck] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
-  const nextAction  = errCount > 0
-    ? "Resolve Validation Errors"
-    : "Generate Specification Board";
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([e]) => setStuck(!e.isIntersecting), { threshold: 0 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
-  const validationLine =
-    errCount > 0
-      ? `${errCount} Error${errCount !== 1 ? "s" : ""}${warnCount > 0 ? ` • ${warnCount} Warning${warnCount !== 1 ? "s" : ""}` : ""}${recCount > 0 ? ` • ${recCount} Recommendation${recCount !== 1 ? "s" : ""}` : ""}`
-      : warnCount > 0
-      ? `0 Errors • ${warnCount} Warning${warnCount !== 1 ? "s" : ""}${recCount > 0 ? ` • ${recCount} Recommendation${recCount !== 1 ? "s" : ""}` : ""}`
-      : recCount > 0
-      ? `0 Errors • ${recCount} Recommendation${recCount !== 1 ? "s" : ""}`
-      : "0 Errors • Passed";
+  const specTitle  = prov?.production_spec_title ?? preflight?.production_specification ?? "Production Specification";
+  const compType   = prov?.component_type ?? preflight?.component_type;
+  const abbr       = componentAbbr(compType);
+  const world      = prov?.world ?? preflight?.world;
+  const collection = prov?.collection;
+  const volume     = prov?.volume ?? preflight?.volume;
+  const specUrl    = notionUrl(prov?.production_spec_notion_id);
+  const readiness  = calcReadiness(result, prov, preflight);
+  const errCount   = (result.errors ?? []).length;
+  const recCount   = (result.warnings ?? []).filter(w => RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const warnCount  = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const isLegacy   = prov?.payload_format === "legacy";
 
-  // progress bar colour
-  const barColor = errCount > 0 ? "bg-red-500" : readiness >= 90 ? "bg-emerald-500" : readiness >= 70 ? "bg-amber-400" : "bg-orange-400";
-  const readinessLabel = errCount > 0 ? "text-red-600" : readiness >= 90 ? "text-emerald-700" : "text-amber-600";
+  const barColor       = errCount > 0 ? "bg-red-500" : readiness >= 90 ? "bg-emerald-500" : readiness >= 70 ? "bg-amber-400" : "bg-orange-400";
+  const readinessColor = errCount > 0 ? "text-red-600" : readiness >= 90 ? "text-emerald-700" : "text-amber-600";
+  const stageLabel     = errCount > 0 ? "Errors — Review Required" : "Ready for Specification Board";
+
+  const breadcrumb = [world, collection, volume, compType].filter(Boolean) as string[];
+
+  function handlePrimaryClick() {
+    if (errCount > 0) setActiveStage("validate");
+    else document.getElementById("spec-preview-card")?.scrollIntoView({ behavior: "smooth" });
+  }
 
   return (
-    <Card className="border-[#1B2A4A]/20 bg-[#1B2A4A]/[0.02] overflow-hidden">
-      {/* Top strip — spec identity */}
-      <div className="px-5 pt-4 pb-3 border-b border-[#1B2A4A]/10">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              {abbr && (
-                <span className="text-[11px] font-bold text-[#1B2A4A] bg-[#1B2A4A]/10 px-2 py-0.5 rounded font-mono tracking-wide">{abbr}</span>
-              )}
-              <h2 className="text-base font-semibold text-[#1B2A4A] leading-tight">{specTitle}</h2>
+    <>
+      {/* sentinel — when this leaves viewport the header "sticks" */}
+      <div ref={sentinelRef} className="h-px w-full" aria-hidden />
+
+      <div className={`sticky top-0 z-10 transition-shadow duration-200 ${stuck ? "shadow-lg" : ""}`}>
+
+        {/* ── Compact strip (visible only when stuck / scrolled) ── */}
+        {stuck && (
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-background/95 backdrop-blur-sm border-b border-[#1B2A4A]/15">
+            {abbr && (
+              <span className="text-[10px] font-bold text-[#1B2A4A] bg-[#1B2A4A]/10 px-1.5 py-0.5 rounded font-mono shrink-0">{abbr}</span>
+            )}
+            <p className="text-sm font-semibold text-[#1B2A4A] truncate flex-1 min-w-0">{specTitle}</p>
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="hidden sm:flex items-center gap-1.5">
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${errCount > 0 ? "bg-red-500" : "bg-emerald-500"}`} />
+                <span className="text-xs text-muted-foreground font-medium">{stageLabel}</span>
+              </div>
+              <span className={`text-xs font-bold tabular-nums ${readinessColor}`}>{readiness}%</span>
+              {errCount > 0 && <span className="text-xs font-semibold text-red-600">{errCount} Error{errCount !== 1 ? "s" : ""}</span>}
+              {errCount === 0 && warnCount > 0 && <span className="text-xs font-semibold text-amber-600">{warnCount}W</span>}
+              {errCount === 0 && recCount > 0  && <span className="text-xs text-blue-600">{recCount}R</span>}
+              <Button size="sm"
+                className={`h-7 gap-1 text-xs shrink-0 ${errCount > 0 ? "bg-red-600 hover:bg-red-700 text-white" : "bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white"}`}
+                onClick={handlePrimaryClick}>
+                {errCount > 0 ? <><XCircle className="w-3 h-3" />Review</> : <><ImagePlus className="w-3 h-3" />Generate</>}
+              </Button>
             </div>
-            {compType && <p className="text-xs text-muted-foreground mt-0.5">{compType}{isLegacy ? " · PP-1.0 legacy" : " · PP-2.0"}</p>}
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {specUrl && (
-              <a href={specUrl} target="_blank" rel="noopener noreferrer">
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
-                  <ExternalLink className="w-3.5 h-3.5" />
+        )}
+
+        {/* ── Compact full card (visible when at top of page) ── */}
+        {!stuck && (
+          <Card className="border-[#1B2A4A]/20 overflow-hidden">
+            {/* Row 1 — Identity */}
+            <div className="px-4 pt-2.5 pb-2 border-b border-[#1B2A4A]/10 flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+                {abbr && (
+                  <span className="text-[10px] font-bold text-[#1B2A4A] bg-[#1B2A4A]/10 px-1.5 py-0.5 rounded font-mono tracking-wide shrink-0">{abbr}</span>
+                )}
+                <h2 className="text-sm font-semibold text-[#1B2A4A]">{specTitle}</h2>
+                {isLegacy && (
+                  <span className="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-semibold shrink-0">PP-1.0</span>
+                )}
+                {breadcrumb.map((crumb, i) => (
+                  <span key={crumb} className="hidden sm:flex items-center gap-1.5">
+                    <span className="text-[#1B2A4A]/20 text-[10px]">·</span>
+                    <span className="text-[11px] text-[#1B2A4A]/50 font-medium">{crumb}</span>
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-0.5 shrink-0">
+                {specUrl && (
+                  <a href={specUrl} target="_blank" rel="noopener noreferrer">
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground">
+                      <ExternalLink className="w-3 h-3" />
+                    </Button>
+                  </a>
+                )}
+                <Button size="sm" variant="ghost" onClick={onReset} className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground gap-1">
+                  <RefreshCw className="w-2.5 h-2.5" />New
                 </Button>
-              </a>
-            )}
-            <Button size="sm" variant="ghost" onClick={onReset} className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1">
-              <RefreshCw className="w-3 h-3" />New
-            </Button>
-          </div>
-        </div>
+              </div>
+            </div>
+            {/* Row 2 — Stage · Readiness · Validation · CTA */}
+            <div className="px-4 py-2 flex items-center gap-3 flex-wrap bg-[#1B2A4A]/[0.015]">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${errCount > 0 ? "bg-red-500" : "bg-[#1B2A4A] animate-pulse"}`} />
+                <span className="text-xs font-semibold text-[#1B2A4A]">{stageLabel}</span>
+              </div>
+              <span className="text-[#1B2A4A]/15 hidden sm:inline">|</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className={`text-xs font-bold tabular-nums ${readinessColor}`}>{readiness}%</span>
+                <div className="w-16 h-1 rounded-full bg-muted/60 overflow-hidden hidden sm:block">
+                  <div className={`h-full rounded-full ${barColor}`} style={{ width: `${readiness}%` }} />
+                </div>
+              </div>
+              <span className="text-[#1B2A4A]/15 hidden sm:inline">|</span>
+              <button type="button" onClick={() => setActiveStage("validate")} className="flex items-center gap-2 text-xs group shrink-0">
+                {errCount === 0
+                  ? <span className="text-emerald-700 font-medium">0 Errors</span>
+                  : <span className="text-red-600 font-semibold group-hover:underline">{errCount} Error{errCount !== 1 ? "s" : ""}</span>
+                }
+                {warnCount > 0 && <span className="text-amber-600 group-hover:underline">· {warnCount}W</span>}
+                {recCount > 0  && <span className="text-blue-600 group-hover:underline">· {recCount}R</span>}
+              </button>
+              <Button size="sm"
+                className={`ml-auto gap-1.5 h-7 shrink-0 ${errCount > 0 ? "bg-red-600 hover:bg-red-700 text-white" : "bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white"}`}
+                onClick={handlePrimaryClick}>
+                {errCount > 0
+                  ? <><XCircle className="w-3 h-3" />Review Errors</>
+                  : <><ImagePlus className="w-3 h-3" />Generate</>
+                }
+              </Button>
+            </div>
+          </Card>
+        )}
       </div>
-
-      {/* Three stat columns */}
-      <div className="grid grid-cols-3 divide-x divide-[#1B2A4A]/10">
-        {/* Publishing Stage */}
-        <div className="px-5 py-4">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">Publishing Stage</p>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-[#1B2A4A] animate-pulse shrink-0" />
-            <p className="text-sm font-semibold text-[#1B2A4A]">Ready for Specification Board</p>
-          </div>
-        </div>
-
-        {/* Production Readiness */}
-        <div className="px-5 py-4">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">Production Readiness</p>
-          <div className="flex items-end gap-2">
-            <p className={`text-2xl font-bold leading-none ${readinessLabel}`}>{readiness}%</p>
-          </div>
-          <div className="mt-2 h-1.5 rounded-full bg-muted/50 overflow-hidden">
-            <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${readiness}%` }} />
-          </div>
-        </div>
-
-        {/* Validation */}
-        <div className="px-5 py-4">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">Validation</p>
-          <button
-            type="button"
-            onClick={() => setActiveStage("validate")}
-            className="text-left group"
-          >
-            {errCount > 0 && (
-              <p className="text-sm font-semibold text-red-600 group-hover:underline">
-                {errCount} Error{errCount !== 1 ? "s" : ""}
-              </p>
-            )}
-            {warnCount > 0 && (
-              <p className="text-sm font-semibold text-amber-600 group-hover:underline">
-                {warnCount} Warning{warnCount !== 1 ? "s" : ""}
-              </p>
-            )}
-            {errCount === 0 && warnCount === 0 && (
-              <p className="text-sm font-semibold text-emerald-700">0 Errors</p>
-            )}
-            {recCount > 0 && (
-              <p className="text-xs text-blue-600 mt-0.5 group-hover:underline">
-                {recCount} Recommendation{recCount !== 1 ? "s" : ""}
-              </p>
-            )}
-            {errCount === 0 && warnCount === 0 && recCount === 0 && (
-              <p className="text-xs text-emerald-600">Passed</p>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Next Action footer */}
-      <div className="px-5 py-3 border-t border-[#1B2A4A]/10 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2 min-w-0">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest shrink-0">Next Action</p>
-          <p className="text-sm font-semibold text-[#1B2A4A] truncate">{nextAction}</p>
-        </div>
-        <Button
-          size="sm"
-          className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white shrink-0 gap-1.5"
-          onClick={() => errCount > 0
-            ? setActiveStage("validate")
-            : document.getElementById("spec-preview-card")?.scrollIntoView({ behavior: "smooth" })
-          }
-        >
-          {errCount > 0 ? <><XCircle className="w-3.5 h-3.5" />Review Errors</> : <><ImagePlus className="w-3.5 h-3.5" />Generate</>}
-        </Button>
-      </div>
-    </Card>
+    </>
   );
 }
 
@@ -984,46 +1528,57 @@ function ActionCenter({
   prov: ProvenanceRecord | null;
   setActiveStage: (s: PipelineStageKey) => void;
 }) {
-  const errCount = (result.errors ?? []).length;
-  const warnCount = (result.warnings ?? []).length;
+  const errCount  = (result.errors ?? []).length;
+  const warnCount = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? "")).length;
 
-  type ActionItem = { label: string; primary?: boolean; href?: string; onClick?: () => void; icon: React.ReactNode };
-  const actions: ActionItem[] = [];
+  type SecAction = { label: string; href?: string; onClick?: () => void; icon: React.ReactNode };
 
-  if (errCount > 0) {
-    actions.push({ label: "Resolve Validation Errors", primary: true, icon: <XCircle className="w-3.5 h-3.5" />, onClick: () => setActiveStage("validate") });
-    if (prov?.prompt_payload_notion_id) actions.push({ label: "Open Prompt Payload",          icon: <ExternalLink className="w-3.5 h-3.5" />, href: notionUrl(prov.prompt_payload_notion_id) });
-    if (prov?.component_spec_notion_id) actions.push({ label: "Update Component Specification",icon: <ExternalLink className="w-3.5 h-3.5" />, href: notionUrl(prov.component_spec_notion_id) });
-    if (prov?.production_spec_notion_id) actions.push({ label: "Open Production Specification", icon: <ExternalLink className="w-3.5 h-3.5" />, href: notionUrl(prov.production_spec_notion_id) });
-  } else {
-    actions.push({ label: "Generate Specification Board", primary: true, icon: <ImagePlus className="w-3.5 h-3.5" />, onClick: () => { document.getElementById("spec-preview-card")?.scrollIntoView({ behavior: "smooth" }); } });
-    if (prov?.production_spec_notion_id) actions.push({ label: "Open Production Specification", icon: <ExternalLink className="w-3.5 h-3.5" />, href: notionUrl(prov.production_spec_notion_id) });
-    if (warnCount > 0) actions.push({ label: "Review Validation Report", icon: <AlertTriangle className="w-3.5 h-3.5" />, onClick: () => setActiveStage("validate") });
-    actions.push({ label: "Inspect Resolved Records", icon: <GitBranch className="w-3.5 h-3.5" />, onClick: () => setActiveStage("resolve") });
-    actions.push({ label: "Review Prompt Assembly",   icon: <Layers className="w-3.5 h-3.5" />,    onClick: () => setActiveStage("prompt-assembly") });
+  const primaryLabel  = errCount > 0 ? "Resolve Validation Errors"    : "Generate Specification Board";
+  const primaryIcon   = errCount > 0 ? <XCircle className="w-4 h-4" /> : <ImagePlus className="w-4 h-4" />;
+  const primaryDanger = errCount > 0;
+  function handlePrimary() {
+    if (errCount > 0) setActiveStage("validate");
+    else document.getElementById("spec-preview-card")?.scrollIntoView({ behavior: "smooth" });
   }
 
+  const secondary: (SecAction | null)[] = errCount > 0 ? [
+    prov?.prompt_payload_notion_id  ? { label: "Open Prompt Payload",          icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.prompt_payload_notion_id) }  : null,
+    prov?.component_spec_notion_id  ? { label: "Component Specification",      icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.component_spec_notion_id) }  : null,
+    prov?.production_spec_notion_id ? { label: "Production Specification",     icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.production_spec_notion_id) } : null,
+  ] : [
+    prov?.production_spec_notion_id ? { label: "Production Specification",     icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.production_spec_notion_id) } : null,
+    prov?.component_spec_notion_id  ? { label: "Component Specification",      icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.component_spec_notion_id) }  : null,
+    warnCount > 0                   ? { label: "Review Validation",            icon: <AlertTriangle className="w-3 h-3" />, onClick: () => setActiveStage("validate") }       : null,
+    { label: "Inspect Records",    icon: <GitBranch className="w-3 h-3" />, onClick: () => setActiveStage("resolve") },
+    { label: "Prompt Assembly",    icon: <Layers    className="w-3 h-3" />, onClick: () => setActiveStage("prompt-assembly") },
+    { label: "Technical Details",  icon: <Hash      className="w-3 h-3" />, onClick: () => setActiveStage("hash-generation") },
+  ];
+  const secondaryFiltered = secondary.filter(Boolean) as SecAction[];
+
   return (
-    <div className="rounded-lg border border-[#1B2A4A]/15 bg-[#1B2A4A]/[0.03] px-4 py-3">
-      <div className="flex items-start gap-3 flex-wrap">
-        <p className="text-[11px] font-semibold text-[#1B2A4A] uppercase tracking-widest mt-0.5 shrink-0">Actions</p>
-        <div className="flex items-center gap-2 flex-wrap">
-          {actions.map((action, i) => (
-            action.href
-              ? <a key={i} href={action.href} target="_blank" rel="noopener noreferrer">
-                  <Button size="sm" variant={action.primary ? "default" : "outline"}
-                    className={`h-7 gap-1.5 ${action.primary ? "bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white" : ""}`}>
-                    {action.icon}{action.label}
-                  </Button>
+    <div className="space-y-2">
+      {/* Primary — one large, prominent button */}
+      <Button
+        className={`w-full h-11 gap-2 text-sm font-semibold transition-colors ${primaryDanger ? "bg-red-600 hover:bg-red-700 text-white" : "bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white"}`}
+        onClick={handlePrimary}
+      >
+        {primaryIcon}{primaryLabel}
+      </Button>
+
+      {/* Secondary — smaller, supporting actions */}
+      {secondaryFiltered.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {secondaryFiltered.map((a, i) =>
+            a.href
+              ? <a key={i} href={a.href} target="_blank" rel="noopener noreferrer">
+                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs font-medium">{a.icon}{a.label}</Button>
                 </a>
-              : <Button key={i} size="sm" variant={action.primary ? "default" : "outline"}
-                  className={`h-7 gap-1.5 ${action.primary ? "bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white" : ""}`}
-                  onClick={action.onClick}>
-                  {action.icon}{action.label}
+              : <Button key={i} size="sm" variant="outline" className="h-8 gap-1.5 text-xs font-medium" onClick={a.onClick}>
+                  {a.icon}{a.label}
                 </Button>
-          ))}
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1038,83 +1593,157 @@ function ReadinessPanel({
   prov: ProvenanceRecord | null;
 }) {
   const { toast } = useToast();
-  const artifactId = prov?.run_id ?? result.run_id ?? "—";
-  const promptHash = result.prompt_hash ?? "—";
-  const errCount = (result.errors ?? []).length;
-
-  const summaryFields: Array<{ label: string; value: string | null | undefined }> = [
-    { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification },
-    { label: "World",                    value: prov?.world ?? preflight?.world },
-    { label: "Component",                value: prov?.component_type ?? preflight?.component_type },
-    { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—" },
-    { label: "Component Set",            value: prov?.component_set ?? "—" },
-    { label: "Payload Format",           value: prov?.payload_format === "legacy" ? "PP-1.0 (legacy)" : "PP-2.0 (structured)" },
-    { label: "Compilation Timestamp",    value: fmtTs(prov?.compilation_timestamp) },
-    { label: "Next Action",              value: result.next_action ?? "Generate Specification Board" },
-  ];
-
+  const artifactId  = prov?.run_id ?? result.run_id ?? "—";
+  const promptHash  = result.prompt_hash ?? "—";
+  const errCount    = (result.errors ?? []).length;
+  const errors      = result.errors ?? [];
+  const realWarnings = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? ""));
+  const recs         = (result.warnings ?? []).filter(w =>  RECOMMENDATION_CODES.has(w.code ?? ""));
+  const isLegacy    = prov?.payload_format === "legacy";
   const moduleCount = prov?.prompt_modules.length ?? preflight?.prompt_module_count ?? 0;
-  const canonCount  = prov?.canon_records.length ?? preflight?.canon_record_count ?? 0;
+  const canonCount  = prov?.canon_records.length  ?? preflight?.canon_record_count  ?? 0;
 
   const checklist: Array<{ label: string; ok: boolean; note: string; notionId?: string }> = [
-    { label: "Production Specification", ok: true,                                       note: prov?.production_spec_title ?? preflight?.production_specification ?? "Resolved", notionId: prov?.production_spec_notion_id },
+    { label: "Production Specification", ok: true,                                              note: prov?.production_spec_title ?? preflight?.production_specification ?? "Resolved",                   notionId: prov?.production_spec_notion_id },
     { label: "Component Specification",  ok: !!(prov?.component_specification ?? preflight?.component_specification), note: prov?.component_specification ?? preflight?.component_specification ?? "Not linked", notionId: prov?.component_spec_notion_id },
-    { label: "Style Guide",              ok: !!prov?.style_guide,                        note: prov?.style_guide ?? "Not linked", notionId: prov?.style_guide_notion_id },
-    { label: "Prompt Modules",           ok: moduleCount > 0,                            note: moduleCount > 0 ? `${moduleCount} linked` : "None linked" },
-    { label: "Prompt Payload",           ok: true,                                       note: prov?.payload_version ?? result.payload_version ?? "Present", notionId: prov?.prompt_payload_notion_id },
-    { label: "Canon",                    ok: canonCount > 0,                             note: canonCount > 0 ? `${canonCount} records` : "No canon records" },
-    { label: "Print Specification",      ok: !!prov?.component_type,                    note: prov?.component_type ?? "Not resolved" },
-    { label: "Prompt Hash",              ok: !!result.prompt_hash,                      note: result.prompt_hash ? `${result.prompt_hash.slice(0, 16)}…` : "Not generated" },
-    { label: "Payload Contract",         ok: prov?.payload_format !== "legacy",         note: prov?.payload_format === "legacy" ? "Legacy PP-1.0" : "PP-2.0 ✓" },
+    { label: "Style Guide",              ok: !!prov?.style_guide,                               note: prov?.style_guide ?? "Not linked",                                                                  notionId: prov?.style_guide_notion_id },
+    { label: "Prompt Modules",           ok: moduleCount > 0,                                   note: moduleCount > 0 ? `${moduleCount} linked` : "None linked" },
+    { label: "Prompt Payload",           ok: true,                                              note: prov?.payload_version ?? result.payload_version ?? "Present",                                       notionId: prov?.prompt_payload_notion_id },
+    { label: "Canon",                    ok: canonCount > 0,                                    note: canonCount > 0 ? `${canonCount} records` : "No canon records" },
+    { label: "Print Specification",      ok: !!prov?.component_type,                           note: prov?.component_type ?? "Not resolved" },
+    { label: "Compiled Artifact",        ok: !!result.prompt_hash,                             note: result.prompt_hash ? `${result.prompt_hash.slice(0, 16)}…` : "Not generated" },
+    { label: "Payload Contract",         ok: !isLegacy,                                        note: isLegacy ? "Legacy PP-1.0" : "PP-2.0 ✓" },
   ];
 
-  const isReadyForSpecBoard = errCount === 0;
-  const isReadyForArtwork   = isReadyForSpecBoard && prov?.payload_format !== "legacy" && !!prov?.style_guide;
+  // Publishing Progress — 11 stages
+  const progressStages: Array<{ label: string; done: boolean; current?: boolean; blocked?: boolean }> = [
+    { label: "Resolved",                      done: true },
+    { label: "Validated",                     done: errCount === 0 },
+    { label: "Inherited",                     done: !!prov },
+    { label: "Compiled",                      done: !!result.prompt_hash },
+    { label: "Ready for Specification Board", done: errCount === 0, current: errCount === 0 },
+    { label: "Awaiting Specification Review", done: false },
+    { label: "Ready for Artwork",             done: false },
+    { label: "Artwork Generation",            done: false },
+    { label: "Artwork QA",                    done: false },
+    { label: "Ready to Publish",              done: false },
+    { label: "Published",                     done: false },
+  ];
+
+  function copy(val: string, label: string) {
+    navigator.clipboard.writeText(val);
+    toast({ title: `${label} copied` });
+  }
 
   return (
     <div className="space-y-4">
-      {/* Summary card */}
+
+      {/* ── 1. Production Summary — three groups ── */}
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-3">
           <CardTitle className="text-sm">Production Summary</CardTitle>
         </CardHeader>
-        <CardContent className="pt-0">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-            {summaryFields.map(({ label, value }) => (
-              <div key={label}>
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
-                <p className="text-sm font-medium truncate" title={value ?? "—"}>{value ?? "—"}</p>
-              </div>
-            ))}
+        <CardContent className="pt-0 space-y-6">
+
+          {/* Identity */}
+          <div>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Identity</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              {([
+                { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification },
+                { label: "World",                    value: prov?.world ?? preflight?.world },
+                { label: "Collection",               value: prov?.collection ?? "—" },
+                { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—" },
+                { label: "Component Set",            value: prov?.component_set ?? "—" },
+              ] as Array<{label:string;value:string|undefined|null}>).map(({ label, value }) => (
+                <div key={label}>
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
+                  <p className="text-sm font-medium truncate" title={value ?? "—"}>{value || "—"}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Artifact ID + Prompt Hash callout */}
-          <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-border">
-            <div className="flex items-start gap-2 p-3 rounded-md border border-[#1B2A4A]/20 bg-[#1B2A4A]/5">
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Compiled Artifact ID</p>
-                <code className="text-xs font-mono break-all">{artifactId}</code>
+          <div className="border-t border-border" />
+
+          {/* Compilation */}
+          <div>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Compilation</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 mb-4">
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Compilation Time</p>
+                <p className="text-sm font-medium">{fmtTs(prov?.compilation_timestamp)}</p>
               </div>
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0"
-                onClick={() => { navigator.clipboard.writeText(artifactId); toast({ title: "Artifact ID copied" }); }}>
-                <Copy className="w-3 h-3" />
-              </Button>
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Compiler Version</p>
+                <p className="text-sm font-medium font-mono">{prov?.compiler_version ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Payload Format</p>
+                <p className="text-sm font-medium">{isLegacy ? "PP-1.0 (Legacy)" : "PP-2.0 (Structured)"}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Prompt Length</p>
+                <p className="text-sm font-medium">
+                  {result.compiled_prompt ? `${result.compiled_prompt.length.toLocaleString()} chars` : "—"}
+                </p>
+              </div>
             </div>
-            <div className="flex items-start gap-2 p-3 rounded-md border border-border bg-muted/20">
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Prompt Hash</p>
-                <code className="text-xs font-mono break-all">{promptHash}</code>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                { label: "Compiled Artifact ID", value: artifactId },
+                { label: "Prompt Hash",           value: promptHash },
+              ] as Array<{label:string;value:string}>).map(({ label, value }) => (
+                <div key={label} className="flex items-start gap-2 p-3 rounded-md border border-[#1B2A4A]/20 bg-[#1B2A4A]/5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
+                    <code className="text-xs font-mono break-all">{value}</code>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0 hover:bg-[#1B2A4A]/10"
+                    onClick={() => copy(value, label)}>
+                    <Copy className="w-3 h-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t border-border" />
+
+          {/* Current State */}
+          <div>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Current State</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Publishing Stage</p>
+                <p className="text-sm font-medium">
+                  {errCount > 0 ? <span className="text-red-600">Errors — Review Required</span> : "Ready for Specification Board"}
+                </p>
               </div>
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0"
-                onClick={() => { navigator.clipboard.writeText(promptHash); toast({ title: "Prompt hash copied" }); }}>
-                <Copy className="w-3 h-3" />
-              </Button>
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Payload Format</p>
+                <p className="text-sm font-medium">{isLegacy ? "PP-1.0 Legacy" : "PP-2.0"}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Validation</p>
+                <p className="text-sm font-medium">
+                  {errCount > 0
+                    ? <span className="text-red-600">{errCount} Error{errCount !== 1 ? "s" : ""}</span>
+                    : <span className="text-emerald-600">Passed</span>}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">Next Action</p>
+                <p className="text-sm font-medium">
+                  {errCount > 0 ? "Resolve Errors" : "Generate Specification Board"}
+                </p>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Production Readiness checklist */}
+      {/* ── 2. Readiness Checklist + Publishing Progress ── */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
@@ -1123,15 +1752,14 @@ function ReadinessPanel({
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
+          {/* Checklist */}
           <div className="space-y-2.5">
             {checklist.map(({ label, ok, note, notionId }) => {
               const url = notionUrl(notionId);
               return (
                 <div key={label} className="flex items-center gap-3 text-sm">
                   <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${ok ? "bg-emerald-100" : "bg-gray-100"}`}>
-                    {ok
-                      ? <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      : <Info className="w-3 h-3 text-gray-400" />}
+                    {ok ? <CheckCircle2 className="w-3 h-3 text-emerald-600" /> : <Info className="w-3 h-3 text-gray-400" />}
                   </div>
                   <span className="font-medium flex-1">{label}</span>
                   <span className={`text-xs ${ok ? "text-muted-foreground" : "text-amber-600 font-medium"}`}>{note}</span>
@@ -1146,25 +1774,272 @@ function ReadinessPanel({
             })}
           </div>
 
-          <div className="mt-4 pt-4 border-t border-border space-y-2">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Ready For</p>
-            <div className="flex items-center gap-2 text-sm">
-              {isReadyForSpecBoard
-                ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                : <XCircle className="w-4 h-4 text-red-400 shrink-0" />}
-              <span className={isReadyForSpecBoard ? "" : "text-muted-foreground"}>Specification Board</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              {isReadyForArtwork
-                ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                : <XCircle className="w-4 h-4 text-muted-foreground shrink-0" />}
-              <span className={isReadyForArtwork ? "" : "text-muted-foreground"}>Final Artwork</span>
-              {!isReadyForArtwork && <span className="text-xs text-muted-foreground">{prov?.payload_format === "legacy" ? "(requires PP-2.0 migration)" : !prov?.style_guide ? "(requires Style Guide)" : "(resolve errors first)"}</span>}
+          {/* Publishing Progress */}
+          <div className="mt-6 pt-5 border-t border-border">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-4">Publishing Progress</p>
+            <div className="space-y-0">
+              {progressStages.map(({ label, done, current }, i) => (
+                <div key={label} className="flex items-start gap-3">
+                  <div className="flex flex-col items-center shrink-0">
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center z-10
+                      ${done
+                        ? "bg-emerald-500"
+                        : current
+                        ? "bg-[#1B2A4A] ring-2 ring-[#1B2A4A]/25 ring-offset-2"
+                        : "bg-background border-2 border-muted-foreground/20"}`}>
+                      {done
+                        ? <CheckCircle2 className="w-3 h-3 text-white" />
+                        : current
+                        ? <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                        : null}
+                    </div>
+                    {i < progressStages.length - 1 && (
+                      <div className={`w-0.5 h-5 ${done ? "bg-emerald-300" : "bg-muted-foreground/15"}`} />
+                    )}
+                  </div>
+                  <p className={`text-sm pb-3 leading-tight pt-0.5
+                    ${done    ? "text-emerald-700 font-medium"
+                    : current ? "text-[#1B2A4A] font-semibold"
+                    : "text-muted-foreground/70"}`}>
+                    {label}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* ── 3. Issues — Blocking / Warnings / Recommendations (only if any exist) ── */}
+      {(errors.length > 0 || realWarnings.length > 0 || recs.length > 0) && (
+        <Card className="border-[#1B2A4A]/15">
+          <CardContent className="pt-5 space-y-5">
+            {errors.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-red-700 uppercase tracking-widest mb-2.5">Blocking Issues</p>
+                <div className="space-y-2">
+                  {errors.map((e, i) => (
+                    <div key={i} className="rounded-md p-3 text-xs space-y-1 bg-red-50 border border-red-100">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <code className="font-mono font-medium text-red-700">{e.code}</code>
+                        <span className="text-muted-foreground">· {e.field}</span>
+                      </div>
+                      <p className="text-red-900">{e.message}</p>
+                      <p className="font-medium text-red-700">→ {e.recommended_action}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {realWarnings.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest mb-2.5">Warnings</p>
+                <div className="space-y-2">
+                  {realWarnings.map((w, i) => (
+                    <div key={i} className="rounded-md p-3 text-xs space-y-1 bg-amber-50 border border-amber-100">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <code className="font-mono font-medium text-amber-700">{w.code}</code>
+                        <span className="text-muted-foreground">· {w.field}</span>
+                      </div>
+                      <p className="text-amber-900">{w.message}</p>
+                      <p className="font-medium text-amber-700">→ {w.recommended_action}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {recs.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-blue-700 uppercase tracking-widest mb-2.5">Recommendations</p>
+                <p className="text-xs text-muted-foreground mb-3">These do not prevent Specification Board generation.</p>
+                <div className="space-y-2">
+                  {recs.map((r, i) => (
+                    <div key={i} className="rounded-md p-3 text-xs space-y-1 bg-blue-50 border border-blue-100">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <code className="font-mono font-medium text-blue-700">{r.code}</code>
+                        <span className="text-muted-foreground">· {r.field}</span>
+                      </div>
+                      <p className="text-blue-900">{r.message}</p>
+                      <p className="font-medium text-blue-700">→ {r.recommended_action}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── 4. Recommendations Rich Panel (PP-1.0 upgrade coaching) ── */}
+      {isLegacy && <RecommendationsRichPanel />}
+
+      {/* ── 5. Compilation Timeline ── */}
+      <CompilationTimeline prov={prov} result={result} />
+
+      {/* ── 6. Cost Estimate ── */}
+      <CostEstimateCard prov={prov} />
+
     </div>
+  );
+}
+
+// ── Recommendations Rich Panel ─────────────────────────────────────────────────
+
+function RecommendationsRichPanel() {
+  return (
+    <Card className="border-blue-200/60 bg-blue-50/30">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-sm text-blue-900 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-blue-500" />
+              Upgrade Available
+            </CardTitle>
+            <p className="text-xs text-blue-700/80 mt-1">Migrate to PP-2.0 for structured prompt sections and future publishing support.</p>
+          </div>
+          <Badge variant="outline" className="text-blue-600 border-blue-200 bg-white shrink-0 text-[10px]">Optional</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="p-3 rounded-md bg-white border border-blue-100">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Current</p>
+            <p className="text-sm font-semibold text-amber-700">PP-1.0 Legacy</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Flat key-value format</p>
+          </div>
+          <div className="p-3 rounded-md bg-white border border-blue-200">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Recommended</p>
+            <p className="text-sm font-semibold text-blue-700">PP-2.0 Structured</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Section-based format</p>
+          </div>
+        </div>
+        <div className="mb-4">
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Benefits</p>
+          <div className="space-y-1">
+            {[
+              "Structured prompt sections (shared / front / back / assembly)",
+              "Front and back artwork support",
+              "Construction assembly prompts",
+              "Future-proof publishing workflow",
+            ].map(benefit => (
+              <div key={benefit} className="flex items-center gap-2 text-xs text-blue-900">
+                <CheckCircle2 className="w-3 h-3 text-blue-500 shrink-0" />
+                {benefit}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-blue-700">Estimated effort:</span> Under two minutes
+          </p>
+          <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs border-blue-200 text-blue-700 hover:bg-blue-100">
+            <ArrowUpRight className="w-3 h-3" />Upgrade Payload
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Compilation Timeline ───────────────────────────────────────────────────────
+
+function CompilationTimeline({ prov, result }: { prov: ProvenanceRecord | null; result: CompileResponse }) {
+  const ts = prov?.compilation_timestamp;
+  const fmtTime = (iso: string | undefined) => {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch { return iso; }
+  };
+  const t = fmtTime(ts);
+
+  const stages: Array<{ time: string; label: string; done: boolean }> = [
+    { time: t, label: "Resolved",              done: true },
+    { time: t, label: "Validated",             done: (result.errors ?? []).length === 0 },
+    { time: t, label: "Inherited",             done: !!prov },
+    { time: t, label: "Compiled",              done: !!result.prompt_hash },
+    { time: t, label: "Prompt Hash Generated", done: !!result.prompt_hash },
+    { time: "—", label: "Specification Board",   done: false },
+    { time: "—", label: "Artwork",               done: false },
+    { time: "—", label: "QA",                   done: false },
+    { time: "—", label: "Publish",              done: false },
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Clock className="w-4 h-4 text-muted-foreground" />
+          Compilation Timeline
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-0">
+          {stages.map(({ time, label, done }, i) => (
+            <div key={label} className="flex items-start gap-3">
+              <div className="flex flex-col items-center shrink-0">
+                <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0
+                  ${done ? "bg-emerald-500" : "bg-muted-foreground/25"}`} />
+                {i < stages.length - 1 && (
+                  <div className={`w-px h-5 ${done ? "bg-emerald-200" : "bg-muted-foreground/15"}`} />
+                )}
+              </div>
+              <div className="flex items-baseline gap-2 pb-3">
+                <span className={`text-[11px] font-mono w-14 shrink-0 ${done ? "text-[#1B2A4A]/60" : "text-muted-foreground/40"}`}>{time}</span>
+                <span className={`text-sm ${done ? "text-foreground" : "text-muted-foreground/50"}`}>{label}</span>
+                {!done && time === "—" && (
+                  <span className="text-[10px] text-muted-foreground/50 font-medium uppercase tracking-wide">Pending</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Cost Estimate Card ─────────────────────────────────────────────────────────
+
+function CostEstimateCard({ prov }: { prov: ProvenanceRecord | null }) {
+  // Static estimates — future: derive from model + token count when available
+  const items: Array<{ stage: string; estimate: string; cost: number; note?: string }> = [
+    { stage: "Specification Board", estimate: "$0.01", cost: 0.01, note: "DALL-E standard" },
+    { stage: "Artwork Generation",  estimate: "$0.07", cost: 0.07, note: "DALL-E HD" },
+    { stage: "QA",                  estimate: "—",     cost: 0,    note: "No cost" },
+    { stage: "Publish",             estimate: "—",     cost: 0,    note: "No cost" },
+  ];
+  const total = items.reduce((s, i) => s + i.cost, 0);
+  const provider = prov ? "Anthropic + OpenAI" : "Anthropic + OpenAI";
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <DollarSign className="w-4 h-4 text-muted-foreground" />
+          Publishing Cost Estimate
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">Provider: {provider}</p>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-2">
+          {items.map(({ stage, estimate, note }) => (
+            <div key={stage} className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{stage}</span>
+              <div className="flex items-center gap-3">
+                {note && <span className="text-xs text-muted-foreground/60">{note}</span>}
+                <span className="font-mono font-semibold tabular-nums w-10 text-right">{estimate}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Estimated Total</p>
+          <p className="font-mono font-bold text-sm tabular-nums text-[#1B2A4A]">${total.toFixed(2)}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1890,55 +2765,98 @@ function SpecPreviewSection({
   previewError: string | null;
   dryRunResult: SpecPreviewResult | null;
 }) {
-  const canPreview = !!resolvedId && !!result.prompt_hash;
+  const canGenerate  = !!resolvedId && !!result.prompt_hash;
   const isGenerating = previewMutation.isPending;
+  const hasFailed    = !!previewError && !isGenerating;
+  const isDryRun     = !!dryRunResult && !isGenerating;
+
+  // Derive status label + badge colour
+  const statusLabel  = isGenerating ? "Generating…" : hasFailed ? "Failed" : isDryRun ? "Dry Run Complete" : "Not Generated";
+  const statusBadge  = isGenerating
+    ? "bg-[#1B2A4A]/10 text-[#1B2A4A]"
+    : hasFailed
+    ? "bg-red-100 text-red-700"
+    : isDryRun
+    ? "bg-amber-100 text-amber-700"
+    : "bg-muted text-muted-foreground";
 
   return (
     <Card id="spec-preview-card" className="border-[#1B2A4A]/20">
+      {/* Header — title + status badge + auto-generate toggle */}
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <ImagePlus className="w-4 h-4 text-[#C87560]" />
-            Specification Board
-          </CardTitle>
-          <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-muted-foreground">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <ImagePlus className="w-4 h-4 text-[#C87560] shrink-0" />
+            <div>
+              <CardTitle className="text-sm">Specification Board</CardTitle>
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusBadge}`}>
+                  {isGenerating && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+                  Status: {statusLabel}
+                </span>
+              </div>
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-muted-foreground shrink-0 mt-0.5">
             <input
               type="checkbox"
               checked={autoPreview}
               onChange={(e) => setAutoPreview(e.target.checked)}
-              className="rounded w-3.5 h-3.5"
+              className="rounded w-3.5 h-3.5 accent-[#1B2A4A]"
             />
-            Auto-generate after compile
+            Auto-generate
           </label>
         </div>
       </CardHeader>
+
       <CardContent className="pt-0 space-y-4">
+
+        {/* Generating state */}
         {isGenerating && (
           <div className="flex items-center gap-3 p-4 rounded-lg bg-[#1B2A4A]/5 border border-[#1B2A4A]/10">
-            <Loader2 className="w-4 h-4 animate-spin text-[#1B2A4A] shrink-0" />
+            <Loader2 className="w-5 h-5 animate-spin text-[#1B2A4A] shrink-0" />
             <div>
-              <p className="text-sm font-medium text-[#1B2A4A]">Generating specification board…</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Rendering layout + central concept visual. This may take 20–40 seconds.</p>
+              <p className="text-sm font-semibold text-[#1B2A4A]">Generating specification board…</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Rendering layout and central concept visual. This typically takes 20–40 seconds.
+              </p>
             </div>
           </div>
         )}
 
-        {previewError && !isGenerating && (
+        {/* Failed state */}
+        {hasFailed && (
           <div className="flex items-start gap-3 p-4 rounded-lg border border-red-200 bg-red-50">
             <ImageOff className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-red-800">Preview generation failed</p>
+              <p className="text-sm font-semibold text-red-800">Generation failed</p>
               <p className="text-xs text-red-700 mt-0.5 break-words">{previewError}</p>
             </div>
           </div>
         )}
 
-        {dryRunResult && !isGenerating && (
+        {/* Idle — Not generated yet (no error, no dry run, not generating) */}
+        {!isGenerating && !hasFailed && !isDryRun && (
+          <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/30 border border-muted/60">
+            <div className="w-10 h-10 rounded-lg border-2 border-dashed border-muted-foreground/20 flex items-center justify-center shrink-0">
+              <ImagePlus className="w-4 h-4 text-muted-foreground/40" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">No board generated yet</p>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">
+                Generate a 1600×2000 px specification board and upload it to Notion.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Dry-run result */}
+        {isDryRun && (
           <div className="space-y-3">
             <div className="p-3 rounded-lg border border-amber-200 bg-amber-50">
-              <p className="text-xs font-medium text-amber-800 uppercase tracking-wide mb-2">Dry-run payload preview</p>
+              <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide mb-2">Dry-run payload preview</p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                {Object.entries(dryRunResult.dry_run_payload ?? {}).map(([k, v]) => (
+                {Object.entries(dryRunResult!.dry_run_payload ?? {}).map(([k, v]) => (
                   <div key={k} className="min-w-0">
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{k}</p>
                     <p className="text-xs font-medium truncate" title={v}>{v || "—"}</p>
@@ -1946,48 +2864,50 @@ function SpecPreviewSection({
                 ))}
               </div>
             </div>
-            {dryRunResult.proposed_status_change && (
+            {dryRunResult!.proposed_status_change && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="px-2 py-0.5 rounded bg-muted">{dryRunResult.proposed_status_change.from}</span>
+                <span className="px-2 py-0.5 rounded bg-muted">{dryRunResult!.proposed_status_change.from}</span>
                 <ArrowRight className="w-3 h-3 shrink-0" />
-                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">{dryRunResult.proposed_status_change.to}</span>
+                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">{dryRunResult!.proposed_status_change.to}</span>
               </div>
             )}
           </div>
         )}
 
+        {/* Actions */}
         {!isGenerating && (
-          <div className="flex gap-2">
+          <div className="space-y-2">
+            {/* Primary — generate (or retry) */}
             <Button
-              size="sm"
-              disabled={!canPreview || isGenerating}
-              className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white"
+              className="w-full bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white gap-2"
+              disabled={!canGenerate}
               onClick={() => previewMutation.mutate({ specId: resolvedId!, hash: result.prompt_hash! })}
             >
-              <ImagePlus className="w-3.5 h-3.5 mr-1.5" />
-              {previewError ? "Retry Specification Board" : "Generate Specification Board"}
+              <ImagePlus className="w-4 h-4" />
+              {hasFailed ? "Retry Specification Board" : isDryRun ? "Generate Specification Board" : "Generate Specification Board"}
             </Button>
+            {/* Secondary — dry run */}
             <Button
-              size="sm"
               variant="outline"
-              disabled={!canPreview || isGenerating}
-              onClick={() =>
-                // Route through the mutation so the dry_run_payload is stored in
-                // previewResult state and rendered via the dryRunResult prop below.
-                previewMutation.mutate({ specId: resolvedId!, hash: result.prompt_hash!, isDryRun: true })
-              }
+              className="w-full gap-2"
+              disabled={!canGenerate}
+              onClick={() => previewMutation.mutate({ specId: resolvedId!, hash: result.prompt_hash!, isDryRun: true })}
             >
-              <FileText className="w-3.5 h-3.5 mr-1.5" />
-              Dry Run
+              <FileText className="w-4 h-4" />
+              Preview Payload (Dry Run)
             </Button>
           </div>
         )}
 
-        <p className="text-xs text-muted-foreground">
-          Uploads a{" "}
-          <span className="font-medium">1600×2000 px PNG</span> Specification Board to Notion and advances Status to{" "}
-          <span className="font-medium">Ready for Specification Review</span>. Warnings and recommendations do not prevent generation.
-        </p>
+        {/* Coaching footer */}
+        <div className="pt-1 flex items-start gap-2 text-xs text-muted-foreground">
+          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <p>
+            Uploads a <span className="font-medium text-foreground">1600×2000 px</span> board to Notion
+            and advances Status to <span className="font-medium text-foreground">Ready for Specification Review</span>.
+            Warnings and recommendations do not block generation.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

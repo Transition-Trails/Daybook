@@ -4,12 +4,13 @@
  * ─ Flow:  Input → Resolve → Preflight summary card → Compile / Dry Run
  * ─ Post:  Success screen with all key fields called out
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Loader2, Sparkles, CheckCircle2, XCircle, AlertTriangle,
   ChevronDown, ChevronUp, Copy, RefreshCw, FileText, Clock,
   Hash, RotateCcw, Search, ArrowRight, BookOpen,
+  ImagePlus, ExternalLink, ImageOff, ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -111,6 +112,25 @@ interface RunRecord {
   notion_retries?: NotionRetryEvent[];
 }
 
+interface SpecPreviewResult {
+  status: "success" | "dry_run" | "upload_success_status_failed" | "failed";
+  production_item: string;
+  spec_page_id: string;
+  notion_page_id: string;
+  notion_page_url: string;
+  preview_filename?: string;
+  provider?: string;
+  model?: string;
+  prompt_hash: string;
+  previous_status?: string;
+  new_status?: string;
+  upload_status?: "success" | "failed" | "skipped";
+  notion_upload_id?: string;
+  dry_run_payload?: Record<string, string>;
+  proposed_status_change?: { from: string; to: string };
+  error?: string;
+}
+
 // ── API helpers ───────────────────────────────────────────────────────────────
 
 const worldsmithApi = {
@@ -140,6 +160,17 @@ const worldsmithApi = {
 
   listAssets: () =>
     apiFetch<{ assets: Array<{ id: string; asset_name: string; component_type: string; world: string; current_version: string; readiness_state: string; updated_at: string }> }>("/v1/worldsmith/assets"),
+
+  generatePreview: (specId: string, promptHash: string, forceNew = false, dryRun = false) =>
+    apiFetch<SpecPreviewResult>("/v1/worldsmith/spec-preview", {
+      method: "POST",
+      body: JSON.stringify({
+        spec_page_id: specId,
+        prompt_hash: promptHash,
+        force_new: forceNew,
+        dry_run: dryRun,
+      }),
+    }),
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -154,6 +185,17 @@ export default function WorldSmithCompiler() {
   const [showPrompt, setShowPrompt] = useState(false);
   const [activeTab, setActiveTab] = useState<"compiler" | "runs" | "assets">("compiler");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // ── Spec Preview state ────────────────────────────────────────────────────
+  const [previewResult, setPreviewResult] = useState<SpecPreviewResult | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [autoPreview, setAutoPreview] = useState<boolean>(() => {
+    try { return localStorage.getItem("worldsmith:auto-preview") !== "false"; }
+    catch { return true; }
+  });
+  // Track whether the most recent compile was a dry run so auto-preview never
+  // fires for dry-run compiles (they should not trigger real Notion writes).
+  const [lastCompileWasDryRun, setLastCompileWasDryRun] = useState(false);
 
   const normalizedId = normalizeNotionId(rawInput);
   const inputIsValid = !!normalizedId;
@@ -176,10 +218,14 @@ export default function WorldSmithCompiler() {
   // ── Compile mutation ────────────────────────────────────────────────────────
   const compile = useMutation({
     mutationFn: ({ id, dry }: { id: string; dry: boolean }) => worldsmithApi.compile(id, dry),
-    onSuccess: (res) => {
+    onSuccess: (res, vars) => {
+      // Record whether this compile was a dry run so auto-preview can gate on it
+      setLastCompileWasDryRun(vars.dry);
       setResult(res);
+      setPreviewResult(null);
+      setPreviewError(null);
       if (res.status === "compiled") {
-        toast({ title: dryRun ? "Dry run complete" : "Compiled successfully", description: `Hash: ${res.prompt_hash?.slice(0, 12)}…` });
+        toast({ title: vars.dry ? "Dry run complete" : "Compiled successfully", description: `Hash: ${res.prompt_hash?.slice(0, 12)}…` });
       } else {
         toast({ title: "Compilation blocked", description: res.errors?.[0]?.message, variant: "destructive" });
       }
@@ -188,6 +234,50 @@ export default function WorldSmithCompiler() {
       toast({ title: "Request failed", description: err.message, variant: "destructive" });
     },
   });
+
+  // ── Spec preview mutation ───────────────────────────────────────────────────
+  // Handles both real previews and preview dry-runs so all results go through
+  // React Query state (no fire-and-forget calls that bypass component state).
+  const previewMutation = useMutation({
+    mutationFn: ({ specId, hash, forceNew, isDryRun }: {
+      specId: string;
+      hash: string;
+      forceNew?: boolean;
+      isDryRun?: boolean;
+    }) => worldsmithApi.generatePreview(specId, hash, forceNew ?? false, isDryRun ?? false),
+    onSuccess: (res) => {
+      setPreviewResult(res);
+      setPreviewError(null);
+      if (res.status === "dry_run") {
+        toast({ title: "Preview dry run complete", description: "Text payload assembled — no Notion writes made." });
+      } else {
+        toast({ title: "Specification board generated", description: res.preview_filename ?? "Preview ready" });
+      }
+    },
+    onError: (err: Error) => {
+      setPreviewError(err.message);
+      toast({ title: "Preview generation failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // ── Auto-trigger preview after successful real compile ────────────────────
+  // Guard: only fires for real (non-dry-run) compiles. A compile dry run must
+  // never cause a real spec-preview generation (that would upload to Notion).
+  useEffect(() => {
+    if (
+      result?.status === "compiled" &&
+      result.prompt_hash &&
+      resolvedId &&
+      autoPreview &&
+      !lastCompileWasDryRun &&
+      !previewMutation.isPending &&
+      previewResult === null &&
+      previewError === null
+    ) {
+      previewMutation.mutate({ specId: resolvedId, hash: result.prompt_hash });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result?.status, result?.prompt_hash, autoPreview, lastCompileWasDryRun]);
 
   // ── Runs query ──────────────────────────────────────────────────────────────
   const runsQuery = useQuery({
@@ -297,7 +387,48 @@ export default function WorldSmithCompiler() {
           {/* Step 3 — Result */}
           {result && (
             result.status === "compiled"
-              ? <SuccessScreen result={result} preflight={preflight} showPrompt={showPrompt} setShowPrompt={setShowPrompt} onReset={() => { setResult(null); setPreflight(null); setResolvedId(null); setRawInput(""); }} />
+              ? (
+                <>
+                  {/* If preview produced an image (success or partial), show the full preview success screen */}
+                  {(previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed") ? (
+                    <PreviewSuccessScreen
+                      result={previewResult}
+                      onGenerateNew={() => previewMutation.mutate({
+                        specId: resolvedId!,
+                        hash: result.prompt_hash!,
+                        forceNew: true,
+                      })}
+                      isGenerating={previewMutation.isPending}
+                      onReturnToCompiler={() => { setResult(null); setPreviewResult(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
+                    />
+                  ) : (
+                    <SuccessScreen
+                      result={result}
+                      preflight={preflight}
+                      showPrompt={showPrompt}
+                      setShowPrompt={setShowPrompt}
+                      onReset={() => { setResult(null); setPreviewResult(null); setPreviewError(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
+                    />
+                  )}
+
+                  {/* Preview section — shown while generating, after dry-run, or after failure.
+                      Not shown once a real preview image has been uploaded. */}
+                  {previewResult?.status !== "success" && previewResult?.status !== "upload_success_status_failed" && (
+                    <SpecPreviewSection
+                      result={result}
+                      resolvedId={resolvedId}
+                      autoPreview={autoPreview}
+                      setAutoPreview={(v) => {
+                        setAutoPreview(v);
+                        try { localStorage.setItem("worldsmith:auto-preview", v ? "true" : "false"); } catch {}
+                      }}
+                      previewMutation={previewMutation}
+                      previewError={previewError}
+                      dryRunResult={previewResult?.status === "dry_run" ? previewResult : null}
+                    />
+                  )}
+                </>
+              )
               : <ErrorResult result={result} onRetry={() => compile.mutate({ id: resolvedId!, dry: dryRun })} isPending={compile.isPending} />
           )}
         </div>
@@ -598,6 +729,239 @@ function ErrorResult({
       </div>
       {(result.errors ?? []).length > 0 && <IssueList title="Errors" items={result.errors!} variant="error" />}
       {(result.warnings ?? []).length > 0 && <IssueList title="Warnings" items={result.warnings} variant="warning" />}
+    </div>
+  );
+}
+
+// ── Spec Preview Section (shown below SuccessScreen while generating) ─────────
+
+interface PreviewMutationHandle {
+  isPending: boolean;
+  reset: () => void;
+  mutate: (vars: { specId: string; hash: string; forceNew?: boolean; isDryRun?: boolean }) => void;
+}
+
+function SpecPreviewSection({
+  result,
+  resolvedId,
+  autoPreview,
+  setAutoPreview,
+  previewMutation,
+  previewError,
+  dryRunResult,
+}: {
+  result: CompileResponse;
+  resolvedId: string | null;
+  autoPreview: boolean;
+  setAutoPreview: (v: boolean) => void;
+  previewMutation: PreviewMutationHandle;
+  previewError: string | null;
+  dryRunResult: SpecPreviewResult | null;
+}) {
+  const canPreview = !!resolvedId && !!result.prompt_hash;
+  const isGenerating = previewMutation.isPending;
+
+  return (
+    <Card className="border-[#1B2A4A]/20">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <ImagePlus className="w-4 h-4 text-[#C87560]" />
+            Specification Board Preview
+          </CardTitle>
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={autoPreview}
+              onChange={(e) => setAutoPreview(e.target.checked)}
+              className="rounded w-3.5 h-3.5"
+            />
+            Auto-generate after compile
+          </label>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-4">
+        {isGenerating && (
+          <div className="flex items-center gap-3 p-4 rounded-lg bg-[#1B2A4A]/5 border border-[#1B2A4A]/10">
+            <Loader2 className="w-4 h-4 animate-spin text-[#1B2A4A] shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-[#1B2A4A]">Generating specification board…</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Rendering layout + central concept visual. This may take 20–40 seconds.</p>
+            </div>
+          </div>
+        )}
+
+        {previewError && !isGenerating && (
+          <div className="flex items-start gap-3 p-4 rounded-lg border border-red-200 bg-red-50">
+            <ImageOff className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-red-800">Preview generation failed</p>
+              <p className="text-xs text-red-700 mt-0.5 break-words">{previewError}</p>
+            </div>
+          </div>
+        )}
+
+        {dryRunResult && !isGenerating && (
+          <div className="space-y-3">
+            <div className="p-3 rounded-lg border border-amber-200 bg-amber-50">
+              <p className="text-xs font-medium text-amber-800 uppercase tracking-wide mb-2">Dry-run payload preview</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                {Object.entries(dryRunResult.dry_run_payload ?? {}).map(([k, v]) => (
+                  <div key={k} className="min-w-0">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide truncate">{k}</p>
+                    <p className="text-xs font-medium truncate" title={v}>{v || "—"}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {dryRunResult.proposed_status_change && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="px-2 py-0.5 rounded bg-muted">{dryRunResult.proposed_status_change.from}</span>
+                <ArrowRight className="w-3 h-3 shrink-0" />
+                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">{dryRunResult.proposed_status_change.to}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isGenerating && (
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              disabled={!canPreview || isGenerating}
+              className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white"
+              onClick={() => previewMutation.mutate({ specId: resolvedId!, hash: result.prompt_hash! })}
+            >
+              <ImagePlus className="w-3.5 h-3.5 mr-1.5" />
+              {previewError ? "Retry Preview" : "Generate Preview"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!canPreview || isGenerating}
+              onClick={() =>
+                // Route through the mutation so the dry_run_payload is stored in
+                // previewResult state and rendered via the dryRunResult prop below.
+                previewMutation.mutate({ specId: resolvedId!, hash: result.prompt_hash!, isDryRun: true })
+              }
+            >
+              <FileText className="w-3.5 h-3.5 mr-1.5" />
+              Dry Run
+            </Button>
+          </div>
+        )}
+
+        <p className="text-xs text-muted-foreground">
+          Uploads a{" "}
+          <span className="font-medium">1600×2000 px PNG</span> specification board to Notion and advances Status to{" "}
+          <span className="font-medium">Ready for Review</span>.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Preview Success Screen ────────────────────────────────────────────────────
+
+function PreviewSuccessScreen({
+  result,
+  onGenerateNew,
+  isGenerating,
+  onReturnToCompiler,
+}: {
+  result: SpecPreviewResult;
+  onGenerateNew: () => void;
+  isGenerating: boolean;
+  onReturnToCompiler: () => void;
+}) {
+  const { toast } = useToast();
+
+  const fields: Array<{ label: string; value: string | undefined | null }> = [
+    { label: "Production Item",   value: result.production_item },
+    { label: "Previous Status",   value: result.previous_status || "—" },
+    { label: "New Status",        value: result.new_status || "Ready for Review" },
+    { label: "Filename",          value: result.preview_filename },
+    { label: "Provider / Model",  value: result.provider ? `${result.provider} / ${result.model ?? "—"}` : "—" },
+    { label: "Prompt Hash",       value: result.prompt_hash ? `${result.prompt_hash.slice(0, 24)}…` : "—" },
+    { label: "Upload ID",         value: result.notion_upload_id ? `${result.notion_upload_id.slice(0, 20)}…` : "—" },
+    { label: "Upload Status",     value: result.upload_status ?? "—" },
+  ];
+
+  const isPartialSuccess = result.status === "upload_success_status_failed";
+
+  return (
+    <div className="space-y-4">
+      {/* Banner */}
+      <div className={`flex items-center gap-3 p-4 rounded-lg border ${isPartialSuccess ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+        <CheckCircle2 className={`w-5 h-5 shrink-0 ${isPartialSuccess ? "text-amber-500" : "text-emerald-500"}`} />
+        <div className="flex-1">
+          <p className={`text-sm font-semibold ${isPartialSuccess ? "text-amber-800" : "text-emerald-800"}`}>
+            {isPartialSuccess ? "Specification board uploaded (status not updated)" : "Specification board generated"}
+          </p>
+          <p className={`text-xs mt-0.5 ${isPartialSuccess ? "text-amber-700" : "text-emerald-700"}`}>
+            {isPartialSuccess
+              ? "The image was uploaded to Notion, but the Status field could not be updated automatically."
+              : `Status advanced: ${result.previous_status || "Active"} → ${result.new_status || "Ready for Review"}`}
+          </p>
+        </div>
+      </div>
+
+      {/* Fields */}
+      <Card>
+        <CardContent className="pt-5 pb-4">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            {fields.map(({ label, value }) => (
+              <div key={label}>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
+                <p className="text-sm font-medium font-mono break-all" title={value ?? "—"}>{value ?? "—"}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Actions */}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white"
+          onClick={() => window.open(result.notion_page_url, "_blank")}
+        >
+          <ExternalLink className="w-4 h-4 mr-2" />
+          Open in Notion
+        </Button>
+        <Button
+          variant="outline"
+          disabled={isGenerating}
+          onClick={onGenerateNew}
+        >
+          {isGenerating
+            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating…</>
+            : <><ImagePlus className="w-4 h-4 mr-2" />Generate New Preview</>}
+        </Button>
+        <Button variant="ghost" onClick={onReturnToCompiler}>
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Return to Compiler
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto text-muted-foreground"
+          onClick={() => {
+            navigator.clipboard.writeText(result.notion_page_url);
+            toast({ title: "Notion URL copied" });
+          }}
+        >
+          <Copy className="w-3.5 h-3.5 mr-1.5" />
+          Copy URL
+        </Button>
+      </div>
+
+      {isPartialSuccess && (
+        <div className="flex items-start gap-2 p-3 rounded-md border border-amber-200 bg-amber-50 text-xs text-amber-800">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <p>The image was uploaded successfully but the Status field was not updated. Open the Notion record and set Status to <strong>Ready for Review</strong> manually.</p>
+        </div>
+      )}
     </div>
   );
 }

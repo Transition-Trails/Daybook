@@ -1,0 +1,542 @@
+/**
+ * WorldSmith Spec Preview Service
+ *
+ * Generates a lightweight Product Specification Image for human review after a
+ * successful compile.  The image is uploaded to the Notion record and the
+ * record's Status is advanced to "Ready for Review".
+ *
+ * This is Phase 1.5 — it produces only a review artifact, not final artwork.
+ */
+
+import { randomUUID } from "crypto";
+import sharp from "sharp";
+import { db } from "@workspace/db";
+import { worldsmithSpecPreviewsTable } from "@workspace/db";
+import { and, desc, eq } from "drizzle-orm";
+import {
+  getPage,
+  getPageText,
+  updatePage,
+  uploadFileToNotion,
+  attachUploadToPageProperty,
+  selectProp,
+  richTextProp,
+  extractTitle,
+  extractRichText,
+  extractSelect,
+  extractRelation,
+  extractNumber,
+  type NotionPage,
+} from "../notion-client";
+import { callDallE } from "../ai-proxy";
+import { renderSpecBoardToPng, CONCEPT_IMAGE_AREA } from "./spec-board-template";
+import { parsePayload } from "./payload-parser";
+import { logger } from "../logger";
+import type { SpecBoardData, SpecPreviewResult, SpecPreviewRequest } from "./types";
+
+// ── Configuration ─────────────────────────────────────────────────────────────
+
+const TEMPLATE_VERSION = "v1";
+
+function getPreviewConfig(): { provider: string; model: string; size: "1024x1024" | "1792x1024" | "1024x1792"; quality: "standard" | "hd" } {
+  return {
+    provider: process.env.SPEC_PREVIEW_PROVIDER ?? "dall-e-3",
+    model:    process.env.SPEC_PREVIEW_MODEL    ?? "dall-e-3",
+    size:     (process.env.SPEC_PREVIEW_SIZE    ?? "1024x1024") as "1024x1024" | "1792x1024" | "1024x1792",
+    quality:  (process.env.SPEC_PREVIEW_QUALITY ?? "standard") as "standard" | "hd",
+  };
+}
+
+// ── Custom error ─────────────────────────────────────────────────────────────
+
+export class SpecPreviewError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SpecPreviewError";
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function notionPageUrl(specPageId: string): string {
+  return `https://notion.so/${specPageId.replace(/-/g, "")}`;
+}
+
+function buildPreviewFilename(data: SpecBoardData): string {
+  const slug = (data.productionItem || "spec")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+  const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return `wm-spec-preview-${slug}-${ts}.png`;
+}
+
+/** Derive a concise DALL-E prompt for the central concept visual. */
+function buildConceptDallePrompt(data: SpecBoardData): string {
+  const isConstruction = /pocket|envelope|tag\b|tab\b|label|tuck/i.test(data.componentType);
+
+  if (isConstruction) {
+    const parts = [
+      `Technical flat construction diagram for a ${data.componentType}.`,
+      data.composition ? data.composition : "",
+      data.printRule ? data.printRule : "",
+      "Clean engineering drawing on white background. Labeled fold lines, cut marks, assembly guide.",
+      "Blueprint / technical illustration style. Professional quality.",
+    ].filter(Boolean);
+    return parts.join(" ").slice(0, 3800);
+  }
+
+  const parts = [
+    data.designIntent || `${data.componentType} concept artwork`,
+    data.composition ? `Composition: ${data.composition}.` : "",
+    data.materials ? `Style: ${data.materials}.` : "",
+    data.requiredContent ? data.requiredContent : "",
+    `For ${data.componentType} in ${data.world}${data.volume ? " " + data.volume : ""} collection.`,
+    "Digital illustration, professional quality, concept preview, artistic.",
+    "NOT final production artwork.",
+  ].filter(Boolean);
+  return parts.join(" ").slice(0, 3800);
+}
+
+/** Extract SpecBoardData from a raw Notion page. */
+function extractBoardData(page: NotionPage, specPageId: string, promptHash: string): SpecBoardData & {
+  styleGuideId?: string;
+  componentSpecId?: string;
+} {
+  const p = page.properties;
+
+  const productionItem =
+    extractTitle(p["Production Item"]) ||
+    extractTitle(p["Name"]) ||
+    extractRichText(p["Production Item"]) ||
+    specPageId;
+
+  const specId =
+    extractRichText(p["Spec ID"]) ||
+    extractRichText(p["ID"]) ||
+    specPageId.slice(0, 8).toUpperCase();
+
+  const componentType   = extractSelect(p["Component Type"])  || extractRichText(p["Component Type"]) || "";
+  const payloadVersion  = extractSelect(p["Payload Version"]) || extractRichText(p["Payload Version"]) || "";
+  const currentVersion  = extractRichText(p["Current Version"]) || extractSelect(p["Current Version"]) || "1";
+  const status          = extractSelect(p["Status"]) || extractSelect(p["Workflow Status"]) || "";
+  const world           = extractRichText(p["World"]) || extractSelect(p["World"]) || "";
+  const volume          = extractRichText(p["Volume"]) || extractSelect(p["Volume"]) ||
+                          extractRichText(p["Volume / Collection"]) || undefined;
+
+  const designIntent    = extractRichText(p["Design Intent"])    || extractRichText(p["Intent"]) || "";
+  const narrativePurpose= extractRichText(p["Narrative Purpose"]) || extractRichText(p["Narrative"]) || "";
+  const requiredContent = extractRichText(p["Required Content"]) || extractRichText(p["Content"]) || "";
+  const reviewCriteria  = extractRichText(p["Review Criteria"])  || extractRichText(p["Criteria"]) || "";
+
+  // Parse prompt payload to extract PP-1.0 keys
+  const rawPayload = extractRichText(p["Prompt Payload"]) || extractRichText(p["Payload"]) || "";
+  const parsedPayload = rawPayload ? parsePayload(rawPayload).payload : {};
+
+  const assetRole           = parsedPayload.asset_role           || "";
+  const composition         = parsedPayload.composition          || "";
+  const materials           = parsedPayload.materials            || "";
+  const visualHierarchy     = parsedPayload.visual_hierarchy     || "";
+  const textRule            = parsedPayload.text_rule            || "";
+  const canonRule           = parsedPayload.canon_rule           || "";
+  const printRule           = parsedPayload.print_rule           || "";
+  const negativeConstraints = parsedPayload.negative_constraints || "";
+
+  const canonDependency = extractSelect(p["Canon Dependency"]) || "None";
+  const canonRecordIds  = extractRelation(p["Canon Records"]) || extractRelation(p["Canon"]) || [];
+  const promptModuleIds = extractRelation(p["Prompt Modules"]) || extractRelation(p["Modules"]) || [];
+
+  const styleGuideId    = extractRelation(p["Style Guide"])?.[0] ||
+                          extractRelation(p["Style Guides"])?.[0] || undefined;
+  const componentSpecId = extractRelation(p["Component Specification"])?.[0] ||
+                          extractRelation(p["Component Spec"])?.[0] || undefined;
+
+  return {
+    specPageId,
+    productionItem,
+    specId,
+    world,
+    volume,
+    componentType,
+    payloadVersion,
+    currentVersion,
+    status,
+    designIntent,
+    narrativePurpose,
+    requiredContent,
+    reviewCriteria,
+    assetRole,
+    composition,
+    materials,
+    visualHierarchy,
+    textRule,
+    canonRule,
+    printRule,
+    negativeConstraints,
+    promptModuleCount: promptModuleIds.length,
+    canonDependency,
+    canonRecordCount: canonRecordIds.length,
+    promptHash,
+    // These will be populated below after fetching related pages
+    styleGuideId,
+    componentSpecId,
+  };
+}
+
+/** Look up the most recent successful non-dry-run preview for idempotency. */
+async function findExistingPreview(specPageId: string, promptHash: string) {
+  const rows = await db
+    .select()
+    .from(worldsmithSpecPreviewsTable)
+    .where(
+      and(
+        eq(worldsmithSpecPreviewsTable.specPageId, specPageId),
+        eq(worldsmithSpecPreviewsTable.promptHash, promptHash),
+        eq(worldsmithSpecPreviewsTable.templateVersion, TEMPLATE_VERSION),
+        eq(worldsmithSpecPreviewsTable.status, "success"),
+        // Dry-run records must never satisfy the idempotency gate for real previews
+        eq(worldsmithSpecPreviewsTable.dryRun, false),
+      ),
+    )
+    .orderBy(desc(worldsmithSpecPreviewsTable.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Persist a preview audit record. */
+async function savePreviewRecord(fields: {
+  specPageId: string;
+  promptHash: string;
+  status: string;
+  previewFilename?: string;
+  provider?: string;
+  model?: string;
+  notionUploadId?: string;
+  productionItem?: string;
+  previousStatus?: string;
+  newStatus?: string;
+  notionPageUrl?: string;
+  error?: string;
+  dryRun?: boolean;
+}): Promise<void> {
+  try {
+    await db.insert(worldsmithSpecPreviewsTable).values({
+      id: randomUUID(),
+      specPageId: fields.specPageId,
+      promptHash: fields.promptHash,
+      templateVersion: TEMPLATE_VERSION,
+      status: fields.status,
+      previewFilename: fields.previewFilename ?? null,
+      provider: fields.provider ?? null,
+      model: fields.model ?? null,
+      notionUploadId: fields.notionUploadId ?? null,
+      productionItem: fields.productionItem ?? null,
+      previousStatus: fields.previousStatus ?? null,
+      newStatus: fields.newStatus ?? null,
+      notionPageUrl: fields.notionPageUrl ?? null,
+      error: fields.error ?? null,
+      dryRun: fields.dryRun ?? false,
+    });
+  } catch (err) {
+    logger.warn({ err }, "Could not save spec preview audit record — non-fatal");
+  }
+}
+
+// ── Main service function ─────────────────────────────────────────────────────
+
+export async function runSpecPreview(
+  options: SpecPreviewRequest & { initiatedBy?: string },
+): Promise<SpecPreviewResult> {
+  const { spec_page_id: specPageId, prompt_hash: promptHash, force_new = false, dry_run = false } = options;
+  const pageUrl = notionPageUrl(specPageId);
+
+  // ── 1. Idempotency ──────────────────────────────────────────────────────
+  if (!force_new && !dry_run) {
+    const existing = await findExistingPreview(specPageId, promptHash);
+    if (existing) {
+      logger.info({ specPageId, promptHash }, "Spec preview: returning existing result (idempotent)");
+      return {
+        status: "success",
+        production_item: existing.productionItem ?? "",
+        spec_page_id: specPageId,
+        notion_page_id: specPageId,
+        notion_page_url: existing.notionPageUrl ?? pageUrl,
+        preview_filename: existing.previewFilename ?? undefined,
+        provider: existing.provider ?? undefined,
+        model: existing.model ?? undefined,
+        prompt_hash: promptHash,
+        previous_status: existing.previousStatus ?? undefined,
+        new_status: existing.newStatus ?? undefined,
+        upload_status: "success",
+        notion_upload_id: existing.notionUploadId ?? undefined,
+      };
+    }
+  }
+
+  // ── 2. Fetch spec from Notion ────────────────────────────────────────────
+  let page: NotionPage;
+  try {
+    page = await getPage(specPageId);
+  } catch (err) {
+    const msg = String(err);
+    const isNotFound = /404|not_found|object_not_found/i.test(msg);
+    throw new SpecPreviewError(
+      isNotFound ? "SPEC_NOT_FOUND" : "NOTION_FETCH_FAILED",
+      isNotFound
+        ? `Production Specification page not found: ${specPageId}`
+        : `Could not fetch Notion page: ${msg}`,
+    );
+  }
+
+  const boardData = extractBoardData(page, specPageId, promptHash);
+
+  // ── 3. Fetch related pages (style guide, component spec) ─────────────────
+  const { styleGuideId, componentSpecId, ...safeBoardData } = boardData as typeof boardData;
+
+  if (styleGuideId) {
+    try {
+      const sgPage = await getPage(styleGuideId);
+      safeBoardData.styleGuideName =
+        extractTitle(sgPage.properties["Name"]) ||
+        extractTitle(sgPage.properties["Style Guide Name"]) || styleGuideId;
+      const sgText = await getPageText(styleGuideId);
+      safeBoardData.styleGuideContent = sgText.slice(0, 900);
+    } catch {
+      // Non-fatal — continue without style guide text
+    }
+  }
+
+  if (componentSpecId) {
+    try {
+      const csPage = await getPage(componentSpecId);
+      safeBoardData.componentSpecName =
+        extractTitle(csPage.properties["Name"]) ||
+        extractTitle(csPage.properties["Component Specification"]) || componentSpecId;
+      const csText = await getPageText(componentSpecId);
+      safeBoardData.componentSpecContent = csText.slice(0, 600);
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  const finalBoardData: SpecBoardData = safeBoardData;
+
+  // ── 4. Dry run: return text payload without generating/uploading ─────────
+  if (dry_run) {
+    const dryPayload: Record<string, string> = {
+      "Production Item":            finalBoardData.productionItem,
+      "Component Type":             finalBoardData.componentType,
+      "Design Intent":              finalBoardData.designIntent,
+      "Composition":                finalBoardData.composition,
+      "Materials":                  finalBoardData.materials,
+      "Negative Constraints":       finalBoardData.negativeConstraints,
+      "Print Rule":                 finalBoardData.printRule,
+      "Canon Dependency":           finalBoardData.canonDependency,
+      "Style Guide":                finalBoardData.styleGuideName ?? "—",
+      "Component Spec":             finalBoardData.componentSpecName ?? "—",
+      "Proposed Status Change":     `${finalBoardData.status || "Active"} → Ready for Review`,
+      "Template Version":           TEMPLATE_VERSION,
+    };
+    await savePreviewRecord({
+      specPageId, promptHash,
+      // Store dry runs with a distinct status so they can never satisfy
+      // the idempotency gate (which only accepts status="success" + dryRun=false)
+      status: "dry_run",
+      productionItem: finalBoardData.productionItem,
+      notionPageUrl: pageUrl,
+      dryRun: true,
+      previousStatus: finalBoardData.status,
+      newStatus: "Ready for Review",
+    });
+    return {
+      status: "dry_run",
+      production_item: finalBoardData.productionItem,
+      spec_page_id: specPageId,
+      notion_page_id: specPageId,
+      notion_page_url: pageUrl,
+      prompt_hash: promptHash,
+      previous_status: finalBoardData.status,
+      new_status: "Ready for Review",
+      upload_status: "skipped",
+      dry_run_payload: dryPayload,
+      proposed_status_change: {
+        from: finalBoardData.status || "Active",
+        to: "Ready for Review",
+      },
+    };
+  }
+
+  // ── 5. Generate spec board PNG ────────────────────────────────────────────
+  const cfg = getPreviewConfig();
+  let boardPng: Buffer;
+  try {
+    boardPng = await renderSpecBoardToPng(finalBoardData);
+  } catch (svgErr) {
+    await savePreviewRecord({
+      specPageId, promptHash,
+      status: "failed",
+      productionItem: finalBoardData.productionItem,
+      notionPageUrl: pageUrl,
+      error: `SVG render failed: ${String(svgErr)}`,
+    });
+    throw new SpecPreviewError("GENERATION_FAILED", `Spec board render failed: ${String(svgErr)}`);
+  }
+
+  // ── 6. Generate and composite central concept visual via DALL-E ───────────
+  let finalPng = boardPng;
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      logger.warn({ specPageId }, "OPENAI_API_KEY not set — skipping central concept visual");
+    } else {
+      const dallePrompt = buildConceptDallePrompt(finalBoardData);
+      const b64DataUrl = await callDallE(dallePrompt, {
+        size: cfg.size,
+        quality: cfg.quality,
+        style: "natural",
+      });
+
+      // Decode base64 → buffer
+      const b64 = b64DataUrl.replace(/^data:image\/[a-z+]+;base64,/, "");
+      const dalleBuffer = Buffer.from(b64, "base64");
+
+      // Resize to fit the concept image area, maintaining aspect ratio
+      const { x, y, width, height } = CONCEPT_IMAGE_AREA;
+      const resized = await sharp(dalleBuffer)
+        .resize(width - 10, height - 10, {
+          fit: "inside",
+          withoutEnlargement: false,
+        })
+        .png()
+        .toBuffer();
+
+      // Center the resized image in the concept area
+      const meta = await sharp(resized).metadata();
+      const imgW = meta.width ?? width;
+      const imgH = meta.height ?? height;
+      const left = x + Math.floor((width - imgW) / 2);
+      const top  = y + Math.floor((height - imgH) / 2);
+
+      // Composite over the spec board
+      finalPng = await sharp(boardPng)
+        .composite([{ input: resized, left, top, blend: "over" }])
+        .png()
+        .toBuffer();
+
+      // Overlay the "CONCEPT PREVIEW" label on top of the composited image
+      // (re-apply via a small SVG overlay)
+      const labelSvg = Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="28">
+          <rect width="${width}" height="28" fill="rgba(27,42,74,0.72)"/>
+          <text x="${width / 2}" y="19" text-anchor="middle"
+            font-family="sans-serif" font-size="11" font-weight="bold"
+            fill="#FFFFFF" letter-spacing="1.5">CONCEPT PREVIEW · FOR HUMAN REVIEW</text>
+        </svg>`,
+      );
+      finalPng = await sharp(finalPng)
+        .composite([{ input: labelSvg, left: x, top: y + height - 28, blend: "over" }])
+        .png()
+        .toBuffer();
+    }
+  } catch (dalleErr) {
+    logger.warn({ err: dalleErr, specPageId }, "DALL-E concept visual failed — using spec board without central image");
+    // Non-fatal: continue with the plain spec board
+    finalPng = boardPng;
+  }
+
+  // Enforce max file size (4 MB). Reduce PNG compression if needed.
+  if (finalPng.length > 4 * 1024 * 1024) {
+    try {
+      finalPng = await sharp(finalPng)
+        .resize(1400, undefined, { withoutEnlargement: true })
+        .png({ compressionLevel: 9, quality: 80 })
+        .toBuffer();
+    } catch {
+      // Use as-is
+    }
+  }
+
+  // ── 7. Upload to Notion ───────────────────────────────────────────────────
+  const filename = buildPreviewFilename(finalBoardData);
+  let uploadId: string;
+  try {
+    uploadId = await uploadFileToNotion(finalPng, filename, "image/png");
+    await attachUploadToPageProperty(
+      specPageId,
+      "Product Specification Image",
+      uploadId,
+      filename,
+    );
+  } catch (uploadErr) {
+    await savePreviewRecord({
+      specPageId, promptHash,
+      status: "upload_failed",
+      productionItem: finalBoardData.productionItem,
+      notionPageUrl: pageUrl,
+      provider: cfg.provider,
+      model: cfg.model,
+      error: String(uploadErr),
+    });
+    throw new SpecPreviewError("UPLOAD_FAILED", `Notion upload failed: ${String(uploadErr)}`);
+  }
+
+  // ── 8. Update Notion Status and Next Action (only after upload) ───────────
+  const previousStatus = finalBoardData.status;
+  let statusUpdateFailed = false;
+  try {
+    await updatePage(specPageId, {
+      "Status": selectProp("Ready for Review"),
+      "Next Action": richTextProp(
+        "Review the Product Specification Image, confirm the specification and visual direction, then approve or return for revision.",
+      ),
+    });
+  } catch (statusErr) {
+    logger.warn(
+      { err: statusErr, specPageId },
+      "Could not update Status to Ready for Review — image was uploaded successfully",
+    );
+    statusUpdateFailed = true;
+  }
+
+  // ── 9. Persist audit record ───────────────────────────────────────────────
+  const finalStatus = statusUpdateFailed ? "status_update_failed" : "success";
+  const newStatus   = statusUpdateFailed ? (previousStatus || "") : "Ready for Review";
+
+  await savePreviewRecord({
+    specPageId,
+    promptHash,
+    status: finalStatus,
+    previewFilename: filename,
+    provider: cfg.provider,
+    model: cfg.model,
+    notionUploadId: uploadId,
+    productionItem: finalBoardData.productionItem,
+    previousStatus,
+    newStatus,
+    notionPageUrl: pageUrl,
+  });
+
+  logger.info(
+    { specPageId, promptHash, filename, uploadId, previousStatus, newStatus },
+    "WorldSmith spec preview complete",
+  );
+
+  return {
+    status: statusUpdateFailed ? "upload_success_status_failed" : "success",
+    production_item: finalBoardData.productionItem,
+    spec_page_id: specPageId,
+    notion_page_id: specPageId,
+    notion_page_url: pageUrl,
+    preview_filename: filename,
+    provider: cfg.provider,
+    model: cfg.model,
+    prompt_hash: promptHash,
+    previous_status: previousStatus,
+    new_status: newStatus,
+    upload_status: "success",
+    notion_upload_id: uploadId,
+  };
+}

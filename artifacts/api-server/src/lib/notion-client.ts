@@ -346,3 +346,102 @@ export function relationProp(ids: string[]): { relation: Array<{ id: string }> }
 export function urlProp(url: string): { url: string } {
   return { url };
 }
+
+// ── File Upload API ───────────────────────────────────────────────────────────
+
+export interface NotionFileUploadSlot {
+  id: string;
+  upload_url: string;
+  status: string;
+}
+
+/**
+ * Upload a file buffer to Notion using the Notion File Upload API.
+ *
+ * Flow:
+ *   1. POST /v1/file_uploads  → creates an upload slot, returns { id, upload_url }
+ *   2. POST/PUT upload_url    → multipart upload of the file bytes
+ *
+ * Returns the file_upload.id which can be used in a files property update.
+ */
+export async function uploadFileToNotion(
+  buffer: Buffer,
+  filename: string,
+  mimeType: string,
+): Promise<string> {
+  const token = process.env.NOTION_TOKEN;
+  if (!token) throw new Error("NOTION_TOKEN environment variable is not set");
+
+  // Step 1: Create the upload slot
+  const slotRes = await fetch(`${NOTION_API}/file_uploads`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Notion-Version": NOTION_VERSION,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name: filename }),
+  });
+
+  if (!slotRes.ok) {
+    const body = await slotRes.text();
+    throw new Error(`Notion file_uploads create failed ${slotRes.status}: ${body}`);
+  }
+
+  const slot = (await slotRes.json()) as NotionFileUploadSlot;
+
+  // Step 2: Upload the file via multipart to the upload_url
+  // The upload_url returned by Notion may be a full URL or a relative path.
+  const uploadTarget = slot.upload_url.startsWith("http")
+    ? slot.upload_url
+    : `${NOTION_API}${slot.upload_url}`;
+
+  const formData = new FormData();
+  // Convert Buffer → Uint8Array to satisfy strict Blob/BlobPart typing in TS 5+
+  const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
+  formData.append("file", blob, filename);
+
+  // Whether to include Notion auth depends on whether the URL is Notion-hosted
+  // or an external pre-signed URL (e.g., S3). If it starts with notion.so or
+  // api.notion.com we include auth; external URLs should not receive the token.
+  const isNotionUrl = uploadTarget.includes("notion.so") || uploadTarget.includes("api.notion.com");
+  const uploadHeaders: Record<string, string> = isNotionUrl
+    ? { Authorization: `Bearer ${token}`, "Notion-Version": NOTION_VERSION }
+    : {};
+
+  const uploadRes = await fetch(uploadTarget, {
+    method: "POST",
+    headers: uploadHeaders,
+    body: formData,
+  });
+
+  if (!uploadRes.ok) {
+    const body = await uploadRes.text();
+    throw new Error(`Notion file upload PUT failed ${uploadRes.status}: ${body}`);
+  }
+
+  return slot.id;
+}
+
+/**
+ * Attach an uploaded file (by file_upload.id) to a files property on a Notion page.
+ * Replaces any existing files in the property (default behavior per spec).
+ */
+export async function attachUploadToPageProperty(
+  pageId: string,
+  propertyName: string,
+  fileUploadId: string,
+  filename: string,
+): Promise<NotionPage> {
+  return updatePage(pageId, {
+    [propertyName]: {
+      files: [
+        {
+          type: "file_upload",
+          file_upload: { id: fileUploadId },
+          name: filename,
+        },
+      ],
+    },
+  });
+}

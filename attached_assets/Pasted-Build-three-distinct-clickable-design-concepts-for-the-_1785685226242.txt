@@ -1,0 +1,926 @@
+Build three distinct, clickable design concepts for the WorldSmith landing page inside Daybook.
+
+This is the home page for WorldSmith in Daybook. It must be informative, actionable, role-aware, and designed for daily operational use.
+
+Do not build three minor visual variations of the same dashboard. Create three meaningfully different information architectures so we can compare approaches before selecting one for production.
+
+Do not change the existing Daybook data model or production workflows unless required to support the prototypes.
+
+==================================================
+PRIMARY GOAL
+==================================================
+
+Create three functional landing-page concepts that help users:
+
+1. Understand the current state of WorldSmith.
+2. See what is actively being produced.
+3. Identify worlds, collections, or assets that need attention.
+4. Filter the entire page to one World.
+5. Open a selected World quickly.
+6. Start setting up a new World.
+7. Configure and verify required integrations.
+8. Navigate to production, review, assets, runs, and administration.
+9. Take the next appropriate action without hunting through multiple screens.
+
+The landing page should answer:
+
+• What is happening?
+• What needs attention?
+• What should I do next?
+• Which World am I looking at?
+• Are the required integrations healthy?
+• What is ready, blocked, under review, or complete?
+
+==================================================
+USERS TO DESIGN FOR
+==================================================
+
+The landing page must support three personas.
+
+----------------------------------------
+1. CREATIVE DIRECTOR
+----------------------------------------
+
+Primary needs:
+
+• See the creative health of each World.
+• Understand what is currently being produced.
+• See assets awaiting human review.
+• Identify canon, style, or specification blockers.
+• Open Product Specification previews.
+• Review visual direction and consistency.
+• Filter to a single World or Volume.
+• Move quickly into reviews and approvals.
+• See recent visual assets and production milestones.
+
+Most important actions:
+
+• Review specification preview
+• Review generated artwork
+• Approve or return for revision
+• Open a World
+• View blocked production items
+• Inspect style and canon dependencies
+• Start or continue a production batch
+
+----------------------------------------
+2. STORE END USER
+----------------------------------------
+
+This is a business or store user who needs visibility into products and deliverables without managing the technical system.
+
+Primary needs:
+
+• See which Worlds and product collections exist.
+• Understand what is planned, in production, ready, or published.
+• See product completeness.
+• Open approved previews and finished assets.
+• Understand what products are approaching release.
+• Filter by World, collection, Volume, or product status.
+• Find files and approved product assets quickly.
+• Avoid being overwhelmed by technical configuration.
+
+Most important actions:
+
+• Open a World or collection
+• View product progress
+• View approved assets
+• View release readiness
+• Find product files
+• See what is coming next
+• Report a product issue or request
+
+----------------------------------------
+3. DAYBOOK ADMIN
+----------------------------------------
+
+Primary needs:
+
+• Create and configure a World.
+• Connect Notion, Google Drive, image providers, and other required services.
+• Check integration health.
+• Identify failed runs or synchronization problems.
+• See records missing required configuration.
+• Manage users, permissions, providers, and environment settings.
+• Open logs and retry failed operations.
+• Confirm that Daybook is resolving stable Asset IDs correctly.
+
+Most important actions:
+
+• Set up a new World
+• Configure integrations
+• Test connections
+• View failed runs
+• Retry synchronization
+• Review incomplete configuration
+• Manage providers and system settings
+• Open audit logs
+
+==================================================
+SHARED PAGE REQUIREMENTS
+==================================================
+
+All three concepts must include the following capabilities.
+
+----------------------------------------
+GLOBAL WORLD FILTER
+----------------------------------------
+
+Provide a prominent global World selector.
+
+The user must be able to choose:
+
+• All Worlds
+• One specific World
+
+When one World is selected, all page sections must update consistently.
+
+The selected World filter should persist during the user session.
+
+Also support optional secondary filters where useful:
+
+• Collection or Series
+• Volume
+• Production Status
+• Component Type
+• Review Status
+
+Include:
+
+• Search Worlds
+• Clear filter
+• Open selected World
+• Recently viewed Worlds
+
+Do not require users to know internal IDs.
+
+----------------------------------------
+WORLD SETUP
+----------------------------------------
+
+Provide a highly visible action:
+
+Create New World
+
+The action should launch a guided setup flow.
+
+World setup should include:
+
+1. World identity
+   • World name
+   • World code
+   • Description
+   • Owner
+   • Status
+
+2. Creative foundation
+   • Primary Style Guide
+   • Canon governance
+   • Default Component Specifications
+   • Visual identity or reference assets
+
+3. Storage
+   • Google Drive root
+   • World folder
+   • Naming conventions
+
+4. Integrations
+   • Notion
+   • Google Drive
+   • Image generation provider
+   • Daybook
+   • Optional GitHub or other configured services
+
+5. Verification
+   • Test connections
+   • Confirm permissions
+   • Confirm required databases
+   • Confirm required folders
+   • Confirm provider credentials
+
+6. Completion
+   • Setup summary
+   • Missing items
+   • Open the new World
+
+Allow the user to save an incomplete setup and resume later.
+
+----------------------------------------
+INTEGRATION HEALTH
+----------------------------------------
+
+Show integration status clearly.
+
+Required statuses:
+
+• Connected
+• Needs Configuration
+• Warning
+• Failed
+• Not Required
+• Unknown
+
+Show at minimum:
+
+• Notion
+• Google Drive
+• Image provider
+• Daybook asset synchronization
+
+Each integration should display:
+
+• Status
+• Last successful check
+• Last failure
+• Related World
+• Test connection action
+• Configure action
+• View error action
+
+Do not display secrets or credentials.
+
+----------------------------------------
+PRODUCTION VISIBILITY
+----------------------------------------
+
+Show production across Worlds.
+
+Include counts or summaries for:
+
+• Not Started
+• In Progress
+• Ready to Compile
+• Compiled
+• Ready for Review
+• Blocked
+• Approved
+• Published or Release Ready
+• Failed runs
+
+Show:
+
+• Current production batches
+• Recently completed items
+• Items awaiting human review
+• Items blocked by canon
+• Items blocked by missing specifications
+• Items with failed integrations
+• Worlds with no recent activity
+• Worlds approaching release
+
+Use plain-language labels and explain unusual statuses with tooltips.
+
+----------------------------------------
+WORLD HEALTH
+----------------------------------------
+
+Create a useful World health model.
+
+A World can be:
+
+• Healthy
+• Needs Attention
+• Blocked
+• In Setup
+• Inactive
+
+Calculate or derive health from available signals such as:
+
+• Required integrations connected
+• Required Style Guide present
+• Canon governance established
+• Production Specifications populated
+• Prompt compilation failures
+• Reviews awaiting action
+• Failed runs
+• Missing storage configuration
+• Stale activity
+
+Display the reason behind the health status.
+
+Do not show a mysterious score without explaining it.
+
+----------------------------------------
+ACTION CENTER
+----------------------------------------
+
+Include a prioritized action area.
+
+Examples:
+
+• 4 Product Specification previews awaiting review
+• 2 assets returned for revision
+• 1 World missing its Google Drive folder
+• 3 failed synchronization runs
+• 7 Production Specifications ready to compile
+• 1 Canon Reference requires approval
+• Volume I is 82% complete
+
+Every item must include a direct action.
+
+Examples:
+
+• Review
+• Resolve
+• Retry
+• Configure
+• Compile
+• Open World
+• View Batch
+
+----------------------------------------
+NAVIGATION
+----------------------------------------
+
+Provide direct access to:
+
+• Worlds
+• Production
+• Reviews
+• Assets
+• Runs
+• Integrations
+• Settings
+
+The landing page should not attempt to replace these workspaces. It should summarize them and route users to the right place.
+
+Daybook should consume and operationalize approved WorldSmith outputs. It should not become the authoritative editor for WorldSmith canon or replace the Living Archive.
+
+==================================================
+CONCEPT 1: COMMAND CENTER
+==================================================
+
+Create a dashboard-first concept called:
+
+WorldSmith Command Center
+
+Design intent:
+
+A compact operational cockpit for users who want to understand the entire system quickly.
+
+Recommended structure:
+
+TOP BAR
+
+• WorldSmith title
+• Global World selector
+• Search
+• Create New World
+• User role indicator
+• Notifications
+
+FIRST ROW: KEY METRICS
+
+• Active Worlds
+• Items In Production
+• Awaiting Review
+• Blocked
+• Release Ready
+• Failed Runs
+
+SECOND ROW
+
+Left:
+Action Center
+
+Right:
+Integration Health
+
+THIRD ROW
+
+World Health table or cards showing:
+
+• World
+• Health
+• Current collection or Volume
+• Production progress
+• Awaiting review
+• Blockers
+• Last activity
+• Open World action
+
+FOURTH ROW
+
+• Production pipeline visualization
+• Recent Product Specification previews
+• Recent approved assets
+
+ROLE BEHAVIOR
+
+Creative Director:
+Emphasize reviews, blockers, recent visuals, and production progress.
+
+Store End User:
+Emphasize products, release readiness, approved assets, and upcoming collections.
+
+Daybook Admin:
+Emphasize integrations, failed runs, incomplete setup, and configuration.
+
+Strength of this concept:
+
+Maximum operational visibility and rapid triage.
+
+Potential risk:
+
+Could feel dense to less technical users.
+
+==================================================
+CONCEPT 2: WORLD GALLERY
+==================================================
+
+Create a visual, World-first concept called:
+
+WorldSmith World Gallery
+
+Design intent:
+
+Treat each World as a living creative portfolio and production space.
+
+Recommended structure:
+
+TOP BAR
+
+• WorldSmith title
+• Global World selector
+• Create New World
+• Search
+• Role-aware quick actions
+
+FEATURED AREA
+
+A visual card for each World showing:
+
+• World cover or key visual
+• World name
+• Description
+• Health status
+• Current product collection
+• Production completion
+• Items awaiting review
+• Integration status
+• Last activity
+• Open World action
+
+Support:
+
+• Gallery view
+• Compact list view
+• Search
+• Sort by activity, health, progress, or name
+• Filter by status
+
+WHEN A WORLD IS SELECTED
+
+Transform the page into a focused World overview:
+
+• World summary
+• Active production
+• Current Volume
+• Latest visual assets
+• Awaiting review
+• Missing work
+• Integration health
+• Release progress
+• Open World workspace
+
+ROLE BEHAVIOR
+
+Creative Director:
+Show latest visual direction, review queue, and creative blockers.
+
+Store End User:
+Show collections, approved products, release progress, and finished assets.
+
+Daybook Admin:
+Show setup completeness, integration health, configuration issues, and failed runs.
+
+Strength of this concept:
+
+Strong visual identity and easy movement between Worlds.
+
+Potential risk:
+
+Cross-World operational issues may be less visible than in the Command Center.
+
+==================================================
+CONCEPT 3: GUIDED WORKSPACE
+==================================================
+
+Create an action-oriented concept called:
+
+WorldSmith Guided Workspace
+
+Design intent:
+
+Lead the user toward the most important next step rather than presenting a dense dashboard.
+
+Recommended structure:
+
+WELCOME AREA
+
+• Personalized greeting
+• Current role
+• Selected World
+• Brief system summary
+• Primary recommended action
+
+PRIMARY NEXT ACTION
+
+Display one dominant action based on role and system state.
+
+Creative Director examples:
+
+• Review 4 specification previews
+• Approve Volume I visual direction
+• Resolve a canon blocker
+
+Store End User examples:
+
+• Review products nearing release
+• Open approved Volume I assets
+• Check release readiness
+
+Daybook Admin examples:
+
+• Complete Wychcombe integration setup
+• Resolve 2 failed synchronization runs
+• Configure image provider
+
+SECONDARY ACTIONS
+
+Show the next 3 to 5 prioritized tasks.
+
+WORLD PROGRESS JOURNEY
+
+Display each World as a progression:
+
+Setup
+→ Governed
+→ In Production
+→ In Review
+→ Release Ready
+→ Published
+
+Show exactly where each World is and what is preventing progression.
+
+QUICK START
+
+• Create a World
+• Continue World setup
+• Open selected World
+• Start production batch
+• Review assets
+• Configure integrations
+
+ACTIVITY STREAM
+
+Show meaningful recent activity, not raw system noise.
+
+Strength of this concept:
+
+Approachable, role-focused, and highly actionable.
+
+Potential risk:
+
+Users may need another click to see full operational detail.
+
+==================================================
+ROLE HANDLING
+==================================================
+
+Create a role switcher for prototype review:
+
+• Creative Director
+• Store End User
+• Daybook Admin
+
+This is for demonstrating each persona experience.
+
+In production, derive the role from the authenticated user's permissions.
+
+The underlying data should remain the same, but ordering, emphasis, labels, and available actions should change by role.
+
+Do not merely hide cards. Reprioritize the experience.
+
+==================================================
+PROTOTYPE DATA
+==================================================
+
+Use realistic seeded WorldSmith data.
+
+Include at least three Worlds:
+
+1. Wychcombe
+   • Victorian Garden Journals
+   • Volume I in production
+   • Several items awaiting review
+   • Integrations healthy
+   • One canon-related warning
+
+2. A second World in setup
+   • Missing Style Guide
+   • Google Drive configured
+   • Image provider not configured
+   • No active production
+
+3. A third World approaching release
+   • Most assets approved
+   • A small number of release-readiness tasks
+   • Recent approved visual assets
+
+Include realistic records for:
+
+• Production Specifications
+• Product Specification previews
+• Visual Assets
+• Artwork Reviews
+• Runs
+• Integration statuses
+• Release readiness
+• World health
+
+Clearly identify seeded prototype data in the code.
+
+==================================================
+RESPONSIVE DESIGN
+==================================================
+
+Create responsive layouts for:
+
+• Desktop
+• Tablet
+• Mobile
+
+Desktop is the primary target.
+
+On mobile:
+
+• Preserve World filtering
+• Preserve the primary action
+• Collapse detailed analytics
+• Keep navigation and alerts accessible
+• Avoid horizontal table dependence
+
+==================================================
+ACCESSIBILITY
+==================================================
+
+Meet practical accessibility requirements:
+
+• Keyboard navigation
+• Visible focus states
+• Semantic headings
+• Accessible labels
+• Sufficient color contrast
+• Statuses conveyed by text and icon, not color alone
+• Tooltips available by keyboard
+• Charts accompanied by text summaries
+
+==================================================
+VISUAL DIRECTION
+==================================================
+
+The page should feel like a refined creative production platform.
+
+Use:
+
+• Warm archival neutrals
+• Restrained botanical or editorial details
+• Clear modern information hierarchy
+• High readability
+• Generous spacing
+• Strong but quiet status indicators
+• World imagery where it adds value
+
+Avoid:
+
+• Fantasy game UI
+• Heavy parchment textures behind data
+• Overly ornate controls
+• Dense enterprise-dashboard clutter
+• Excessive gradients
+• Decorative elements that impair scanning
+• Generic admin-template appearance
+
+The interface may echo WorldSmith's archival identity, but operational clarity comes first.
+
+==================================================
+TECHNICAL REQUIREMENTS
+==================================================
+
+Build the three concepts as separate routes or selectable prototypes.
+
+Suggested routes:
+
+/worldsmith/concepts/command-center
+/worldsmith/concepts/world-gallery
+/worldsmith/concepts/guided-workspace
+
+Also create:
+
+/worldsmith/concepts
+
+This comparison page should show:
+
+• Thumbnail of each concept
+• Concept name
+• Design philosophy
+• Primary strengths
+• Potential risks
+• Open Prototype button
+
+Use shared components and shared seeded data where appropriate.
+
+Do not fork the entire codebase three times.
+
+Create reusable components for:
+
+• World selector
+• Role switcher
+• Status badge
+• Metric card
+• World health display
+• Action item
+• Integration status
+• Production progress
+• Review queue
+• Activity item
+• Empty state
+• Error state
+• Loading state
+
+==================================================
+INTERACTIONS
+==================================================
+
+The prototypes must be functional.
+
+Implement:
+
+• Switch user role
+• Select All Worlds or one World
+• Search Worlds
+• Filter production statuses
+• Open World detail
+• Open review item
+• Open production item
+• Open integration issue
+• Launch Create New World wizard
+• Test an integration using a mocked response
+• Retry a failed run using a mocked response
+• Dismiss or complete a seeded action item
+• Switch between concepts
+
+Use modals, drawers, or routed detail pages where appropriate.
+
+Do not make every card a dead visual placeholder.
+
+==================================================
+CREATE NEW WORLD WIZARD
+==================================================
+
+Build a functional prototype of the setup wizard.
+
+Steps:
+
+1. World Details
+2. Creative Foundation
+3. Notion Connection
+4. Google Drive Connection
+5. Image Provider
+6. Daybook Configuration
+7. Verify Setup
+8. Summary
+
+Show:
+
+• Completed steps
+• Missing required items
+• Optional items
+• Connection test results
+• Save and Resume Later
+• Finish Setup
+
+After completion, add the prototype World to the gallery and dashboard state.
+
+==================================================
+EMPTY, ERROR, AND FIRST-USE STATES
+==================================================
+
+Design these states:
+
+• No Worlds exist
+• No production is active
+• No reviews are waiting
+• Integration disconnected
+• Integration permission error
+• World setup incomplete
+• Data failed to load
+• Search returned no results
+
+Each empty or error state should provide an appropriate next action.
+
+==================================================
+COMPARISON AND FEEDBACK
+==================================================
+
+On each prototype, add a non-production feedback panel that allows reviewers to record:
+
+• What works well
+• What feels unclear
+• Information that is missing
+• Preferred elements
+• Overall rating
+
+On the comparison page, allow the reviewer to select:
+
+• Preferred overall concept
+• Preferred navigation
+• Preferred World view
+• Preferred action center
+• Preferred setup experience
+
+Store prototype feedback locally or in the existing development feedback mechanism.
+
+==================================================
+DO NOT IMPLEMENT YET
+==================================================
+
+Do not:
+
+• Replace the existing Daybook home page
+• Change production database schemas
+• Change Notion governance
+• Edit or approve canon
+• Automatically approve assets
+• Expose integration secrets
+• Trigger real image generation
+• Trigger destructive production actions
+• Build three independent backends
+
+Use adapters or mocked actions for operations that are not yet available.
+
+==================================================
+DELIVERABLES
+==================================================
+
+Deliver:
+
+1. Three working landing-page concepts.
+2. A comparison page.
+3. Role-aware behavior for all three personas.
+4. Global World filtering.
+5. A prototype Create New World wizard.
+6. Integration health and setup views.
+7. Production, review, and World-health visibility.
+8. Responsive states.
+9. Empty and error states.
+10. Seeded prototype data.
+11. Reusable shared components.
+12. A short implementation note describing:
+    • architecture
+    • shared components
+    • routes
+    • seeded data
+    • mocked actions
+    • known limitations
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+The feature is complete when:
+
+• Three materially different concepts are available.
+• Each concept supports Creative Director, Store End User, and Daybook Admin views.
+• The global World selector filters the full page.
+• A user can focus on one World.
+• A user can start the Create New World wizard.
+• Integration status is visible and actionable.
+• Active production and review work are visible.
+• Worlds needing attention are easy to identify.
+• Every critical alert includes a direct action.
+• The user can navigate to production, reviews, assets, runs, integrations, and settings.
+• The prototypes work on desktop, tablet, and mobile.
+• The concepts can be compared without changing the production home page.
+• WorldSmith canon remains governed outside Daybook.
+• No secrets or sensitive credentials are exposed.
+
+==================================================
+ACTION STEPS
+==================================================
+
+1. Inspect the existing Daybook design system, routing, authentication, and shared components.
+2. Build the shared seeded data model and reusable WorldSmith dashboard components.
+3. Build the concept comparison page.
+4. Build Concept 1: WorldSmith Command Center.
+5. Build Concept 2: WorldSmith World Gallery.
+6. Build Concept 3: WorldSmith Guided Workspace.
+7. Add the role switcher and role-aware prioritization.
+8. Add the global World selector and persistent filtering.
+9. Build the Create New World wizard.
+10. Add integration health, production visibility, review queues, and World health.
+11. Add responsive, loading, empty, and error states.
+12. Add prototype feedback capture.
+13. Test all three personas and all three concepts.
+14. Present the three working options for review without replacing the current Daybook home page.

@@ -105,3 +105,29 @@ export interface NotionRetryEvent {
   delay_ms: number;     // actual sleep duration in milliseconds
   at: string;           // ISO-8601 timestamp when the retry was initiated
 }
+
+// ── WorldSmith Spec Preview Audit Log ────────────────────────────────────────
+// Tracks every spec-preview generation attempt for idempotency + audit.
+
+export const worldsmithSpecPreviewsTable = pgTable("worldsmith_spec_previews", {
+  id: text("id").primaryKey(),
+  specPageId: text("spec_page_id").notNull(),
+  promptHash: text("prompt_hash").notNull(),
+  templateVersion: text("template_version").notNull().default("v1"),
+  status: text("status").notNull().default("pending"),
+  // pending | success | failed | upload_failed | status_update_failed
+  previewFilename: text("preview_filename"),
+  provider: text("provider"),
+  model: text("model"),
+  notionUploadId: text("notion_upload_id"),
+  productionItem: text("production_item"),
+  previousStatus: text("previous_status"),
+  newStatus: text("new_status"),
+  notionPageUrl: text("notion_page_url"),
+  error: text("error"),
+  dryRun: boolean("dry_run").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type WorldsmithSpecPreview = typeof worldsmithSpecPreviewsTable.$inferSelect;
+export type InsertWorldsmithSpecPreview = typeof worldsmithSpecPreviewsTable.$inferInsert;

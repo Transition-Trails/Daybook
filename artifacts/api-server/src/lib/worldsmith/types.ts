@@ -286,6 +286,74 @@ export interface CompileResponse {
   };
 }
 
+// ── Spec Preview ──────────────────────────────────────────────────────────────
+
+export interface SpecBoardData {
+  // Identity
+  specPageId: string;
+  productionItem: string;
+  specId: string;
+  world: string;
+  volume?: string;
+  componentType: string;
+  payloadVersion: string;
+  currentVersion: string;
+  status: string;
+  // Creative
+  designIntent: string;
+  narrativePurpose: string;
+  requiredContent: string;
+  reviewCriteria: string;
+  // Parsed payload keys
+  assetRole: string;
+  composition: string;
+  materials: string;
+  visualHierarchy: string;
+  textRule: string;
+  canonRule: string;
+  printRule: string;
+  negativeConstraints: string;
+  // Related records
+  componentSpecName?: string;
+  componentSpecContent?: string;
+  styleGuideName?: string;
+  styleGuideContent?: string;
+  promptModuleCount: number;
+  canonDependency: string;
+  canonRecordCount: number;
+  // Colors from style guide (if available)
+  colorSwatches?: Array<{ name: string; hex: string }>;
+  // Prompt hash passthrough (for DALL-E prompt derivation)
+  promptHash: string;
+}
+
+export interface SpecPreviewResult {
+  status: "success" | "dry_run" | "upload_success_status_failed" | "failed";
+  production_item: string;
+  spec_page_id: string;
+  notion_page_id: string;
+  notion_page_url: string;
+  preview_filename?: string;
+  provider?: string;
+  model?: string;
+  prompt_hash: string;
+  previous_status?: string;
+  new_status?: string;
+  upload_status?: "success" | "failed" | "skipped";
+  notion_upload_id?: string;
+  /** Dry-run only: text payload that would populate the spec board. */
+  dry_run_payload?: Record<string, string>;
+  proposed_status_change?: { from: string; to: string };
+  error?: string;
+}
+
+export interface SpecPreviewRequest {
+  spec_page_id: string;
+  prompt_hash: string;
+  force_new?: boolean;
+  dry_run?: boolean;
+}
+
 export interface RunStatusResponse {
   run_id: string;
   status: string;

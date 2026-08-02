@@ -9,7 +9,9 @@
  */
 import { Router } from "express";
 import { requireAuth } from "../lib/auth-middleware";
+import { requireSuperAdmin } from "../middleware/requireRole";
 import { runCompilation } from "../lib/worldsmith/orchestrator";
+import { runSpecPreview, SpecPreviewError } from "../lib/worldsmith/spec-preview-service";
 import { getRun, getRunsBySpec, failStaleRunsForSpec } from "../lib/worldsmith/run-repository";
 import { getAsset, getAssetBySpec } from "../lib/worldsmith/daybook-adapter";
 import { normalizeNotionId } from "../lib/worldsmith/normalize-id";
@@ -326,6 +328,64 @@ router.get("/v1/worldsmith/preflight", requireAuth, async (req: Request, res: Re
     } else {
       logger.error({ err, specId }, "WorldSmith preflight error");
       res.status(500).json({ error: "Failed to resolve Production Specification.", code: "PREFLIGHT_ERROR" });
+    }
+  }
+});
+
+// ── POST /v1/worldsmith/spec-preview ─────────────────────────────────────────
+// Generate a Product Specification Image, upload to Notion, advance Status to
+// "Ready for Review".  Idempotent by (spec_page_id + prompt_hash + template v1)
+// unless force_new=true.
+
+router.post("/v1/worldsmith/spec-preview", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const body = req.body as {
+    spec_page_id?: string;
+    prompt_hash?: string;
+    force_new?: boolean;
+    dry_run?: boolean;
+  };
+
+  const { spec_page_id: rawId, prompt_hash, force_new = false, dry_run = false } = body;
+
+  if (!rawId || !prompt_hash) {
+    res.status(400).json({
+      error: "spec_page_id and prompt_hash are required",
+      code: "MISSING_FIELDS",
+    });
+    return;
+  }
+
+  let spec_page_id: string;
+  try {
+    spec_page_id = normalizeNotionId(rawId);
+  } catch (normErr) {
+    res.status(400).json({ error: String(normErr), code: "INVALID_SPEC_ID" });
+    return;
+  }
+
+  const user = req.user as import("@workspace/db").User;
+
+  try {
+    const result = await runSpecPreview({
+      spec_page_id,
+      prompt_hash,
+      force_new,
+      dry_run,
+      initiatedBy: user?.id ?? "anonymous",
+    });
+
+    res.json(result);
+  } catch (err) {
+    if (err instanceof SpecPreviewError) {
+      const httpStatus =
+        err.code === "SPEC_NOT_FOUND"     ? 404
+        : err.code === "UPLOAD_FAILED"    ? 502
+        : err.code === "NOTION_FETCH_FAILED" ? 503
+        : 500;
+      res.status(httpStatus).json({ error: err.message, code: err.code });
+    } else {
+      logger.error({ err }, "Spec preview endpoint error");
+      res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
     }
   }
 });

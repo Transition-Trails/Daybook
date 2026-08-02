@@ -114,6 +114,7 @@ import StoreSupportPatterns from "@/pages/store/SupportPatterns";
 import SuperSupportPatterns from "@/pages/super/SupportPatterns";
 import PromoteCatalog from "@/pages/super/PromoteCatalog";
 import WorldSmithCompiler from "@/pages/super/WorldSmithCompiler";
+import WorldSmithHome from "@/pages/super/WorldSmithHome";
 // ── WorldSmith Concept Prototypes (PROTOTYPE_DATA — not production) ──────────
 import ConceptsIndex from "@/pages/super/worldsmith-concepts/index";
 import CommandCenter from "@/pages/super/worldsmith-concepts/concept-command-center/CommandCenter";
@@ -228,7 +229,12 @@ function RootRouter() {
           </SuperAdminShell>
         </RequireSuperAdmin>
       </Route>
+      {/* ── WorldSmith production home (promoted from concept review) ──── */}
       <Route path="/super/worldsmith">
+        <RequireSuperAdmin state={state}><WorldSmithHome /></RequireSuperAdmin>
+      </Route>
+      {/* ── WorldSmith Prompt Compiler (accessible from home) ────────────── */}
+      <Route path="/super/worldsmith/compiler">
         <RequireSuperAdmin state={state}><SuperAdminShell><WorldSmithCompiler /></SuperAdminShell></RequireSuperAdmin>
       </Route>
 

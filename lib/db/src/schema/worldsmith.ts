@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, integer, real, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, integer, real, timestamp, jsonb, index } from "drizzle-orm/pg-core";
 
 // ── WorldSmith Run Repository ─────────────────────────────────────────────────
 // Persists every compilation and generation run for audit and recovery.
@@ -131,3 +131,38 @@ export const worldsmithSpecPreviewsTable = pgTable("worldsmith_spec_previews", {
 
 export type WorldsmithSpecPreview = typeof worldsmithSpecPreviewsTable.$inferSelect;
 export type InsertWorldsmithSpecPreview = typeof worldsmithSpecPreviewsTable.$inferInsert;
+
+// ── WorldSmith Worlds Registry ────────────────────────────────────────────────
+// Persistent registry of creative worlds managed by the WorldSmith system.
+
+export const worldsmithWorldsTable = pgTable("worldsmith_worlds", {
+  id: text("id").primaryKey(),              // slug, e.g. "wychcombe"
+  name: text("name").notNull(),
+  code: text("code").notNull(),             // 3-letter code, e.g. "WYC"
+  description: text("description").notNull().default(""),
+  status: text("status").notNull().default("in_setup"),
+  // active | in_setup | archived
+  coverColor: text("cover_color").notNull().default("linear-gradient(135deg, #1B2A4A 0%, #2A4A6A 100%)"),
+  coverAccent: text("cover_accent").notNull().default("#C87560"),
+  currentCollection: text("current_collection"),
+  currentVolume: text("current_volume"),
+  owner: text("owner").notNull().default(""),
+  tags: jsonb("tags").$type<string[]>().notNull().default([]),
+  // Notion workspace IDs
+  notionProductionDbId: text("notion_production_db_id"),
+  notionCanonDbId: text("notion_canon_db_id"),
+  notionStyleGuideId: text("notion_style_guide_id"),
+  // Google Drive folder
+  driveFolderId: text("drive_folder_id"),
+  // Image provider
+  imageProvider: text("image_provider"),    // dalle3 | stability | none
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type WorldsmithWorld = typeof worldsmithWorldsTable.$inferSelect;
+export type InsertWorldsmithWorld = typeof worldsmithWorldsTable.$inferInsert;

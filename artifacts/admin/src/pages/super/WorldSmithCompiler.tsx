@@ -1180,6 +1180,72 @@ function PreviewSuccessScreen({
 
 // ── Issue List ────────────────────────────────────────────────────────────────
 
+// ── Contract Violation Card (PP-2.0 MISSING_REQUIRED_SECTION) ────────────────
+
+function ContractViolationCard({ e, variant }: { e: ValidationError; variant: "error" | "warning" }) {
+  // governing_rule pattern: "CS-000 PP-2.0 / Journal Card"
+  const ruleParts = e.governing_rule.split(" / ");
+  const rulePrefix = ruleParts[0] ?? e.governing_rule; // "CS-000 PP-2.0"
+  const componentSpec = ruleParts[1] ?? "—";           // "Journal Card"
+
+  // Extract payload version from rule prefix (e.g. "PP-2.0")
+  const payloadVersionMatch = rulePrefix.match(/PP-[\d.]+/);
+  const payloadVersion = payloadVersionMatch ? payloadVersionMatch[0] : rulePrefix;
+
+  const isError = variant === "error";
+  const headerBg    = isError ? "bg-red-600"          : "bg-amber-500";
+  const cardBorder  = isError ? "border-red-200"       : "border-amber-200";
+  const rowBg       = isError ? "bg-red-50/60"         : "bg-amber-50/60";
+  const labelColor  = isError ? "text-red-700"         : "text-amber-700";
+  const fixBg       = isError ? "bg-red-100/70"        : "bg-amber-100/70";
+  const fixBorder   = isError ? "border-red-200"       : "border-amber-200";
+  const fixText     = isError ? "text-red-800"         : "text-amber-800";
+
+  const rows: Array<{ label: string; value: string }> = [
+    { label: "Component Specification", value: componentSpec },
+    { label: "Payload Version",         value: payloadVersion },
+    { label: "Missing Section",         value: e.field },
+    { label: "Required By",             value: "Component Specification Contract" },
+  ];
+
+  return (
+    <div className={`rounded-lg border ${cardBorder} overflow-hidden text-xs`}>
+      {/* Header */}
+      <div className={`${headerBg} px-4 py-2.5 flex items-center gap-2`}>
+        {isError
+          ? <XCircle className="w-3.5 h-3.5 text-white shrink-0" />
+          : <AlertTriangle className="w-3.5 h-3.5 text-white shrink-0" />}
+        <span className="font-semibold text-white tracking-wide uppercase text-[11px]">Payload Contract Validation</span>
+      </div>
+
+      {/* Error title */}
+      <div className={`px-4 py-3 border-b ${cardBorder}`}>
+        <p className={`font-semibold text-sm ${labelColor}`}>
+          {e.code === "MISSING_REQUIRED_SECTION" ? "Missing Required Payload Section" : e.message}
+        </p>
+      </div>
+
+      {/* Field rows */}
+      <div className={`divide-y ${isError ? "divide-red-100" : "divide-amber-100"}`}>
+        {rows.map(({ label, value }) => (
+          <div key={label} className={`grid grid-cols-[168px_1fr] gap-3 px-4 py-2.5 ${rowBg}`}>
+            <span className={`font-medium ${labelColor} self-start`}>{label}</span>
+            <span className="font-mono break-all">{value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Suggested fix */}
+      <div className={`px-4 py-3 ${fixBg} border-t ${fixBorder} flex items-start gap-2`}>
+        <span className={`font-semibold ${fixText} shrink-0`}>Suggested Fix</span>
+        <span className={`${fixText} leading-snug`}>{e.recommended_action}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Issue List ─────────────────────────────────────────────────────────────────
+
 function IssueList({ title, items, variant }: { title: string; items: ValidationError[]; variant: "error" | "warning" }) {
   return (
     <Card>
@@ -1190,20 +1256,24 @@ function IssueList({ title, items, variant }: { title: string; items: Validation
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 pt-0">
-        {items.map((e, i) => (
-          <div key={i} className={`rounded-md p-3 text-xs space-y-1 ${variant === "error" ? "bg-red-50" : "bg-amber-50"}`}>
-            <div className="flex items-center gap-2 flex-wrap">
-              <code className="font-mono font-medium">{e.code}</code>
-              <span className="text-muted-foreground">·</span>
-              <span className="font-medium">{e.field}</span>
-              <span className="text-muted-foreground ml-auto">{e.governing_rule}</span>
+        {items.map((e, i) =>
+          e.code === "MISSING_REQUIRED_SECTION" ? (
+            <ContractViolationCard key={i} e={e} variant={variant} />
+          ) : (
+            <div key={i} className={`rounded-md p-3 text-xs space-y-1 ${variant === "error" ? "bg-red-50" : "bg-amber-50"}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="font-mono font-medium">{e.code}</code>
+                <span className="text-muted-foreground">·</span>
+                <span className="font-medium">{e.field}</span>
+                <span className="text-muted-foreground ml-auto">{e.governing_rule}</span>
+              </div>
+              <p>{e.message}</p>
+              <p className={`font-medium ${variant === "error" ? "text-red-700" : "text-amber-700"}`}>
+                → {e.recommended_action}
+              </p>
             </div>
-            <p>{e.message}</p>
-            <p className={`font-medium ${variant === "error" ? "text-red-700" : "text-amber-700"}`}>
-              → {e.recommended_action}
-            </p>
-          </div>
-        ))}
+          )
+        )}
       </CardContent>
     </Card>
   );

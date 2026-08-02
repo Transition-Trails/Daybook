@@ -114,6 +114,12 @@ import StoreSupportPatterns from "@/pages/store/SupportPatterns";
 import SuperSupportPatterns from "@/pages/super/SupportPatterns";
 import PromoteCatalog from "@/pages/super/PromoteCatalog";
 import WorldSmithCompiler from "@/pages/super/WorldSmithCompiler";
+// ── WorldSmith Concept Prototypes (PROTOTYPE_DATA — not production) ──────────
+import ConceptsIndex from "@/pages/super/worldsmith-concepts/index";
+import CommandCenter from "@/pages/super/worldsmith-concepts/concept-command-center/CommandCenter";
+import WorldGallery from "@/pages/super/worldsmith-concepts/concept-world-gallery/WorldGallery";
+import GuidedWorkspace from "@/pages/super/worldsmith-concepts/concept-guided-workspace/GuidedWorkspace";
+import { WorldsmithPrototypeProvider } from "@/pages/super/worldsmith-concepts/prototype-context";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -198,6 +204,29 @@ function RootRouter() {
       </Route>
       <Route path="/super/support/patterns">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperSupportPatterns /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      {/* ── WorldSmith concept prototypes (PROTOTYPE_DATA) ─────────────── */}
+      <Route path="/super/worldsmith/concepts/command-center">
+        <RequireSuperAdmin state={state}>
+          <WorldsmithPrototypeProvider><CommandCenter /></WorldsmithPrototypeProvider>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/concepts/world-gallery">
+        <RequireSuperAdmin state={state}>
+          <WorldsmithPrototypeProvider><WorldGallery /></WorldsmithPrototypeProvider>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/concepts/guided-workspace">
+        <RequireSuperAdmin state={state}>
+          <WorldsmithPrototypeProvider><GuidedWorkspace /></WorldsmithPrototypeProvider>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/concepts">
+        <RequireSuperAdmin state={state}>
+          <SuperAdminShell>
+            <WorldsmithPrototypeProvider><ConceptsIndex /></WorldsmithPrototypeProvider>
+          </SuperAdminShell>
+        </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith">
         <RequireSuperAdmin state={state}><SuperAdminShell><WorldSmithCompiler /></SuperAdminShell></RequireSuperAdmin>

@@ -14,7 +14,8 @@
     "quality:check-ci": "tsx scripts/run-quality-check.ts",
     "test:links": "vitest run --config vitest.links.config.ts",
     "test:watch": "vitest",
-    "migrate-related-products": "npx tsx src/migrate-related-products.ts"
+    "migrate-related-products": "npx tsx src/migrate-related-products.ts",
+    "smoke-test:worldsmith": "tsx scripts/smoke-test-worldsmith.ts"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.21.0",

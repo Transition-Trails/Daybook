@@ -277,7 +277,26 @@ export default function WorldSmithCompiler() {
               <Loader2 className="w-4 h-4 animate-spin" /> Loading runs…
             </div>
           )}
-          {!runsQuery.isLoading && (
+          {runsQuery.isError && !runsQuery.isLoading && (
+            <div className="flex items-center gap-3 p-4 rounded-lg border border-red-200 bg-red-50">
+              <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-red-700">Failed to load runs</p>
+                <p className="text-xs text-red-600 mt-0.5">
+                  {(runsQuery.error as Error)?.message ?? "Unknown error"}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 border-red-300 text-red-700 hover:bg-red-100"
+                onClick={() => runsQuery.refetch()}
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />Retry
+              </Button>
+            </div>
+          )}
+          {!runsQuery.isLoading && !runsQuery.isError && (
             <p className="text-xs text-muted-foreground">
               {(runsQuery.data?.runs ?? []).length === 0
                 ? "No runs found."
@@ -553,6 +572,26 @@ function RunRow({ run }: { run: RunRecord }) {
           {detailQuery.isLoading && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading details…
+            </div>
+          )}
+
+          {detailQuery.isError && !detailQuery.isLoading && (
+            <div className="flex items-center gap-3 p-3 rounded-md border border-red-200 bg-red-50">
+              <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-red-700">Failed to load run details</p>
+                <p className="text-xs text-red-600 mt-0.5">
+                  {(detailQuery.error as Error)?.message ?? "Unknown error"}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 h-7 px-2 text-xs border-red-300 text-red-700 hover:bg-red-100"
+                onClick={() => detailQuery.refetch()}
+              >
+                <RefreshCw className="w-3 h-3 mr-1" />Retry
+              </Button>
             </div>
           )}
 

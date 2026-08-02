@@ -382,8 +382,9 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
     specPageId: pageId,
     productionItem: productionSpec.productionItem,
     payloadVersion: productionSpec.payloadVersion || "(blank)",
-    promptPayload: productionSpec.promptPayload || "(blank)",
+    promptPayload: productionSpec.promptPayload ? "(present)" : "(blank)",
     promptPayloadId: productionSpec.promptPayloadId || "(none — not a relation)",
+    payloadVersionRaw: page.properties["Payload Version"],
     allPropertyKeys: Object.keys(page.properties),
   }, "WorldSmith: Production Spec extracted");
 

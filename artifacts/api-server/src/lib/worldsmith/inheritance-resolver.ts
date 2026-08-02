@@ -281,8 +281,30 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
   try {
     page = await getPage(pageId);
   } catch (err) {
+    const msg = String(err);
+    const errName = (err instanceof Error) ? err.name : "";
+    // Distinguish error classes so callers can react appropriately
+    if (/429|rate.?limit/i.test(msg)) {
+      throw new InheritanceError(
+        `Notion rate-limited while fetching Production Specification (page ${pageId}): ${msg}`,
+        "fetch_production_spec",
+        "NOTION_RATE_LIMITED",
+        true,
+      );
+    }
+    if (
+      errName === "AbortError" ||
+      /ETIMEDOUT|ENOTFOUND|ECONNREFUSED|ECONNRESET|network|timeout|unreachable/i.test(msg)
+    ) {
+      throw new InheritanceError(
+        `Notion is unreachable while fetching Production Specification (page ${pageId}): ${msg}`,
+        "fetch_production_spec",
+        "NOTION_UNREACHABLE",
+        true,
+      );
+    }
     throw new InheritanceError(
-      `Failed to fetch Production Specification (Notion page ${pageId}): ${String(err)}`,
+      `Failed to fetch Production Specification (Notion page ${pageId}): ${msg}`,
       "fetch_production_spec",
       "NOTION_PAGE_NOT_FOUND",
       true,

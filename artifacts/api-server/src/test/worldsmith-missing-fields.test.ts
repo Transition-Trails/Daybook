@@ -283,6 +283,59 @@ describe("runCompilation — Notion 404", () => {
   });
 });
 
+describe("runCompilation — Notion network timeout", () => {
+  it("returns a structured failed response (not an unhandled rejection)", async () => {
+    const timeoutErr = new Error("connect ETIMEDOUT 2a00:1450:4001:82b::200a:443");
+    mockGetPage.mockRejectedValue(timeoutErr);
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_UNREACHABLE");
+    expect(result.failed_stage).toBe("fetch_production_spec");
+    expect(result.retry_safe).toBe(true);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors![0].code).toBe("NOTION_UNREACHABLE");
+  });
+
+  it("treats an AbortError as unreachable (not a crash)", async () => {
+    const abortErr = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+    mockGetPage.mockRejectedValue(abortErr);
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_UNREACHABLE");
+    expect(result.retry_safe).toBe(true);
+  });
+});
+
+describe("runCompilation — Notion 429 rate-limit", () => {
+  it("returns a structured failed response with retry_safe=true", async () => {
+    mockGetPage.mockRejectedValue(
+      new Error("Notion API GET /pages/spec-test → 429: Too Many Requests"),
+    );
+
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("NOTION_RATE_LIMITED");
+    expect(result.failed_stage).toBe("fetch_production_spec");
+    expect(result.retry_safe).toBe(true);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors![0].code).toBe("NOTION_RATE_LIMITED");
+  });
+});
+
 // ── HTTP integration tests — confirm the route maps status → HTTP code ────────
 
 describe("POST /api/v1/prompt-compilations — HTTP status codes", () => {
@@ -349,6 +402,40 @@ describe("POST /api/v1/prompt-compilations — HTTP status codes", () => {
     expect(res.body.status).toBe("failed");
     expect(res.body.error_code).toBe("NOTION_PAGE_NOT_FOUND");
     // errors array must be present and populated
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+  });
+
+  it("Notion network timeout → 503 structured response (not 500 crash)", async () => {
+    mockGetPage.mockRejectedValue(
+      new Error("connect ETIMEDOUT 2a00:1450:4001:82b::200a:443"),
+    );
+
+    const res = await request(app)
+      .post("/api/v1/prompt-compilations")
+      .send({ notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true });
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error_code).toBe("NOTION_UNREACHABLE");
+    expect(res.body.retry_safe).toBe(true);
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+  });
+
+  it("Notion 429 rate-limit → 503 structured response with retry_safe=true", async () => {
+    mockGetPage.mockRejectedValue(
+      new Error("Notion API GET /pages/spec-test → 429: Too Many Requests"),
+    );
+
+    const res = await request(app)
+      .post("/api/v1/prompt-compilations")
+      .send({ notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true });
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error_code).toBe("NOTION_RATE_LIMITED");
+    expect(res.body.retry_safe).toBe(true);
     expect(Array.isArray(res.body.errors)).toBe(true);
     expect(res.body.errors.length).toBeGreaterThan(0);
   });

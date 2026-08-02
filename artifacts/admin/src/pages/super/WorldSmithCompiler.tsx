@@ -3692,31 +3692,59 @@ function RunRow({ run }: { run: RunRecord }) {
                 <div><p className="text-muted-foreground mb-0.5">Compiled status</p><span>{detail.compiled_prompt_status ?? "—"}</span></div>
               </div>
 
-              {/* ── Collection provenance ─────────────────────────────────── */}
+              {/* ── World / Collection / Volume provenance ───────────────── */}
               {(() => {
                 const src = detail.resolved_source_ids ?? {};
-                const collectionName = typeof src.collection_name === "string" ? src.collection_name : null;
-                const collectionNotionId = typeof src.collection === "string" ? src.collection : null;
-                const url = notionUrl(collectionNotionId ?? undefined);
-                if (!collectionName && !collectionNotionId) return null;
-                return (
-                  <div className="rounded-md border border-border bg-background p-3 space-y-1.5">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-                      <Info className="w-3.5 h-3.5" />Collection (captured at compile time)
-                    </p>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium">{collectionName ?? "—"}</span>
-                      {url && (
-                        <a href={url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground shrink-0">
-                          <ExternalLink className="w-3.5 h-3.5" />Open in Notion
-                        </a>
-                      )}
+
+                // Helper: render one provenance row for a named Notion record
+                const ProvenanceRow = ({
+                  label,
+                  name,
+                  notionId,
+                }: {
+                  label: string;
+                  name: string | null;
+                  notionId: string | null;
+                }) => {
+                  if (!name && !notionId) return null;
+                  const url = notionUrl(notionId ?? undefined);
+                  return (
+                    <div className="rounded-md border border-border bg-background p-3 space-y-1.5">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                        <Info className="w-3.5 h-3.5" />{label} (captured at compile time)
+                      </p>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium">{name ?? "—"}</span>
+                        {url && (
+                          <a href={url} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground shrink-0">
+                            <ExternalLink className="w-3.5 h-3.5" />Open in Notion
+                          </a>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        This name was recorded when the run compiled. If the {label} was renamed in Notion since then, open the Notion link to verify the current name.
+                      </p>
                     </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      This name was recorded when the run compiled. If the Collection was renamed in Notion since then, open the Notion link to verify the current name.
-                    </p>
-                  </div>
+                  );
+                };
+
+                const worldName      = typeof src.world_name        === "string" ? src.world_name        : null;
+                const worldId        = typeof src.world_notion_id    === "string" ? src.world_notion_id    : null;
+                const collectionName = typeof src.collection_name    === "string" ? src.collection_name    : null;
+                // collection_notion_id is the preferred key; fall back to legacy "collection" key
+                const collectionId   = typeof src.collection_notion_id === "string" ? src.collection_notion_id
+                                     : typeof src.collection            === "string" ? src.collection : null;
+                const volumeName     = typeof src.volume_name        === "string" ? src.volume_name        : null;
+                const volumeId       = typeof src.volume_notion_id   === "string" ? src.volume_notion_id   : null;
+
+                if (!worldName && !worldId && !collectionName && !collectionId && !volumeName && !volumeId) return null;
+                return (
+                  <>
+                    <ProvenanceRow label="World"      name={worldName}      notionId={worldId}      />
+                    <ProvenanceRow label="Collection" name={collectionName} notionId={collectionId} />
+                    <ProvenanceRow label="Volume"     name={volumeName}     notionId={volumeId}     />
+                  </>
                 );
               })()}
 

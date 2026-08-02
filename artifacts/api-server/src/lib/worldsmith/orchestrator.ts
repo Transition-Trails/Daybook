@@ -101,11 +101,20 @@ export async function runCompilation(
       return failResponse(specId, "inheritance_resolution", "INHERITANCE_ERROR", msg, [], true, null, null, runId);
     }
 
-    // Extend resolvedSourceIds with human-readable collection name so run history
-    // can show it even after the Notion record is renamed.
+    // Extend resolvedSourceIds with human-readable names and Notion IDs for World,
+    // Collection, and Volume so run history can show them even after the Notion
+    // records are renamed.  All three follow the same snapshot-at-compile-time
+    // strategy: the name is captured once and displayed with a "captured at
+    // compile time" note; the Notion ID is stored so operators can deep-link to
+    // verify the current name.
     const extendedSourceIds: Record<string, string | string[]> = {
       ...chain.resolvedSourceIds,
-      ...(chain.productionSpec.collection ? { collection_name: chain.productionSpec.collection } : {}),
+      ...(chain.productionSpec.world       ? { world_name:          chain.productionSpec.world }       : {}),
+      ...(chain.productionSpec.worldId     ? { world_notion_id:     chain.productionSpec.worldId }     : {}),
+      ...(chain.productionSpec.collection  ? { collection_name:     chain.productionSpec.collection }  : {}),
+      ...(chain.productionSpec.collectionId ? { collection_notion_id: chain.productionSpec.collectionId } : {}),
+      ...(chain.productionSpec.volume      ? { volume_name:         chain.productionSpec.volume }      : {}),
+      ...(chain.productionSpec.volumeId    ? { volume_notion_id:    chain.productionSpec.volumeId }    : {}),
     };
     await updateRun(runId, {
       resolvedSourceIds: extendedSourceIds,

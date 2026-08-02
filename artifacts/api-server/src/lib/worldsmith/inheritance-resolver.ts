@@ -378,15 +378,6 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
   resolvedSourceIds["production_spec"] = pageId;
 
   // Debug: log what was extracted so we can diagnose missing fields
-  logger.info({
-    specPageId: pageId,
-    productionItem: productionSpec.productionItem,
-    payloadVersion: productionSpec.payloadVersion || "(blank)",
-    promptPayload: productionSpec.promptPayload ? "(present)" : "(blank)",
-    promptPayloadId: productionSpec.promptPayloadId || "(none — not a relation)",
-    payloadVersionRaw: page.properties["Payload Version"],
-    allPropertyKeys: Object.keys(page.properties),
-  }, "WorldSmith: Production Spec extracted");
 
   // ── Stage 3a: Validate core identity ────────────────────────────────────
   if (!productionSpec.world) {

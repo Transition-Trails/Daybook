@@ -70,6 +70,16 @@ function extractProductionSpec(page: NotionPage): ProductionSpec {
     extractRelation(p["World"])?.[0] ||
     "";
 
+  // Collection sits between World and Volume in the inheritance chain.
+  // It may be a relation to a Collection record or a plain text / select field.
+  const collectionId =
+    extractRelation(p["Collection"])?.[0] ||
+    extractRelation(p["Collection Record"])?.[0];
+  const collection =
+    extractRichText(p["Collection"]) ||
+    extractSelect(p["Collection"]) ||
+    extractRichText(p["Collection Name"]);
+
   const volume =
     extractRichText(p["Volume"]) ||
     extractSelect(p["Volume"]) ||
@@ -165,6 +175,8 @@ function extractProductionSpec(page: NotionPage): ProductionSpec {
     componentSet,
     heroFamily,
     world,
+    collection: collection || undefined,
+    collectionId: collectionId || undefined,
     volume,
     currentVersion,
     designIntent,

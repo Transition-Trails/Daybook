@@ -75,6 +75,8 @@ interface ProvenanceRecord {
   component_type: string;
   component_set?: string;
   world: string;
+  collection?: string;
+  collection_notion_id?: string;
   volume?: string;
   style_guide?: string;
   component_specification?: string;
@@ -1181,6 +1183,7 @@ function ResolvePanel({
   const records: Array<{ label: string; value: string | null | undefined; resolved: boolean; notionId?: string; detail?: string }> = [
     { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification, resolved: true,               notionId: prov?.production_spec_notion_id },
     { label: "World",                    value: prov?.world ?? preflight?.world,                                    resolved: !!(prov?.world ?? preflight?.world) },
+    { label: "Collection",               value: prov?.collection ?? "—",                                            resolved: !!prov?.collection,  notionId: prov?.collection_notion_id },
     { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—",                           resolved: !!(prov?.volume ?? preflight?.volume) },
     { label: "Component Set",            value: prov?.component_set ?? "—",                                         resolved: !!prov?.component_set },
     { label: "Component Specification",  value: prov?.component_specification ?? preflight?.component_specification, resolved: !!(prov?.component_specification ?? preflight?.component_specification), notionId: prov?.component_spec_notion_id },
@@ -1299,6 +1302,13 @@ function InspectorTab({
       source: "World record",
       status: prov?.world ? "ok" : "missing",
     },
+    ...(prov?.collection ? [{
+      label: "Collection",
+      value: prov.collection,
+      source: "Collection record",
+      status: "ok" as const,
+      notionId: prov.collection_notion_id,
+    }] : []),
     ...(prov?.volume ? [{ label: "Volume", value: prov.volume, source: "Volume record", status: "ok" as const }] : []),
     {
       label: "Style Guide",
@@ -1459,6 +1469,7 @@ function ProvenanceChain({ prov }: { prov: ProvenanceRecord | null }) {
     { label: "Production Specification", value: prov.production_spec_title, notionId: prov.production_spec_notion_id },
     ...(prov.component_specification ? [{ label: "Component Specification", value: prov.component_specification, notionId: prov.component_spec_notion_id }] : []),
     ...(prov.style_guide ? [{ label: "Style Guide", value: prov.style_guide, notionId: prov.style_guide_notion_id }] : []),
+    ...(prov.collection ? [{ label: "Collection", value: prov.collection, notionId: prov.collection_notion_id }] : []),
     ...(prov.prompt_modules.length > 0 ? [{ label: "Prompt Modules", value: prov.prompt_modules.join(", ") }] : []),
     { label: "Prompt Payload", value: prov.payload_version, notionId: prov.prompt_payload_notion_id },
     ...(prov.canon_records.length > 0 ? [{ label: "Canon Records", value: prov.canon_records.join(", ") }] : []),

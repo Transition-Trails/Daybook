@@ -11,6 +11,8 @@ export interface ProductionSpec {
   componentSet?: string;
   heroFamily?: string;
   world: string;
+  collection?: string;
+  collectionId?: string;  // Notion page ID of the linked Collection record
   volume?: string;
   currentVersion: string;
   // Creative definition
@@ -258,6 +260,8 @@ export interface ProvenanceRecord {
   component_type: string;
   component_set?: string;
   world: string;
+  collection?: string;
+  collection_notion_id?: string;
   volume?: string;
   style_guide?: string;
   component_specification?: string;

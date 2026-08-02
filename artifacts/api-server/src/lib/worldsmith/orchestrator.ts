@@ -284,6 +284,8 @@ export async function runCompilation(
       component_type: spec.componentType,
       component_set: spec.componentSet,
       world: spec.world,
+      collection: spec.collection,
+      collection_notion_id: spec.collectionId,
       volume: spec.volume,
       style_guide: chain.styleGuide?.name,
       component_specification: chain.componentSpec?.name,

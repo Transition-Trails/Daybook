@@ -4,7 +4,7 @@
  */
 import { db } from "@workspace/db";
 import { worldsmithRunsTable, type InsertWorldsmithRun } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { ValidationError } from "./types";
 
@@ -128,4 +128,84 @@ export async function failRun(
     errors,
     completedAt: new Date(),
   });
+}
+
+/**
+ * On startup (or periodically), mark any run that is still in
+ * 'compiling' or 'pending' after `staleAfterMinutes` as failed
+ * with errorCode INTERRUPTED.  Returns the number of rows updated.
+ */
+export async function recoverStaleRuns(staleAfterMinutes = 30): Promise<number> {
+  const cutoff = new Date(Date.now() - staleAfterMinutes * 60 * 1000);
+
+  const staleRows = await db
+    .select({ id: worldsmithRunsTable.id })
+    .from(worldsmithRunsTable)
+    .where(
+      and(
+        inArray(worldsmithRunsTable.status, ["compiling", "pending"]),
+        lt(worldsmithRunsTable.startedAt, cutoff),
+      ),
+    );
+
+  if (staleRows.length === 0) return 0;
+
+  const interruptedError = {
+    code: "INTERRUPTED",
+    field: "server",
+    governing_rule: "CS-000",
+    message: "The server restarted while this run was in progress.",
+    recommended_action: "Retry the compilation.",
+  };
+
+  for (const row of staleRows) {
+    await updateRun(row.id, {
+      status: "failed",
+      failedStage: "server_restart",
+      errorCode: "INTERRUPTED",
+      errors: [interruptedError],
+      completedAt: new Date(),
+    });
+  }
+
+  return staleRows.length;
+}
+
+/**
+ * Before starting a new run for a given spec, fail any run that is
+ * still stuck in 'compiling' or 'pending' for that spec (regardless
+ * of age). Returns the number of rows recovered.
+ */
+export async function failStaleRunsForSpec(productionSpecId: string): Promise<number> {
+  const staleRows = await db
+    .select({ id: worldsmithRunsTable.id })
+    .from(worldsmithRunsTable)
+    .where(
+      and(
+        eq(worldsmithRunsTable.productionSpecId, productionSpecId),
+        inArray(worldsmithRunsTable.status, ["compiling", "pending"]),
+      ),
+    );
+
+  if (staleRows.length === 0) return 0;
+
+  const interruptedError = {
+    code: "INTERRUPTED",
+    field: "server",
+    governing_rule: "CS-000",
+    message: "A new compile was requested for this spec while a previous run was still in progress.",
+    recommended_action: "The previous run has been marked as interrupted.",
+  };
+
+  for (const row of staleRows) {
+    await updateRun(row.id, {
+      status: "failed",
+      failedStage: "superseded",
+      errorCode: "INTERRUPTED",
+      errors: [interruptedError],
+      completedAt: new Date(),
+    });
+  }
+
+  return staleRows.length;
 }

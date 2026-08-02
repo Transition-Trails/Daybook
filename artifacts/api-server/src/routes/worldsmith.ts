@@ -10,7 +10,7 @@
 import { Router } from "express";
 import { requireAuth } from "../lib/auth-middleware";
 import { runCompilation } from "../lib/worldsmith/orchestrator";
-import { getRun, getRunsBySpec } from "../lib/worldsmith/run-repository";
+import { getRun, getRunsBySpec, failStaleRunsForSpec } from "../lib/worldsmith/run-repository";
 import { getAsset, getAssetBySpec } from "../lib/worldsmith/daybook-adapter";
 import { db } from "@workspace/db";
 import { worldsmithAssetsTable, worldsmithRunsTable } from "@workspace/db";
@@ -53,6 +53,13 @@ router.post("/v1/prompt-compilations", requireAuth, async (req: Request, res: Re
   const user = req.user as User;
 
   try {
+    // Fail any run for this spec that is still stuck in 'compiling' or 'pending'
+    // from a previous server instance so the UI never shows a perpetual spinner.
+    const recovered = await failStaleRunsForSpec(notion_production_spec_id);
+    if (recovered > 0) {
+      logger.warn({ specId: notion_production_spec_id, recovered }, "WorldSmith: failed stale in-progress run before starting new compile");
+    }
+
     const result = await runCompilation(
       {
         notion_production_spec_id,
@@ -137,16 +144,39 @@ router.get("/v1/worldsmith/runs", requireAuth, async (req: Request, res: Respons
   const specId = req.query.spec_id as string | undefined;
 
   try {
-    let runs;
+    let rawRuns;
     if (specId) {
-      runs = await getRunsBySpec(specId, 20);
+      rawRuns = await getRunsBySpec(specId, 20);
     } else {
-      runs = await db
+      rawRuns = await db
         .select()
         .from(worldsmithRunsTable)
         .orderBy(desc(worldsmithRunsTable.startedAt))
         .limit(50);
     }
+    const runs = rawRuns.map((run) => ({
+      run_id: run.id,
+      status: run.status,
+      production_spec_id: run.productionSpecId,
+      operation: run.operation,
+      dry_run: run.dryRun,
+      payload_version: run.payloadVersion,
+      compiled_prompt_status: run.compiledPromptStatus,
+      prompt_hash: run.promptHash,
+      asset_id: run.assetId,
+      asset_version: run.assetVersion,
+      visual_asset_id: run.visualAssetNotionId,
+      drive_file_id: run.driveFileId,
+      drive_url: run.driveUrl,
+      errors: run.errors ?? [],
+      warnings: run.warnings ?? [],
+      failed_stage: run.failedStage,
+      error_code: run.errorCode,
+      retry_count: run.retryCount,
+      initiated_by: run.initiatedBy,
+      started_at: run.startedAt,
+      completed_at: run.completedAt,
+    }));
     res.json({ runs });
   } catch (err) {
     logger.error({ err }, "Failed to list runs");

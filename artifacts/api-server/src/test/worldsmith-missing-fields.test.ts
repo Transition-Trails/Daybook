@@ -30,6 +30,7 @@ vi.mock("../lib/worldsmith/run-repository.js", () => ({
   failRun: vi.fn().mockResolvedValue(undefined),
   getRun: vi.fn().mockResolvedValue(null),
   getRunsBySpec: vi.fn().mockResolvedValue([]),
+  failStaleRunsForSpec: vi.fn().mockResolvedValue(0),
 }));
 
 vi.mock("../lib/worldsmith/daybook-adapter.js", () => ({

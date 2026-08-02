@@ -54,6 +54,8 @@ interface RunRecord {
   asset_id?: string;
   errors?: ValidationError[];
   warnings?: ValidationError[];
+  failed_stage?: string;
+  error_code?: string;
   started_at: string;
   completed_at?: string;
   retry_count: number;
@@ -461,12 +463,19 @@ function RunRow({ run }: { run: RunRecord }) {
     compiling: "bg-blue-100 text-blue-700",
   };
 
+  // Interrupted runs are a distinct case — failed due to server restart, not a data error.
+  const isInterrupted = run.status === "failed" && run.error_code === "INTERRUPTED";
+  const badgeClass = isInterrupted
+    ? "bg-orange-100 text-orange-700"
+    : (statusColors[run.status] ?? "bg-gray-100 text-gray-600");
+  const badgeLabel = isInterrupted ? "interrupted" : run.status;
+
   return (
     <Card>
       <CardContent className="pt-3 pb-3">
         <div className="flex items-center gap-3 flex-wrap">
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[run.status] ?? "bg-gray-100 text-gray-600"}`}>
-            {run.status}
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeClass}`}>
+            {badgeLabel}
           </span>
           <code className="text-xs font-mono text-muted-foreground">{run.run_id.slice(0, 8)}…</code>
           <code className="text-xs font-mono flex-1 truncate min-w-0">{run.production_spec_id}</code>

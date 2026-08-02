@@ -574,10 +574,16 @@ function RunRow({ run }: { run: RunRecord }) {
             </span>
           )}
 
-          {/* Inline error preview (collapsed state only) */}
+          {/* Inline error/warning preview (collapsed state only) */}
           {!expanded && (run.errors ?? []).length > 0 && (
             <p className="text-xs text-red-600 mt-1.5 pl-0.5">
               {run.errors![0].code}: {run.errors![0].message}
+            </p>
+          )}
+          {!expanded && (run.warnings ?? []).length > 0 && (
+            <p className="text-xs text-amber-600 mt-1 pl-0.5 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              {run.warnings!.length} {run.warnings!.length === 1 ? "warning" : "warnings"} — expand to review
             </p>
           )}
         </CardContent>

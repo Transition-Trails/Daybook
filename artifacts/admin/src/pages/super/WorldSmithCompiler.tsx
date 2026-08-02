@@ -763,23 +763,14 @@ function InspectorScreen({
 
   return (
     <div className="space-y-4">
-      {/* Engine header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-[11px] font-semibold text-[#1B2A4A] uppercase tracking-widest">Publishing Pipeline</p>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {errCount > 0
-              ? <span className="text-red-600 font-medium">{errCount} error{errCount !== 1 ? "s" : ""} — review Validate stage before proceeding</span>
-              : warnCount > 0
-              ? <span className="text-amber-600">{warnCount} warning{warnCount !== 1 ? "s" : ""} · {isLegacy ? "PP-1.0 legacy format" : "PP-2.0 structured payload"}</span>
-              : <span className="text-emerald-700 font-medium">All governance checks passed · {isLegacy ? "PP-1.0" : "PP-2.0"} · ready for Specification Board</span>
-            }
-          </p>
-        </div>
-        <Button size="sm" variant="ghost" onClick={onReset} className="shrink-0 text-muted-foreground hover:text-foreground">
-          <RefreshCw className="w-3.5 h-3.5 mr-1.5" />New
-        </Button>
-      </div>
+      {/* Status Overview Card */}
+      <StatusOverviewCard
+        result={result}
+        preflight={preflight}
+        prov={prov ?? null}
+        onReset={onReset}
+        setActiveStage={setActiveStage}
+      />
 
       {/* Publishing Pipeline — the navigation */}
       <PublishingPipeline result={result} activeStage={activeStage} setActiveStage={setActiveStage} />
@@ -803,6 +794,182 @@ function InspectorScreen({
         </div>
       )}
     </div>
+  );
+}
+
+// ── Readiness score ───────────────────────────────────────────────────────────
+
+function calcReadiness(
+  result: CompileResponse,
+  prov: ProvenanceRecord | null,
+  preflight: PreflightResponse | null,
+): number {
+  // Weighted checklist — total weight = 100
+  const items: Array<{ ok: boolean; weight: number }> = [
+    { ok: true,                                                                                    weight: 15 }, // Production Specification — always present after compile
+    { ok: !!(prov?.component_specification ?? preflight?.component_specification),                 weight: 15 }, // Component Specification
+    { ok: !!result.prompt_hash,                                                                    weight: 12 }, // Prompt Hash
+    { ok: true,                                                                                    weight: 12 }, // Prompt Payload — must exist to compile
+    { ok: !!prov?.component_type,                                                                  weight: 11 }, // Print Specification
+    { ok: !!prov?.style_guide,                                                                     weight: 12 }, // Style Guide
+    { ok: (prov?.prompt_modules.length ?? preflight?.prompt_module_count ?? 0) > 0,               weight:  9 }, // Prompt Modules
+    { ok: (prov?.canon_records.length  ?? preflight?.canon_record_count  ?? 0) > 0,               weight:  8 }, // Canon
+    { ok: prov?.payload_format !== "legacy",                                                       weight:  6 }, // PP-2.0 contract
+  ];
+  const total  = items.reduce((s, i) => s + i.weight, 0);
+  const earned = items.reduce((s, i) => s + (i.ok ? i.weight : 0), 0);
+  return Math.round((earned / total) * 100);
+}
+
+// Derives a short abbreviation from a component type string, e.g. "Journal Card" → "JC"
+function componentAbbr(componentType: string | null | undefined): string {
+  if (!componentType) return "";
+  return componentType
+    .split(/\s+/)
+    .map(w => w[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+// ── Status Overview Card ───────────────────────────────────────────────────────
+
+function StatusOverviewCard({
+  result, preflight, prov, onReset, setActiveStage,
+}: {
+  result: CompileResponse;
+  preflight: PreflightResponse | null;
+  prov: ProvenanceRecord | null;
+  onReset: () => void;
+  setActiveStage: (s: PipelineStageKey) => void;
+}) {
+  const specTitle   = prov?.production_spec_title ?? preflight?.production_specification ?? "Production Specification";
+  const compType    = prov?.component_type ?? preflight?.component_type;
+  const abbr        = componentAbbr(compType);
+  const specUrl     = notionUrl(prov?.production_spec_notion_id);
+  const readiness   = calcReadiness(result, prov, preflight);
+  const errCount    = (result.errors ?? []).length;
+  const recCount    = (result.warnings ?? []).filter(w => RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const warnCount   = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const isLegacy    = prov?.payload_format === "legacy";
+
+  const nextAction  = errCount > 0
+    ? "Resolve Validation Errors"
+    : "Generate Specification Board";
+
+  const validationLine =
+    errCount > 0
+      ? `${errCount} Error${errCount !== 1 ? "s" : ""}${warnCount > 0 ? ` • ${warnCount} Warning${warnCount !== 1 ? "s" : ""}` : ""}${recCount > 0 ? ` • ${recCount} Recommendation${recCount !== 1 ? "s" : ""}` : ""}`
+      : warnCount > 0
+      ? `0 Errors • ${warnCount} Warning${warnCount !== 1 ? "s" : ""}${recCount > 0 ? ` • ${recCount} Recommendation${recCount !== 1 ? "s" : ""}` : ""}`
+      : recCount > 0
+      ? `0 Errors • ${recCount} Recommendation${recCount !== 1 ? "s" : ""}`
+      : "0 Errors • Passed";
+
+  // progress bar colour
+  const barColor = errCount > 0 ? "bg-red-500" : readiness >= 90 ? "bg-emerald-500" : readiness >= 70 ? "bg-amber-400" : "bg-orange-400";
+  const readinessLabel = errCount > 0 ? "text-red-600" : readiness >= 90 ? "text-emerald-700" : "text-amber-600";
+
+  return (
+    <Card className="border-[#1B2A4A]/20 bg-[#1B2A4A]/[0.02] overflow-hidden">
+      {/* Top strip — spec identity */}
+      <div className="px-5 pt-4 pb-3 border-b border-[#1B2A4A]/10">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              {abbr && (
+                <span className="text-[11px] font-bold text-[#1B2A4A] bg-[#1B2A4A]/10 px-2 py-0.5 rounded font-mono tracking-wide">{abbr}</span>
+              )}
+              <h2 className="text-base font-semibold text-[#1B2A4A] leading-tight">{specTitle}</h2>
+            </div>
+            {compType && <p className="text-xs text-muted-foreground mt-0.5">{compType}{isLegacy ? " · PP-1.0 legacy" : " · PP-2.0"}</p>}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {specUrl && (
+              <a href={specUrl} target="_blank" rel="noopener noreferrer">
+                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Button>
+              </a>
+            )}
+            <Button size="sm" variant="ghost" onClick={onReset} className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1">
+              <RefreshCw className="w-3 h-3" />New
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Three stat columns */}
+      <div className="grid grid-cols-3 divide-x divide-[#1B2A4A]/10">
+        {/* Publishing Stage */}
+        <div className="px-5 py-4">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">Publishing Stage</p>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-[#1B2A4A] animate-pulse shrink-0" />
+            <p className="text-sm font-semibold text-[#1B2A4A]">Ready for Specification Board</p>
+          </div>
+        </div>
+
+        {/* Production Readiness */}
+        <div className="px-5 py-4">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">Production Readiness</p>
+          <div className="flex items-end gap-2">
+            <p className={`text-2xl font-bold leading-none ${readinessLabel}`}>{readiness}%</p>
+          </div>
+          <div className="mt-2 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+            <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${readiness}%` }} />
+          </div>
+        </div>
+
+        {/* Validation */}
+        <div className="px-5 py-4">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">Validation</p>
+          <button
+            type="button"
+            onClick={() => setActiveStage("validate")}
+            className="text-left group"
+          >
+            {errCount > 0 && (
+              <p className="text-sm font-semibold text-red-600 group-hover:underline">
+                {errCount} Error{errCount !== 1 ? "s" : ""}
+              </p>
+            )}
+            {warnCount > 0 && (
+              <p className="text-sm font-semibold text-amber-600 group-hover:underline">
+                {warnCount} Warning{warnCount !== 1 ? "s" : ""}
+              </p>
+            )}
+            {errCount === 0 && warnCount === 0 && (
+              <p className="text-sm font-semibold text-emerald-700">0 Errors</p>
+            )}
+            {recCount > 0 && (
+              <p className="text-xs text-blue-600 mt-0.5 group-hover:underline">
+                {recCount} Recommendation{recCount !== 1 ? "s" : ""}
+              </p>
+            )}
+            {errCount === 0 && warnCount === 0 && recCount === 0 && (
+              <p className="text-xs text-emerald-600">Passed</p>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Next Action footer */}
+      <div className="px-5 py-3 border-t border-[#1B2A4A]/10 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest shrink-0">Next Action</p>
+          <p className="text-sm font-semibold text-[#1B2A4A] truncate">{nextAction}</p>
+        </div>
+        <Button
+          size="sm"
+          className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white shrink-0 gap-1.5"
+          onClick={() => errCount > 0
+            ? setActiveStage("validate")
+            : document.getElementById("spec-preview-card")?.scrollIntoView({ behavior: "smooth" })
+          }
+        >
+          {errCount > 0 ? <><XCircle className="w-3.5 h-3.5" />Review Errors</> : <><ImagePlus className="w-3.5 h-3.5" />Generate</>}
+        </Button>
+      </div>
+    </Card>
   );
 }
 

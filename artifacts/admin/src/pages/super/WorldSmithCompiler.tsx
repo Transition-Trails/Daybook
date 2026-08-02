@@ -320,6 +320,19 @@ export default function WorldSmithCompiler() {
         </div>
       </div>
 
+      {/* Concepts banner */}
+      <a href="/super/worldsmith/concepts"
+        className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg border border-[#C87560]/30 bg-[#C87560]/5 hover:bg-[#C87560]/10 transition-colors group no-underline">
+        <div className="flex items-center gap-2.5">
+          <span className="text-[15px]">🎨</span>
+          <div>
+            <p className="text-[13px] font-semibold text-[#1B2A4A]">WorldSmith Landing Page Concepts</p>
+            <p className="text-[11.5px] text-muted-foreground">Three interactive prototypes — compare and leave feedback</p>
+          </div>
+        </div>
+        <span className="text-[12px] font-medium text-[#C87560] group-hover:translate-x-0.5 transition-transform">View concepts →</span>
+      </a>
+
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
         {(["compiler", "runs", "assets"] as const).map((tab) => (

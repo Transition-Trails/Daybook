@@ -64,10 +64,12 @@ function extractProductionSpec(page: NotionPage): ProductionSpec {
     extractRichText(p["Hero Family"]) ||
     extractSelect(p["Hero Family"]);
 
+  // Capture the relation page ID separately so the resolver can do a
+  // follow-up fetch when the field is stored as a Notion relation.
+  const worldId = extractRelation(p["World"])?.[0];
   const world =
     extractRichText(p["World"]) ||
     extractSelect(p["World"]) ||
-    extractRelation(p["World"])?.[0] ||
     "";
 
   // Collection sits between World and Volume in the inheritance chain.
@@ -80,6 +82,11 @@ function extractProductionSpec(page: NotionPage): ProductionSpec {
     extractSelect(p["Collection"]) ||
     extractRichText(p["Collection Name"]);
 
+  // Capture the relation page ID separately so the resolver can do a
+  // follow-up fetch when the field is stored as a Notion relation.
+  const volumeId =
+    extractRelation(p["Volume"])?.[0] ||
+    extractRelation(p["Volume / Collection"])?.[0];
   const volume =
     extractRichText(p["Volume"]) ||
     extractSelect(p["Volume"]) ||
@@ -175,9 +182,11 @@ function extractProductionSpec(page: NotionPage): ProductionSpec {
     componentSet,
     heroFamily,
     world,
+    worldId: worldId || undefined,
     collection: collection || undefined,
     collectionId: collectionId || undefined,
-    volume,
+    volume: volume || undefined,
+    volumeId: volumeId || undefined,
     currentVersion,
     designIntent,
     narrativePurpose,
@@ -412,6 +421,58 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
       logger.warn(
         { err, collectionId: productionSpec.collectionId },
         "WorldSmith: Could not resolve linked Collection page — collection name will be blank in provenance",
+      );
+    }
+  }
+
+  // ── Stage 2c: Resolve linked World record name ───────────────────────────
+  // When World is stored as a Notion relation the inline extractRichText /
+  // extractSelect calls return nothing — only the relation page ID was
+  // captured.  Follow up with a getPage call to read the World record's
+  // title so it is available for prompt compilation and the ProvenanceRecord.
+  if (productionSpec.worldId && !productionSpec.world) {
+    try {
+      const worldPage = await getPage(productionSpec.worldId);
+      resolvedSourceIds["world"] = productionSpec.worldId;
+      const worldName =
+        extractTitle(worldPage.properties["Name"]) ||
+        extractTitle(worldPage.properties["World"]) ||
+        extractRichText(worldPage.properties["Name"]);
+      if (worldName) {
+        productionSpec.world = worldName;
+      }
+    } catch (err) {
+      // Non-fatal: a missing world name does not block compilation.
+      // Log it so operators can investigate, then continue.
+      logger.warn(
+        { err, worldId: productionSpec.worldId },
+        "WorldSmith: Could not resolve linked World page — world name will be blank in provenance",
+      );
+    }
+  }
+
+  // ── Stage 2d: Resolve linked Volume record name ──────────────────────────
+  // When Volume is stored as a Notion relation the inline extractRichText /
+  // extractSelect calls return nothing — only the relation page ID was
+  // captured.  Follow up with a getPage call to read the Volume record's
+  // title so it is available for prompt compilation and the ProvenanceRecord.
+  if (productionSpec.volumeId && !productionSpec.volume) {
+    try {
+      const volumePage = await getPage(productionSpec.volumeId);
+      resolvedSourceIds["volume"] = productionSpec.volumeId;
+      const volumeName =
+        extractTitle(volumePage.properties["Name"]) ||
+        extractTitle(volumePage.properties["Volume"]) ||
+        extractRichText(volumePage.properties["Name"]);
+      if (volumeName) {
+        productionSpec.volume = volumeName;
+      }
+    } catch (err) {
+      // Non-fatal: a missing volume name does not block compilation.
+      // Log it so operators can investigate, then continue.
+      logger.warn(
+        { err, volumeId: productionSpec.volumeId },
+        "WorldSmith: Could not resolve linked Volume page — volume name will be blank in provenance",
       );
     }
   }

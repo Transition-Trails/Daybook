@@ -11,9 +11,11 @@ export interface ProductionSpec {
   componentSet?: string;
   heroFamily?: string;
   world: string;
+  worldId?: string;       // Notion page ID of the linked World record
   collection?: string;
   collectionId?: string;  // Notion page ID of the linked Collection record
   volume?: string;
+  volumeId?: string;      // Notion page ID of the linked Volume record
   currentVersion: string;
   // Creative definition
   designIntent: string;

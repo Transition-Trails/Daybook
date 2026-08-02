@@ -330,6 +330,85 @@ describe("resolveInheritanceChain — Prompt Module dependency fetch failure", (
   });
 });
 
+// ── 1b. recommended_action is error-type-aware ────────────────────────────────
+
+describe("resolveInheritanceChain — PROMPT_MODULE_DEP_FETCH_FAILED recommended_action is error-type-aware", () => {
+  it("sets a retryable recommended_action when Notion rate-limits the dep fetch", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecPageWithModule());
+    mockGetPage.mockResolvedValueOnce(makeModulePageWithDependency());
+    mockGetPage.mockRejectedValueOnce(new Error("429 Too Many Requests: rate limit exceeded"));
+
+    const chain = await resolveInheritanceChain(SPEC_ID);
+
+    expect(chain.warnings).toHaveLength(1);
+    const w = chain.warnings[0];
+    expect(w.code).toBe("PROMPT_MODULE_DEP_FETCH_FAILED");
+    expect(w.recommended_action).toBeTruthy();
+    // Must tell the operator this is transient / safe to retry
+    expect(w.recommended_action).toMatch(/retry|transient/i);
+    // Must NOT say "page not found" for a rate-limit error
+    expect(w.recommended_action).not.toMatch(/not found/i);
+  });
+
+  it("sets a connectivity recommended_action when Notion is unreachable (network timeout)", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecPageWithModule());
+    mockGetPage.mockResolvedValueOnce(makeModulePageWithDependency());
+    const timeoutErr = new Error("connect ETIMEDOUT 2a00:1450:4001:82b::200a:443");
+    mockGetPage.mockRejectedValueOnce(timeoutErr);
+
+    const chain = await resolveInheritanceChain(SPEC_ID);
+
+    expect(chain.warnings).toHaveLength(1);
+    const w = chain.warnings[0];
+    expect(w.code).toBe("PROMPT_MODULE_DEP_FETCH_FAILED");
+    expect(w.recommended_action).toBeTruthy();
+    // Must mention connectivity
+    expect(w.recommended_action).toMatch(/connect/i);
+  });
+
+  it("sets a fix-the-source recommended_action when the dep page is not found (404)", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecPageWithModule());
+    mockGetPage.mockResolvedValueOnce(makeModulePageWithDependency());
+    mockGetPage.mockRejectedValueOnce(
+      new Error("Notion API GET /pages/dep-dep-test-002 → 404: page not found"),
+    );
+
+    const chain = await resolveInheritanceChain(SPEC_ID);
+
+    expect(chain.warnings).toHaveLength(1);
+    const w = chain.warnings[0];
+    expect(w.code).toBe("PROMPT_MODULE_DEP_FETCH_FAILED");
+    expect(w.recommended_action).toBeTruthy();
+    // Must guide the operator to fix the Notion source
+    expect(w.recommended_action).toMatch(/not found|access|verify/i);
+    // Must NOT say "retry" as the primary advice for a permanent error
+    expect(w.recommended_action).not.toMatch(/^retry/i);
+  });
+
+  it("recommended_action is non-empty for every failure regardless of error type", async () => {
+    const errors = [
+      new Error("429 rate limit"),
+      new Error("ETIMEDOUT"),
+      new Error("404 page not found"),
+      new Error("unexpected internal server error 500"),
+    ];
+
+    for (const depErr of errors) {
+      vi.clearAllMocks();
+      mockGetPageText.mockResolvedValue("");
+      mockGetPage.mockResolvedValueOnce(makeSpecPageWithModule());
+      mockGetPage.mockResolvedValueOnce(makeModulePageWithDependency());
+      mockGetPage.mockRejectedValueOnce(depErr);
+
+      const chain = await resolveInheritanceChain(SPEC_ID);
+      expect(chain.warnings).toHaveLength(1);
+      const w = chain.warnings[0];
+      expect(w.recommended_action).toBeTruthy();
+      expect(w.recommended_action.trim().length).toBeGreaterThan(0);
+    }
+  });
+});
+
 // ── 2. runCompilation — CompileResponse.warnings ──────────────────────────────
 
 describe("runCompilation — PROMPT_MODULE_DEP_FETCH_FAILED propagates to CompileResponse.warnings", () => {

@@ -245,13 +245,20 @@ async function resolvePromptModule(
           { err, depId, parentModuleId: pageId },
           "Prompt Module dependency fetch failed — dependency content dropped from compiled prompt",
         );
+        // Use error classification to produce an actionable, type-specific recovery message.
+        const classified = classifyNotionErr(err);
+        const recommendedAction =
+          classified?.code === "NOTION_RATE_LIMITED"
+            ? "Notion rate-limited: wait 30 seconds and recompile — this is transient and safe to retry."
+            : classified?.code === "NOTION_UNREACHABLE"
+            ? "Notion is unreachable: confirm network connectivity to Notion, then recompile."
+            : "Dependency page not found or access denied: verify the page exists in Notion and the integration has read access, then recompile.";
         warnings.push({
           code: "PROMPT_MODULE_DEP_FETCH_FAILED",
           field: `prompt_module_dependency:${depId}`,
           governing_rule: "CS-000 Inheritance",
           message: `Dependency module ${depId} could not be fetched and was dropped from the compiled prompt: ${msg}`,
-          recommended_action:
-            "Check Notion connectivity and the dependency page permissions, then recompile.",
+          recommended_action: recommendedAction,
         });
       }
     }

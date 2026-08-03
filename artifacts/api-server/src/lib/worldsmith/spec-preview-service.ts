@@ -36,7 +36,9 @@ import type { SpecBoardData, SpecPreviewResult, SpecPreviewRequest } from "./typ
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const TEMPLATE_VERSION = "v1";
+// Bump this any time the SVG template layout changes substantially.
+// Old records won't match the idempotency check and every spec gets a fresh generation.
+const TEMPLATE_VERSION = "v2";
 
 function getPreviewConfig(): { provider: string; model: string; size: "1024x1024" | "1792x1024" | "1024x1792"; quality: "standard" | "hd" } {
   return {
@@ -509,11 +511,17 @@ export async function runSpecPreview(
 
   // ── 6. Generate and composite central concept visual via DALL-E ───────────
   let finalPng = boardPng;
+  let dalleApplied = false;
+  let dalleErrorMsg: string | undefined;
+
   try {
     if (!process.env.OPENAI_API_KEY) {
-      logger.warn({ specPageId }, "OPENAI_API_KEY not set — skipping central concept visual");
+      dalleErrorMsg = "OPENAI_API_KEY is not configured — set the secret to enable concept image generation.";
+      logger.warn({ specPageId }, dalleErrorMsg);
     } else {
       const dallePrompt = buildConceptDallePrompt(finalBoardData);
+      logger.info({ specPageId, promptLength: dallePrompt.length }, "Calling DALL-E for concept visual");
+
       const b64DataUrl = await callDallE(dallePrompt, {
         size: cfg.size,
         quality: cfg.quality,
@@ -548,7 +556,6 @@ export async function runSpecPreview(
         .toBuffer();
 
       // Overlay the "CONCEPT PREVIEW" label on top of the composited image
-      // (re-apply via a small SVG overlay)
       const labelSvg = Buffer.from(
         `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="28">
           <rect width="${width}" height="28" fill="rgba(27,42,74,0.72)"/>
@@ -561,10 +568,14 @@ export async function runSpecPreview(
         .composite([{ input: labelSvg, left: x, top: y + height - 28, blend: "over" }])
         .png()
         .toBuffer();
+
+      dalleApplied = true;
+      logger.info({ specPageId }, "DALL-E concept visual composited successfully");
     }
   } catch (dalleErr) {
+    dalleErrorMsg = String(dalleErr);
     logger.warn({ err: dalleErr, specPageId }, "DALL-E concept visual failed — using spec board without central image");
-    // Non-fatal: continue with the plain spec board
+    // Non-fatal: continue with the plain spec board (placeholder remains)
     finalPng = boardPng;
   }
 
@@ -659,8 +670,15 @@ export async function runSpecPreview(
   }
 
   // ── 9. Persist audit record ───────────────────────────────────────────────
-  const finalStatus = statusUpdateFailed ? "status_update_failed" : "success";
-  const newStatus   = statusUpdateFailed ? (previousStatus || "") : "Ready for Review";
+  // Use "success_placeholder" when DALL-E was skipped/failed so the idempotency
+  // check (which only matches "success") won't block future regeneration attempts.
+  // This means every call will retry DALL-E until it actually succeeds.
+  const finalStatus = statusUpdateFailed
+    ? "status_update_failed"
+    : dalleApplied
+      ? "success"
+      : "success_placeholder";
+  const newStatus = statusUpdateFailed ? (previousStatus || "") : "Ready for Review";
 
   await savePreviewRecord({
     specPageId,
@@ -674,10 +692,11 @@ export async function runSpecPreview(
     previousStatus,
     newStatus,
     notionPageUrl: pageUrl,
+    error: dalleApplied ? undefined : dalleErrorMsg,
   });
 
   logger.info(
-    { specPageId, promptHash, filename, uploadId, previousStatus, newStatus },
+    { specPageId, promptHash, filename, uploadId, previousStatus, newStatus, dalleApplied },
     "WorldSmith spec preview complete",
   );
 
@@ -695,6 +714,8 @@ export async function runSpecPreview(
     new_status: newStatus,
     upload_status: "success",
     notion_upload_id: uploadId,
+    dalle_skipped: !dalleApplied,
+    dalle_error: dalleApplied ? undefined : dalleErrorMsg,
   };
 }
 

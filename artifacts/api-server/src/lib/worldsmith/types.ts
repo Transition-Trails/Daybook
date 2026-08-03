@@ -459,6 +459,10 @@ export interface SpecPreviewResult {
   dry_run_payload?: Record<string, string>;
   proposed_status_change?: { from: string; to: string };
   error?: string;
+  /** true when the central concept image placeholder was kept (DALL-E was skipped or failed) */
+  dalle_skipped?: boolean;
+  /** The DALL-E error message when dalle_skipped is true and a call was attempted */
+  dalle_error?: string;
 }
 
 export interface SpecPreviewRequest {

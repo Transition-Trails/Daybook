@@ -233,6 +233,10 @@ interface SpecPreviewResult {
   dry_run_payload?: Record<string, string>;
   proposed_status_change?: { from: string; to: string };
   error?: string;
+  /** true when DALL-E was skipped or failed — spec board has a placeholder image */
+  dalle_skipped?: boolean;
+  /** DALL-E error message when dalle_skipped is true and a call was attempted */
+  dalle_error?: string;
 }
 
 // ── API helpers ───────────────────────────────────────────────────────────────
@@ -3273,6 +3277,37 @@ function SpecificationReviewPanel({
           </div>
         </CardContent>
       </Card>
+
+      {/* DALL-E placeholder warning — shown when concept image was not generated */}
+      {previewResult.dalle_skipped && (
+        <div className="flex items-start gap-3 p-4 rounded-lg border border-amber-200 bg-amber-50/40">
+          <ImageOff className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0 space-y-2">
+            <p className="text-sm font-semibold text-amber-800">Concept Image Placeholder</p>
+            <p className="text-xs text-amber-700 leading-relaxed">
+              The specification board was uploaded with a placeholder — the DALL-E concept image was not generated.
+              {previewResult.dalle_error
+                ? ` Reason: ${previewResult.dalle_error}`
+                : " Check that the OPENAI_API_KEY secret is configured."}
+            </p>
+            <p className="text-xs text-amber-600">
+              Click <strong>Generate New Board</strong> to retry — a fresh generation will attempt DALL-E again.
+            </p>
+          </div>
+          {onGenerateNew && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onGenerateNew}
+              disabled={isGenerating}
+              className="shrink-0 border-amber-300 text-amber-700 hover:bg-amber-100 gap-1.5"
+            >
+              {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
+              Retry with Image
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Retry status update (only when status write previously failed) */}
       {uploadPartial && onRetryStatus && (

@@ -2,5 +2,6 @@
 type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 export const modules: ModuleMap = {
   "./components/mockups/worldsmith-editorial/EditorialStudio.tsx": () => import("../components/mockups/worldsmith-editorial/EditorialStudio.tsx"),
+  "./components/mockups/worldsmith-editorial/EditorialStudioGraph.tsx": () => import("../components/mockups/worldsmith-editorial/EditorialStudioGraph.tsx"),
   "./components/mockups/worldsmith-editorial/OperationsDashboard.tsx": () => import("../components/mockups/worldsmith-editorial/OperationsDashboard.tsx")
 };

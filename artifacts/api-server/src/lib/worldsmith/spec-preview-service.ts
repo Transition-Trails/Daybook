@@ -393,10 +393,11 @@ export async function runSpecPreview(
         })()
       : Promise.resolve(),
 
-    // Canon record names (up to 5, for Section 13 bullet list)
+    // Canon record names (up to 5, for Section 13 bullet list) + fallback reference images
     canonRecordIds.length > 0
       ? (async () => {
           const names: string[] = [];
+          const canonRefUrls: string[] = [];
           await Promise.all(
             canonRecordIds.slice(0, 5).map(async (id) => {
               try {
@@ -407,10 +408,38 @@ export async function runSpecPreview(
                   extractTitle(cPage.properties["Canon Name"]) ||
                   extractRichText(cPage.properties["Name"]);
                 if (name) names.push(name);
+
+                // Collect image file URLs for reference thumbnail fallback
+                if (canonRefUrls.length < 4) {
+                  for (const prop of Object.values(cPage.properties)) {
+                    const p = prop as {
+                      type?: string;
+                      files?: Array<{
+                        type: string;
+                        file?: { url: string };
+                        external?: { url: string };
+                      }>;
+                    };
+                    if (p.type === "files" && Array.isArray(p.files)) {
+                      for (const f of p.files) {
+                        const url = f.type === "file" ? f.file?.url : f.external?.url;
+                        if (url && /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url)) {
+                          canonRefUrls.push(url);
+                          if (canonRefUrls.length >= 4) break;
+                        }
+                      }
+                    }
+                    if (canonRefUrls.length >= 4) break;
+                  }
+                }
               } catch { /* non-fatal */ }
             }),
           );
           if (names.length > 0) safeBoardData.canonNames = names;
+          // Only use canon images if the style guide provided none
+          if (canonRefUrls.length > 0 && !safeBoardData.referenceImageUrls?.length) {
+            safeBoardData.referenceImageUrls = canonRefUrls.slice(0, 4);
+          }
         })()
       : Promise.resolve(),
   ]);

@@ -115,6 +115,14 @@ import SuperSupportPatterns from "@/pages/super/SupportPatterns";
 import PromoteCatalog from "@/pages/super/PromoteCatalog";
 import WorldSmithCompiler from "@/pages/super/WorldSmithCompiler";
 import WorldSmithHome from "@/pages/super/WorldSmithHome";
+import {
+  EditorialShell,
+  ReadinessBoard,
+  CanonBoard,
+  NewSpecFlow,
+  SpecEditor,
+} from "@/pages/super/worldsmith-editorial";
+import { EditorialProvider } from "@/contexts/EditorialContext";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -207,6 +215,41 @@ function RootRouter() {
       {/* ── WorldSmith Prompt Compiler (accessible from home) ────────────── */}
       <Route path="/super/worldsmith/compiler">
         <RequireSuperAdmin state={state}><SuperAdminShell><WorldSmithCompiler /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+
+      {/* ── WorldSmith Editorial Suite ────────────────────────────────────── */}
+      {/* /specs without an id redirects to the board (the swimlane is the list view) */}
+      <Route path="/super/worldsmith/editorial/specs">
+        <Redirect to="/super/worldsmith/editorial/board" />
+      </Route>
+      <Route path="/super/worldsmith/editorial/specs/new">
+        <RequireSuperAdmin state={state}>
+          <EditorialProvider><NewSpecFlow /></EditorialProvider>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/specs/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="specs">
+              <SpecEditor specId={p.id!} />
+            </EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      <Route path="/super/worldsmith/editorial/canon">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="canon"><CanonBoard /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/board">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="board"><ReadinessBoard /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="board"><ReadinessBoard /></EditorialShell>
+        </RequireSuperAdmin>
       </Route>
 
       {/* ── Product Builder ────────────────────────────────────── */}

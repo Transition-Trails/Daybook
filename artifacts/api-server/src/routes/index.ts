@@ -35,6 +35,7 @@ import ordersRouter from "./orders";
 import qualityRouter from "./quality";
 import promoteRouter from "./promote";
 import worldsmithRouter from "./worldsmith";
+import worldsmithEditorialRouter from "./worldsmith-editorial";
 
 const router: IRouter = Router();
 
@@ -75,6 +76,8 @@ router.use(promoteRouter);
 router.use(marketingRouter);
 // WorldSmith Prompt Compiler
 router.use(worldsmithRouter);
+// WorldSmith Editorial Suite (local-first authoring)
+router.use(worldsmithEditorialRouter);
 // Public storefront API (no auth required)
 router.use(shopRouter);
 

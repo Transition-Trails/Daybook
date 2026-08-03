@@ -1,0 +1,497 @@
+Replit Prompt Spec: Generate Missing Prompt Payload
+
+Build the next-step feature in the WorldSmith Publishing Engine called:
+
+Generate Missing Prompt Payload
+
+The purpose of this feature is to create and save a governed Prompt Payload for a Production Specification record when:
+
+Payload Version = PP-2.0
+Prompt Payload is blank
+the record has enough supporting data to generate a safe payload
+
+This feature must work for Volume I now and be reusable for future Worlds, Volumes, Collections, and component types.
+
+1. User Experience
+
+Add a button to the resolved Production Specification view:
+
+Generate Missing Prompt Payload
+
+Show the button only when:
+
+Payload Version = PP-2.0
+Prompt Payload is blank
+
+Do not show it when a payload already exists.
+
+When clicked:
+
+Load the current Production Specification and its linked governing records.
+Validate that the minimum required source fields are present.
+Generate a PP-2.0 payload preview.
+Show the preview before writing anything to Notion.
+Let the user choose:
+Save to Notion
+Regenerate
+Cancel
+After saving:
+re-fetch the record from Notion
+confirm the payload persisted
+rerun validation
+recompile the record
+show the updated readiness result
+
+Never silently overwrite an existing Prompt Payload.
+
+2. Data Sources
+
+Use these Production Specification fields:
+
+Production Item
+Component Type
+Design Intent
+Narrative Purpose
+Required Content
+Review Criteria
+Print Specification
+Quantity Basis
+Notes
+Canon Dependency
+Asset Intent
+Narrative Density
+Reuse Level
+Orientation
+Card Size
+Front Back Style
+Writing Space %
+Hero Family
+Payload Version
+
+Also load linked records when available:
+
+World
+Style Guide
+Component Specification
+Prompt Modules
+Component Set
+Canon Records
+
+Use linked records as governed source material. Do not invent facts that are not supported by the Production Specification or its linked records.
+
+3. Minimum Generation Requirements
+
+The feature may generate a payload only when all of these are present:
+
+Production Item
+Component Type
+Design Intent
+Required Content
+Review Criteria
+Print Specification
+Payload Version = PP-2.0
+at least one linked Style Guide
+at least one linked Component Specification
+
+World and Prompt Modules should normally be present. If either is missing, show a warning and require the user to confirm before generation.
+
+If required source fields are missing, block generation and list the exact fields that need attention.
+
+4. PP-2.0 Output Contract
+
+Every generated payload must use this section-based structure:
+
+shared_prompt:
+  asset_role: ...
+  visual_language: ...
+  palette: ...
+  material_character: ...
+  composition_rule: ...
+  narrative_tone: ...
+  canon_rule: ...
+  text_rule: ...
+  print_rule: ...
+
+front_prompt:
+  composition: ...
+  required_content: ...
+  usability: ...
+
+back_prompt:
+  composition: ...
+  required_content: ...
+  usability: ...
+
+negative_prompt:
+  exclude: ...
+
+Rules:
+
+shared_prompt is required.
+front_prompt is required.
+negative_prompt is required.
+back_prompt is required only when:
+Front Back Style indicates a back
+the Component Specification requires a back
+the Production Specification describes front-and-back output
+Omit empty optional sections.
+Do not emit placeholder text such as TBD, unknown, or not specified.
+Do not create new canon.
+Do not introduce dates, places, species, names, events, institutions, symbols, or text not supported by source data.
+Keep values concise enough for practical prompt compilation.
+5. Section Construction Rules
+shared_prompt
+
+Generate from the highest-level reusable constraints.
+
+Include:
+
+asset role and purpose
+governing visual language
+palette and materials
+composition principles
+narrative density
+canon constraints
+text constraints
+print specifications
+
+Use the linked Style Guide and Prompt Modules as the primary source for visual-language rules.
+
+Use the Production Specification as the primary source for asset-specific intent.
+
+front_prompt
+
+Generate the principal visible composition.
+
+Include:
+
+layout
+focal hierarchy
+required objects, fields, motifs, or structures
+writing-space requirements
+crop tolerance
+user functionality
+front-specific text rules
+
+The front prompt must contain enough concrete detail to eliminate the current MISSING_COMPONENT_KEY · front_prompt validation warning.
+
+back_prompt
+
+Generate only when applicable.
+
+Include:
+
+coordinated-back design
+duplex alignment requirements
+continuation fields
+subtle pattern or texture
+fold, trim, tab, or construction alignment where relevant
+
+The back must support the front without introducing unrelated focal elements.
+
+negative_prompt
+
+Combine:
+
+Review Criteria exclusions
+linked negative-constraint modules
+component-specific failure modes
+text and canon restrictions
+print-production risks
+common AI-generation artifacts
+
+Keep the list specific to the record.
+
+Do not use a single generic negative prompt for all records.
+
+6. Component-Type Logic
+
+Implement component-aware payload generation.
+
+Coordinating Paper
+
+Focus on:
+
+full-sheet composition
+crop tolerance
+repeating or non-repeating field behavior
+low, medium, or high visual density
+layering usability
+no hard focal object unless explicitly required
+
+Usually omit back_prompt.
+
+Hero Paper
+
+Focus on:
+
+strong focal hierarchy
+primary artifact or scene
+secondary narrative cluster
+supporting objects
+visual storytelling
+edge-to-edge composition
+crop-safe secondary details
+
+Usually omit back_prompt.
+
+Journal Card
+
+Focus on:
+
+exact orientation and card size
+heading or approved prompt
+writing-space percentage
+field layout
+front-and-back coordination
+duplex alignment
+readable printable text
+
+Include back_prompt when Front Back Style requires it.
+
+Ephemera Sheet
+
+Focus on:
+
+separate fussy-cut objects
+object spacing
+object scale variation
+clean silhouettes
+printable margins
+no overlapping pieces
+approved text only
+
+Usually omit back_prompt.
+
+Envelope
+
+Focus on:
+
+flat printable template
+front panel
+flap
+glue tabs
+fold lines
+seam logic
+printable construction clarity
+coordinated decorative placement
+
+Use front and back/template sections only as required by the component contract.
+
+Pocket
+
+Focus on:
+
+front panel
+glue tabs
+fold lines
+usable opening
+insert compatibility
+restrained decoration
+construction accuracy
+Tag, Label, Ticket, Card, Folder, Insert, or other component
+
+Use the linked Component Specification as the source of truth.
+
+Do not rely only on the component-type name.
+
+7. Canon Handling
+
+Read Canon Dependency.
+
+None
+
+Do not require Canon Records.
+
+Add a canon rule preventing accidental creation of fixed lore.
+
+Supports Canon
+
+Use linked Canon Records when present.
+
+If none are linked:
+
+show a warning
+allow generation only when the payload can remain non-specific
+do not fabricate canon details
+Requires Canon
+
+Require at least one linked Canon Record.
+
+Block generation when no Canon Record is linked.
+
+The generated payload must reference canon constraints conceptually, not paste long canon records into the payload.
+
+8. Generation Strategy
+
+Use deterministic field assembly first.
+
+Do not make AI generation the only method.
+
+Recommended flow:
+
+Normalize source data.
+Resolve inherited Style Guide, World, Component Specification, Prompt Modules, and Canon constraints.
+Build a structured source object.
+Generate a draft using templates by Component Type.
+Use AI only to synthesize concise natural-language values from the governed fields.
+Validate the generated payload against the PP-2.0 contract.
+Show the preview.
+Save only after explicit user confirmation.
+
+The same source data should produce materially consistent output across repeated runs.
+
+9. Validation Before Save
+
+Before saving, validate:
+
+payload parses successfully
+required sections exist
+required keys exist
+front_prompt is present
+no empty section exists
+no placeholder values exist
+no unsupported canon facts appear
+print dimensions match the Production Specification
+component requirements are represented
+writing-space percentage is preserved where applicable
+back prompt exists when required
+negative prompt is component-specific
+total payload is within the Notion property limit
+
+Show validation results in the preview.
+
+Block saving for errors.
+
+Allow saving with warnings only after explicit confirmation.
+
+10. Notion Writeback
+
+On Save to Notion:
+
+Update only:
+
+Prompt Payload
+Next Action
+
+Do not change:
+
+Payload Version
+Style Guide
+World
+Canon Dependency
+Component Specification
+Prompt Modules
+Status
+design fields
+
+Set Next Action to:
+
+Review the generated PP-2.0 Prompt Payload, compile the Production Specification, then generate the Specification Board.
+
+After the update:
+
+Re-fetch the Notion page.
+Compare the saved Prompt Payload to the submitted payload.
+If they differ, show a persistence error.
+If they match, rerun validation and compilation.
+11. Batch Mode
+
+Add a second action to the Volume or database-level workflow:
+
+Generate All Missing Prompt Payloads
+
+Batch eligibility:
+
+Payload Version = PP-2.0
+Prompt Payload is blank
+required source data is present
+
+Batch flow:
+
+Audit all matching records.
+Group them by:
+ready
+warning
+blocked
+Show the records before generation.
+Generate drafts without saving.
+Let the user review each draft or approve all ready drafts.
+Save records individually.
+Verify every write.
+Produce a summary report.
+
+The report must show:
+
+total records reviewed
+payloads generated
+payloads saved
+payloads skipped
+blocked records
+warnings
+failed Notion writes
+links to every affected record
+
+Never overwrite populated Prompt Payloads in batch mode.
+
+12. Error Handling
+
+Use clear error codes:
+
+MISSING_REQUIRED_SOURCE_FIELD
+MISSING_STYLE_GUIDE
+MISSING_COMPONENT_SPECIFICATION
+MISSING_WORLD
+MISSING_PROMPT_MODULES
+MISSING_REQUIRED_CANON
+UNSUPPORTED_COMPONENT_TYPE
+INVALID_PP2_PAYLOAD
+PAYLOAD_TOO_LARGE
+NOTION_WRITE_FAILED
+NOTION_PERSISTENCE_MISMATCH
+PAYLOAD_ALREADY_EXISTS
+
+Every error must include:
+
+field or dependency involved
+why it matters
+recommended resolution
+whether generation is blocked
+13. Acceptance Criteria
+
+The feature is complete when:
+
+A PP-2.0 record with a blank Prompt Payload shows the new action.
+The generated payload uses required PP-2.0 sections.
+front_prompt is always generated.
+back_prompt is generated only when required.
+The payload is derived from the record and linked governance data.
+Existing payloads are never overwritten silently.
+The user previews the payload before saving.
+The Notion write is verified by re-fetching.
+Validation reruns after save.
+Compilation can proceed without MISSING_PAYLOAD_VERSION or MISSING_COMPONENT_KEY · front_prompt.
+Batch mode can process all eligible Volume I records.
+The final batch report identifies every success, warning, skip, and failure.
+14. Initial Test Records
+
+Use these Volume I records as the first test set:
+
+V01 Coordinating Paper 004: Archival Writing Sheet
+V01 Coordinating Paper 005: Herbarium Sheet
+V01 Coordinating Paper 006: Pressed Fern Field
+V01 Coordinating Paper 007: Watercolor Botanical Study
+V01 Coordinating Paper 008: Botanical Wash
+V01 Coordinating Paper 009: Greenhouse Glass
+V01 Coordinating Paper 010: Terracotta and Soil
+V01 Coordinating Paper 011: Propagation Notes
+V01 Coordinating Paper 012: Garden Plan Fragment
+JC-018: Curator’s Memorandum
+
+Test at least:
+
+one no-canon coordinating paper
+one supports-canon coordinating paper
+one duplex journal card
+one record with missing optional dependencies
+one record where the payload already exists

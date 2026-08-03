@@ -12,7 +12,7 @@ import { requireAuth } from "../lib/auth-middleware";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { runCompilation } from "../lib/worldsmith/orchestrator";
 import { runSpecPreview, SpecPreviewError } from "../lib/worldsmith/spec-preview-service";
-import { getRun, getRunsBySpec, failStaleRunsForSpec } from "../lib/worldsmith/run-repository";
+import { getRun, getRunsBySpec, failStaleRunsForSpec, updateRun } from "../lib/worldsmith/run-repository";
 import { getAsset, getAssetBySpec } from "../lib/worldsmith/daybook-adapter";
 import { normalizeNotionId } from "../lib/worldsmith/normalize-id";
 import { db } from "@workspace/db";
@@ -619,6 +619,65 @@ router.get("/v1/worldsmith/health", requireAuth, requireSuperAdmin, async (_req:
   });
 
   res.json({ integrations });
+});
+
+// ── POST /v1/worldsmith/runs/:runId/refresh-collection-name ──────────────────
+// Fetch the current Notion page title for the stored collection ID and patch
+// resolved_source_ids.collection_name without requiring a full recompile.
+
+router.post("/v1/worldsmith/runs/:runId/refresh-collection-name", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const runId = req.params.runId as string;
+
+  try {
+    const run = await getRun(runId);
+    if (!run) {
+      res.status(404).json({ error: "Run not found", code: "RUN_NOT_FOUND" });
+      return;
+    }
+
+    const src = (run.resolvedSourceIds ?? {}) as Record<string, string | string[]>;
+    // collection_notion_id is the preferred key; fall back to legacy "collection" key
+    const collectionId =
+      typeof src.collection_notion_id === "string" ? src.collection_notion_id
+      : typeof src.collection === "string" ? src.collection
+      : null;
+
+    if (!collectionId) {
+      res.status(400).json({ error: "No collection Notion ID stored for this run", code: "NO_COLLECTION_ID" });
+      return;
+    }
+
+    // Fetch current title from Notion
+    const page = await getPage(collectionId);
+    const p = page.properties;
+    const newName =
+      extractTitle(p["Name"]) ||
+      extractTitle(p["Collection"]) ||
+      extractTitle(p["Title"]) ||
+      collectionId;
+
+    // Patch resolved_source_ids, preserving all existing keys
+    const updated: Record<string, string | string[]> = { ...src, collection_name: newName };
+    await updateRun(runId, { resolvedSourceIds: updated });
+
+    res.json({ collection_name: newName, run_id: runId });
+  } catch (err) {
+    const msg = String(err);
+    const isNotFound = /404|not_found|object_not_found/i.test(msg);
+    const isRateLimited = /429|rate.?limit/i.test(msg);
+    const isUnreachable = /ETIMEDOUT|ENOTFOUND|ECONNREFUSED|AbortError|timeout/i.test(msg);
+
+    if (isNotFound) {
+      res.status(404).json({ error: "Notion page not found. The collection page may have been deleted.", code: "NOTION_NOT_FOUND" });
+    } else if (isRateLimited) {
+      res.status(429).json({ error: "Notion rate limit hit. Wait a moment and try again.", code: "NOTION_RATE_LIMITED" });
+    } else if (isUnreachable) {
+      res.status(503).json({ error: "Notion is unreachable. Check connectivity and retry.", code: "NOTION_UNREACHABLE" });
+    } else {
+      logger.error({ err, runId }, "Failed to refresh collection name");
+      res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
+    }
+  }
 });
 
 // ── GET /api/v1/worldsmith/assets ─────────────────────────────────────────────

@@ -226,6 +226,12 @@ const worldsmithApi = {
         dry_run: dryRun,
       }),
     }),
+
+  refreshCollectionName: (runId: string) =>
+    apiFetch<{ collection_name: string; run_id: string }>(
+      `/v1/worldsmith/runs/${runId}/refresh-collection-name`,
+      { method: "POST" },
+    ),
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -3565,6 +3571,74 @@ function calcReadinessFromRun(run: RunRecord): RunReadiness {
 
 // ── Run Row ───────────────────────────────────────────────────────────────────
 
+// ── Collection Provenance Row (with Re-fetch button) ──────────────────────────
+
+function CollectionProvenanceRow({
+  runId,
+  initialName,
+  notionId,
+}: {
+  runId: string;
+  initialName: string | null;
+  notionId: string | null;
+}) {
+  const { toast } = useToast();
+  const [currentName, setCurrentName] = useState<string | null>(initialName);
+
+  const refreshMutation = useMutation({
+    mutationFn: () => worldsmithApi.refreshCollectionName(runId),
+    onSuccess: (data) => {
+      setCurrentName(data.collection_name);
+      toast({ title: "Collection name refreshed", description: data.collection_name });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to refresh collection name", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (!currentName && !notionId) return null;
+  const url = notionUrl(notionId ?? undefined);
+
+  return (
+    <div className="rounded-md border border-border bg-background p-3 space-y-1.5">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+        <Info className="w-3.5 h-3.5" />Collection (captured at compile time)
+      </p>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-medium">{currentName ?? "—"}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          {notionId && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              disabled={refreshMutation.isPending}
+              onClick={() => refreshMutation.mutate()}
+            >
+              {refreshMutation.isPending
+                ? <Loader2 className="w-3 h-3 animate-spin" />
+                : <><RefreshCw className="w-3 h-3 mr-1" />Re-fetch name</>}
+            </Button>
+          )}
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />Open in Notion
+            </a>
+          )}
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        This name was recorded when the run compiled. If the Collection was renamed in Notion since then, open the Notion link to verify the current name.
+      </p>
+    </div>
+  );
+}
+
 function RunRow({ run }: { run: RunRecord }) {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
@@ -3741,9 +3815,9 @@ function RunRow({ run }: { run: RunRecord }) {
                 if (!worldName && !worldId && !collectionName && !collectionId && !volumeName && !volumeId) return null;
                 return (
                   <>
-                    <ProvenanceRow label="World"      name={worldName}      notionId={worldId}      />
-                    <ProvenanceRow label="Collection" name={collectionName} notionId={collectionId} />
-                    <ProvenanceRow label="Volume"     name={volumeName}     notionId={volumeId}     />
+                    <ProvenanceRow label="World"  name={worldName}  notionId={worldId}  />
+                    <CollectionProvenanceRow runId={detail.run_id} initialName={collectionName} notionId={collectionId} />
+                    <ProvenanceRow label="Volume" name={volumeName} notionId={volumeId} />
                   </>
                 );
               })()}

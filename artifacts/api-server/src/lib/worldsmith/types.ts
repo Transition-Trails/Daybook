@@ -434,6 +434,10 @@ export interface SpecBoardData {
   colorSwatches?: Array<{ name: string; hex: string }>;
   // Prompt hash passthrough (for DALL-E prompt derivation)
   promptHash: string;
+  // Enriched fields populated async by spec-preview-service
+  collection?: string;           // Collection / sub-world name (may require relation fetch)
+  canonNames?: string[];         // Resolved display names of linked Canon Records (up to 5)
+  illustratedNarrative?: string; // Scene description for Section 3 (from front_prompt / world_and_collection_context)
 }
 
 export interface SpecPreviewResult {

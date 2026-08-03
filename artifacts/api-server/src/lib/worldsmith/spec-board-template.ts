@@ -217,7 +217,7 @@ function illustrationCharSection(
   const padX = x + 15;
   const titleY = y + 18;
   const ruleY  = y + 27;
-  const techniques = TECHNIQUES.slice(0, 6);
+  const techniques = TECHNIQUES; // all 7
   const itemH = Math.floor((h - 52) / techniques.length);
   const swatchSz = 22;
 
@@ -250,26 +250,24 @@ function colorPaletteSection(
   const padX = x + 15;
   const effective = (swatches.length > 0 ? swatches : DEFAULT_SWATCHES).slice(0, 6);
   const cols = 3;
-  const rows = Math.ceil(effective.length / cols);
-  const swW = Math.floor((w - 30 - (cols - 1) * 10) / cols);
-  const swH = 44;
-  const startY = y + 38;
-  const rowH = swH + 28;
+  const colW = Math.floor((w - 30) / cols);
+  const r    = Math.min(Math.floor(colW / 2) - 6, 30); // circle radius
+  const startY = y + 44;
+  const rowH   = r * 2 + 34; // circle + name + hex
 
   const items = effective.map((sw, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
-    const sx = padX + col * (swW + 10);
-    const sy = startY + row * rowH;
-    const cx = sx + swW / 2;
+    const cx  = padX + col * colW + colW / 2;
+    const cy  = startY + row * rowH + r;
     return [
-      `<rect x="${sx}" y="${sy}" width="${swW}" height="${swH}" fill="${esc(sw.hex)}" rx="3" stroke="${RULE}" stroke-width="0.5"/>`,
-      `<text x="${cx}" y="${sy + swH + 13}" text-anchor="middle" font-family="Spectral" font-size="8.5" fill="${INK}">${esc(trunc(sw.name, 13))}</text>`,
-      `<text x="${cx}" y="${sy + swH + 23}" text-anchor="middle" font-family="Instrument Sans" font-size="8" fill="${MUTED}">${esc(sw.hex)}</text>`,
+      `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${esc(sw.hex)}" stroke="${RULE}" stroke-width="0.6"/>`,
+      `<text x="${cx}" y="${cy + r + 14}" text-anchor="middle" font-family="Spectral" font-size="8.5" fill="${INK}">${esc(trunc(sw.name, 14))}</text>`,
+      `<text x="${cx}" y="${cy + r + 25}" text-anchor="middle" font-family="Instrument Sans" font-size="8" fill="${MUTED}">${esc(sw.hex)}</text>`,
     ].join("\n");
   });
 
-  const noteY = startY + rows * rowH + 8;
+  const noteY = startY + Math.ceil(effective.length / cols) * rowH + 6;
 
   return [
     `<rect x="${x}" y="${y}" width="2.5" height="${h}" fill="${NAVY}" opacity="0.38"/>`,
@@ -365,7 +363,7 @@ function approvedSection(
 
 export function buildSpecBoardSvg(data: SpecBoardData): string {
   const {
-    productionItem, specId, world, volume, componentType,
+    productionItem, specId, world, volume, collection, componentType,
     payloadVersion, currentVersion, status,
     designIntent, narrativePurpose, requiredContent, reviewCriteria,
     assetRole, composition, materials, visualHierarchy,
@@ -373,6 +371,7 @@ export function buildSpecBoardSvg(data: SpecBoardData): string {
     componentSpecName, componentSpecContent,
     styleGuideName, styleGuideContent,
     promptModuleCount, canonDependency, canonRecordCount,
+    canonNames, illustratedNarrative,
     colorSwatches,
   } = data;
 
@@ -387,9 +386,11 @@ export function buildSpecBoardSvg(data: SpecBoardData): string {
 
   // ── HEADER (y=22 to y=222) ────────────────────────────────────────────────
 
-  const volumeLine = [world, volume].filter(Boolean).join(" \u2014 ");
-  const subtitleLine = volumeLine
-    ? `WORLDSMITH ${volumeLine.toUpperCase()}`
+  // Subtitle: "WORLDSMITH VOLUME I — THE CURATOR'S DESK" style
+  // Prefer world + collection; fall back to world + volume, then just Foundation.
+  const subtitleParts = [world, collection || volume].filter(Boolean);
+  const subtitleLine = subtitleParts.length
+    ? `WORLDSMITH ${subtitleParts.join(" \u2014 ").toUpperCase()}`
     : "WORLDSMITH FOUNDATION";
 
   // Document metadata box (top right)
@@ -476,10 +477,12 @@ export function buildSpecBoardSvg(data: SpecBoardData): string {
 
   // ── LEFT COLUMN — SECTIONS 1–4 ────────────────────────────────────────────
 
-  const s1H = 285;
-  const s2H = 252;
-  const s3H = 222;
-  const s4H = BODY_H - s1H - s2H - s3H; // 374
+  // Section 3 is "Illustrated Narrative" — give it more height so the scene
+  // description renders in full.  Trim other sections slightly to compensate.
+  const s1H = 268;
+  const s2H = 228;
+  const s3H = 298;
+  const s4H = BODY_H - s1H - s2H - s3H; // ~339
 
   const styleLockContent = styleGuideContent
     ? trunc(styleGuideContent, 560)
@@ -491,11 +494,16 @@ export function buildSpecBoardSvg(data: SpecBoardData): string {
     .filter(Boolean)
     .join("\n\n") || "—";
 
-  const narrativeSummary = [
-    requiredContent ? `Required content: ${requiredContent}` : "",
-    componentType   ? `Component type: ${componentType}`    : "",
-    assetRole       ? `Asset role: ${assetRole}`            : "",
-  ].filter(Boolean).join("\n") || "—";
+  // Section 3: Illustrated Narrative — use the compiled scene prompt (front_prompt /
+  // world_and_collection_context) so the reviewer can assess visual direction.
+  // Fall back to a structured summary when no narrative is available.
+  const narrativeContent = illustratedNarrative
+    || [
+      requiredContent ? `Required content: ${requiredContent}` : "",
+      componentType   ? `Component type: ${componentType}`    : "",
+      assetRole       ? `Asset role: ${assetRole}`            : "",
+    ].filter(Boolean).join("\n")
+    || "—";
 
   const compositionItems = [
     composition     || "Composition not specified.",
@@ -505,10 +513,10 @@ export function buildSpecBoardSvg(data: SpecBoardData): string {
   ].filter(Boolean);
 
   const leftCol = [
-    docSection(L_X, BODY_Y,                   L_W, s1H, 1, "Style Lock",             true,  styleLockContent, FOREST),
-    docSection(L_X, BODY_Y + s1H,             L_W, s2H, 2, "Asset Purpose",           false, assetPurpose,     NAVY),
-    docSection(L_X, BODY_Y + s1H + s2H,       L_W, s3H, 3, "Narrative Summary",       false, narrativeSummary, NAVY),
-    bulletSection(L_X, BODY_Y + s1H + s2H + s3H, L_W, s4H, 4, "Composition & Layout", false, compositionItems, "#4A3B6E"),
+    docSection(L_X, BODY_Y,                   L_W, s1H, 1, "Style Lock",                          true,  styleLockContent,  FOREST),
+    docSection(L_X, BODY_Y + s1H,             L_W, s2H, 2, "Asset Purpose",                       false, assetPurpose,      NAVY),
+    docSection(L_X, BODY_Y + s1H + s2H,       L_W, s3H, 3, "Illustrated Narrative (Scene Summary)", false, narrativeContent, NAVY),
+    bulletSection(L_X, BODY_Y + s1H + s2H + s3H, L_W, s4H, 4, "Composition & Layout",            false, compositionItems,  "#4A3B6E"),
   ].join("\n");
 
   // ── RIGHT COLUMN — SECTIONS 5–6 ──────────────────────────────────────────
@@ -581,13 +589,23 @@ export function buildSpecBoardSvg(data: SpecBoardData): string {
     "Drift toward realism is a production defect because it weakens the integrity of the series.",
   ].filter(Boolean).join("\n");
 
+  // Canon lock: show actual record names when available; fall back to count
+  const canonNameItems: string[] = canonNames && canonNames.length > 0
+    ? canonNames
+    : canonRecordCount > 0
+      ? [`${canonRecordCount} Canon Record${canonRecordCount > 1 ? "s" : ""} linked`]
+      : ["No canon records linked."];
+
+  const canonHeader = canonDependency && canonDependency !== "None"
+    ? `Canon Dependency: ${canonDependency}\n`
+    : "";
+  const canonFooter = canonRule
+    || "Do not invent canon names, characters, or locations not approved in linked Canon Records.";
   const canonContent = [
-    canonDependency ? `Canon Dependency: ${canonDependency}` : "",
-    canonRecordCount > 0
-      ? `${canonRecordCount} Canon Record${canonRecordCount > 1 ? "s" : ""} linked`
-      : "No canon records linked.",
-    canonRule || "Do not invent canon names, characters, or locations not approved in linked Canon Records.",
-  ].filter(Boolean).join("\n");
+    canonHeader.trim(),
+    canonNameItems.join("\n"),
+    canonFooter,
+  ].filter(Boolean).join("\n\n");
 
   const row2 = [
     docSection(        bxArr[0], ROW2_Y, bw, ROW2_H, 11, "Series Benchmark",      false, seriesContent,   "#4A3B6E"),

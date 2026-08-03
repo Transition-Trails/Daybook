@@ -106,6 +106,8 @@ function buildConceptDallePrompt(data: SpecBoardData): string {
 function extractBoardData(page: NotionPage, specPageId: string, promptHash: string): SpecBoardData & {
   styleGuideId?: string;
   componentSpecId?: string;
+  canonRecordIds: string[];
+  collectionId?: string;
 } {
   const p = page.properties;
 
@@ -128,12 +130,23 @@ function extractBoardData(page: NotionPage, specPageId: string, promptHash: stri
   const volume          = extractRichText(p["Volume"]) || extractSelect(p["Volume"]) ||
                           extractRichText(p["Volume / Collection"]) || undefined;
 
+  // Collection — may be stored as rich text, select, or a Notion relation
+  const collectionId =
+    extractRelation(p["Collection"])?.[0] ||
+    extractRelation(p["Collection Record"])?.[0] ||
+    undefined;
+  const collection =
+    extractRichText(p["Collection"]) ||
+    extractSelect(p["Collection"]) ||
+    extractRichText(p["Collection Name"]) ||
+    undefined;
+
   const designIntent    = extractRichText(p["Design Intent"])    || extractRichText(p["Intent"]) || "";
   const narrativePurpose= extractRichText(p["Narrative Purpose"]) || extractRichText(p["Narrative"]) || "";
   const requiredContent = extractRichText(p["Required Content"]) || extractRichText(p["Content"]) || "";
   const reviewCriteria  = extractRichText(p["Review Criteria"])  || extractRichText(p["Criteria"]) || "";
 
-  // Parse prompt payload to extract PP-1.0 keys
+  // Parse prompt payload to extract PP-1.0 / PP-2.0 keys
   const rawPayload = extractRichText(p["Prompt Payload"]) || extractRichText(p["Payload"]) || "";
   const parsedPayload = rawPayload ? parsePayload(rawPayload).payload : {};
 
@@ -145,6 +158,15 @@ function extractBoardData(page: NotionPage, specPageId: string, promptHash: stri
   const canonRule           = parsedPayload.canon_rule           || "";
   const printRule           = parsedPayload.print_rule           || "";
   const negativeConstraints = parsedPayload.negative_constraints || "";
+
+  // Illustrated narrative — the visual scene description for Section 3 of the spec board.
+  // PP-2.0 front_prompt is the best source; fall back to PP-1.0 world_and_collection_context,
+  // then the structured narrativePurpose field.
+  const illustratedNarrative = (
+    parsedPayload.front_prompt ||
+    (parsedPayload as Record<string, string | undefined>).world_and_collection_context ||
+    ""
+  ).slice(0, 900) || narrativePurpose || undefined;
 
   const canonDependency = extractSelect(p["Canon Dependency"]) || "None";
   const canonRecordIds  = extractRelation(p["Canon Records"]) || extractRelation(p["Canon"]) || [];
@@ -161,6 +183,7 @@ function extractBoardData(page: NotionPage, specPageId: string, promptHash: stri
     specId,
     world,
     volume,
+    collection,
     componentType,
     payloadVersion,
     currentVersion,
@@ -177,6 +200,7 @@ function extractBoardData(page: NotionPage, specPageId: string, promptHash: stri
     canonRule,
     printRule,
     negativeConstraints,
+    illustratedNarrative,
     promptModuleCount: promptModuleIds.length,
     canonDependency,
     canonRecordCount: canonRecordIds.length,
@@ -184,6 +208,8 @@ function extractBoardData(page: NotionPage, specPageId: string, promptHash: stri
     // These will be populated below after fetching related pages
     styleGuideId,
     componentSpecId,
+    canonRecordIds,
+    collectionId,
   };
 }
 
@@ -294,34 +320,74 @@ export async function runSpecPreview(
 
   const boardData = extractBoardData(page, specPageId, promptHash);
 
-  // ── 3. Fetch related pages (style guide, component spec) ─────────────────
-  const { styleGuideId, componentSpecId, ...safeBoardData } = boardData as typeof boardData;
+  // ── 3. Fetch related pages (style guide, component spec, collection, canon records) ─
+  const { styleGuideId, componentSpecId, canonRecordIds, collectionId, ...safeBoardData } = boardData as typeof boardData;
 
-  if (styleGuideId) {
-    try {
-      const sgPage = await getPage(styleGuideId);
-      safeBoardData.styleGuideName =
-        extractTitle(sgPage.properties["Name"]) ||
-        extractTitle(sgPage.properties["Style Guide Name"]) || styleGuideId;
-      const sgText = await getPageText(styleGuideId);
-      safeBoardData.styleGuideContent = sgText.slice(0, 900);
-    } catch {
-      // Non-fatal — continue without style guide text
-    }
-  }
+  // Fetch all related pages concurrently — each is non-fatal
+  await Promise.all([
+    // Style guide
+    styleGuideId
+      ? (async () => {
+          try {
+            const sgPage = await getPage(styleGuideId);
+            safeBoardData.styleGuideName =
+              extractTitle(sgPage.properties["Name"]) ||
+              extractTitle(sgPage.properties["Style Guide Name"]) || styleGuideId;
+            const sgText = await getPageText(styleGuideId);
+            safeBoardData.styleGuideContent = sgText.slice(0, 900);
+          } catch { /* non-fatal */ }
+        })()
+      : Promise.resolve(),
 
-  if (componentSpecId) {
-    try {
-      const csPage = await getPage(componentSpecId);
-      safeBoardData.componentSpecName =
-        extractTitle(csPage.properties["Name"]) ||
-        extractTitle(csPage.properties["Component Specification"]) || componentSpecId;
-      const csText = await getPageText(componentSpecId);
-      safeBoardData.componentSpecContent = csText.slice(0, 600);
-    } catch {
-      // Non-fatal
-    }
-  }
+    // Component spec
+    componentSpecId
+      ? (async () => {
+          try {
+            const csPage = await getPage(componentSpecId);
+            safeBoardData.componentSpecName =
+              extractTitle(csPage.properties["Name"]) ||
+              extractTitle(csPage.properties["Component Specification"]) || componentSpecId;
+            const csText = await getPageText(componentSpecId);
+            safeBoardData.componentSpecContent = csText.slice(0, 600);
+          } catch { /* non-fatal */ }
+        })()
+      : Promise.resolve(),
+
+    // Collection name (only needed when stored as a relation, not plain text)
+    !safeBoardData.collection && collectionId
+      ? (async () => {
+          try {
+            const colPage = await getPage(collectionId);
+            const name =
+              extractTitle(colPage.properties["Name"]) ||
+              extractTitle(colPage.properties["Collection"]) ||
+              extractRichText(colPage.properties["Collection Name"]);
+            if (name) safeBoardData.collection = name;
+          } catch { /* non-fatal */ }
+        })()
+      : Promise.resolve(),
+
+    // Canon record names (up to 5, for Section 13 bullet list)
+    canonRecordIds.length > 0
+      ? (async () => {
+          const names: string[] = [];
+          await Promise.all(
+            canonRecordIds.slice(0, 5).map(async (id) => {
+              try {
+                const cPage = await getPage(id);
+                const name =
+                  extractTitle(cPage.properties["Name"]) ||
+                  extractTitle(cPage.properties["Canon Record"]) ||
+                  extractTitle(cPage.properties["Canon Name"]) ||
+                  extractRichText(cPage.properties["Name"]);
+                if (name) names.push(name);
+              } catch { /* non-fatal */ }
+            }),
+          );
+          if (names.length > 0) safeBoardData.canonNames = names;
+        })()
+      : Promise.resolve(),
+  ]);
 
   const finalBoardData: SpecBoardData = safeBoardData;
 

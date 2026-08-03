@@ -2759,7 +2759,10 @@ function InheritanceNodeCard({ node }: { node: InheritanceNode }) {
 
   return (
     <Card className="overflow-hidden">
-      <button type="button" onClick={() => isExpandable && setOpen(!open)}
+      {/* div instead of button — <a> link inside prevents interactive-in-button nesting */}
+      <div role={isExpandable ? "button" : undefined} tabIndex={isExpandable ? 0 : undefined}
+        onClick={() => isExpandable && setOpen(!open)}
+        onKeyDown={(e) => isExpandable && (e.key === "Enter" || e.key === " ") && setOpen(!open)}
         className={`w-full text-left ${isExpandable ? "cursor-pointer" : "cursor-default"}`}>
         <CardContent className="py-3 px-4">
           <div className="flex items-center gap-3">
@@ -2785,7 +2788,7 @@ function InheritanceNodeCard({ node }: { node: InheritanceNode }) {
             </div>
           </div>
         </CardContent>
-      </button>
+      </div>
 
       {open && (
         <div className="border-t border-border bg-muted/20">
@@ -2921,7 +2924,11 @@ function PromptSectionsTab({
       <div className="space-y-2">
         {sections.map((s) => (
           <Card key={s.key} className="overflow-hidden">
-            <button type="button" onClick={() => toggle(s.key)} className="w-full text-left">
+            {/* div instead of button — copy Button inside prevents button-in-button nesting */}
+            <div role="button" tabIndex={0}
+              onClick={() => toggle(s.key)}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggle(s.key)}
+              className="w-full text-left cursor-pointer">
               <CardContent className="py-3 px-4">
                 <div className="flex items-center gap-3">
                   <div className="flex-1 min-w-0">
@@ -2943,7 +2950,7 @@ function PromptSectionsTab({
                   </div>
                 </div>
               </CardContent>
-            </button>
+            </div>
             {openKeys.has(s.key) && (
               <div className="border-t border-border bg-muted/20 px-4 py-3">
                 <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground leading-relaxed">{s.content}</pre>

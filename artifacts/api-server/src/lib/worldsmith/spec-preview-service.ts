@@ -29,7 +29,7 @@ import {
   type NotionPage,
 } from "../notion-client";
 import { callDallE } from "../ai-proxy";
-import { renderSpecBoardToPng, CONCEPT_IMAGE_AREA } from "./spec-board-template";
+import { renderSpecBoardToPng, CONCEPT_IMAGE_AREA, REFERENCE_IMAGE_AREAS } from "./spec-board-template";
 import { parsePayload } from "./payload-parser";
 import { logger } from "../logger";
 import type { SpecBoardData, SpecPreviewResult, SpecPreviewRequest } from "./types";
@@ -335,6 +335,32 @@ export async function runSpecPreview(
               extractTitle(sgPage.properties["Style Guide Name"]) || styleGuideId;
             const sgText = await getPageText(styleGuideId);
             safeBoardData.styleGuideContent = sgText.slice(0, 900);
+
+            // Collect up to 4 image file URLs from any "files"-type property on the page
+            const refUrls: string[] = [];
+            for (const prop of Object.values(sgPage.properties)) {
+              const p = prop as {
+                type?: string;
+                files?: Array<{
+                  type: string;
+                  file?: { url: string };
+                  external?: { url: string };
+                }>;
+              };
+              if (p.type === "files" && Array.isArray(p.files)) {
+                for (const f of p.files) {
+                  const url = f.type === "file" ? f.file?.url : f.external?.url;
+                  if (url && /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url)) {
+                    refUrls.push(url);
+                    if (refUrls.length >= 4) break;
+                  }
+                }
+              }
+              if (refUrls.length >= 4) break;
+            }
+            if (refUrls.length > 0) {
+              safeBoardData.referenceImageUrls = refUrls;
+            }
           } catch { /* non-fatal */ }
         })()
       : Promise.resolve(),
@@ -511,6 +537,42 @@ export async function runSpecPreview(
     logger.warn({ err: dalleErr, specPageId }, "DALL-E concept visual failed — using spec board without central image");
     // Non-fatal: continue with the plain spec board
     finalPng = boardPng;
+  }
+
+  // ── 6b. Composite Style Guide reference images into Section 12 boxes ────────
+  if (finalBoardData.referenceImageUrls && finalBoardData.referenceImageUrls.length > 0) {
+    try {
+      const composites: Array<{ input: Buffer; left: number; top: number; blend: "over" }> = [];
+      await Promise.all(
+        finalBoardData.referenceImageUrls.slice(0, 4).map(async (url, i) => {
+          const area = REFERENCE_IMAGE_AREAS[i];
+          if (!area) return;
+          try {
+            const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+            if (!res.ok) return;
+            const imgBuf = Buffer.from(await res.arrayBuffer());
+            const resized = await sharp(imgBuf)
+              .resize(area.width - 4, area.height - 4, { fit: "cover", position: "centre" })
+              .png()
+              .toBuffer();
+            // Push in array — concurrent access to composites[] is fine here because
+            // each index is unique (Promise.all resolves after all settle)
+            composites.push({ input: resized, left: area.x + 2, top: area.y + 2, blend: "over" });
+          } catch (imgErr) {
+            logger.warn({ err: imgErr, url, specPageId }, "Reference image download/resize failed — skipping thumbnail");
+          }
+        }),
+      );
+      if (composites.length > 0) {
+        finalPng = await sharp(finalPng)
+          .composite(composites)
+          .png()
+          .toBuffer();
+        logger.info({ specPageId, count: composites.length }, "Reference thumbnails composited into spec board");
+      }
+    } catch (refErr) {
+      logger.warn({ err: refErr, specPageId }, "Reference image compositing failed — non-fatal, continuing");
+    }
   }
 
   // Enforce max file size (4 MB). Reduce PNG compression if needed.

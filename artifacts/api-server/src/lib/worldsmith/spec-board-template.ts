@@ -50,6 +50,30 @@ export const CONCEPT_IMAGE_AREA = {
   height: 860,
 } as const;
 
+/**
+ * The four reference/inspiration thumbnail rectangles in Section 12.
+ * Computed from the same layout constants used in referencesSection().
+ * spec-preview-service.ts uses these to composite downloaded images via sharp.
+ */
+export const REFERENCE_IMAGE_AREAS: ReadonlyArray<{ x: number; y: number; width: number; height: number }> = (() => {
+  const bTotal = BOARD_W - L_X * 2;
+  const bGap   = 12;
+  const bCount = 4;
+  const bw     = Math.floor((bTotal - bGap * (bCount - 1)) / bCount);
+  const secX   = L_X + 1 * (bw + bGap); // references section is the second of four columns
+  const secY   = ROW2_Y;
+  const padX   = secX + 15;
+  const thumbW = Math.floor((bw - 30 - 15) / 4);
+  const thumbH = Math.floor((ROW2_H - 60) * 0.52);
+  const thumbY = secY + 38;
+  return [0, 1, 2, 3].map(i => ({
+    x: padX + i * (thumbW + 5),
+    y: thumbY,
+    width:  thumbW,
+    height: thumbH,
+  }));
+})();
+
 // ── Brand palette ─────────────────────────────────────────────────────────────
 
 const PAPER  = "#F5F0E8";

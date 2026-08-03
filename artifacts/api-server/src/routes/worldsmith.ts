@@ -762,6 +762,74 @@ router.get("/v1/worldsmith/health", requireAuth, requireSuperAdmin, async (_req:
   res.json({ integrations });
 });
 
+// ── PATCH /v1/worldsmith/worlds/:id ──────────────────────────────────────────
+// Update mutable world settings in-place (no delete + recreate needed).
+// Accepts a partial set of fields; only supplied keys are updated.
+
+router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const worldId = req.params.id as string;
+
+  const body = req.body as {
+    notionProductionDbId?: string | null;
+    driveFolderId?: string | null;
+    imageProvider?: string | null;
+    status?: string;
+    currentCollection?: string | null;
+    currentVolume?: string | null;
+  };
+
+  // Build a patch object with only the keys the caller supplied
+  const patch: Record<string, unknown> = {};
+  if ("notionProductionDbId" in body) {
+    patch.notionProductionDbId = body.notionProductionDbId?.trim() || null;
+  }
+  if ("driveFolderId" in body) {
+    patch.driveFolderId = body.driveFolderId?.trim() || null;
+  }
+  if ("imageProvider" in body) {
+    patch.imageProvider = body.imageProvider?.trim() || null;
+  }
+  if ("status" in body) {
+    const validStatuses = ["active", "in_setup", "archived"];
+    if (!validStatuses.includes(body.status as string)) {
+      res.status(400).json({ error: `status must be one of: ${validStatuses.join(", ")}`, code: "INVALID_STATUS" });
+      return;
+    }
+    patch.status = body.status;
+  }
+  if ("currentCollection" in body) {
+    patch.currentCollection = body.currentCollection?.trim() || null;
+  }
+  if ("currentVolume" in body) {
+    patch.currentVolume = body.currentVolume?.trim() || null;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    res.status(400).json({ error: "No updatable fields provided", code: "MISSING_FIELDS" });
+    return;
+  }
+
+  patch.updatedAt = new Date();
+
+  try {
+    const [updated] = await db
+      .update(worldsmithWorldsTable)
+      .set(patch)
+      .where(eq(worldsmithWorldsTable.id, worldId))
+      .returning();
+
+    if (!updated) {
+      res.status(404).json({ error: "World not found", code: "NOT_FOUND" });
+      return;
+    }
+
+    res.json(updated);
+  } catch (err) {
+    logger.error({ err, worldId }, "Failed to update world");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── POST /v1/worldsmith/runs/:runId/refresh-collection-name ──────────────────
 // Fetch the current Notion page title for the stored collection ID and patch
 // resolved_source_ids.collection_name without requiring a full recompile.

@@ -9,7 +9,7 @@ import { Link } from "wouter";
 import {
   Sparkles, Plus, LayoutGrid, List, Search, X, ChevronLeft,
   ArrowRight, BookOpen, Loader2, CheckCircle2, XCircle,
-  AlertCircle, ExternalLink, Clock, Wrench,
+  AlertCircle, ExternalLink, Clock, Wrench, Pencil, Save,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -81,6 +81,8 @@ const wsApi = {
   worlds: () => apiFetch<{ worlds: WsWorld[] }>("/v1/worldsmith/worlds"),
   createWorld: (body: Partial<WsWorld>) =>
     apiFetch<WsWorld>("/v1/worldsmith/worlds", { method: "POST", body: JSON.stringify(body) }),
+  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume">>) =>
+    apiFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
   runs: (worldId?: string) =>
     apiFetch<{ runs: WsRun[] }>(`/v1/worldsmith/runs${worldId ? `?world_id=${encodeURIComponent(worldId)}` : ""}`),
   assets: () => apiFetch<{ assets: WsAsset[] }>("/v1/worldsmith/assets"),
@@ -770,6 +772,39 @@ function AssetReviewRow({ asset }: { asset: WsAsset }) {
 }
 
 function IntegrationsSection({ world, integrations }: { world: WsWorld; integrations: HealthStatus[] }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    notionProductionDbId: world.notionProductionDbId ?? "",
+    driveFolderId: world.driveFolderId ?? "",
+    imageProvider: world.imageProvider ?? "",
+    status: world.status,
+    currentCollection: world.currentCollection ?? "",
+    currentVolume: world.currentVolume ?? "",
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      wsApi.updateWorld(world.id, {
+        notionProductionDbId: form.notionProductionDbId.trim() || null,
+        driveFolderId: form.driveFolderId.trim() || null,
+        imageProvider: form.imageProvider.trim() || null,
+        status: form.status as WsWorld["status"],
+        currentCollection: form.currentCollection.trim() || null,
+        currentVolume: form.currentVolume.trim() || null,
+      }),
+    onSuccess: () => {
+      toast({ title: "Settings saved", description: `${world.name} has been updated.` });
+      setEditing(false);
+      qc.invalidateQueries({ queryKey: ["worldsmith/worlds"] });
+      qc.invalidateQueries({ queryKey: ["worldsmith/health"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to save settings", description: err.message, variant: "destructive" });
+    },
+  });
+
   // Global checks have no worldId; per-world checks carry their worldId
   const globalChecks = integrations.filter(i => !i.worldId);
   const worldDbEntry = integrations.find(i => i.worldId === world.id);
@@ -789,31 +824,169 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
       : null
   );
 
+  // Determine whether to show an edit nudge (warning/failed status or no DB configured)
+  const needsAttention =
+    !world.notionProductionDbId ||
+    worldDbEntry?.status === "warning" ||
+    worldDbEntry?.status === "failed";
+
   return (
-    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+    <div className="rounded-xl border border-border bg-card p-5 space-y-5">
       {/* Per-world DB check — shown first so admins see it prominently */}
-      {worldDbRow ? (
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-2">
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
             {world.name} — Notion database
           </p>
-          <HealthRow integration={worldDbRow} />
-          {world.notionProductionDbId && (
-            <p className="text-[10.5px] text-muted-foreground font-mono mt-1.5 pl-1">
-              {world.notionProductionDbId}
-            </p>
+          {!editing && (
+            <button
+              onClick={() => setEditing(true)}
+              className={[
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-medium transition-colors",
+                needsAttention
+                  ? "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                  : "bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60",
+              ].join(" ")}
+            >
+              <Pencil className="w-3 h-3" />
+              Edit settings
+            </button>
           )}
         </div>
-      ) : (
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-2">
-            {world.name} — Notion database
-          </p>
+
+        {worldDbRow ? (
+          <>
+            <HealthRow integration={worldDbRow} />
+            {world.notionProductionDbId && (
+              <p className="text-[10.5px] text-muted-foreground font-mono mt-1.5 pl-1 break-all">
+                {world.notionProductionDbId}
+              </p>
+            )}
+          </>
+        ) : (
           <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-border bg-muted/10">
             <Wrench className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <p className="text-[12px] text-muted-foreground">
-              No Notion Production DB ID configured for this world. Add one in world settings to enable per-world health checks.
+              No Notion Production DB ID configured for this world. Use <strong>Edit settings</strong> above to add one.
             </p>
+          </div>
+        )}
+      </div>
+
+      {/* Inline edit form */}
+      {editing && (
+        <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Edit world settings</p>
+
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                Notion Production DB ID
+              </label>
+              <input
+                value={form.notionProductionDbId}
+                onChange={e => setForm(f => ({ ...f, notionProductionDbId: e.target.value }))}
+                placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30 font-mono"
+                autoFocus
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                32-character Notion database ID. The integration must have share access to this DB.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                Google Drive Folder ID
+              </label>
+              <input
+                value={form.driveFolderId}
+                onChange={e => setForm(f => ({ ...f, driveFolderId: e.target.value }))}
+                placeholder="Google Drive folder ID"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30 font-mono"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-semibold text-muted-foreground block mb-1">Image provider</label>
+                <select
+                  value={form.imageProvider}
+                  onChange={e => setForm(f => ({ ...f, imageProvider: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none"
+                >
+                  <option value="">None</option>
+                  <option value="dalle3">DALL-E 3 (OpenAI)</option>
+                  <option value="stability">Stability AI</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-muted-foreground block mb-1">World status</label>
+                <select
+                  value={form.status}
+                  onChange={e => setForm(f => ({ ...f, status: e.target.value as WsWorld["status"] }))}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none"
+                >
+                  <option value="in_setup">In setup</option>
+                  <option value="active">Active</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-semibold text-muted-foreground block mb-1">Collection</label>
+                <input
+                  value={form.currentCollection}
+                  onChange={e => setForm(f => ({ ...f, currentCollection: e.target.value }))}
+                  placeholder="Victorian Garden Journals"
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-muted-foreground block mb-1">Volume</label>
+                <input
+                  value={form.currentVolume}
+                  onChange={e => setForm(f => ({ ...f, currentVolume: e.target.value }))}
+                  placeholder="Volume I"
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              onClick={() => {
+                setEditing(false);
+                setForm({
+                  notionProductionDbId: world.notionProductionDbId ?? "",
+                  driveFolderId: world.driveFolderId ?? "",
+                  imageProvider: world.imageProvider ?? "",
+                  status: world.status,
+                  currentCollection: world.currentCollection ?? "",
+                  currentVolume: world.currentVolume ?? "",
+                });
+              }}
+              disabled={saveMutation.isPending}
+              className="px-3 py-1.5 rounded-lg text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{ background: "#1B2A4A" }}
+            >
+              {saveMutation.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Save className="w-3 h-3" />
+              )}
+              Save settings
+            </button>
           </div>
         </div>
       )}

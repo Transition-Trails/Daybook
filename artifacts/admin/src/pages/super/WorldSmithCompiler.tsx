@@ -13,6 +13,7 @@ import {
   ImagePlus, ExternalLink, ImageOff, ArrowLeft, Layers, GitBranch,
   Download, Link2, ShieldCheck, Cpu, Info, Zap, ArrowUpRight,
   CircleDot, TrendingUp, DollarSign, CheckSquare,
+  Wand2, ListChecks, ShieldAlert, Package, ChevronRight, Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +64,66 @@ interface PreflightResponse {
   collection?: string;
   volume?: string;
   status: string;
+  /** true when payload_version is PP-2.0 and Prompt Payload is blank in Notion */
+  prompt_payload_blank?: boolean;
+}
+
+// ── Payload Generator types ───────────────────────────────────────────────────
+
+interface PP2Sections {
+  shared_prompt: string;
+  front_prompt: string;
+  back_prompt?: string;
+  assembly_prompt?: string;
+  negative_prompt: string;
+}
+
+interface GeneratePayloadResponse {
+  spec_id: string;
+  production_item: string;
+  component_type: string;
+  sections: PP2Sections;
+  serialized: string;
+  pre_save_issues: ValidationError[];
+  generator_warnings: ValidationError[];
+  warnings: ValidationError[];
+  requires_confirmation?: boolean;
+  code?: string;
+}
+
+interface SavePayloadResponse {
+  success: boolean;
+  spec_id: string;
+  persistence_verified: boolean;
+  mismatch?: string | null;
+  recompile?: unknown;
+  // Returned on 422 PAYLOAD_VALIDATION_FAILED
+  code?: string;
+  error?: string;
+  validation_issues?: ValidationError[];
+}
+
+interface WorldRecord {
+  id: string;
+  name: string;
+  status: string;
+  notionProductionDbId?: string | null;
+}
+
+interface BatchAuditRecord {
+  specId: string;
+  productionItem: string;
+  componentType: string;
+}
+
+interface BatchAuditResponse {
+  world_id: string;
+  world_name: string;
+  total_reviewed: number;
+  truncated: boolean;
+  ready: Array<BatchAuditRecord & { missingFields: string[] }>;
+  warning: Array<BatchAuditRecord & { warnings: string[] }>;
+  blocked: Array<BatchAuditRecord & { errors: string[] }>;
 }
 
 interface CompiledSectionRecord {
@@ -241,6 +302,48 @@ const worldsmithApi = {
       `/v1/worldsmith/runs/${runId}/refresh-collection-name`,
       { method: "POST" },
     ),
+
+  generatePayload: (specId: string, confirmWarnings = false) =>
+    apiFetch<GeneratePayloadResponse>("/v1/worldsmith/generate-payload", {
+      method: "POST",
+      body: JSON.stringify({ spec_id: specId, confirm_warnings: confirmWarnings }),
+    }),
+
+  savePayload: async (specId: string, serializedPayload: string, skipRecompile = false): Promise<SavePayloadResponse> => {
+    const res = await fetch("/api/v1/worldsmith/save-payload", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spec_id: specId, serialized_payload: serializedPayload, skip_recompile: skipRecompile }),
+    });
+    const body = await res.json().catch(() => ({})) as SavePayloadResponse;
+    // 200 = success; 422 PAYLOAD_VALIDATION_FAILED = structured issues returned as-is for UI
+    if (res.status === 422 && body.code === "PAYLOAD_VALIDATION_FAILED") return body;
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+    return body;
+  },
+
+  listWorlds: () =>
+    apiFetch<{ worlds: WorldRecord[] }>("/v1/worldsmith/worlds"),
+
+  batchAudit: (worldId: string, limit = 60) =>
+    apiFetch<BatchAuditResponse>("/v1/worldsmith/batch-generate-payloads", {
+      method: "POST",
+      body: JSON.stringify({ world_id: worldId, limit }),
+    }),
+
+  batchSavePayload: async (specId: string, serializedPayload: string): Promise<SavePayloadResponse> => {
+    const res = await fetch("/api/v1/worldsmith/batch-save-payload", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spec_id: specId, serialized_payload: serializedPayload, skip_recompile: true }),
+    });
+    const body = await res.json().catch(() => ({})) as SavePayloadResponse;
+    if (res.status === 422 && body.code === "PAYLOAD_VALIDATION_FAILED") return body;
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+    return body;
+  },
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -252,7 +355,7 @@ export default function WorldSmithCompiler() {
   const [preflight, setPreflight] = useState<PreflightResponse | null>(null);
   const [dryRun, setDryRun] = useState(false);
   const [result, setResult] = useState<CompileResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<"compiler" | "runs" | "assets">("compiler");
+  const [activeTab, setActiveTab] = useState<"compiler" | "runs" | "assets" | "batch">("compiler");
   const [statusFilter, setStatusFilter] = useState("all");
 
   // ── Spec Preview state ────────────────────────────────────────────────────
@@ -405,12 +508,12 @@ export default function WorldSmithCompiler() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
-        {(["compiler", "runs", "assets"] as const).map((tab) => (
+        {(["compiler", "runs", "assets", "batch"] as const).map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
               activeTab === tab ? "border-[#1B2A4A] text-[#1B2A4A]" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}>
-            {tab}
+            {tab === "batch" ? "Batch Generate" : tab}
           </button>
         ))}
       </div>
@@ -456,15 +559,28 @@ export default function WorldSmithCompiler() {
 
           {/* Step 2 — Preflight summary (shown after resolve) */}
           {preflight && !result && (
-            <PreflightCard
-              preflight={preflight}
-              dryRun={dryRun}
-              setDryRun={setDryRun}
-              onCompile={() => compile.mutate({ id: resolvedId!, dry: dryRun })}
-              onDryRun={() => compile.mutate({ id: resolvedId!, dry: true })}
-              isPending={compile.isPending}
-              canCompile={canCompile}
-            />
+            <>
+              <PreflightCard
+                preflight={preflight}
+                dryRun={dryRun}
+                setDryRun={setDryRun}
+                onCompile={() => compile.mutate({ id: resolvedId!, dry: dryRun })}
+                onDryRun={() => compile.mutate({ id: resolvedId!, dry: true })}
+                isPending={compile.isPending}
+                canCompile={canCompile}
+              />
+              {/* PP-2.0 payload generator — shown only when payload is blank */}
+              {preflight.prompt_payload_blank && resolvedId && (
+                <PayloadGeneratorPanel
+                  specId={resolvedId}
+                  productionItem={preflight.production_specification}
+                  onSaved={() => {
+                    // Re-run preflight so the generate button disappears
+                    preflightMutation.mutate(resolvedId!);
+                  }}
+                />
+              )}
+            </>
           )}
 
           {/* Step 3 — Result */}
@@ -579,6 +695,9 @@ export default function WorldSmithCompiler() {
           </div>
         </div>
       )}
+
+      {/* ── Batch Generate tab ────────────────────────────────────────────── */}
+      {activeTab === "batch" && <BatchTab />}
     </div>
   );
 }
@@ -682,6 +801,624 @@ function PreflightCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ── Payload Generator Panel ───────────────────────────────────────────────────
+// Self-contained component shown below PreflightCard when payload_version is
+// PP-2.0 and Prompt Payload is blank.  State machine:
+//   idle → checking → warning_confirm → generating → preview → saving → saved
+
+type GenPanelState =
+  | { phase: "idle" }
+  | { phase: "checking" }
+  | { phase: "warning_confirm"; warnings: ValidationError[] }
+  | { phase: "generating" }
+  | { phase: "preview"; draft: GeneratePayloadResponse }
+  | { phase: "saving"; draft: GeneratePayloadResponse }
+  | { phase: "saved"; draft: GeneratePayloadResponse }
+  | { phase: "error"; message: string };
+
+function PayloadGeneratorPanel({
+  specId,
+  productionItem,
+  onSaved,
+}: {
+  specId: string;
+  productionItem: string;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [state, setState] = useState<GenPanelState>({ phase: "idle" });
+  const [expanded, setExpanded] = useState(false);
+  const [copiedSection, setCopiedSection] = useState<string | null>(null);
+  const [editedSerialized, setEditedSerialized] = useState<string | null>(null);
+
+  async function startGenerate(confirmWarnings = false) {
+    setState({ phase: confirmWarnings ? "generating" : "checking" });
+    try {
+      const resp = await worldsmithApi.generatePayload(specId, confirmWarnings);
+      if ((resp as GeneratePayloadResponse & { requires_confirmation?: boolean }).requires_confirmation) {
+        setState({ phase: "warning_confirm", warnings: (resp as GeneratePayloadResponse).warnings });
+        return;
+      }
+      setState({ phase: "preview", draft: resp });
+      setEditedSerialized(resp.serialized);
+    } catch (err: unknown) {
+      const errBody = err as { status?: number; body?: { code?: string; errors?: ValidationError[]; message?: string; error?: string } };
+      if (errBody?.body?.code === "REQUIREMENTS_NOT_MET") {
+        setState({ phase: "error", message: `Requirements not met:\n${(errBody.body.errors ?? []).map(e => `• ${e.field}: ${e.message}`).join("\n")}` });
+      } else {
+        setState({ phase: "error", message: String((errBody?.body?.error) ?? err) });
+      }
+    }
+  }
+
+  async function handleSave() {
+    if (state.phase !== "preview") return;
+    const payload = editedSerialized ?? state.draft.serialized;
+    const currentDraft = state.draft;
+    setState({ phase: "saving", draft: currentDraft });
+    try {
+      const resp = await worldsmithApi.savePayload(specId, payload, false);
+      // Server-side validation rejected the edited payload — show issues inline
+      if (resp.code === "PAYLOAD_VALIDATION_FAILED") {
+        const updatedDraft: GeneratePayloadResponse = {
+          ...currentDraft,
+          pre_save_issues: resp.validation_issues ?? [],
+        };
+        setState({ phase: "preview", draft: updatedDraft });
+        toast({
+          title: "Payload validation failed",
+          description: `${resp.validation_issues?.length ?? 1} issue(s) found in the edited payload. Fix them and retry.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!resp.success) throw new Error(resp.error ?? "Save indicated failure");
+      setState({ phase: "saved", draft: currentDraft });
+      toast({ title: "Payload saved", description: `Notion updated${resp.persistence_verified ? " and verified" : " (verification pending)"}. Recompile queued.` });
+      setTimeout(onSaved, 1200);
+    } catch (err) {
+      setState({ phase: "error", message: String(err) });
+      toast({ title: "Save failed", description: String(err), variant: "destructive" });
+    }
+  }
+
+  function copySection(key: string, val: string) {
+    navigator.clipboard.writeText(val).catch(() => {});
+    setCopiedSection(key);
+    setTimeout(() => setCopiedSection(null), 1500);
+  }
+
+  const sectionLabels: Record<string, string> = {
+    shared_prompt: "Shared Prompt",
+    front_prompt: "Front Prompt",
+    back_prompt: "Back Prompt",
+    assembly_prompt: "Assembly Prompt",
+    negative_prompt: "Negative Prompt",
+  };
+
+  // --- Idle state: collapsed teaser card ---
+  if (!expanded && state.phase === "idle") {
+    return (
+      <Card className="border-amber-200 bg-amber-50/50">
+        <CardContent className="py-3 px-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Wand2 className="w-4 h-4 text-amber-600 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-amber-900">Prompt Payload missing</p>
+                <p className="text-xs text-amber-700">This PP-2.0 spec has no Prompt Payload. Generate one from source data using AI.</p>
+              </div>
+            </div>
+            <Button size="sm" onClick={() => { setExpanded(true); startGenerate(false); }}
+              className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white">
+              <Wand2 className="w-3.5 h-3.5 mr-1.5" />Generate Payload
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-amber-200">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Wand2 className="w-4 h-4 text-amber-600" />
+            Generate PP-2.0 Prompt Payload
+            <span className="text-xs font-normal text-muted-foreground ml-1 truncate max-w-[200px]">{productionItem}</span>
+          </CardTitle>
+          {(state.phase === "idle" || state.phase === "error") && (
+            <Button variant="ghost" size="sm" onClick={() => setExpanded(false)} className="h-6 w-6 p-0">
+              <ChevronUp className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-4">
+
+        {/* ── Checking requirements ── */}
+        {state.phase === "checking" && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Checking generation requirements…
+          </div>
+        )}
+
+        {/* ── Generating ── */}
+        {state.phase === "generating" && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm">
+              <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+              <span className="font-medium text-amber-900">Synthesizing payload with AI…</span>
+            </div>
+            <div className="grid grid-cols-5 gap-1 mt-2">
+              {["Shared Prompt", "Front Prompt", "Back Prompt", "Assembly", "Negative"].map((s, i) => (
+                <div key={s} className={`h-1 rounded-full ${i < 2 ? "bg-amber-400" : "bg-amber-100"} animate-pulse`} style={{ animationDelay: `${i * 200}ms` }} />
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">This uses OpenAI and may take 10–20 seconds.</p>
+          </div>
+        )}
+
+        {/* ── Warning confirmation ── */}
+        {state.phase === "warning_confirm" && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
+              Warnings require confirmation before generation
+            </div>
+            <div className="space-y-2">
+              {state.warnings.map((w, i) => (
+                <div key={i} className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-xs font-medium text-amber-800">{w.field}</p>
+                  <p className="text-xs text-amber-700 mt-0.5">{w.message}</p>
+                  <p className="text-xs text-amber-600 mt-1 italic">{w.recommended_action}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => startGenerate(true)}
+                className="bg-amber-600 hover:bg-amber-700 text-white">
+                <Wand2 className="w-3.5 h-3.5 mr-1.5" />Confirm &amp; Generate Anyway
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setState({ phase: "idle" })}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Error ── */}
+        {state.phase === "error" && (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3">
+              <XCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+              <pre className="text-xs text-red-700 whitespace-pre-wrap font-sans">{state.message}</pre>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => startGenerate(false)}>
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />Retry
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setState({ phase: "idle" })}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Preview ── */}
+        {(state.phase === "preview" || state.phase === "saving" || state.phase === "saved") && (
+          <>
+            {/* Pre-save issues */}
+            {state.draft.pre_save_issues.length > 0 && (
+              <div className="rounded-md border border-orange-200 bg-orange-50 p-3 space-y-1">
+                <p className="text-xs font-medium text-orange-800 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {state.draft.pre_save_issues.length} pre-save issue{state.draft.pre_save_issues.length !== 1 ? "s" : ""}
+                </p>
+                {state.draft.pre_save_issues.map((issue, i) => (
+                  <p key={i} className="text-xs text-orange-700">• <strong>{issue.field}</strong>: {issue.message}</p>
+                ))}
+              </div>
+            )}
+
+            {/* Warnings from requirements check */}
+            {state.draft.warnings.length > 0 && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1">
+                <p className="text-xs font-medium text-amber-800 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {state.draft.warnings.length} generation warning{state.draft.warnings.length !== 1 ? "s" : ""}
+                </p>
+                {state.draft.warnings.map((w, i) => (
+                  <p key={i} className="text-xs text-amber-700">• <strong>{w.field}</strong>: {w.message}</p>
+                ))}
+              </div>
+            )}
+
+            {/* Section preview cards */}
+            <div className="space-y-2">
+              {Object.entries(state.draft.sections).map(([key, val]) => {
+                if (!val?.trim()) return null;
+                return (
+                  <div key={key} className="rounded-md border border-border bg-muted/30 overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 bg-muted/50">
+                      <span className="text-xs font-mono font-semibold text-[#1B2A4A]">{key}</span>
+                      <button onClick={() => copySection(key, val)}
+                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                        {copiedSection === key ? <CheckCircle2 className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                        {sectionLabels[key] ?? key}
+                      </button>
+                    </div>
+                    <p className="px-3 py-2 text-xs text-foreground leading-relaxed">{val}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Editable raw payload */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1.5">Serialised payload (editable before saving)</p>
+              <Textarea
+                value={editedSerialized ?? state.draft.serialized}
+                onChange={(e) => setEditedSerialized(e.target.value)}
+                className="font-mono text-xs h-32 resize-y"
+                disabled={state.phase === "saving" || state.phase === "saved"}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {(editedSerialized ?? state.draft.serialized).length} chars ·
+                {state.draft.pre_save_issues.length === 0 ? " ✓ Validation passed" : ` ${state.draft.pre_save_issues.length} issue(s) — review before saving`}
+              </p>
+            </div>
+
+            {/* Action buttons */}
+            {state.phase === "preview" && (
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  onClick={handleSave}
+                  disabled={state.draft.pre_save_issues.some(i => i.code === "PAYLOAD_TOO_LARGE")}
+                  className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white"
+                >
+                  <Save className="w-3.5 h-3.5 mr-1.5" />Save to Notion &amp; Recompile
+                </Button>
+                <Button variant="outline" onClick={() => startGenerate(true)}>
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" />Regenerate
+                </Button>
+                <Button variant="ghost" onClick={() => setState({ phase: "idle" })}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+
+            {state.phase === "saving" && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Writing to Notion…
+              </div>
+            )}
+
+            {state.phase === "saved" && (
+              <div className="flex items-center gap-2 text-sm text-emerald-700">
+                <CheckCircle2 className="w-4 h-4" />
+                Saved to Notion successfully. Preflight will refresh.
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Batch Generate Tab ─────────────────────────────────────────────────────────
+
+type BatchRecordWithDraft = {
+  specId: string;
+  productionItem: string;
+  componentType: string;
+  issues: string[];
+  issueType: "error" | "warning";
+  draft?: GeneratePayloadResponse | null;
+  draftState: "idle" | "generating" | "ready" | "saving" | "saved" | "error";
+  draftError?: string;
+  savedPayload?: string;
+};
+
+function BatchTab() {
+  const { toast } = useToast();
+  const [selectedWorldId, setSelectedWorldId] = useState<string>("");
+  const [auditResult, setAuditResult] = useState<BatchAuditResponse | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [isAuditing, setIsAuditing] = useState(false);
+  const [records, setRecords] = useState<BatchRecordWithDraft[]>([]);
+  const [activeGroup, setActiveGroup] = useState<"ready" | "warning" | "blocked">("ready");
+
+  const worldsQuery = useQuery({
+    queryKey: ["worldsmith-worlds"],
+    queryFn: () => worldsmithApi.listWorlds(),
+  });
+
+  const worlds = worldsQuery.data?.worlds ?? [];
+
+  async function runAudit() {
+    if (!selectedWorldId) return;
+    setIsAuditing(true);
+    setAuditResult(null);
+    setAuditError(null);
+    setRecords([]);
+    try {
+      const result = await worldsmithApi.batchAudit(selectedWorldId, 60);
+      setAuditResult(result);
+      const allRecords: BatchRecordWithDraft[] = [
+        ...result.ready.map(r => ({ specId: r.specId, productionItem: r.productionItem, componentType: r.componentType, issues: [], issueType: "warning" as const, draftState: "idle" as const })),
+        ...result.warning.map(r => ({ specId: r.specId, productionItem: r.productionItem, componentType: r.componentType, issues: r.warnings, issueType: "warning" as const, draftState: "idle" as const })),
+        ...result.blocked.map(r => ({ specId: r.specId, productionItem: r.productionItem, componentType: r.componentType, issues: r.errors, issueType: "error" as const, draftState: "idle" as const })),
+      ];
+      setRecords(allRecords);
+    } catch (err) {
+      setAuditError(String(err));
+    } finally {
+      setIsAuditing(false);
+    }
+  }
+
+  function updateRecord(specId: string, patch: Partial<BatchRecordWithDraft>) {
+    setRecords(prev => prev.map(r => r.specId === specId ? { ...r, ...patch } : r));
+  }
+
+  async function generateForRecord(specId: string) {
+    updateRecord(specId, { draftState: "generating", draftError: undefined });
+    try {
+      const resp = await worldsmithApi.generatePayload(specId, true);
+      updateRecord(specId, { draft: resp, draftState: "ready", savedPayload: resp.serialized });
+    } catch (err) {
+      updateRecord(specId, { draftState: "error", draftError: String(err) });
+    }
+  }
+
+  async function saveRecord(specId: string) {
+    const rec = records.find(r => r.specId === specId);
+    if (!rec?.savedPayload) return;
+    updateRecord(specId, { draftState: "saving" });
+    try {
+      const resp = await worldsmithApi.batchSavePayload(specId, rec.savedPayload);
+      if (resp.code === "PAYLOAD_VALIDATION_FAILED") {
+        const issueText = (resp.validation_issues ?? []).map(i => `• ${i.field}: ${i.message}`).join("\n");
+        updateRecord(specId, {
+          draftState: "error",
+          draftError: `Validation failed:\n${issueText}`,
+        });
+        return;
+      }
+      updateRecord(specId, { draftState: "saved" });
+      toast({ title: "Saved", description: `${rec.productionItem} — payload written to Notion.` });
+    } catch (err) {
+      updateRecord(specId, { draftState: "error", draftError: String(err) });
+    }
+  }
+
+  async function generateAllReady() {
+    const readyIds = records
+      .filter(r => (auditResult?.ready ?? []).some(ar => ar.specId === r.specId) && r.draftState === "idle")
+      .map(r => r.specId);
+
+    for (const specId of readyIds) {
+      await generateForRecord(specId);
+    }
+  }
+
+  async function saveAllReady() {
+    const toSave = records.filter(r =>
+      (auditResult?.ready ?? []).some(ar => ar.specId === r.specId) &&
+      r.draftState === "ready" &&
+      r.savedPayload
+    );
+    for (const rec of toSave) {
+      await saveRecord(rec.specId);
+    }
+  }
+
+  const groupRecords = (group: "ready" | "warning" | "blocked") => {
+    if (!auditResult) return [];
+    const ids = new Set(auditResult[group].map(r => r.specId));
+    return records.filter(r => ids.has(r.specId));
+  };
+
+  const groupCounts = auditResult
+    ? { ready: auditResult.ready.length, warning: auditResult.warning.length, blocked: auditResult.blocked.length }
+    : null;
+
+  const readySavedCount = auditResult
+    ? records.filter(r => auditResult.ready.some(ar => ar.specId === r.specId) && r.draftState === "saved").length
+    : 0;
+
+  const readyToSaveCount = auditResult
+    ? records.filter(r => auditResult.ready.some(ar => ar.specId === r.specId) && r.draftState === "ready").length
+    : 0;
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <Package className="w-4 h-4 text-muted-foreground" />
+        <div>
+          <p className="text-sm font-medium">Batch PP-2.0 Payload Generation</p>
+          <p className="text-xs text-muted-foreground">Audit a world's Notion Production DB and generate missing PP-2.0 payloads.</p>
+        </div>
+      </div>
+
+      {/* World selector + audit button */}
+      <Card>
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-end gap-3 flex-wrap">
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-xs font-medium text-muted-foreground block mb-1.5">World</label>
+              {worldsQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" />Loading worlds…</div>
+              ) : (
+                <select
+                  value={selectedWorldId}
+                  onChange={(e) => setSelectedWorldId(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                >
+                  <option value="">Select a world…</option>
+                  {worlds.map((w) => (
+                    <option key={w.id} value={w.id} disabled={!w.notionProductionDbId}>
+                      {w.name}{!w.notionProductionDbId ? " (no DB configured)" : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <Button
+              onClick={runAudit}
+              disabled={!selectedWorldId || isAuditing}
+              className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white shrink-0"
+            >
+              {isAuditing
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Auditing…</>
+                : <><ListChecks className="w-4 h-4 mr-2" />Audit Records</>}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Audit error */}
+      {auditError && (
+        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3">
+          <XCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+          <p className="text-sm text-red-700">{auditError}</p>
+        </div>
+      )}
+
+      {/* Results */}
+      {auditResult && (
+        <div className="space-y-4">
+          {/* Summary stats */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { key: "ready" as const, label: "Ready", count: auditResult.ready.length, color: "emerald", icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" /> },
+              { key: "warning" as const, label: "Warning", count: auditResult.warning.length, color: "amber", icon: <AlertTriangle className="w-4 h-4 text-amber-600" /> },
+              { key: "blocked" as const, label: "Blocked", count: auditResult.blocked.length, color: "red", icon: <ShieldAlert className="w-4 h-4 text-red-500" /> },
+            ].map(({ key, label, count, icon }) => (
+              <button
+                key={key}
+                onClick={() => setActiveGroup(key)}
+                className={`rounded-lg border p-3 text-left transition-all ${
+                  activeGroup === key ? "border-[#1B2A4A] shadow-sm" : "border-border hover:border-[#1B2A4A]/40"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">{icon}<span className="text-xs font-medium">{label}</span></div>
+                <p className="text-2xl font-bold">{count}</p>
+              </button>
+            ))}
+          </div>
+
+          {auditResult.truncated && (
+            <p className="text-xs text-amber-600 flex items-center gap-1">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Results truncated at 60 records. Run again after saving these to process more.
+            </p>
+          )}
+
+          {/* Group actions */}
+          {activeGroup === "ready" && auditResult.ready.length > 0 && (
+            <div className="flex gap-2 flex-wrap">
+              <Button size="sm" variant="outline" onClick={generateAllReady}
+                disabled={records.filter(r => auditResult.ready.some(ar => ar.specId === r.specId) && r.draftState === "idle").length === 0}>
+                <Wand2 className="w-3.5 h-3.5 mr-1.5" />Generate All Ready
+              </Button>
+              {readyToSaveCount > 0 && (
+                <Button size="sm" onClick={saveAllReady} className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white">
+                  <Save className="w-3.5 h-3.5 mr-1.5" />Save All Ready ({readyToSaveCount})
+                </Button>
+              )}
+              {readySavedCount > 0 && (
+                <span className="text-xs text-emerald-700 flex items-center gap-1 self-center">
+                  <CheckCircle2 className="w-3.5 h-3.5" />{readySavedCount} saved
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Record list */}
+          <div className="space-y-2">
+            {groupCounts && groupCounts[activeGroup] === 0 && (
+              <p className="text-sm text-muted-foreground py-4 text-center">No records in this group.</p>
+            )}
+            {groupRecords(activeGroup).map((rec) => (
+              <Card key={rec.specId} className={
+                rec.draftState === "saved" ? "border-emerald-200 bg-emerald-50/40" :
+                rec.draftState === "error" ? "border-red-200" :
+                "border-border"
+              }>
+                <CardContent className="py-3 px-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{rec.productionItem}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{rec.componentType} · <span className="font-mono text-[10px]">{rec.specId}</span></p>
+                      {rec.issues.length > 0 && (
+                        <ul className="mt-1.5 space-y-0.5">
+                          {rec.issues.map((issue, i) => (
+                            <li key={i} className={`text-xs ${rec.issueType === "error" ? "text-red-600" : "text-amber-700"}`}>
+                              • {issue}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {rec.draftState === "error" && rec.draftError && (
+                        <p className="text-xs text-red-600 mt-1">Error: {rec.draftError}</p>
+                      )}
+                      {rec.draftState === "ready" && rec.draft && (
+                        <div className="mt-2 rounded border border-border bg-muted/30 p-2">
+                          <p className="text-xs font-mono text-muted-foreground line-clamp-3 whitespace-pre-wrap">{rec.draft.serialized}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{rec.draft.pre_save_issues.length === 0 ? "✓ Validation passed" : `${rec.draft.pre_save_issues.length} issue(s)`} · {rec.draft.serialized.length} chars</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1.5 shrink-0 items-end">
+                      {rec.draftState === "idle" && activeGroup !== "blocked" && (
+                        <Button size="sm" variant="outline" onClick={() => generateForRecord(rec.specId)}>
+                          <Wand2 className="w-3.5 h-3.5 mr-1" />Generate
+                        </Button>
+                      )}
+                      {rec.draftState === "generating" && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />Generating…
+                        </div>
+                      )}
+                      {rec.draftState === "ready" && (
+                        <Button size="sm" onClick={() => saveRecord(rec.specId)} className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white">
+                          <Save className="w-3.5 h-3.5 mr-1" />Save
+                        </Button>
+                      )}
+                      {rec.draftState === "saving" && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />Saving…
+                        </div>
+                      )}
+                      {rec.draftState === "saved" && (
+                        <span className="text-xs text-emerald-700 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />Saved
+                        </span>
+                      )}
+                      {rec.draftState === "error" && (
+                        <Button size="sm" variant="outline" onClick={() => generateForRecord(rec.specId)}>
+                          <RefreshCw className="w-3.5 h-3.5 mr-1" />Retry
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

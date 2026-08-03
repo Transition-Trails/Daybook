@@ -28,7 +28,20 @@ import {
   extractSelect,
   extractRelation,
   extractNumber,
+  richTextProp,
+  queryDatabase,
 } from "../lib/notion-client";
+import {
+  checkGenerationRequirements,
+  buildSourceObject,
+  generatePayloadDraft,
+  writePayloadToNotion,
+  parseAndValidateSerializedPayload,
+  PAYLOAD_MAX_CHARS,
+  PAYLOAD_GEN_ERROR_CODES,
+} from "../lib/worldsmith/payload-generator";
+import { resolveInheritanceChain, InheritanceError } from "../lib/worldsmith/inheritance-resolver";
+import { normalizeNotionId as normalizeId } from "../lib/worldsmith/normalize-id";
 
 const router = Router();
 
@@ -356,6 +369,8 @@ router.get("/v1/worldsmith/preflight", requireAuth, async (req: Request, res: Re
       collection: collection || undefined,
       volume: volume || undefined,
       status,
+      // PP-2.0 payload generation gate: true = payload is blank and generation is possible
+      prompt_payload_blank: payloadVersion === "PP-2.0" && !promptPayload.trim(),
     });
   } catch (err) {
     const msg = String(err);
@@ -886,6 +901,377 @@ router.post("/v1/worldsmith/runs/:runId/refresh-collection-name", requireAuth, r
       logger.error({ err, runId }, "Failed to refresh collection name");
       res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
     }
+  }
+});
+
+// ── POST /v1/worldsmith/generate-payload ─────────────────────────────────────
+// Preview-only: resolve the InheritanceChain, check requirements, synthesize a
+// PP-2.0 payload draft using OpenAI, and return it WITHOUT writing to Notion.
+
+router.post("/v1/worldsmith/generate-payload", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const { spec_id: rawSpecId, confirm_warnings = false } = req.body as {
+    spec_id?: string;
+    confirm_warnings?: boolean;
+  };
+
+  if (!rawSpecId?.trim()) {
+    res.status(400).json({ error: "spec_id is required", code: "MISSING_FIELDS" });
+    return;
+  }
+
+  const specId = normalizeId(rawSpecId);
+
+  try {
+    // Resolve full inheritance chain
+    const chain = await resolveInheritanceChain(specId);
+
+    // Check requirements
+    const reqCheck = checkGenerationRequirements(chain);
+
+    if (!reqCheck.canGenerate) {
+      res.status(422).json({
+        error: "Generation requirements not met",
+        code: "REQUIREMENTS_NOT_MET",
+        errors: reqCheck.errors,
+        warnings: reqCheck.warnings,
+      });
+      return;
+    }
+
+    if (reqCheck.requiresConfirmation && !confirm_warnings) {
+      res.status(200).json({
+        requires_confirmation: true,
+        errors: reqCheck.errors,
+        warnings: reqCheck.warnings,
+        code: "CONFIRM_WARNINGS_REQUIRED",
+      });
+      return;
+    }
+
+    // Generate draft
+    const draft = await generatePayloadDraft(chain);
+
+    res.json({
+      spec_id: specId,
+      production_item: draft.productionItem,
+      component_type: draft.componentType,
+      sections: draft.sections,
+      serialized: draft.serialized,
+      pre_save_issues: draft.preSaveIssues,
+      generator_warnings: draft.generatorWarnings,
+      warnings: reqCheck.warnings,
+    });
+  } catch (err) {
+    if (err instanceof InheritanceError) {
+      res.status(422).json({
+        error: err.message,
+        code: "INHERITANCE_ERROR",
+        details: (err as InheritanceError & { details?: unknown }).details,
+      });
+      return;
+    }
+    const msg = String(err);
+    const isNotFound  = /404|not_found|object_not_found/i.test(msg);
+    const isRateLimit = /429|rate.?limit/i.test(msg);
+    const isOpenAI    = /openai|openai api error/i.test(msg);
+    const isTimeout   = /timeout|AbortError/i.test(msg);
+
+    if (isNotFound)  { res.status(404).json({ error: "Notion page not found.", code: "NOTION_NOT_FOUND" }); return; }
+    if (isRateLimit) { res.status(429).json({ error: "Notion rate limit hit.", code: "NOTION_RATE_LIMITED" }); return; }
+    if (isOpenAI)    { res.status(502).json({ error: `AI synthesis failed: ${msg}`, code: "AI_SYNTHESIS_ERROR" }); return; }
+    if (isTimeout)   { res.status(504).json({ error: "Request timed out while generating payload.", code: "TIMEOUT" }); return; }
+
+    logger.error({ err, specId }, "generate-payload error");
+    res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
+  }
+});
+
+// ── POST /v1/worldsmith/save-payload ─────────────────────────────────────────
+// Write a previously-previewed PP-2.0 payload to Notion (Prompt Payload + Next
+// Action only).  Validates pre-save constraints, verifies persistence, then
+// re-runs compilation.  Refuses to overwrite a non-blank Prompt Payload.
+
+router.post("/v1/worldsmith/save-payload", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const { spec_id: rawSpecId, serialized_payload, skip_recompile = false } = req.body as {
+    spec_id?: string;
+    serialized_payload?: string;
+    skip_recompile?: boolean;
+  };
+
+  if (!rawSpecId?.trim() || !serialized_payload?.trim()) {
+    res.status(400).json({ error: "spec_id and serialized_payload are required", code: "MISSING_FIELDS" });
+    return;
+  }
+
+  const specId = normalizeId(rawSpecId);
+
+  // Server-side PP-2.0 structure validation — enforced even when the operator
+  // has manually edited the serialized text in the UI before saving.
+  const { sections: parsedSections, issues: validationIssues } = parseAndValidateSerializedPayload(serialized_payload);
+  if (validationIssues.length > 0 || !parsedSections) {
+    res.status(422).json({
+      error: "Payload failed pre-save validation — fix the issues and retry.",
+      code: "PAYLOAD_VALIDATION_FAILED",
+      validation_issues: validationIssues,
+    });
+    return;
+  }
+
+  try {
+    const saveResult = await writePayloadToNotion(specId, serialized_payload);
+
+    if (!saveResult.success) {
+      const status = saveResult.errorCode === PAYLOAD_GEN_ERROR_CODES.PAYLOAD_ALREADY_EXISTS ? 409 : 500;
+      res.status(status).json({
+        error: saveResult.error,
+        code: saveResult.errorCode ?? "SAVE_FAILED",
+      });
+      return;
+    }
+
+    // Re-run compilation unless caller opted out
+    let compilationResult: unknown = null;
+    if (!skip_recompile) {
+      try {
+        const chain = await resolveInheritanceChain(specId);
+        compilationResult = { started: true, spec_id: specId };
+        // Fire and forget — don't block the save response on compilation
+        // The caller can poll /v1/worldsmith/runs to see the result
+        logger.info({ specId }, "save-payload: triggering background recompile");
+        void (async () => {
+          try {
+            const { runCompilation } = await import("../lib/worldsmith/orchestrator");
+            await runCompilation({
+              notion_production_spec_id: specId,
+              operation: "validate_and_compile",
+              dry_run: false,
+            });
+          } catch (compileErr) {
+            logger.warn({ err: compileErr, specId }, "Post-save recompile failed (non-blocking)");
+          }
+        })();
+      } catch (chainErr) {
+        logger.warn({ err: chainErr, specId }, "Could not resolve chain for post-save recompile");
+        compilationResult = { started: false, error: String(chainErr) };
+      }
+    }
+
+    res.json({
+      success: true,
+      spec_id: specId,
+      persistence_verified: saveResult.persistenceVerified,
+      mismatch: saveResult.mismatch ?? null,
+      recompile: compilationResult,
+    });
+  } catch (err) {
+    logger.error({ err, specId }, "save-payload error");
+    res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
+  }
+});
+
+// ── POST /v1/worldsmith/batch-generate-payloads ───────────────────────────────
+// Audit a world's Notion Production DB for PP-2.0 records with blank payloads.
+// Groups results into ready / warning / blocked WITHOUT writing or generating AI
+// content — the operator reviews the audit before triggering per-record generation.
+
+router.post("/v1/worldsmith/batch-generate-payloads", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const { world_id: rawWorldId, limit = 60 } = req.body as {
+    world_id?: string;
+    limit?: number;
+  };
+
+  if (!rawWorldId?.trim()) {
+    res.status(400).json({ error: "world_id is required", code: "MISSING_FIELDS" });
+    return;
+  }
+
+  const safeLimit = Math.min(Number(limit) || 60, 100);
+
+  try {
+    // Look up the world to get its Notion Production DB ID
+    const [world] = await db
+      .select()
+      .from(worldsmithWorldsTable)
+      .where(eq(worldsmithWorldsTable.id, rawWorldId))
+      .limit(1);
+
+    if (!world) {
+      res.status(404).json({ error: "World not found", code: "NOT_FOUND" });
+      return;
+    }
+
+    const dbId = world.notionProductionDbId;
+    if (!dbId) {
+      res.status(422).json({
+        error: "This world has no Notion Production DB configured. Set it in world settings.",
+        code: "NO_NOTION_DB",
+      });
+      return;
+    }
+
+    // Query the Notion DB — fetch PP-2.0 records (client-side filter for blank payload).
+    // queryDatabase paginates automatically; we limit by slicing the result array.
+    let pages: Awaited<ReturnType<typeof queryDatabase>>;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pages = await queryDatabase(dbId, { property: "Payload Version", select: { equals: "PP-2.0" } } as any);
+    } catch (notionErr) {
+      const msg = String(notionErr);
+      const isRateLimit = /429|rate.?limit/i.test(msg);
+      const isNotFound  = /404|not_found|object_not_found/i.test(msg);
+      if (isRateLimit) {
+        res.status(429).json({ error: "Notion rate limit hit.", code: "NOTION_RATE_LIMITED" });
+      } else if (isNotFound) {
+        res.status(404).json({ error: "Notion DB not found — check the Production DB ID in world settings.", code: "NOTION_DB_NOT_FOUND" });
+      } else {
+        res.status(503).json({ error: `Could not query Notion DB: ${msg}`, code: "NOTION_QUERY_FAILED" });
+      }
+      return;
+    }
+
+    // Filter client-side for blank Prompt Payload, then cap at safeLimit
+    const pp2Pages = pages.filter((p: { properties: Record<string, unknown> }) => {
+      const payload = extractRichText(p.properties["Prompt Payload"]) || extractRichText(p.properties["Payload"]) || "";
+      return !payload.trim();
+    });
+    const truncated = pp2Pages.length > safeLimit;
+    const results = pp2Pages.slice(0, safeLimit);
+
+    const ready:   Array<{ specId: string; productionItem: string; componentType: string; missingFields: string[] }> = [];
+    const warning: Array<{ specId: string; productionItem: string; componentType: string; warnings: string[] }> = [];
+    const blocked: Array<{ specId: string; productionItem: string; componentType: string; errors: string[] }> = [];
+
+    for (const page of results) {
+      const p = (page as { id: string; properties: Record<string, unknown> }).properties;
+      const specId = (page as { id: string }).id;
+
+      const productionItem =
+        extractTitle(p["Production Item"]) || extractTitle(p["Name"]) || specId;
+      const componentType =
+        extractSelect(p["Component Type"]) || extractRichText(p["Component Type"]) || "";
+      const payloadVersion =
+        extractSelect(p["Payload Version"]) || extractRichText(p["Payload Version"]) || "";
+
+      // Only process PP-2.0 with blank payload (filter should handle this, but re-check)
+      const promptPayload =
+        extractRichText(p["Prompt Payload"]) || extractRichText(p["Payload"]) || "";
+      if (payloadVersion !== "PP-2.0" || promptPayload.trim()) continue;
+
+      // Lightweight field check — no network calls per record
+      const fieldErrors: string[] = [];
+      const fieldWarnings: string[] = [];
+
+      const designIntent    = extractRichText(p["Design Intent"]) || "";
+      const requiredContent = extractRichText(p["Required Content"]) || "";
+      const reviewCriteria  = extractRichText(p["Review Criteria"]) || extractRichText(p["Review Criteria / Constraints"]) || "";
+      const canonDependency = extractSelect(p["Canon Dependency"]) || "None";
+
+      if (!designIntent.trim()) fieldErrors.push("Design Intent");
+      if (!requiredContent.trim()) fieldErrors.push("Required Content");
+      if (!reviewCriteria.trim()) fieldErrors.push("Review Criteria");
+
+      // Component Spec relation
+      const componentSpecIds = extractRelation(p["Component Specification"]) || extractRelation(p["Component Spec"]) || [];
+      if (componentSpecIds.length === 0) fieldErrors.push("Component Specification");
+
+      // Style Guide relation
+      const styleGuideIds = extractRelation(p["Style Guide"]) || extractRelation(p["Style Guides"]) || [];
+      if (styleGuideIds.length === 0) fieldErrors.push("Style Guide");
+
+      // Canon enforcement
+      const canonRecordIds = extractRelation(p["Canon Records"]) || extractRelation(p["Canon"]) || [];
+      if ((canonDependency === "Requires Canon" || canonDependency === "Canon Defining") && canonRecordIds.length === 0) {
+        fieldErrors.push(`Canon Records (required for dependency "${canonDependency}")`);
+      } else if ((canonDependency === "Supports Canon" || canonDependency === "Canon Reference") && canonRecordIds.length === 0) {
+        fieldWarnings.push(`Canon Records missing (dependency: "${canonDependency}")`);
+      }
+
+      // Prompt Modules
+      const promptModuleIds = extractRelation(p["Prompt Modules"]) || extractRelation(p["Modules"]) || [];
+      if (promptModuleIds.length === 0) fieldWarnings.push("No Prompt Modules linked");
+
+      // World
+      const worldVal = extractRichText(p["World"]) || extractSelect(p["World"]) || "";
+      if (!worldVal.trim()) fieldWarnings.push("No World linked");
+
+      if (fieldErrors.length > 0) {
+        blocked.push({ specId, productionItem, componentType, errors: fieldErrors });
+      } else if (fieldWarnings.length > 0) {
+        warning.push({ specId, productionItem, componentType, warnings: fieldWarnings });
+      } else {
+        ready.push({ specId, productionItem, componentType, missingFields: [] });
+      }
+    }
+
+    res.json({
+      world_id: rawWorldId,
+      world_name: world.name,
+      total_reviewed: results.length,
+      truncated,
+      ready,
+      warning,
+      blocked,
+    });
+  } catch (err) {
+    logger.error({ err, worldId: rawWorldId }, "batch-generate-payloads error");
+    res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
+  }
+});
+
+// ── POST /v1/worldsmith/batch-save-payload ────────────────────────────────────
+// Save a single pre-generated payload from the batch UI.  This is intentionally
+// the same logic as /save-payload — called per-record from the batch tab so the
+// operator can review and confirm each one individually.
+
+router.post("/v1/worldsmith/batch-save-payload", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  // Delegates to the same save logic — just a named alias for the batch UI
+  const { spec_id: rawSpecId, serialized_payload, skip_recompile = true } = req.body as {
+    spec_id?: string;
+    serialized_payload?: string;
+    skip_recompile?: boolean;
+  };
+
+  if (!rawSpecId?.trim() || !serialized_payload?.trim()) {
+    res.status(400).json({ error: "spec_id and serialized_payload are required", code: "MISSING_FIELDS" });
+    return;
+  }
+
+  const specId = normalizeId(rawSpecId);
+
+  // Same server-side PP-2.0 structure validation as /save-payload
+  const { sections: parsedSections2, issues: validationIssues2 } = parseAndValidateSerializedPayload(serialized_payload);
+  if (validationIssues2.length > 0 || !parsedSections2) {
+    res.status(422).json({
+      error: "Payload failed pre-save validation — fix the issues and retry.",
+      code: "PAYLOAD_VALIDATION_FAILED",
+      validation_issues: validationIssues2,
+    });
+    return;
+  }
+
+  try {
+    const saveResult = await writePayloadToNotion(specId, serialized_payload);
+
+    if (!saveResult.success) {
+      const status = saveResult.errorCode === PAYLOAD_GEN_ERROR_CODES.PAYLOAD_ALREADY_EXISTS ? 409 : 500;
+      res.status(status).json({ error: saveResult.error, code: saveResult.errorCode ?? "SAVE_FAILED" });
+      return;
+    }
+
+    if (!skip_recompile) {
+      try {
+        const chain = await resolveInheritanceChain(specId);
+        const { runCompilation } = await import("../lib/worldsmith/orchestrator");
+        void runCompilation({ notion_production_spec_id: specId, operation: "validate_and_compile", dry_run: false });
+      } catch {
+        // Non-blocking
+      }
+    }
+
+    res.json({ success: true, spec_id: specId, persistence_verified: saveResult.persistenceVerified, mismatch: saveResult.mismatch ?? null });
+  } catch (err) {
+    logger.error({ err, specId }, "batch-save-payload error");
+    res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
   }
 });
 

@@ -227,6 +227,15 @@ const worldsmithApi = {
       }),
     }),
 
+  retryStatusUpdate: (specId: string, promptHash: string) =>
+    apiFetch<SpecPreviewResult>("/v1/worldsmith/spec-preview/retry-status", {
+      method: "POST",
+      body: JSON.stringify({
+        spec_page_id: specId,
+        prompt_hash: promptHash,
+      }),
+    }),
+
   refreshCollectionName: (runId: string) =>
     apiFetch<{ collection_name: string; run_id: string }>(
       `/v1/worldsmith/runs/${runId}/refresh-collection-name`,
@@ -292,6 +301,20 @@ export default function WorldSmithCompiler() {
     },
     onError: (err: Error) => {
       toast({ title: "Request failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // ── Retry status-only mutation ──────────────────────────────────────────────
+  // Re-attempts only the Notion status write — no DALL-E call, no upload cost.
+  const retryStatusMutation = useMutation({
+    mutationFn: ({ specId, hash }: { specId: string; hash: string }) =>
+      worldsmithApi.retryStatusUpdate(specId, hash),
+    onSuccess: (res) => {
+      setPreviewResult(res);
+      toast({ title: "Status updated", description: "Notion status set to Ready for Review." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Status retry failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -461,6 +484,11 @@ export default function WorldSmithCompiler() {
                       forceNew: true,
                     })}
                     isGeneratingBoard={previewMutation.isPending}
+                    onRetryStatus={() => retryStatusMutation.mutate({
+                      specId: resolvedId!,
+                      hash: result.prompt_hash!,
+                    })}
+                    isRetryingStatus={retryStatusMutation.isPending}
                   />
 
                   {/* Preview section — shown while generating, after dry-run, or after failure.
@@ -781,6 +809,7 @@ function PublishingPipeline({
 
 function InspectorScreen({
   result, preflight, previewResult, onReset, onGenerateNewBoard, isGeneratingBoard,
+  onRetryStatus, isRetryingStatus,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
@@ -788,6 +817,8 @@ function InspectorScreen({
   onReset: () => void;
   onGenerateNewBoard?: () => void;
   isGeneratingBoard?: boolean;
+  onRetryStatus?: () => void;
+  isRetryingStatus?: boolean;
 }) {
   const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
   const [workspaceTab, setWorkspaceTab]     = useState<"overview" | "inspector" | "history">("overview");
@@ -847,6 +878,8 @@ function InspectorScreen({
         previewResult={previewResult}
         onGenerateNewBoard={onGenerateNewBoard}
         isGeneratingBoard={isGeneratingBoard}
+        onRetryStatus={onRetryStatus}
+        isRetryingStatus={isRetryingStatus}
       />
 
       {result.visual_asset_id && (
@@ -867,6 +900,7 @@ function WorkspacePanel({
   inspectorStage, setInspectorStage,
   goToStage,
   previewResult, onGenerateNewBoard, isGeneratingBoard,
+  onRetryStatus, isRetryingStatus,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
@@ -879,6 +913,8 @@ function WorkspacePanel({
   previewResult?: SpecPreviewResult | null;
   onGenerateNewBoard?: () => void;
   isGeneratingBoard?: boolean;
+  onRetryStatus?: () => void;
+  isRetryingStatus?: boolean;
 }) {
   const TABS = [
     { id: "overview",  label: "Overview"  },
@@ -907,7 +943,8 @@ function WorkspacePanel({
       {workspaceTab === "inspector" && (
         <InspectorWorkspaceTab result={result} preflight={preflight} prov={prov}
           stage={inspectorStage} setStage={setInspectorStage}
-          previewResult={previewResult} onGenerateNewBoard={onGenerateNewBoard} isGeneratingBoard={isGeneratingBoard} />
+          previewResult={previewResult} onGenerateNewBoard={onGenerateNewBoard} isGeneratingBoard={isGeneratingBoard}
+          onRetryStatus={onRetryStatus} isRetryingStatus={isRetryingStatus} />
       )}
       {workspaceTab === "history" && (
         <HistoryTab result={result} />
@@ -1301,6 +1338,7 @@ function NextAfterThisCard({ result }: { result: CompileResponse }) {
 function InspectorWorkspaceTab({
   result, preflight, prov, stage, setStage,
   previewResult, onGenerateNewBoard, isGeneratingBoard,
+  onRetryStatus, isRetryingStatus,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
@@ -1310,6 +1348,8 @@ function InspectorWorkspaceTab({
   previewResult?: SpecPreviewResult | null;
   onGenerateNewBoard?: () => void;
   isGeneratingBoard?: boolean;
+  onRetryStatus?: () => void;
+  isRetryingStatus?: boolean;
 }) {
   const isLegacy = prov?.payload_format === "legacy";
   const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
@@ -1330,7 +1370,7 @@ function InspectorWorkspaceTab({
       {stage === "ready-for-spec-board" && <ReadinessPanel result={result} preflight={preflight} prov={prov} />}
       {stage === "specification-review" && (
         boardSuccess && previewResult
-          ? <SpecificationReviewPanel previewResult={previewResult} prov={prov} onGenerateNew={onGenerateNewBoard} isGenerating={isGeneratingBoard} />
+          ? <SpecificationReviewPanel previewResult={previewResult} prov={prov} onGenerateNew={onGenerateNewBoard} isGenerating={isGeneratingBoard} onRetryStatus={onRetryStatus} isRetryingStatus={isRetryingStatus} />
           : <FuturePlaceholderPanel stage="specification-review" />
       )}
       {PLACEHOLDER_STAGES.includes(stage) && <FuturePlaceholderPanel stage={stage} />}
@@ -2412,12 +2452,14 @@ function ResolvePanel({
 }
 
 function SpecificationReviewPanel({
-  previewResult, prov, onGenerateNew, isGenerating,
+  previewResult, prov, onGenerateNew, isGenerating, onRetryStatus, isRetryingStatus,
 }: {
   previewResult: SpecPreviewResult;
   prov: ProvenanceRecord | null;
   onGenerateNew?: () => void;
   isGenerating?: boolean;
+  onRetryStatus?: () => void;
+  isRetryingStatus?: boolean;
 }) {
   const { toast } = useToast();
   const uploadPartial = previewResult.status === "upload_success_status_failed";
@@ -2425,20 +2467,25 @@ function SpecificationReviewPanel({
   return (
     <div className="space-y-4">
       {/* Spec board success banner */}
-      <Card className="border-emerald-200 bg-emerald-50/60 overflow-hidden">
+      <Card className={`overflow-hidden ${uploadPartial ? "border-amber-200 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/60"}`}>
         <CardContent className="pt-4 pb-4">
           <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${uploadPartial ? "bg-amber-100" : "bg-emerald-100"}`}>
+              {uploadPartial
+                ? <AlertTriangle className="w-4 h-4 text-amber-600" />
+                : <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-emerald-800">Specification Board Generated</p>
-              <p className="text-xs text-emerald-700 mt-0.5">
-                {previewResult.preview_filename ?? "The specification board image has been uploaded to Notion."}
-                {uploadPartial && " Status update was skipped — the board image was uploaded successfully."}
+              <p className={`text-sm font-semibold ${uploadPartial ? "text-amber-800" : "text-emerald-800"}`}>
+                {uploadPartial ? "Board Uploaded — Status Update Failed" : "Specification Board Generated"}
+              </p>
+              <p className={`text-xs mt-0.5 ${uploadPartial ? "text-amber-700" : "text-emerald-700"}`}>
+                {uploadPartial
+                  ? "The board image was uploaded successfully but the Notion status write failed. Use the button below to retry the status update without regenerating the image."
+                  : (previewResult.preview_filename ?? "The specification board image has been uploaded to Notion.")}
               </p>
               {previewResult.provider && (
-                <p className="text-[11px] text-emerald-600 mt-1">
+                <p className={`text-[11px] mt-1 ${uploadPartial ? "text-amber-600" : "text-emerald-600"}`}>
                   Provider: {previewResult.provider}{previewResult.model ? ` · ${previewResult.model}` : ""}
                 </p>
               )}
@@ -2449,6 +2496,29 @@ function SpecificationReviewPanel({
           </div>
         </CardContent>
       </Card>
+
+      {/* Retry status update (only when status write previously failed) */}
+      {uploadPartial && onRetryStatus && (
+        <div className="flex items-start gap-3 p-4 rounded-lg border border-amber-200 bg-amber-50/40">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0 space-y-1">
+            <p className="text-sm font-semibold text-amber-800">Status Update Pending</p>
+            <p className="text-xs text-amber-700 leading-relaxed">
+              The Notion page status was not advanced to "Ready for Review". Click below to retry — no new image will be generated.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={onRetryStatus}
+            disabled={isRetryingStatus}
+            className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white h-8 gap-1.5"
+          >
+            {isRetryingStatus
+              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Retrying…</>
+              : <><RefreshCw className="w-3.5 h-3.5" />Retry Status Update</>}
+          </Button>
+        </div>
+      )}
 
       {/* Key identifiers */}
       <Card>

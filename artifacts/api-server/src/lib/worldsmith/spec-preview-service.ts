@@ -540,3 +540,94 @@ export async function runSpecPreview(
     notion_upload_id: uploadId,
   };
 }
+
+// ── Retry status-only update ──────────────────────────────────────────────────
+
+/**
+ * Re-attempt only the Notion status write for a spec preview whose image was
+ * already uploaded successfully but whose status transition failed
+ * (upload_success_status_failed).  Skips DALL-E generation and Notion upload
+ * entirely — zero additional cost.
+ */
+export async function retrySpecPreviewStatus(
+  specPageId: string,
+  promptHash: string,
+): Promise<SpecPreviewResult> {
+  const pageUrl = notionPageUrl(specPageId);
+
+  // Find the most recent audit record for this spec+hash that has status_update_failed
+  const rows = await db
+    .select()
+    .from(worldsmithSpecPreviewsTable)
+    .where(
+      and(
+        eq(worldsmithSpecPreviewsTable.specPageId, specPageId),
+        eq(worldsmithSpecPreviewsTable.promptHash, promptHash),
+        eq(worldsmithSpecPreviewsTable.status, "status_update_failed"),
+        eq(worldsmithSpecPreviewsTable.dryRun, false),
+      ),
+    )
+    .orderBy(desc(worldsmithSpecPreviewsTable.createdAt))
+    .limit(1);
+
+  const existingRecord = rows[0];
+  if (!existingRecord) {
+    throw new SpecPreviewError(
+      "NO_FAILED_STATUS_RECORD",
+      "No upload_success_status_failed record found for this spec and prompt hash. " +
+      "Nothing to retry — the status may have already been updated.",
+    );
+  }
+
+  // Re-attempt the Notion status write
+  try {
+    await updatePage(specPageId, {
+      "Status": selectProp("Ready for Review"),
+      "Next Action": richTextProp(
+        "Review the Product Specification Image, confirm the specification and visual direction, then approve or return for revision.",
+      ),
+    });
+  } catch (statusErr) {
+    throw new SpecPreviewError(
+      "STATUS_UPDATE_FAILED",
+      `Notion status update failed again: ${String(statusErr)}`,
+    );
+  }
+
+  // Persist a new success audit record so the idempotency gate will return
+  // a clean "success" on the next regular generatePreview call.
+  await savePreviewRecord({
+    specPageId,
+    promptHash,
+    status: "success",
+    previewFilename: existingRecord.previewFilename ?? undefined,
+    provider: existingRecord.provider ?? undefined,
+    model: existingRecord.model ?? undefined,
+    notionUploadId: existingRecord.notionUploadId ?? undefined,
+    productionItem: existingRecord.productionItem ?? undefined,
+    previousStatus: existingRecord.previousStatus ?? undefined,
+    newStatus: "Ready for Review",
+    notionPageUrl: existingRecord.notionPageUrl ?? pageUrl,
+  });
+
+  logger.info(
+    { specPageId, promptHash },
+    "WorldSmith spec preview status retry succeeded",
+  );
+
+  return {
+    status: "success",
+    production_item: existingRecord.productionItem ?? "",
+    spec_page_id: specPageId,
+    notion_page_id: specPageId,
+    notion_page_url: existingRecord.notionPageUrl ?? pageUrl,
+    preview_filename: existingRecord.previewFilename ?? undefined,
+    provider: existingRecord.provider ?? undefined,
+    model: existingRecord.model ?? undefined,
+    prompt_hash: promptHash,
+    previous_status: existingRecord.previousStatus ?? undefined,
+    new_status: "Ready for Review",
+    upload_status: "success",
+    notion_upload_id: existingRecord.notionUploadId ?? undefined,
+  };
+}

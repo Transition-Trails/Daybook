@@ -11,7 +11,7 @@ import { Router } from "express";
 import { requireAuth } from "../lib/auth-middleware";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { runCompilation } from "../lib/worldsmith/orchestrator";
-import { runSpecPreview, SpecPreviewError } from "../lib/worldsmith/spec-preview-service";
+import { runSpecPreview, retrySpecPreviewStatus, SpecPreviewError } from "../lib/worldsmith/spec-preview-service";
 import { getRun, getRunsBySpec, failStaleRunsForSpec, updateRun } from "../lib/worldsmith/run-repository";
 import { getAsset, getAssetBySpec } from "../lib/worldsmith/daybook-adapter";
 import { normalizeNotionId } from "../lib/worldsmith/normalize-id";
@@ -429,6 +429,51 @@ router.post("/v1/worldsmith/spec-preview", requireAuth, requireSuperAdmin, async
       res.status(httpStatus).json({ error: err.message, code: err.code });
     } else {
       logger.error({ err }, "Spec preview endpoint error");
+      res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
+    }
+  }
+});
+
+// ── POST /v1/worldsmith/spec-preview/retry-status ────────────────────────────
+// Re-attempt only the Notion status write for a preview whose image was already
+// uploaded.  Skips DALL-E generation and Notion upload entirely — no extra cost.
+
+router.post("/v1/worldsmith/spec-preview/retry-status", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const body = req.body as {
+    spec_page_id?: string;
+    prompt_hash?: string;
+  };
+
+  const { spec_page_id: rawId, prompt_hash } = body;
+
+  if (!rawId || !prompt_hash) {
+    res.status(400).json({
+      error: "spec_page_id and prompt_hash are required",
+      code: "MISSING_FIELDS",
+    });
+    return;
+  }
+
+  let spec_page_id: string;
+  try {
+    spec_page_id = normalizeNotionId(rawId);
+  } catch (normErr) {
+    res.status(400).json({ error: String(normErr), code: "INVALID_SPEC_ID" });
+    return;
+  }
+
+  try {
+    const result = await retrySpecPreviewStatus(spec_page_id, prompt_hash);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof SpecPreviewError) {
+      const httpStatus =
+        err.code === "NO_FAILED_STATUS_RECORD" ? 404
+        : err.code === "STATUS_UPDATE_FAILED"  ? 502
+        : 500;
+      res.status(httpStatus).json({ error: err.message, code: err.code });
+    } else {
+      logger.error({ err }, "Spec preview retry-status endpoint error");
       res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
     }
   }

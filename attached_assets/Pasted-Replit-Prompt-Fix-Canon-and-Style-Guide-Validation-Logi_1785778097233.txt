@@ -1,0 +1,191 @@
+Replit Prompt: Fix Canon and Style Guide Validation Logic
+
+Update the WorldSmith Publishing Engine so that Canon Records and Style Guide validation follow the actual governance rules defined in Notion.
+
+Goal
+
+Prevent false validation errors for Production Specification records that correctly have:
+
+Canon Dependency = None
+no linked Canon Records
+
+The engine should still require Style Guide links for Decorative Paper records and other governed production items.
+
+The current compiled test for V01 Coordinating Paper 004: Archival Writing Sheet completed successfully with:
+
+Payload Version = PP-2.0
+no Canon Records
+no warnings
+status Compiled
+next action Generate image
+
+That confirms an empty Canon Records relation is valid when Canon Dependency = None.
+
+The governing Component Specification, CS-001: Decorative Paper Specification, explicitly states that Canon Records are linked only when applicable and that Canon Dependency = None means the item is purely decorative with no canon impact.
+
+Required Validation Rules
+
+Implement the following logic:
+
+Canon Dependency = None
+- Canon Records may be empty
+- Do not show an error
+- Do not show a warning
+- Generation may proceed
+
+Canon Dependency = Supports Canon
+- Canon Records are recommended
+- If empty, show a warning only
+- Do not block compilation or payload generation
+
+Canon Dependency = Canon Reference
+- At least one Canon Record is required
+- If empty, show a blocking error
+
+Canon Dependency = Canon Defining
+- At least one Canon Record is required
+- Explicit approval is required
+- If either is missing, show a blocking error
+Style Guide Rules
+
+For any Production Specification governed by a Component Specification that requires a Style Guide:
+
+require at least one linked Style Guide
+if missing, show a blocking error
+include the exact property name and Production Item in the error
+do not infer a Style Guide from Prompt Modules
+do not treat a Prompt Module as a substitute for the Style Guide relation
+
+For Decorative Paper records governed by CS-001:
+
+Style Guide is required
+Canon Records are conditional based on Canon Dependency
+Error Codes
+
+Use these error codes:
+
+MISSING_STYLE_GUIDE
+MISSING_REQUIRED_CANON
+MISSING_CANON_APPROVAL
+
+Warnings:
+
+CANON_RECORD_RECOMMENDED
+
+Do not use MISSING_REQUIRED_CANON when Canon Dependency = None.
+
+Validation Order
+
+Run validation in this order:
+
+Component Specification
+Style Guide
+World
+Prompt Modules
+Payload Version
+Prompt Payload
+Canon Dependency
+Canon Records
+Approval requirements
+Compilation
+
+This prevents the engine from reporting a Canon error before checking whether Canon is required.
+
+UI Behavior
+
+In the resolved Production Specification panel, show:
+
+Canon Dependency: None
+Canon Records: Not required
+
+For Supports Canon with no links:
+
+Canon Dependency: Supports Canon
+Canon Records: Recommended
+
+For Canon Reference with no links:
+
+Canon Dependency: Canon Reference
+Canon Records: Required
+
+For Canon Defining:
+
+Canon Dependency: Canon Defining
+Canon Records: Required
+Approval: Required
+Batch Audit Behavior
+
+Update the Volume I audit so records are grouped into:
+
+Valid
+Style Guide present
+Canon relationship valid for the selected Canon Dependency
+Warning
+Supports Canon
+Canon Records blank
+Blocked
+Style Guide blank
+Canon Reference with blank Canon Records
+Canon Defining with blank Canon Records
+missing required approval
+
+Do not include Canon Dependency = None records with blank Canon Records in the warning or blocked groups.
+
+Test Cases
+Test 1: Valid no-canon paper
+
+Record:
+
+V01 Coordinating Paper 004: Archival Writing Sheet
+Canon Dependency = None
+Canon Records = empty
+Style Guide = present
+
+Expected:
+
+Validation passes
+No canon warning
+Compilation succeeds
+Test 2: Supports Canon without record
+
+Expected:
+
+Warning: CANON_RECORD_RECOMMENDED
+Compilation allowed
+Test 3: Canon Reference without record
+
+Expected:
+
+Error: MISSING_REQUIRED_CANON
+Compilation blocked
+Test 4: Missing Style Guide
+
+Expected:
+
+Error: MISSING_STYLE_GUIDE
+Compilation blocked
+Test 5: Canon Defining without approval
+
+Expected:
+
+Error: MISSING_CANON_APPROVAL
+Compilation blocked
+Acceptance Criteria
+Canon Dependency = None never requires a Canon Record.
+Supports Canon creates a warning only when Canon Records are blank.
+Canon Reference blocks when Canon Records are blank.
+Canon Defining blocks when Canon Records or approval are missing.
+Decorative Paper records still require a Style Guide.
+The Volume I audit no longer flags valid no-canon records.
+V01 Coordinating Paper 004 compiles with no warnings.
+Existing valid Canon Reference records continue compiling.
+Error messages identify the exact missing relation and record.
+The generator and compiler use the same shared validation function.
+Action Steps
+Refactor Canon and Style Guide validation into one shared validator.
+Add the four Canon Dependency branches.
+Update batch audit grouping.
+Add the test cases above.
+Re-run V01 Coordinating Paper 004.
+Re-run one Supports Canon, one Canon Reference, and one Canon Defining record.
+Confirm the validation output matches the expected behavior.

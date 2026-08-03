@@ -7,6 +7,7 @@
  */
 
 import type { InheritanceChain, ValidationError } from "./types";
+import { validateCanonRequirements } from "./canon-validator";
 import { isPlaceholder } from "./payload-parser";
 import {
   getPage,
@@ -235,29 +236,14 @@ export function checkGenerationRequirements(
     });
   }
 
-  // Canon dependency enforcement
-  const canonDep = spec.canonDependency ?? "None";
-  if (canonDep === "Requires Canon" || canonDep === "Canon Defining") {
-    if (chain.canonRecords.length === 0) {
-      errors.push({
-        code: PAYLOAD_GEN_ERROR_CODES.MISSING_REQUIRED_CANON,
-        field: "Canon Records",
-        governing_rule: "CS-000 Canon",
-        message: `Canon Dependency is "${canonDep}" but no Canon Records are linked. Generation is blocked — canon facts cannot be invented.`,
-        recommended_action: "Link at least one Accepted Canon Record to the Production Specification in Notion.",
-      });
-    }
-  } else if (canonDep === "Supports Canon" || canonDep === "Canon Reference") {
-    if (chain.canonRecords.length === 0) {
-      warnings.push({
-        code: PAYLOAD_GEN_ERROR_CODES.MISSING_REQUIRED_CANON,
-        field: "Canon Records",
-        governing_rule: "CS-000 Canon",
-        message: `Canon Dependency is "${canonDep}" but no Canon Records are linked. The payload will use non-specific language instead of specific canon details.`,
-        recommended_action: "Link Canon Records or confirm the payload can remain non-specific before proceeding.",
-      });
-    }
-  }
+  // Canon dependency enforcement — delegated to the shared validator so
+  // payload-generator and orchestrator always use identical rules.
+  const canonResult = validateCanonRequirements(
+    spec.canonDependency ?? "None",
+    chain.canonRecords,
+  );
+  errors.push(...canonResult.errors);
+  warnings.push(...canonResult.warnings);
 
   const canGenerate = errors.length === 0;
   const requiresConfirmation = canGenerate && warnings.length > 0;

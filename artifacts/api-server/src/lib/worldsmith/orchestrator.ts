@@ -128,7 +128,7 @@ export async function runCompilation(
 
     if (!payloadValidation.valid) {
       const isCanonIssue = payloadValidation.errors.some(
-        (e) => e.code.startsWith("CANON") || e.code === "MISSING_CANON_RECORD",
+        (e) => e.code.startsWith("CANON") || e.code === "MISSING_REQUIRED_CANON" || e.code === "MISSING_CANON_APPROVAL",
       );
       const status = isCanonIssue ? "requires_canon_review" : "validation_failed";
       const compiledStatus = isCanonIssue ? "Requires Canon Review" : "Validation Failed";

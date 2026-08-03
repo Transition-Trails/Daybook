@@ -344,12 +344,17 @@ router.get("/v1/worldsmith/preflight", requireAuth, async (req: Request, res: Re
       }
     }
 
-    // Derive generation readiness
+    // Derive generation readiness.
+    // Only Canon Reference and Canon Defining actually require records;
+    // Canon Dependency = None or Supports Canon with no records is not a blocker.
     const promptPayload = extractRichText(p["Prompt Payload"]) || extractRichText(p["Payload"]) || "";
+    const canonBlocksReadiness =
+      (canonDependency === "Canon Reference" || canonDependency === "Canon Defining") &&
+      canonRecordIds.length === 0;
     const generationReadiness: string =
       compiledPromptStatus === "Compiled" ? "Compiled"
       : compiledPromptStatus === "Artwork Review" ? "Ready"
-      : (canonDependency !== "None" && canonRecordIds.length === 0) ? "Needs Canon Review"
+      : canonBlocksReadiness ? "Needs Canon Review"
       : (!payloadVersion || !promptPayload) ? "Draft"
       : "Not Compiled";
 
@@ -1178,12 +1183,16 @@ router.post("/v1/worldsmith/batch-generate-payloads", requireAuth, requireSuperA
       const styleGuideIds = extractRelation(p["Style Guide"]) || extractRelation(p["Style Guides"]) || [];
       if (styleGuideIds.length === 0) fieldErrors.push("Style Guide");
 
-      // Canon enforcement
+      // Canon enforcement — matches validateCanonRequirements() four-branch logic.
+      // Canon Dependency = None is always valid with empty records (no error, no warning).
       const canonRecordIds = extractRelation(p["Canon Records"]) || extractRelation(p["Canon"]) || [];
-      if ((canonDependency === "Requires Canon" || canonDependency === "Canon Defining") && canonRecordIds.length === 0) {
-        fieldErrors.push(`Canon Records (required for dependency "${canonDependency}")`);
-      } else if ((canonDependency === "Supports Canon" || canonDependency === "Canon Reference") && canonRecordIds.length === 0) {
-        fieldWarnings.push(`Canon Records missing (dependency: "${canonDependency}")`);
+      if (
+        (canonDependency === "Canon Reference" || canonDependency === "Canon Defining") &&
+        canonRecordIds.length === 0
+      ) {
+        fieldErrors.push(`Canon Records required (Canon Dependency: "${canonDependency}")`);
+      } else if (canonDependency === "Supports Canon" && canonRecordIds.length === 0) {
+        fieldWarnings.push(`Canon Records recommended (Canon Dependency: "Supports Canon")`);
       }
 
       // Prompt Modules

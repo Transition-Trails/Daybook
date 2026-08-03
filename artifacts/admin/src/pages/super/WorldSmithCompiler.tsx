@@ -702,6 +702,51 @@ export default function WorldSmithCompiler() {
   );
 }
 
+// ── Canon Records label ───────────────────────────────────────────────────────
+// Shows contextual text + colour based on Canon Dependency value and link count.
+
+function CanonRecordsLabel({ dep, count }: { dep: string; count: number }) {
+  if (dep === "None") {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Hash className="w-3.5 h-3.5" />
+        Canon Records: <span className="font-medium">Not required</span>
+      </div>
+    );
+  }
+  if (dep === "Supports Canon") {
+    if (count === 0) {
+      return (
+        <div className="flex items-center gap-1.5 text-xs text-amber-600">
+          <Hash className="w-3.5 h-3.5" />
+          Canon Records: <span className="font-medium">Recommended — not linked</span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Hash className="w-3.5 h-3.5" />
+        {count} Canon Record{count !== 1 ? "s" : ""} <span className="font-medium">(Supports Canon)</span>
+      </div>
+    );
+  }
+  // Canon Reference or Canon Defining
+  if (count === 0) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-red-600">
+        <Hash className="w-3.5 h-3.5" />
+        Canon Records: <span className="font-medium">Required — not linked</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-emerald-600">
+      <Hash className="w-3.5 h-3.5" />
+      {count} Canon Record{count !== 1 ? "s" : ""} <span className="font-medium">linked</span>
+    </div>
+  );
+}
+
 // ── Preflight Card ────────────────────────────────────────────────────────────
 
 function PreflightCard({
@@ -768,12 +813,7 @@ function PreflightCard({
             <BookOpen className="w-3.5 h-3.5" />
             {preflight.prompt_module_count} Prompt Module{preflight.prompt_module_count !== 1 ? "s" : ""} linked
           </div>
-          {preflight.canon_record_count > 0 && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Hash className="w-3.5 h-3.5" />
-              {preflight.canon_record_count} Canon Record{preflight.canon_record_count !== 1 ? "s" : ""}
-            </div>
-          )}
+          <CanonRecordsLabel dep={preflight.canon_dependency} count={preflight.canon_record_count} />
         </div>
 
         {/* Dry run toggle + Compile */}

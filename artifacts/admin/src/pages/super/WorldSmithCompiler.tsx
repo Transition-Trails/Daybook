@@ -1013,7 +1013,7 @@ function ProductionSummaryCard({
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Identity</p>
           <div className="space-y-1.5">
             <Row label="World"          value={prov?.world ?? preflight?.world ?? "—"} notionId={prov?.world_notion_id} />
-            <Row label="Collection"     value={prov?.collection ?? "—"} notionId={prov?.collection_notion_id} />
+            <Row label="Collection"     value={prov?.collection ?? "—"} notionId={prov?.collection ? prov?.collection_notion_id : undefined} />
             <Row label="Volume"         value={prov?.volume ?? preflight?.volume ?? "—"} notionId={prov?.volume_notion_id} />
             <Row label="Component"      value={prov?.component_type ?? result.component_type ?? preflight?.component_type ?? "—"} />
             <Row label="Component Set"  value={prov?.component_set ?? "—"} />
@@ -1943,7 +1943,7 @@ function ReadinessPanel({
               {([
                 { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification, notionId: undefined as string | undefined },
                 { label: "World",                    value: prov?.world ?? preflight?.world,        notionId: undefined as string | undefined },
-                { label: "Collection",               value: prov?.collection ?? "—",                notionId: prov?.collection_notion_id },
+                { label: "Collection",               value: prov?.collection ?? "—",                notionId: prov?.collection ? prov?.collection_notion_id : undefined },
                 { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—", notionId: undefined as string | undefined },
                 { label: "Component Set",            value: prov?.component_set ?? "—",             notionId: undefined as string | undefined },
               ]).map(({ label, value, notionId }) => {
@@ -2362,7 +2362,7 @@ function ResolvePanel({
   const records: Array<{ label: string; value: string | null | undefined; resolved: boolean; notionId?: string; detail?: string }> = [
     { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification, resolved: true,               notionId: prov?.production_spec_notion_id },
     { label: "World",                    value: prov?.world ?? preflight?.world,                                    resolved: !!(prov?.world ?? preflight?.world) },
-    { label: "Collection",               value: prov?.collection ?? "—",                                            resolved: !!prov?.collection,  notionId: prov?.collection_notion_id, detail: "Name captured at compile time — open the Notion link to verify it hasn't been renamed." },
+    { label: "Collection",               value: prov?.collection ?? "—",                                            resolved: !!prov?.collection,  notionId: prov?.collection ? prov?.collection_notion_id : undefined, detail: prov?.collection ? "Name captured at compile time — open the Notion link to verify it hasn't been renamed." : undefined },
     { label: "Volume",                   value: prov?.volume ?? preflight?.volume ?? "—",                           resolved: !!(prov?.volume ?? preflight?.volume) },
     { label: "Component Set",            value: prov?.component_set ?? "—",                                         resolved: !!prov?.component_set },
     { label: "Component Specification",  value: prov?.component_specification ?? preflight?.component_specification, resolved: !!(prov?.component_specification ?? preflight?.component_specification), notionId: prov?.component_spec_notion_id },

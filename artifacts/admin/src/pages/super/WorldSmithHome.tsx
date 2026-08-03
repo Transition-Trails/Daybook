@@ -72,6 +72,7 @@ interface HealthStatus {
   status: "connected" | "warning" | "failed" | "unknown" | "not_configured";
   message?: string;
   checkedAt: string;
+  worldId?: string;
 }
 
 // ── API helpers ───────────────────────────────────────────────────────────────
@@ -611,25 +612,7 @@ function FocusedWorldView({
       )}
 
       {activeSection === "integrations" && (
-        <div className="rounded-xl border border-border bg-card p-5">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-3">
-            {world.name} — integration health
-          </p>
-          {integrations.length === 0 ? (
-            <p className="text-[12.5px] text-muted-foreground text-center py-4">No integrations configured.</p>
-          ) : (
-            <div className="space-y-2">
-              {integrations.map(i => <HealthRow key={i.service} integration={i} />)}
-              {world.notionProductionDbId && (
-                <div className="mt-3 pt-3 border-t border-border/50">
-                  <p className="text-[11px] text-muted-foreground">
-                    Notion Production DB: <span className="font-mono">{world.notionProductionDbId}</span>
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <IntegrationsSection world={world} integrations={integrations} />
       )}
     </div>
   );
@@ -782,6 +765,70 @@ function AssetReviewRow({ asset }: { asset: WsAsset }) {
           </a>
         )}
       </div>
+    </div>
+  );
+}
+
+function IntegrationsSection({ world, integrations }: { world: WsWorld; integrations: HealthStatus[] }) {
+  // Global checks have no worldId; per-world checks carry their worldId
+  const globalChecks = integrations.filter(i => !i.worldId);
+  const worldDbEntry = integrations.find(i => i.worldId === world.id);
+
+  // If the world has a configured DB but we don't have a health result yet,
+  // show a placeholder so admins know it exists but wasn't probed.
+  const worldDbRow: HealthStatus | null = worldDbEntry ?? (
+    world.notionProductionDbId
+      ? {
+          service: `notion_db_${world.id}`,
+          label: `${world.name} — Production DB`,
+          status: "unknown",
+          message: "Not yet checked — health check may still be loading",
+          checkedAt: new Date().toISOString(),
+          worldId: world.id,
+        }
+      : null
+  );
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+      {/* Per-world DB check — shown first so admins see it prominently */}
+      {worldDbRow ? (
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-2">
+            {world.name} — Notion database
+          </p>
+          <HealthRow integration={worldDbRow} />
+          {world.notionProductionDbId && (
+            <p className="text-[10.5px] text-muted-foreground font-mono mt-1.5 pl-1">
+              {world.notionProductionDbId}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-2">
+            {world.name} — Notion database
+          </p>
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-border bg-muted/10">
+            <Wrench className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <p className="text-[12px] text-muted-foreground">
+              No Notion Production DB ID configured for this world. Add one in world settings to enable per-world health checks.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Global integration checks */}
+      {globalChecks.length > 0 && (
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-2">
+            Global integrations
+          </p>
+          <div className="space-y-2">
+            {globalChecks.map(i => <HealthRow key={i.service} integration={i} />)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

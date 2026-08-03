@@ -610,7 +610,7 @@ router.post("/v1/worldsmith/worlds", requireAuth, requireSuperAdmin, async (req:
 });
 
 // ── GET /v1/worldsmith/health ─────────────────────────────────────────────────
-// Check health of configured integrations.
+// Check health of configured integrations, including per-world Notion DB access.
 
 router.get("/v1/worldsmith/health", requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
   const checkedAt = new Date().toISOString();
@@ -620,10 +620,12 @@ router.get("/v1/worldsmith/health", requireAuth, requireSuperAdmin, async (_req:
     status: "connected" | "warning" | "failed" | "unknown" | "not_configured";
     message?: string;
     checkedAt: string;
+    worldId?: string;
   }> = [];
 
-  // ── Notion ─────────────────────────────────────────────────────────────────
+  // ── Notion token ───────────────────────────────────────────────────────────
   const notionToken = process.env.NOTION_TOKEN;
+  let notionTokenOk = false;
   if (!notionToken) {
     integrations.push({ service: "notion", label: "Notion", status: "not_configured", message: "NOTION_TOKEN not set", checkedAt });
   } else {
@@ -633,6 +635,7 @@ router.get("/v1/worldsmith/health", requireAuth, requireSuperAdmin, async (_req:
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) {
+        notionTokenOk = true;
         integrations.push({ service: "notion", label: "Notion", status: "connected", checkedAt });
       } else if (resp.status === 401) {
         integrations.push({ service: "notion", label: "Notion", status: "failed", message: "Invalid token (401)", checkedAt });
@@ -641,6 +644,99 @@ router.get("/v1/worldsmith/health", requireAuth, requireSuperAdmin, async (_req:
       }
     } catch (err: any) {
       integrations.push({ service: "notion", label: "Notion", status: "failed", message: String(err?.message ?? err), checkedAt });
+    }
+  }
+
+  // ── Per-world Notion Production DB probes ──────────────────────────────────
+  // Only probe if the token itself is valid — no point if the token is broken.
+  if (notionTokenOk && notionToken) {
+    try {
+      const worlds = await db
+        .select({
+          id: worldsmithWorldsTable.id,
+          name: worldsmithWorldsTable.name,
+          notionProductionDbId: worldsmithWorldsTable.notionProductionDbId,
+        })
+        .from(worldsmithWorldsTable);
+
+      const worldsWithDb = worlds.filter(w => w.notionProductionDbId);
+
+      const dbProbes = await Promise.allSettled(
+        worldsWithDb.map(async (w) => {
+          const dbId = w.notionProductionDbId as string;
+          const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}`, {
+            headers: { Authorization: `Bearer ${notionToken}`, "Notion-Version": "2022-06-28" },
+            signal: AbortSignal.timeout(5000),
+          });
+          return { world: w, status: resp.status, ok: resp.ok };
+        }),
+      );
+
+      dbProbes.forEach((result, idx) => {
+        const w = worldsWithDb[idx];
+        if (result.status === "fulfilled") {
+          const { status, ok } = result.value;
+          if (ok) {
+            integrations.push({
+              service: `notion_db_${w.id}`,
+              label: `${w.name} — Production DB`,
+              status: "connected",
+              message: "Database accessible",
+              checkedAt,
+              worldId: w.id,
+            });
+          } else if (status === 404) {
+            integrations.push({
+              service: `notion_db_${w.id}`,
+              label: `${w.name} — Production DB`,
+              status: "warning",
+              message: "Database not found (404) — check the DB ID or integration access",
+              checkedAt,
+              worldId: w.id,
+            });
+          } else if (status === 403) {
+            integrations.push({
+              service: `notion_db_${w.id}`,
+              label: `${w.name} — Production DB`,
+              status: "warning",
+              message: "Integration not authorised for this database (403) — share the DB with the integration",
+              checkedAt,
+              worldId: w.id,
+            });
+          } else if (status === 401) {
+            integrations.push({
+              service: `notion_db_${w.id}`,
+              label: `${w.name} — Production DB`,
+              status: "failed",
+              message: `Unauthorised (401)`,
+              checkedAt,
+              worldId: w.id,
+            });
+          } else {
+            integrations.push({
+              service: `notion_db_${w.id}`,
+              label: `${w.name} — Production DB`,
+              status: "warning",
+              message: `Unexpected HTTP ${status}`,
+              checkedAt,
+              worldId: w.id,
+            });
+          }
+        } else {
+          // Promise rejected (network error / timeout)
+          const errMsg = String((result as PromiseRejectedResult).reason?.message ?? (result as PromiseRejectedResult).reason);
+          integrations.push({
+            service: `notion_db_${w.id}`,
+            label: `${w.name} — Production DB`,
+            status: "failed",
+            message: errMsg,
+            checkedAt,
+            worldId: w.id,
+          });
+        }
+      });
+    } catch (dbErr) {
+      logger.error({ err: dbErr }, "WorldSmith health: failed to probe per-world Notion databases");
     }
   }
 

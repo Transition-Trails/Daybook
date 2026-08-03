@@ -114,32 +114,71 @@ export function validatePayload(
       recommended_action: "Migrate to PP-2.0 by replacing flat keys with shared_prompt, front_prompt, and negative_prompt sections.",
     });
 
-    // Alias normalisation (applied before required-key check)
-    if (!payload.asset_role && payload.card_role) payload.asset_role = payload.card_role;
-    if (!payload.asset_role && payload.paper_role) payload.asset_role = payload.paper_role;
-    if (!payload.materials && (payload as Record<string, string | undefined>)["paper_and_materials"]) {
-      payload.materials = (payload as Record<string, string | undefined>)["paper_and_materials"];
-    }
+    // Alias normalisation (applied before required-key check).
+    // Add new aliases here whenever an author uses a semantically correct but
+    // non-canonical key name (see memory: worldsmith-payload-aliases.md).
+    const p = payload as Record<string, string | undefined>;
+
+    // asset_role aliases
+    if (!payload.asset_role && p.card_role)  payload.asset_role = p.card_role;
+    if (!payload.asset_role && p.paper_role) payload.asset_role = p.paper_role;
+    if (!payload.asset_role && p.hero_role)  payload.asset_role = p.hero_role;
+    if (!payload.asset_role && p.role)       payload.asset_role = p.role;
+
+    // materials aliases
+    if (!payload.materials && p.paper_and_materials) payload.materials = p.paper_and_materials;
+    if (!payload.materials && p.medium)              payload.materials = p.medium;
+    if (!payload.materials && p.substrate)           payload.materials = p.substrate;
+    if (!payload.materials && p.paper_substrate)     payload.materials = p.paper_substrate;
+
+    // composition aliases
     if (!payload.composition) {
       if (payload.front_layout || payload.back_layout) {
         const parts = [payload.front_layout, payload.back_layout].filter(Boolean);
         payload.composition = parts.join(" / ");
       }
-      if (!payload.composition && payload.pattern_behavior) {
-        payload.composition = payload.pattern_behavior;
-      }
+      if (!payload.composition && p.pattern_behavior) payload.composition = p.pattern_behavior;
+      if (!payload.composition && p.layout)           payload.composition = p.layout;
     }
+
+    // visual_hierarchy aliases (previously had no aliases)
+    if (!payload.visual_hierarchy && p.scene_hierarchy)       payload.visual_hierarchy = p.scene_hierarchy;
+    if (!payload.visual_hierarchy && p.visual_priority)       payload.visual_hierarchy = p.visual_priority;
+    if (!payload.visual_hierarchy && p.compositional_structure) payload.visual_hierarchy = p.compositional_structure;
+    if (!payload.visual_hierarchy && p.visual_structure)      payload.visual_hierarchy = p.visual_structure;
+    if (!payload.visual_hierarchy && p.composition_hierarchy) payload.visual_hierarchy = p.composition_hierarchy;
+
+    // print_rule aliases (previously had no aliases)
+    if (!payload.print_rule && p.print_specifications)   payload.print_rule = p.print_specifications;
+    if (!payload.print_rule && p.print_specification)    payload.print_rule = p.print_specification;
+    if (!payload.print_rule && p.technical_requirements) payload.print_rule = p.technical_requirements;
+    if (!payload.print_rule && p.production_rule)        payload.print_rule = p.production_rule;
+    if (!payload.print_rule && p.technical_rule)         payload.print_rule = p.technical_rule;
+    if (!payload.print_rule && p.print_notes)            payload.print_rule = p.print_notes;
+
+    // Per-key guidance surfaced in the error card (tells authors exactly what to write)
+    const PP1_KEY_HINTS: Record<string, string> = {
+      asset_role:        `Describe the functional role of this asset (e.g. "Foundation layer paper · primary scene carrier"). Aliases accepted: paper_role, card_role, hero_role, role.`,
+      composition:       `Describe the visual layout / arrangement (e.g. "Full-bleed aged parchment with ink-stain vignette, centred object grouping"). Aliases accepted: front_layout+back_layout, pattern_behavior, layout.`,
+      materials:         `Describe the physical material and finish (e.g. "Heavy cotton rag, cold-press texture, natural deckle edge"). Aliases accepted: paper_and_materials, medium, substrate, paper_substrate.`,
+      visual_hierarchy:  `Describe focal priority (e.g. "Primary: reading lamp glow · Secondary: stacked leather tomes · Tertiary: scattered letters"). Aliases accepted: scene_hierarchy, visual_priority, compositional_structure, visual_structure, composition_hierarchy.`,
+      text_rule:         `State how text should interact (e.g. "Avoid centre of page; ruled lines only on lined variants; no rendered Latin text").`,
+      canon_rule:        `State the canon governance relationship (e.g. "No canon-specific artifacts — atmospheric world-consistent only").`,
+      print_rule:        `State print / production requirements (e.g. "300 dpi minimum; CMYK-safe palette; 3 mm bleed; no hairlines below 0.5 pt"). Aliases accepted: print_specifications, print_specification, technical_requirements, production_rule, technical_rule, print_notes.`,
+      negative_constraints: `List what must NOT appear (e.g. "No digital grain, no neon color, no modern objects, no explicit text blocks").`,
+    };
 
     // Required flat keys
     for (const key of PP1_REQUIRED_KEYS) {
       const val = (payload as Record<string, string | undefined>)[key];
       if (val === undefined || val === null) {
+        const hint = PP1_KEY_HINTS[key] ?? `Add "${key}:" to the Prompt Payload.`;
         errors.push({
           code: "MISSING_REQUIRED_KEY",
           field: String(key),
           governing_rule: GOVERNING_RULE_LEGACY,
           message: `Prompt Payload is missing required key "${key}".`,
-          recommended_action: `Add "${key}:" to the Prompt Payload, or migrate to PP-2.0 section format.`,
+          recommended_action: hint + " Or migrate to PP-2.0 section format.",
         });
       } else if (isPlaceholder(val)) {
         errors.push({

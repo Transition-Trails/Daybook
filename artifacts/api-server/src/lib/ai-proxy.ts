@@ -179,22 +179,22 @@ export async function callDallE(
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 
+  // Build the minimal body — omit optional params that some proxies reject
   const body: Record<string, unknown> = {
     model: "dall-e-3",
     prompt,
     n: 1,
     size: options.size ?? "1024x1024",
     quality: options.quality ?? "standard",
-    response_format: "b64_json",
   };
-  // Only include 'style' when explicitly requested — some deployments/proxies
-  // reject it as an unknown parameter even for dall-e-3.
+  // 'style' is rejected by some proxy configurations — only include when asked
   if (options.style) {
     body.style = options.style;
   }
 
+  // Use a 90-second budget: 60 s for generation + up to 30 s to download the URL
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
+  const timeout = setTimeout(() => controller.abort(), 90_000);
   try {
     const res = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
@@ -211,10 +211,31 @@ export async function callDallE(
       throw new Error(`DALL-E error ${res.status}: ${err}`);
     }
 
-    const data = (await res.json()) as { data: Array<{ b64_json: string }> };
-    const b64 = data.data[0]?.b64_json;
-    if (!b64) throw new Error("DALL-E returned no image data");
-    return `data:image/png;base64,${b64}`;
+    // The response may contain either a `url` (default) or `b64_json` (if the
+    // proxy accepted response_format=b64_json in a future call).
+    const data = (await res.json()) as {
+      data: Array<{ url?: string; b64_json?: string }>;
+    };
+    const item = data.data[0];
+    if (!item) throw new Error("DALL-E returned no image data");
+
+    if (item.b64_json) {
+      return `data:image/png;base64,${item.b64_json}`;
+    }
+
+    if (item.url) {
+      // Download the image and convert to base64 so callers always get a
+      // data URL that is safe to keep (signed DALL-E URLs expire quickly).
+      const imgRes = await fetch(item.url, { signal: controller.signal });
+      if (!imgRes.ok) throw new Error(`Failed to download DALL-E image: ${imgRes.status}`);
+      const buf = await imgRes.arrayBuffer();
+      const b64 = Buffer.from(buf).toString("base64");
+      // Determine MIME type from Content-Type header; default to jpeg
+      const ct = imgRes.headers.get("content-type") ?? "image/jpeg";
+      return `data:${ct};base64,${b64}`;
+    }
+
+    throw new Error("DALL-E response contained neither url nor b64_json");
   } finally {
     clearTimeout(timeout);
   }

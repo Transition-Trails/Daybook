@@ -49,7 +49,7 @@ vi.mock("@workspace/db", () => {
   // Wire limit() to read from the combined insert + patch store.
   mockLimit.mockImplementation(async (_n: number) => {
     // The where clause holds { val: runId } from the eq() mock below.
-    const whereArg = mockWhere.mock.calls.at(-1)?.[0] as { val: string } | undefined;
+    const whereArg = (mockWhere.mock.calls.at(-1) as unknown[] | undefined)?.[0] as { val: string } | undefined;
     const id = whereArg?.val;
     if (!id) return [];
     const base = insertedRows.get(id) ?? {};

@@ -29,7 +29,7 @@ import {
   type NotionPage,
 } from "../notion-client";
 import { callDallE } from "../ai-proxy";
-import { renderSpecBoardToPng, CONCEPT_IMAGE_AREA, REFERENCE_IMAGE_AREAS } from "./spec-board-template";
+import { renderSpecBoardToPng, CONCEPT_IMAGE_AREA, DETAIL_CROP_SOURCE_RECTS, DETAIL_CROP_DEST_AREAS } from "./spec-board-template";
 import { parsePayload } from "./payload-parser";
 import { logger } from "../logger";
 import type { SpecBoardData, SpecPreviewResult, SpecPreviewRequest } from "./types";
@@ -77,29 +77,40 @@ function buildPreviewFilename(data: SpecBoardData): string {
   return `wm-spec-preview-${slug}-${ts}.png`;
 }
 
-/** Derive a concise DALL-E prompt for the central concept visual. */
+// Victorian hand-illustrated style preamble prepended to every prompt (V3 spec requirement)
+const VICTORIAN_STYLE_PREAMBLE =
+  "Hand-illustrated Victorian archival artwork. " +
+  "Medium: watercolour washes, gouache highlights, fine ink linework, and graphite construction lines. " +
+  "Surface: aged rag paper with visible tooth, restrained foxing, and subtle water staining. " +
+  "Rendering: softened edges, layered pigment, tactile illustrated materials, muted and authentically aged palette. " +
+  "Strictly NO photorealism, NO cinematic depth of field, NO glossy digital painting, " +
+  "NO razor-sharp focus, NO modern objects, NO high-contrast commercial lighting. " +
+  "Style must read as hand-made illustration, never as a photograph or 3D render.";
+
+/** Derive a DALL-E prompt for the central concept visual using Victorian archival style. */
 function buildConceptDallePrompt(data: SpecBoardData): string {
   const isConstruction = /pocket|envelope|tag\b|tab\b|label|tuck/i.test(data.componentType);
 
   if (isConstruction) {
     const parts = [
-      `Technical flat construction diagram for a ${data.componentType}.`,
+      VICTORIAN_STYLE_PREAMBLE,
+      `Flat technical illustration for a ${data.componentType}.`,
       data.composition ? data.composition : "",
       data.printRule ? data.printRule : "",
-      "Clean engineering drawing on white background. Labeled fold lines, cut marks, assembly guide.",
-      "Blueprint / technical illustration style. Professional quality.",
+      "Clean hand-drawn engineering-style diagram on aged paper. Ink fold lines, cut marks, assembly guide.",
     ].filter(Boolean);
     return parts.join(" ").slice(0, 3800);
   }
 
+  const scene = data.illustratedNarrative || data.designIntent || `${data.componentType} scene`;
   const parts = [
-    data.designIntent || `${data.componentType} concept artwork`,
+    VICTORIAN_STYLE_PREAMBLE,
+    scene,
     data.composition ? `Composition: ${data.composition}.` : "",
-    data.materials ? `Style: ${data.materials}.` : "",
-    data.requiredContent ? data.requiredContent : "",
-    `For ${data.componentType} in ${data.world}${data.volume ? " " + data.volume : ""} collection.`,
-    "Digital illustration, professional quality, concept preview, artistic.",
-    "NOT final production artwork.",
+    data.materials ? `Visual materials: ${data.materials}.` : "",
+    data.requiredContent ? `Include: ${data.requiredContent}.` : "",
+    `Context: ${data.componentType} for the ${data.world}${data.volume ? " " + data.volume : ""} collection.`,
+    "Concept preview for editorial review — not final artwork.",
   ].filter(Boolean);
   return parts.join(" ").slice(0, 3800);
 }
@@ -179,6 +190,15 @@ function extractBoardData(page: NotionPage, specPageId: string, promptHash: stri
   const componentSpecId = extractRelation(p["Component Specification"])?.[0] ||
                           extractRelation(p["Component Spec"])?.[0] || undefined;
 
+  // Focal hierarchy — up to 4 labels for the V3 detail-crop captions.
+  // Drawn from PP-1.0 hero-paper keys; fall back to composition fragments.
+  const focalHierarchy: string[] = [
+    (parsedPayload as Record<string, string | undefined>).primary_focal_area || composition || "",
+    (parsedPayload as Record<string, string | undefined>).secondary_narrative_cluster || visualHierarchy || "",
+    (parsedPayload as Record<string, string | undefined>).supporting_objects || materials || "",
+    (parsedPayload as Record<string, string | undefined>).story_signal || negativeConstraints || "",
+  ].map(s => s.trim()).filter(Boolean);
+
   return {
     specPageId,
     productionItem,
@@ -203,6 +223,7 @@ function extractBoardData(page: NotionPage, specPageId: string, promptHash: stri
     printRule,
     negativeConstraints,
     illustratedNarrative,
+    focalHierarchy: focalHierarchy.length > 0 ? focalHierarchy : undefined,
     promptModuleCount: promptModuleIds.length,
     canonDependency,
     canonRecordCount: canonRecordIds.length,
@@ -515,8 +536,8 @@ export async function runSpecPreview(
   let dalleErrorMsg: string | undefined;
 
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      dalleErrorMsg = "OPENAI_API_KEY is not configured — set the secret to enable concept image generation.";
+    if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY && !process.env.OPENAI_API_KEY) {
+      dalleErrorMsg = "No OpenAI API key configured — set OPENAI_API_KEY or run the Replit AI integration setup.";
       logger.warn({ specPageId }, dalleErrorMsg);
     } else {
       const dallePrompt = buildConceptDallePrompt(finalBoardData);
@@ -579,27 +600,25 @@ export async function runSpecPreview(
     finalPng = boardPng;
   }
 
-  // ── 6b. Composite Style Guide reference images into Section 12 boxes ────────
-  if (finalBoardData.referenceImageUrls && finalBoardData.referenceImageUrls.length > 0) {
+  // ── 6b. Auto-crop detail references from the DALL-E image ──────────────────
+  // Crop 4 regions from the concept image area in the board and composite them
+  // into the DETAIL_CROP_DEST_AREAS in the bottom technical strip.
+  if (dalleApplied) {
     try {
       const composites: Array<{ input: Buffer; left: number; top: number; blend: "over" }> = [];
       await Promise.all(
-        finalBoardData.referenceImageUrls.slice(0, 4).map(async (url, i) => {
-          const area = REFERENCE_IMAGE_AREAS[i];
-          if (!area) return;
+        DETAIL_CROP_SOURCE_RECTS.map(async (src, i) => {
+          const dest = DETAIL_CROP_DEST_AREAS[i];
+          if (!dest) return;
           try {
-            const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-            if (!res.ok) return;
-            const imgBuf = Buffer.from(await res.arrayBuffer());
-            const resized = await sharp(imgBuf)
-              .resize(area.width - 4, area.height - 4, { fit: "cover", position: "centre" })
+            const cropped = await sharp(finalPng)
+              .extract({ left: src.x, top: src.y, width: src.width, height: src.height })
+              .resize(dest.width - 4, dest.height - 4, { fit: "cover", position: "centre" })
               .png()
               .toBuffer();
-            // Push in array — concurrent access to composites[] is fine here because
-            // each index is unique (Promise.all resolves after all settle)
-            composites.push({ input: resized, left: area.x + 2, top: area.y + 2, blend: "over" });
-          } catch (imgErr) {
-            logger.warn({ err: imgErr, url, specPageId }, "Reference image download/resize failed — skipping thumbnail");
+            composites.push({ input: cropped, left: dest.x + 2, top: dest.y + 2, blend: "over" });
+          } catch (cropErr) {
+            logger.warn({ err: cropErr, index: i, specPageId }, "Detail crop failed — skipping thumbnail");
           }
         }),
       );
@@ -608,10 +627,10 @@ export async function runSpecPreview(
           .composite(composites)
           .png()
           .toBuffer();
-        logger.info({ specPageId, count: composites.length }, "Reference thumbnails composited into spec board");
+        logger.info({ specPageId, count: composites.length }, "Detail reference crops composited into spec board");
       }
-    } catch (refErr) {
-      logger.warn({ err: refErr, specPageId }, "Reference image compositing failed — non-fatal, continuing");
+    } catch (cropErr) {
+      logger.warn({ err: cropErr, specPageId }, "Detail crop compositing failed — non-fatal, continuing");
     }
   }
 

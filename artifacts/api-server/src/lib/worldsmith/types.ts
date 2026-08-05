@@ -439,6 +439,8 @@ export interface SpecBoardData {
   canonNames?: string[];         // Resolved display names of linked Canon Records (up to 5)
   illustratedNarrative?: string; // Scene description for Section 3 (from front_prompt / world_and_collection_context)
   referenceImageUrls?: string[]; // Up to 4 image URLs from the linked Style Guide's file attachments
+  /** Up to 4 focal-hierarchy labels derived from the prompt payload (used as detail-crop captions). */
+  focalHierarchy?: string[];
 }
 
 export interface SpecPreviewResult {

@@ -164,39 +164,54 @@ async function callGemini(
 // ── Image generation ─────────────────────────────────────────────────────────
 
 /**
- * Call DALL-E 3 for image generation.
- * Returns a base64 PNG data URL: `data:image/png;base64,...`
- * Enforces a 60-second hard timeout via AbortController.
+ * Generate an image via the Replit AI integration proxy (gpt-image-1).
+ * Falls back to direct OpenAI if the integration env vars are absent.
+ *
+ * Returns a base64 data URL: `data:<mime>;base64,...`
+ * The proxy always returns base64 — no response_format param needed/allowed.
  */
 export async function callDallE(
   prompt: string,
   options: {
     size?: "1024x1024" | "1792x1024" | "1024x1792";
     quality?: "standard" | "hd";
-    style?: "natural" | "vivid";
+    style?: "natural" | "vivid";  // kept for API compat but ignored by gpt-image-1
   } = {},
 ): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+  // Prefer the AI integration credentials; fall back to the raw OPENAI_API_KEY
+  const apiKey =
+    process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("No OpenAI API key configured (set OPENAI_API_KEY or AI_INTEGRATIONS_OPENAI_API_KEY)");
 
-  // Build the minimal body — omit optional params that some proxies reject
+  const baseUrl = (
+    process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ||
+    "https://api.openai.com/v1"
+  ).replace(/\/$/, "");
+
+  // gpt-image-1 size mapping — the model only accepts these values:
+  //   1024x1024 | 1536x1024 (landscape) | 1024x1536 (portrait) | auto
+  const sizeMap: Record<string, string> = {
+    "1024x1024": "1024x1024",
+    "1792x1024": "1536x1024",  // landscape → nearest gpt-image-1 size
+    "1024x1792": "1024x1536",  // portrait  → nearest gpt-image-1 size
+  };
+  const size = sizeMap[options.size ?? "1024x1024"] ?? "1024x1024";
+
   const body: Record<string, unknown> = {
-    model: "dall-e-3",
+    model: "gpt-image-1",
     prompt,
     n: 1,
-    size: options.size ?? "1024x1024",
-    quality: options.quality ?? "standard",
+    size,
+    // quality: gpt-image-1 accepts "low" | "medium" | "high" | "auto"
+    // Map the legacy "hd" → "high", "standard" → "medium"
+    quality: options.quality === "hd" ? "high" : "medium",
   };
-  // 'style' is rejected by some proxy configurations — only include when asked
-  if (options.style) {
-    body.style = options.style;
-  }
 
-  // Use a 90-second budget: 60 s for generation + up to 30 s to download the URL
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90_000);
   try {
-    const res = await fetch("https://api.openai.com/v1/images/generations", {
+    const res = await fetch(`${baseUrl}/images/generations`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -211,31 +226,28 @@ export async function callDallE(
       throw new Error(`DALL-E error ${res.status}: ${err}`);
     }
 
-    // The response may contain either a `url` (default) or `b64_json` (if the
-    // proxy accepted response_format=b64_json in a future call).
+    // gpt-image-1 via Replit integration always returns b64_json.
+    // Fall back to downloading a URL if somehow a url is returned instead.
     const data = (await res.json()) as {
       data: Array<{ url?: string; b64_json?: string }>;
     };
     const item = data.data[0];
-    if (!item) throw new Error("DALL-E returned no image data");
+    if (!item) throw new Error("Image generation returned no data");
 
     if (item.b64_json) {
       return `data:image/png;base64,${item.b64_json}`;
     }
 
     if (item.url) {
-      // Download the image and convert to base64 so callers always get a
-      // data URL that is safe to keep (signed DALL-E URLs expire quickly).
       const imgRes = await fetch(item.url, { signal: controller.signal });
-      if (!imgRes.ok) throw new Error(`Failed to download DALL-E image: ${imgRes.status}`);
+      if (!imgRes.ok) throw new Error(`Failed to download generated image: ${imgRes.status}`);
       const buf = await imgRes.arrayBuffer();
       const b64 = Buffer.from(buf).toString("base64");
-      // Determine MIME type from Content-Type header; default to jpeg
       const ct = imgRes.headers.get("content-type") ?? "image/jpeg";
       return `data:${ct};base64,${b64}`;
     }
 
-    throw new Error("DALL-E response contained neither url nor b64_json");
+    throw new Error("Image generation response contained neither url nor b64_json");
   } finally {
     clearTimeout(timeout);
   }

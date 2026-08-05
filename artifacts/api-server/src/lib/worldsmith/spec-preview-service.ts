@@ -525,7 +525,7 @@ export async function runSpecPreview(
       const b64DataUrl = await callDallE(dallePrompt, {
         size: cfg.size,
         quality: cfg.quality,
-        style: "natural",
+        // 'style' intentionally omitted — some API configurations reject it
       });
 
       // Decode base64 → buffer

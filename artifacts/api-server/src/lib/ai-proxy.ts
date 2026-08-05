@@ -179,15 +179,19 @@ export async function callDallE(
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 
-  const body = {
+  const body: Record<string, unknown> = {
     model: "dall-e-3",
     prompt,
     n: 1,
     size: options.size ?? "1024x1024",
     quality: options.quality ?? "standard",
-    style: options.style ?? "natural",
     response_format: "b64_json",
   };
+  // Only include 'style' when explicitly requested — some deployments/proxies
+  // reject it as an unknown parameter even for dall-e-3.
+  if (options.style) {
+    body.style = options.style;
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);

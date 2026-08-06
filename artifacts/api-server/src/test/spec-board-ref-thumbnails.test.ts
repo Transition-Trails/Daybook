@@ -19,15 +19,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Hoisted values (available in vi.mock factory closures) ────────────────────
 
-const { mockGetPage, mockGetPageText, mockCompositeSpy, FAKE_PNG } = vi.hoisted(() => {
+const { mockGetPage, mockGetPageText, mockCompositeSpy, mockCallDallE, FAKE_PNG, FAKE_B64 } = vi.hoisted(() => {
   const png = Buffer.alloc(64, 0);
   png[0] = 0x89; png[1] = 0x50; png[2] = 0x4e; png[3] = 0x47;
   png[4] = 0x0d; png[5] = 0x0a; png[6] = 0x1a; png[7] = 0x0a;
+  const b64 = `data:image/png;base64,${png.toString("base64")}`;
   return {
     mockGetPage:      vi.fn(),
     mockGetPageText:  vi.fn(),
     mockCompositeSpy: vi.fn(),
+    mockCallDallE:    vi.fn().mockResolvedValue(b64),
     FAKE_PNG:         png,
+    FAKE_B64:         b64,
   };
 });
 
@@ -110,12 +113,9 @@ vi.mock("../lib/notion-client.js", () => ({
 }));
 
 // ── Mock ai-proxy — success path ──────────────────────────────────────────────
-// Returns a tiny base64 PNG data URL so step 6 (DALL-E) succeeds, allowing
-// step 6b (detail crops) to run.
+// mockCallDallE is declared inside vi.hoisted() above so it is available when
+// this vi.mock factory runs (vi.mock is hoisted before regular const declarations).
 
-const FAKE_B64 = `data:image/png;base64,${FAKE_PNG.toString("base64")}`;
-
-const mockCallDallE = vi.fn().mockResolvedValue(FAKE_B64);
 vi.mock("../lib/ai-proxy.js", () => ({
   callDallE: mockCallDallE,
 }));

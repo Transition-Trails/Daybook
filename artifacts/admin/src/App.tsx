@@ -119,6 +119,8 @@ import {
   EditorialShell,
   ReadinessBoard,
   CanonBoard,
+  CanonLibrary,
+  CanonRecordDetail,
   NewSpecFlow,
   SpecEditor,
 } from "@/pages/super/worldsmith-editorial";
@@ -236,9 +238,18 @@ function RootRouter() {
           </RequireSuperAdmin>
         )}
       </Route>
+      <Route path="/super/worldsmith/editorial/canon/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="canon">
+              <CanonRecordDetail recordId={p.id!} />
+            </EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
       <Route path="/super/worldsmith/editorial/canon">
         <RequireSuperAdmin state={state}>
-          <EditorialShell activePage="canon"><CanonBoard /></EditorialShell>
+          <EditorialShell activePage="canon"><CanonLibrary /></EditorialShell>
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/board">

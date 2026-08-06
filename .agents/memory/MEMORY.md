@@ -43,3 +43,6 @@
 - [WorldSmith chosen concept](worldsmith-chosen-concept.md) — user approved World Gallery for promotion to production landing page
 - [WorldSmith payload aliases](worldsmith-payload-aliases.md) — card_role/paper_and_materials/front_layout are normalised onto asset_role/materials/composition before PP-1.0 validation
 - [WorldSmith PP-2.0 payload contract](worldsmith-payload-contract.md) — section-based format (shared_prompt/front_prompt/negative_prompt); detection by shared_prompt presence; full backward compat with PP-1.0
+- [Font warmup bundled-WOFF test pattern](font-warmup-bundled-woff-test.md) — bundled WOFFs skip /tmp disk write; use waitForWarmupDone() + in-process cache checks in warmup tests
+- [Vitest vi.mock hoisting](vitest-mock-hoisting.md) — variables inside vi.mock factory MUST come from vi.hoisted(); regular const/let throws ReferenceError
+- [Spec board V3 sections](spec-board-v3-sections.md) — "Illustrated Narrative"→"Narrative Role", "Canon Lock"→"Companion Assets", subtitle fallback→"WORLDSMITH LIVING ARCHIVE"

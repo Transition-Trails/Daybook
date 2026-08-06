@@ -293,16 +293,27 @@ router.patch("/v1/editorial/collections/:id", async (req: Request, res: Response
 // ── Canon Records ─────────────────────────────────────────────────────────────
 
 router.get("/v1/editorial/canon-records", async (req: Request, res: Response) => {
-  const worldId = req.query.world_id as string | undefined;
-  const q = req.query.q as string | undefined;
-  const statusFilter = req.query.status as string | undefined;
+  const worldId      = req.query.world_id   as string | undefined;
+  const q            = req.query.q          as string | undefined;
+  const statusFilter = req.query.status     as string | undefined;
+  const typeFilter   = req.query.canon_type as string | undefined;
 
   try {
+    // Filtered query (respects all params)
     const conditions = [];
-    if (worldId) conditions.push(eq(wsCanonRecordsTable.worldId, worldId));
+    if (worldId)      conditions.push(eq(wsCanonRecordsTable.worldId, worldId));
     if (statusFilter) conditions.push(eq(wsCanonRecordsTable.status, statusFilter));
+    if (typeFilter)   conditions.push(eq(wsCanonRecordsTable.canonType, typeFilter));
     if (q?.trim()) {
-      conditions.push(like(wsCanonRecordsTable.name, `%${q.trim()}%`));
+      const term = `%${q.trim()}%`;
+      conditions.push(
+        or(
+          like(wsCanonRecordsTable.name, term),
+          like(wsCanonRecordsTable.narrativeDetails, term),
+          like(wsCanonRecordsTable.historicalContext, term),
+          like(wsCanonRecordsTable.visualNotes, term),
+        )!,
+      );
     }
 
     const rows = await db
@@ -310,9 +321,24 @@ router.get("/v1/editorial/canon-records", async (req: Request, res: Response) =>
       .from(wsCanonRecordsTable)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(wsCanonRecordsTable.name)
-      .limit(50);
+      .limit(200);
 
-    res.json({ canon_records: rows });
+    // Unfiltered totals for the world (for quick-start detection + type tab counts)
+    let total = rows.length;
+    const byType: Record<string, number> = {};
+
+    if (worldId) {
+      const allForWorld = await db
+        .select({ canonType: wsCanonRecordsTable.canonType, status: wsCanonRecordsTable.status })
+        .from(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.worldId, worldId));
+      total = allForWorld.length;
+      for (const r of allForWorld) {
+        if (r.canonType) byType[r.canonType] = (byType[r.canonType] ?? 0) + 1;
+      }
+    }
+
+    res.json({ canon_records: rows, total, by_type: byType });
   } catch (err) {
     logger.error({ err }, "editorial: list canon records");
     res.status(500).json({ error: "Internal server error" });
@@ -424,6 +450,87 @@ router.post("/v1/editorial/canon-records/:id/transition", async (req: Request, r
     res.json({ canon_record: updated });
   } catch (err) {
     logger.error({ err }, "editorial: canon record transition");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Canon Records — linked specs + bulk transition ────────────────────────────
+
+/** GET /:id/specs — production specs that reference this canon record */
+router.get("/v1/editorial/canon-records/:id/specs", async (req: Request, res: Response) => {
+  try {
+    const [record] = await db
+      .select({ worldId: wsCanonRecordsTable.worldId })
+      .from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, req.params.id as string))
+      .limit(1);
+    if (!record) { res.status(404).json({ error: "Canon record not found" }); return; }
+
+    // Find specs whose canonRecordIds JSONB array contains this record's id
+    const specs = await db
+      .select({
+        id: wsProductionSpecsTable.id,
+        productionItem: wsProductionSpecsTable.productionItem,
+        componentType: wsProductionSpecsTable.componentType,
+        status: wsProductionSpecsTable.status,
+        collectionId: wsProductionSpecsTable.collectionId,
+        updatedAt: wsProductionSpecsTable.updatedAt,
+      })
+      .from(wsProductionSpecsTable)
+      .where(
+        and(
+          eq(wsProductionSpecsTable.worldId, record.worldId),
+          sql`${wsProductionSpecsTable.canonRecordIds} @> ${JSON.stringify([req.params.id])}::jsonb`,
+        ),
+      )
+      .orderBy(wsProductionSpecsTable.productionItem)
+      .limit(50);
+
+    res.json({ specs });
+  } catch (err) {
+    logger.error({ err }, "editorial: canon record specs");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/** POST /bulk-transition — change status for multiple records at once */
+router.post("/v1/editorial/canon-records/bulk-transition", async (req: Request, res: Response) => {
+  const { ids, status } = req.body as { ids?: string[]; status?: string };
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: "ids (non-empty array) is required" });
+    return;
+  }
+  if (!status) {
+    res.status(400).json({ error: "status is required" });
+    return;
+  }
+
+  try {
+    // Validate all can transition to the target status
+    const records = await db
+      .select({ id: wsCanonRecordsTable.id, status: wsCanonRecordsTable.status })
+      .from(wsCanonRecordsTable)
+      .where(sql`${wsCanonRecordsTable.id} = ANY(${sql.raw(`ARRAY[${ids.map(id => `'${id.replace(/'/g, "''")}'`).join(",")}]`)})`)
+      .limit(200);
+
+    const invalid = records.filter(r => !(CANON_TRANSITIONS[r.status] ?? []).includes(status));
+    if (invalid.length > 0) {
+      res.status(422).json({
+        error: `${invalid.length} record(s) cannot transition to "${status}".`,
+        invalid_ids: invalid.map(r => r.id),
+      });
+      return;
+    }
+
+    // Apply transition to all
+    await db
+      .update(wsCanonRecordsTable)
+      .set({ status })
+      .where(sql`${wsCanonRecordsTable.id} = ANY(${sql.raw(`ARRAY[${ids.map(id => `'${id.replace(/'/g, "''")}'`).join(",")}]`)})`);
+
+    res.json({ updated: records.length, status });
+  } catch (err) {
+    logger.error({ err }, "editorial: canon bulk transition");
     res.status(500).json({ error: "Internal server error" });
   }
 });

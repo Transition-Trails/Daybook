@@ -143,7 +143,9 @@ function makePageWithRelations(
   return page;
 }
 
-const SPEC_ID = "spec-test-abc123";
+// Must be a valid 32-char hex UUID so normalizeNotionId() in the HTTP route
+// handler doesn't reject it with 400 before calling runCompilation.
+const SPEC_ID = "43fb4f74-303e-4f3f-8fdb-aea9294ca3f4";
 
 const superAdminUser: User = {
   id: "u-test-sa",

@@ -250,11 +250,13 @@ describe("buildSpecBoardSvg — Section 3: Illustrated Narrative", () => {
       }),
     );
 
-    // One of the fallback sources must be present
-    const hasRequired = svg.includes("Required content:");
-    const hasComponent = svg.includes("Component type:");
-    const hasAsset = svg.includes("Asset role:");
-    expect(hasRequired || hasComponent || hasAsset).toBe(true);
+    // V3 fallback chain: narrativePurpose → designIntent → "—"
+    // makeBoard default sets narrativePurpose, so the Narrative Role section renders it.
+    // requiredContent items also appear in the Required Elements Checklist column.
+    const hasNarrativeFallback = svg.includes("Evoke the harvest season");
+    const hasRequiredItem = svg.includes("Oak leaves");
+    const hasComponentType = svg.toUpperCase().includes("JOURNAL CARD");
+    expect(hasNarrativeFallback || hasRequiredItem || hasComponentType).toBe(true);
   });
 
   it("uses narrativePurpose as a tertiary fallback when both illustratedNarrative and structured fields are empty", () => {
@@ -276,7 +278,8 @@ describe("buildSpecBoardSvg — Section 3: Illustrated Narrative", () => {
 
   it("Section 3 title appears in the SVG output", () => {
     const svg = buildSpecBoardSvg(makeBoard({ illustratedNarrative: "A misty morning scene." }));
-    expect(svg.toUpperCase()).toContain("ILLUSTRATED NARRATIVE");
+    // V3 renamed the section from "Illustrated Narrative" to "Narrative Role"
+    expect(svg.toUpperCase()).toContain("NARRATIVE ROLE");
   });
 });
 
@@ -299,7 +302,7 @@ describe("buildSpecBoardSvg — Section 13: Canon Lock", () => {
     expect(svg).not.toContain("2 Canon Records linked");
   });
 
-  it("renders the count fallback when canonNames is absent but canonRecordCount > 0", () => {
+  it("renders component-type series when canonNames is absent but canonRecordCount > 0", () => {
     const svg = buildSpecBoardSvg(
       makeBoard({
         canonNames: undefined,
@@ -308,29 +311,32 @@ describe("buildSpecBoardSvg — Section 13: Canon Lock", () => {
       }),
     );
 
-    expect(svg).toContain("3 Canon Records linked");
-    // No real names should appear when names were not fetched
-    // (this is the pre-existing fallback behaviour)
+    // V3 companion column: when canonNames is empty, falls back to "<componentType> Series".
+    // makeBoard default has componentType "Journal Card" → renders "Journal Card Series".
+    expect(svg).toContain("Journal Card Series");
   });
 
-  it("renders 'No canon records linked.' when both canonNames and count are zero", () => {
+  it("renders placeholder text when canonNames is absent and componentType is unset", () => {
     const svg = buildSpecBoardSvg(
       makeBoard({
         canonNames: undefined,
         canonRecordCount: 0,
         canonDependency: "None",
+        componentType: "",
       }),
     );
 
-    expect(svg).toContain("No canon records linked");
+    // V3: no canonNames + no componentType → companion col shows the See Canon Records note
+    expect(svg).toContain("See Canon Records for companion asset relationships");
   });
 
-  it("Section 13 title appears in the SVG output", () => {
+  it("Section in the companion row is labelled 'Relationship to Companion Assets'", () => {
     const svg = buildSpecBoardSvg(makeBoard({ canonNames: ["Verdant Veil Records"] }));
-    expect(svg.toUpperCase()).toContain("CANON LOCK");
+    // V3 renamed the section from "Canon Lock" to "Relationship to Companion Assets"
+    expect(svg.toUpperCase()).toContain("COMPANION ASSETS");
   });
 
-  it("canonDependency prefix appears when dependency is set", () => {
+  it("canon name appears in the companion column when canonNames is set", () => {
     const svg = buildSpecBoardSvg(
       makeBoard({
         canonNames: ["Ironbound Register"],
@@ -338,9 +344,10 @@ describe("buildSpecBoardSvg — Section 13: Canon Lock", () => {
       }),
     );
 
-    // canonHeader includes "Canon Dependency: Canon Defining"
-    expect(svg).toContain("Canon Dependency: Canon Defining");
+    // V3 companion row lists canon names prefixed with HP00N; no "Canon Dependency:" label
     expect(svg).toContain("Ironbound Register");
+    // canonDependency is not rendered as a "Canon Dependency: …" label in V3
+    expect(svg).not.toContain("Canon Dependency: Canon Defining");
   });
 });
 
@@ -382,12 +389,14 @@ describe("buildSpecBoardSvg — Header subtitle: Collection", () => {
     expect(svg.toUpperCase()).toContain("VOLUME II");
   });
 
-  it("renders foundation fallback subtitle when neither world nor collection are provided", () => {
+  it("renders living-archive fallback subtitle when neither world nor collection are provided", () => {
     const svg = buildSpecBoardSvg(
       makeBoard({ world: "", volume: undefined, collection: undefined }),
     );
 
-    expect(svg).toContain("WORLDSMITH FOUNDATION");
+    // V3 fallback: "WORLDSMITH LIVING ARCHIVE  ·  THE CURATOR'S DESK"
+    expect(svg.toUpperCase()).toContain("WORLDSMITH LIVING ARCHIVE");
+    expect(svg.toUpperCase()).toContain("CURATOR");
   });
 });
 

@@ -1891,6 +1891,61 @@ export const supportApi = {
   },
 };
 
+// ── Releases ───────────────────────────────────────────────────────────────────
+
+export interface ReleaseNote {
+  id: number;
+  releaseId: number;
+  sortOrder: number;
+  note: string;
+}
+
+export interface ReleaseWithNotes {
+  id: number;
+  version: string;
+  versionType: string;
+  title: string;
+  releaseDate: string | null;
+  githubSha: string | null;
+  isPublished: boolean;
+  createdAt: string;
+  updatedAt: string;
+  notes: ReleaseNote[];
+}
+
+export const releasesApi = {
+  list: () =>
+    apiFetch<ReleaseWithNotes[]>("/platform/releases"),
+
+  create: (body: {
+    version: string;
+    versionType: string;
+    title: string;
+    notes?: string[];
+  }) =>
+    apiFetch<ReleaseWithNotes>("/platform/releases", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  update: (id: number, body: {
+    version?: string;
+    versionType?: string;
+    title?: string;
+    notes?: string[];
+  }) =>
+    apiFetch<ReleaseWithNotes>(`/platform/releases/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  delete: (id: number) =>
+    apiFetch<{ ok: boolean }>(`/platform/releases/${id}`, { method: "DELETE" }),
+
+  publish: (id: number) =>
+    apiFetch<ReleaseWithNotes>(`/platform/releases/${id}/publish`, { method: "POST" }),
+};
+
 // ── House store constant (mirrors api-server) ─────────────────────────────────
 export const HOUSE_STORE_ID = "store-house";
 

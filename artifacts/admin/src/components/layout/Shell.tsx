@@ -25,7 +25,7 @@ import {
   Users, Settings, RefreshCw, BarChart2, LogOut,
   CalendarDays, ArrowLeft, Pen, Image, Sticker,
   Store, Megaphone, LayoutTemplate, Shapes, Brush,
-  Link2, Paperclip, Type, BookMarked, Hammer,
+  Link2, Paperclip, Type, BookMarked, Hammer, Tag,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
@@ -55,6 +55,7 @@ const NAV_ITEMS = [
   { label: "AI settings",        icon: Settings,       href: "/ai-settings",        group: "Platform" },
   { label: "Google sync",        icon: RefreshCw,      href: "/sync",               group: "Platform" },
   { label: "Calendar",           icon: CalendarDays,   href: "/calendar",           group: "Platform" },
+  { label: "Releases",           icon: Tag,            href: "/super/releases",     group: "Platform" },
 ] as const;
 
 type NavItem = (typeof NAV_ITEMS)[number];

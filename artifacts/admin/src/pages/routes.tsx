@@ -64,6 +64,9 @@ import EditionsList from '@/pages/editions/list';
 import EditionDetail from '@/pages/editions/detail';
 import PlansList from '@/pages/plans/index';
 
+// Super admin
+import ReleasesPage from '@/pages/super/Releases';
+
 // Platform
 import UsersList from '@/pages/users/list';
 import UserDetail from '@/pages/users/detail';
@@ -111,6 +114,9 @@ export const routes = [
     path: "/catalog/products/:id",
     component: () => <Redirect to="/studios/planner?mode=editions&productType=notebook" />,
   },
+
+  // ── Super admin ────────────────────────────────────────────────────────────
+  { path: "/super/releases",           component: ReleasesPage },
 
   // ── Platform ───────────────────────────────────────────────────────────────
   { path: "/plans",                    component: PlansList },

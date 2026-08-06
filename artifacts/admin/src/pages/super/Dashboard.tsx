@@ -1,12 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
-import { platformApi } from "@/lib/api";
+import { platformApi, releasesApi, type ReleaseWithNotes } from "@/lib/api";
 import { PageHeader, StatTile, SkeletonRows, ErrorState, EmptyState, StatusPill } from "@/components/shared";
-import { Store, Users, TrendingUp, BookCopy, AlertTriangle, Clock } from "lucide-react";
+import { Store, Users, TrendingUp, BookCopy, AlertTriangle, Clock, Tag } from "lucide-react";
 import { Link } from "wouter";
 
 export default function SuperDashboard() {
   const { data: stats, isLoading: statsLoading, error: statsError, refetch: refetchStats } =
     useQuery({ queryKey: ["platform/stats"], queryFn: platformApi.stats });
+
+  const { data: releases = [] } = useQuery<ReleaseWithNotes[]>({
+    queryKey: ["releases"],
+    queryFn: () => releasesApi.list(),
+  });
+
+  const latestRelease = (releases as ReleaseWithNotes[])
+    .filter(r => r.isPublished)
+    .sort((a, b) => {
+      const [am, an, ap] = a.version.split(".").map(Number);
+      const [bm, bn, bp] = b.version.split(".").map(Number);
+      return bm - am || bn - an || bp - ap;
+    })[0] ?? null;
 
   const { data: audit = [], isLoading: auditLoading } =
     useQuery({
@@ -30,11 +43,33 @@ export default function SuperDashboard() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
-      <PageHeader
-        title="Dashboard"
-        description="Platform health at a glance."
-        scopeLabel="Platform"
-      />
+      <div className="flex items-start justify-between gap-4">
+        <PageHeader
+          title="Dashboard"
+          description="Platform health at a glance."
+          scopeLabel="Platform"
+        />
+        {latestRelease && (
+          <Link href="/super/releases">
+            <span
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold cursor-pointer shrink-0 mt-1"
+              style={{
+                background: "hsl(38 65% 96%)",
+                borderColor: "hsl(38 30% 88%)",
+                color: "hsl(221 46% 17%)",
+              }}
+            >
+              <Tag className="w-3 h-3" style={{ color: "#C87560" }} />
+              v{latestRelease.version}
+              {latestRelease.releaseDate && (
+                <span style={{ color: "hsl(216 15% 52%)" }}>
+                  · {new Date(latestRelease.releaseDate).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                </span>
+              )}
+            </span>
+          </Link>
+        )}
+      </div>
 
       {/* Stat tiles */}
       {statsLoading ? (

@@ -26,7 +26,8 @@
     "migrate-worldsmith-worlds": "tsx ./src/migrate-worldsmith-worlds.ts",
     "seed-worldsmith-wychcombe": "tsx ./src/seed-worldsmith-wychcombe.ts",
     "migrate-spec-preview": "tsx ./src/migrate-spec-preview.ts",
-    "migrate-worldsmith-editorial": "tsx ./src/migrate-worldsmith-editorial.ts"
+    "migrate-worldsmith-editorial": "tsx ./src/migrate-worldsmith-editorial.ts",
+    "migrate-releases": "tsx ./src/migrate-releases.ts"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",

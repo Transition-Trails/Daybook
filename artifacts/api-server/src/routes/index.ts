@@ -36,6 +36,7 @@ import qualityRouter from "./quality";
 import promoteRouter from "./promote";
 import worldsmithRouter from "./worldsmith";
 import worldsmithEditorialRouter from "./worldsmith-editorial";
+import releasesRouter from "./releases";
 
 const router: IRouter = Router();
 
@@ -78,6 +79,8 @@ router.use(marketingRouter);
 router.use(worldsmithRouter);
 // WorldSmith Editorial Suite (local-first authoring)
 router.use(worldsmithEditorialRouter);
+// Platform release tracking
+router.use(releasesRouter);
 // Public storefront API (no auth required)
 router.use(shopRouter);
 

@@ -10,3 +10,4 @@ export { default as CanonRecordDetail } from "./CanonRecordDetail";
 export { default as NewSpecFlow } from "./NewSpecFlow";
 export { default as SpecEditor } from "./SpecEditor";
 export { default as StyleGuides } from "./StyleGuides";
+export { default as PromptModules } from "./PromptModules";

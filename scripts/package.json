@@ -11,6 +11,7 @@
     "seed-backgrounds": "tsx ./src/seed-backgrounds.ts",
     "patch-world-notion-db": "tsx ./src/patch-world-notion-db.ts",
     "patch-world-prod-spec-db": "tsx ./src/patch-world-prod-spec-db.ts",
+    "migrate-style-guides-db-col": "tsx ./src/migrate-style-guides-db-col.ts",
     "seed-recipes": "tsx ./src/seed-recipes.ts",
     "migrate-themes": "tsx ./src/migrate-themes.ts",
     "migrate-notebooks": "tsx ./src/migrate-notebooks.ts",

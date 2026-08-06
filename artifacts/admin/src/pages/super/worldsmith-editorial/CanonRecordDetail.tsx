@@ -56,6 +56,16 @@ const TRANSITION_LABELS: Record<string, string> = {
   proposed:     "Reopen as Proposed",
 };
 
+/** Pipeline statuses for production specs (distinct from canon record statuses). */
+const SPEC_STATUS_META: Record<string, { label: string; bg: string; text: string }> = {
+  draft:         { label: "Draft",         bg: "bg-gray-100",    text: "text-gray-500" },
+  payload_ready: { label: "Payload Ready", bg: "bg-blue-50",     text: "text-blue-600" },
+  canon_clear:   { label: "Canon Clear",   bg: "bg-violet-50",   text: "text-violet-600" },
+  compiled:      { label: "Compiled",      bg: "bg-emerald-100", text: "text-emerald-700" },
+  published:     { label: "Published",     bg: "bg-emerald-100", text: "text-emerald-700" },
+  blocked:       { label: "Blocked",       bg: "bg-red-100",     text: "text-red-600" },
+};
+
 // ── Data types ────────────────────────────────────────────────────────────────
 
 interface CanonRecord {
@@ -529,7 +539,7 @@ export default function CanonRecordDetail({ recordId }: { recordId: string }) {
             ) : (
               <div className="space-y-2">
                 {linkedSpecs.slice(0, 6).map(spec => {
-                  const sm = STATUS_META[spec.status] ?? STATUS_META.proposed;
+                  const sm = SPEC_STATUS_META[spec.status] ?? SPEC_STATUS_META.draft;
                   return (
                     <Link key={spec.id} href={`/super/worldsmith/editorial/specs/${spec.id}`}>
                       <div

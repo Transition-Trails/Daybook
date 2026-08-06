@@ -123,6 +123,7 @@ import {
   CanonRecordDetail,
   NewSpecFlow,
   SpecEditor,
+  StyleGuides,
 } from "@/pages/super/worldsmith-editorial";
 import { EditorialProvider } from "@/contexts/EditorialContext";
 
@@ -250,6 +251,11 @@ function RootRouter() {
       <Route path="/super/worldsmith/editorial/canon">
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="canon"><CanonLibrary /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/style-guides">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="style-guides"><StyleGuides /></EditorialShell>
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/board">

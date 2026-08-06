@@ -562,6 +562,21 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
   }
 });
 
+router.delete("/v1/editorial/canon-records/:id", async (req: Request, res: Response) => {
+  try {
+    const [row] = await db
+      .delete(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, req.params.id as string))
+      .returning({ id: wsCanonRecordsTable.id });
+    if (!row) { res.status(404).json({ error: "Canon record not found" }); return; }
+    logger.info({ id: req.params.id }, "editorial: deleted canon record");
+    res.json({ deleted: true, id: row.id });
+  } catch (err) {
+    logger.error({ err }, "editorial: delete canon record");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/v1/editorial/canon-records/:id", async (req: Request, res: Response) => {
   try {
     const [row] = await db

@@ -13,7 +13,7 @@ import { useLocation, Link } from "wouter";
 import {
   ArrowLeft, Loader2, Save, CheckCircle2, AlertCircle,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
-  ExternalLink, FileText, ChevronRight, Sparkles,
+  ExternalLink, FileText, ChevronRight, Sparkles, Trash2, X,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -210,6 +210,7 @@ export default function CanonRecordDetail({ recordId }: { recordId: string }) {
   const [activeTab, setActiveTab] = useState<"narrative" | "historical" | "visual">("narrative");
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Load record
   const { data: recordData, isLoading, error } = useQuery<{ canon_record: CanonRecord }>({
@@ -246,6 +247,21 @@ export default function CanonRecordDetail({ recordId }: { recordId: string }) {
     onError: () => {
       toast({ title: "Save failed", variant: "destructive" });
       setIsSaving(false);
+    },
+  });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/v1/editorial/canon-records/${recordId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      toast({ title: "Canon record deleted" });
+      navigate("/super/worldsmith/editorial/canon");
+    },
+    onError: () => {
+      toast({ title: "Delete failed", variant: "destructive" });
+      setShowDeleteConfirm(false);
     },
   });
 
@@ -605,8 +621,73 @@ export default function CanonRecordDetail({ recordId }: { recordId: string }) {
               )}
             </dl>
           </div>
+
+          {/* Danger zone */}
+          <div className="px-5 py-4 mt-auto border-t" style={{ borderColor: "#F0EBE0" }}>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-2 w-full px-3 py-2 text-xs font-medium text-red-500 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete this record
+            </button>
+          </div>
         </aside>
       </div>
+
+      {/* ── Delete confirmation dialog ──────────────────────────────────────── */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 pt-6 pb-4">
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5 text-red-500" />
+                </div>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <h2 className="text-base font-semibold mb-1.5" style={{ color: "#1B2A4A" }}>
+                Delete canon record?
+              </h2>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                <span className="font-medium text-gray-700">"{record.name}"</span> will be permanently
+                removed. This cannot be undone.
+                {record.specRefCount > 0 && (
+                  <span className="block mt-2 text-amber-600 font-medium">
+                    ⚠ This record is referenced by {record.specRefCount} production spec{record.specRefCount !== 1 ? "s" : ""}.
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 flex items-center justify-end gap-3 border-t" style={{ borderColor: "#F3F4F6" }}>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleteMutation.isPending}
+                className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors"
+              >
+                {deleteMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                {deleteMutation.isPending ? "Deleting…" : "Delete record"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

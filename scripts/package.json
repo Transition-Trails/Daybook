@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "seed-backgrounds": "tsx ./src/seed-backgrounds.ts",
     "patch-world-notion-db": "tsx ./src/patch-world-notion-db.ts",
+    "patch-world-prod-spec-db": "tsx ./src/patch-world-prod-spec-db.ts",
     "seed-recipes": "tsx ./src/seed-recipes.ts",
     "migrate-themes": "tsx ./src/migrate-themes.ts",
     "migrate-notebooks": "tsx ./src/migrate-notebooks.ts",

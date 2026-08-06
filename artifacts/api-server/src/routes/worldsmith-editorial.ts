@@ -441,7 +441,21 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
     }
 
     // Fetch all pages from Notion
-    const pages = await queryDatabase(dbId);
+    let pages;
+    try {
+      pages = await queryDatabase(dbId);
+    } catch (notionErr) {
+      const msg = String(notionErr);
+      if (msg.includes("404") || msg.includes("object_not_found")) {
+        res.status(422).json({
+          error:
+            "Notion returned 404 for that database. Make sure the database is shared with your Notion integration (open the database in Notion → Share → invite the integration).",
+          notion_db_id: dbId,
+        });
+        return;
+      }
+      throw notionErr; // re-throw non-404 errors to the outer catch
+    }
 
     let created = 0;
     let updated = 0;

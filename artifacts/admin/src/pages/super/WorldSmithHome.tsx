@@ -29,6 +29,7 @@ export interface WsWorld {
   owner: string;
   tags: string[];
   notionProductionDbId?: string | null;
+  notionCanonDbId?: string | null;
   driveFolderId?: string | null;
   imageProvider?: string | null;
   createdAt: string;
@@ -81,7 +82,7 @@ const wsApi = {
   worlds: () => apiFetch<{ worlds: WsWorld[] }>("/v1/worldsmith/worlds"),
   createWorld: (body: Partial<WsWorld>) =>
     apiFetch<WsWorld>("/v1/worldsmith/worlds", { method: "POST", body: JSON.stringify(body) }),
-  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume">>) =>
+  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume">>) =>
     apiFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
   runs: (worldId?: string) =>
     apiFetch<{ runs: WsRun[] }>(`/v1/worldsmith/runs${worldId ? `?world_id=${encodeURIComponent(worldId)}` : ""}`),
@@ -789,6 +790,7 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     notionProductionDbId: world.notionProductionDbId ?? "",
+    notionCanonDbId: world.notionCanonDbId ?? "",
     driveFolderId: world.driveFolderId ?? "",
     imageProvider: world.imageProvider ?? "",
     status: world.status,
@@ -800,6 +802,7 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
     mutationFn: () =>
       wsApi.updateWorld(world.id, {
         notionProductionDbId: form.notionProductionDbId.trim() || null,
+        notionCanonDbId: form.notionCanonDbId.trim() || null,
         driveFolderId: form.driveFolderId.trim() || null,
         imageProvider: form.imageProvider.trim() || null,
         status: form.status as WsWorld["status"],
@@ -909,6 +912,21 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
 
             <div>
               <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                Notion Canon DB ID
+              </label>
+              <input
+                value={form.notionCanonDbId}
+                onChange={e => setForm(f => ({ ...f, notionCanonDbId: e.target.value }))}
+                placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30 font-mono"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Notion database that holds your canon records. Used by the Canon Library "Sync from Notion" button.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
                 Google Drive Folder ID
               </label>
               <input
@@ -974,6 +992,7 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
                 setEditing(false);
                 setForm({
                   notionProductionDbId: world.notionProductionDbId ?? "",
+                  notionCanonDbId: world.notionCanonDbId ?? "",
                   driveFolderId: world.driveFolderId ?? "",
                   imageProvider: world.imageProvider ?? "",
                   status: world.status,

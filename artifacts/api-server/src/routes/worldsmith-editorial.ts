@@ -48,6 +48,10 @@ import {
   createPage,
   richTextProp,
   selectProp,
+  queryDatabase,
+  extractTitle,
+  extractRichText,
+  extractSelect,
 } from "../lib/notion-client";
 
 const router = Router();
@@ -369,6 +373,177 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
     res.status(201).json({ canon_record: row });
   } catch (err) {
     logger.error({ err }, "editorial: create canon record");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Notion sync ────────────────────────────────────────────────────────────────
+// POST /v1/editorial/canon-records/sync-notion
+// Pulls all pages from the world's Notion canon DB and upserts them locally.
+// Uses the world's notionCanonDbId first, falls back to NOTION_CANON_DB_ID env.
+
+/** Map common Notion status strings to our internal values. */
+function normaliseCanonStatus(raw: string): string {
+  const s = raw.toLowerCase().replace(/[_\s-]+/g, "_");
+  if (s.includes("accept") || s.includes("approve") || s.includes("final")) return "accepted";
+  if (s.includes("review")  || s.includes("under"))                          return "under_review";
+  if (s.includes("supersede") || s.includes("retired"))                      return "superseded";
+  if (s.includes("reject") || s.includes("decline"))                         return "rejected";
+  return "proposed";
+}
+
+/** Map common Notion type strings to our internal values. */
+function normaliseCanonType(raw: string): string | undefined {
+  const s = raw.toLowerCase();
+  if (s.includes("character") || s.includes("person") || s.includes("figure")) return "character";
+  if (s.includes("location")  || s.includes("place")  || s.includes("geo"))    return "location";
+  if (s.includes("object")    || s.includes("artefact")|| s.includes("item"))  return "object";
+  if (s.includes("event")     || s.includes("incident"))                        return "event";
+  if (s.includes("lore")      || s.includes("myth")    || s.includes("legend")) return "lore";
+  if (s.includes("atmosphere")|| s.includes("mood")    || s.includes("tone"))   return "atmosphere";
+  if (s.includes("material")  || s.includes("texture") || s.includes("fabric")) return "material";
+  return undefined;
+}
+
+router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res: Response) => {
+  const { world_id } = req.body as { world_id?: string };
+  if (!world_id) {
+    res.status(400).json({ error: "world_id is required" });
+    return;
+  }
+
+  try {
+    // Resolve Notion token
+    const token = process.env.NOTION_TOKEN;
+    if (!token) {
+      res.status(503).json({ error: "NOTION_TOKEN is not configured" });
+      return;
+    }
+
+    // Resolve the Notion canon DB for this world
+    const [world] = await db
+      .select({ notionCanonDbId: worldsmithWorldsTable.notionCanonDbId })
+      .from(worldsmithWorldsTable)
+      .where(eq(worldsmithWorldsTable.id, world_id));
+
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const dbId = world.notionCanonDbId ?? process.env.NOTION_CANON_DB_ID ?? "";
+    if (!dbId) {
+      res.status(422).json({
+        error:
+          "No Notion canon DB configured. Set notionCanonDbId on the world or the NOTION_CANON_DB_ID environment variable.",
+      });
+      return;
+    }
+
+    // Fetch all pages from Notion
+    const pages = await queryDatabase(dbId);
+
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const page of pages) {
+      const p = page.properties;
+
+      // Name — try multiple property variants
+      const name =
+        extractTitle(p["Name"]) ||
+        extractTitle(p["Canon Record"]) ||
+        extractTitle(p["Title"]) ||
+        extractRichText(p["Name"]) ||
+        page.id;
+
+      // Canon type
+      const rawType =
+        extractSelect(p["Canon Type"]) ||
+        extractSelect(p["Type"]) ||
+        extractSelect(p["Category"]) ||
+        extractSelect(p["Record Type"]) ||
+        extractRichText(p["Canon Type"]) ||
+        "";
+      const canonType = rawType ? normaliseCanonType(rawType) : undefined;
+
+      // Status
+      const rawStatus =
+        extractSelect(p["Status"]) ||
+        extractSelect(p["Canon Status"]) ||
+        extractSelect(p["Review Status"]) ||
+        "";
+      const status = rawStatus ? normaliseCanonStatus(rawStatus) : "proposed";
+
+      // Text fields
+      const narrativeDetails =
+        extractRichText(p["Narrative Details"]) ||
+        extractRichText(p["Narrative"]) ||
+        extractRichText(p["Description"]) ||
+        extractRichText(p["Summary"]) ||
+        "";
+
+      const historicalContext =
+        extractRichText(p["Historical Context"]) ||
+        extractRichText(p["History"]) ||
+        extractRichText(p["Context"]) ||
+        extractRichText(p["Background"]) ||
+        "";
+
+      const visualNotes =
+        extractRichText(p["Visual Notes"]) ||
+        extractRichText(p["Visual"]) ||
+        extractRichText(p["Appearance"]) ||
+        extractRichText(p["Visual Description"]) ||
+        "";
+
+      if (!name.trim()) { skipped++; continue; }
+
+      const notionPageId = page.id;
+
+      // Check if a local record already exists for this Notion page
+      const [existing] = await db
+        .select({ id: wsCanonRecordsTable.id })
+        .from(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.notionPageId, notionPageId));
+
+      if (existing) {
+        await db
+          .update(wsCanonRecordsTable)
+          .set({
+            name: name.trim(),
+            canonType: canonType ?? null,
+            status,
+            narrativeDetails,
+            historicalContext,
+            visualNotes,
+            syncedAt: new Date(),
+          })
+          .where(eq(wsCanonRecordsTable.id, existing.id));
+        updated++;
+      } else {
+        await db.insert(wsCanonRecordsTable).values({
+          id: crypto.randomUUID(),
+          worldId: world_id,
+          name: name.trim(),
+          canonType: canonType ?? null,
+          status,
+          narrativeDetails,
+          historicalContext,
+          visualNotes,
+          notionPageId,
+          syncedAt: new Date(),
+          createdBy: (req.user as any)?.id,
+        });
+        created++;
+      }
+    }
+
+    logger.info({ world_id, created, updated, skipped, total: pages.length }, "canon-records: sync-notion complete");
+    res.json({ synced: pages.length, created, updated, skipped });
+  } catch (err) {
+    logger.error({ err }, "editorial: sync canon records from notion");
     res.status(500).json({ error: "Internal server error" });
   }
 });

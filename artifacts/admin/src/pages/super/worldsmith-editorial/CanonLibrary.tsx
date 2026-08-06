@@ -15,7 +15,7 @@ import { Link, useLocation } from "wouter";
 import {
   Plus, Search, RefreshCw, Loader2, X, LayoutGrid, Table2,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
-  BookOpen, ChevronRight, Clock, Sparkles, CheckCircle2,
+  BookOpen, ChevronRight, Clock, Sparkles, CheckCircle2, Download,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -556,6 +556,27 @@ export default function CanonLibrary() {
     onError: () => toast({ title: "Bulk update failed", variant: "destructive" }),
   });
 
+  const syncMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<{ synced: number; created: number; updated: number; skipped: number }>(
+        "/v1/editorial/canon-records/sync-notion",
+        { method: "POST", body: JSON.stringify({ world_id: selectedWorldId }) },
+      ),
+    onSuccess: (d) => {
+      toast({
+        title: `Notion sync complete — ${d.created} new, ${d.updated} updated`,
+        description: d.skipped > 0 ? `${d.skipped} page${d.skipped !== 1 ? "s" : ""} skipped (no name)` : undefined,
+      });
+      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+    },
+    onError: (err: Error) =>
+      toast({
+        title: "Notion sync failed",
+        description: err.message ?? "Check that the world has a Notion Canon DB configured.",
+        variant: "destructive",
+      }),
+  });
+
   const allRecords = data?.canon_records ?? [];
   const total = data?.total ?? 0;
   const byType = data?.by_type ?? {};
@@ -635,8 +656,22 @@ export default function CanonLibrary() {
             onClick={() => refetch()}
             className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             title="Refresh"
+            disabled={syncMutation.isPending}
           >
             <RefreshCw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-600 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            title="Pull records from your Notion canon database"
+          >
+            {syncMutation.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            {syncMutation.isPending ? "Syncing…" : "Sync from Notion"}
           </button>
           <button
             onClick={() => openCreate()}

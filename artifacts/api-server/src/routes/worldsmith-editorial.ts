@@ -774,6 +774,126 @@ router.post("/v1/editorial/style-guides", async (req: Request, res: Response) =>
   }
 });
 
+// ── Style Guides — Notion sync ────────────────────────────────────────────────
+// POST /v1/editorial/style-guides/sync-notion
+// Pulls all pages from the world's Notion style-guides DB and upserts them locally.
+// Uses the world's notionStyleGuidesDbId first, falls back to NOTION_STYLE_GUIDES_DB_ID env.
+
+router.post("/v1/editorial/style-guides/sync-notion", async (req: Request, res: Response) => {
+  const { world_id } = req.body as { world_id?: string };
+  if (!world_id) {
+    res.status(400).json({ error: "world_id is required" });
+    return;
+  }
+
+  try {
+    const token = process.env.NOTION_TOKEN;
+    if (!token) {
+      res.status(503).json({ error: "NOTION_TOKEN is not configured" });
+      return;
+    }
+
+    // Resolve the Notion style-guides DB for this world
+    const [world] = await db
+      .select({
+        notionStyleGuidesDbId: worldsmithWorldsTable.notionStyleGuidesDbId,
+      })
+      .from(worldsmithWorldsTable)
+      .where(eq(worldsmithWorldsTable.id, world_id));
+
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const dbId = world.notionStyleGuidesDbId ?? process.env.NOTION_STYLE_GUIDES_DB_ID ?? "";
+    if (!dbId) {
+      res.status(422).json({
+        error:
+          "No Notion style-guides DB configured. Set notionStyleGuidesDbId on the world or the NOTION_STYLE_GUIDES_DB_ID environment variable.",
+      });
+      return;
+    }
+
+    // Fetch all pages from Notion
+    let pages;
+    try {
+      pages = await queryDatabase(dbId);
+    } catch (notionErr) {
+      const msg = String(notionErr);
+      if (msg.includes("404") || msg.includes("object_not_found")) {
+        res.status(422).json({
+          error:
+            "Notion returned 404 for that database. Make sure the database is shared with your Notion integration (open the database in Notion → Share → invite the integration).",
+          notion_db_id: dbId,
+        });
+        return;
+      }
+      throw notionErr;
+    }
+
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const page of pages) {
+      const p = page.properties;
+
+      // Name — try multiple property variants
+      const name =
+        extractTitle(p["Name"]) ||
+        extractTitle(p["Style Guide"]) ||
+        extractTitle(p["Title"]) ||
+        extractRichText(p["Name"]) ||
+        page.id;
+
+      if (!name.trim()) { skipped++; continue; }
+
+      // Content — pull narrative/description fields
+      const content =
+        extractRichText(p["Content"]) ||
+        extractRichText(p["Description"]) ||
+        extractRichText(p["Summary"]) ||
+        extractRichText(p["Visual Language"]) ||
+        extractRichText(p["Guidelines"]) ||
+        extractRichText(p["Notes"]) ||
+        "";
+
+      const notionPageId = page.id;
+
+      // Check if a local record already exists for this Notion page
+      const [existing] = await db
+        .select({ id: wsStyleGuidesTable.id })
+        .from(wsStyleGuidesTable)
+        .where(eq(wsStyleGuidesTable.notionPageId, notionPageId));
+
+      if (existing) {
+        await db
+          .update(wsStyleGuidesTable)
+          .set({ name: name.trim(), content, syncedAt: new Date() })
+          .where(eq(wsStyleGuidesTable.id, existing.id));
+        updated++;
+      } else {
+        await db.insert(wsStyleGuidesTable).values({
+          id: crypto.randomUUID(),
+          worldId: world_id,
+          name: name.trim(),
+          content,
+          notionPageId,
+          syncedAt: new Date(),
+        });
+        created++;
+      }
+    }
+
+    logger.info({ world_id, created, updated, skipped, total: pages.length }, "style-guides: sync-notion complete");
+    res.json({ synced: pages.length, created, updated, skipped });
+  } catch (err) {
+    logger.error({ err }, "editorial: sync style guides from notion");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/v1/editorial/style-guides/:id", async (req: Request, res: Response) => {
   try {
     const [row] = await db.select().from(wsStyleGuidesTable)

@@ -152,6 +152,7 @@ export const worldsmithWorldsTable = pgTable("worldsmith_worlds", {
   notionProductionDbId: text("notion_production_db_id"),
   notionCanonDbId: text("notion_canon_db_id"),
   notionStyleGuideId: text("notion_style_guide_id"),
+  notionStyleGuidesDbId: text("notion_style_guides_db_id"),
   // Google Drive folder
   driveFolderId: text("drive_folder_id"),
   // Image provider

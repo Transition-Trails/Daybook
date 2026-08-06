@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Plus, Layers, FileText, ChevronRight, Loader2, X, Save, Pencil,
+  Plus, Layers, FileText, ChevronRight, Loader2, X, Save, Pencil, RefreshCw,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -225,6 +225,8 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 
 export default function StyleGuides() {
   const { selectedWorldId, selectedWorld } = useEditorial();
+  const qc = useQueryClient();
+  const { toast } = useToast();
   const [drawerGuide, setDrawerGuide] = useState<StyleGuide | null | "new">(undefined as any);
   const drawerOpen = drawerGuide !== undefined && drawerGuide !== (undefined as any);
 
@@ -238,6 +240,25 @@ export default function StyleGuides() {
   });
 
   const guides = data?.style_guides ?? [];
+
+  const syncMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<{ synced: number; created: number; updated: number; skipped: number }>(
+        "/v1/editorial/style-guides/sync-notion",
+        { method: "POST", body: JSON.stringify({ world_id: selectedWorldId }) }
+      ),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["editorial-style-guides", selectedWorldId] });
+      toast({
+        title: "Sync complete",
+        description: `${result.created} created · ${result.updated} updated · ${result.skipped} skipped`,
+      });
+    },
+    onError: (err: any) => {
+      const msg = err?.message ?? "Sync failed";
+      toast({ title: "Sync failed", description: msg, variant: "destructive" });
+    },
+  });
 
   const openNew = () => setDrawerGuide("new");
   const openEdit = (g: StyleGuide) => setDrawerGuide(g);
@@ -259,13 +280,26 @@ export default function StyleGuides() {
             </p>
           )}
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-2 px-3 py-2 bg-[#1B2A4A] text-white text-sm rounded-lg hover:bg-[#243660] transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Style Guide
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={!selectedWorldId || syncMutation.isPending}
+            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title={!selectedWorldId ? "Select a world first" : "Sync style guides from Notion"}
+          >
+            {syncMutation.isPending
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <RefreshCw className="w-4 h-4" />}
+            Sync from Notion
+          </button>
+          <button
+            onClick={openNew}
+            className="flex items-center gap-2 px-3 py-2 bg-[#1B2A4A] text-white text-sm rounded-lg hover:bg-[#243660] transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            New Style Guide
+          </button>
+        </div>
       </div>
 
       {/* Content */}

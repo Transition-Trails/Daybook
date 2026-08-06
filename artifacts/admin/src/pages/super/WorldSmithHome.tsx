@@ -165,6 +165,12 @@ export default function WorldSmithHome() {
             <p className="font-display font-semibold text-sm text-foreground">WorldSmith</p>
           </div>
           <div className="flex-1" />
+          <Link href="/super/worldsmith/editorial">
+            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+              <BookOpen className="w-3 h-3" />
+              <span className="hidden sm:inline">Editorial</span>
+            </span>
+          </Link>
           <Link href="/super/worldsmith/compiler">
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
               <Sparkles className="w-3 h-3 text-[#C87560]" />
@@ -540,6 +546,12 @@ function FocusedWorldView({
             <Link href="/super/worldsmith/compiler">
               <span className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/20 text-white hover:bg-white/30 transition-colors cursor-pointer">
                 Open Compiler
+              </span>
+            </Link>
+            <Link href="/super/worldsmith/editorial/canon">
+              <span className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/20 text-white hover:bg-white/30 transition-colors cursor-pointer flex items-center gap-1.5">
+                <BookOpen className="w-3 h-3" />
+                Canon Library
               </span>
             </Link>
           </div>

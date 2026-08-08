@@ -31,6 +31,7 @@ import {
   wsCollectionsTable,
   wsVolumesTable,
   wsCanonRecordsTable,
+  wsCanonRecordRelationsTable,
   wsStyleGuidesTable,
   wsComponentSpecsTable,
   wsPromptModulesTable,
@@ -52,6 +53,8 @@ import {
   extractTitle,
   extractRichText,
   extractSelect,
+  extractRelation,
+  extractCheckbox,
 } from "../lib/notion-client";
 
 const router = Router();
@@ -461,6 +464,14 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
     let created = 0;
     let updated = 0;
     let skipped = 0;
+    let relationsUpserted = 0;
+
+    // Build a map of notionPageId → local record id for relation linking
+    const notionIdToLocalId = new Map<string, string>();
+
+    // ── Pass 1: upsert canon records ──────────────────────────────────────────
+    // Collect relation data separately so we can link after all records exist.
+    const pendingRelations: Array<{ fromNotionId: string; toNotionIds: string[] }> = [];
 
     for (const page of pages) {
       const p = page.properties;
@@ -513,17 +524,58 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
         extractRichText(p["Visual Description"]) ||
         "";
 
+      // New fields — local-wins: only pull from Notion when local value is absent
+      const notionEmotionalRegister =
+        extractSelect(p["Emotional register"]) ||
+        extractSelect(p["Emotional Register"]) ||
+        null;
+      const notionSensoryClauses =
+        extractRichText(p["Sensory clauses"]) ||
+        extractRichText(p["Sensory Clauses"]) ||
+        "";
+      const notionRegisterLocked =
+        extractCheckbox(p["Register locked"]) ||
+        extractCheckbox(p["Register Locked"]) ||
+        false;
+
+      // Related Canon relation property — collected for Pass 2
+      const relatedNotionIds =
+        extractRelation(p["Related Canon"]) ||
+        extractRelation(p["Related Records"]) ||
+        [];
+
       if (!name.trim()) { skipped++; continue; }
 
       const notionPageId = page.id;
 
+      // Collect relation data regardless of whether record is new/existing
+      if (relatedNotionIds.length > 0) {
+        pendingRelations.push({ fromNotionId: notionPageId, toNotionIds: relatedNotionIds });
+      }
+
       // Check if a local record already exists for this Notion page
       const [existing] = await db
-        .select({ id: wsCanonRecordsTable.id })
+        .select({
+          id: wsCanonRecordsTable.id,
+          emotionalRegister: wsCanonRecordsTable.emotionalRegister,
+          sensoryClauses: wsCanonRecordsTable.sensoryClauses,
+          registerLocked: wsCanonRecordsTable.registerLocked,
+        })
         .from(wsCanonRecordsTable)
         .where(eq(wsCanonRecordsTable.notionPageId, notionPageId));
 
       if (existing) {
+        // Local-wins: only overwrite the three new fields if locally empty/null
+        const mergedEmotionalRegister =
+          existing.emotionalRegister ?? (notionEmotionalRegister || null);
+        const mergedSensoryClauses =
+          existing.sensoryClauses?.trim()
+            ? existing.sensoryClauses
+            : notionSensoryClauses;
+        // register_locked: local wins if already true; otherwise take Notion value
+        const mergedRegisterLocked =
+          existing.registerLocked ? true : notionRegisterLocked;
+
         await db
           .update(wsCanonRecordsTable)
           .set({
@@ -533,13 +585,18 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
             narrativeDetails,
             historicalContext,
             visualNotes,
+            emotionalRegister: mergedEmotionalRegister,
+            sensoryClauses: mergedSensoryClauses,
+            registerLocked: mergedRegisterLocked,
             syncedAt: new Date(),
           })
           .where(eq(wsCanonRecordsTable.id, existing.id));
+        notionIdToLocalId.set(notionPageId, existing.id);
         updated++;
       } else {
+        const newId = crypto.randomUUID();
         await db.insert(wsCanonRecordsTable).values({
-          id: crypto.randomUUID(),
+          id: newId,
           worldId: world_id,
           name: name.trim(),
           canonType: canonType ?? null,
@@ -547,16 +604,41 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
           narrativeDetails,
           historicalContext,
           visualNotes,
+          emotionalRegister: notionEmotionalRegister || null,
+          sensoryClauses: notionSensoryClauses,
+          registerLocked: notionRegisterLocked,
           notionPageId,
           syncedAt: new Date(),
           createdBy: (req.user as any)?.id,
         });
+        notionIdToLocalId.set(notionPageId, newId);
         created++;
       }
     }
 
-    logger.info({ world_id, created, updated, skipped, total: pages.length }, "canon-records: sync-notion complete");
-    res.json({ synced: pages.length, created, updated, skipped });
+    // ── Pass 2: upsert ws_canon_record_relations ──────────────────────────────
+    for (const { fromNotionId, toNotionIds } of pendingRelations) {
+      const fromLocalId = notionIdToLocalId.get(fromNotionId);
+      if (!fromLocalId) continue;
+
+      for (const toNotionId of toNotionIds) {
+        const toLocalId = notionIdToLocalId.get(toNotionId);
+        if (!toLocalId) continue; // target not synced in this batch — skip
+
+        // Upsert: insert if the pair doesn't already exist
+        await db
+          .insert(wsCanonRecordRelationsTable)
+          .values({ fromRecordId: fromLocalId, toRecordId: toLocalId })
+          .onConflictDoNothing();
+        relationsUpserted++;
+      }
+    }
+
+    logger.info(
+      { world_id, created, updated, skipped, relationsUpserted, total: pages.length },
+      "canon-records: sync-notion complete",
+    );
+    res.json({ synced: pages.length, created, updated, skipped, relations_upserted: relationsUpserted });
   } catch (err) {
     logger.error({ err }, "editorial: sync canon records from notion");
     res.status(500).json({ error: "Internal server error" });
@@ -620,6 +702,32 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .returning();
     if (!row) { res.status(404).json({ error: "Canon record not found" }); return; }
+
+    // Write the three new fields back to Notion if this record is linked to a page
+    if (row.notionPageId) {
+      const notionProps: Record<string, unknown> = {};
+      if (emotional_register !== undefined) {
+        // null means clear the select; non-null sets it
+        notionProps["Emotional register"] = emotional_register
+          ? selectProp(emotional_register)
+          : { select: null };
+      }
+      if (sensory_clauses !== undefined) {
+        notionProps["Sensory clauses"] = richTextProp(sensory_clauses ?? "");
+      }
+      if (register_locked !== undefined) {
+        notionProps["Register locked"] = { checkbox: !!register_locked };
+      }
+      if (Object.keys(notionProps).length > 0) {
+        try {
+          await updatePage(row.notionPageId, notionProps);
+        } catch (notionErr) {
+          // Non-fatal — log and continue; local save already succeeded
+          logger.warn({ err: notionErr, id: row.id }, "editorial: failed to write canon fields to Notion (non-fatal)");
+        }
+      }
+    }
+
     res.json({ canon_record: row });
   } catch (err) {
     logger.error({ err }, "editorial: update canon record");

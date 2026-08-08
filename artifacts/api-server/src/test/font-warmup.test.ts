@@ -89,10 +89,7 @@ beforeEach(async () => {
   // 1. Cold-start: wipe in-process cache so no prior test's state leaks through.
   _googleFontCache.clear();
 
-  // 2. Cold-start: wipe the disk cache dir so every test truly starts fresh.
-  await fs.rm(DISK_DIR, { recursive: true, force: true });
-
-  // 3. Insert a live test theme whose fontPairing references our test family.
+  // 2. Insert a live test theme whose fontPairing references our test family.
   //    collectLiveFamilyNames reads themes.font_pairing JSONB, so this is all
   //    that is needed — no theme_fonts row is required.
   await db
@@ -106,6 +103,12 @@ beforeEach(async () => {
       fontPairing: { heading: TEST_FAMILY },
     })
     .onConflictDoNothing();
+
+  // 3. Wipe the disk cache dir last — after the DB round-trip above — so any
+  //    fire-and-forget disk writes started by a previous test's warmFontCache
+  //    call have had time to settle before we remove the directory.
+  await new Promise((r) => setTimeout(r, 100));
+  await fs.rm(DISK_DIR, { recursive: true, force: true });
 
   // 4. Stub global.fetch so no real network calls are made:
   //    - Any fonts.googleapis.com URL → return fake CSS with truetype format tag

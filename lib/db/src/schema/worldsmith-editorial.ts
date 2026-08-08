@@ -88,8 +88,8 @@ export type InsertWsCanonRecord = typeof wsCanonRecordsTable.$inferInsert;
 // Populated by the Notion sync (from "Related Canon" relation property).
 
 export const wsCanonRecordRelationsTable = pgTable("ws_canon_record_relations", {
-  fromRecordId: text("from_record_id").notNull(),
-  toRecordId: text("to_record_id").notNull(),
+  fromRecordId: text("from_record_id").notNull().references(() => wsCanonRecordsTable.id, { onDelete: "cascade" }),
+  toRecordId: text("to_record_id").notNull().references(() => wsCanonRecordsTable.id, { onDelete: "cascade" }),
   relationType: text("relation_type"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

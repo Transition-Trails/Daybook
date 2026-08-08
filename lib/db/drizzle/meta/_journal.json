@@ -8,6 +8,13 @@
       "when": 1786150671950,
       "tag": "0000_verify-canon-relation-primary-key",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786151660632,
+      "tag": "0001_long_punisher",
+      "breakpoints": true
     }
   ]
 }

@@ -30,9 +30,11 @@ import request from "supertest";
 // ── Hoisted mock state ────────────────────────────────────────────────────────
 const {
   mockQueryDatabase,
+  mockExtractRelation,
   dbSelectQueue,
   capturedUpdateSet,
   capturedInsertValues,
+  onConflictDoNothingCallCount,
 } = vi.hoisted(() => {
   /** Queue of row-arrays returned in order by successive db.select() chains. */
   const dbSelectQueue: Array<unknown[]> = [];
@@ -40,10 +42,20 @@ const {
   const capturedUpdateSet: { value: Record<string, unknown> | null } = { value: null };
   /** Stores the most-recent .values({...}) payload so tests can assert on it. */
   const capturedInsertValues: { value: Record<string, unknown> | null } = { value: null };
+  /** Counts how many times .onConflictDoNothing() was called on an insert. */
+  const onConflictDoNothingCallCount: { value: number } = { value: 0 };
 
-  const mockQueryDatabase = vi.fn();
+  const mockQueryDatabase   = vi.fn();
+  const mockExtractRelation = vi.fn((_prop: unknown): string[] => []);
 
-  return { mockQueryDatabase, dbSelectQueue, capturedUpdateSet, capturedInsertValues };
+  return {
+    mockQueryDatabase,
+    mockExtractRelation,
+    dbSelectQueue,
+    capturedUpdateSet,
+    capturedInsertValues,
+    onConflictDoNothingCallCount,
+  };
 });
 
 // ── DB mock ────────────────────────────────────────────────────────────────────
@@ -83,7 +95,10 @@ vi.mock("@workspace/db", () => {
         capturedInsertValues.value = payload;
         return {
           returning: () => Promise.resolve([{ id: "new-canon-id" }]),
-          onConflictDoNothing: () => Promise.resolve([]),
+          onConflictDoNothing: () => {
+            onConflictDoNothingCallCount.value++;
+            return Promise.resolve([]);
+          },
         };
       },
     })),
@@ -160,7 +175,7 @@ vi.mock("../lib/notion-client.js", () => ({
     return "";
   },
   extractMultiSelect(_prop: unknown): string[] { return []; },
-  extractRelation(_prop: unknown): string[]    { return []; },
+  extractRelation: mockExtractRelation,
   extractCheckbox(prop: Record<string, unknown> | undefined): boolean {
     if (!prop) return false;
     if (prop["type"] === "checkbox") return (prop["checkbox"] as boolean) ?? false;
@@ -249,9 +264,13 @@ function buildApp() {
 beforeEach(() => {
   process.env.NOTION_TOKEN = "test-token-not-real";
   dbSelectQueue.length = 0;
-  capturedUpdateSet.value   = null;
-  capturedInsertValues.value = null;
+  capturedUpdateSet.value           = null;
+  capturedInsertValues.value        = null;
+  onConflictDoNothingCallCount.value = 0;
+  mockExtractRelation.mockImplementation(() => []);
   vi.clearAllMocks();
+  // vi.clearAllMocks() clears mockExtractRelation's implementation, so restore it.
+  mockExtractRelation.mockImplementation(() => []);
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -432,6 +451,137 @@ describe("Sync from Notion — local-wins rule for register_locked", () => {
     expect(res.status).toBe(200);
     // Notion says locked=true and local is false → adopt Notion value
     expect(capturedUpdateSet.value!["registerLocked"]).toBe(true);
+  });
+});
+
+describe("Sync from Notion — duplicate canon relation resilience", () => {
+  /**
+   * Sets up two Notion pages (A → B) where page A has a "Related Canon"
+   * relation pointing at page B. Both pages already exist as local records.
+   * Running the sync twice should succeed both times and call
+   * .onConflictDoNothing() so a pre-existing (A, B) row in
+   * ws_canon_record_relations never causes a unique-violation error.
+   */
+
+  const PAGE_A = "notion-page-rel-a";
+  const PAGE_B = "notion-page-rel-b";
+  const LOCAL_A = "local-rel-a";
+  const LOCAL_B = "local-rel-b";
+
+  function makeRelatedPages() {
+    return [
+      {
+        id: PAGE_A,
+        url: `https://notion.so/${PAGE_A}`,
+        properties: {
+          "Name": { type: "title", title: [{ plain_text: "Record Alpha" }] },
+          "Related Canon": { type: "relation", relation: [{ id: PAGE_B }] },
+          "Emotional register": { type: "select", select: null },
+          "Sensory clauses": { type: "rich_text", rich_text: [] },
+          "Register locked": { type: "checkbox", checkbox: false },
+        },
+      },
+      {
+        id: PAGE_B,
+        url: `https://notion.so/${PAGE_B}`,
+        properties: {
+          "Name": { type: "title", title: [{ plain_text: "Record Beta" }] },
+          "Emotional register": { type: "select", select: null },
+          "Sensory clauses": { type: "rich_text", rich_text: [] },
+          "Register locked": { type: "checkbox", checkbox: false },
+        },
+      },
+    ];
+  }
+
+  function queueSyncRows() {
+    // world row, then two existing-record lookups (one per Notion page)
+    dbSelectQueue.push([{ notionCanonDbId: NOTION_DB }]);
+    dbSelectQueue.push([{ id: LOCAL_A, emotionalRegister: null, sensoryClauses: "", registerLocked: false }]);
+    dbSelectQueue.push([{ id: LOCAL_B, emotionalRegister: null, sensoryClauses: "", registerLocked: false }]);
+  }
+
+  it("succeeds on first sync and calls onConflictDoNothing for relation insert", async () => {
+    // extractRelation returns the related page ID for page A's property.
+    mockExtractRelation.mockImplementation((prop: unknown) => {
+      const p = prop as { relation?: Array<{ id: string }> } | undefined;
+      return p?.relation?.map(r => r.id) ?? [];
+    });
+
+    mockQueryDatabase.mockResolvedValue(makeRelatedPages());
+    queueSyncRows();
+
+    const app = buildApp();
+    const res = await request(app)
+      .post("/v1/editorial/canon-records/sync-notion")
+      .send({ world_id: WORLD_ID });
+
+    expect(res.status).toBe(200);
+    expect(res.body.relations_written).toBe(1);
+    // The sync handler must have called .onConflictDoNothing() at least once
+    // (for the relation insert) — never a bare .insert().values() termination.
+    expect(onConflictDoNothingCallCount.value).toBeGreaterThanOrEqual(1);
+  });
+
+  it("succeeds on re-sync without error even when the relation row already exists", async () => {
+    // Simulates a re-sync: the (LOCAL_A, LOCAL_B) edge is already in the DB.
+    // The handler deletes existing outgoing edges first (so no real conflict),
+    // but the .onConflictDoNothing() guard means a race or partial-delete can
+    // never surface a unique-violation to the caller.
+    mockExtractRelation.mockImplementation((prop: unknown) => {
+      const p = prop as { relation?: Array<{ id: string }> } | undefined;
+      return p?.relation?.map(r => r.id) ?? [];
+    });
+
+    mockQueryDatabase.mockResolvedValue(makeRelatedPages());
+
+    // First sync
+    queueSyncRows();
+    const app = buildApp();
+    await request(app)
+      .post("/v1/editorial/canon-records/sync-notion")
+      .send({ world_id: WORLD_ID });
+
+    // Reset counters before second sync
+    onConflictDoNothingCallCount.value = 0;
+    mockExtractRelation.mockImplementation((prop: unknown) => {
+      const p = prop as { relation?: Array<{ id: string }> } | undefined;
+      return p?.relation?.map(r => r.id) ?? [];
+    });
+
+    // Second sync — same data, simulates re-sync
+    queueSyncRows();
+    const res2 = await request(app)
+      .post("/v1/editorial/canon-records/sync-notion")
+      .send({ world_id: WORLD_ID });
+
+    expect(res2.status).toBe(200);
+    expect(res2.body.relations_written).toBe(1);
+    // onConflictDoNothing must still be called on the second pass
+    expect(onConflictDoNothingCallCount.value).toBeGreaterThanOrEqual(1);
+  });
+
+  it("produces exactly one relation edge pair even when Notion returns the same toId twice", async () => {
+    // Notion sometimes returns duplicate entries in a relation property.
+    // The handler's per-fromId `seen` Set deduplicates before insert.
+    mockExtractRelation.mockImplementation((prop: unknown) => {
+      const p = prop as { relation?: Array<{ id: string }> } | undefined;
+      if (!p?.relation) return [];
+      // Duplicate the first entry to simulate Notion noise.
+      return [...p.relation.map(r => r.id), ...p.relation.map(r => r.id)];
+    });
+
+    mockQueryDatabase.mockResolvedValue(makeRelatedPages());
+    queueSyncRows();
+
+    const app = buildApp();
+    const res = await request(app)
+      .post("/v1/editorial/canon-records/sync-notion")
+      .send({ world_id: WORLD_ID });
+
+    expect(res.status).toBe(200);
+    // Despite duplicate toIds from Notion, only one edge should be recorded.
+    expect(res.body.relations_written).toBe(1);
   });
 });
 

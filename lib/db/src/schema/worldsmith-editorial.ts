@@ -1,5 +1,5 @@
 import {
-  pgTable, text, boolean, integer, real, timestamp, jsonb, index,
+  pgTable, text, boolean, integer, real, timestamp, jsonb, index, primaryKey,
 } from "drizzle-orm/pg-core";
 
 // ── WorldSmith Editorial Suite ────────────────────────────────────────────────
@@ -93,6 +93,7 @@ export const wsCanonRecordRelationsTable = pgTable("ws_canon_record_relations", 
   relationType: text("relation_type"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  primaryKey({ columns: [t.fromRecordId, t.toRecordId] }),
   index("ws_canon_rel_from_idx").on(t.fromRecordId),
   index("ws_canon_rel_to_idx").on(t.toRecordId),
 ]);

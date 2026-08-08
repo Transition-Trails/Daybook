@@ -127,6 +127,7 @@ router.get("/v1/editorial/worlds", async (_req: Request, res: Response) => {
         name: worldsmithWorldsTable.name,
         code: worldsmithWorldsTable.code,
         status: worldsmithWorldsTable.status,
+        description: worldsmithWorldsTable.description,
         currentCollection: worldsmithWorldsTable.currentCollection,
         currentVolume: worldsmithWorldsTable.currentVolume,
         notionProductionDbId: worldsmithWorldsTable.notionProductionDbId,

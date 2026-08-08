@@ -15,7 +15,7 @@ import { useLocation, Link } from "wouter";
 import {
   Loader2, AlertCircle, ExternalLink, Lock, Unlock,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
-  ChevronRight, FileText, Trash2, X, ArrowLeft,
+  ChevronRight, FileText, Trash2, X,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -110,11 +110,31 @@ interface LinkedSpec {
   status: string;
 }
 
-// ── Small utilities ───────────────────────────────────────────────────────────
+// ── Canon-type ID abbreviations ───────────────────────────────────────────────
+const TYPE_ABBREV: Record<string, string> = {
+  character:   "CHR",
+  location:    "PLC",
+  object:      "OBJ",
+  event:       "EVT",
+  lore:        "LOR",
+  atmosphere:  "ATM",
+  material:    "MAT",
+  institution: "INS",
+};
 
-/** Deterministic 3-digit display ID from UUID. */
-function displayId(worldCode: string, recordId: string, index: number): string {
-  return `${worldCode}-${String(index + 1).padStart(3, "0")}`;
+/**
+ * Builds type-prefixed IDs: CHR-001, PLC-002, etc.
+ * Sequence is 1-based within each type group across the world's record list.
+ */
+function buildIdMap(records: CanonListItem[]): Map<string, string> {
+  const counters: Record<string, number> = {};
+  const map = new Map<string, string>();
+  for (const r of records) {
+    const abbrev = r.canonType ? (TYPE_ABBREV[r.canonType] ?? "REC") : "REC";
+    counters[abbrev] = (counters[abbrev] ?? 0) + 1;
+    map.set(r.id, `${abbrev}-${String(counters[abbrev]).padStart(3, "0")}`);
+  }
+  return map;
 }
 
 // ── AutoSave textarea ─────────────────────────────────────────────────────────
@@ -354,8 +374,8 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const statusMeta = STATUS_META[record?.status ?? "proposed"] ?? STATUS_META.proposed;
   const confMeta  = CONFIDENCE_FROM_STATUS[record?.status ?? "proposed"] ?? CONFIDENCE_FROM_STATUS.proposed;
   const regM      = regMeta(record?.emotionalRegister);
-  const recordIndex = allRecords.findIndex(r => r.id === recordId);
-  const idStamp   = world ? displayId(world.code.toUpperCase(), recordId, Math.max(0, recordIndex)) : "—";
+  const idMap     = buildIdMap(allRecords);
+  const idStamp   = idMap.get(recordId) ?? "—";
 
   // Readiness: % of records with emotionalRegister set
   const readyCount = allRecords.filter(r => r.emotionalRegister).length;
@@ -410,108 +430,90 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
 
       {/* ════════════════════════════════════ TOP BAR (52px) ════════════════ */}
       <header
-        className="shrink-0 flex items-center px-5 gap-4"
+        className="shrink-0 flex items-center px-5 gap-6"
         style={{
           height: 52,
           background: "white",
           borderBottom: `1px solid ${WARM_BORDER}`,
         }}
       >
-        {/* Left: back + world */}
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={() => navigate("/super/worldsmith/editorial/canon")}
-            className="flex items-center gap-1.5 shrink-0 text-sm transition-colors"
-            style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-            onMouseEnter={e => (e.currentTarget.style.color = INK)}
-            onMouseLeave={e => (e.currentTarget.style.color = "#9CA3AF")}
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-
-          {/* World selector */}
-          <select
-            value={selectedWorldId ?? ""}
-            onChange={e => setSelectedWorldId(e.target.value)}
-            className="text-sm font-semibold focus:outline-none bg-transparent border-none cursor-pointer"
-            style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
-          >
-            {worlds.map(w => (
-              <option key={w.id} value={w.id}>{w.code} · {w.name}</option>
-            ))}
-          </select>
-        </div>
+        {/* Left: Worldsmith wordmark */}
+        <span
+          className="shrink-0 text-sm font-semibold"
+          style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
+        >
+          Worldsmith
+        </span>
 
         {/* Center: tabs */}
-        <nav className="flex items-center gap-1 mx-auto">
+        <nav className="flex items-center gap-1">
           {(["Canon", "Prompt modules", "Style guides", "Visual assets"] as const).map(tab => {
-            const href = {
+            const href: Record<string, string> = {
               "Canon": "/super/worldsmith/editorial/canon",
               "Prompt modules": "/super/worldsmith/editorial/modules",
               "Style guides": "/super/worldsmith/editorial/style-guides",
               "Visual assets": "/super/worldsmith/editorial/board",
-            }[tab];
+            };
             const active = tab === "Canon";
             return (
-              <Link key={tab} href={href}>
-                <a
-                  className="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                  style={{
-                    background: active ? PARCHMENT : "transparent",
-                    color: active ? INK : "#9CA3AF",
-                    fontFamily: "'Instrument Sans', sans-serif",
-                  }}
-                >
-                  {tab}
-                </a>
+              <Link
+                key={tab}
+                href={href[tab]}
+                className="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  background: active ? INK : "transparent",
+                  color: active ? "white" : "#6B7280",
+                  fontFamily: "'Instrument Sans', sans-serif",
+                }}
+              >
+                {tab}
               </Link>
             );
           })}
         </nav>
 
-        {/* Right: readiness + sync chip */}
-        <div className="flex items-center gap-3 shrink-0 ml-auto">
+        {/* Right: readiness + notion + generate */}
+        <div className="flex items-center gap-3 ml-auto shrink-0">
           {/* Readiness track */}
           <div className="flex items-center gap-2">
+            <span
+              className="text-[11px] font-medium uppercase tracking-wide"
+              style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+            >
+              Ready
+            </span>
             <div
               className="rounded-full overflow-hidden"
-              style={{ width: 72, height: 5, background: "#E5E7EB" }}
+              style={{ width: 80, height: 5, background: "#E5E7EB" }}
             >
               <div
                 className="h-full rounded-full transition-all"
-                style={{ width: `${readyPct}%`, background: CLAY }}
+                style={{ width: `${readyPct}%`, background: "#4CAF72" }}
               />
             </div>
             <span
               className="text-xs font-semibold tabular-nums"
-              style={{ color: INK, fontFamily: "'Space Mono', monospace", minWidth: 28 }}
+              style={{ color: INK, fontFamily: "'Space Mono', monospace", minWidth: 24 }}
             >
               {readyPct}
             </span>
-            <span className="text-xs font-medium" style={{ color: "#9CA3AF" }}>READY</span>
           </div>
 
-          {/* Notion synced chip */}
-          {record.notionPageId && (
-            <a
-              href={`https://notion.so/${record.notionPageId.replace(/-/g, "")}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-opacity hover:opacity-70"
-              style={{
-                background: "#EAF5EE", color: "#065F46",
-                fontFamily: "'Instrument Sans', sans-serif",
-              }}
+          {/* Notion synced — show when the world has a Canon DB configured */}
+          {world?.notionCanonDbId && (
+            <span
+              className="flex items-center gap-1.5 text-[11px] font-semibold"
+              style={{ color: "#22C55E", fontFamily: "'Instrument Sans', sans-serif" }}
             >
-              <ExternalLink className="w-3 h-3" />
-              NOTION SYNCED
-            </a>
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+              Notion synced
+            </span>
           )}
 
-          {/* Generate (disabled for Step 2) */}
+          {/* Generate */}
           <button
             disabled
-            className="px-4 py-1.5 rounded-lg text-sm font-medium opacity-40 cursor-not-allowed"
+            className="px-4 py-1.5 rounded-lg text-sm font-semibold cursor-not-allowed opacity-50"
             style={{
               background: INK, color: "white",
               fontFamily: "'Instrument Sans', sans-serif",
@@ -525,49 +527,81 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
       {/* ════════════════════════════════════ BODY ══════════════════════════ */}
       <div className="flex flex-1 min-h-0">
 
-        {/* ══════════════ LEFT RAIL (236px) ══════════════════════════════════ */}
+        {/* ══════════════ LEFT RAIL (280px) ══════════════════════════════════ */}
         <aside
           className="shrink-0 flex flex-col"
           style={{
-            width: 236,
+            width: 280,
             borderRight: `1px solid ${WARM_BORDER}`,
             background: WARM_BG,
           }}
         >
           {/* World header */}
           <div
-            className="shrink-0 px-4 pt-5 pb-4"
+            className="shrink-0 px-4 pt-4 pb-3"
             style={{ borderBottom: `1px solid ${WARM_BORDER}` }}
           >
-            {/* Code circle */}
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center mb-3 text-xs font-bold"
-              style={{
-                background: INK, color: "white",
-                fontFamily: "'Space Mono', monospace",
-              }}
-            >
-              {world?.code?.slice(0, 2).toUpperCase() ?? "WS"}
-            </div>
-            <p
-              className="text-sm font-semibold leading-tight mb-1"
-              style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
-            >
-              {world?.name ?? "—"}
-            </p>
-            {world && (
-              <p
-                className="text-[11px] leading-snug"
-                style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+            {/* Inline badge + world name */}
+            <div className="flex items-center gap-2 mb-1.5">
+              <span
+                className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded"
+                style={{
+                  background: INK, color: "white",
+                  fontFamily: "'Space Mono', monospace",
+                  letterSpacing: "0.05em",
+                }}
               >
-                {world.code} · Canon
+                {world?.code?.slice(0, 2).toUpperCase() ?? "WS"}
+              </span>
+              <span
+                className="text-sm font-semibold leading-tight"
+                style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
+              >
+                {world?.name ?? "—"}
+              </span>
+            </div>
+
+            {/* World description */}
+            {world?.description && (
+              <p
+                className="text-[11px] leading-snug mb-2.5"
+                style={{
+                  color: "#9CA3AF",
+                  fontFamily: "'Instrument Sans', sans-serif",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {world.description}
               </p>
             )}
+
+            {/* World emotional register pill */}
+            {world && (() => {
+              const worldReg = allRecords.length > 0
+                ? allRecords.reduce<string | null>((acc, r) => {
+                    if (!acc && r.emotionalRegister) return r.emotionalRegister;
+                    return acc;
+                  }, null)
+                : null;
+              const rm2 = regMeta(worldReg);
+              return rm2 ? (
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold"
+                  style={{ background: rm2.bg, color: rm2.color }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: rm2.color }} />
+                  {rm2.key}
+                </span>
+              ) : null;
+            })()}
           </div>
 
           {/* Records list header */}
           <div
-            className="shrink-0 flex items-center justify-between px-4 py-2.5"
+            className="shrink-0 flex items-center justify-between px-4 py-2"
             style={{ borderBottom: `1px solid ${WARM_BORDER}` }}
           >
             <span
@@ -586,38 +620,42 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
 
           {/* Scrollable list */}
           <div className="flex-1 overflow-y-auto">
-            {allRecords.map((r, i) => {
+            {allRecords.map(r => {
               const active = r.id === recordId;
               const rm = regMeta(r.emotionalRegister);
+              const typeId = idMap.get(r.id) ?? "";
               return (
-                <Link key={r.id} href={`/super/worldsmith/editorial/canon/${r.id}`}>
-                  <a
-                    className="flex items-center gap-2.5 px-4 py-2.5 transition-colors group"
+                <Link
+                  key={r.id}
+                  href={`/super/worldsmith/editorial/canon/${r.id}`}
+                  className="flex items-center gap-2.5 py-2.5 transition-colors"
+                  style={{
+                    borderLeft: active ? `3px solid ${CLAY}` : "3px solid transparent",
+                    background: active ? PARCHMENT : "transparent",
+                    paddingLeft: 13,
+                    paddingRight: 12,
+                  }}
+                >
+                  {/* Register dot */}
+                  <span
+                    className="shrink-0 w-2 h-2 rounded-full"
+                    style={{ background: rm ? rm.color : "#D1D5DB" }}
+                  />
+
+                  {/* Name */}
+                  <span
+                    className="flex-1 text-xs leading-snug truncate"
                     style={{
-                      borderLeft: active ? `3px solid ${CLAY}` : "3px solid transparent",
-                      background: active ? PARCHMENT : "transparent",
-                      paddingLeft: active ? "13px" : "13px", // 16-3 to compensate border
+                      color: active ? INK : "#6B7280",
+                      fontWeight: active ? 600 : 400,
+                      fontFamily: "'Instrument Sans', sans-serif",
                     }}
                   >
-                    {/* Register dot */}
-                    <span
-                      className="shrink-0 w-2 h-2 rounded-full"
-                      style={{ background: rm ? rm.color : "#D1D5DB" }}
-                    />
+                    {r.name}
+                  </span>
 
-                    {/* Name */}
-                    <span
-                      className="flex-1 text-xs leading-snug truncate"
-                      style={{
-                        color: active ? INK : "#6B7280",
-                        fontWeight: active ? 600 : 400,
-                        fontFamily: "'Instrument Sans', sans-serif",
-                      }}
-                    >
-                      {r.name}
-                    </span>
-
-                    {/* ID right-aligned */}
+                  {/* Type-prefixed ID right-aligned */}
+                  {typeId && (
                     <span
                       className="shrink-0 text-[10px] tabular-nums"
                       style={{
@@ -625,9 +663,9 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                         fontFamily: "'Space Mono', monospace",
                       }}
                     >
-                      {String(i + 1).padStart(3, "0")}
+                      {typeId}
                     </span>
-                  </a>
+                  )}
                 </Link>
               );
             })}
@@ -906,19 +944,19 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                   <SectionLabel>Referenced in {linkedSpecs.length} spec{linkedSpecs.length !== 1 ? "s" : ""}</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {linkedSpecs.map(spec => (
-                      <Link key={spec.id} href={`/super/worldsmith/editorial/specs/${spec.id}`}>
-                        <a
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all hover:shadow-sm"
-                          style={{
-                            background: "white",
-                            color: INK,
-                            border: `1px solid ${WARM_BORDER}`,
-                            fontFamily: "'Instrument Sans', sans-serif",
-                          }}
-                        >
-                          <FileText className="w-3 h-3 opacity-50" />
-                          {spec.productionItem}
-                        </a>
+                      <Link
+                        key={spec.id}
+                        href={`/super/worldsmith/editorial/specs/${spec.id}`}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all hover:shadow-sm"
+                        style={{
+                          background: "white",
+                          color: INK,
+                          border: `1px solid ${WARM_BORDER}`,
+                          fontFamily: "'Instrument Sans', sans-serif",
+                        }}
+                      >
+                        <FileText className="w-3 h-3 opacity-50" />
+                        {spec.productionItem}
                       </Link>
                     ))}
                   </div>

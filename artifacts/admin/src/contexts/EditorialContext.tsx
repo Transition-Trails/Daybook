@@ -6,6 +6,7 @@ export interface WorldRecord {
   name: string;
   code: string;
   status: string;
+  description?: string | null;
   currentCollection?: string | null;
   notionProductionDbId?: string | null;
   notionCanonDbId?: string | null;

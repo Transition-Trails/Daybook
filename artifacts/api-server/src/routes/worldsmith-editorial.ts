@@ -593,7 +593,16 @@ router.get("/v1/editorial/canon-records/:id", async (req: Request, res: Response
 });
 
 router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Response) => {
-  const { name, canon_type, narrative_details, historical_context, visual_notes } = req.body;
+  const {
+    name, canon_type, narrative_details, historical_context, visual_notes,
+    emotional_register, sensory_clauses, register_locked,
+  } = req.body;
+  // Validate emotional_register if provided
+  const VALID_REGISTERS = ["Withholding", "Intimate", "Guarded", "Trespass", "Absence", "Confidence"];
+  if (emotional_register !== undefined && emotional_register !== null && !VALID_REGISTERS.includes(emotional_register)) {
+    res.status(400).json({ error: `Invalid emotional_register. Must be one of: ${VALID_REGISTERS.join(", ")}` });
+    return;
+  }
   try {
     const [row] = await db
       .update(wsCanonRecordsTable)
@@ -603,6 +612,9 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(narrative_details !== undefined ? { narrativeDetails: narrative_details } : {}),
         ...(historical_context !== undefined ? { historicalContext: historical_context } : {}),
         ...(visual_notes !== undefined ? { visualNotes: visual_notes } : {}),
+        ...(emotional_register !== undefined ? { emotionalRegister: emotional_register } : {}),
+        ...(sensory_clauses !== undefined ? { sensoryClauses: sensory_clauses } : {}),
+        ...(register_locked !== undefined ? { registerLocked: register_locked } : {}),
       })
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .returning();

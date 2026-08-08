@@ -60,6 +60,13 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   narrativeDetails: text("narrative_details").notNull().default(""),
   historicalContext: text("historical_context").notNull().default(""),
   visualNotes: text("visual_notes").notNull().default(""),
+  // Worldsmith Canon Records UI — three new fields (Step 1)
+  // Withholding | Intimate | Guarded | Trespass | Absence | Confidence
+  emotionalRegister: text("emotional_register"),
+  // Multi-line material/light detail; compiled verbatim into prompt
+  sensoryClauses: text("sensory_clauses").notNull().default(""),
+  // Stops transitive cascade overwriting this record's register
+  registerLocked: boolean("register_locked").notNull().default(false),
   // How many production specs reference this record (denormalised for the Canon Board)
   specRefCount: integer("spec_ref_count").notNull().default(0),
   notionPageId: text("notion_page_id"),
@@ -75,6 +82,20 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
 
 export type WsCanonRecord = typeof wsCanonRecordsTable.$inferSelect;
 export type InsertWsCanonRecord = typeof wsCanonRecordsTable.$inferInsert;
+
+// ── Canon Record Relations ────────────────────────────────────────────────────
+// Stores record-to-record links locally for transitive register cascade BFS.
+// Populated by the Notion sync (from "Related Canon" relation property).
+
+export const wsCanonRecordRelationsTable = pgTable("ws_canon_record_relations", {
+  fromRecordId: text("from_record_id").notNull(),
+  toRecordId: text("to_record_id").notNull(),
+  relationType: text("relation_type"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("ws_canon_rel_from_idx").on(t.fromRecordId),
+  index("ws_canon_rel_to_idx").on(t.toRecordId),
+]);
 
 // ── Style Guides ──────────────────────────────────────────────────────────────
 

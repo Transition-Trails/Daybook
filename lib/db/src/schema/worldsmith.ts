@@ -153,6 +153,11 @@ export const worldsmithWorldsTable = pgTable("worldsmith_worlds", {
   notionCanonDbId: text("notion_canon_db_id"),
   notionStyleGuideId: text("notion_style_guide_id"),
   notionStyleGuidesDbId: text("notion_style_guides_db_id"),
+  // Creative governance (Worldsmith Canon Records UI — Step 1)
+  // Hard negatives that compile last onto every prompt; not overridable by a record
+  worldRules: jsonb("world_rules").$type<string[]>().notNull().default([]),
+  // Bumped when a style rule changes; triggers re-flagging of all affected assets
+  styleGuideVersion: integer("style_guide_version").notNull().default(1),
   // Google Drive folder
   driveFolderId: text("drive_folder_id"),
   // Image provider

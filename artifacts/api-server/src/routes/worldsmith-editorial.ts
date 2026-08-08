@@ -41,7 +41,7 @@ import {
   type InsertWsProductionSpec,
   type InsertWsCanonRecord,
 } from "@workspace/db";
-import { and, eq, like, desc, or, sql } from "drizzle-orm";
+import { and, eq, inArray, like, desc, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
 import {
@@ -616,29 +616,50 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
       }
     }
 
-    // ── Pass 2: upsert ws_canon_record_relations ──────────────────────────────
+    // ── Pass 2: populate ws_canon_record_relations ────────────────────────────
+    // notionIdToLocalId was populated during pass 1.
+    // pendingRelations collected { fromNotionId, toNotionIds } for every page
+    // that had a "Related Canon" / "Related Records" property.
+    //
+    // Strategy: delete all existing outgoing edges for synced records first,
+    // then batch-insert fresh edges — ensures stale links are cleared.
+    const syncedLocalIds = [...notionIdToLocalId.values()];
+    if (syncedLocalIds.length > 0) {
+      await db
+        .delete(wsCanonRecordRelationsTable)
+        .where(
+          sql`${wsCanonRecordRelationsTable.fromRecordId} = ANY(${sql.raw(
+            `ARRAY[${syncedLocalIds.map(id => `'${id.replace(/'/g, "''")}'`).join(",")}]`,
+          )})`,
+        );
+    }
+
+    const edgePairs: Array<{ fromRecordId: string; toRecordId: string; relationType: string }> = [];
     for (const { fromNotionId, toNotionIds } of pendingRelations) {
       const fromLocalId = notionIdToLocalId.get(fromNotionId);
       if (!fromLocalId) continue;
 
+      const seen = new Set<string>();
       for (const toNotionId of toNotionIds) {
+        if (seen.has(toNotionId)) continue;
+        seen.add(toNotionId);
         const toLocalId = notionIdToLocalId.get(toNotionId);
-        if (!toLocalId) continue; // target not synced in this batch — skip
-
-        // Upsert: insert if the pair doesn't already exist
-        await db
-          .insert(wsCanonRecordRelationsTable)
-          .values({ fromRecordId: fromLocalId, toRecordId: toLocalId })
-          .onConflictDoNothing();
-        relationsUpserted++;
+        if (toLocalId && toLocalId !== fromLocalId) {
+          edgePairs.push({ fromRecordId: fromLocalId, toRecordId: toLocalId, relationType: "related" });
+        }
       }
     }
 
+    if (edgePairs.length > 0) {
+      await db.insert(wsCanonRecordRelationsTable).values(edgePairs).onConflictDoNothing();
+    }
+
+    const relationsWritten = edgePairs.length;
     logger.info(
-      { world_id, created, updated, skipped, relationsUpserted, total: pages.length },
+      { world_id, created, updated, skipped, relationsWritten, total: pages.length },
       "canon-records: sync-notion complete",
     );
-    res.json({ synced: pages.length, created, updated, skipped, relations_upserted: relationsUpserted });
+    res.json({ synced: pages.length, created, updated, skipped, relations_written: relationsWritten });
   } catch (err) {
     logger.error({ err }, "editorial: sync canon records from notion");
     res.status(500).json({ error: "Internal server error" });
@@ -775,6 +796,112 @@ router.post("/v1/editorial/canon-records/:id/transition", async (req: Request, r
     res.json({ canon_record: updated });
   } catch (err) {
     logger.error({ err }, "editorial: canon record transition");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Canon Records — register cascade ─────────────────────────────────────────
+
+/**
+ * POST /v1/editorial/canon-records/:id/cascade-register
+ *
+ * BFS traversal of ws_canon_record_relations starting from :id.
+ * For every reachable descendant where register_locked = false,
+ * overwrite emotional_register with the source record's value.
+ * Stops traversal at any node where register_locked = true.
+ *
+ * Returns { updated, skipped_locked, register } summary.
+ */
+router.post("/v1/editorial/canon-records/:id/cascade-register", async (req: Request, res: Response) => {
+  const sourceId = req.params.id as string;
+
+  try {
+    // Load the source record
+    const [source] = await db
+      .select({
+        id: wsCanonRecordsTable.id,
+        emotionalRegister: wsCanonRecordsTable.emotionalRegister,
+      })
+      .from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, sourceId))
+      .limit(1);
+
+    if (!source) {
+      res.status(404).json({ error: "Canon record not found" });
+      return;
+    }
+
+    if (!source.emotionalRegister) {
+      res.status(422).json({ error: "Source record has no emotional_register set — nothing to cascade." });
+      return;
+    }
+
+    const register = source.emotionalRegister;
+
+    // BFS traversal through ws_canon_record_relations
+    const visited = new Set<string>([sourceId]);
+    let frontier = [sourceId];
+    const toUpdate: string[] = [];
+    let skippedLocked = 0;
+
+    while (frontier.length > 0) {
+      // Fetch all outgoing edges for the current frontier
+      const edges = await db
+        .select({
+          toRecordId: wsCanonRecordRelationsTable.toRecordId,
+        })
+        .from(wsCanonRecordRelationsTable)
+        .where(inArray(wsCanonRecordRelationsTable.fromRecordId, frontier));
+
+      // Collect unique, unvisited targets
+      const candidates = [...new Set(edges.map(e => e.toRecordId))].filter(id => !visited.has(id));
+
+      if (candidates.length === 0) break;
+
+      // Load lock status for all candidates in one query
+      const candidateRows = await db
+        .select({
+          id: wsCanonRecordsTable.id,
+          registerLocked: wsCanonRecordsTable.registerLocked,
+        })
+        .from(wsCanonRecordsTable)
+        .where(inArray(wsCanonRecordsTable.id, candidates));
+
+      const nextFrontier: string[] = [];
+      for (const row of candidateRows) {
+        visited.add(row.id);
+        if (row.registerLocked) {
+          // Stop propagation here — locked node is not updated and not traversed further
+          skippedLocked++;
+        } else {
+          toUpdate.push(row.id);
+          nextFrontier.push(row.id); // continue BFS through unlocked nodes
+        }
+      }
+
+      frontier = nextFrontier;
+    }
+
+    // Batch update all unlocked descendants
+    if (toUpdate.length > 0) {
+      await db
+        .update(wsCanonRecordsTable)
+        .set({ emotionalRegister: register })
+        .where(inArray(wsCanonRecordsTable.id, toUpdate));
+    }
+
+    logger.info(
+      { sourceId, register, updated: toUpdate.length, skipped_locked: skippedLocked },
+      "editorial: cascade-register complete",
+    );
+
+    res.json({
+      updated: toUpdate.length,
+      skipped_locked: skippedLocked,
+      register,
+    });
+  } catch (err) {
+    logger.error({ err }, "editorial: cascade-register");
     res.status(500).json({ error: "Internal server error" });
   }
 });

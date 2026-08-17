@@ -828,6 +828,88 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
             </span>
           </div>
 
+          {/* Filter chips — Type, Visibility, Stability */}
+          <div
+            className="shrink-0 px-3 py-2 space-y-1.5"
+            style={{ borderBottom: `1px solid ${WARM_BORDER}` }}
+          >
+            {/* Type */}
+            <div className="flex gap-1 flex-wrap">
+              {CANON_TYPES.map(t => {
+                const active = filterType === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    title={t.label}
+                    onClick={() => setFilterType(active ? null : t.key)}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-medium transition-all"
+                    style={{
+                      background: active ? `${t.color}20` : "transparent",
+                      color: active ? t.color : "#9CA3AF",
+                      border: `1px solid ${active ? `${t.color}50` : "transparent"}`,
+                      fontFamily: "'Instrument Sans', sans-serif",
+                    }}
+                  >
+                    <t.Icon style={{ width: 8, height: 8, flexShrink: 0 }} />
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Visibility + Stability row */}
+            <div className="flex gap-1 flex-wrap">
+              {([
+                { key: "background", label: "BG",       color: "#6B7280" },
+                { key: "hinted",     label: "Hinted",   color: "#B45309" },
+                { key: "explicit",   label: "Explicit",  color: "#065F46" },
+              ] as const).map(v => {
+                const active = filterVisibility === v.key;
+                return (
+                  <button
+                    key={v.key}
+                    title={`Visibility: ${v.key}`}
+                    onClick={() => setFilterVisibility(active ? null : v.key)}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-medium transition-all"
+                    style={{
+                      background: active ? `${v.color}20` : "transparent",
+                      color: active ? v.color : "#9CA3AF",
+                      border: `1px solid ${active ? `${v.color}50` : "transparent"}`,
+                      fontFamily: "'Instrument Sans', sans-serif",
+                    }}
+                  >
+                    {v.key === "background" && <EyeOff style={{ width: 8, height: 8, flexShrink: 0 }} />}
+                    {v.key !== "background" && <Eye    style={{ width: 8, height: 8, flexShrink: 0, opacity: v.key === "hinted" ? 0.6 : 1 }} />}
+                    {v.label}
+                  </button>
+                );
+              })}
+              {([
+                { key: "low",    label: "Low stab",    dot: "●", color: "#9CA3AF" },
+                { key: "medium", label: "Med stab",    dot: "◐", color: "#B45309" },
+                { key: "high",   label: "High stab",   dot: "●", color: "#065F46" },
+              ] as const).map(s => {
+                const active = filterStability === s.key;
+                return (
+                  <button
+                    key={s.key}
+                    title={`Stability: ${s.key}`}
+                    onClick={() => setFilterStability(active ? null : s.key)}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-medium transition-all"
+                    style={{
+                      background: active ? `${s.color}20` : "transparent",
+                      color: active ? s.color : "#9CA3AF",
+                      border: `1px solid ${active ? `${s.color}50` : "transparent"}`,
+                      fontFamily: "'Instrument Sans', sans-serif",
+                    }}
+                  >
+                    <span style={{ fontSize: 7 }}>{s.dot}</span>
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Active-filter banner — shown only when at least one filter is on */}
           {(filterVisibility || filterStability || filterType) && (
             <button
@@ -1965,158 +2047,6 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
               Worldsmith, in the margin
             </p>
 
-            {/* Existing content pills */}
-            <div className="flex gap-1.5 flex-wrap mb-3">
-              {["All", "To resolve", "Openings"].map(pill => (
-                <button
-                  key={pill}
-                  className="px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors"
-                  style={{
-                    background: pill === "All" ? PARCHMENT : "transparent",
-                    color: pill === "All" ? INK : "#9CA3AF",
-                    border: `1px solid ${pill === "All" ? WARM_BORDER : "transparent"}`,
-                    fontFamily: "'Instrument Sans', sans-serif",
-                  }}
-                >
-                  {pill}
-                </button>
-              ))}
-            </div>
-
-            {/* Visibility filter */}
-            <div className="mb-2">
-              <p
-                className="text-[9px] font-semibold tracking-widest uppercase mb-1"
-                style={{ color: "#C9BEA8", fontFamily: "'Instrument Sans', sans-serif" }}
-              >
-                Visibility
-              </p>
-              <div className="flex gap-1 flex-wrap">
-                {[
-                  { key: null,         label: "All" },
-                  { key: "background", label: "Background" },
-                  { key: "hinted",     label: "Hinted" },
-                  { key: "explicit",   label: "Explicit" },
-                ].map(({ key, label }) => {
-                  const active = filterVisibility === key;
-                  return (
-                    <button
-                      key={label}
-                      onClick={() => setFilterVisibility(active ? null : key)}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all"
-                      style={{
-                        background: active ? INK : "transparent",
-                        color: active ? "white" : "#9CA3AF",
-                        border: `1px solid ${active ? INK : DASHED_BORDER}`,
-                        fontFamily: "'Instrument Sans', sans-serif",
-                      }}
-                    >
-                      {key === "background" && <EyeOff style={{ width: 8, height: 8 }} />}
-                      {key === "hinted"     && <Eye    style={{ width: 8, height: 8, opacity: 0.55 }} />}
-                      {key === "explicit"   && <Eye    style={{ width: 8, height: 8 }} />}
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Stability filter */}
-            <div className="mb-2">
-              <p
-                className="text-[9px] font-semibold tracking-widest uppercase mb-1"
-                style={{ color: "#C9BEA8", fontFamily: "'Instrument Sans', sans-serif" }}
-              >
-                Stability
-              </p>
-              <div className="flex gap-1 flex-wrap">
-                {[
-                  { key: null,     label: "All",    dot: null },
-                  { key: "low",    label: "Low",    dot: { char: "●", color: "#9CA3AF" } },
-                  { key: "medium", label: "Medium", dot: { char: "◐", color: "#B45309" } },
-                  { key: "high",   label: "High",   dot: { char: "●", color: "#065F46" } },
-                ].map(({ key, label, dot }) => {
-                  const active = filterStability === key;
-                  return (
-                    <button
-                      key={label}
-                      onClick={() => setFilterStability(active ? null : key)}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all"
-                      style={{
-                        background: active ? INK : "transparent",
-                        color: active ? "white" : "#9CA3AF",
-                        border: `1px solid ${active ? INK : DASHED_BORDER}`,
-                        fontFamily: "'Instrument Sans', sans-serif",
-                      }}
-                    >
-                      {dot && (
-                        <span style={{ fontSize: 7, lineHeight: 1, color: active ? "white" : dot.color }}>
-                          {dot.char}
-                        </span>
-                      )}
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Type filter */}
-            <div>
-              <p
-                className="text-[9px] font-semibold tracking-widest uppercase mb-1"
-                style={{ color: "#C9BEA8", fontFamily: "'Instrument Sans', sans-serif" }}
-              >
-                Type
-              </p>
-              <div className="flex gap-1 flex-wrap">
-                {CANON_TYPES.map(t => {
-                  const active = filterType === t.key;
-                  return (
-                    <button
-                      key={t.key}
-                      onClick={() => setFilterType(active ? null : t.key)}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all"
-                      style={{
-                        background: active ? t.color : "transparent",
-                        color: active ? "white" : "#9CA3AF",
-                        border: `1px solid ${active ? t.color : DASHED_BORDER}`,
-                        fontFamily: "'Instrument Sans', sans-serif",
-                      }}
-                    >
-                      <t.Icon style={{ width: 8, height: 8 }} />
-                      {t.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Clear-all affordance — visible only when any filter is active */}
-            {(filterVisibility || filterStability || filterType) && (
-              <div
-                className="mt-3 pt-3"
-                style={{ borderTop: `1px solid ${DASHED_BORDER}` }}
-              >
-                <button
-                  onClick={() => {
-                    setFilterVisibility(null);
-                    setFilterStability(null);
-                    setFilterType(null);
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold transition-all"
-                  style={{
-                    background: `${CLAY}18`,
-                    color: CLAY,
-                    border: `1px solid ${CLAY}40`,
-                    fontFamily: "'Instrument Sans', sans-serif",
-                  }}
-                >
-                  <X className="w-2.5 h-2.5" />
-                  Clear all filters
-                </button>
-              </div>
-            )}
           </div>
 
           {/* Placeholder — AI Assist coming in Step 3 */}

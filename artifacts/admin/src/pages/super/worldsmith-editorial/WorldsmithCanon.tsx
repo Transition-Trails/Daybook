@@ -352,6 +352,7 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const { worlds, selectedWorldId, setSelectedWorldId } = useEditorial();
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [worldBibleOpen, setWorldBibleOpen] = useState(false);
 
   // ── Filter state: starts null; hydrated once authoritative worldId is known ─
   const [filterVisibility, setFilterVisibility] = useState<string | null>(null);
@@ -370,6 +371,14 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     staleTime: 30_000,
   });
   const record = recordData?.canon_record ?? null;
+
+  // ── Canonical world for this record ───────────────────────────────────────
+  // Use the record's own worldId once loaded — never the selected-world context,
+  // which can diverge from the record being viewed (e.g. a direct link or a
+  // world-selector change while the record stays open).
+  const recordWorld = record
+    ? (worlds.find(w => w.id === record.worldId) ?? null)
+    : world; // pre-load fallback so the selector still shows while loading
 
   // ── Load record list for rail (all records for the selected world) ─────────
   // The record's own worldId is authoritative once loaded; fall back to context.
@@ -961,6 +970,147 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
           style={{ background: WARM_WHITE }}
         >
           <div className="max-w-2xl mx-auto px-8 py-7 pb-20">
+
+            {/* ═══ WORLD BIBLE STRIP ══════════════════════════════════════
+                 Collapsible aesthetic context panel — hidden entirely when
+                 all four aesthetic fields are null (no visual noise).
+                 Uses recordWorld (bound to record.worldId) so the strip
+                 always reflects the record being edited, not the selector.
+            ═══════════════════════════════════════════════════════════════ */}
+            {(recordWorld?.visualPalette || recordWorld?.proseVoice || recordWorld?.atmosphericNotes || recordWorld?.materialWorld || (recordWorld?.worldRules && recordWorld.worldRules.length > 0)) && (
+              <div
+                className="rounded-xl overflow-hidden mb-5"
+                style={{ border: `1px solid ${WARM_BORDER}` }}
+              >
+                {/* Collapse toggle header */}
+                <button
+                  onClick={() => setWorldBibleOpen(o => !o)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-black/[0.02]"
+                  style={{ background: PARCHMENT }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="text-[10px] font-semibold tracking-widest uppercase"
+                      style={{ color: INK, opacity: 0.55, fontFamily: "'Instrument Sans', sans-serif" }}
+                    >
+                      World Bible
+                    </span>
+                    <span
+                      className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                      style={{ background: `${INK}12`, color: INK, fontFamily: "'Space Mono', monospace" }}
+                    >
+                      {recordWorld?.code?.toUpperCase() ?? ""}
+                    </span>
+                  </div>
+                  <ChevronDown
+                    className="w-3.5 h-3.5 transition-transform"
+                    style={{
+                      color: INK,
+                      opacity: 0.4,
+                      transform: worldBibleOpen ? "rotate(180deg)" : "rotate(0deg)",
+                    }}
+                  />
+                </button>
+
+                {/* Expanded content */}
+                {worldBibleOpen && (
+                  <div
+                    className="divide-y"
+                    style={{ borderTop: `1px solid ${WARM_BORDER}` }}
+                  >
+                    {recordWorld?.visualPalette && (
+                      <div className="px-4 py-3 flex flex-col gap-1">
+                        <span
+                          className="text-[10px] font-semibold tracking-widest uppercase"
+                          style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                        >
+                          Visual Palette
+                        </span>
+                        <p
+                          className="text-[13px] leading-relaxed"
+                          style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
+                        >
+                          {recordWorld.visualPalette}
+                        </p>
+                      </div>
+                    )}
+                    {recordWorld?.proseVoice && (
+                      <div className="px-4 py-3 flex flex-col gap-1">
+                        <span
+                          className="text-[10px] font-semibold tracking-widest uppercase"
+                          style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                        >
+                          Prose Voice
+                        </span>
+                        <p
+                          className="text-[13px] leading-relaxed"
+                          style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
+                        >
+                          {recordWorld.proseVoice}
+                        </p>
+                      </div>
+                    )}
+                    {recordWorld?.atmosphericNotes && (
+                      <div className="px-4 py-3 flex flex-col gap-1">
+                        <span
+                          className="text-[10px] font-semibold tracking-widest uppercase"
+                          style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                        >
+                          Atmospheric Notes
+                        </span>
+                        <p
+                          className="text-[13px] leading-relaxed"
+                          style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
+                        >
+                          {recordWorld.atmosphericNotes}
+                        </p>
+                      </div>
+                    )}
+                    {recordWorld?.materialWorld && (
+                      <div className="px-4 py-3 flex flex-col gap-1">
+                        <span
+                          className="text-[10px] font-semibold tracking-widest uppercase"
+                          style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                        >
+                          Material World
+                        </span>
+                        <p
+                          className="text-[13px] leading-relaxed"
+                          style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
+                        >
+                          {recordWorld.materialWorld}
+                        </p>
+                      </div>
+                    )}
+                    {recordWorld?.worldRules && recordWorld.worldRules.length > 0 && (
+                      <div className="px-4 py-3 flex flex-col gap-1.5">
+                        <span
+                          className="text-[10px] font-semibold tracking-widest uppercase"
+                          style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                        >
+                          World Rules · {recordWorld.worldRules.length}
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {recordWorld.worldRules.map((rule, i) => (
+                            <span
+                              key={i}
+                              className="text-[12px] px-2.5 py-1 rounded-lg leading-snug"
+                              style={{
+                                background: `${INK}0C`,
+                                color: INK,
+                                fontFamily: "'Instrument Sans', sans-serif",
+                              }}
+                            >
+                              {rule}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ID stamp + pills ─────────────────────────────────────────── */}
             <div className="flex items-center gap-2.5 mb-4">

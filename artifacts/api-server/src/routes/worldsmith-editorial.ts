@@ -135,6 +135,11 @@ router.get("/v1/editorial/worlds", async (_req: Request, res: Response) => {
         currentVolume: worldsmithWorldsTable.currentVolume,
         notionProductionDbId: worldsmithWorldsTable.notionProductionDbId,
         notionCanonDbId: worldsmithWorldsTable.notionCanonDbId,
+        visualPalette: worldsmithWorldsTable.visualPalette,
+        proseVoice: worldsmithWorldsTable.proseVoice,
+        atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
+        materialWorld: worldsmithWorldsTable.materialWorld,
+        worldRules: worldsmithWorldsTable.worldRules,
       })
       .from(worldsmithWorldsTable)
       .orderBy(worldsmithWorldsTable.name);

@@ -10,6 +10,11 @@ export interface WorldRecord {
   currentCollection?: string | null;
   notionProductionDbId?: string | null;
   notionCanonDbId?: string | null;
+  visualPalette?: string | null;
+  proseVoice?: string | null;
+  atmosphericNotes?: string | null;
+  materialWorld?: string | null;
+  worldRules?: string[] | null;
 }
 
 export interface CollectionRecord {

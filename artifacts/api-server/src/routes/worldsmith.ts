@@ -499,6 +499,47 @@ router.post("/v1/worldsmith/spec-preview/retry-status", requireAuth, requireSupe
   }
 });
 
+// ── World enrichment helper ───────────────────────────────────────────────────
+// Exported so tests can assert the real mapping rather than a copied literal.
+
+export type AssetCountRow = { world: string; total: number; underReview: number };
+
+export function buildEnrichedWorld(
+  w: typeof worldsmithWorldsTable.$inferSelect,
+  assetCounts: AssetCountRow[],
+) {
+  const codeUpper = w.code.toUpperCase();
+  const assetRow = assetCounts.find(
+    a => a.world.toUpperCase() === codeUpper || a.world === w.id,
+  );
+  return {
+    id: w.id,
+    name: w.name,
+    code: w.code,
+    description: w.description,
+    status: w.status,
+    coverColor: w.coverColor,
+    coverAccent: w.coverAccent,
+    currentCollection: w.currentCollection,
+    currentVolume: w.currentVolume,
+    owner: w.owner,
+    tags: w.tags,
+    notionProductionDbId: w.notionProductionDbId,
+    driveFolderId: w.driveFolderId,
+    imageProvider: w.imageProvider,
+    createdAt: w.createdAt,
+    updatedAt: w.updatedAt,
+    assetCount: assetRow?.total ?? 0,
+    reviewCount: assetRow?.underReview ?? 0,
+    // World Bible aesthetic identity fields
+    visualPalette: w.visualPalette,
+    proseVoice: w.proseVoice,
+    atmosphericNotes: w.atmosphericNotes,
+    materialWorld: w.materialWorld,
+    worldRules: w.worldRules,
+  };
+}
+
 // ── GET /v1/worldsmith/worlds ─────────────────────────────────────────────────
 // List all worlds, with computed run/asset stats aggregated.
 
@@ -529,32 +570,7 @@ router.get("/v1/worldsmith/worlds", requireAuth, requireSuperAdmin, async (_req:
     const totalRuns = runCounts[0]?.total ?? 0;
     const failedRuns = runCounts[0]?.failed ?? 0;
 
-    const enriched = worlds.map(w => {
-      const codeUpper = w.code.toUpperCase();
-      const assetRow = assetCounts.find(
-        a => a.world.toUpperCase() === codeUpper || a.world === w.id,
-      );
-      return {
-        id: w.id,
-        name: w.name,
-        code: w.code,
-        description: w.description,
-        status: w.status,
-        coverColor: w.coverColor,
-        coverAccent: w.coverAccent,
-        currentCollection: w.currentCollection,
-        currentVolume: w.currentVolume,
-        owner: w.owner,
-        tags: w.tags,
-        notionProductionDbId: w.notionProductionDbId,
-        driveFolderId: w.driveFolderId,
-        imageProvider: w.imageProvider,
-        createdAt: w.createdAt,
-        updatedAt: w.updatedAt,
-        assetCount: assetRow?.total ?? 0,
-        reviewCount: assetRow?.underReview ?? 0,
-      };
-    });
+    const enriched = worlds.map(w => buildEnrichedWorld(w, assetCounts));
 
     res.json({ worlds: enriched });
   } catch (err) {

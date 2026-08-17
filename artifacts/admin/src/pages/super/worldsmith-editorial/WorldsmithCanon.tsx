@@ -483,7 +483,11 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
           {/* World selector */}
           <select
             value={selectedWorldId ?? ""}
-            onChange={e => setSelectedWorldId(e.target.value)}
+            onChange={e => {
+              setSelectedWorldId(e.target.value);
+              setFilterVisibility(null);
+              setFilterStability(null);
+            }}
             className="text-sm font-semibold focus:outline-none bg-transparent border-none cursor-pointer"
             style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
           >

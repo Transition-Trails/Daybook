@@ -841,8 +841,34 @@ export default function CanonLibrary() {
               )}
             </div>
 
+            {/* Active filter indicator */}
+            {(() => {
+              const activeCount =
+                (search.trim() ? 1 : 0) +
+                (activeType !== "all" ? 1 : 0) +
+                (activeStatus !== "all" ? 1 : 0);
+              if (activeCount === 0) return null;
+              return (
+                <button
+                  onClick={() => { setSearch(""); setActiveType("all"); setActiveStatus("all"); }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all shrink-0"
+                  style={{ background: "#FEF3C7", borderColor: "#F59E0B", color: "#92400E" }}
+                  title="Clear all active filters"
+                >
+                  <span
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                    style={{ background: "#F59E0B", color: "white" }}
+                  >
+                    {activeCount}
+                  </span>
+                  Clear filters
+                  <X className="w-3 h-3 opacity-70" />
+                </button>
+              );
+            })()}
+
             {/* View toggle */}
-            <div className="flex items-center rounded-lg border overflow-hidden shrink-0" style={{ borderColor: "#E5E7EB" }}>
+            <div className="flex items-center rounded-lg border overflow-hidden shrink-0 ml-auto" style={{ borderColor: "#E5E7EB" }}>
               <button
                 onClick={() => setViewMode("cards")}
                 className="p-1.5 transition-colors"

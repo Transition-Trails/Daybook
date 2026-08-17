@@ -26,10 +26,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── vi.hoisted: variables referenced inside vi.mock factories ─────────────────
 
-const { mockGetPage, mockDbSelectResult } = vi.hoisted(() => ({
+const { mockGetPage, mockDbSelectResult, mockDbShouldThrow } = vi.hoisted(() => ({
   mockGetPage: vi.fn(),
   // Mutable ref lets individual tests swap the DB result without re-hoisting.
   mockDbSelectResult: { value: [] as unknown[] },
+  // When set to a non-empty string, mockLimit rejects with that message instead
+  // of resolving.  Reset to "" in beforeEach so tests are isolated.
+  mockDbShouldThrow: { value: "" },
 }));
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
@@ -115,9 +118,14 @@ vi.mock("../lib/notion-client.js", () => ({
 vi.mock("@workspace/db", () => {
   // Build a chainable mock that ultimately reads from mockDbSelectResult.value.
   // Each method returns an object with the next method in the chain.
-  const mockLimit = vi.fn().mockImplementation(() =>
-    Promise.resolve(mockDbSelectResult.value),
-  );
+  // When mockDbShouldThrow.value is non-empty the limit() call rejects with
+  // that message, exercising the orchestrator's try/catch for DB errors.
+  const mockLimit = vi.fn().mockImplementation(() => {
+    if (mockDbShouldThrow.value) {
+      return Promise.reject(new Error(mockDbShouldThrow.value));
+    }
+    return Promise.resolve(mockDbSelectResult.value);
+  });
   const mockWhere = vi.fn().mockReturnValue({ limit: mockLimit });
   const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
   const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
@@ -196,8 +204,9 @@ const PP1_PAYLOAD = [
 
 beforeEach(() => {
   process.env.NOTION_TOKEN = "test-token-not-real";
-  // Default: DB returns the full bible row.
+  // Default: DB returns the full bible row and does NOT throw.
   mockDbSelectResult.value = [FULL_BIBLE_ROW];
+  mockDbShouldThrow.value = "";
   vi.clearAllMocks();
 });
 
@@ -419,5 +428,86 @@ describe("runCompilation — World Bible absent from DB: no section tags injecte
 
     // Should still compile successfully even if bible is absent.
     expect(result.status).toBe("compiled");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DB throws an unexpected exception — graceful degradation
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe("runCompilation — World Bible DB query throws: graceful degradation", () => {
+  /**
+   * This suite exercises the try/catch that wraps the worldsmithWorldsTable
+   * SELECT in orchestrator.ts (lines 113–138).  A DB connection failure,
+   * schema mismatch, or driver crash would cause the promise to reject rather
+   * than resolve.  The catch block must absorb the error, log a warning, and
+   * continue compilation without the Bible fields.
+   */
+
+  beforeEach(() => {
+    // Make the DB select chain reject instead of resolving.
+    mockDbShouldThrow.value = "connection refused";
+
+    mockGetPage.mockResolvedValue(
+      makePage(SPEC_ID, {
+        "Production Item": "Thornvale Hero Paper",
+        World: "Thornvale",
+        "Component Type": "Cover Art",
+        "Payload Version": "PP-2.0",
+        "Prompt Payload": PP2_PAYLOAD,
+        "Design Intent": "Evoke the quiet wonder of the ancient woodland.",
+        "Narrative Purpose": "Establish the world's visual identity on first open.",
+        "Required Content": "Foliage, mist, ambient light.",
+        "Review Criteria": "Check margins and colour balance.",
+      }),
+    );
+  });
+
+  it("returns status=compiled despite the DB exception", async () => {
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+    expect(result.status).toBe("compiled");
+  });
+
+  it("compiled_prompt contains no [VISUAL PALETTE] tag when DB threw", async () => {
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+    expect(result.compiled_prompt).not.toContain("[VISUAL PALETTE]");
+  });
+
+  it("compiled_prompt contains no [PROSE VOICE] tag when DB threw", async () => {
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+    expect(result.compiled_prompt).not.toContain("[PROSE VOICE]");
+  });
+
+  it("compiled_prompt contains no [ATMOSPHERIC NOTES] tag when DB threw", async () => {
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+    expect(result.compiled_prompt).not.toContain("[ATMOSPHERIC NOTES]");
+  });
+
+  it("compiled_prompt contains no [MATERIAL WORLD] tag when DB threw", async () => {
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+    expect(result.compiled_prompt).not.toContain("[MATERIAL WORLD]");
+  });
+
+  it("compiled_prompt contains no [WORLD RULES] tag when DB threw", async () => {
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+    expect(result.compiled_prompt).not.toContain("[WORLD RULES]");
   });
 });

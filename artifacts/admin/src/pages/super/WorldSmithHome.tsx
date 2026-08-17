@@ -488,6 +488,16 @@ function FocusedWorldView({
   onBack: () => void;
 }) {
   const [activeSection, setActiveSection] = useState<"overview" | "production" | "review" | "integrations">("overview");
+  // When the user clicks "Edit" on the World Bible card in Overview, jump to Settings
+  // and tell IntegrationsSection to open in edit mode immediately.
+  const [openSettingsEditing, setOpenSettingsEditing] = useState(false);
+
+  const goToSettings = () => {
+    setOpenSettingsEditing(true);
+    setActiveSection("integrations");
+  };
+  // Reset the flag once IntegrationsSection has consumed it
+  const clearOpenSettingsEditing = () => setOpenSettingsEditing(false);
 
   const { data: runsData, isLoading: runsLoading } = useQuery({
     queryKey: ["worldsmith/runs", world.id],
@@ -507,7 +517,7 @@ function FocusedWorldView({
     { id: "overview",     label: "Overview" },
     { id: "production",   label: `Runs (${runs.length})` },
     { id: "review",       label: `Review (${reviewQueue.length})` },
-    { id: "integrations", label: "Integrations" },
+    { id: "integrations", label: "Settings" },
   ];
 
   return (
@@ -591,6 +601,7 @@ function FocusedWorldView({
           assets={worldAssets}
           runs={runs}
           runsLoading={runsLoading}
+          onGoToSettings={goToSettings}
         />
       )}
 
@@ -633,7 +644,12 @@ function FocusedWorldView({
       )}
 
       {activeSection === "integrations" && (
-        <IntegrationsSection world={world} integrations={integrations} />
+        <IntegrationsSection
+          world={world}
+          integrations={integrations}
+          defaultEditing={openSettingsEditing}
+          onDefaultEditingConsumed={clearOpenSettingsEditing}
+        />
       )}
     </div>
   );
@@ -646,11 +662,13 @@ function OverviewSection({
   assets,
   runs,
   runsLoading,
+  onGoToSettings,
 }: {
   world: WsWorld;
   assets: WsAsset[];
   runs: WsRun[];
   runsLoading: boolean;
+  onGoToSettings: () => void;
 }) {
   const byState = {
     total: assets.length,
@@ -706,10 +724,34 @@ function OverviewSection({
         )}
       </div>
 
-      {/* World Bible — read-only overview card (shown when any field is set) */}
-      {(world.worldRules?.length || world.visualPalette || world.proseVoice || world.atmosphericNotes || world.materialWorld) && (
-        <div className="md:col-span-2 rounded-xl border border-border bg-card p-5">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-4">World Bible</p>
+      {/* World Bible — always visible; shows Edit button to jump to Settings */}
+      <div className="md:col-span-2 rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">World Bible &amp; Rules</p>
+          <button
+            onClick={onGoToSettings}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-medium bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+          >
+            <Pencil className="w-3 h-3" />
+            Edit
+          </button>
+        </div>
+
+        {/* Empty state */}
+        {!world.worldRules?.length && !world.visualPalette && !world.proseVoice && !world.atmosphericNotes && !world.materialWorld ? (
+          <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
+            <p className="text-[13px] font-medium text-foreground">No World Bible set yet</p>
+            <p className="text-[12px] text-muted-foreground max-w-sm">
+              Add Visual Palette, Prose Voice, Atmospheric Notes, Material World, and World Rules — they're injected into every generation prompt for this world.
+            </p>
+            <button
+              onClick={onGoToSettings}
+              className="mt-2 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-[#1B2A4A] text-white hover:bg-[#2a3d6b] transition-colors"
+            >
+              Set up World Bible
+            </button>
+          </div>
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {world.visualPalette && (
               <div>
@@ -749,8 +791,8 @@ function OverviewSection({
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Recent runs (last 5) */}
       {runs.length > 0 && (
@@ -836,10 +878,29 @@ function AssetReviewRow({ asset }: { asset: WsAsset }) {
   );
 }
 
-function IntegrationsSection({ world, integrations }: { world: WsWorld; integrations: HealthStatus[] }) {
+function IntegrationsSection({
+  world,
+  integrations,
+  defaultEditing = false,
+  onDefaultEditingConsumed,
+}: {
+  world: WsWorld;
+  integrations: HealthStatus[];
+  defaultEditing?: boolean;
+  onDefaultEditingConsumed?: () => void;
+}) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(defaultEditing);
+  // If we were opened with defaultEditing=true, notify parent so it doesn't
+  // force-open again if the user navigates away and back.
+  const consumedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (defaultEditing && !consumedRef.current) {
+      consumedRef.current = true;
+      onDefaultEditingConsumed?.();
+    }
+  }, [defaultEditing, onDefaultEditingConsumed]);
   const [form, setForm] = useState({
     notionProductionDbId: world.notionProductionDbId ?? "",
     notionCanonDbId: world.notionCanonDbId ?? "",

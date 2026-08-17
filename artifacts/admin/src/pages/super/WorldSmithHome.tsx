@@ -397,11 +397,6 @@ function WorldCard({
         <p className="text-[12px] text-muted-foreground leading-relaxed line-clamp-2">{world.description}</p>
 
         <div className="space-y-1.5">
-          {world.currentCollection && (
-            <p className="text-[11.5px] text-foreground font-medium">
-              {world.currentCollection}{world.currentVolume ? ` · ${world.currentVolume}` : ""}
-            </p>
-          )}
           {reviewCount > 0 && (
             <p className="text-[11px] text-amber-700">{reviewCount} asset{reviewCount !== 1 ? "s" : ""} awaiting review</p>
           )}
@@ -432,7 +427,7 @@ function WorldListView({ worlds, onSelect }: { worlds: WsWorld[]; onSelect: (id:
       <table className="w-full text-left">
         <thead>
           <tr className="border-b border-border bg-muted/20">
-            {["World", "Status", "Collection", "Assets", "Updated", ""].map(h => (
+            {["World", "Status", "Assets", "Updated", ""].map(h => (
               <th key={h} className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{h}</th>
             ))}
           </tr>
@@ -450,10 +445,6 @@ function WorldListView({ worlds, onSelect }: { worlds: WsWorld[]; onSelect: (id:
                 </div>
               </td>
               <td className="px-4 py-3"><WorldStatusBadge status={w.status} /></td>
-              <td className="px-4 py-3">
-                <p className="text-[12.5px] text-foreground">{w.currentCollection ?? "—"}</p>
-                {w.currentVolume && <p className="text-[10.5px] text-muted-foreground">{w.currentVolume}</p>}
-              </td>
               <td className="px-4 py-3 text-center">
                 <span className="text-[12.5px] text-foreground">{w.assetCount}</span>
                 {w.reviewCount > 0 && (
@@ -1088,27 +1079,6 @@ function IntegrationsSection({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-semibold text-muted-foreground block mb-1">Collection</label>
-                <input
-                  value={form.currentCollection}
-                  onChange={e => setForm(f => ({ ...f, currentCollection: e.target.value }))}
-                  placeholder="Victorian Garden Journals"
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-muted-foreground block mb-1">Volume</label>
-                <input
-                  value={form.currentVolume}
-                  onChange={e => setForm(f => ({ ...f, currentVolume: e.target.value }))}
-                  placeholder="Volume I"
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30"
-                />
-              </div>
-            </div>
-
             {/* World Rules list editor */}
             <div>
               <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
@@ -1493,28 +1463,6 @@ function CreateWorldModal({ onClose, onCreated }: { onClose: () => void; onCreat
                 placeholder="What is this world about?"
                 rows={2}
                 className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30 resize-none"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground block mb-1">
-                Collection
-              </label>
-              <input
-                value={form.currentCollection}
-                onChange={e => setForm(f => ({ ...f, currentCollection: e.target.value }))}
-                placeholder="Victorian Garden Journals"
-                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground block mb-1">
-                Volume
-              </label>
-              <input
-                value={form.currentVolume}
-                onChange={e => setForm(f => ({ ...f, currentVolume: e.target.value }))}
-                placeholder="Volume I"
-                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30"
               />
             </div>
           </div>

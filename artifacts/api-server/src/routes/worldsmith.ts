@@ -808,6 +808,7 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
 
   const body = req.body as {
     notionProductionDbId?: string | null;
+    notionCanonDbId?: string | null;
     driveFolderId?: string | null;
     imageProvider?: string | null;
     status?: string;
@@ -825,6 +826,9 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
   const patch: Record<string, unknown> = {};
   if ("notionProductionDbId" in body) {
     patch.notionProductionDbId = body.notionProductionDbId?.trim() || null;
+  }
+  if ("notionCanonDbId" in body) {
+    patch.notionCanonDbId = body.notionCanonDbId?.trim() || null;
   }
   if ("driveFolderId" in body) {
     patch.driveFolderId = body.driveFolderId?.trim() || null;

@@ -3814,42 +3814,107 @@ function PromptSectionsTab({
       </div>
 
       <div className="space-y-2">
-        {sections.map((s) => (
-          <Card key={s.key} className="overflow-hidden">
-            {/* div instead of button — copy Button inside prevents button-in-button nesting */}
-            <div role="button" tabIndex={0}
-              onClick={() => toggle(s.key)}
-              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggle(s.key)}
-              className="w-full text-left cursor-pointer">
-              <CardContent className="py-3 px-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium">{s.label}</span>
-                      <span className="text-xs text-muted-foreground bg-muted/80 px-2 py-0.5 rounded-full">{s.content.length.toLocaleString()} chars</span>
-                      <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={s.source}>{s.source}</span>
+        {sections.map((s) => {
+          const isBible = s.source === "World Bible";
+          // Look up a friendly field label for known Bible keys
+          const bibleFieldLabel = isBible
+            ? (BIBLE_FIELD_ORDER.find((f) => f.key === s.key)?.label ?? (s.key === "world_rules" ? "World Rules" : null))
+            : null;
+          const isExpanded = openKeys.has(s.key);
+
+          if (isBible) {
+            // ── World Bible sections: value always visible inline, styled like WorldBibleCard ──
+            const isWorldRules = s.key === "world_rules";
+            const rules = isWorldRules
+              ? s.content.split("\n").map((r) => r.trim()).filter(Boolean)
+              : [];
+            return (
+              <Card key={s.key} className="overflow-hidden border-[#C87560]/30 bg-[#C87560]/[0.03]">
+                <CardContent className="py-3 px-4">
+                  {/* Header row */}
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{s.label}</span>
+                        <span className="text-xs text-muted-foreground bg-muted/80 px-2 py-0.5 rounded-full">{s.content.length.toLocaleString()} chars</span>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[#C87560] bg-[#C87560]/10 border border-[#C87560]/20 px-2 py-0.5 rounded-full">
+                          <BookOpen className="w-2.5 h-2.5" />World Bible
+                        </span>
+                      </div>
                     </div>
-                    {!openKeys.has(s.key) && (
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.content.slice(0, 100)}{s.content.length > 100 ? "…" : ""}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0"
-                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(s.content); toast({ title: `"${s.label}" copied` }); }}>
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0"
+                      onClick={() => { navigator.clipboard.writeText(s.content); toast({ title: `"${s.label}" copied` }); }}>
                       <Copy className="w-3 h-3" />
                     </Button>
-                    {openKeys.has(s.key) ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
                   </div>
-                </div>
-              </CardContent>
-            </div>
-            {openKeys.has(s.key) && (
-              <div className="border-t border-border bg-muted/20 px-4 py-3">
-                <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground leading-relaxed">{s.content}</pre>
+
+                  {/* Inline value — always visible, styled like WorldBibleCard */}
+                  <div className="mt-2.5 rounded-md border border-[#1B2A4A]/10 bg-[#1B2A4A]/[0.02] px-3 py-2.5">
+                    {bibleFieldLabel && (
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                        <BookOpen className="w-2.5 h-2.5 text-[#C87560]" />
+                        {bibleFieldLabel}
+                      </p>
+                    )}
+                    {isWorldRules && rules.length > 0 ? (
+                      <ol className="space-y-1">
+                        {rules.map((rule, i) => (
+                          <li key={i} className="flex gap-2 text-xs">
+                            <span className="shrink-0 w-4 h-4 rounded-full bg-[#1B2A4A]/10 text-[#1B2A4A] font-bold
+                                             flex items-center justify-center text-[9px] leading-none mt-0.5">
+                              {i + 1}
+                            </span>
+                            <span className="text-foreground leading-relaxed">{rule}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{s.content.trim()}</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          }
+
+          // ── Non-Bible sections: existing collapsible card ─────────────────────────
+          return (
+            <Card key={s.key} className="overflow-hidden">
+              {/* div instead of button — copy Button inside prevents button-in-button nesting */}
+              <div role="button" tabIndex={0}
+                onClick={() => toggle(s.key)}
+                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggle(s.key)}
+                className="w-full text-left cursor-pointer">
+                <CardContent className="py-3 px-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{s.label}</span>
+                        <span className="text-xs text-muted-foreground bg-muted/80 px-2 py-0.5 rounded-full">{s.content.length.toLocaleString()} chars</span>
+                        <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={s.source}>{s.source}</span>
+                      </div>
+                      {!isExpanded && (
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.content.slice(0, 100)}{s.content.length > 100 ? "…" : ""}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0"
+                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(s.content); toast({ title: `"${s.label}" copied` }); }}>
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                    </div>
+                  </div>
+                </CardContent>
               </div>
-            )}
-          </Card>
-        ))}
+              {isExpanded && (
+                <div className="border-t border-border bg-muted/20 px-4 py-3">
+                  <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground leading-relaxed">{s.content}</pre>
+                </div>
+              )}
+            </Card>
+          );
+        })}
       </div>
     </div>
   );

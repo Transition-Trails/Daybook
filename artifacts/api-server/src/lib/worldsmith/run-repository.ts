@@ -6,7 +6,7 @@ import { db } from "@workspace/db";
 import { worldsmithRunsTable, type InsertWorldsmithRun, type NotionRetryEvent } from "@workspace/db";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import type { ValidationError } from "./types";
+import type { ValidationError, CompiledSectionRecord } from "./types";
 
 export interface CreateRunInput {
   productionSpecId: string;
@@ -58,6 +58,8 @@ export interface RunUpdate {
   resolvedSourceIds?: Record<string, string | string[]>;
   retryCount?: number;
   notionRetries?: NotionRetryEvent[];
+  /** Structured per-section records produced by the compiler — stored for run history display. */
+  compiledSections?: CompiledSectionRecord[];
   completedAt?: Date;
 }
 
@@ -90,6 +92,7 @@ export async function updateRun(runId: string, update: RunUpdate): Promise<void>
   if (update.resolvedSourceIds !== undefined) patch.resolvedSourceIds = update.resolvedSourceIds;
   if (update.retryCount !== undefined) patch.retryCount = update.retryCount;
   if (update.notionRetries !== undefined) patch.notionRetries = update.notionRetries;
+  if (update.compiledSections !== undefined) patch.compiledSections = update.compiledSections;
   if (update.completedAt !== undefined) patch.completedAt = update.completedAt;
 
   if (Object.keys(patch).length === 0) return;

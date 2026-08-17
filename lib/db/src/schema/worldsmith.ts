@@ -43,6 +43,8 @@ export const worldsmithRunsTable = pgTable("worldsmith_runs", {
   resolvedSourceIds: jsonb("resolved_source_ids").$type<Record<string, string | string[]>>(),
   retryCount: integer("retry_count").notNull().default(0),
   notionRetries: jsonb("notion_retries").$type<NotionRetryEvent[]>(),
+  /** Structured per-section records produced by the compiler (PP-2.0+). Used to surface World Bible summary in run history. */
+  compiledSections: jsonb("compiled_sections").$type<CompiledSectionRecord[]>(),
   initiatedBy: text("initiated_by"),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -88,7 +90,16 @@ export const worldsmithAssetsTable = pgTable("worldsmith_assets", {
 export type WorldsmithAsset = typeof worldsmithAssetsTable.$inferSelect;
 export type InsertWorldsmithAsset = typeof worldsmithAssetsTable.$inferInsert;
 
-// Inline type used in jsonb columns (not a table row type)
+// Inline types used in jsonb columns (not table row types)
+
+/** A single labeled section in the structured compiled prompt (mirrored from worldsmith/types.ts). */
+export interface CompiledSectionRecord {
+  key: string;
+  label: string;
+  content: string;
+  source: string;
+}
+
 export interface ValidationErrorRecord {
   code: string;
   field: string;

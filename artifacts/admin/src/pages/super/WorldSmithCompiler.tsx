@@ -202,6 +202,8 @@ interface RunRecord {
   compiled_prompt_status?: string;
   prompt_hash?: string;
   compiled_prompt?: string | null;
+  /** Structured per-section records stored at compile time — used to display the World Bible summary. */
+  compiled_sections?: CompiledSectionRecord[];
   asset_id?: string;
   errors?: ValidationError[];
   warnings?: ValidationError[];
@@ -1759,6 +1761,11 @@ function OverviewTab({
       {/* Grouped Readiness */}
       <GroupedReadinessCard result={result} preflight={preflight} prov={prov} />
 
+      {/* World Bible — shown when Bible-derived sections were compiled */}
+      {(result.compiled_sections ?? []).some((s) => s.source === "World Bible") && (
+        <WorldBibleCard sections={result.compiled_sections!} />
+      )}
+
       {/* Timeline */}
       <CompilationTimeline prov={prov} result={result} />
 
@@ -3068,6 +3075,79 @@ function RecommendationsRichPanel() {
 }
 
 // ── Compilation Timeline ───────────────────────────────────────────────────────
+
+// ── World Bible Summary Card ──────────────────────────────────────────────────
+// Shown whenever compiled_sections contains sections sourced from "World Bible".
+// Lets operators trace which aesthetic identity shaped the output.
+
+const BIBLE_FIELD_ORDER: Array<{ key: string; label: string }> = [
+  { key: "visual_palette",    label: "Visual Palette" },
+  { key: "prose_voice",       label: "Prose Voice" },
+  { key: "atmospheric_notes", label: "Atmospheric Notes" },
+  { key: "material_world",    label: "Material World" },
+];
+
+function WorldBibleCard({ sections }: { sections: CompiledSectionRecord[] }) {
+  const bibleSections = sections.filter((s) => s.source === "World Bible");
+  if (bibleSections.length === 0) return null;
+
+  const byKey = Object.fromEntries(bibleSections.map((s) => [s.key, s]));
+  const worldRules = byKey["world_rules"]?.content
+    ?.split("\n")
+    .map((r) => r.trim())
+    .filter(Boolean) ?? [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <BookOpen className="w-4 h-4 text-[#C87560]" />
+          World Bible
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Aesthetic identity captured at compile time — these values shaped every section of this prompt.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-4">
+        {/* Four aesthetic fields */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {BIBLE_FIELD_ORDER.map(({ key, label }) => {
+            const sec = byKey[key];
+            if (!sec?.content?.trim()) return null;
+            return (
+              <div key={key} className="rounded-md border border-[#1B2A4A]/10 bg-[#1B2A4A]/[0.02] px-3 py-2.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">
+                  {label}
+                </p>
+                <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{sec.content.trim()}</p>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* World Rules — numbered list */}
+        {worldRules.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">
+              World Rules
+            </p>
+            <ol className="space-y-1.5">
+              {worldRules.map((rule, i) => (
+                <li key={i} className="flex gap-2.5 text-xs">
+                  <span className="shrink-0 w-4 h-4 rounded-full bg-[#1B2A4A]/10 text-[#1B2A4A] font-bold
+                                   flex items-center justify-center text-[9px] leading-none mt-0.5">
+                    {i + 1}
+                  </span>
+                  <span className="text-foreground leading-relaxed">{rule}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function CompilationTimeline({ prov, result }: { prov: ProvenanceRecord | null; result: CompileResponse }) {
   const ts = prov?.compilation_timestamp;
@@ -4710,6 +4790,11 @@ function RunRow({ run }: { run: RunRecord }) {
                   </>
                 );
               })()}
+
+              {/* ── World Bible snapshot ──────────────────────────────── */}
+              {(detail.compiled_sections ?? []).some((s) => s.source === "World Bible") && (
+                <WorldBibleCard sections={detail.compiled_sections!} />
+              )}
 
               {detail.compiled_prompt && (
                 <div className="space-y-1.5">

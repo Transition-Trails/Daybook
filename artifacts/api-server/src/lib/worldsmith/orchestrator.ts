@@ -328,6 +328,7 @@ export async function runCompilation(
       warnings: allWarnings,
       retryCount: notionRetryEvents.length,
       notionRetries: notionRetryEvents.length > 0 ? notionRetryEvents : undefined,
+      compiledSections: compiled.sectionRecords.length > 0 ? compiled.sectionRecords : undefined,
       completedAt: new Date(),
     });
 

@@ -148,6 +148,7 @@ router.get("/v1/runs/:run_id", requireAuth, async (req: Request, res: Response) 
       compiled_prompt_status: run.compiledPromptStatus,
       prompt_hash: run.promptHash,
       compiled_prompt: run.compiledPrompt ?? null,
+      compiled_sections: run.compiledSections ?? [],
       asset_id: run.assetId,
       asset_version: run.assetVersion,
       visual_asset_id: run.visualAssetNotionId,

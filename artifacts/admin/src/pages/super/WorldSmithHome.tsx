@@ -3,7 +3,7 @@
  * Based on the approved World Gallery concept; all data sourced from real API calls.
  * Role switcher removed — only super_admins reach /super/worldsmith.
  */
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -894,8 +894,8 @@ function IntegrationsSection({
   const [editing, setEditing] = useState(defaultEditing);
   // If we were opened with defaultEditing=true, notify parent so it doesn't
   // force-open again if the user navigates away and back.
-  const consumedRef = React.useRef(false);
-  React.useEffect(() => {
+  const consumedRef = useRef(false);
+  useEffect(() => {
     if (defaultEditing && !consumedRef.current) {
       consumedRef.current = true;
       onDefaultEditingConsumed?.();

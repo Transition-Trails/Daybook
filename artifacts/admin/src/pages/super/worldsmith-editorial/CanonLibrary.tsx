@@ -95,6 +95,19 @@ const STATUS_OPTIONS = [
   { key: "rejected", label: "Rejected" },
 ];
 
+const VISIBILITY_OPTIONS = [
+  { key: "all",        label: "All Visibility" },
+  { key: "background", label: "Background" },
+  { key: "hinted",     label: "Hinted" },
+  { key: "explicit",   label: "Explicit" },
+];
+
+const STABILITY_OPTIONS = [
+  { key: "all",    label: "All Stability" },
+  { key: "low",    label: "Low" },
+  { key: "medium", label: "Medium" },
+  { key: "high",   label: "High" },
+];
 const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
   proposed:     { bg: "bg-gray-100",    text: "text-gray-600" },
   under_review: { bg: "bg-amber-100",   text: "text-amber-700" },
@@ -116,6 +129,8 @@ interface CanonRecord {
   narrativeDetails: string;
   historicalContext: string;
   visualNotes: string;
+  narrativeVisibility?: string | null;
+  canonStability?: string | null;
   specRefCount: number;
   notionPageId?: string | null;
   updatedAt: string;
@@ -511,30 +526,53 @@ function canonFilterKey(worldId: string) {
   return `canon-filters-${worldId}`;
 }
 
-function loadLibraryFilters(worldId: string): { type: string; status: string; search: string } {
+interface LibraryFilters {
+  type: string;
+  status: string;
+  search: string;
+  visibility: string;
+  stability: string;
+}
+function loadLibraryFilters(worldId: string): LibraryFilters {
   try {
     const raw = sessionStorage.getItem(canonFilterKey(worldId));
-    if (!raw) return { type: "all", status: "all", search: "" };
+    if (!raw) return { type: "all", status: "all", search: "", visibility: "all", stability: "all" };
     const parsed = JSON.parse(raw);
     return {
-      type:   typeof parsed.type   === "string" ? parsed.type   : "all",
-      status: typeof parsed.status === "string" ? parsed.status : "all",
-      search: typeof parsed.search === "string" ? parsed.search : "",
+      type:       typeof parsed.type       === "string" ? parsed.type       : "all",
+      status:     typeof parsed.status     === "string" ? parsed.status     : "all",
+      search:     typeof parsed.search     === "string" ? parsed.search     : "",
+      // visibility / stability stored by detail view as null or a real value;
+      // map null → "all" for the library's "no filter" sentinel
+      visibility: typeof parsed.visibility === "string" ? parsed.visibility : "all",
+      stability:  typeof parsed.stability  === "string" ? parsed.stability  : "all",
     };
   } catch {
-    return { type: "all", status: "all", search: "" };
+    return { type: "all", status: "all", search: "", visibility: "all", stability: "all" };
   }
 }
 
 /**
- * Merges type + status back into the stored entry so the detail view's
- * visibility / stability values are not overwritten.
+ * Merges all five library filters back into the stored entry so the detail
+ * view's own keys (emotionalRegister etc.) are not overwritten.
+ * visibility / stability are stored as the raw value or null so the detail
+ * view can read them; "all" is translated to null on write.
  */
-function saveLibraryFilters(worldId: string, type: string, status: string, search: string) {
+function saveLibraryFilters(worldId: string, filters: LibraryFilters) {
   try {
     const existing = sessionStorage.getItem(canonFilterKey(worldId));
     const base = existing ? JSON.parse(existing) : {};
-    sessionStorage.setItem(canonFilterKey(worldId), JSON.stringify({ ...base, type, status, search }));
+    sessionStorage.setItem(
+      canonFilterKey(worldId),
+      JSON.stringify({
+        ...base,
+        type:       filters.type,
+        status:     filters.status,
+        search:     filters.search,
+        visibility: filters.visibility === "all" ? null : filters.visibility,
+        stability:  filters.stability  === "all" ? null : filters.stability,
+      }),
+    );
   } catch { /* storage full or unavailable — silently skip */ }
 }
 
@@ -550,14 +588,16 @@ export default function CanonLibrary() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeType, setActiveType] = useState("all");
   const [activeStatus, setActiveStatus] = useState("all");
+  const [activeVisibility, setActiveVisibility] = useState("all");
+  const [activeStability, setActiveStability] = useState("all");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
 
   // Tracks which worldId filters were hydrated from so we don't re-hydrate
   // or persist prematurely (same guard pattern as WorldsmithCanon).
   const [hydratedWorldId, setHydratedWorldId] = useState<string | null>(null);
 
-  // Hydrate type + status + search from sessionStorage when selectedWorldId
-  // resolves or changes.  Runs before the persist effect thanks to state sequencing.
+  // Hydrate all five filters from sessionStorage when selectedWorldId resolves
+  // or changes.  Runs before the persist effect thanks to state sequencing.
   useEffect(() => {
     if (!selectedWorldId || selectedWorldId === hydratedWorldId) return;
     const saved = loadLibraryFilters(selectedWorldId);
@@ -567,17 +607,29 @@ export default function CanonLibrary() {
         : "all";
     const validStatus =
       STATUS_OPTIONS.some(s => s.key === saved.status) ? saved.status : "all";
+    const validVisibility =
+      VISIBILITY_OPTIONS.some(v => v.key === saved.visibility) ? saved.visibility : "all";
+    const validStability =
+      STABILITY_OPTIONS.some(s => s.key === saved.stability) ? saved.stability : "all";
     setActiveType(validType);
     setActiveStatus(validStatus);
     setSearch(saved.search);
+    setActiveVisibility(validVisibility);
+    setActiveStability(validStability);
     setHydratedWorldId(selectedWorldId);
   }, [selectedWorldId, hydratedWorldId]);
 
-  // Persist type + status + search whenever they change — only after hydration.
+  // Persist all five filters whenever they change — only after hydration.
   useEffect(() => {
     if (!selectedWorldId || selectedWorldId !== hydratedWorldId) return;
-    saveLibraryFilters(selectedWorldId, activeType, activeStatus, search);
-  }, [selectedWorldId, hydratedWorldId, activeType, activeStatus, search]);
+    saveLibraryFilters(selectedWorldId, {
+      type:       activeType,
+      status:     activeStatus,
+      search,
+      visibility: activeVisibility,
+      stability:  activeStability,
+    });
+  }, [selectedWorldId, hydratedWorldId, activeType, activeStatus, search, activeVisibility, activeStability]);
 
   // Selection (table mode)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -593,7 +645,7 @@ export default function CanonLibrary() {
   }, [search]);
 
   // Reset selection when filters change
-  useEffect(() => { setSelectedIds(new Set()); }, [activeType, activeStatus, debouncedSearch]);
+  useEffect(() => { setSelectedIds(new Set()); }, [activeType, activeStatus, activeVisibility, activeStability, debouncedSearch]);
 
   const { data, isLoading, refetch } = useQuery<CanonListResponse>({
     queryKey: ["editorial-canon-library", selectedWorldId],
@@ -642,10 +694,12 @@ export default function CanonLibrary() {
   const total = data?.total ?? 0;
   const byType = data?.by_type ?? {};
 
-  // Client-side filter for search/type/status
+  // Client-side filter for search/type/status/visibility/stability
   const filtered = allRecords.filter(r => {
     if (activeType !== "all" && r.canonType !== activeType) return false;
     if (activeStatus !== "all" && r.status !== activeStatus) return false;
+    if (activeVisibility !== "all" && r.narrativeVisibility !== activeVisibility) return false;
+    if (activeStability !== "all" && r.canonStability !== activeStability) return false;
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
       return (
@@ -658,11 +712,16 @@ export default function CanonLibrary() {
     return true;
   });
 
+  const hasActiveFilter =
+    !!debouncedSearch.trim() ||
+    activeType !== "all" ||
+    activeStatus !== "all" ||
+    activeVisibility !== "all" ||
+    activeStability !== "all";
+
   const isQuickStart =
     total <= QUICKSTART_THRESHOLD &&
-    !debouncedSearch.trim() &&
-    activeType === "all" &&
-    activeStatus === "all";
+    !hasActiveFilter;
 
   const openCreate = (type = "location") => {
     setPrefilledType(type);
@@ -922,7 +981,7 @@ export default function CanonLibrary() {
             })}
           </div>
 
-          {/* Status chips */}
+          {/* Status chips + Visibility / Stability dropdowns */}
           <div className="px-6 py-2 border-b flex items-center gap-2 overflow-x-auto shrink-0" style={{ borderColor: "#F3F4F6" }}>
             {STATUS_OPTIONS.map(s => (
               <button
@@ -938,8 +997,44 @@ export default function CanonLibrary() {
                 {s.label}
               </button>
             ))}
-            {(debouncedSearch || activeType !== "all" || activeStatus !== "all") && (
-              <span className="text-xs text-gray-400 ml-1">
+
+            {/* Divider */}
+            <div className="w-px h-4 bg-gray-200 shrink-0 mx-1" />
+
+            {/* Visibility dropdown */}
+            <select
+              value={activeVisibility}
+              onChange={e => setActiveVisibility(e.target.value)}
+              className="text-xs font-medium border rounded-full px-2.5 py-1 focus:outline-none cursor-pointer transition-colors"
+              style={
+                activeVisibility !== "all"
+                  ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
+                  : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
+              }
+            >
+              {VISIBILITY_OPTIONS.map(v => (
+                <option key={v.key} value={v.key}>{v.label}</option>
+              ))}
+            </select>
+
+            {/* Stability dropdown */}
+            <select
+              value={activeStability}
+              onChange={e => setActiveStability(e.target.value)}
+              className="text-xs font-medium border rounded-full px-2.5 py-1 focus:outline-none cursor-pointer transition-colors"
+              style={
+                activeStability !== "all"
+                  ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
+                  : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
+              }
+            >
+              {STABILITY_OPTIONS.map(s => (
+                <option key={s.key} value={s.key}>{s.label}</option>
+              ))}
+            </select>
+
+            {hasActiveFilter && (
+              <span className="text-xs text-gray-400 ml-1 whitespace-nowrap">
                 {filtered.length} result{filtered.length !== 1 ? "s" : ""}
               </span>
             )}
@@ -952,7 +1047,7 @@ export default function CanonLibrary() {
                 <BookOpen className="w-8 h-8 mb-3 opacity-30" />
                 <p className="text-sm">No canon records match these filters.</p>
                 <button
-                  onClick={() => { setSearch(""); setActiveType("all"); setActiveStatus("all"); }}
+                  onClick={() => { setSearch(""); setActiveType("all"); setActiveStatus("all"); setActiveVisibility("all"); setActiveStability("all"); }}
                   className="mt-3 text-xs underline hover:no-underline"
                 >
                   Clear filters

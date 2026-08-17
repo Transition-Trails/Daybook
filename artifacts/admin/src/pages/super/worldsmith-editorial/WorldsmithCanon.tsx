@@ -16,6 +16,7 @@ import {
   Loader2, AlertCircle, ExternalLink, Lock, Unlock,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
   ChevronRight, FileText, Trash2, X, ArrowLeft, Share2, Eye, EyeOff,
+  GitBranch, Repeat2,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -47,15 +48,28 @@ const regMeta = (key: string | null | undefined) =>
 
 // ── Canon-type config ─────────────────────────────────────────────────────────
 const CANON_TYPES = [
-  { key: "character",  label: "Character",  color: "#8B5CF6", Icon: User2 },
-  { key: "location",   label: "Location",   color: "#3B82F6", Icon: MapPin },
-  { key: "object",     label: "Object",     color: "#F59E0B", Icon: Package },
-  { key: "event",      label: "Event",      color: "#EC4899", Icon: CalendarDays },
-  { key: "lore",       label: "Lore",       color: "#10B981", Icon: BookMarked },
-  { key: "atmosphere", label: "Atmosphere", color: CLAY,      Icon: Wind },
-  { key: "material",   label: "Material",   color: "#6B7280", Icon: Layers },
+  { key: "character",    label: "Character",    color: "#8B5CF6", Icon: User2 },
+  { key: "location",     label: "Location",     color: "#3B82F6", Icon: MapPin },
+  { key: "object",       label: "Object",       color: "#F59E0B", Icon: Package },
+  { key: "event",        label: "Event",        color: "#EC4899", Icon: CalendarDays },
+  { key: "lore",         label: "Lore",         color: "#10B981", Icon: BookMarked },
+  { key: "atmosphere",   label: "Atmosphere",   color: CLAY,      Icon: Wind },
+  { key: "material",     label: "Material",     color: "#6B7280", Icon: Layers },
+  { key: "relationship", label: "Relationship", color: "#06B6D4", Icon: GitBranch },
+  { key: "motif",        label: "Motif",        color: "#A855F7", Icon: Repeat2 },
 ] as const;
 
+const TYPE_PREFIX: Record<string, string> = {
+  character:    "CHR",
+  location:     "LOC",
+  object:       "OBJ",
+  event:        "EVT",
+  lore:         "LOR",
+  atmosphere:   "ATM",
+  material:     "MAT",
+  relationship: "REL",
+  motif:        "MTF",
+};
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   proposed:     { label: "Proposed",     color: "#6B7280", bg: "#F3F4F6" },
   under_review: { label: "Under Review", color: "#B45309", bg: "#FEF3C7" },
@@ -93,6 +107,10 @@ interface CanonRecord {
   createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
+  // REL-specific
+  fromEntityId?: string | null;
+  toEntityId?: string | null;
+  emotionalValence?: string | null;
 }
 
 interface CanonListItem {
@@ -118,9 +136,17 @@ interface LinkedSpec {
 
 // ── Small utilities ───────────────────────────────────────────────────────────
 
-/** Deterministic 3-digit display ID from UUID. */
-function displayId(worldCode: string, recordId: string, index: number): string {
-  return `${worldCode}-${String(index + 1).padStart(3, "0")}`;
+/** Deterministic 3-digit display ID from UUID.
+ *  Uses the canon-type prefix when available (e.g. REL-001, MTF-002),
+ *  falling back to the world code otherwise. */
+function displayId(
+  worldCode: string,
+  _recordId: string,
+  index: number,
+  canonType?: string | null,
+): string {
+  const prefix = (canonType && TYPE_PREFIX[canonType]) ?? worldCode;
+  return `${prefix}-${String(index + 1).padStart(3, "0")}`;
 }
 
 // ── AutoSave textarea ─────────────────────────────────────────────────────────
@@ -393,7 +419,7 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const confMeta  = CONFIDENCE_FROM_STATUS[record?.status ?? "proposed"] ?? CONFIDENCE_FROM_STATUS.proposed;
   const regM      = regMeta(record?.emotionalRegister);
   const recordIndex = allRecords.findIndex(r => r.id === recordId);
-  const idStamp   = world ? displayId(world.code.toUpperCase(), recordId, Math.max(0, recordIndex)) : "—";
+  const idStamp   = world ? displayId(world.code.toUpperCase(), recordId, Math.max(0, recordIndex), record?.canonType) : "—";
 
   // Narrative visibility + canon stability metadata
   const NV_META: Record<string, { label: string; color: string }> = {
@@ -971,6 +997,158 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
               </div>
             </div>
 
+            {/* ═══ RELATIONSHIP ENTITY PICKERS (REL only) ════════════════
+                 Shown only when canonType === "relationship".
+                 Lets editors wire a bond between two canon records.
+            ═══════════════════════════════════════════════════════════════ */}
+            {record.canonType === "relationship" && (
+              <div
+                className="rounded-xl overflow-hidden mb-6"
+                style={{ border: `1px solid #06B6D440` }}
+              >
+                {/* Header */}
+                <div
+                  className="px-5 py-3 flex items-center gap-2"
+                  style={{ background: "#ECFEFF", borderBottom: `1px solid #06B6D430` }}
+                >
+                  <GitBranch className="w-3.5 h-3.5" style={{ color: "#06B6D4" }} />
+                  <span
+                    className="text-[10px] font-semibold tracking-widest uppercase"
+                    style={{ color: "#06B6D4", fontFamily: "'Instrument Sans', sans-serif" }}
+                  >
+                    Relational Bond
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-0">
+                  {/* From entity */}
+                  <div
+                    className="px-5 py-4 flex flex-col gap-2"
+                    style={{ borderRight: `1px solid ${WARM_BORDER}` }}
+                  >
+                    <label
+                      className="text-[10px] font-semibold tracking-widest uppercase"
+                      style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                    >
+                      From
+                    </label>
+                    <select
+                      value={record.fromEntityId ?? ""}
+                      onChange={e =>
+                        patchMutation.mutate({ from_entity_id: e.target.value || null })
+                      }
+                      className="text-sm font-medium bg-transparent border rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"
+                      style={{
+                        borderColor: WARM_BORDER,
+                        color: record.fromEntityId ? INK : "#9CA3AF",
+                        fontFamily: "'Instrument Sans', sans-serif",
+                      }}
+                    >
+                      <option value="">— select entity —</option>
+                      {allRecords
+                        .filter(r => r.id !== recordId)
+                        .map(r => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                    </select>
+                    {record.fromEntityId && (
+                      <span
+                        className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full w-fit"
+                        style={{ background: "#06B6D418", color: "#06B6D4", fontFamily: "'Instrument Sans', sans-serif" }}
+                      >
+                        <GitBranch className="w-3 h-3" />
+                        {allRecords.find(r => r.id === record.fromEntityId)?.name ?? record.fromEntityId.slice(0, 8)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* To entity */}
+                  <div className="px-5 py-4 flex flex-col gap-2">
+                    <label
+                      className="text-[10px] font-semibold tracking-widest uppercase"
+                      style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                    >
+                      To
+                    </label>
+                    <select
+                      value={record.toEntityId ?? ""}
+                      onChange={e =>
+                        patchMutation.mutate({ to_entity_id: e.target.value || null })
+                      }
+                      className="text-sm font-medium bg-transparent border rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"
+                      style={{
+                        borderColor: WARM_BORDER,
+                        color: record.toEntityId ? INK : "#9CA3AF",
+                        fontFamily: "'Instrument Sans', sans-serif",
+                      }}
+                    >
+                      <option value="">— select entity —</option>
+                      {allRecords
+                        .filter(r => r.id !== recordId)
+                        .map(r => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                    </select>
+                    {record.toEntityId && (
+                      <span
+                        className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full w-fit"
+                        style={{ background: "#06B6D418", color: "#06B6D4", fontFamily: "'Instrument Sans', sans-serif" }}
+                      >
+                        <GitBranch className="w-3 h-3" />
+                        {allRecords.find(r => r.id === record.toEntityId)?.name ?? record.toEntityId.slice(0, 8)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Emotional valence row */}
+                <div
+                  className="px-5 py-3 flex items-center gap-4"
+                  style={{ borderTop: `1px solid ${WARM_BORDER}`, background: WARM_WHITE }}
+                >
+                  <label
+                    className="text-[10px] font-semibold tracking-widest uppercase shrink-0"
+                    style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                  >
+                    Emotional Valence
+                  </label>
+                  <select
+                    value={record.emotionalValence ?? ""}
+                    onChange={e =>
+                      patchMutation.mutate({ emotional_valence: e.target.value || null })
+                    }
+                    className="text-sm font-medium bg-transparent border rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"
+                    style={{
+                      borderColor: WARM_BORDER,
+                      color: record.emotionalValence ? INK : "#9CA3AF",
+                      fontFamily: "'Instrument Sans', sans-serif",
+                    }}
+                  >
+                    <option value="">— not set —</option>
+                    <option value="admiration">Admiration</option>
+                    <option value="affection">Affection</option>
+                    <option value="rivalry">Rivalry</option>
+                    <option value="estrangement">Estrangement</option>
+                    <option value="dependency">Dependency</option>
+                    <option value="betrayal">Betrayal</option>
+                    <option value="grief">Grief</option>
+                    <option value="obligation">Obligation</option>
+                    <option value="ambivalence">Ambivalence</option>
+                  </select>
+                  <p
+                    className="text-[10px] leading-snug"
+                    style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                  >
+                    The felt quality of the bond — compiles into sensory grounding
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* ═══ EMOTIONAL REGISTER / SENSORY CLAUSES ══════════════════
                  This block MUST be above the fold at 1080p — keep it here,
                  before the narrative/historical text blocks.
@@ -1080,9 +1258,11 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                 field="narrativeDetails"
                 value={record.narrativeDetails}
                 placeholder={
-                  record.canonType === "character" ? "Role, motivation, significance…"
-                  : record.canonType === "location" ? "Place, atmosphere, narrative importance…"
-                  : record.canonType === "atmosphere" ? "Mood and feeling…"
+                  record.canonType === "character"    ? "Role, motivation, significance…"
+                  : record.canonType === "location"     ? "Place, atmosphere, narrative importance…"
+                  : record.canonType === "atmosphere"   ? "Mood and feeling…"
+                  : record.canonType === "relationship" ? "Nature of the bond, how it shapes both parties, what it costs or enables…"
+                  : record.canonType === "motif"        ? "The image or gesture, where it first appeared, why it recurs — compile into 'watch for opportunities to echo this'…"
                   : "Describe this record's role and significance…"
                 }
                 onSave={handleField}

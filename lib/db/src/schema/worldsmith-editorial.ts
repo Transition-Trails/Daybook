@@ -55,7 +55,7 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   name: text("name").notNull(),
   // proposed | under_review | accepted | superseded | rejected
   status: text("status").notNull().default("proposed"),
-  // character | location | object | event | lore | atmosphere | material
+  // character | location | object | event | lore | atmosphere | material | relationship | motif
   canonType: text("canon_type"),
   narrativeDetails: text("narrative_details").notNull().default(""),
   historicalContext: text("historical_context").notNull().default(""),
@@ -74,6 +74,11 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   temporalScope: text("temporal_scope"),
   // low | medium | high — likelihood of this record being retconned
   canonStability: text("canon_stability"),
+  // REL (Relationship) — explicit bond between two canon entities
+  fromEntityId: text("from_entity_id"),
+  toEntityId: text("to_entity_id"),
+  // admiration | affection | rivalry | estrangement | dependency | betrayal | grief | obligation | ambivalence
+  emotionalValence: text("emotional_valence"),
   // How many production specs reference this record (denormalised for the Canon Board)
   specRefCount: integer("spec_ref_count").notNull().default(0),
   notionPageId: text("notion_page_id"),

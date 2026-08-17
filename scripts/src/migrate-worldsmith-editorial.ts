@@ -72,6 +72,17 @@ async function run() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS ws_canon_records_world_idx ON ws_canon_records(world_id);`);
     await client.query(`CREATE INDEX IF NOT EXISTS ws_canon_records_status_idx ON ws_canon_records(status);`);
+    // Additive migrations — safe to run against existing tables
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS emotional_register TEXT;`);
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS sensory_clauses TEXT NOT NULL DEFAULT '';`);
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS register_locked BOOLEAN NOT NULL DEFAULT FALSE;`);
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS narrative_visibility TEXT;`);
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS temporal_scope TEXT;`);
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS canon_stability TEXT;`);
+    // REL (Relationship) entity bond fields
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS from_entity_id TEXT;`);
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS to_entity_id TEXT;`);
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS emotional_valence TEXT;`);
     console.log("  ✓ ws_canon_records");
 
     // ── Style Guides ──────────────────────────────────────────────────────────

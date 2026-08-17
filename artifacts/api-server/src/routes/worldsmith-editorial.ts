@@ -399,13 +399,15 @@ function normaliseCanonStatus(raw: string): string {
 /** Map common Notion type strings to our internal values. */
 function normaliseCanonType(raw: string): string | undefined {
   const s = raw.toLowerCase();
-  if (s.includes("character") || s.includes("person") || s.includes("figure")) return "character";
-  if (s.includes("location")  || s.includes("place")  || s.includes("geo"))    return "location";
-  if (s.includes("object")    || s.includes("artefact")|| s.includes("item"))  return "object";
-  if (s.includes("event")     || s.includes("incident"))                        return "event";
-  if (s.includes("lore")      || s.includes("myth")    || s.includes("legend")) return "lore";
-  if (s.includes("atmosphere")|| s.includes("mood")    || s.includes("tone"))   return "atmosphere";
-  if (s.includes("material")  || s.includes("texture") || s.includes("fabric")) return "material";
+  if (s.includes("character") || s.includes("person") || s.includes("figure"))       return "character";
+  if (s.includes("location")  || s.includes("place")  || s.includes("geo"))          return "location";
+  if (s.includes("object")    || s.includes("artefact")|| s.includes("item"))        return "object";
+  if (s.includes("event")     || s.includes("incident"))                              return "event";
+  if (s.includes("lore")      || s.includes("myth")    || s.includes("legend"))      return "lore";
+  if (s.includes("atmosphere")|| s.includes("mood")    || s.includes("tone"))        return "atmosphere";
+  if (s.includes("material")  || s.includes("texture") || s.includes("fabric"))      return "material";
+  if (s.includes("relationship")|| s.includes("relation")|| s.includes("bond"))      return "relationship";
+  if (s.includes("motif")     || s.includes("symbol")  || s.includes("recurrence"))  return "motif";
   return undefined;
 }
 
@@ -701,6 +703,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     name, canon_type, narrative_details, historical_context, visual_notes,
     emotional_register, sensory_clauses, register_locked,
     narrative_visibility, temporal_scope, canon_stability,
+    from_entity_id, to_entity_id, emotional_valence,
   } = req.body;
   // Validate emotional_register if provided
   const VALID_REGISTERS = ["Withholding", "Intimate", "Guarded", "Trespass", "Absence", "Confidence"];
@@ -718,6 +721,40 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     res.status(400).json({ error: `Invalid canon_stability. Must be one of: ${VALID_STABILITIES.join(", ")}` });
     return;
   }
+  const VALID_VALENCES = ["admiration", "affection", "rivalry", "estrangement", "dependency", "betrayal", "grief", "obligation", "ambivalence"];
+  if (emotional_valence !== undefined && emotional_valence !== null && !VALID_VALENCES.includes(emotional_valence)) {
+    res.status(400).json({ error: `Invalid emotional_valence. Must be one of: ${VALID_VALENCES.join(", ")}` });
+    return;
+  }
+  // Validate from/to entity IDs belong to the same world as the record being patched
+  if (from_entity_id !== undefined && from_entity_id !== null) {
+    const [fromRecord] = await db.select({ worldId: wsCanonRecordsTable.worldId })
+      .from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, from_entity_id));
+    const [thisRecord] = await db.select({ worldId: wsCanonRecordsTable.worldId })
+      .from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, req.params.id as string));
+    if (!fromRecord) {
+      res.status(400).json({ error: "from_entity_id references a canon record that does not exist" });
+      return;
+    }
+    if (thisRecord && fromRecord.worldId !== thisRecord.worldId) {
+      res.status(400).json({ error: "from_entity_id must belong to the same world as this record" });
+      return;
+    }
+  }
+  if (to_entity_id !== undefined && to_entity_id !== null) {
+    const [toRecord] = await db.select({ worldId: wsCanonRecordsTable.worldId })
+      .from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, to_entity_id));
+    const [thisRecord] = await db.select({ worldId: wsCanonRecordsTable.worldId })
+      .from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, req.params.id as string));
+    if (!toRecord) {
+      res.status(400).json({ error: "to_entity_id references a canon record that does not exist" });
+      return;
+    }
+    if (thisRecord && toRecord.worldId !== thisRecord.worldId) {
+      res.status(400).json({ error: "to_entity_id must belong to the same world as this record" });
+      return;
+    }
+  }
   try {
     const [row] = await db
       .update(wsCanonRecordsTable)
@@ -733,6 +770,9 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(narrative_visibility !== undefined ? { narrativeVisibility: narrative_visibility } : {}),
         ...(temporal_scope !== undefined ? { temporalScope: temporal_scope } : {}),
         ...(canon_stability !== undefined ? { canonStability: canon_stability } : {}),
+        ...(from_entity_id !== undefined ? { fromEntityId: from_entity_id } : {}),
+        ...(to_entity_id !== undefined ? { toEntityId: to_entity_id } : {}),
+        ...(emotional_valence !== undefined ? { emotionalValence: emotional_valence } : {}),
       })
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .returning();

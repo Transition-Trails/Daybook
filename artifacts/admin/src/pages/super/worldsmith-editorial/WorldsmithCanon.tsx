@@ -329,7 +329,11 @@ function loadPersistedFilters(worldId: string): PersistedFilters {
 
 function savePersistedFilters(worldId: string, filters: PersistedFilters) {
   try {
-    sessionStorage.setItem(canonFilterKey(worldId), JSON.stringify(filters));
+    // Merge so any extra keys written by CanonLibrary (e.g. status) are
+    // preserved — we must not clobber them when the detail view saves.
+    const existing = sessionStorage.getItem(canonFilterKey(worldId));
+    const base = existing ? JSON.parse(existing) : {};
+    sessionStorage.setItem(canonFilterKey(worldId), JSON.stringify({ ...base, ...filters }));
   } catch { /* storage full or unavailable — silently skip */ }
 }
 

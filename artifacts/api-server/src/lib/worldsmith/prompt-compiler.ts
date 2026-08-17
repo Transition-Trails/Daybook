@@ -70,6 +70,25 @@ function compileNewFormat(
     : "World record";
   pushSection("world_and_collection_context", "WORLD AND COLLECTION CONTEXT", worldContent, worldSrc, parts, sectionRecords);
 
+  // ── World Bible sections ─────────────────────────────────────────────────
+  // Injected after the world/collection context and before the style system.
+  // Each field is only emitted when non-null and non-empty.
+  const bible = chain.worldBible;
+  if (bible) {
+    if (bible.visualPalette?.trim()) {
+      pushSection("visual_palette", "VISUAL PALETTE", bible.visualPalette, "World Bible", parts, sectionRecords);
+    }
+    if (bible.proseVoice?.trim()) {
+      pushSection("prose_voice", "PROSE VOICE", bible.proseVoice, "World Bible", parts, sectionRecords);
+    }
+    if (bible.atmosphericNotes?.trim()) {
+      pushSection("atmospheric_notes", "ATMOSPHERIC NOTES", bible.atmosphericNotes, "World Bible", parts, sectionRecords);
+    }
+    if (bible.materialWorld?.trim()) {
+      pushSection("material_world", "MATERIAL WORLD", bible.materialWorld, "World Bible", parts, sectionRecords);
+    }
+  }
+
   // [STYLE SYSTEM]
   const styleParts: string[] = [];
   if (chain.styleGuide?.content) styleParts.push(chain.styleGuide.content.trim());
@@ -139,6 +158,12 @@ function compileNewFormat(
   if (spec.reviewCriteria) printParts.push(`Review Criteria: ${spec.reviewCriteria}`);
   const printContent = printParts.join("\n");
   pushSection("print_and_output_requirements", "PRINT AND OUTPUT REQUIREMENTS", printContent, "Production Specification", parts, sectionRecords);
+
+  // ── World Rules (hard negatives — always last) ─────────────────────────────
+  const worldRules = chain.worldBible?.worldRules ?? [];
+  if (worldRules.length > 0) {
+    pushSection("world_rules", "WORLD RULES", worldRules.join("\n"), "World Bible", parts, sectionRecords);
+  }
 
   const fullPrompt = parts.filter(Boolean).join(SECTION_DIVIDER);
   const negativePrompt = (payload.negative_prompt ?? "").trim() || undefined;
@@ -317,6 +342,16 @@ function compileLegacyFormat(
   for (const [key, tag] of orderedSectionKeys) {
     const s = section(tag, sections[key]);
     if (s) parts.push(s);
+    // Inject World Bible fields immediately after WORLD AND COLLECTION CONTEXT
+    if (key === "world_and_collection_context") {
+      const bible = chain.worldBible;
+      if (bible) {
+        if (bible.visualPalette?.trim())    parts.push(section("VISUAL PALETTE",    bible.visualPalette));
+        if (bible.proseVoice?.trim())       parts.push(section("PROSE VOICE",       bible.proseVoice));
+        if (bible.atmosphericNotes?.trim()) parts.push(section("ATMOSPHERIC NOTES", bible.atmosphericNotes));
+        if (bible.materialWorld?.trim())    parts.push(section("MATERIAL WORLD",    bible.materialWorld));
+      }
+    }
   }
 
   // Inject additional modules before negative constraints
@@ -327,6 +362,12 @@ function compileLegacyFormat(
     }
   }
 
+  // ── World Rules (hard negatives — always last) ─────────────────────────────
+  const worldRules = chain.worldBible?.worldRules ?? [];
+  if (worldRules.length > 0) {
+    parts.push(section("WORLD RULES", worldRules.join("\n")));
+  }
+
   const fullPrompt = parts.join(SECTION_DIVIDER);
   const negativePrompt = negativeConstraints.trim() || undefined;
 
@@ -334,6 +375,16 @@ function compileLegacyFormat(
   const sectionRecords: CompiledSectionRecord[] = orderedSectionKeys
     .map(([key, label]) => rec(key, toTitleCase(label), sections[key], legacySectionSource(key as string, chain)))
     .filter((r) => r.content.length > 0);
+
+  // Append World Bible sectionRecords for the viewer
+  const bible = chain.worldBible;
+  if (bible) {
+    if (bible.visualPalette?.trim())    sectionRecords.push(rec("visual_palette",    "Visual Palette",    bible.visualPalette,    "World Bible"));
+    if (bible.proseVoice?.trim())       sectionRecords.push(rec("prose_voice",       "Prose Voice",       bible.proseVoice,       "World Bible"));
+    if (bible.atmosphericNotes?.trim()) sectionRecords.push(rec("atmospheric_notes", "Atmospheric Notes", bible.atmosphericNotes, "World Bible"));
+    if (bible.materialWorld?.trim())    sectionRecords.push(rec("material_world",    "Material World",    bible.materialWorld,    "World Bible"));
+    if (worldRules.length > 0)          sectionRecords.push(rec("world_rules",       "World Rules",       worldRules.join("\n"),  "World Bible"));
+  }
 
   return { sections, sectionRecords, fullPrompt, negativePrompt, isLegacyFormat: true };
 }

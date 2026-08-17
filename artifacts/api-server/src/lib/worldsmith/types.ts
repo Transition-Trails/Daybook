@@ -69,6 +69,15 @@ export interface CanonRecord {
   status: string;
 }
 
+/** World Bible fields fetched from the local DB for the world that owns this spec. */
+export interface WorldBible {
+  visualPalette?: string | null;    // dominant hues, light quality, tonal range
+  proseVoice?: string | null;       // tense, person, sentence rhythm, register
+  atmosphericNotes?: string | null; // ambient mood, emotional texture
+  materialWorld?: string | null;    // textures, surfaces, physical substances
+  worldRules?: string[];            // hard negatives compiled last onto every prompt
+}
+
 export interface InheritanceChain {
   productionSpec: ProductionSpec;
   styleGuide?: StyleGuide;
@@ -78,6 +87,8 @@ export interface InheritanceChain {
   resolvedSourceIds: Record<string, string | string[]>;
   /** Non-fatal warnings collected during inheritance resolution (e.g. dropped module dependencies). */
   warnings: ValidationError[];
+  /** World Bible aesthetic identity fields injected into every generation prompt. */
+  worldBible?: WorldBible;
 }
 
 // ── PP-1.0 Payload ────────────────────────────────────────────────────────────

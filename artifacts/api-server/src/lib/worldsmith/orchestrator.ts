@@ -21,8 +21,11 @@ import {
   _setOnRetry,
   type NotionRetryEvent,
 } from "../notion-client";
-import type { CompileRequest, CompileResponse, ValidationError, ProvenanceRecord } from "./types";
+import type { CompileRequest, CompileResponse, ValidationError, ProvenanceRecord, InheritanceChain } from "./types";
 import { logger } from "../logger";
+import { db } from "@workspace/db";
+import { worldsmithWorldsTable } from "@workspace/db";
+import { sql, eq } from "drizzle-orm";
 
 const VISUAL_ASSETS_DB = () => process.env.NOTION_VISUAL_ASSETS_DB_ID ?? "";
 
@@ -100,6 +103,41 @@ export async function runCompilation(
       }
       return failResponse(specId, "inheritance_resolution", "INHERITANCE_ERROR", msg, [], true, null, null, runId);
     }
+
+    // ── Fetch World Bible fields from local DB ────────────────────────────
+    // These are stored in worldsmithWorldsTable, not in Notion, so we resolve
+    // them here (after inheritance resolution) and attach them to the chain
+    // before prompt compilation.
+    let worldBible: InheritanceChain["worldBible"] | undefined;
+    if (chain.productionSpec.world) {
+      try {
+        const [worldRow] = await db
+          .select({
+            visualPalette: worldsmithWorldsTable.visualPalette,
+            proseVoice: worldsmithWorldsTable.proseVoice,
+            atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
+            materialWorld: worldsmithWorldsTable.materialWorld,
+            worldRules: worldsmithWorldsTable.worldRules,
+          })
+          .from(worldsmithWorldsTable)
+          .where(sql`lower(${worldsmithWorldsTable.name}) = lower(${chain.productionSpec.world})`)
+          .limit(1);
+
+        if (worldRow) {
+          worldBible = {
+            visualPalette: worldRow.visualPalette,
+            proseVoice: worldRow.proseVoice,
+            atmosphericNotes: worldRow.atmosphericNotes,
+            materialWorld: worldRow.materialWorld,
+            worldRules: worldRow.worldRules ?? [],
+          };
+        }
+      } catch (bibleErr) {
+        // Non-fatal — log and continue without Bible fields
+        logger.warn({ bibleErr, world: chain.productionSpec.world }, "WorldSmith: failed to fetch World Bible fields from DB — continuing without them");
+      }
+    }
+    const chainWithBible: InheritanceChain = worldBible ? { ...chain, worldBible } : chain;
 
     // Extend resolvedSourceIds with human-readable names and Notion IDs for World,
     // Collection, and Volume so run history can show them even after the Notion
@@ -202,7 +240,7 @@ export async function runCompilation(
 
     // ── Stage 9: Assemble Compiled Prompt ────────────────────────────────
     const { payload } = parsePayload(spec.promptPayload);
-    const compiled = compilePrompt(chain, payload as Parameters<typeof compilePrompt>[1]);
+    const compiled = compilePrompt(chainWithBible, payload as Parameters<typeof compilePrompt>[1]);
 
     // ── Stage 10: Calculate Prompt Hash ──────────────────────────────────
     const promptHash = computePromptHash({

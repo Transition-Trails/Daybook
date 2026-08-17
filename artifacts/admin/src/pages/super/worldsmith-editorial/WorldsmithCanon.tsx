@@ -669,6 +669,36 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
             </span>
           </div>
 
+          {/* Active-filter banner — shown only when at least one filter is on */}
+          {(filterVisibility || filterStability || filterType) && (
+            <button
+              onClick={() => {
+                setFilterVisibility(null);
+                setFilterStability(null);
+                setFilterType(null);
+              }}
+              className="shrink-0 w-full flex items-center justify-between px-4 py-1.5 transition-colors"
+              style={{
+                background: `${CLAY}14`,
+                borderBottom: `1px solid ${CLAY}30`,
+              }}
+            >
+              <span
+                className="text-[10px] font-semibold tracking-wide"
+                style={{ color: CLAY, fontFamily: "'Instrument Sans', sans-serif" }}
+              >
+                Filtered · {filteredRecords.length}/{allRecords.length} shown
+              </span>
+              <span
+                className="text-[10px] font-medium flex items-center gap-0.5"
+                style={{ color: CLAY, fontFamily: "'Instrument Sans', sans-serif" }}
+              >
+                <X className="w-2.5 h-2.5" />
+                clear
+              </span>
+            </button>
+          )}
+
           {/* Scrollable list */}
           <div className="flex-1 overflow-y-auto">
             {filteredRecords.map((r, i) => {
@@ -1511,6 +1541,32 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                 })}
               </div>
             </div>
+
+            {/* Clear-all affordance — visible only when any filter is active */}
+            {(filterVisibility || filterStability || filterType) && (
+              <div
+                className="mt-3 pt-3"
+                style={{ borderTop: `1px solid ${DASHED_BORDER}` }}
+              >
+                <button
+                  onClick={() => {
+                    setFilterVisibility(null);
+                    setFilterStability(null);
+                    setFilterType(null);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold transition-all"
+                  style={{
+                    background: `${CLAY}18`,
+                    color: CLAY,
+                    border: `1px solid ${CLAY}40`,
+                    fontFamily: "'Instrument Sans', sans-serif",
+                  }}
+                >
+                  <X className="w-2.5 h-2.5" />
+                  Clear all filters
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Placeholder — AI Assist coming in Step 3 */}

@@ -1123,7 +1123,52 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                 >
                   Temporal Scope
                 </span>
+                {/* datalist gives autocomplete suggestions while still accepting any free text */}
+                <datalist id="temporal-scope-suggestions">
+                  {/* ── Story phases ── */}
+                  <option value="Prologue" />
+                  <option value="Early story" />
+                  <option value="Mid-arc" />
+                  <option value="Climax" />
+                  <option value="Epilogue" />
+                  <option value="Throughout" />
+                  {/* ── Legendary / mythic ── */}
+                  <option value="Before the Reckoning" />
+                  <option value="The First Age" />
+                  <option value="The Second Age" />
+                  <option value="Age of Founding" />
+                  <option value="Age of Strife" />
+                  <option value="The Sundering" />
+                  <option value="The Restoration" />
+                  <option value="The Silence" />
+                  <option value="Ancient days" />
+                  {/* ── Conflict arc ── */}
+                  <option value="Pre-war" />
+                  <option value="Wartime" />
+                  <option value="Post-war" />
+                  <option value="Reconstruction" />
+                  <option value="Occupation" />
+                  {/* ── Historical-flavoured ── */}
+                  <option value="Ancient era" />
+                  <option value="Classical period" />
+                  <option value="Medieval period" />
+                  <option value="Renaissance" />
+                  <option value="Early modern" />
+                  <option value="Industrial age" />
+                  <option value="Victorian era" />
+                  <option value="Edwardian era" />
+                  <option value="Interwar period" />
+                  <option value="Contemporary" />
+                  <option value="Near future" />
+                  <option value="Far future" />
+                  {/* ── Seasonal / cyclical ── */}
+                  <option value="Spring awakening" />
+                  <option value="High summer" />
+                  <option value="Harvest season" />
+                  <option value="Deep winter" />
+                </datalist>
                 <input
+                  list="temporal-scope-suggestions"
                   value={temporalScopeDraft}
                   onChange={e => setTemporalScopeDraft(e.target.value)}
                   onBlur={() => {

@@ -312,15 +312,22 @@ interface PersistedFilters {
   type: string | null;
 }
 
+// Valid filter values — anything outside these sets (including "all" written
+// by CanonLibrary) is treated as "no filter" so cross-page navigation never
+// produces an erroneous active-filter state.
+const VALID_VISIBILITY = new Set(["background", "hinted", "explicit"]);
+const VALID_STABILITY  = new Set(["low", "medium", "high"]);
+const VALID_TYPE       = new Set(CANON_TYPES.map(t => t.key));
+
 function loadPersistedFilters(worldId: string): PersistedFilters {
   try {
     const raw = sessionStorage.getItem(canonFilterKey(worldId));
     if (!raw) return { visibility: null, stability: null, type: null };
     const parsed = JSON.parse(raw);
     return {
-      visibility: typeof parsed.visibility === "string" ? parsed.visibility : null,
-      stability:  typeof parsed.stability  === "string" ? parsed.stability  : null,
-      type:       typeof parsed.type       === "string" ? parsed.type       : null,
+      visibility: VALID_VISIBILITY.has(parsed.visibility) ? parsed.visibility : null,
+      stability:  VALID_STABILITY.has(parsed.stability)   ? parsed.stability  : null,
+      type:       VALID_TYPE.has(parsed.type)             ? parsed.type       : null,
     };
   } catch {
     return { visibility: null, stability: null, type: null };

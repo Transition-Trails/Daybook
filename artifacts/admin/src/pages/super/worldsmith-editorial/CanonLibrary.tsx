@@ -16,6 +16,7 @@ import {
   Plus, Search, RefreshCw, Loader2, X, LayoutGrid, Table2,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
   BookOpen, ChevronRight, Clock, Sparkles, CheckCircle2, Download,
+  GitBranch, Repeat2,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -83,6 +84,20 @@ const CANON_TYPES: TypeConfig[] = [
     narrativePlaceholder: "Describe this material and its role in the world…",
     historicalPlaceholder: "Where does it come from? How is it produced or gathered?",
     visualPlaceholder: "Colour, texture, finish, typical application in compositions…",
+  },
+  {
+    key: "relationship", label: "Relationship", color: "#06B6D4", Icon: GitBranch,
+    desc: "Bonds and dynamics between entities in your world",
+    narrativePlaceholder: "Describe the relationship and how it shapes the story…",
+    historicalPlaceholder: "How did this relationship begin? How has it evolved?",
+    visualPlaceholder: "How is this relationship expressed visually in the world?",
+  },
+  {
+    key: "motif", label: "Motif", color: "#A855F7", Icon: Repeat2,
+    desc: "Recurring symbols, patterns, and thematic elements",
+    narrativePlaceholder: "Describe the motif and its symbolic significance…",
+    historicalPlaceholder: "Where and when does this motif first appear in the canon?",
+    visualPlaceholder: "How does this motif manifest visually across the world?",
   },
 ];
 

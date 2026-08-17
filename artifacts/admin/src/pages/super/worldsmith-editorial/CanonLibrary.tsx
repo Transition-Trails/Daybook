@@ -735,8 +735,10 @@ export default function CanonLibrary() {
     activeVisibility !== "all" ||
     activeStability !== "all";
 
+  // Quick-start is onboarding only — once any record exists, always show the
+  // full library so deleting a record never flips the UI back to the launcher.
   const isQuickStart =
-    total <= QUICKSTART_THRESHOLD &&
+    total === 0 &&
     !hasActiveFilter;
 
   const openCreate = (type = "location") => {

@@ -797,6 +797,11 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
     currentCollection?: string | null;
     currentVolume?: string | null;
     worldRules?: string[] | null;
+    // World Bible fields
+    visualPalette?: string | null;
+    proseVoice?: string | null;
+    atmosphericNotes?: string | null;
+    materialWorld?: string | null;
   };
 
   // Build a patch object with only the keys the caller supplied
@@ -834,6 +839,11 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
       ? body.worldRules.map((r: string) => r.trim()).filter(Boolean)
       : [];
   }
+  // World Bible text fields — trim and null-coerce blank strings
+  if ("visualPalette"    in body) patch.visualPalette    = body.visualPalette?.trim()    || null;
+  if ("proseVoice"       in body) patch.proseVoice       = body.proseVoice?.trim()       || null;
+  if ("atmosphericNotes" in body) patch.atmosphericNotes = body.atmosphericNotes?.trim() || null;
+  if ("materialWorld"    in body) patch.materialWorld    = body.materialWorld?.trim()    || null;
 
   if (Object.keys(patch).length === 0) {
     res.status(400).json({ error: "No updatable fields provided", code: "MISSING_FIELDS" });

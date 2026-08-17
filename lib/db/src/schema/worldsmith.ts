@@ -156,6 +156,11 @@ export const worldsmithWorldsTable = pgTable("worldsmith_worlds", {
   // Creative governance (Worldsmith Canon Records UI — Step 1)
   // Hard negatives that compile last onto every prompt; not overridable by a record
   worldRules: jsonb("world_rules").$type<string[]>().notNull().default([]),
+  // World Bible — aesthetic identity fields injected into every generation prompt
+  visualPalette:     text("visual_palette"),     // dominant hues, light quality, tonal range
+  proseVoice:        text("prose_voice"),         // tense, person, sentence rhythm, register
+  atmosphericNotes:  text("atmospheric_notes"),   // ambient mood, emotional texture
+  materialWorld:     text("material_world"),      // textures, surfaces, physical substances
   // Bumped when a style rule changes; triggers re-flagging of all affected assets
   styleGuideVersion: integer("style_guide_version").notNull().default(1),
   // Google Drive folder

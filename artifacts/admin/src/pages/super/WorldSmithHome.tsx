@@ -33,6 +33,11 @@ export interface WsWorld {
   driveFolderId?: string | null;
   imageProvider?: string | null;
   worldRules?: string[] | null;
+  // World Bible — aesthetic identity fields
+  visualPalette?: string | null;
+  proseVoice?: string | null;
+  atmosphericNotes?: string | null;
+  materialWorld?: string | null;
   createdAt: string;
   updatedAt: string;
   // Computed fields from the server
@@ -83,7 +88,7 @@ const wsApi = {
   worlds: () => apiFetch<{ worlds: WsWorld[] }>("/v1/worldsmith/worlds"),
   createWorld: (body: Partial<WsWorld>) =>
     apiFetch<WsWorld>("/v1/worldsmith/worlds", { method: "POST", body: JSON.stringify(body) }),
-  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume" | "worldRules">>) =>
+  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume" | "worldRules" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld">>) =>
     apiFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
   runs: (worldId?: string) =>
     apiFetch<{ runs: WsRun[] }>(`/v1/worldsmith/runs${worldId ? `?world_id=${encodeURIComponent(worldId)}` : ""}`),
@@ -701,7 +706,53 @@ function OverviewSection({
         )}
       </div>
 
-      {/* Recent runs (last 3) */}
+      {/* World Bible — read-only overview card (shown when any field is set) */}
+      {(world.worldRules?.length || world.visualPalette || world.proseVoice || world.atmosphericNotes || world.materialWorld) && (
+        <div className="md:col-span-2 rounded-xl border border-border bg-card p-5">
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-4">World Bible</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {world.visualPalette && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Visual Palette</p>
+                <p className="text-[13px] text-foreground leading-relaxed">{world.visualPalette}</p>
+              </div>
+            )}
+            {world.proseVoice && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Prose Voice</p>
+                <p className="text-[13px] text-foreground leading-relaxed">{world.proseVoice}</p>
+              </div>
+            )}
+            {world.atmosphericNotes && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Atmospheric Notes</p>
+                <p className="text-[13px] text-foreground leading-relaxed">{world.atmosphericNotes}</p>
+              </div>
+            )}
+            {world.materialWorld && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Material World</p>
+                <p className="text-[13px] text-foreground leading-relaxed">{world.materialWorld}</p>
+              </div>
+            )}
+            {world.worldRules && world.worldRules.length > 0 && (
+              <div className="md:col-span-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-2">World Rules</p>
+                <ul className="space-y-1">
+                  {world.worldRules.map((rule, i) => (
+                    <li key={i} className="flex items-start gap-2 text-[13px] text-foreground">
+                      <span className="mt-1.5 w-1 h-1 rounded-full bg-muted-foreground/40 shrink-0" />
+                      {rule}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recent runs (last 5) */}
       {runs.length > 0 && (
         <div className="md:col-span-2 rounded-xl border border-border bg-card p-5">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-3">Recent runs</p>
@@ -798,6 +849,10 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
     currentCollection: world.currentCollection ?? "",
     currentVolume: world.currentVolume ?? "",
     worldRules: world.worldRules ?? [] as string[],
+    visualPalette: world.visualPalette ?? "",
+    proseVoice: world.proseVoice ?? "",
+    atmosphericNotes: world.atmosphericNotes ?? "",
+    materialWorld: world.materialWorld ?? "",
   });
   const [newRule, setNewRule] = useState("");
 
@@ -812,6 +867,10 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
         currentCollection: form.currentCollection.trim() || null,
         currentVolume: form.currentVolume.trim() || null,
         worldRules: form.worldRules,
+        visualPalette: form.visualPalette.trim() || null,
+        proseVoice: form.proseVoice.trim() || null,
+        atmosphericNotes: form.atmosphericNotes.trim() || null,
+        materialWorld: form.materialWorld.trim() || null,
       }),
     onSuccess: () => {
       toast({ title: "Settings saved", description: `${world.name} has been updated.` });
@@ -1047,6 +1106,70 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
                 </button>
               </div>
             </div>
+
+            {/* World Bible — aesthetic identity */}
+            <div className="pt-2 border-t border-border">
+              <label className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground block mb-0.5">
+                World Bible
+              </label>
+              <p className="text-[10px] text-muted-foreground mb-3">
+                Aesthetic identity injected into every generation prompt alongside the World Rules.
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                    Visual Palette
+                  </label>
+                  <textarea
+                    value={form.visualPalette}
+                    onChange={e => setForm(f => ({ ...f, visualPalette: e.target.value }))}
+                    rows={2}
+                    placeholder="e.g. muted earth tones, aged parchment whites, soft moss greens — lighting always diffuse, no harsh shadows"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30 resize-none"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Dominant hues, light quality, and tonal range.</p>
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                    Prose Voice
+                  </label>
+                  <textarea
+                    value={form.proseVoice}
+                    onChange={e => setForm(f => ({ ...f, proseVoice: e.target.value }))}
+                    rows={2}
+                    placeholder="e.g. intimate third-person limited, past tense, long descriptive sentences with sensory weight, no em-dashes"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30 resize-none"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Tense, person, sentence rhythm, and narrative register.</p>
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                    Atmospheric Notes
+                  </label>
+                  <textarea
+                    value={form.atmosphericNotes}
+                    onChange={e => setForm(f => ({ ...f, atmosphericNotes: e.target.value }))}
+                    rows={2}
+                    placeholder="e.g. melancholy beauty — things decaying but still loved, quiet tension beneath every surface courtesy"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30 resize-none"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Ambient mood and emotional texture of the world.</p>
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                    Material World
+                  </label>
+                  <textarea
+                    value={form.materialWorld}
+                    onChange={e => setForm(f => ({ ...f, materialWorld: e.target.value }))}
+                    rows={2}
+                    placeholder="e.g. worn leather, cracked porcelain, dry stone walls, pressed flowers — nothing synthetic or mass-produced"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30 resize-none"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Textures, surfaces, and physical substances that define the setting.</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">
@@ -1063,6 +1186,10 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
                   currentCollection: world.currentCollection ?? "",
                   currentVolume: world.currentVolume ?? "",
                   worldRules: world.worldRules ?? [],
+                  visualPalette: world.visualPalette ?? "",
+                  proseVoice: world.proseVoice ?? "",
+                  atmosphericNotes: world.atmosphericNotes ?? "",
+                  materialWorld: world.materialWorld ?? "",
                 });
               }}
               disabled={saveMutation.isPending}

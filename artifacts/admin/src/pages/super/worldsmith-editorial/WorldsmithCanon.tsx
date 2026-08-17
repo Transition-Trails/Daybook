@@ -15,7 +15,7 @@ import { useLocation, Link } from "wouter";
 import {
   Loader2, AlertCircle, ExternalLink, Lock, Unlock,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
-  ChevronRight, FileText, Trash2, X, ArrowLeft, Share2,
+  ChevronRight, FileText, Trash2, X, ArrowLeft, Share2, Eye, EyeOff,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -104,6 +104,9 @@ interface CanonListItem {
   emotionalRegister?: string | null;
   registerLocked: boolean;
   specRefCount: number;
+  narrativeVisibility?: string | null;
+  temporalScope?: string | null;
+  canonStability?: string | null;
 }
 
 interface LinkedSpec {
@@ -272,6 +275,8 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const { worlds, selectedWorldId, setSelectedWorldId } = useEditorial();
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [filterVisibility, setFilterVisibility] = useState<string | null>(null);
+  const [filterStability, setFilterStability] = useState<string | null>(null);
 
   const world = worlds.find(w => w.id === selectedWorldId) ?? worlds[0] ?? null;
 
@@ -292,6 +297,12 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     staleTime: 30_000,
   });
   const allRecords: CanonListItem[] = listData?.canon_records ?? [];
+
+  const filteredRecords = allRecords.filter(r => {
+    if (filterVisibility && r.narrativeVisibility !== filterVisibility) return false;
+    if (filterStability && r.canonStability !== filterStability) return false;
+    return true;
+  });
 
   // ── Load linked specs ──────────────────────────────────────────────────────
   const { data: specsData } = useQuery<{ specs: LinkedSpec[] }>({
@@ -620,46 +631,104 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
               className="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded"
               style={{ background: PARCHMENT, color: INK }}
             >
-              {allRecords.length}
+              {(filterVisibility || filterStability)
+                ? `${filteredRecords.length}/${allRecords.length}`
+                : allRecords.length}
             </span>
           </div>
 
           {/* Scrollable list */}
           <div className="flex-1 overflow-y-auto">
-            {allRecords.map((r, i) => {
+            {filteredRecords.map((r, i) => {
               const active = r.id === recordId;
               const rm = regMeta(r.emotionalRegister);
+
+              // Stability dot
+              const stabMap: Record<string, { char: string; color: string }> = {
+                low:    { char: "●", color: "#9CA3AF" },
+                medium: { char: "◐", color: "#B45309" },
+                high:   { char: "●", color: "#065F46" },
+              };
+              const stabDot = stabMap[r.canonStability ?? ""] ?? null;
+
+              // Visibility icon
+              const visIconProps = (() => {
+                if (r.narrativeVisibility === "background") return { Icon: EyeOff, color: "#9CA3AF", opacity: 1 };
+                if (r.narrativeVisibility === "hinted")     return { Icon: Eye,    color: "#B45309", opacity: 0.55 };
+                if (r.narrativeVisibility === "explicit")   return { Icon: Eye,    color: "#065F46", opacity: 1 };
+                return null;
+              })();
+
               return (
                 <Link key={r.id} href={`/super/worldsmith/editorial/canon/${r.id}`}>
                   <a
-                    className="flex items-center gap-2.5 px-4 py-2.5 transition-colors group"
+                    className="flex items-start gap-2 px-4 py-2.5 transition-colors group"
                     style={{
                       borderLeft: active ? `3px solid ${CLAY}` : "3px solid transparent",
                       background: active ? PARCHMENT : "transparent",
-                      paddingLeft: active ? "13px" : "13px", // 16-3 to compensate border
+                      paddingLeft: "13px",
                     }}
                   >
-                    {/* Register dot */}
-                    <span
-                      className="shrink-0 w-2 h-2 rounded-full"
-                      style={{ background: rm ? rm.color : "#D1D5DB" }}
-                    />
+                    {/* Dots column: register + stability stacked */}
+                    <div className="shrink-0 flex flex-col items-center gap-0.5 mt-0.5">
+                      <span
+                        className="w-2 h-2 rounded-full"
+                        style={{ background: rm ? rm.color : "#D1D5DB" }}
+                      />
+                      {stabDot ? (
+                        <span
+                          style={{
+                            fontSize: 7,
+                            lineHeight: 1,
+                            color: stabDot.color,
+                            fontFamily: "sans-serif",
+                          }}
+                        >
+                          {stabDot.char}
+                        </span>
+                      ) : (
+                        <span className="w-1.5 h-1.5" />
+                      )}
+                    </div>
 
-                    {/* Name */}
-                    <span
-                      className="flex-1 text-xs leading-snug truncate"
-                      style={{
-                        color: active ? INK : "#6B7280",
-                        fontWeight: active ? 600 : 400,
-                        fontFamily: "'Instrument Sans', sans-serif",
-                      }}
-                    >
-                      {r.name}
-                    </span>
+                    {/* Name + temporal scope */}
+                    <div className="flex-1 min-w-0">
+                      <span
+                        className="block text-xs leading-snug truncate"
+                        style={{
+                          color: active ? INK : "#6B7280",
+                          fontWeight: active ? 600 : 400,
+                          fontFamily: "'Instrument Sans', sans-serif",
+                        }}
+                      >
+                        {r.name}
+                      </span>
+                      {r.temporalScope && (
+                        <span
+                          className="block text-[10px] leading-snug truncate mt-0.5"
+                          style={{
+                            color: "#9CA3AF",
+                            fontFamily: "'Instrument Sans', sans-serif",
+                          }}
+                        >
+                          {r.temporalScope}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Visibility icon */}
+                    {visIconProps ? (
+                      <visIconProps.Icon
+                        className="shrink-0 mt-0.5"
+                        style={{ width: 10, height: 10, color: visIconProps.color, opacity: visIconProps.opacity }}
+                      />
+                    ) : (
+                      <span className="shrink-0 w-2.5" />
+                    )}
 
                     {/* ID right-aligned */}
                     <span
-                      className="shrink-0 text-[10px] tabular-nums"
+                      className="shrink-0 text-[10px] tabular-nums mt-0.5"
                       style={{
                         color: active ? "#9CA3AF" : "#D1D5DB",
                         fontFamily: "'Space Mono', monospace",
@@ -1130,8 +1199,8 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
               Worldsmith, in the margin
             </p>
 
-            {/* Filter pills */}
-            <div className="flex gap-1.5 flex-wrap">
+            {/* Existing content pills */}
+            <div className="flex gap-1.5 flex-wrap mb-3">
               {["All", "To resolve", "Openings"].map(pill => (
                 <button
                   key={pill}
@@ -1146,6 +1215,84 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                   {pill}
                 </button>
               ))}
+            </div>
+
+            {/* Visibility filter */}
+            <div className="mb-2">
+              <p
+                className="text-[9px] font-semibold tracking-widest uppercase mb-1"
+                style={{ color: "#C9BEA8", fontFamily: "'Instrument Sans', sans-serif" }}
+              >
+                Visibility
+              </p>
+              <div className="flex gap-1 flex-wrap">
+                {[
+                  { key: null,         label: "All" },
+                  { key: "background", label: "Background" },
+                  { key: "hinted",     label: "Hinted" },
+                  { key: "explicit",   label: "Explicit" },
+                ].map(({ key, label }) => {
+                  const active = filterVisibility === key;
+                  return (
+                    <button
+                      key={label}
+                      onClick={() => setFilterVisibility(active ? null : key)}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all"
+                      style={{
+                        background: active ? INK : "transparent",
+                        color: active ? "white" : "#9CA3AF",
+                        border: `1px solid ${active ? INK : DASHED_BORDER}`,
+                        fontFamily: "'Instrument Sans', sans-serif",
+                      }}
+                    >
+                      {key === "background" && <EyeOff style={{ width: 8, height: 8 }} />}
+                      {key === "hinted"     && <Eye    style={{ width: 8, height: 8, opacity: 0.55 }} />}
+                      {key === "explicit"   && <Eye    style={{ width: 8, height: 8 }} />}
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Stability filter */}
+            <div>
+              <p
+                className="text-[9px] font-semibold tracking-widest uppercase mb-1"
+                style={{ color: "#C9BEA8", fontFamily: "'Instrument Sans', sans-serif" }}
+              >
+                Stability
+              </p>
+              <div className="flex gap-1 flex-wrap">
+                {[
+                  { key: null,     label: "All",    dot: null },
+                  { key: "low",    label: "Low",    dot: { char: "●", color: "#9CA3AF" } },
+                  { key: "medium", label: "Medium", dot: { char: "◐", color: "#B45309" } },
+                  { key: "high",   label: "High",   dot: { char: "●", color: "#065F46" } },
+                ].map(({ key, label, dot }) => {
+                  const active = filterStability === key;
+                  return (
+                    <button
+                      key={label}
+                      onClick={() => setFilterStability(active ? null : key)}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all"
+                      style={{
+                        background: active ? INK : "transparent",
+                        color: active ? "white" : "#9CA3AF",
+                        border: `1px solid ${active ? INK : DASHED_BORDER}`,
+                        fontFamily: "'Instrument Sans', sans-serif",
+                      }}
+                    >
+                      {dot && (
+                        <span style={{ fontSize: 7, lineHeight: 1, color: active ? "white" : dot.color }}>
+                          {dot.char}
+                        </span>
+                      )}
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 

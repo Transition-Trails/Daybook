@@ -11,7 +11,7 @@
  */
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import {
   Plus, Search, RefreshCw, Loader2, X, LayoutGrid, Table2,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
@@ -595,6 +595,7 @@ function saveLibraryFilters(worldId: string, filters: LibraryFilters) {
 
 export default function CanonLibrary() {
   const { selectedWorldId, selectedWorld } = useEditorial();
+  const [, navigate] = useLocation();
   const qc = useQueryClient();
   const { toast } = useToast();
 
@@ -865,29 +866,29 @@ export default function CanonLibrary() {
               </p>
               <div className="space-y-2">
                 {allRecords.map(record => (
-                  <Link key={record.id} href={`/super/worldsmith/editorial/canon/${record.id}`}>
-                    <div
-                      className="flex items-center gap-3 bg-white rounded-lg border px-4 py-3 hover:shadow-sm transition-all cursor-pointer"
-                      style={{ borderColor: "#E5E7EB" }}
-                    >
-                      {(() => {
-                        const t = CANON_TYPES.find(t => t.key === record.canonType);
-                        return t ? (
-                          <span
-                            className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
-                            style={{ background: `${t.color}18` }}
-                          >
-                            <t.Icon className="w-3 h-3" style={{ color: t.color }} />
-                          </span>
-                        ) : null;
-                      })()}
-                      <span className="flex-1 text-sm font-medium" style={{ color: "#1B2A4A" }}>{record.name}</span>
-                      <span className={`text-[10px] font-medium rounded-full px-2 py-0.5 ${STATUS_STYLES[record.status]?.bg} ${STATUS_STYLES[record.status]?.text}`}>
-                        {record.status.replace("_", " ")}
-                      </span>
-                      <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
-                    </div>
-                  </Link>
+                  <button
+                    key={record.id}
+                    onClick={() => navigate(`/super/worldsmith/editorial/canon/${record.id}`)}
+                    className="w-full text-left flex items-center gap-3 bg-white rounded-lg border px-4 py-3 hover:shadow-sm transition-all"
+                    style={{ borderColor: "#E5E7EB" }}
+                  >
+                    {(() => {
+                      const t = CANON_TYPES.find(t => t.key === record.canonType);
+                      return t ? (
+                        <span
+                          className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+                          style={{ background: `${t.color}18` }}
+                        >
+                          <t.Icon className="w-3 h-3" style={{ color: t.color }} />
+                        </span>
+                      ) : null;
+                    })()}
+                    <span className="flex-1 text-sm font-medium" style={{ color: "#1B2A4A" }}>{record.name}</span>
+                    <span className={`text-[10px] font-medium rounded-full px-2 py-0.5 ${STATUS_STYLES[record.status]?.bg} ${STATUS_STYLES[record.status]?.text}`}>
+                      {record.status.replace("_", " ")}
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
+                  </button>
                 ))}
               </div>
             </div>

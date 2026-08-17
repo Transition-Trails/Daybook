@@ -700,11 +700,22 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
   const {
     name, canon_type, narrative_details, historical_context, visual_notes,
     emotional_register, sensory_clauses, register_locked,
+    narrative_visibility, temporal_scope, canon_stability,
   } = req.body;
   // Validate emotional_register if provided
   const VALID_REGISTERS = ["Withholding", "Intimate", "Guarded", "Trespass", "Absence", "Confidence"];
   if (emotional_register !== undefined && emotional_register !== null && !VALID_REGISTERS.includes(emotional_register)) {
     res.status(400).json({ error: `Invalid emotional_register. Must be one of: ${VALID_REGISTERS.join(", ")}` });
+    return;
+  }
+  const VALID_VISIBILITIES = ["background", "hinted", "explicit"];
+  if (narrative_visibility !== undefined && narrative_visibility !== null && !VALID_VISIBILITIES.includes(narrative_visibility)) {
+    res.status(400).json({ error: `Invalid narrative_visibility. Must be one of: ${VALID_VISIBILITIES.join(", ")}` });
+    return;
+  }
+  const VALID_STABILITIES = ["low", "medium", "high"];
+  if (canon_stability !== undefined && canon_stability !== null && !VALID_STABILITIES.includes(canon_stability)) {
+    res.status(400).json({ error: `Invalid canon_stability. Must be one of: ${VALID_STABILITIES.join(", ")}` });
     return;
   }
   try {
@@ -719,6 +730,9 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(emotional_register !== undefined ? { emotionalRegister: emotional_register } : {}),
         ...(sensory_clauses !== undefined ? { sensoryClauses: sensory_clauses } : {}),
         ...(register_locked !== undefined ? { registerLocked: register_locked } : {}),
+        ...(narrative_visibility !== undefined ? { narrativeVisibility: narrative_visibility } : {}),
+        ...(temporal_scope !== undefined ? { temporalScope: temporal_scope } : {}),
+        ...(canon_stability !== undefined ? { canonStability: canon_stability } : {}),
       })
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .returning();

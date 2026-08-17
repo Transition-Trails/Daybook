@@ -85,6 +85,9 @@ interface CanonRecord {
   emotionalRegister?: string | null;
   sensoryClauses?: string | null;
   registerLocked: boolean;
+  narrativeVisibility?: string | null;
+  temporalScope?: string | null;
+  canonStability?: string | null;
   specRefCount: number;
   notionPageId?: string | null;
   createdBy?: string | null;
@@ -341,6 +344,8 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
 
   // ── Cascade register mutation ──────────────────────────────────────────────
   const [cascadeResult, setCascadeResult] = useState<{ updated: number; skipped_locked: number } | null>(null);
+  const [temporalScopeDraft, setTemporalScopeDraft] = useState(record?.temporalScope ?? "");
+  useEffect(() => { setTemporalScopeDraft(record?.temporalScope ?? ""); }, [record?.temporalScope]);
   const cascadeMutation = useMutation({
     mutationFn: () =>
       apiFetch<{ updated: number; skipped_locked: number; register: string }>(
@@ -376,6 +381,21 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const regM      = regMeta(record?.emotionalRegister);
   const recordIndex = allRecords.findIndex(r => r.id === recordId);
   const idStamp   = world ? displayId(world.code.toUpperCase(), recordId, Math.max(0, recordIndex)) : "—";
+
+  // Narrative visibility + canon stability metadata
+  const NV_META: Record<string, { label: string; color: string }> = {
+    background: { label: "Background", color: "#6B7280" },
+    hinted:     { label: "Hinted",     color: "#B45309" },
+    explicit:   { label: "Explicit",   color: "#065F46" },
+  };
+  const nvMeta = NV_META[record?.narrativeVisibility ?? ""] ?? null;
+
+  const CS_META: Record<string, { label: string; color: string }> = {
+    low:    { label: "Low",    color: "#9CA3AF" },
+    medium: { label: "Medium", color: "#B45309" },
+    high:   { label: "High",   color: "#065F46" },
+  };
+  const csMeta = CS_META[record?.canonStability ?? ""] ?? null;
 
   // Readiness: % of records with emotionalRegister set
   const readyCount = allRecords.filter(r => r.emotionalRegister).length;
@@ -771,6 +791,109 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                   {cell.value}
                 </div>
               ))}
+            </div>
+
+            {/* Narrative Visibility / Temporal Scope / Canon Stability ──── */}
+            <div
+              className="grid grid-cols-3 rounded-xl mb-6 overflow-hidden"
+              style={{ border: `1px solid ${WARM_BORDER}` }}
+            >
+              {/* Narrative Visibility */}
+              <div
+                className="flex flex-col gap-1.5 px-5 py-3.5"
+                style={{ borderRight: `1px solid ${WARM_BORDER}` }}
+              >
+                <span
+                  className="text-[10px] font-semibold tracking-widest uppercase"
+                  style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                >
+                  Visibility
+                </span>
+                <select
+                  value={record.narrativeVisibility ?? ""}
+                  onChange={e => patchMutation.mutate({ narrative_visibility: e.target.value || null })}
+                  className="text-sm font-semibold bg-transparent border-none outline-none cursor-pointer"
+                  style={{
+                    color: nvMeta ? nvMeta.color : "#D1D5DB",
+                    fontFamily: "'Instrument Sans', sans-serif",
+                  }}
+                >
+                  <option value="">— not set —</option>
+                  <option value="background">Background</option>
+                  <option value="hinted">Hinted</option>
+                  <option value="explicit">Explicit</option>
+                </select>
+                <p className="text-[10px]" style={{ color: "#9CA3AF" }}>
+                  {nvMeta?.label === "Background" && "Never stated — shapes the world silently"}
+                  {nvMeta?.label === "Hinted" && "Implied through sensory or contextual detail"}
+                  {nvMeta?.label === "Explicit" && "Named or stated directly in the text"}
+                  {!nvMeta && "How directly this fact surfaces in prose"}
+                </p>
+              </div>
+
+              {/* Temporal Scope */}
+              <div
+                className="flex flex-col gap-1.5 px-5 py-3.5"
+                style={{ borderRight: `1px solid ${WARM_BORDER}` }}
+              >
+                <span
+                  className="text-[10px] font-semibold tracking-widest uppercase"
+                  style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                >
+                  Temporal Scope
+                </span>
+                <input
+                  value={temporalScopeDraft}
+                  onChange={e => setTemporalScopeDraft(e.target.value)}
+                  onBlur={() => {
+                    const trimmed = temporalScopeDraft.trim();
+                    const prev = record.temporalScope ?? "";
+                    if (trimmed !== prev) {
+                      patchMutation.mutate({ temporal_scope: trimmed || null });
+                    }
+                  }}
+                  onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  placeholder="e.g. Victorian era"
+                  className="text-sm font-semibold bg-transparent border-none outline-none"
+                  style={{
+                    color: temporalScopeDraft ? INK : "#D1D5DB",
+                    fontFamily: "'Instrument Sans', sans-serif",
+                  }}
+                />
+                <p className="text-[10px]" style={{ color: "#9CA3AF" }}>
+                  Era or phase when this record applies
+                </p>
+              </div>
+
+              {/* Canon Stability */}
+              <div className="flex flex-col gap-1.5 px-5 py-3.5">
+                <span
+                  className="text-[10px] font-semibold tracking-widest uppercase"
+                  style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                >
+                  Stability
+                </span>
+                <select
+                  value={record.canonStability ?? ""}
+                  onChange={e => patchMutation.mutate({ canon_stability: e.target.value || null })}
+                  className="text-sm font-semibold bg-transparent border-none outline-none cursor-pointer"
+                  style={{
+                    color: csMeta ? csMeta.color : "#D1D5DB",
+                    fontFamily: "'Instrument Sans', sans-serif",
+                  }}
+                >
+                  <option value="">— not set —</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+                <p className="text-[10px]" style={{ color: "#9CA3AF" }}>
+                  {csMeta?.label === "Low" && "Provisional — may be retconned"}
+                  {csMeta?.label === "Medium" && "Settled but could evolve"}
+                  {csMeta?.label === "High" && "Load-bearing — treat as fixed"}
+                  {!csMeta && "How likely this is to change"}
+                </p>
+              </div>
             </div>
 
             {/* ═══ EMOTIONAL REGISTER / SENSORY CLAUSES ══════════════════

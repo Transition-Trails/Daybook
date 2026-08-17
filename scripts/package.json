@@ -13,6 +13,7 @@
     "patch-world-prod-spec-db": "tsx ./src/patch-world-prod-spec-db.ts",
     "migrate-style-guides-db-col": "tsx ./src/migrate-style-guides-db-col.ts",
     "migrate-canon-records-v2": "tsx ./src/migrate-canon-records-v2.ts",
+    "migrate-canon-records-v3": "tsx ./src/migrate-canon-records-v3.ts",
     "seed-recipes": "tsx ./src/seed-recipes.ts",
     "migrate-themes": "tsx ./src/migrate-themes.ts",
     "migrate-notebooks": "tsx ./src/migrate-notebooks.ts",

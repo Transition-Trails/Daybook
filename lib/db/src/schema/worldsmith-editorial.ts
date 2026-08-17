@@ -67,6 +67,13 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   sensoryClauses: text("sensory_clauses").notNull().default(""),
   // Stops transitive cascade overwriting this record's register
   registerLocked: boolean("register_locked").notNull().default(false),
+  // Authorial-metadata fields (Step 3)
+  // background | hinted | explicit — how directly this fact surfaces in prose
+  narrativeVisibility: text("narrative_visibility"),
+  // Free-text era / phase tag, e.g. "Victorian era", "Volume I only", "Eternal"
+  temporalScope: text("temporal_scope"),
+  // low | medium | high — likelihood of this record being retconned
+  canonStability: text("canon_stability"),
   // How many production specs reference this record (denormalised for the Canon Board)
   specRefCount: integer("spec_ref_count").notNull().default(0),
   notionPageId: text("notion_page_id"),

@@ -511,17 +511,18 @@ function canonFilterKey(worldId: string) {
   return `canon-filters-${worldId}`;
 }
 
-function loadLibraryFilters(worldId: string): { type: string; status: string } {
+function loadLibraryFilters(worldId: string): { type: string; status: string; search: string } {
   try {
     const raw = sessionStorage.getItem(canonFilterKey(worldId));
-    if (!raw) return { type: "all", status: "all" };
+    if (!raw) return { type: "all", status: "all", search: "" };
     const parsed = JSON.parse(raw);
     return {
       type:   typeof parsed.type   === "string" ? parsed.type   : "all",
       status: typeof parsed.status === "string" ? parsed.status : "all",
+      search: typeof parsed.search === "string" ? parsed.search : "",
     };
   } catch {
-    return { type: "all", status: "all" };
+    return { type: "all", status: "all", search: "" };
   }
 }
 
@@ -529,11 +530,11 @@ function loadLibraryFilters(worldId: string): { type: string; status: string } {
  * Merges type + status back into the stored entry so the detail view's
  * visibility / stability values are not overwritten.
  */
-function saveLibraryFilters(worldId: string, type: string, status: string) {
+function saveLibraryFilters(worldId: string, type: string, status: string, search: string) {
   try {
     const existing = sessionStorage.getItem(canonFilterKey(worldId));
     const base = existing ? JSON.parse(existing) : {};
-    sessionStorage.setItem(canonFilterKey(worldId), JSON.stringify({ ...base, type, status }));
+    sessionStorage.setItem(canonFilterKey(worldId), JSON.stringify({ ...base, type, status, search }));
   } catch { /* storage full or unavailable — silently skip */ }
 }
 
@@ -555,8 +556,8 @@ export default function CanonLibrary() {
   // or persist prematurely (same guard pattern as WorldsmithCanon).
   const [hydratedWorldId, setHydratedWorldId] = useState<string | null>(null);
 
-  // Hydrate type + status from sessionStorage when selectedWorldId resolves
-  // or changes.  Runs before the persist effect thanks to state sequencing.
+  // Hydrate type + status + search from sessionStorage when selectedWorldId
+  // resolves or changes.  Runs before the persist effect thanks to state sequencing.
   useEffect(() => {
     if (!selectedWorldId || selectedWorldId === hydratedWorldId) return;
     const saved = loadLibraryFilters(selectedWorldId);
@@ -568,14 +569,15 @@ export default function CanonLibrary() {
       STATUS_OPTIONS.some(s => s.key === saved.status) ? saved.status : "all";
     setActiveType(validType);
     setActiveStatus(validStatus);
+    setSearch(saved.search);
     setHydratedWorldId(selectedWorldId);
   }, [selectedWorldId, hydratedWorldId]);
 
-  // Persist type + status whenever they change — only after hydration.
+  // Persist type + status + search whenever they change — only after hydration.
   useEffect(() => {
     if (!selectedWorldId || selectedWorldId !== hydratedWorldId) return;
-    saveLibraryFilters(selectedWorldId, activeType, activeStatus);
-  }, [selectedWorldId, hydratedWorldId, activeType, activeStatus]);
+    saveLibraryFilters(selectedWorldId, activeType, activeStatus, search);
+  }, [selectedWorldId, hydratedWorldId, activeType, activeStatus, search]);
 
   // Selection (table mode)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());

@@ -294,6 +294,39 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
+// ── Filter persistence helpers ────────────────────────────────────────────────
+function canonFilterKey(worldId: string) {
+  return `canon-filters-${worldId}`;
+}
+
+interface PersistedFilters {
+  visibility: string | null;
+  stability: string | null;
+  type: string | null;
+}
+
+function loadPersistedFilters(worldId: string): PersistedFilters {
+  try {
+    const raw = sessionStorage.getItem(canonFilterKey(worldId));
+    if (!raw) return { visibility: null, stability: null, type: null };
+    const parsed = JSON.parse(raw);
+    return {
+      visibility: typeof parsed.visibility === "string" ? parsed.visibility : null,
+      stability:  typeof parsed.stability  === "string" ? parsed.stability  : null,
+      type:       typeof parsed.type       === "string" ? parsed.type       : null,
+    };
+  } catch {
+    return { visibility: null, stability: null, type: null };
+  }
+}
+
+function savePersistedFilters(worldId: string, filters: PersistedFilters) {
+  try {
+    sessionStorage.setItem(canonFilterKey(worldId), JSON.stringify(filters));
+  } catch { /* storage full or unavailable — silently skip */ }
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -301,9 +334,14 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const { worlds, selectedWorldId, setSelectedWorldId } = useEditorial();
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // ── Filter state: starts null; hydrated once authoritative worldId is known ─
   const [filterVisibility, setFilterVisibility] = useState<string | null>(null);
   const [filterStability, setFilterStability] = useState<string | null>(null);
-  const [filterType, setFilterType] = useState<string | null>(null);
+  const [filterType, setFilterType]            = useState<string | null>(null);
+  // Tracks which worldId the current filter values were loaded from.
+  // null means "not yet hydrated" — saves are blocked until this matches worldId.
+  const [hydratedWorldId, setHydratedWorldId] = useState<string | null>(null);
 
   const world = worlds.find(w => w.id === selectedWorldId) ?? worlds[0] ?? null;
 
@@ -316,6 +354,7 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const record = recordData?.canon_record ?? null;
 
   // ── Load record list for rail (all records for the selected world) ─────────
+  // The record's own worldId is authoritative once loaded; fall back to context.
   const worldId = record?.worldId ?? selectedWorldId ?? "";
   const { data: listData } = useQuery<{ canon_records: CanonListItem[] }>({
     queryKey: ["editorial-canon-library", worldId],
@@ -331,6 +370,30 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     if (filterType && r.canonType !== filterType) return false;
     return true;
   });
+
+  // ── Hydrate filters from sessionStorage when authoritative worldId is known ─
+  // Fires when worldId resolves (e.g. record load, context switch) and hasn't
+  // been hydrated for this worldId yet.  Runs before any persistence effect.
+  useEffect(() => {
+    if (!worldId || worldId === hydratedWorldId) return;
+    const saved = loadPersistedFilters(worldId);
+    setFilterVisibility(saved.visibility);
+    setFilterStability(saved.stability);
+    setFilterType(saved.type);
+    setHydratedWorldId(worldId);
+  }, [worldId, hydratedWorldId]);
+
+  // ── Persist filters to sessionStorage — only after hydration is complete ───
+  // Gating on hydratedWorldId === worldId prevents overwriting stored state
+  // with the initial null defaults before the load effect above has run.
+  useEffect(() => {
+    if (!worldId || worldId !== hydratedWorldId) return;
+    savePersistedFilters(worldId, {
+      visibility: filterVisibility,
+      stability:  filterStability,
+      type:       filterType,
+    });
+  }, [worldId, hydratedWorldId, filterVisibility, filterStability, filterType]);
 
   // ── Load linked specs ──────────────────────────────────────────────────────
   const { data: specsData } = useQuery<{ specs: LinkedSpec[] }>({
@@ -513,8 +576,8 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
             value={selectedWorldId ?? ""}
             onChange={e => {
               setSelectedWorldId(e.target.value);
-              setFilterVisibility(null);
-              setFilterStability(null);
+              // Hydration effect re-fires when worldId changes, so no manual
+              // filter manipulation needed here.
             }}
             className="text-sm font-semibold focus:outline-none bg-transparent border-none cursor-pointer"
             style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}

@@ -586,7 +586,9 @@ function FocusedWorldView({
       </div>
 
       {/* Section content */}
-      {activeSection === "overview" && (
+      {/* Each tab is always mounted so form state survives tab switches */}
+
+      <div style={{ display: activeSection === "overview" ? undefined : "none" }}>
         <OverviewSection
           world={world}
           assets={worldAssets}
@@ -594,9 +596,9 @@ function FocusedWorldView({
           runsLoading={runsLoading}
           onGoToSettings={goToSettings}
         />
-      )}
+      </div>
 
-      {activeSection === "production" && (
+      <div style={{ display: activeSection === "production" ? undefined : "none" }}>
         <div className="rounded-xl border border-border bg-card">
           {runsLoading ? (
             <div className="p-10 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
@@ -617,9 +619,9 @@ function FocusedWorldView({
             </div>
           )}
         </div>
-      )}
+      </div>
 
-      {activeSection === "review" && (
+      <div style={{ display: activeSection === "review" ? undefined : "none" }}>
         <div className="rounded-xl border border-border bg-card">
           {reviewQueue.length === 0 ? (
             <div className="p-10 text-center">
@@ -632,16 +634,19 @@ function FocusedWorldView({
             </div>
           )}
         </div>
-      )}
+      </div>
 
-      {activeSection === "integrations" && (
+      {/* IntegrationsSection must stay mounted so its form state survives tab switches.
+          Unmounting and remounting it (conditional render) resets useState to world prop,
+          discarding any unsaved edits the user had in progress. */}
+      <div style={{ display: activeSection === "integrations" ? undefined : "none" }}>
         <IntegrationsSection
           world={world}
           integrations={integrations}
           defaultEditing={openSettingsEditing}
           onDefaultEditingConsumed={clearOpenSettingsEditing}
         />
-      )}
+      </div>
     </div>
   );
 }

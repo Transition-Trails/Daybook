@@ -796,6 +796,7 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
     status?: string;
     currentCollection?: string | null;
     currentVolume?: string | null;
+    worldRules?: string[] | null;
   };
 
   // Build a patch object with only the keys the caller supplied
@@ -822,6 +823,16 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
   }
   if ("currentVolume" in body) {
     patch.currentVolume = body.currentVolume?.trim() || null;
+  }
+  if ("worldRules" in body) {
+    if (!Array.isArray(body.worldRules) && body.worldRules !== null) {
+      res.status(400).json({ error: "worldRules must be an array of strings or null", code: "INVALID_WORLD_RULES" });
+      return;
+    }
+    // Sanitise: trim each rule and drop blank entries
+    patch.worldRules = body.worldRules
+      ? body.worldRules.map((r: string) => r.trim()).filter(Boolean)
+      : [];
   }
 
   if (Object.keys(patch).length === 0) {

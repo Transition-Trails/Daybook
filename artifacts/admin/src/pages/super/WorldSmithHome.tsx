@@ -32,6 +32,7 @@ export interface WsWorld {
   notionCanonDbId?: string | null;
   driveFolderId?: string | null;
   imageProvider?: string | null;
+  worldRules?: string[] | null;
   createdAt: string;
   updatedAt: string;
   // Computed fields from the server
@@ -82,7 +83,7 @@ const wsApi = {
   worlds: () => apiFetch<{ worlds: WsWorld[] }>("/v1/worldsmith/worlds"),
   createWorld: (body: Partial<WsWorld>) =>
     apiFetch<WsWorld>("/v1/worldsmith/worlds", { method: "POST", body: JSON.stringify(body) }),
-  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume">>) =>
+  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume" | "worldRules">>) =>
     apiFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
   runs: (worldId?: string) =>
     apiFetch<{ runs: WsRun[] }>(`/v1/worldsmith/runs${worldId ? `?world_id=${encodeURIComponent(worldId)}` : ""}`),
@@ -796,7 +797,9 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
     status: world.status,
     currentCollection: world.currentCollection ?? "",
     currentVolume: world.currentVolume ?? "",
+    worldRules: world.worldRules ?? [] as string[],
   });
+  const [newRule, setNewRule] = useState("");
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -808,6 +811,7 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
         status: form.status as WsWorld["status"],
         currentCollection: form.currentCollection.trim() || null,
         currentVolume: form.currentVolume.trim() || null,
+        worldRules: form.worldRules,
       }),
     onSuccess: () => {
       toast({ title: "Settings saved", description: `${world.name} has been updated.` });
@@ -984,12 +988,72 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
                 />
               </div>
             </div>
+
+            {/* World Rules list editor */}
+            <div>
+              <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                World Rules
+              </label>
+              <p className="text-[10px] text-muted-foreground mb-2">
+                Authorial constraints injected into every prompt for this world (e.g. "Never name the protagonist directly").
+              </p>
+              <div className="space-y-1.5 mb-2">
+                {form.worldRules.map((rule, idx) => (
+                  <div key={idx} className="flex items-start gap-2">
+                    <input
+                      value={rule}
+                      onChange={e => {
+                        const next = [...form.worldRules];
+                        next[idx] = e.target.value;
+                        setForm(f => ({ ...f, worldRules: next }));
+                      }}
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, worldRules: f.worldRules.filter((_, i) => i !== idx) }))}
+                      className="mt-0.5 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      title="Remove rule"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  value={newRule}
+                  onChange={e => setNewRule(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && newRule.trim()) {
+                      e.preventDefault();
+                      setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
+                      setNewRule("");
+                    }
+                  }}
+                  placeholder="Add a rule and press Enter…"
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-dashed border-border bg-background text-sm outline-none focus:border-foreground/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newRule.trim()) return;
+                    setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
+                    setNewRule("");
+                  }}
+                  className="px-3 py-1.5 rounded-lg border border-border text-[11.5px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">
             <button
               onClick={() => {
                 setEditing(false);
+                setNewRule("");
                 setForm({
                   notionProductionDbId: world.notionProductionDbId ?? "",
                   notionCanonDbId: world.notionCanonDbId ?? "",
@@ -998,6 +1062,7 @@ function IntegrationsSection({ world, integrations }: { world: WsWorld; integrat
                   status: world.status,
                   currentCollection: world.currentCollection ?? "",
                   currentVolume: world.currentVolume ?? "",
+                  worldRules: world.worldRules ?? [],
                 });
               }}
               disabled={saveMutation.isPending}

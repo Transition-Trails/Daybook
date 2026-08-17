@@ -16,7 +16,7 @@ import {
   Loader2, AlertCircle, ExternalLink, Lock, Unlock,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
   ChevronRight, FileText, Trash2, X, ArrowLeft, Share2, Eye, EyeOff,
-  GitBranch, Repeat2,
+  GitBranch, Repeat2, Plus, Link2, AlertTriangle, ChevronDown,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -134,8 +134,15 @@ interface LinkedSpec {
   status: string;
 }
 
-// ── Small utilities ───────────────────────────────────────────────────────────
-
+interface CanonRelation {
+  fromRecordId: string;
+  toRecordId: string;
+  relationType: string | null;
+  createdAt: string;
+  targetName: string;
+  targetCanonType: string | null;
+  targetStatus: string;
+}
 /** Deterministic 3-digit display ID from UUID.
  *  Uses the canon-type prefix when available (e.g. REL-001, MTF-002),
  *  falling back to the world code otherwise. */
@@ -443,6 +450,75 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     },
     onError: () => { toast({ title: "Delete failed", variant: "destructive" }); setShowDeleteConfirm(false); },
   });
+
+  // ── Relations ─────────────────────────────────────────────────────────────
+  const { data: relationsData, isLoading: relLoading } = useQuery<{ relations: CanonRelation[] }>({
+    queryKey: ["editorial-canon-record-relations", recordId],
+    queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/relations`),
+    enabled: !!record,
+    staleTime: 30_000,
+  });
+  const relations: CanonRelation[] = relationsData?.relations ?? [];
+
+  const { data: inboundRelData } = useQuery<{ inbound_relations: InboundRelation[] }>({
+    queryKey: ["editorial-canon-record-inbound-relations", recordId],
+    queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/inbound-relations`),
+    enabled: !!record,
+    staleTime: 30_000,
+  });
+  const inboundRelations: InboundRelation[] = inboundRelData?.inbound_relations ?? [];
+  const contradictionsIn = inboundRelations.filter(r => r.relationType === "contradicts");
+
+  // Add-relation panel state
+  const [showAddRel, setShowAddRel] = useState(false);
+  const [addRelSearch, setAddRelSearch] = useState("");
+  const [addRelType, setAddRelType] = useState<RelationTypeKey>("related");
+
+  const addRelMutation = useMutation({
+    mutationFn: ({ toId, type }: { toId: string; type: string }) =>
+      apiFetch(`/v1/editorial/canon-records/${recordId}/relations`, {
+        method: "POST",
+        body: JSON.stringify({ to_record_id: toId, relation_type: type }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] });
+      qc.invalidateQueries({ queryKey: ["editorial-canon-record-inbound-relations"] });
+      setShowAddRel(false);
+      setAddRelSearch("");
+      setAddRelType("related");
+    },
+    onError: () => toast({ title: "Failed to add relation", variant: "destructive" }),
+  });
+
+  const patchRelTypeMutation = useMutation({
+    mutationFn: ({ toId, type }: { toId: string; type: string }) =>
+      apiFetch(`/v1/editorial/canon-records/${recordId}/relations/${toId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ relation_type: type }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] });
+      qc.invalidateQueries({ queryKey: ["editorial-canon-record-inbound-relations"] });
+    },
+    onError: () => toast({ title: "Failed to update relation type", variant: "destructive" }),
+  });
+
+  const removeRelMutation = useMutation({
+    mutationFn: (toId: string) =>
+      apiFetch(`/v1/editorial/canon-records/${recordId}/relations/${toId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] });
+      qc.invalidateQueries({ queryKey: ["editorial-canon-record-inbound-relations"] });
+    },
+    onError: () => toast({ title: "Failed to remove relation", variant: "destructive" }),
+  });
+
+  // Filtered candidates for the add-relation search
+  const addRelCandidates = allRecords.filter(r =>
+    r.id !== recordId &&
+    !relations.some(rel => rel.toRecordId === r.id) &&
+    (addRelSearch.trim() === "" || r.name.toLowerCase().includes(addRelSearch.toLowerCase()))
+  ).slice(0, 8);
 
   // ── Cascade register mutation ──────────────────────────────────────────────
   const [cascadeResult, setCascadeResult] = useState<{ updated: number; skipped_locked: number } | null>(null);
@@ -1388,6 +1464,211 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
             </div>
 
             {/* Related Canon ───────────────────────────────────────────── */}
+            <div className="mb-6">
+              <div
+                className="rounded-xl overflow-hidden"
+                style={{ border: `1px solid ${WARM_BORDER}` }}
+              >
+                {/* Header */}
+                <div
+                  className="flex items-center justify-between px-5 py-3"
+                  style={{
+                    background: PARCHMENT,
+                    borderBottom: relations.length > 0 || showAddRel ? `1px solid ${WARM_BORDER}` : undefined,
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Link2 className="w-3.5 h-3.5" style={{ color: "#9CA3AF" }} />
+                    <span
+                      className="text-[10px] font-semibold tracking-widest uppercase"
+                      style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                    >
+                      Related Canon
+                    </span>
+                    {relations.length > 0 && (
+                      <span
+                        className="text-[10px] font-mono px-1.5 py-0.5 rounded tabular-nums"
+                        style={{ background: WARM_BORDER, color: INK }}
+                      >
+                        {relations.length}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setShowAddRel(v => !v)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      color: showAddRel ? CLAY : "#9CA3AF",
+                      background: showAddRel ? `${CLAY}12` : "transparent",
+                      fontFamily: "'Instrument Sans', sans-serif",
+                    }}
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add
+                  </button>
+                </div>
+
+                {/* Existing relation chips */}
+                {(relations.length > 0 || relLoading) && (
+                  <div className="px-5 py-3 flex flex-col gap-2" style={{ background: WARM_WHITE }}>
+                    {relLoading && (
+                      <div className="flex items-center gap-2 text-xs" style={{ color: "#9CA3AF" }}>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Loading…
+                      </div>
+                    )}
+                    {relations.map(rel => {
+                      const rtm = relTypeMeta(rel.relationType);
+                      const ttype = CANON_TYPES.find(t => t.key === rel.targetCanonType);
+                      return (
+                        <div
+                          key={rel.toRecordId}
+                          className="flex items-center gap-2 group"
+                        >
+                          {/* Type badge (dropdown) */}
+                          <div className="relative">
+                            <select
+                              value={rel.relationType ?? "related"}
+                              onChange={e =>
+                                patchRelTypeMutation.mutate({ toId: rel.toRecordId, type: e.target.value })
+                              }
+                              className="appearance-none text-[11px] font-semibold px-2.5 py-1 rounded-full cursor-pointer focus:outline-none transition-colors pr-5"
+                              style={{
+                                background: rtm.bg,
+                                color: rtm.color,
+                                border: `1px solid ${rtm.color}30`,
+                                fontFamily: "'Instrument Sans', sans-serif",
+                              }}
+                              disabled={patchRelTypeMutation.isPending}
+                            >
+                              {RELATION_TYPES.map(rt => (
+                                <option key={rt.key} value={rt.key}>{rt.label}</option>
+                              ))}
+                            </select>
+                            <ChevronDown
+                              className="absolute right-1.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 pointer-events-none"
+                              style={{ color: rtm.color }}
+                            />
+                          </div>
+
+                          {/* Target chip */}
+                          <div
+                            className="flex-1 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium min-w-0"
+                            style={{
+                              background: "#F9FAFB",
+                              border: `1px solid ${WARM_BORDER}`,
+                              color: INK,
+                              fontFamily: "'Instrument Sans', sans-serif",
+                            }}
+                          >
+                            {ttype && <ttype.Icon className="w-3 h-3 shrink-0" style={{ color: ttype.color }} />}
+                            <span className="truncate">{rel.targetName}</span>
+                          </div>
+
+                          {/* Remove */}
+                          <button
+                            onClick={() => removeRelMutation.mutate(rel.toRecordId)}
+                            disabled={removeRelMutation.isPending}
+                            className="shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-40"
+                            style={{ color: "#9CA3AF" }}
+                            title="Remove relation"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Add relation panel */}
+                {showAddRel && (
+                  <div
+                    className="px-5 py-4 flex flex-col gap-3"
+                    style={{
+                      background: "#FDFAF7",
+                      borderTop: relations.length > 0 ? `1px solid ${WARM_BORDER}` : undefined,
+                    }}
+                  >
+                    {/* Type selector */}
+                    <div className="flex gap-1.5 flex-wrap">
+                      {RELATION_TYPES.map(rt => (
+                        <button
+                          key={rt.key}
+                          onClick={() => setAddRelType(rt.key)}
+                          className="px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all"
+                          style={
+                            addRelType === rt.key
+                              ? { background: rt.bg, color: rt.color, border: `1px solid ${rt.color}40` }
+                              : { background: "transparent", color: "#9CA3AF", border: "1px solid #E5E7EB" }
+                          }
+                        >
+                          {rt.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Search */}
+                    <input
+                      value={addRelSearch}
+                      onChange={e => setAddRelSearch(e.target.value)}
+                      placeholder="Search canon records…"
+                      autoFocus
+                      className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none"
+                      style={{
+                        border: `1px solid ${WARM_BORDER}`,
+                        background: "white",
+                        color: INK,
+                        fontFamily: "'Instrument Sans', sans-serif",
+                      }}
+                    />
+
+                    {/* Candidates */}
+                    {addRelCandidates.length > 0 ? (
+                      <div
+                        className="rounded-lg overflow-hidden"
+                        style={{ border: `1px solid ${WARM_BORDER}` }}
+                      >
+                        {addRelCandidates.map(r => {
+                          const ttype = CANON_TYPES.find(t => t.key === r.canonType);
+                          return (
+                            <button
+                              key={r.id}
+                              onClick={() => addRelMutation.mutate({ toId: r.id, type: addRelType })}
+                              disabled={addRelMutation.isPending}
+                              className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-left transition-colors hover:bg-gray-50 disabled:opacity-50"
+                              style={{
+                                color: INK,
+                                borderBottom: `1px solid ${WARM_BORDER}`,
+                                fontFamily: "'Instrument Sans', sans-serif",
+                              }}
+                            >
+                              {ttype && <ttype.Icon className="w-3 h-3 shrink-0" style={{ color: ttype.color }} />}
+                              <span className="flex-1 truncate font-medium">{r.name}</span>
+                              {addRelMutation.isPending
+                                ? <Loader2 className="w-3 h-3 animate-spin shrink-0 opacity-40" />
+                                : <Plus className="w-3 h-3 shrink-0 opacity-30" />
+                              }
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p
+                        className="text-xs text-center py-2"
+                        style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
+                      >
+                        {addRelSearch.trim()
+                          ? "No matching records"
+                          : allRecords.length <= 1 ? "No other records in this world yet" : "Type to search…"}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Linked Specs ────────────────────────────────────────────── */}
             {linkedSpecs.length > 0 && (
               <div className="mb-6">
                 <div
@@ -1653,6 +1934,29 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
           >
             <SectionLabel>Register Cascade</SectionLabel>
 
+            {/* Contradiction warning — shown when other records declare contradicts→this */}
+            {contradictionsIn.length > 0 && (
+              <div
+                className="flex items-start gap-2 rounded-lg px-3 py-2.5 mb-3 text-xs"
+                style={{
+                  background: "#FEF2F2",
+                  border: "1px solid #FECACA",
+                  color: "#9B1C1C",
+                  fontFamily: "'Instrument Sans', sans-serif",
+                }}
+              >
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold mb-0.5">
+                    {contradictionsIn.length} contradiction{contradictionsIn.length !== 1 ? "s" : ""} point here
+                  </p>
+                  <p className="opacity-70 leading-snug">
+                    {contradictionsIn.map(r => r.sourceName).join(", ")} — review before compiling
+                  </p>
+                </div>
+              </div>
+            )}
+
             {record.emotionalRegister ? (
               <div className="flex flex-col gap-2">
                 <p
@@ -1831,3 +2135,27 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     </div>
   );
 }
+
+function relTypeMeta(key: string | null | undefined) {
+  return RELATION_TYPES.find(r => r.key === key) ?? RELATION_TYPES[0];
+}
+
+type RelationTypeKey = typeof RELATION_TYPES[number]["key"];
+
+interface InboundRelation {
+  fromRecordId: string;
+  toRecordId: string;
+  relationType: string | null;
+  createdAt: string;
+  sourceName: string;
+  sourceCanonType: string | null;
+  sourceStatus: string;
+}
+
+const RELATION_TYPES = [
+  { key: "related",     label: "Related",     color: "#6B7280", bg: "#F3F4F6" },
+  { key: "supports",    label: "Supports",    color: "#065F46", bg: "#D1FAE5" },
+  { key: "contradicts", label: "Contradicts", color: "#9B1C1C", bg: "#FEE2E2" },
+  { key: "precedes",    label: "Precedes",    color: "#1D4ED8", bg: "#DBEAFE" },
+  { key: "follows",     label: "Follows",     color: "#4338CA", bg: "#EEF2FF" },
+] as const;

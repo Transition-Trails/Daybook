@@ -623,18 +623,12 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
     // pendingRelations collected { fromNotionId, toNotionIds } for every page
     // that had a "Related Canon" / "Related Records" property.
     //
-    // Strategy: delete all existing outgoing edges for synced records first,
-    // then batch-insert fresh edges — ensures stale links are cleared.
+    // Strategy: differential sync — load existing edges first, then:
+    //   1. Delete edges that Notion no longer lists (stale links cleared).
+    //   2. Insert only brand-new edges as "related".
+    //   3. Leave existing edges untouched → manually-set relation types (e.g.
+    //      "contradicts", "precedes") survive re-syncs unmodified.
     const syncedLocalIds = [...notionIdToLocalId.values()];
-    if (syncedLocalIds.length > 0) {
-      await db
-        .delete(wsCanonRecordRelationsTable)
-        .where(
-          sql`${wsCanonRecordRelationsTable.fromRecordId} = ANY(${sql.raw(
-            `ARRAY[${syncedLocalIds.map(id => `'${id.replace(/'/g, "''")}'`).join(",")}]`,
-          )})`,
-        );
-    }
 
     const edgePairs: Array<{ fromRecordId: string; toRecordId: string; relationType: string }> = [];
     for (const { fromNotionId, toNotionIds } of pendingRelations) {
@@ -652,8 +646,49 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
       }
     }
 
-    if (edgePairs.length > 0) {
-      await db.insert(wsCanonRecordRelationsTable).values(edgePairs).onConflictDoNothing();
+    // Build the set of (from|to) pairs Notion currently defines.
+    const notionPairKey = (from: string, to: string) => `${from}|${to}`;
+    const notionPairSet = new Set(edgePairs.map(e => notionPairKey(e.fromRecordId, e.toRecordId)));
+
+    if (syncedLocalIds.length > 0) {
+      // Load all current outgoing edges for synced records in one query.
+      const existingEdges = await db
+        .select({
+          fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
+          toRecordId: wsCanonRecordRelationsTable.toRecordId,
+        })
+        .from(wsCanonRecordRelationsTable)
+        .where(
+          sql`${wsCanonRecordRelationsTable.fromRecordId} = ANY(${sql.raw(
+            `ARRAY[${syncedLocalIds.map(id => `'${id.replace(/'/g, "''")}'`).join(",")}]`,
+          )})`,
+        );
+
+      // Delete edges that Notion no longer includes (stale links).
+      const staleEdges = existingEdges.filter(
+        e => !notionPairSet.has(notionPairKey(e.fromRecordId, e.toRecordId)),
+      );
+      for (const stale of staleEdges) {
+        await db
+          .delete(wsCanonRecordRelationsTable)
+          .where(
+            and(
+              eq(wsCanonRecordRelationsTable.fromRecordId, stale.fromRecordId),
+              eq(wsCanonRecordRelationsTable.toRecordId, stale.toRecordId),
+            ),
+          );
+      }
+
+      // Insert only brand-new edges (not already present).
+      const existingPairSet = new Set(
+        existingEdges.map(e => notionPairKey(e.fromRecordId, e.toRecordId)),
+      );
+      const newEdges = edgePairs.filter(
+        e => !existingPairSet.has(notionPairKey(e.fromRecordId, e.toRecordId)),
+      );
+      if (newEdges.length > 0) {
+        await db.insert(wsCanonRecordRelationsTable).values(newEdges).onConflictDoNothing();
+      }
     }
 
     const relationsWritten = edgePairs.length;
@@ -1008,6 +1043,211 @@ router.get("/v1/editorial/canon-records/:id/specs", async (req: Request, res: Re
     res.json({ specs });
   } catch (err) {
     logger.error({ err }, "editorial: canon record specs");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Canon Records — relation edges (GET/POST/PATCH/DELETE) ────────────────────
+
+const VALID_RELATION_TYPES = ["related", "supports", "contradicts", "precedes", "follows"] as const;
+type RelationType = typeof VALID_RELATION_TYPES[number];
+
+/**
+ * GET /v1/editorial/canon-records/:id/relations
+ * Returns outgoing relation edges for a record, with target name + canonType enriched.
+ */
+router.get("/v1/editorial/canon-records/:id/relations", async (req: Request, res: Response) => {
+  const recordId = req.params.id as string;
+  try {
+    const edges = await db
+      .select({
+        fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
+        toRecordId: wsCanonRecordRelationsTable.toRecordId,
+        relationType: wsCanonRecordRelationsTable.relationType,
+        createdAt: wsCanonRecordRelationsTable.createdAt,
+        targetName: wsCanonRecordsTable.name,
+        targetCanonType: wsCanonRecordsTable.canonType,
+        targetStatus: wsCanonRecordsTable.status,
+      })
+      .from(wsCanonRecordRelationsTable)
+      .innerJoin(wsCanonRecordsTable, eq(wsCanonRecordRelationsTable.toRecordId, wsCanonRecordsTable.id))
+      .where(eq(wsCanonRecordRelationsTable.fromRecordId, recordId))
+      .orderBy(wsCanonRecordRelationsTable.createdAt);
+
+    res.json({ relations: edges });
+  } catch (err) {
+    logger.error({ err }, "editorial: list canon record relations");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /v1/editorial/canon-records/:id/inbound-relations
+ * Returns edges pointing AT this record, enriched with source name + canonType.
+ * Useful for detecting `contradicts` edges from other records.
+ */
+router.get("/v1/editorial/canon-records/:id/inbound-relations", async (req: Request, res: Response) => {
+  const recordId = req.params.id as string;
+  try {
+    // alias for the source (from) record
+    const fromAlias = wsCanonRecordsTable;
+
+    const edges = await db
+      .select({
+        fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
+        toRecordId: wsCanonRecordRelationsTable.toRecordId,
+        relationType: wsCanonRecordRelationsTable.relationType,
+        createdAt: wsCanonRecordRelationsTable.createdAt,
+        sourceName: fromAlias.name,
+        sourceCanonType: fromAlias.canonType,
+        sourceStatus: fromAlias.status,
+      })
+      .from(wsCanonRecordRelationsTable)
+      .innerJoin(fromAlias, eq(wsCanonRecordRelationsTable.fromRecordId, fromAlias.id))
+      .where(eq(wsCanonRecordRelationsTable.toRecordId, recordId))
+      .orderBy(wsCanonRecordRelationsTable.createdAt);
+
+    res.json({ inbound_relations: edges });
+  } catch (err) {
+    logger.error({ err }, "editorial: list inbound canon record relations");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /v1/editorial/canon-records/:id/relations
+ * Body: { to_record_id: string; relation_type?: RelationType }
+ * Upserts an edge — if it already exists, updates the relation_type.
+ */
+router.post("/v1/editorial/canon-records/:id/relations", async (req: Request, res: Response) => {
+  const fromRecordId = req.params.id as string;
+  const { to_record_id, relation_type = "related" } = req.body as {
+    to_record_id?: string;
+    relation_type?: string;
+  };
+
+  if (!to_record_id?.trim()) {
+    res.status(400).json({ error: "to_record_id is required" });
+    return;
+  }
+  if (fromRecordId === to_record_id) {
+    res.status(400).json({ error: "Cannot link a record to itself" });
+    return;
+  }
+  if (!VALID_RELATION_TYPES.includes(relation_type as RelationType)) {
+    res.status(400).json({
+      error: `Invalid relation_type. Must be one of: ${VALID_RELATION_TYPES.join(", ")}`,
+    });
+    return;
+  }
+
+  try {
+    // Verify both records exist
+    const [from, to] = await Promise.all([
+      db.select({ id: wsCanonRecordsTable.id }).from(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.id, fromRecordId)).limit(1),
+      db.select({ id: wsCanonRecordsTable.id }).from(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.id, to_record_id)).limit(1),
+    ]);
+    if (!from[0]) { res.status(404).json({ error: "Source canon record not found" }); return; }
+    if (!to[0]) { res.status(404).json({ error: "Target canon record not found" }); return; }
+
+    // Upsert: insert or update relation_type on conflict
+    await db
+      .insert(wsCanonRecordRelationsTable)
+      .values({ fromRecordId, toRecordId: to_record_id, relationType: relation_type })
+      .onConflictDoUpdate({
+        target: [wsCanonRecordRelationsTable.fromRecordId, wsCanonRecordRelationsTable.toRecordId],
+        set: { relationType: relation_type },
+      });
+
+    // Return the updated edge with target info
+    const [edge] = await db
+      .select({
+        fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
+        toRecordId: wsCanonRecordRelationsTable.toRecordId,
+        relationType: wsCanonRecordRelationsTable.relationType,
+        createdAt: wsCanonRecordRelationsTable.createdAt,
+        targetName: wsCanonRecordsTable.name,
+        targetCanonType: wsCanonRecordsTable.canonType,
+        targetStatus: wsCanonRecordsTable.status,
+      })
+      .from(wsCanonRecordRelationsTable)
+      .innerJoin(wsCanonRecordsTable, eq(wsCanonRecordRelationsTable.toRecordId, wsCanonRecordsTable.id))
+      .where(
+        and(
+          eq(wsCanonRecordRelationsTable.fromRecordId, fromRecordId),
+          eq(wsCanonRecordRelationsTable.toRecordId, to_record_id),
+        ),
+      )
+      .limit(1);
+
+    res.status(201).json({ relation: edge });
+  } catch (err) {
+    logger.error({ err }, "editorial: add canon record relation");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * PATCH /v1/editorial/canon-records/:id/relations/:toId
+ * Body: { relation_type: RelationType }
+ * Updates the semantic label on an existing edge.
+ */
+router.patch("/v1/editorial/canon-records/:id/relations/:toId", async (req: Request, res: Response) => {
+  const fromRecordId = req.params.id as string;
+  const toRecordId = req.params.toId as string;
+  const { relation_type } = req.body as { relation_type?: string };
+
+  if (!relation_type || !VALID_RELATION_TYPES.includes(relation_type as RelationType)) {
+    res.status(400).json({
+      error: `relation_type is required and must be one of: ${VALID_RELATION_TYPES.join(", ")}`,
+    });
+    return;
+  }
+
+  try {
+    const [updated] = await db
+      .update(wsCanonRecordRelationsTable)
+      .set({ relationType: relation_type })
+      .where(
+        and(
+          eq(wsCanonRecordRelationsTable.fromRecordId, fromRecordId),
+          eq(wsCanonRecordRelationsTable.toRecordId, toRecordId),
+        ),
+      )
+      .returning();
+
+    if (!updated) { res.status(404).json({ error: "Relation not found" }); return; }
+    res.json({ relation: updated });
+  } catch (err) {
+    logger.error({ err }, "editorial: patch canon record relation");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * DELETE /v1/editorial/canon-records/:id/relations/:toId
+ * Removes an outgoing edge.
+ */
+router.delete("/v1/editorial/canon-records/:id/relations/:toId", async (req: Request, res: Response) => {
+  const fromRecordId = req.params.id as string;
+  const toRecordId = req.params.toId as string;
+  try {
+    const [deleted] = await db
+      .delete(wsCanonRecordRelationsTable)
+      .where(
+        and(
+          eq(wsCanonRecordRelationsTable.fromRecordId, fromRecordId),
+          eq(wsCanonRecordRelationsTable.toRecordId, toRecordId),
+        ),
+      )
+      .returning();
+
+    if (!deleted) { res.status(404).json({ error: "Relation not found" }); return; }
+    res.json({ deleted: true });
+  } catch (err) {
+    logger.error({ err }, "editorial: delete canon record relation");
     res.status(500).json({ error: "Internal server error" });
   }
 });

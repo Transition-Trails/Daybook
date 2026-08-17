@@ -778,11 +778,11 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
       .returning();
     if (!row) { res.status(404).json({ error: "Canon record not found" }); return; }
 
-    // Write the three new fields back to Notion if this record is linked to a page
+    // Write updated fields back to Notion if this record is linked to a page.
+    // All Notion writes are non-fatal: local save already succeeded above.
     if (row.notionPageId) {
       const notionProps: Record<string, unknown> = {};
       if (emotional_register !== undefined) {
-        // null means clear the select; non-null sets it
         notionProps["Emotional register"] = emotional_register
           ? selectProp(emotional_register)
           : { select: null };
@@ -792,6 +792,19 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
       }
       if (register_locked !== undefined) {
         notionProps["Register locked"] = { checkbox: !!register_locked };
+      }
+      if (narrative_visibility !== undefined) {
+        notionProps["Narrative visibility"] = narrative_visibility
+          ? selectProp(narrative_visibility)
+          : { select: null };
+      }
+      if (temporal_scope !== undefined) {
+        notionProps["Temporal scope"] = richTextProp(temporal_scope ?? "");
+      }
+      if (canon_stability !== undefined) {
+        notionProps["Canon stability"] = canon_stability
+          ? selectProp(canon_stability)
+          : { select: null };
       }
       if (Object.keys(notionProps).length > 0) {
         try {

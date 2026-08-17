@@ -277,6 +277,7 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [filterVisibility, setFilterVisibility] = useState<string | null>(null);
   const [filterStability, setFilterStability] = useState<string | null>(null);
+  const [filterType, setFilterType] = useState<string | null>(null);
 
   const world = worlds.find(w => w.id === selectedWorldId) ?? worlds[0] ?? null;
 
@@ -301,6 +302,7 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const filteredRecords = allRecords.filter(r => {
     if (filterVisibility && r.narrativeVisibility !== filterVisibility) return false;
     if (filterStability && r.canonStability !== filterStability) return false;
+    if (filterType && r.canonType !== filterType) return false;
     return true;
   });
 
@@ -635,7 +637,7 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
               className="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded"
               style={{ background: PARCHMENT, color: INK }}
             >
-              {(filterVisibility || filterStability)
+              {(filterVisibility || filterStability || filterType)
                 ? `${filteredRecords.length}/${allRecords.length}`
                 : allRecords.length}
             </span>
@@ -1260,7 +1262,7 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
             </div>
 
             {/* Stability filter */}
-            <div>
+            <div className="mb-2">
               <p
                 className="text-[9px] font-semibold tracking-widest uppercase mb-1"
                 style={{ color: "#C9BEA8", fontFamily: "'Instrument Sans', sans-serif" }}
@@ -1293,6 +1295,37 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                         </span>
                       )}
                       {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Type filter */}
+            <div>
+              <p
+                className="text-[9px] font-semibold tracking-widest uppercase mb-1"
+                style={{ color: "#C9BEA8", fontFamily: "'Instrument Sans', sans-serif" }}
+              >
+                Type
+              </p>
+              <div className="flex gap-1 flex-wrap">
+                {CANON_TYPES.map(t => {
+                  const active = filterType === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      onClick={() => setFilterType(active ? null : t.key)}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all"
+                      style={{
+                        background: active ? t.color : "transparent",
+                        color: active ? "white" : "#9CA3AF",
+                        border: `1px solid ${active ? t.color : DASHED_BORDER}`,
+                        fontFamily: "'Instrument Sans', sans-serif",
+                      }}
+                    >
+                      <t.Icon style={{ width: 8, height: 8 }} />
+                      {t.label}
                     </button>
                   );
                 })}

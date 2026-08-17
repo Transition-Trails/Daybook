@@ -146,6 +146,7 @@ vi.mock("@workspace/db", () => {
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 
 import { runCompilation } from "../lib/worldsmith/orchestrator.js";
+import { updateRun } from "../lib/worldsmith/run-repository.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -509,5 +510,43 @@ describe("runCompilation — World Bible DB query throws: graceful degradation",
       "test-user",
     );
     expect(result.compiled_prompt).not.toContain("[WORLD RULES]");
+  });
+
+  it("records WORLD_BIBLE_FETCH_ERROR in the run via updateRun when DB throws", async () => {
+    await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    // At least one updateRun call must carry a warnings array containing
+    // WORLD_BIBLE_FETCH_ERROR — this is the immediate best-effort persist in
+    // the catch block so the warning survives even if a later stage fails.
+    const updateRunMock = vi.mocked(updateRun);
+    const callsWithBibleWarning = updateRunMock.mock.calls.filter(([, update]) =>
+      (update.warnings ?? []).some((w) => w.code === "WORLD_BIBLE_FETCH_ERROR"),
+    );
+    expect(callsWithBibleWarning.length).toBeGreaterThan(0);
+
+    // The warning must include the world name and a human-readable message.
+    const warning = callsWithBibleWarning[0][1].warnings!.find(
+      (w) => w.code === "WORLD_BIBLE_FETCH_ERROR",
+    )!;
+    expect(warning.message).toContain("Thornvale");
+    expect(warning.recommended_action).toBeTruthy();
+  });
+
+  it("compile response warnings include WORLD_BIBLE_FETCH_ERROR when DB throws", async () => {
+    const result = await runCompilation(
+      { notion_production_spec_id: SPEC_ID, operation: "validate_and_compile", dry_run: true },
+      "test-user",
+    );
+
+    // The final compile response's warnings array must also carry the error
+    // so callers (e.g. the admin UI) can surface it to operators immediately.
+    const bibleWarning = (result.warnings ?? []).find(
+      (w) => w.code === "WORLD_BIBLE_FETCH_ERROR",
+    );
+    expect(bibleWarning).toBeDefined();
+    expect(bibleWarning?.message).toContain("Thornvale");
   });
 });

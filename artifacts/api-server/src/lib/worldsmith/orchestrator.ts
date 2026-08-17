@@ -109,6 +109,9 @@ export async function runCompilation(
     // them here (after inheritance resolution) and attach them to the chain
     // before prompt compilation.
     let worldBible: InheritanceChain["worldBible"] | undefined;
+    // Collects system-level warnings (e.g. Bible fetch failures) that are
+    // prepended to every subsequent warnings array written to the run record.
+    const systemWarnings: ValidationError[] = [];
     if (chain.productionSpec.world) {
       try {
         const [worldRow] = await db
@@ -133,8 +136,21 @@ export async function runCompilation(
           };
         }
       } catch (bibleErr) {
-        // Non-fatal — log and continue without Bible fields
+        // Non-fatal — log, record in the run, and continue without Bible fields.
+        // This ensures operators reviewing the run later can see that the World
+        // Bible was unavailable rather than silently absent.
+        const errMsg = bibleErr instanceof Error ? bibleErr.message : String(bibleErr);
         logger.warn({ bibleErr, world: chain.productionSpec.world }, "WorldSmith: failed to fetch World Bible fields from DB — continuing without them");
+        const bibleFetchWarning: ValidationError = {
+          code: "WORLD_BIBLE_FETCH_ERROR",
+          field: "world_bible",
+          governing_rule: "WS-BIBLE-001",
+          message: `World Bible fields could not be fetched for world "${chain.productionSpec.world}": ${errMsg}. The compiled prompt was assembled without aesthetic grounding.`,
+          recommended_action: "Check database connectivity and retry the compilation. If the problem persists, verify the world record exists in the WorldSmith worlds registry.",
+        };
+        systemWarnings.push(bibleFetchWarning);
+        // Persist immediately so the warning survives even if a later stage fails.
+        await updateRun(runId, { warnings: systemWarnings }).catch(() => { /* best-effort */ });
       }
     }
     const chainWithBible: InheritanceChain = worldBible ? { ...chain, worldBible } : chain;
@@ -175,7 +191,7 @@ export async function runCompilation(
         status,
         compiledPromptStatus: compiledStatus,
         errors: payloadValidation.errors,
-        warnings: payloadValidation.warnings,
+        warnings: [...systemWarnings, ...payloadValidation.warnings],
         retryCount: notionRetryEvents.length,
         notionRetries: notionRetryEvents.length > 0 ? notionRetryEvents : undefined,
         completedAt: new Date(),
@@ -191,7 +207,7 @@ export async function runCompilation(
         production_spec_id: specId,
         payload_version: spec.payloadVersion,
         compiled_prompt_status: compiledStatus,
-        warnings: payloadValidation.warnings,
+        warnings: [...systemWarnings, ...payloadValidation.warnings],
         errors: payloadValidation.errors,
         next_action: isCanonIssue ? "Complete canon review" : "Fix validation errors",
         failed_stage: "payload_validation",
@@ -211,7 +227,7 @@ export async function runCompilation(
         status: "requires_canon_review",
         compiledPromptStatus: compiledStatus,
         errors: canonValidation.errors,
-        warnings: [...payloadValidation.warnings, ...canonValidation.warnings],
+        warnings: [...systemWarnings, ...payloadValidation.warnings, ...canonValidation.warnings],
         retryCount: notionRetryEvents.length,
         notionRetries: notionRetryEvents.length > 0 ? notionRetryEvents : undefined,
         completedAt: new Date(),
@@ -227,7 +243,7 @@ export async function runCompilation(
         production_spec_id: specId,
         payload_version: spec.payloadVersion,
         compiled_prompt_status: compiledStatus,
-        warnings: [...payloadValidation.warnings, ...canonValidation.warnings],
+        warnings: [...systemWarnings, ...payloadValidation.warnings, ...canonValidation.warnings],
         errors: canonValidation.errors,
         next_action: "Complete canon review and obtain Accepted status for all linked Canon Records",
         failed_stage: "canon_validation",
@@ -317,6 +333,7 @@ export async function runCompilation(
 
     // ── Stage 21 + 22: Finalize run and return ───────────────────────────
     const allWarnings = [
+      ...systemWarnings,
       ...payloadValidation.warnings,
       ...canonValidation.warnings,
       ...(chain.warnings ?? []),

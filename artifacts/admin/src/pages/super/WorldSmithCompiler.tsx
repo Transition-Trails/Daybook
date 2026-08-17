@@ -2153,7 +2153,7 @@ function InspectorWorkspaceTab({
       {stage === "resolve"              && <ResolvePanel result={result} preflight={preflight} prov={prov} />}
       {stage === "validate"             && <ValidationTab errors={result.errors ?? []} warnings={result.warnings ?? []} prov={prov} />}
       {stage === "inheritance"          && <InspectorTab result={result} preflight={preflight} prov={prov} />}
-      {stage === "prompt-assembly"      && <PromptSectionsTab sections={result.compiled_sections ?? []} fullPrompt={result.compiled_prompt ?? ""} promptHash={result.prompt_hash} isLegacy={isLegacy} />}
+      {stage === "prompt-assembly"      && <PromptSectionsTab sections={result.compiled_sections ?? []} fullPrompt={result.compiled_prompt ?? ""} promptHash={result.prompt_hash} isLegacy={isLegacy} bibleFetchWarning={(result.warnings ?? []).find(w => w.code === "WORLD_BIBLE_FETCH_ERROR")} />}
       {stage === "hash-generation"      && <TechnicalTab result={result} />}
       {stage === "ready-for-spec-board" && <ReadinessPanel result={result} preflight={preflight} prov={prov} />}
       {stage === "specification-review" && (
@@ -3764,12 +3764,13 @@ function ProvenanceChain({ prov }: { prov: ProvenanceRecord | null }) {
 // ── Tab 3: Prompt Sections ─────────────────────────────────────────────────────
 
 function PromptSectionsTab({
-  sections, fullPrompt, promptHash, isLegacy,
+  sections, fullPrompt, promptHash, isLegacy, bibleFetchWarning,
 }: {
   sections: CompiledSectionRecord[];
   fullPrompt: string;
   promptHash?: string;
   isLegacy: boolean;
+  bibleFetchWarning?: ValidationError;
 }) {
   const { toast } = useToast();
   const [openKeys, setOpenKeys] = useState<Set<string>>(new Set(["shared_prompt", "front_prompt"]));
@@ -3793,6 +3794,16 @@ function PromptSectionsTab({
 
   return (
     <div className="space-y-3">
+      {bibleFetchWarning && (
+        <div className="flex items-start gap-2 p-3 rounded-md border border-orange-200 bg-orange-50 text-xs text-orange-900">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-orange-500" />
+          <div>
+            <p className="font-medium">World Bible unavailable at compile time</p>
+            <p className="mt-0.5">{bibleFetchWarning.message}</p>
+            <p className="mt-1 text-orange-700">{bibleFetchWarning.recommended_action}</p>
+          </div>
+        </div>
+      )}
       {isLegacy && (
         <div className="flex items-start gap-2 p-3 rounded-md border border-amber-200 bg-amber-50 text-xs text-amber-800">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />

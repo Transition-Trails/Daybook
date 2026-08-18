@@ -300,14 +300,14 @@ function LeftRail({ records, recordId, filterType, filterVisibility, filterStabi
             </div>
             {g.items.map(r => (
               <Link key={r.id} href={`/super/worldsmith/editorial/canon/${r.id}`}>
-                <a className="flex items-center gap-2 px-4 cursor-pointer"
+                <span className="flex items-center gap-2 px-4 cursor-pointer"
                   style={{
                     paddingTop: 6, paddingBottom: 6,
                     borderLeft: r.id === recordId ? `2px solid ${CLAY}` : "2px solid transparent",
                     background: r.id === recordId ? "rgba(255,255,255,0.6)" : "transparent",
                     paddingLeft: r.id === recordId ? 14 : 16,
                   }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: g.color, flexShrink: 0 }} />
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: g.color, flexShrink: 0 }} />
                   <span className="flex-1 min-w-0 truncate text-xs"
                     style={{ color: r.id === recordId ? INK : "#6B7280", fontWeight: r.id === recordId ? 600 : 400 }}>
                     {r.name}
@@ -315,7 +315,7 @@ function LeftRail({ records, recordId, filterType, filterVisibility, filterStabi
                   {g.key === "object" && (
                     <span title="Object with mystery" style={{ color: "#F59E0B", fontSize: 9, flexShrink: 0 }}>◆</span>
                   )}
-                </a>
+                </span>
               </Link>
             ))}
           </div>
@@ -325,10 +325,10 @@ function LeftRail({ records, recordId, filterType, filterVisibility, filterStabi
             <div className="px-4 mt-3 mb-1 text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: "#9CA3AF" }}>Uncategorised</div>
             {uncategorised.map(r => (
               <Link key={r.id} href={`/super/worldsmith/editorial/canon/${r.id}`}>
-                <a className="flex items-center gap-2 px-4 py-1.5">
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#D1D5DB", flexShrink: 0 }} />
+                <span className="flex items-center gap-2 px-4 py-1.5 cursor-pointer">
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#D1D5DB", flexShrink: 0 }} />
                   <span className="flex-1 min-w-0 truncate text-xs" style={{ color: "#6B7280" }}>{r.name}</span>
-                </a>
+                </span>
               </Link>
             ))}
           </div>
@@ -336,8 +336,8 @@ function LeftRail({ records, recordId, filterType, filterVisibility, filterStabi
       </div>
 
       <Link href="/super/worldsmith/editorial/canon">
-        <a className="flex-none w-full py-3 text-center text-xs font-semibold border-t"
-          style={{ borderColor: WARM_BORDER, color: CLAY }}>+ New Record</a>
+        <span className="flex-none w-full py-3 text-center text-xs font-semibold border-t cursor-pointer block"
+          style={{ borderColor: WARM_BORDER, color: CLAY }}>+ New Record</span>
       </Link>
     </div>
   );
@@ -553,7 +553,7 @@ function DaybookGameTab({ record, recordId }:
           <div className="text-center py-3">
             <p className="text-xs italic mb-2" style={{ color: "#9CA3AF" }}>Not placed in any story yet</p>
             <Link href="/super/worldsmith">
-              <a className="text-xs font-medium" style={{ color: CLAY }}>Add to a story →</a>
+              <span className="text-xs font-medium cursor-pointer" style={{ color: CLAY }}>Add to a story →</span>
             </Link>
           </div>
         ) : (
@@ -905,10 +905,10 @@ function RightPanel({ record, recordId, relations, allRecords, patchMutation, tr
                 <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: "#9CA3AF" }}>Linked Specs</div>
                 {linkedSpecs.map(s => (
                   <Link key={s.id} href={`/super/worldsmith/editorial/specs/${s.id}`}>
-                    <a className="flex items-center gap-2 text-xs py-1 hover:opacity-70">
+                    <span className="flex items-center gap-2 text-xs py-1 hover:opacity-70 cursor-pointer">
                       <ExternalLink size={9} style={{ color: "#9CA3AF" }} />
                       <span className="truncate" style={{ color: INK }}>{s.productionItem}</span>
-                    </a>
+                    </span>
                   </Link>
                 ))}
               </div>
@@ -1136,10 +1136,10 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
             const active = tab === "Canon";
             return (
               <Link key={tab} href={href}>
-                <a className="px-3 py-1.5 rounded-lg text-sm font-medium"
+                <span className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer"
                   style={{ background: active ? PARCHMENT : "transparent", color: active ? INK : "#9CA3AF" }}>
                   {tab}
-                </a>
+                </span>
               </Link>
             );
           })}

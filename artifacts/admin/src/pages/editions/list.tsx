@@ -130,6 +130,7 @@ export default function EditionsList() {
             <TableRow>
               <TableHead className="w-[300px]">Edition</TableHead>
               <TableHead>Tier</TableHead>
+              <TableHead>World</TableHead>
               <TableHead>Price Range</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -137,9 +138,9 @@ export default function EditionsList() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="h-24 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
             ) : (editions as Edition[])?.length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No editions found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No editions found.</TableCell></TableRow>
             ) : (
               (editions as Edition[])?.map(edition => (
                 <TableRow key={edition.id}>
@@ -156,6 +157,15 @@ export default function EditionsList() {
                     <Badge variant="outline" className={edition.tier === 'advanced' ? 'border-primary text-primary' : ''}>
                       {edition.tier}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {(edition as any).world ? (
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {(edition as any).world}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="text-xs text-muted-foreground font-mono">

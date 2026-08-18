@@ -135,4 +135,26 @@ describe("GET /editions?world= — world filter", () => {
     const returnedIds: string[] = get.body.map((e: { id: string }) => e.id);
     expect(returnedIds).not.toContain(ids.noWorldEdition);
   });
+
+  it("clearing world to null removes the edition from GET ?world=VGJ immediately", async () => {
+    // Precondition: edition is currently linked to "VGJ" (set by the first test).
+    // Confirm it is present before we unlink.
+    const before = await request(publicApp).get("/api/editions?world=VGJ");
+    expect(before.status).toBe(200);
+    const beforeIds: string[] = before.body.map((e: { id: string }) => e.id);
+    expect(beforeIds).toContain(ids.worldEdition);
+
+    // Unlink — set world back to null.
+    const patch = await request(adminApp)
+      .patch(`/api/editions/${ids.worldEdition}`)
+      .send({ world: null });
+    expect(patch.status).toBe(200);
+    expect(patch.body.world).toBeNull();
+
+    // The edition must no longer appear in the filtered list.
+    const after = await request(publicApp).get("/api/editions?world=VGJ");
+    expect(after.status).toBe(200);
+    const afterIds: string[] = after.body.map((e: { id: string }) => e.id);
+    expect(afterIds).not.toContain(ids.worldEdition);
+  });
 });

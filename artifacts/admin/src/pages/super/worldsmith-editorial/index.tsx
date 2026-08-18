@@ -12,5 +12,6 @@ export { default as SpecEditor } from "./SpecEditor";
 export { default as StyleGuides } from "./StyleGuides";
 export { default as NewStyleGuideFlow } from "./NewStyleGuideFlow";
 export { default as PromptModules } from "./PromptModules";
+export { default as NewPromptModuleFlow } from "./NewPromptModuleFlow";
 export { default as WorldsmithCanon } from "./WorldsmithCanon";
 export { default as SpecsList } from "./SpecsList";

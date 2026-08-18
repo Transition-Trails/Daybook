@@ -5,6 +5,7 @@
  * compiled prompts during WorldSmith production spec generation.
  */
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Puzzle, FileText, ChevronRight, Loader2, X, Save, Pencil,
@@ -226,6 +227,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 
 export default function PromptModules() {
   const { selectedWorldId, selectedWorld } = useEditorial();
+  const [, navigate] = useLocation();
   const [drawerModule, setDrawerModule] = useState<PromptModule | null | "new">(undefined as any);
   const drawerOpen = drawerModule !== undefined && drawerModule !== (undefined as any);
 
@@ -240,7 +242,7 @@ export default function PromptModules() {
 
   const modules = data?.prompt_modules ?? [];
 
-  const openNew = () => setDrawerModule("new");
+  const openNew = () => navigate("/super/worldsmith/editorial/modules/new");
   const openEdit = (m: PromptModule) => setDrawerModule(m);
   const closeDrawer = () => setDrawerModule(undefined as any);
 

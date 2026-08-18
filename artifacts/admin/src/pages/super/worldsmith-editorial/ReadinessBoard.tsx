@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   AlertTriangle, Plus, RefreshCw, Loader2, Clock,
-  CheckCircle2, Zap, BookOpen, FileText, Circle,
+  CheckCircle2, Zap, BookOpen, FileText, Circle, Sparkles,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -224,6 +224,32 @@ export default function ReadinessBoard() {
           <div className="flex items-center justify-center h-full text-red-400 text-sm">
             Failed to load board. <button onClick={() => refetch()} className="underline ml-1">Retry</button>
           </div>
+        ) : summary.total === 0 ? (
+          /* ── Full-board empty state ── */
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center max-w-sm px-4">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#1B2A4A]/8 mb-5">
+                <Sparkles className="w-7 h-7 text-[#1B2A4A] opacity-50" />
+              </div>
+              <h3 className="text-base font-semibold text-gray-800 mb-2">
+                No specs yet for this world
+              </h3>
+              <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+                Production specs track each printable component — hero papers, journal cards,
+                ephemera sheets, and more — through the pipeline from draft to published.
+                Create your first spec to get started.
+              </p>
+              <Link href="/super/worldsmith/editorial/specs/new">
+                <button
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors hover:opacity-90"
+                  style={{ background: "#1B2A4A" }}
+                >
+                  <Plus className="w-4 h-4" />
+                  Create your first spec
+                </button>
+              </Link>
+            </div>
+          </div>
         ) : (
           <div className="flex gap-3 h-full" style={{ minWidth: COLUMNS.length * 240 }}>
             {COLUMNS.map(col => {
@@ -248,9 +274,23 @@ export default function ReadinessBoard() {
                     style={{ background: "rgba(0,0,0,0.02)" }}
                   >
                     {specs.length === 0 ? (
-                      <div className="flex items-center justify-center py-6 text-gray-300">
-                        <Circle className="w-4 h-4" />
-                      </div>
+                      col.key === "draft" ? (
+                        <div className="flex flex-col items-center justify-center py-6 px-3 text-center gap-1.5">
+                          <p className="text-[11px] text-gray-400 leading-snug">
+                            No drafts yet —{" "}
+                            <Link href="/super/worldsmith/editorial/specs/new">
+                              <span className="underline cursor-pointer hover:text-gray-600">
+                                create a spec
+                              </span>
+                            </Link>{" "}
+                            to get started
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center py-6 text-gray-300">
+                          <Circle className="w-4 h-4" />
+                        </div>
+                      )
                     ) : (
                       specs.map(spec => <SpecCardItem key={spec.id} spec={spec} />)
                     )}

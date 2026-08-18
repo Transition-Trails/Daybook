@@ -5,8 +5,10 @@ export const modules: ModuleMap = {
   "./components/mockups/worldsmith-editorial/EditorialStudioGraph.tsx": () => import("../components/mockups/worldsmith-editorial/EditorialStudioGraph.tsx"),
   "./components/mockups/worldsmith-editorial/NewAssetFlow.tsx": () => import("../components/mockups/worldsmith-editorial/NewAssetFlow.tsx"),
   "./components/mockups/worldsmith-editorial/OperationsDashboard.tsx": () => import("../components/mockups/worldsmith-editorial/OperationsDashboard.tsx"),
+  "./components/mockups/worldsmith-redesign/StoryOverview.tsx": () => import("../components/mockups/worldsmith-redesign/StoryOverview.tsx"),
   "./components/mockups/worldsmith-redesign/TheConstellation.tsx": () => import("../components/mockups/worldsmith-redesign/TheConstellation.tsx"),
   "./components/mockups/worldsmith-redesign/TheScroll.tsx": () => import("../components/mockups/worldsmith-redesign/TheScroll.tsx"),
   "./components/mockups/worldsmith-redesign/TheStudio.tsx": () => import("../components/mockups/worldsmith-redesign/TheStudio.tsx"),
-  "./components/mockups/worldsmith-redesign/TheSynthesis.tsx": () => import("../components/mockups/worldsmith-redesign/TheSynthesis.tsx")
+  "./components/mockups/worldsmith-redesign/TheSynthesis.tsx": () => import("../components/mockups/worldsmith-redesign/TheSynthesis.tsx"),
+  "./components/mockups/worldsmith-redesign/WorldBible.tsx": () => import("../components/mockups/worldsmith-redesign/WorldBible.tsx")
 };

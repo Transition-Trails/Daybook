@@ -7,6 +7,7 @@
  */
 
 import type { InheritanceChain, ValidationError } from "./types";
+import { callAi } from "../ai-proxy";
 import { validateCanonRequirements } from "./canon-validator";
 import { isPlaceholder } from "./payload-parser";
 import {
@@ -372,36 +373,8 @@ function buildNegativeDraft(source: PayloadSource): string {
 }
 
 // ── Step 4: AI synthesis ──────────────────────────────────────────────────────
-
-async function callOpenAI(messages: Array<{ role: string; content: string }>): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured — cannot synthesize payload.");
-
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages,
-      temperature: 0.35,
-      max_tokens: 1400,
-    }),
-    signal: AbortSignal.timeout(50_000),
-  });
-
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`OpenAI API error ${resp.status}: ${body}`);
-  }
-
-  const data = (await resp.json()) as {
-    choices: Array<{ message: { content: string } }>;
-  };
-  return data.choices[0]?.message?.content?.trim() ?? "";
-}
+// Routes through the shared ai-proxy so DEFAULT_AI_PROVIDER (default: claude)
+// controls which model is used — same as the rest of the platform.
 
 async function synthesizePayloadWithAI(
   source: PayloadSource,
@@ -457,10 +430,13 @@ shared_prompt: [value]
 front_prompt: [value]
 ${draft.backNeeded ? "back_prompt: [value]\n" : ""}${draft.assemblyNeeded ? "assembly_prompt: [value]\n" : ""}negative_prompt: [value]`;
 
-  const raw = await callOpenAI([
-    { role: "system", content: SYSTEM },
-    { role: "user",   content: USER },
-  ]);
+  const provider = process.env.DEFAULT_AI_PROVIDER ?? "claude";
+  const aiResponse = await callAi(
+    [{ role: "user", content: USER }],
+    provider,
+    SYSTEM,
+  );
+  const raw = aiResponse.content;
 
   // Parse AI output into sections
   const result: Partial<Record<string, string>> = {};

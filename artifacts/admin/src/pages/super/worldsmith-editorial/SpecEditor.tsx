@@ -312,14 +312,21 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 function IdentityTab({ spec, onChange }: { spec: Spec; onChange: (patch: Partial<Spec>) => void }) {
+  const { data: setsData } = useQuery({
+    queryKey: ["editorial-component-sets", spec.worldId],
+    queryFn: () => apiFetch<{ component_sets: string[] }>(`/v1/editorial/component-sets?world_id=${spec.worldId}`),
+    staleTime: 60_000,
+  });
+  const existingSets = setsData?.component_sets ?? [];
+
   return (
     <div className="space-y-4">
       <Field label="Production Item Name">
         <input value={spec.productionItem} onChange={e => onChange({ productionItem: e.target.value })} className={inputCls} />
       </Field>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Spec ID">
-          <input value={spec.specId ?? ""} onChange={e => onChange({ specId: e.target.value })} className={inputCls} placeholder="V01·VGJ·004" />
+        <Field label="Spec ID" hint="Auto-generated on creation — override here if needed.">
+          <input value={spec.specId ?? ""} onChange={e => onChange({ specId: e.target.value })} className={inputCls} placeholder="e.g. WYC-HRP-001" />
         </Field>
         <Field label="Current Version">
           <input value={spec.currentVersion} onChange={e => onChange({ currentVersion: e.target.value })} className={inputCls} />
@@ -338,8 +345,20 @@ function IdentityTab({ spec, onChange }: { spec: Spec; onChange: (patch: Partial
             <option>Washi Tape</option>
           </select>
         </Field>
-        <Field label="Component Set">
-          <input value={spec.componentSet ?? ""} onChange={e => onChange({ componentSet: e.target.value })} className={inputCls} />
+        <Field label="Component Set" hint="Pick an existing set or type a new name.">
+          <input
+            value={spec.componentSet ?? ""}
+            onChange={e => onChange({ componentSet: e.target.value })}
+            className={inputCls}
+            placeholder="e.g. The Herbalist's Collection"
+            list="editor-component-set-list"
+            autoComplete="off"
+          />
+          {existingSets.length > 0 && (
+            <datalist id="editor-component-set-list">
+              {existingSets.map(s => <option key={s} value={s} />)}
+            </datalist>
+          )}
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-4">

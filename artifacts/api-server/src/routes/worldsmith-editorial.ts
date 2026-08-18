@@ -1611,6 +1611,25 @@ router.patch("/v1/editorial/prompt-modules/:id", async (req: Request, res: Respo
   }
 });
 
+// ── Component Sets lookup ─────────────────────────────────────────────────────
+// Returns distinct non-null component_set values used in this world's specs.
+
+router.get("/v1/editorial/component-sets", async (req: Request, res: Response) => {
+  const worldId = req.query.world_id as string | undefined;
+  try {
+    const rows = await db
+      .selectDistinct({ componentSet: wsProductionSpecsTable.componentSet })
+      .from(wsProductionSpecsTable)
+      .where(worldId ? eq(wsProductionSpecsTable.worldId, worldId) : undefined)
+      .orderBy(wsProductionSpecsTable.componentSet);
+    const sets = rows.map(r => r.componentSet).filter(Boolean) as string[];
+    res.json({ component_sets: sets });
+  } catch (err) {
+    logger.error({ err }, "editorial: component-sets");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── Production Specs ──────────────────────────────────────────────────────────
 
 router.get("/v1/editorial/specs", async (req: Request, res: Response) => {
@@ -1637,6 +1656,18 @@ router.get("/v1/editorial/specs", async (req: Request, res: Response) => {
   }
 });
 
+// Component-type → 3-letter code used in auto-generated spec IDs
+const SPEC_TYPE_ABBR: Record<string, string> = {
+  "Hero Paper":          "HRP",
+  "Decorative Paper":    "DCP",
+  "Journal Card":        "JRC",
+  "Coordinating Paper":  "CDP",
+  "Ephemera Sheet":      "EPH",
+  "Notepaper":           "NTP",
+  "Endpaper":            "ENP",
+  "Washi Tape":          "WSH",
+};
+
 router.post("/v1/editorial/specs", async (req: Request, res: Response) => {
   const {
     world_id, collection_id, volume_id,
@@ -1654,12 +1685,32 @@ router.post("/v1/editorial/specs", async (req: Request, res: Response) => {
   }
 
   try {
+    // Auto-generate spec_id if the caller did not supply one
+    let resolvedSpecId = spec_id?.trim() || null;
+    if (!resolvedSpecId) {
+      const [worldRow] = await db
+        .select({ code: worldsmithWorldsTable.code })
+        .from(worldsmithWorldsTable)
+        .where(eq(worldsmithWorldsTable.id, world_id))
+        .limit(1);
+      const worldCode = (worldRow?.code ?? "UNK").toUpperCase();
+      const typeAbbr = SPEC_TYPE_ABBR[component_type] ?? component_type.slice(0, 3).toUpperCase();
+      const [{ cnt }] = await db
+        .select({ cnt: sql<number>`count(*)::int` })
+        .from(wsProductionSpecsTable)
+        .where(and(
+          eq(wsProductionSpecsTable.worldId, world_id),
+          eq(wsProductionSpecsTable.componentType, component_type),
+        ));
+      resolvedSpecId = `${worldCode}-${typeAbbr}-${String((cnt ?? 0) + 1).padStart(3, "0")}`;
+    }
+
     const partial: Partial<InsertWsProductionSpec> = {
       worldId: world_id,
       collectionId: collection_id,
       volumeId: volume_id,
       productionItem: production_item.trim(),
-      specId: spec_id,
+      specId: resolvedSpecId,
       componentType: component_type.trim(),
       componentSet: component_set,
       designIntent: design_intent ?? "",

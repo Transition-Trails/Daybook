@@ -79,7 +79,6 @@ const SECTIONS: SectionMeta[] = [
     checks: f => [
       { label: "Production item name", done: !!f.productionItem.trim() },
       { label: "Component type", done: !!f.componentType.trim() },
-      { label: "Spec ID", done: !!f.specId.trim() },
       { label: "Component set", done: !!f.componentSet.trim() },
     ],
   },
@@ -190,32 +189,59 @@ const selectCls = `${inputCls} bg-white`;
 
 // ── Section forms ─────────────────────────────────────────────────────────────
 
-function IdentitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+function IdentitySection({ f, set, worldId }: {
+  f: FormState;
+  set: (k: keyof FormState, v: string) => void;
+  worldId: string | null;
+}) {
+  const { data: setsData } = useQuery({
+    queryKey: ["editorial-component-sets", worldId],
+    queryFn: () => apiFetch<{ component_sets: string[] }>(`/v1/editorial/component-sets?world_id=${worldId}`),
+    enabled: !!worldId,
+    staleTime: 60_000,
+  });
+  const existingSets = setsData?.component_sets ?? [];
+
   return (
     <div className="space-y-4">
       <Field label="Production Item Name" required hint="The full name as it appears in the production catalog.">
         <input value={f.productionItem} onChange={e => set("productionItem", e.target.value)} className={inputCls} placeholder="e.g. Victorian Garden Journal — Botanical Survey Page" />
       </Field>
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Spec ID" hint="Structured reference code.">
-          <input value={f.specId} onChange={e => set("specId", e.target.value)} className={inputCls} placeholder="e.g. V01·VGJ·004" />
-        </Field>
-        <Field label="Component Type" required>
-          <select value={f.componentType} onChange={e => set("componentType", e.target.value)} className={selectCls}>
-            <option value="">Select type…</option>
-            <option>Hero Paper</option>
-            <option>Decorative Paper</option>
-            <option>Journal Card</option>
-            <option>Coordinating Paper</option>
-            <option>Ephemera Sheet</option>
-            <option>Notepaper</option>
-            <option>Endpaper</option>
-            <option>Washi Tape</option>
-          </select>
-        </Field>
-      </div>
-      <Field label="Component Set" hint="The thematic family this belongs to.">
-        <input value={f.componentSet} onChange={e => set("componentSet", e.target.value)} className={inputCls} placeholder="e.g. The Herbalist's Collection" />
+      <Field label="Component Type" required>
+        <select value={f.componentType} onChange={e => set("componentType", e.target.value)} className={selectCls}>
+          <option value="">Select type…</option>
+          <option>Hero Paper</option>
+          <option>Decorative Paper</option>
+          <option>Journal Card</option>
+          <option>Coordinating Paper</option>
+          <option>Ephemera Sheet</option>
+          <option>Notepaper</option>
+          <option>Endpaper</option>
+          <option>Washi Tape</option>
+        </select>
+      </Field>
+      <Field label="Component Set" hint="The thematic family this belongs to — pick an existing set or type a new name.">
+        <input
+          value={f.componentSet}
+          onChange={e => set("componentSet", e.target.value)}
+          className={inputCls}
+          placeholder="e.g. The Herbalist's Collection"
+          list="component-set-list"
+          autoComplete="off"
+        />
+        {existingSets.length > 0 && (
+          <datalist id="component-set-list">
+            {existingSets.map(s => <option key={s} value={s} />)}
+          </datalist>
+        )}
+      </Field>
+      <Field label="Spec ID" hint="Leave blank to auto-generate (e.g. WYC-HRP-001). Override here if you have a naming convention.">
+        <input
+          value={f.specId}
+          onChange={e => set("specId", e.target.value)}
+          className={inputCls}
+          placeholder="Auto-generated on save"
+        />
       </Field>
     </div>
   );
@@ -602,7 +628,7 @@ export default function NewSpecFlow() {
         {/* Section content */}
         <div className="flex-1 overflow-y-auto p-8">
           <div style={{ maxWidth: 640, margin: "0 auto" }}>
-            {activeSection === 0 && <IdentitySection f={form} set={set} />}
+            {activeSection === 0 && <IdentitySection f={form} set={set} worldId={selectedWorldId} />}
             {activeSection === 1 && <CreativeSection f={form} set={set} />}
             {activeSection === 2 && (
               <CanonSection

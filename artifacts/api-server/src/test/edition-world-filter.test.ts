@@ -24,8 +24,9 @@ import type { User } from "@workspace/db";
 const RUN = Math.random().toString(36).slice(2, 10);
 
 const ids = {
-  worldEdition:   `test-ed-world-${RUN}`,
-  noWorldEdition: `test-ed-noworld-${RUN}`,
+  worldEdition:        `test-ed-world-${RUN}`,
+  noWorldEdition:      `test-ed-noworld-${RUN}`,
+  draftWorldEdition:   `test-ed-draft-world-${RUN}`,
 };
 
 // ── Minimal app factories ─────────────────────────────────────────────────────
@@ -98,6 +99,15 @@ beforeAll(async () => {
     productType: "planner",
     world:       null,
   });
+
+  // Insert a DRAFT edition that IS linked to world "VGJ" — must be hidden from public
+  await db.insert(editionsTable).values({
+    id:          ids.draftWorldEdition,
+    name:        `Draft World Edition VGJ ${RUN}`,
+    status:      "draft",
+    productType: "planner",
+    world:       "VGJ",
+  });
 });
 
 afterAll(async () => {
@@ -156,5 +166,21 @@ describe("GET /editions?world= — world filter", () => {
     expect(after.status).toBe(200);
     const afterIds: string[] = after.body.map((e: { id: string }) => e.id);
     expect(afterIds).not.toContain(ids.worldEdition);
+  });
+});
+
+describe("GET /editions?world= — draft edition visibility", () => {
+  it("public GET ?world=VGJ does NOT include a draft edition even when it is world-linked", async () => {
+    const get = await request(publicApp).get("/api/editions?world=VGJ");
+    expect(get.status).toBe(200);
+    const returnedIds: string[] = get.body.map((e: { id: string }) => e.id);
+    expect(returnedIds).not.toContain(ids.draftWorldEdition);
+  });
+
+  it("super_admin GET ?world=VGJ DOES include a draft edition that is world-linked", async () => {
+    const get = await request(adminApp).get("/api/editions?world=VGJ");
+    expect(get.status).toBe(200);
+    const returnedIds: string[] = get.body.map((e: { id: string }) => e.id);
+    expect(returnedIds).toContain(ids.draftWorldEdition);
   });
 });

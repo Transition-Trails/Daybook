@@ -1,13 +1,14 @@
 /**
- * WorldsmithCanon — Three-column Canon Records screen (Step 2: read + edit).
+ * WorldsmithCanon — Synthesis design (Daybook creative studio layout).
  *
- * Layout  (height: 100dvh):
- *   52px top bar → flex:1 row → [236px record rail | fluid editor | 352px margin rail]
+ * Layout (height: 100dvh):
+ *   48px top bar → flex:1 row → [210px record rail | fluid editor | 280px right panel]
  *
- * Design contract:
- *   • EMOTIONAL REGISTER / SENSORY CLAUSES must be above the fold at 1080p.
- *   • Fonts: Spectral (display), Instrument Sans (body), Space Mono (mono).
- *   • Tokens: INK #1B2A4A  CLAY #C87560  PARCHMENT #EFE9E1  WARM_WHITE #FDFAF7
+ * Three-tab center: Image Ideas | Compose a Scene | Daybook & Game
+ * Right panel: Objects & Mystery, Story Arc, Canon Gaps, Record Details (collapsed)
+ *
+ * All existing mutations (patch, transition, delete, relations, cascade) are preserved
+ * in the Record Details accordion in the right panel.
  */
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -15,24 +16,25 @@ import { useLocation, Link } from "wouter";
 import {
   Loader2, AlertCircle, ExternalLink, Lock, Unlock,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
-  ChevronRight, FileText, Trash2, X, ArrowLeft, Share2, Eye, EyeOff,
-  GitBranch, Repeat2, Plus, Link2, AlertTriangle, ChevronDown,
+  ChevronRight, Trash2, X, ArrowLeft, Eye, EyeOff,
+  GitBranch, Repeat2, Plus, Link2, ChevronDown, ChevronUp,
+  Sparkles, BookOpen, Zap, FileText,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
-const INK       = "#1B2A4A";
-const CLAY      = "#C87560";
-const PARCHMENT = "#EFE9E1";
-const WARM_WHITE = "#FDFAF7";
-const WARM_BG   = "#F4EFE8";
+// ── Design tokens ──────────────────────────────────────────────────────────────
+const INK         = "#1B2A4A";
+const CLAY        = "#C87560";
+const PARCHMENT   = "#EFE9E1";
+const WARM_WHITE  = "#FDFAF7";
+const WARM_BG     = "#F4EFE8";
 const WARM_BORDER = "#DDD4C4";
-const DASHED_BORDER = "#DCCFBB";
-const MARGIN_BG = "#FAF7F3";
+const AMBER       = "#D97706";
+const AMBER_BG    = "#FEF3C7";
 
-// ── Register palette ──────────────────────────────────────────────────────────
+// ── Register palette ───────────────────────────────────────────────────────────
 const REGISTERS = [
   { key: "Withholding", color: "#4A5E78", bg: "#EAF0F7" },
   { key: "Intimate",    color: "#A85C6E", bg: "#F7EAF0" },
@@ -42,11 +44,10 @@ const REGISTERS = [
   { key: "Confidence",  color: CLAY,      bg: "#F7EDE8" },
 ] as const;
 type RegisterKey = typeof REGISTERS[number]["key"];
-
 const regMeta = (key: string | null | undefined) =>
   REGISTERS.find(r => r.key === key) ?? null;
 
-// ── Canon-type config ─────────────────────────────────────────────────────────
+// ── Canon-type config ──────────────────────────────────────────────────────────
 const CANON_TYPES = [
   { key: "character",    label: "Character",    color: "#8B5CF6", Icon: User2 },
   { key: "location",     label: "Location",     color: "#3B82F6", Icon: MapPin },
@@ -60,16 +61,10 @@ const CANON_TYPES = [
 ] as const;
 
 const TYPE_PREFIX: Record<string, string> = {
-  character:    "CHR",
-  location:     "LOC",
-  object:       "OBJ",
-  event:        "EVT",
-  lore:         "LOR",
-  atmosphere:   "ATM",
-  material:     "MAT",
-  relationship: "REL",
-  motif:        "MTF",
+  character: "CHR", location: "LOC", object: "OBJ", event: "EVT",
+  lore: "LOR", atmosphere: "ATM", material: "MAT", relationship: "REL", motif: "MTF",
 };
+
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   proposed:     { label: "Proposed",     color: "#6B7280", bg: "#F3F4F6" },
   under_review: { label: "Under Review", color: "#B45309", bg: "#FEF3C7" },
@@ -78,208 +73,110 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
   rejected:     { label: "Rejected",     color: "#9B1C1C", bg: "#FEE2E2" },
 };
 
-const CONFIDENCE_FROM_STATUS: Record<string, { label: string; color: string }> = {
-  proposed:     { label: "Low",    color: "#9CA3AF" },
-  under_review: { label: "Medium", color: "#B45309" },
-  accepted:     { label: "High",   color: "#065F46" },
-  superseded:   { label: "—",      color: "#9CA3AF" },
-  rejected:     { label: "—",      color: "#9CA3AF" },
-};
+const RELATION_TYPES = [
+  { key: "related",     label: "Related to"   },
+  { key: "supports",    label: "Supports"     },
+  { key: "contradicts", label: "Contradicts"  },
+  { key: "requires",    label: "Requires"     },
+  { key: "supersedes",  label: "Supersedes"   },
+  { key: "mentions",    label: "Mentions"     },
+] as const;
+type RelationTypeKey = typeof RELATION_TYPES[number]["key"];
 
-// ── Data types ────────────────────────────────────────────────────────────────
+const relTypeMeta = (key: string | null) =>
+  RELATION_TYPES.find(r => r.key === key) ?? { key: "related", label: "Related to" };
+
+// ── Data types ─────────────────────────────────────────────────────────────────
 interface CanonRecord {
-  id: string;
-  worldId: string;
-  name: string;
-  status: string;
-  canonType?: string | null;
-  narrativeDetails: string;
-  historicalContext: string;
-  visualNotes: string;
-  emotionalRegister?: string | null;
-  sensoryClauses?: string | null;
-  registerLocked: boolean;
-  narrativeVisibility?: string | null;
-  temporalScope?: string | null;
-  canonStability?: string | null;
-  specRefCount: number;
-  notionPageId?: string | null;
-  createdBy?: string | null;
-  createdAt: string;
-  updatedAt: string;
-  // REL-specific
-  fromEntityId?: string | null;
-  toEntityId?: string | null;
-  emotionalValence?: string | null;
+  id: string; worldId: string; name: string; status: string;
+  canonType?: string | null; narrativeDetails: string; historicalContext: string;
+  visualNotes: string; emotionalRegister?: string | null; sensoryClauses?: string | null;
+  registerLocked: boolean; narrativeVisibility?: string | null; temporalScope?: string | null;
+  canonStability?: string | null; specRefCount: number; notionPageId?: string | null;
+  createdBy?: string | null; createdAt: string; updatedAt: string;
+  fromEntityId?: string | null; toEntityId?: string | null; emotionalValence?: string | null;
 }
-
 interface CanonListItem {
-  id: string;
-  worldId: string;
-  name: string;
-  status: string;
-  canonType?: string | null;
-  emotionalRegister?: string | null;
-  registerLocked: boolean;
-  specRefCount: number;
-  narrativeVisibility?: string | null;
-  temporalScope?: string | null;
-  canonStability?: string | null;
+  id: string; worldId: string; name: string; status: string;
+  canonType?: string | null; emotionalRegister?: string | null;
+  registerLocked: boolean; specRefCount: number; narrativeVisibility?: string | null;
+  temporalScope?: string | null; canonStability?: string | null;
 }
-
-interface LinkedSpec {
-  id: string;
-  productionItem: string;
-  componentType: string;
-  status: string;
-}
-
+interface LinkedSpec { id: string; productionItem: string; componentType: string; status: string; }
 interface CanonRelation {
-  fromRecordId: string;
-  toRecordId: string;
-  relationType: string | null;
-  createdAt: string;
-  targetName: string;
-  targetCanonType: string | null;
-  targetStatus: string;
+  fromRecordId: string; toRecordId: string; relationType: string | null;
+  createdAt: string; targetName: string; targetCanonType: string | null; targetStatus: string;
 }
-/** Deterministic 3-digit display ID from UUID.
- *  Uses the canon-type prefix when available (e.g. REL-001, MTF-002),
- *  falling back to the world code otherwise. */
-function displayId(
-  worldCode: string,
-  _recordId: string,
-  index: number,
-  canonType?: string | null,
-): string {
+interface InboundRelation {
+  fromRecordId: string; fromName: string; fromCanonType: string | null;
+  fromStatus: string; relationType: string | null;
+}
+interface WsStoryLink { storyId: string; actId: string | null; storyTitle: string | null; storyStatus: string | null; }
+interface WsJournalPrompt { id: string; recordId: string; promptText: string; hintLabel: string; sortOrder: number; }
+interface WsEncounter { id: string; actId: string; triggerText: string; description: string; rollType: string | null; outcomeText: string; }
+
+// ── Display ID ─────────────────────────────────────────────────────────────────
+function displayId(worldCode: string, _id: string, index: number, canonType?: string | null): string {
   const prefix = (canonType && TYPE_PREFIX[canonType]) ?? worldCode;
   return `${prefix}-${String(index + 1).padStart(3, "0")}`;
 }
 
-// ── AutoSave textarea ─────────────────────────────────────────────────────────
-function AutoField({
-  label, field, value, placeholder, mono = false,
-  onSave, rows = 5,
-}: {
-  label: string; field: string; value: string; placeholder: string;
-  mono?: boolean; onSave: (f: string, v: string) => void; rows?: number;
-}) {
+// ── AutoSave textarea ──────────────────────────────────────────────────────────
+function AutoField({ label, field, value, placeholder, mono = false, onSave, rows = 4 }:
+  { label: string; field: string; value: string; placeholder: string; mono?: boolean; onSave: (f: string, v: string) => void; rows?: number }) {
   const [local, setLocal] = useState(value);
   const [dirty, setDirty] = useState(false);
   const prev = useRef(value);
-
-  useEffect(() => {
-    if (prev.current !== value && !dirty) { setLocal(value); prev.current = value; }
-  }, [value, dirty]);
-
-  const commit = () => {
-    if (dirty && local !== prev.current) { onSave(field, local); prev.current = local; }
-    setDirty(false);
-  };
-
+  useEffect(() => { if (prev.current !== value && !dirty) { setLocal(value); prev.current = value; } }, [value, dirty]);
+  const commit = () => { if (dirty && local !== prev.current) { onSave(field, local); prev.current = local; } setDirty(false); };
   return (
-    <div className="flex flex-col gap-1.5">
-      <label
-        className="text-[10px] font-semibold tracking-widest uppercase"
-        style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-      >
-        {label}
-      </label>
-      <textarea
-        value={local}
-        rows={rows}
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] font-semibold tracking-widest uppercase" style={{ color: "#9CA3AF" }}>{label}</label>
+      <textarea value={local} rows={rows}
         onChange={e => { setLocal(e.target.value); setDirty(true); }}
-        onBlur={commit}
-        placeholder={placeholder}
-        className="w-full rounded-xl px-4 py-3 text-sm leading-relaxed resize-none focus:outline-none transition-colors"
-        style={{
-          border: `1px solid ${WARM_BORDER}`,
-          background: WARM_WHITE,
-          color: INK,
-          fontFamily: mono ? "'Space Mono', monospace" : "'Instrument Sans', sans-serif",
-          fontSize: mono ? "12px" : "14px",
-        }}
-      />
+        onBlur={commit} placeholder={placeholder}
+        className="w-full rounded-lg px-3 py-2 text-sm leading-relaxed resize-none focus:outline-none"
+        style={{ border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE, color: INK,
+          fontFamily: mono ? "'Space Mono', monospace" : "'Spectral', Georgia, serif", fontSize: 13 }} />
     </div>
   );
 }
 
-// ── Register picker ───────────────────────────────────────────────────────────
-function RegisterPicker({
-  value, locked, onSelect, onToggleLock,
-}: {
-  value: string | null | undefined;
-  locked: boolean;
-  onSelect: (r: string | null) => void;
-  onToggleLock: () => void;
-}) {
+// ── Register picker ────────────────────────────────────────────────────────────
+function RegisterPicker({ value, locked, onSelect, onToggleLock }:
+  { value: string | null | undefined; locked: boolean; onSelect: (r: string | null) => void; onToggleLock: () => void }) {
   const [open, setOpen] = useState(false);
   const meta = regMeta(value);
-
   return (
-    <div className="flex flex-col gap-2">
-      {/* Current value + lock */}
+    <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2">
-        <button
-          onClick={() => !locked && setOpen(o => !o)}
-          disabled={locked}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all"
-          style={
-            meta
-              ? { background: meta.bg, color: meta.color, border: `1px solid ${meta.color}30` }
-              : { background: "#FEF2F2", color: "#EF4444", border: "1px dashed #FCA5A5" }
-          }
-        >
-          {meta ? meta.key : (
-            <span className="flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5" />
-              NOT SET
-            </span>
-          )}
+        <button onClick={() => !locked && setOpen(o => !o)} disabled={locked}
+          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm font-medium"
+          style={meta
+            ? { background: meta.bg, color: meta.color, border: `1px solid ${meta.color}30` }
+            : { background: "#FEF2F2", color: "#EF4444", border: "1px dashed #FCA5A5" }}>
+          {meta ? meta.key : <span className="flex items-center gap-1"><AlertCircle className="w-3 h-3" />NOT SET</span>}
           {!locked && <ChevronRight className="w-3 h-3 opacity-50 ml-1" />}
         </button>
-
-        <button
-          onClick={onToggleLock}
-          title={locked ? "Unlock — allow cascade" : "Lock — stop cascade here"}
-          className="p-1.5 rounded-lg transition-colors"
-          style={
-            locked
-              ? { background: `${CLAY}18`, color: CLAY }
-              : { background: "#F3F4F6", color: "#9CA3AF" }
-          }
-        >
-          {locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+        <button onClick={onToggleLock} className="p-1.5 rounded-lg"
+          style={locked ? { background: `${CLAY}18`, color: CLAY } : { background: "#F3F4F6", color: "#9CA3AF" }}>
+          {locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
         </button>
       </div>
-
-      {/* Dropdown */}
       {open && (
-        <div
-          className="rounded-xl overflow-hidden shadow-lg border"
-          style={{ borderColor: WARM_BORDER, background: "white" }}
-        >
+        <div className="rounded-xl overflow-hidden shadow-lg border" style={{ borderColor: WARM_BORDER, background: "white" }}>
           {REGISTERS.map(r => (
-            <button
-              key={r.key}
-              onClick={() => { onSelect(r.key); setOpen(false); }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors hover:bg-gray-50"
-              style={{ color: r.color }}
-            >
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ background: r.color }}
-              />
-              {r.key}
+            <button key={r.key} onClick={() => { onSelect(r.key); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50"
+              style={{ color: r.color }}>
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: r.color }} />{r.key}
             </button>
           ))}
           {value && (
-            <button
-              onClick={() => { onSelect(null); setOpen(false); }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left text-gray-400 hover:bg-gray-50 border-t"
-              style={{ borderColor: "#F3F4F6" }}
-            >
-              <X className="w-3.5 h-3.5" /> Clear register
+            <button onClick={() => { onSelect(null); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-gray-400 hover:bg-gray-50 border-t"
+              style={{ borderColor: "#F3F4F6" }}>
+              <X className="w-3 h-3" /> Clear
             </button>
           )}
         </div>
@@ -288,37 +185,12 @@ function RegisterPicker({
   );
 }
 
-// ── Section divider ───────────────────────────────────────────────────────────
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      className="text-[10px] font-semibold tracking-widest uppercase mb-3"
-      style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-    >
-      {children}
-    </p>
-  );
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
-// ── Filter persistence helpers ────────────────────────────────────────────────
-function canonFilterKey(worldId: string) {
-  return `canon-filters-${worldId}`;
-}
-
-interface PersistedFilters {
-  visibility: string | null;
-  stability: string | null;
-  type: string | null;
-}
-
-// Valid filter values — anything outside these sets (including "all" written
-// by CanonLibrary) is treated as "no filter" so cross-page navigation never
-// produces an erroneous active-filter state.
+// ── Filter persistence ─────────────────────────────────────────────────────────
 const VALID_VISIBILITY = new Set(["background", "hinted", "explicit"]);
 const VALID_STABILITY  = new Set(["low", "medium", "high"]);
 const VALID_TYPE       = new Set(CANON_TYPES.map(t => t.key));
-
+function canonFilterKey(worldId: string) { return `canon-filters-${worldId}`; }
+interface PersistedFilters { visibility: string | null; stability: string | null; type: string | null; }
 function loadPersistedFilters(worldId: string): PersistedFilters {
   try {
     const raw = sessionStorage.getItem(canonFilterKey(worldId));
@@ -329,68 +201,766 @@ function loadPersistedFilters(worldId: string): PersistedFilters {
       stability:  VALID_STABILITY.has(parsed.stability)   ? parsed.stability  : null,
       type:       VALID_TYPE.has(parsed.type)             ? parsed.type       : null,
     };
-  } catch {
-    return { visibility: null, stability: null, type: null };
-  }
+  } catch { return { visibility: null, stability: null, type: null }; }
 }
-
 function savePersistedFilters(worldId: string, filters: PersistedFilters) {
   try {
-    // Merge so any extra keys written by CanonLibrary (e.g. status) are
-    // preserved — we must not clobber them when the detail view saves.
     const existing = sessionStorage.getItem(canonFilterKey(worldId));
     const base = existing ? JSON.parse(existing) : {};
     sessionStorage.setItem(canonFilterKey(worldId), JSON.stringify({ ...base, ...filters }));
-  } catch { /* storage full or unavailable — silently skip */ }
+  } catch { /* storage full */ }
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Image idea generator ───────────────────────────────────────────────────────
+type ImageIdea = { prompt: string; tags: string[]; object: { name: string; mystery: string } | null };
+
+function generateImageIdeas(record: CanonRecord, world: { visualPalette?: string | null; atmosphericNotes?: string | null } | null): ImageIdea[] {
+  const palette = world?.visualPalette ?? "";
+  const atmosphere = world?.atmosphericNotes ?? "";
+  const type = record.canonType ?? "record";
+  const name = record.name;
+  const prose = record.narrativeDetails?.slice(0, 120) ?? "";
+
+  const base: ImageIdea[] = [
+    {
+      prompt: `${name}${prose ? " — " + prose : ""}, ${palette || "Victorian Gothic aesthetic"}, ${atmosphere || "moody and atmospheric"}, detailed illustration`,
+      tags: [name, type], object: null,
+    },
+  ];
+
+  if (type === "location") {
+    base.push(
+      { prompt: `Interior of ${name}, ${palette || "aged and worn"}, soft light, Pre-Raphaelite oil painting style, quiet and atmospheric`, tags: [name, "atmosphere"], object: null },
+      { prompt: `${name} at dusk, ${atmosphere || "fog drifting"}, ${palette || "warm candlelight against cold air"}, Gothic Victorian illustration`, tags: [name, "dusk"], object: null },
+    );
+  } else if (type === "character") {
+    base.push(
+      { prompt: `Portrait of ${name}, ${palette || "Victorian dress"}, ${atmosphere || "shadowed and still"}, painted in the style of John Singer Sargent`, tags: [name, "portrait"], object: null },
+      { prompt: `${name} in silhouette against a window, ${palette || "dark and introspective"}, ${atmosphere || "gaslight beyond"}, ink wash illustration`, tags: [name, "silhouette"], object: null },
+    );
+  } else if (type === "object") {
+    base.push(
+      { prompt: `Close-up of ${name}, ${prose || "ornate and aged"}, ${palette || "rich material detail"}, museum still-life lighting, hyperrealistic`, tags: [name, "still life"], object: null },
+      {
+        prompt: `${name} in context — ${prose || "placed in a Victorian interior"}, ${atmosphere || "candlelight catching its surface"}, ${palette || ""}, the object commands the scene`,
+        tags: [name], object: { name, mystery: record.sensoryClauses ?? "carries its own story" },
+      },
+    );
+  } else {
+    base.push(
+      { prompt: `${name} — conceptual illustration, ${palette || "rich tonal palette"}, ${atmosphere || "textured and evocative"}, editorial art style`, tags: [name], object: null },
+    );
+  }
+
+  return base.slice(0, 4);
+}
+
+// ── Left Rail ──────────────────────────────────────────────────────────────────
+function LeftRail({ records, recordId, filterType, filterVisibility, filterStability, setFilterType, setFilterVisibility, setFilterStability }:
+  { records: CanonListItem[]; recordId: string; filterType: string | null; filterVisibility: string | null; filterStability: string | null;
+    setFilterType: (v: string | null) => void; setFilterVisibility: (v: string | null) => void; setFilterStability: (v: string | null) => void }) {
+  const groups = CANON_TYPES.map(ct => ({ ...ct, items: records.filter(r => r.canonType === ct.key) })).filter(g => g.items.length > 0);
+  const uncategorised = records.filter(r => !r.canonType);
+  const hasFilter = !!(filterType || filterVisibility || filterStability);
+
+  return (
+    <div className="flex flex-col flex-none overflow-hidden border-r"
+      style={{ width: 210, background: WARM_BG, borderColor: WARM_BORDER }}>
+      {/* Filter chips */}
+      <div className="px-3 py-2 border-b flex flex-wrap gap-1" style={{ borderColor: WARM_BORDER }}>
+        {CANON_TYPES.map(t => {
+          const active = filterType === t.key;
+          return (
+            <button key={t.key} title={t.label} onClick={() => setFilterType(active ? null : t.key)}
+              className="text-[9px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide"
+              style={active ? { background: `${t.color}20`, color: t.color } : { color: "#9CA3AF" }}>
+              {t.label.slice(0, 3)}
+            </button>
+          );
+        })}
+        {hasFilter && (
+          <button onClick={() => { setFilterType(null); setFilterVisibility(null); setFilterStability(null); }}
+            className="text-[9px] px-1 py-0.5 rounded" style={{ color: CLAY }}>✕ clear</button>
+        )}
+      </div>
+
+      {/* Record count */}
+      <div className="px-4 py-2 border-b" style={{ borderColor: WARM_BORDER }}>
+        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>
+          Records · {records.length}
+        </span>
+      </div>
+
+      {/* Scrollable list */}
+      <div className="flex-1 overflow-y-auto pb-4">
+        {groups.map(g => (
+          <div key={g.key}>
+            <div className="px-4 mt-3 mb-1 text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: "#9CA3AF" }}>
+              {g.label}s
+            </div>
+            {g.items.map(r => (
+              <Link key={r.id} href={`/super/worldsmith/editorial/canon/${r.id}`}>
+                <a className="flex items-center gap-2 px-4 cursor-pointer"
+                  style={{
+                    paddingTop: 6, paddingBottom: 6,
+                    borderLeft: r.id === recordId ? `2px solid ${CLAY}` : "2px solid transparent",
+                    background: r.id === recordId ? "rgba(255,255,255,0.6)" : "transparent",
+                    paddingLeft: r.id === recordId ? 14 : 16,
+                  }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: g.color, flexShrink: 0 }} />
+                  <span className="flex-1 min-w-0 truncate text-xs"
+                    style={{ color: r.id === recordId ? INK : "#6B7280", fontWeight: r.id === recordId ? 600 : 400 }}>
+                    {r.name}
+                  </span>
+                  {g.key === "object" && (
+                    <span title="Object with mystery" style={{ color: "#F59E0B", fontSize: 9, flexShrink: 0 }}>◆</span>
+                  )}
+                </a>
+              </Link>
+            ))}
+          </div>
+        ))}
+        {uncategorised.length > 0 && (
+          <div>
+            <div className="px-4 mt-3 mb-1 text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: "#9CA3AF" }}>Uncategorised</div>
+            {uncategorised.map(r => (
+              <Link key={r.id} href={`/super/worldsmith/editorial/canon/${r.id}`}>
+                <a className="flex items-center gap-2 px-4 py-1.5">
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#D1D5DB", flexShrink: 0 }} />
+                  <span className="flex-1 min-w-0 truncate text-xs" style={{ color: "#6B7280" }}>{r.name}</span>
+                </a>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Link href="/super/worldsmith/editorial/canon">
+        <a className="flex-none w-full py-3 text-center text-xs font-semibold border-t"
+          style={{ borderColor: WARM_BORDER, color: CLAY }}>+ New Record</a>
+      </Link>
+    </div>
+  );
+}
+
+// ── Image Ideas Tab ────────────────────────────────────────────────────────────
+function ImageIdeasTab({ ideas }: { ideas: ReturnType<typeof generateImageIdeas> }) {
+  return (
+    <div>
+      <p className="text-xs mb-4" style={{ color: "#9CA3AF" }}>
+        Based on this record, your world's atmosphere, and any connected objects
+      </p>
+      <div className="flex flex-col gap-3 mb-4">
+        {ideas.map((idea, i) => {
+          const isMystery = !!idea.object;
+          return (
+            <div key={i} className="rounded-xl p-4"
+              style={{
+                background: isMystery ? "#FFF8ED" : PARCHMENT,
+                borderLeft: `4px solid ${isMystery ? AMBER : CLAY}`,
+                border: isMystery ? `1px solid ${AMBER}40` : undefined,
+              }}>
+              {isMystery && (
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span style={{ fontSize: 10, color: AMBER, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>◆ Object & Mystery</span>
+                </div>
+              )}
+              <p className="font-serif italic leading-relaxed" style={{ fontSize: 13.5, color: INK }}>"{idea.prompt}"</p>
+              <div className="flex justify-between items-center mt-3">
+                <div className="flex gap-2 flex-wrap">
+                  {idea.tags.map(t => <span key={t} style={{ fontSize: 10, color: "#9CA3AF" }}>{t}</span>)}
+                </div>
+                <button className="rounded-full text-white text-xs font-medium flex-shrink-0 ml-3"
+                  style={{ background: isMystery ? AMBER : CLAY, padding: "5px 12px" }}>
+                  Use this →
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-2 mb-2">
+        <input type="text" placeholder="Or describe your own image idea..."
+          className="flex-1 text-sm outline-none rounded-l-lg px-3 py-2"
+          style={{ border: `1px solid ${WARM_BORDER}`, borderRight: "none", background: "white" }} />
+        <button className="text-sm font-medium text-white rounded-r-lg px-4 py-2" style={{ background: INK }}>
+          Generate →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Scene Builder Tab ──────────────────────────────────────────────────────────
+function SceneBuilderTab({ record, relations }: { record: CanonRecord; relations: CanonRelation[] }) {
+  const [selectedLocation, setSelectedLocation] = useState<string | null>(
+    record.canonType === "location" ? record.name : null
+  );
+  const [selectedChar, setSelectedChar] = useState<string | null>(null);
+  const [selectedObject, setSelectedObject] = useState<string | null>(null);
+  const [selectedMood, setSelectedMood] = useState<string | null>(null);
+
+  const locations = record.canonType === "location"
+    ? [record.name]
+    : relations.filter(r => r.targetCanonType === "location").map(r => r.targetName);
+  const characters = record.canonType === "character"
+    ? [record.name]
+    : relations.filter(r => r.targetCanonType === "character").map(r => r.targetName);
+  const objects = record.canonType === "object"
+    ? [{ name: record.name, mystery: record.sensoryClauses ?? "" }]
+    : relations.filter(r => r.targetCanonType === "object").map(r => ({ name: r.targetName, mystery: "" }));
+
+  const moods = ["Mysterious & Dark", "Quiet & Beautiful", "Eerie & Unsettling", "Warm & Intimate"];
+
+  const assembledParts = [
+    selectedLocation && selectedLocation,
+    selectedChar && `${selectedChar} present`,
+    selectedObject && `featuring ${selectedObject}`,
+    selectedMood && selectedMood.toLowerCase(),
+    "Victorian Gothic illustration",
+  ].filter(Boolean);
+
+  return (
+    <div>
+      <p className="text-xs mb-5" style={{ color: "#9CA3AF" }}>Pick what's in your scene — the prompt assembles itself</p>
+
+      {locations.length > 0 && (
+        <div className="mb-4">
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>Place</div>
+          <div className="flex gap-2 flex-wrap">
+            {locations.map(l => (
+              <button key={l} onClick={() => setSelectedLocation(l === selectedLocation ? null : l)}
+                className="rounded-full text-xs font-medium px-3 py-1.5"
+                style={l === selectedLocation
+                  ? { background: "#DBEAFE", color: "#1D4ED8", border: "1px solid #BFDBFE" }
+                  : { background: "white", color: "#6B7280", border: `1px solid ${WARM_BORDER}` }}>
+                {l === selectedLocation && "✓ "}{l}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {characters.length > 0 && (
+        <div className="mb-4">
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>Who's there</div>
+          <div className="flex gap-2 flex-wrap">
+            {characters.map(c => (
+              <button key={c} onClick={() => setSelectedChar(c === selectedChar ? null : c)}
+                className="rounded-full text-xs font-medium px-3 py-1.5"
+                style={c === selectedChar
+                  ? { background: "#EDE9FE", color: "#6D28D9", border: "1px solid #DDD6FE" }
+                  : { background: "white", color: "#6B7280", border: `1px solid ${WARM_BORDER}` }}>
+                {c === selectedChar && "✓ "}{c}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {objects.length > 0 && (
+        <div className="mb-4">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>Object of mystery</div>
+          <div className="flex flex-col gap-2">
+            {objects.map(obj => (
+              <button key={obj.name} onClick={() => setSelectedObject(obj.name === selectedObject ? null : obj.name)}
+                className="rounded-xl p-3 text-left"
+                style={obj.name === selectedObject
+                  ? { background: AMBER_BG, border: `1px solid ${AMBER}` }
+                  : { background: "white", border: `1px solid ${WARM_BORDER}` }}>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span style={{ color: AMBER, fontSize: 10 }}>◆</span>
+                  <span className="text-xs font-medium" style={{ color: obj.name === selectedObject ? "#92400E" : INK }}>
+                    {obj.name === selectedObject && "✓ "}{obj.name}
+                  </span>
+                </div>
+                {obj.mystery && <p className="text-xs italic" style={{ color: obj.name === selectedObject ? "#B45309" : "#9CA3AF" }}>"{obj.mystery}"</p>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mb-5">
+        <div className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>Mood</div>
+        <div className="flex gap-2 flex-wrap">
+          {moods.map(m => (
+            <button key={m} onClick={() => setSelectedMood(m === selectedMood ? null : m)}
+              className="rounded-lg text-xs font-medium px-3 py-2"
+              style={m === selectedMood
+                ? { background: INK, color: "white" }
+                : { background: "white", color: "#6B7280", border: `1px solid ${WARM_BORDER}` }}>
+              {m === selectedMood && "✓ "}{m}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {assembledParts.length > 0 && (
+        <div className="rounded-xl p-4 mb-4" style={{ background: PARCHMENT, borderLeft: `4px solid ${AMBER}` }}>
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>Your image prompt</div>
+          <p className="font-serif italic text-sm leading-relaxed" style={{ color: INK }}>
+            {assembledParts.join(", ")}.
+          </p>
+        </div>
+      )}
+
+      <button disabled={assembledParts.length === 0}
+        className="w-full rounded-lg font-semibold text-white text-sm py-3"
+        style={{ background: assembledParts.length > 0 ? CLAY : "#D1D5DB", cursor: assembledParts.length > 0 ? "pointer" : "not-allowed" }}>
+        Generate Image →
+      </button>
+    </div>
+  );
+}
+
+// ── Daybook & Game Tab ─────────────────────────────────────────────────────────
+function DaybookGameTab({ record, recordId }:
+  { record: CanonRecord; recordId: string }) {
+  const { data: storyLinksData } = useQuery<{ story_links: WsStoryLink[] }>({
+    queryKey: ["editorial-story-links", recordId],
+    queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/story-links`),
+    staleTime: 30_000,
+  });
+  const storyLinks = storyLinksData?.story_links ?? [];
+
+  const { data: promptsData } = useQuery<{ journal_prompts: WsJournalPrompt[] }>({
+    queryKey: ["editorial-journal-prompts", recordId],
+    queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/journal-prompts`),
+    staleTime: 30_000,
+  });
+  const journalPrompts = promptsData?.journal_prompts ?? [];
+
+  const { data: encountersData } = useQuery<{ encounters: WsEncounter[] }>({
+    queryKey: ["editorial-encounters", recordId],
+    queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/encounters`),
+    enabled: record.canonType === "location",
+    staleTime: 30_000,
+  });
+  const encounters = encountersData?.encounters ?? [];
+
+  return (
+    <div>
+      <p className="text-xs mb-5" style={{ color: "#9CA3AF" }}>How this record shapes your solo RPG game and its physical Daybook pages</p>
+
+      {/* Story Role */}
+      <div className="rounded-xl p-4 mb-4" style={{ background: PARCHMENT, border: `1px solid ${WARM_BORDER}` }}>
+        <div className="flex items-center gap-2 mb-3">
+          <BookOpen style={{ width: 14, height: 14, color: CLAY }} />
+          <span className="text-sm font-semibold" style={{ color: INK, fontFamily: "'Playfair Display', serif" }}>Story Role</span>
+        </div>
+        {storyLinks.length === 0 ? (
+          <div className="text-center py-3">
+            <p className="text-xs italic mb-2" style={{ color: "#9CA3AF" }}>Not placed in any story yet</p>
+            <Link href="/super/worldsmith">
+              <a className="text-xs font-medium" style={{ color: CLAY }}>Add to a story →</a>
+            </Link>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {storyLinks.map(link => (
+              <div key={link.storyId} className="flex items-center justify-between">
+                <span className="text-sm" style={{ color: INK }}>{link.storyTitle ?? "Story"}</span>
+                <span className="text-[10px] rounded-full px-2 py-0.5" style={{ background: "#E0E7FF", color: "#3730A3" }}>
+                  {link.storyStatus ?? "draft"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Encounters (location only) */}
+      {record.canonType === "location" && (
+        <div className="rounded-xl p-4 mb-4" style={{ background: "#F0FDF4", border: `1px solid #BBF7D0` }}>
+          <div className="flex items-center gap-2 mb-3">
+            <Zap style={{ width: 14, height: 14, color: "#16A34A" }} />
+            <span className="text-sm font-semibold" style={{ color: INK, fontFamily: "'Playfair Display', serif" }}>Encounters at this Location</span>
+          </div>
+          {encounters.length === 0 ? (
+            <p className="text-xs italic" style={{ color: "#9CA3AF" }}>No encounters written yet — encounters describe what happens when a player arrives here</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {encounters.map(e => (
+                <div key={e.id}>
+                  <p className="text-sm italic leading-snug mb-1" style={{ color: "#166534" }}>"{e.description}"</p>
+                  {e.rollType && <span className="text-[10px]" style={{ color: "#16A34A" }}>Roll: {e.rollType}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Journal Prompts */}
+      <div className="rounded-xl p-4 mb-4" style={{ background: "#FFF8ED", border: `1px solid ${AMBER}40` }}>
+        <div className="flex items-center gap-2 mb-3">
+          <FileText style={{ width: 14, height: 14, color: AMBER }} />
+          <span className="text-sm font-semibold" style={{ color: INK, fontFamily: "'Playfair Display', serif" }}>Session Journal Prompts</span>
+          <span style={{ fontSize: 10, color: AMBER, marginLeft: "auto" }}>for the physical Daybook page</span>
+        </div>
+        {journalPrompts.length === 0 ? (
+          <p className="text-xs italic" style={{ color: "#9CA3AF" }}>No journal prompts yet — these become the fill-in questions on a printed Daybook page</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {journalPrompts.map((p, i) => (
+              <div key={p.id} className="flex gap-3">
+                <span className="text-xs font-mono mt-0.5 flex-shrink-0" style={{ color: AMBER }}>{i + 1}.</span>
+                <div>
+                  <p className="text-sm" style={{ color: INK }}>{p.promptText}</p>
+                  {p.hintLabel && <span className="text-[10px]" style={{ color: "#9CA3AF" }}>→ {p.hintLabel}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Physical page preview */}
+      <div className="rounded-xl overflow-hidden mb-4" style={{ border: `1px solid ${WARM_BORDER}` }}>
+        <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: INK }}>
+          <FileText style={{ width: 13, height: 13, color: "rgba(255,255,255,0.6)" }} />
+          <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "rgba(255,255,255,0.9)", letterSpacing: "0.06em" }}>
+            Physical Daybook Page Preview
+          </span>
+          <span className="ml-auto text-[10px]" style={{ color: "rgba(255,255,255,0.4)" }}>
+            {record.canonType ?? "record"} · Wychcombe
+          </span>
+        </div>
+        <div className="p-4" style={{ background: "#FDFBF7", fontFamily: "'Spectral', Georgia, serif" }}>
+          <div className="flex justify-between items-baseline mb-3">
+            <span className="text-xs font-bold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>{record.name}</span>
+            <span className="text-[10px] font-mono" style={{ color: "#D1D5DB" }}>
+              {TYPE_PREFIX[record.canonType ?? ""] ?? "REC"}-001
+            </span>
+          </div>
+          <div className="rounded-lg mb-3 flex items-center justify-center"
+            style={{ height: 64, background: PARCHMENT, border: `1px dashed ${WARM_BORDER}` }}>
+            <span className="text-xs italic" style={{ color: "#9CA3AF" }}>AI image generated from prompt</span>
+          </div>
+          {journalPrompts.length > 0 ? (
+            journalPrompts.slice(0, 2).map((p, i) => (
+              <div key={i} className="mb-2">
+                <p className="text-[10px] italic mb-1" style={{ color: "#6B7280" }}>{p.promptText}</p>
+                <div className="h-px w-full" style={{ background: "#E5E7EB" }} />
+              </div>
+            ))
+          ) : (
+            <div>
+              <p className="text-[10px] italic mb-1" style={{ color: "#6B7280" }}>What did you notice here?</p>
+              <div className="h-px w-full mb-2" style={{ background: "#E5E7EB" }} />
+              <div className="h-px w-full" style={{ background: "#E5E7EB" }} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <button className="w-full rounded-lg font-semibold text-white text-sm py-3" style={{ background: INK }}>
+        Generate Daybook Pages →
+      </button>
+    </div>
+  );
+}
+
+// ── Right Panel ────────────────────────────────────────────────────────────────
+function RightPanel({ record, recordId, relations, allRecords, patchMutation, transitionMutation, deleteMutation, setShowDeleteConfirm, cascadeMutation, addRelMutation, removeRelMutation, patchRelTypeMutation, linkedSpecs, worldId }:
+  { record: CanonRecord; recordId: string; relations: CanonRelation[]; allRecords: CanonListItem[];
+    patchMutation: { mutate: (f: Record<string, unknown>) => void };
+    transitionMutation: { mutate: (s: string) => void; isPending: boolean };
+    deleteMutation: { isPending: boolean };
+    setShowDeleteConfirm: (v: boolean) => void;
+    cascadeMutation: { mutate: () => void; isPending: boolean };
+    addRelMutation: { mutate: (a: { toId: string; type: string }) => void; isPending: boolean };
+    removeRelMutation: { mutate: (id: string) => void };
+    patchRelTypeMutation: { mutate: (a: { toId: string; type: string }) => void };
+    linkedSpecs: LinkedSpec[];
+    worldId: string;
+  }) {
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [showAddRel, setShowAddRel] = useState(false);
+  const [addRelSearch, setAddRelSearch] = useState("");
+  const [addRelType, setAddRelType] = useState<RelationTypeKey>("related");
+
+  const objectRelations = relations.filter(r => r.targetCanonType === "object");
+  const storyLinks: WsStoryLink[] = []; // populated by DaybookGameTab's own query
+
+  const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+    proposed:     ["under_review", "rejected"],
+    under_review: ["accepted", "superseded", "rejected", "proposed"],
+    accepted:     ["superseded"],
+    superseded:   [],
+    rejected:     ["proposed"],
+  };
+  const TRANSITION_LABELS: Record<string, string> = {
+    under_review: "Send for Review", accepted: "Accept", superseded: "Supersede",
+    rejected: "Reject", proposed: "Reopen",
+  };
+  const transitions = ALLOWED_TRANSITIONS[record.status ?? "proposed"] ?? [];
+
+  const addRelCandidates = allRecords.filter(r =>
+    r.id !== recordId &&
+    !relations.some(rel => rel.toRecordId === r.id) &&
+    (addRelSearch.trim() === "" || r.name.toLowerCase().includes(addRelSearch.toLowerCase()))
+  ).slice(0, 6);
+
+  const regM = regMeta(record.emotionalRegister);
+
+  return (
+    <div className="flex-none flex flex-col gap-5 overflow-y-auto p-5"
+      style={{ width: 280, background: PARCHMENT, borderLeft: `1px solid ${WARM_BORDER}` }}>
+
+      {/* Objects & Mystery */}
+      {objectRelations.length > 0 && (
+        <div>
+          <div className="flex items-center gap-1.5 mb-2">
+            <span style={{ color: AMBER, fontSize: 12 }}>◆</span>
+            <span className="text-sm font-semibold" style={{ color: INK }}>Objects & Mystery</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {objectRelations.map(rel => (
+              <div key={rel.toRecordId} className="rounded-lg p-3" style={{ background: "white", border: `1px solid ${WARM_BORDER}` }}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#F59E0B" }} />
+                  <span className="text-xs font-semibold" style={{ color: INK }}>{rel.targetName}</span>
+                </div>
+                <div className="flex items-center gap-1 mt-1">
+                  <Eye style={{ width: 9, height: 9, color: AMBER }} />
+                  <span style={{ fontSize: 10, color: AMBER }}>carries its own thread</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="my-4 border-t" style={{ borderColor: WARM_BORDER }} />
+        </div>
+      )}
+
+      {/* Canon Gaps */}
+      <div>
+        <div className="flex items-center gap-1.5 mb-2">
+          <Sparkles size={12} style={{ color: CLAY }} />
+          <span className="text-sm font-semibold" style={{ color: INK }}>Canon Gaps</span>
+        </div>
+        <div className="flex flex-col gap-2">
+          {!record.emotionalRegister && (
+            <div className="rounded-lg p-2.5" style={{ background: "white", border: `1px solid ${WARM_BORDER}` }}>
+              <div className="text-xs font-semibold mb-0.5" style={{ color: INK }}>No emotional register</div>
+              <p className="text-[11px]" style={{ color: "#6B7280" }}>Set via Record Details below</p>
+            </div>
+          )}
+          {!record.narrativeDetails && (
+            <div className="rounded-lg p-2.5" style={{ background: "white", border: `1px solid ${WARM_BORDER}` }}>
+              <div className="text-xs font-semibold mb-0.5" style={{ color: INK }}>No story prose</div>
+              <p className="text-[11px]" style={{ color: "#6B7280" }}>Write it in the main panel</p>
+            </div>
+          )}
+          {objectRelations.length === 0 && record.canonType !== "object" && (
+            <div className="rounded-lg p-2.5" style={{ background: "white", border: `1px solid ${WARM_BORDER}` }}>
+              <div className="text-xs font-semibold mb-0.5" style={{ color: INK }}>No object connections</div>
+              <p className="text-[11px]" style={{ color: "#6B7280" }}>Link an object to add mystery threads</p>
+            </div>
+          )}
+          {(!record.emotionalRegister && !record.narrativeDetails && objectRelations.length > 0) && (
+            <p className="text-[11px] italic" style={{ color: "#9CA3AF" }}>Looking good — no obvious gaps</p>
+          )}
+        </div>
+      </div>
+
+      <div className="border-t" style={{ borderColor: WARM_BORDER }} />
+
+      {/* Record Details Accordion */}
+      <div>
+        <button onClick={() => setAdminOpen(o => !o)}
+          className="w-full flex items-center justify-between py-1">
+          <span className="text-sm font-semibold" style={{ color: INK }}>Record Details</span>
+          {adminOpen ? <ChevronUp size={15} style={{ color: "#9CA3AF" }} /> : <ChevronDown size={15} style={{ color: "#9CA3AF" }} />}
+        </button>
+
+        {adminOpen && (
+          <div className="mt-3 flex flex-col gap-4">
+            {/* Status */}
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: "#9CA3AF" }}>Status & Transitions</div>
+              <div className="flex gap-1.5 flex-wrap">
+                {transitions.map(t => (
+                  <button key={t} onClick={() => transitionMutation.mutate(t)} disabled={transitionMutation.isPending}
+                    className="text-[11px] font-medium rounded-full px-2.5 py-1"
+                    style={{ background: PARCHMENT, color: INK, border: `1px solid ${WARM_BORDER}` }}>
+                    {TRANSITION_LABELS[t]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Emotional Register */}
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: "#9CA3AF" }}>Emotional Register</div>
+              <RegisterPicker
+                value={record.emotionalRegister} locked={record.registerLocked}
+                onSelect={r => patchMutation.mutate({ emotional_register: r })}
+                onToggleLock={() => patchMutation.mutate({ register_locked: !record.registerLocked })}
+              />
+              {regM && !record.registerLocked && (
+                <button onClick={() => cascadeMutation.mutate()}
+                  disabled={cascadeMutation.isPending}
+                  className="mt-2 text-[11px] font-medium rounded-full px-2.5 py-1 w-full text-center"
+                  style={{ background: `${regM.color}14`, color: regM.color, border: `1px solid ${regM.color}30` }}>
+                  {cascadeMutation.isPending ? "Propagating…" : "Propagate to related records"}
+                </button>
+              )}
+            </div>
+
+            {/* Sensory Clauses */}
+            <AutoField label="Sensory Clauses" field="sensoryClauses"
+              value={record.sensoryClauses ?? ""} placeholder="Light, texture, smell…"
+              onSave={(f, v) => patchMutation.mutate({ sensory_clauses: v })} rows={3} />
+
+            {/* Visibility */}
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: "#9CA3AF" }}>Narrative Visibility</div>
+              <div className="flex gap-1.5">
+                {(["background", "hinted", "explicit"] as const).map(v => (
+                  <button key={v} onClick={() => patchMutation.mutate({ narrative_visibility: v === record.narrativeVisibility ? null : v })}
+                    className="text-[11px] font-medium rounded-full px-2.5 py-1 capitalize"
+                    style={v === record.narrativeVisibility
+                      ? { background: INK, color: "white" }
+                      : { background: PARCHMENT, color: "#6B7280", border: `1px solid ${WARM_BORDER}` }}>
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Canon Stability */}
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: "#9CA3AF" }}>Canon Stability</div>
+              <div className="flex gap-1.5">
+                {(["low", "medium", "high"] as const).map(s => (
+                  <button key={s} onClick={() => patchMutation.mutate({ canon_stability: s === record.canonStability ? null : s })}
+                    className="text-[11px] font-medium rounded-full px-2.5 py-1 capitalize"
+                    style={s === record.canonStability
+                      ? { background: INK, color: "white" }
+                      : { background: PARCHMENT, color: "#6B7280", border: `1px solid ${WARM_BORDER}` }}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Historical Context */}
+            <AutoField label="Historical Context" field="historicalContext"
+              value={record.historicalContext ?? ""} placeholder="Historical or temporal grounding…"
+              onSave={(f, v) => patchMutation.mutate({ historical_context: v })} rows={3} />
+
+            {/* Visual Notes */}
+            <AutoField label="Visual Notes" field="visualNotes"
+              value={record.visualNotes ?? ""} placeholder="What this looks like…"
+              onSave={(f, v) => patchMutation.mutate({ visual_notes: v })} rows={3} />
+
+            {/* Relations */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>Related Canon</div>
+                <button onClick={() => setShowAddRel(o => !o)} className="text-[11px] flex items-center gap-0.5" style={{ color: CLAY }}>
+                  <Plus size={10} /> Add
+                </button>
+              </div>
+              {showAddRel && (
+                <div className="mb-3">
+                  <input value={addRelSearch} onChange={e => setAddRelSearch(e.target.value)}
+                    placeholder="Search records…"
+                    className="w-full text-xs rounded-lg px-2.5 py-2 mb-2 outline-none"
+                    style={{ border: `1px solid ${WARM_BORDER}`, background: "white" }} />
+                  <select value={addRelType} onChange={e => setAddRelType(e.target.value as RelationTypeKey)}
+                    className="w-full text-xs rounded-lg px-2 py-1.5 mb-2 outline-none"
+                    style={{ border: `1px solid ${WARM_BORDER}`, background: "white" }}>
+                    {RELATION_TYPES.map(rt => <option key={rt.key} value={rt.key}>{rt.label}</option>)}
+                  </select>
+                  {addRelCandidates.map(c => (
+                    <button key={c.id} onClick={() => { addRelMutation.mutate({ toId: c.id, type: addRelType }); setShowAddRel(false); setAddRelSearch(""); }}
+                      className="w-full text-left text-xs px-2.5 py-1.5 rounded-lg mb-1 flex items-center gap-2"
+                      style={{ background: PARCHMENT, color: INK }}>
+                      <div style={{ width: 5, height: 5, borderRadius: "50%", background: CANON_TYPES.find(t => t.key === c.canonType)?.color ?? "#D1D5DB" }} />
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-col gap-1">
+                {relations.map(rel => (
+                  <div key={rel.toRecordId} className="flex items-center gap-2 text-xs py-1">
+                    <Link2 size={9} style={{ color: "#9CA3AF" }} />
+                    <span className="flex-1 truncate" style={{ color: INK }}>{rel.targetName}</span>
+                    <span style={{ color: "#9CA3AF", fontSize: 10 }}>{relTypeMeta(rel.relationType).label}</span>
+                    <button onClick={() => removeRelMutation.mutate(rel.toRecordId)} style={{ color: "#9CA3AF" }}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Linked Specs */}
+            {linkedSpecs.length > 0 && (
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: "#9CA3AF" }}>Linked Specs</div>
+                {linkedSpecs.map(s => (
+                  <Link key={s.id} href={`/super/worldsmith/editorial/specs/${s.id}`}>
+                    <a className="flex items-center gap-2 text-xs py-1 hover:opacity-70">
+                      <ExternalLink size={9} style={{ color: "#9CA3AF" }} />
+                      <span className="truncate" style={{ color: INK }}>{s.productionItem}</span>
+                    </a>
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            {/* Delete */}
+            <div className="pt-2 border-t" style={{ borderColor: WARM_BORDER }}>
+              <button onClick={() => setShowDeleteConfirm(true)}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium"
+                style={{ color: "#9B1C1C", border: "1px solid #FEE2E2", background: "#FFF5F5" }}>
+                <Trash2 size={11} /> Delete record
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const { worlds, selectedWorldId, setSelectedWorldId } = useEditorial();
-
+  const [activeTab, setActiveTab] = useState<"ideas" | "scene" | "daybook">("ideas");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [worldBibleOpen, setWorldBibleOpen] = useState(false);
-
-  // ── Filter state: starts null; hydrated once authoritative worldId is known ─
   const [filterVisibility, setFilterVisibility] = useState<string | null>(null);
   const [filterStability, setFilterStability] = useState<string | null>(null);
-  const [filterType, setFilterType]            = useState<string | null>(null);
-  // Tracks which worldId the current filter values were loaded from.
-  // null means "not yet hydrated" — saves are blocked until this matches worldId.
+  const [filterType, setFilterType] = useState<string | null>(null);
   const [hydratedWorldId, setHydratedWorldId] = useState<string | null>(null);
 
   const world = worlds.find(w => w.id === selectedWorldId) ?? worlds[0] ?? null;
 
-  // ── Load the current record ────────────────────────────────────────────────
+  // ── Record ──────────────────────────────────────────────────────────────────
   const { data: recordData, isLoading, error } = useQuery<{ canon_record: CanonRecord }>({
     queryKey: ["editorial-canon-record", recordId],
     queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}`),
     staleTime: 30_000,
   });
   const record = recordData?.canon_record ?? null;
-
-  // ── Canonical world for this record ───────────────────────────────────────
-  // Use the record's own worldId once loaded — never the selected-world context,
-  // which can diverge from the record being viewed (e.g. a direct link or a
-  // world-selector change while the record stays open).
-  const recordWorld = record
-    ? (worlds.find(w => w.id === record.worldId) ?? null)
-    : world; // pre-load fallback so the selector still shows while loading
-
-  // ── Load record list for rail (all records for the selected world) ─────────
-  // The record's own worldId is authoritative once loaded; fall back to context.
+  const recordWorld = record ? (worlds.find(w => w.id === record.worldId) ?? null) : world;
   const worldId = record?.worldId ?? selectedWorldId ?? "";
+
+  // ── Record list for rail ────────────────────────────────────────────────────
   const { data: listData } = useQuery<{ canon_records: CanonListItem[] }>({
     queryKey: ["editorial-canon-library", worldId],
     queryFn: () => apiFetch(`/v1/editorial/canon-records?world_id=${worldId}&limit=200`),
-    enabled: !!worldId,
-    staleTime: 30_000,
+    enabled: !!worldId, staleTime: 30_000,
   });
   const allRecords: CanonListItem[] = listData?.canon_records ?? [];
-
   const filteredRecords = allRecords.filter(r => {
     if (filterVisibility && r.narrativeVisibility !== filterVisibility) return false;
     if (filterStability && r.canonStability !== filterStability) return false;
@@ -398,45 +968,31 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     return true;
   });
 
-  // ── Hydrate filters from sessionStorage when authoritative worldId is known ─
-  // Fires when worldId resolves (e.g. record load, context switch) and hasn't
-  // been hydrated for this worldId yet.  Runs before any persistence effect.
+  // ── Filter persistence ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!worldId || worldId === hydratedWorldId) return;
     const saved = loadPersistedFilters(worldId);
-    setFilterVisibility(saved.visibility);
-    setFilterStability(saved.stability);
-    setFilterType(saved.type);
+    setFilterVisibility(saved.visibility); setFilterStability(saved.stability); setFilterType(saved.type);
     setHydratedWorldId(worldId);
   }, [worldId, hydratedWorldId]);
-
-  // ── Persist filters to sessionStorage — only after hydration is complete ───
-  // Gating on hydratedWorldId === worldId prevents overwriting stored state
-  // with the initial null defaults before the load effect above has run.
   useEffect(() => {
     if (!worldId || worldId !== hydratedWorldId) return;
-    savePersistedFilters(worldId, {
-      visibility: filterVisibility,
-      stability:  filterStability,
-      type:       filterType,
-    });
+    savePersistedFilters(worldId, { visibility: filterVisibility, stability: filterStability, type: filterType });
   }, [worldId, hydratedWorldId, filterVisibility, filterStability, filterType]);
 
-  // ── Load linked specs ──────────────────────────────────────────────────────
+  // ── Linked specs ────────────────────────────────────────────────────────────
   const { data: specsData } = useQuery<{ specs: LinkedSpec[] }>({
     queryKey: ["editorial-canon-record-specs", recordId],
     queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/specs`),
-    enabled: !!record,
-    staleTime: 30_000,
+    enabled: !!record, staleTime: 30_000,
   });
   const linkedSpecs = specsData?.specs ?? [];
 
-  // ── PATCH mutation ─────────────────────────────────────────────────────────
+  // ── Mutations ───────────────────────────────────────────────────────────────
   const patchMutation = useMutation({
     mutationFn: (fields: Record<string, unknown>) =>
       apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${recordId}`, {
-        method: "PATCH",
-        body: JSON.stringify(fields),
+        method: "PATCH", body: JSON.stringify(fields),
       }),
     onSuccess: (result) => {
       qc.setQueryData(["editorial-canon-record", recordId], { canon_record: result.canon_record });
@@ -445,12 +1001,10 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     onError: () => toast({ title: "Save failed", variant: "destructive" }),
   });
 
-  // ── Transition mutation ────────────────────────────────────────────────────
   const transitionMutation = useMutation({
     mutationFn: (status: string) =>
       apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${recordId}/transition`, {
-        method: "POST",
-        body: JSON.stringify({ status }),
+        method: "POST", body: JSON.stringify({ status }),
       }),
     onSuccess: (result) => {
       qc.setQueryData(["editorial-canon-record", recordId], { canon_record: result.canon_record });
@@ -460,7 +1014,6 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     onError: () => toast({ title: "Transition failed", variant: "destructive" }),
   });
 
-  // ── Delete mutation ────────────────────────────────────────────────────────
   const deleteMutation = useMutation({
     mutationFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}`, { method: "DELETE" }),
     onSuccess: () => {
@@ -471,97 +1024,57 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     onError: () => { toast({ title: "Delete failed", variant: "destructive" }); setShowDeleteConfirm(false); },
   });
 
-  // ── Relations ─────────────────────────────────────────────────────────────
-  const { data: relationsData, isLoading: relLoading } = useQuery<{ relations: CanonRelation[] }>({
+  // ── Relations ───────────────────────────────────────────────────────────────
+  const { data: relationsData } = useQuery<{ relations: CanonRelation[] }>({
     queryKey: ["editorial-canon-record-relations", recordId],
     queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/relations`),
-    enabled: !!record,
-    staleTime: 30_000,
+    enabled: !!record, staleTime: 30_000,
   });
   const relations: CanonRelation[] = relationsData?.relations ?? [];
 
   const { data: inboundRelData } = useQuery<{ inbound_relations: InboundRelation[] }>({
     queryKey: ["editorial-canon-record-inbound-relations", recordId],
     queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/inbound-relations`),
-    enabled: !!record,
-    staleTime: 30_000,
+    enabled: !!record, staleTime: 30_000,
   });
-  const inboundRelations: InboundRelation[] = inboundRelData?.inbound_relations ?? [];
-  const contradictionsIn = inboundRelations.filter(r => r.relationType === "contradicts");
-
-  // Add-relation panel state
-  const [showAddRel, setShowAddRel] = useState(false);
-  const [addRelSearch, setAddRelSearch] = useState("");
-  const [addRelType, setAddRelType] = useState<RelationTypeKey>("related");
 
   const addRelMutation = useMutation({
     mutationFn: ({ toId, type }: { toId: string; type: string }) =>
       apiFetch(`/v1/editorial/canon-records/${recordId}/relations`, {
-        method: "POST",
-        body: JSON.stringify({ to_record_id: toId, relation_type: type }),
+        method: "POST", body: JSON.stringify({ to_record_id: toId, relation_type: type }),
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] });
-      qc.invalidateQueries({ queryKey: ["editorial-canon-record-inbound-relations"] });
-      setShowAddRel(false);
-      setAddRelSearch("");
-      setAddRelType("related");
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] }); },
     onError: () => toast({ title: "Failed to add relation", variant: "destructive" }),
   });
 
   const patchRelTypeMutation = useMutation({
     mutationFn: ({ toId, type }: { toId: string; type: string }) =>
       apiFetch(`/v1/editorial/canon-records/${recordId}/relations/${toId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ relation_type: type }),
+        method: "PATCH", body: JSON.stringify({ relation_type: type }),
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] });
-      qc.invalidateQueries({ queryKey: ["editorial-canon-record-inbound-relations"] });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] }); },
     onError: () => toast({ title: "Failed to update relation type", variant: "destructive" }),
   });
 
   const removeRelMutation = useMutation({
     mutationFn: (toId: string) =>
       apiFetch(`/v1/editorial/canon-records/${recordId}/relations/${toId}`, { method: "DELETE" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] });
-      qc.invalidateQueries({ queryKey: ["editorial-canon-record-inbound-relations"] });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] }); },
     onError: () => toast({ title: "Failed to remove relation", variant: "destructive" }),
   });
 
-  // Filtered candidates for the add-relation search
-  const addRelCandidates = allRecords.filter(r =>
-    r.id !== recordId &&
-    !relations.some(rel => rel.toRecordId === r.id) &&
-    (addRelSearch.trim() === "" || r.name.toLowerCase().includes(addRelSearch.toLowerCase()))
-  ).slice(0, 8);
-
-  // ── Cascade register mutation ──────────────────────────────────────────────
-  const [cascadeResult, setCascadeResult] = useState<{ updated: number; skipped_locked: number } | null>(null);
-  const [temporalScopeDraft, setTemporalScopeDraft] = useState(record?.temporalScope ?? "");
-  useEffect(() => { setTemporalScopeDraft(record?.temporalScope ?? ""); }, [record?.temporalScope]);
   const cascadeMutation = useMutation({
     mutationFn: () =>
       apiFetch<{ updated: number; skipped_locked: number; register: string }>(
-        `/v1/editorial/canon-records/${recordId}/cascade-register`,
-        { method: "POST" },
-      ),
+        `/v1/editorial/canon-records/${recordId}/cascade-register`, { method: "POST" }),
     onSuccess: (result) => {
-      setCascadeResult({ updated: result.updated, skipped_locked: result.skipped_locked });
       qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
-      toast({
-        title: result.updated > 0
-          ? `Propagated to ${result.updated} record${result.updated !== 1 ? "s" : ""}`
-          : "No related records to update",
-      });
+      toast({ title: result.updated > 0 ? `Propagated to ${result.updated} record${result.updated !== 1 ? "s" : ""}` : "No related records to update" });
     },
     onError: () => toast({ title: "Cascade failed", variant: "destructive" }),
   });
 
+  // ── Field handler ───────────────────────────────────────────────────────────
   const handleField = useCallback((field: string, value: string) => {
     const map: Record<string, string> = {
       narrativeDetails: "narrative_details",
@@ -572,120 +1085,47 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     patchMutation.mutate({ [map[field] ?? field]: value });
   }, [patchMutation]);
 
-  // ── Derived ────────────────────────────────────────────────────────────────
-  const typeMeta  = CANON_TYPES.find(t => t.key === record?.canonType) ?? null;
-  const statusMeta = STATUS_META[record?.status ?? "proposed"] ?? STATUS_META.proposed;
-  const confMeta  = CONFIDENCE_FROM_STATUS[record?.status ?? "proposed"] ?? CONFIDENCE_FROM_STATUS.proposed;
-  const regM      = regMeta(record?.emotionalRegister);
+  // ── Loading / error ─────────────────────────────────────────────────────────
+  if (isLoading) return <div className="flex h-screen items-center justify-center"><Loader2 className="w-5 h-5 animate-spin" style={{ color: CLAY }} /></div>;
+  if (error || !record) return (
+    <div className="flex h-screen flex-col items-center justify-center gap-3">
+      <AlertCircle className="w-7 h-7 opacity-30" style={{ color: INK }} />
+      <p className="text-sm" style={{ color: INK }}>Canon record not found.</p>
+      <button onClick={() => navigate("/super/worldsmith/editorial/canon")} className="text-sm underline" style={{ color: CLAY }}>Back to library</button>
+    </div>
+  );
+
+  // ── Derived ─────────────────────────────────────────────────────────────────
+  const typeMeta  = CANON_TYPES.find(t => t.key === record.canonType) ?? null;
+  const statusMeta = STATUS_META[record.status ?? "proposed"] ?? STATUS_META.proposed;
   const recordIndex = allRecords.findIndex(r => r.id === recordId);
-  const idStamp   = world ? displayId(world.code.toUpperCase(), recordId, Math.max(0, recordIndex), record?.canonType) : "—";
+  const idStamp = recordWorld ? displayId(recordWorld.code.toUpperCase(), recordId, Math.max(0, recordIndex), record.canonType) : "—";
+  const imageIdeas = generateImageIdeas(record, recordWorld);
 
-  // Narrative visibility + canon stability metadata
-  const NV_META: Record<string, { label: string; color: string }> = {
-    background: { label: "Background", color: "#6B7280" },
-    hinted:     { label: "Hinted",     color: "#B45309" },
-    explicit:   { label: "Explicit",   color: "#065F46" },
-  };
-  const nvMeta = NV_META[record?.narrativeVisibility ?? ""] ?? null;
+  const tabs: { id: typeof activeTab; label: string }[] = [
+    { id: "ideas",   label: "✦ Image Ideas"     },
+    { id: "scene",   label: "Compose a Scene"   },
+    { id: "daybook", label: "📖 Daybook & Game"  },
+  ];
 
-  const CS_META: Record<string, { label: string; color: string }> = {
-    low:    { label: "Low",    color: "#9CA3AF" },
-    medium: { label: "Medium", color: "#B45309" },
-    high:   { label: "High",   color: "#065F46" },
-  };
-  const csMeta = CS_META[record?.canonStability ?? ""] ?? null;
-
-  // Readiness: % of records with emotionalRegister set
-  const readyCount = allRecords.filter(r => r.emotionalRegister).length;
-  const readyPct   = allRecords.length > 0 ? Math.round((readyCount / allRecords.length) * 100) : 0;
-
-  const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-    proposed:     ["under_review", "rejected"],
-    under_review: ["accepted", "superseded", "rejected", "proposed"],
-    accepted:     ["superseded"],
-    superseded:   [],
-    rejected:     ["proposed"],
-  };
-  const TRANSITION_LABELS: Record<string, string> = {
-    under_review: "Send for Review",
-    accepted:     "Accept",
-    superseded:   "Supersede",
-    rejected:     "Reject",
-    proposed:     "Reopen",
-  };
-  const transitions = ALLOWED_TRANSITIONS[record?.status ?? "proposed"] ?? [];
-
-  // ── Loading / error ────────────────────────────────────────────────────────
-  if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin" style={{ color: CLAY }} />
-      </div>
-    );
-  }
-
-  if (error || !record) {
-    return (
-      <div className="flex h-screen flex-col items-center justify-center gap-3">
-        <AlertCircle className="w-8 h-8 opacity-30" style={{ color: INK }} />
-        <p className="text-sm" style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}>
-          Canon record not found.
-        </p>
-        <button
-          onClick={() => navigate("/super/worldsmith/editorial/canon")}
-          className="text-sm underline"
-          style={{ color: CLAY }}
-        >
-          Back to library
-        </button>
-      </div>
-    );
-  }
-
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col" style={{ height: "100dvh", background: WARM_WHITE }}>
+    <div className="flex flex-col" style={{ height: "100dvh", background: WARM_WHITE, fontFamily: "'Instrument Sans', sans-serif" }}>
 
-      {/* ════════════════════════════════════ TOP BAR (52px) ════════════════ */}
-      <header
-        className="shrink-0 flex items-center px-5 gap-4"
-        style={{
-          height: 52,
-          background: "white",
-          borderBottom: `1px solid ${WARM_BORDER}`,
-        }}
-      >
-        {/* Left: back + world */}
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={() => navigate("/super/worldsmith/editorial/canon")}
-            className="flex items-center gap-1.5 shrink-0 text-sm transition-colors"
-            style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-            onMouseEnter={e => (e.currentTarget.style.color = INK)}
-            onMouseLeave={e => (e.currentTarget.style.color = "#9CA3AF")}
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
+      {/* TOP BAR */}
+      <header className="shrink-0 flex items-center px-5 gap-3 border-b"
+        style={{ height: 48, background: "white", borderColor: WARM_BORDER }}>
+        <button onClick={() => navigate("/super/worldsmith/editorial/canon")}
+          className="flex items-center gap-1 text-sm shrink-0" style={{ color: "#9CA3AF" }}>
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <select value={selectedWorldId ?? ""} onChange={e => setSelectedWorldId(e.target.value)}
+          className="text-sm font-semibold bg-transparent border-none outline-none cursor-pointer" style={{ color: INK }}>
+          {worlds.map(w => <option key={w.id} value={w.id}>{w.code} · {w.name}</option>)}
+        </select>
+        <span style={{ color: WARM_BORDER }}>/</span>
+        <span className="text-sm truncate" style={{ color: "#9CA3AF" }}>{record.name}</span>
 
-          {/* World selector */}
-          <select
-            value={selectedWorldId ?? ""}
-            onChange={e => {
-              setSelectedWorldId(e.target.value);
-              // Hydration effect re-fires when worldId changes, so no manual
-              // filter manipulation needed here.
-            }}
-            className="text-sm font-semibold focus:outline-none bg-transparent border-none cursor-pointer"
-            style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
-          >
-            {worlds.map(w => (
-              <option key={w.id} value={w.id}>{w.code} · {w.name}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Center: tabs */}
-        <nav className="flex items-center gap-1 mx-auto">
+        <nav className="flex items-center gap-0.5 mx-auto">
           {(["Canon", "Prompt modules", "Style guides", "Visual assets"] as const).map(tab => {
             const href = {
               "Canon": "/super/worldsmith/editorial/canon",
@@ -696,14 +1136,8 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
             const active = tab === "Canon";
             return (
               <Link key={tab} href={href}>
-                <a
-                  className="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                  style={{
-                    background: active ? PARCHMENT : "transparent",
-                    color: active ? INK : "#9CA3AF",
-                    fontFamily: "'Instrument Sans', sans-serif",
-                  }}
-                >
+                <a className="px-3 py-1.5 rounded-lg text-sm font-medium"
+                  style={{ background: active ? PARCHMENT : "transparent", color: active ? INK : "#9CA3AF" }}>
                   {tab}
                 </a>
               </Link>
@@ -711,1558 +1145,102 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
           })}
         </nav>
 
-        {/* Right: readiness + sync chip */}
-        <div className="flex items-center gap-3 shrink-0 ml-auto">
-          {/* Readiness track */}
-          <div className="flex items-center gap-2">
-            <div
-              className="rounded-full overflow-hidden"
-              style={{ width: 72, height: 5, background: "#E5E7EB" }}
-            >
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${readyPct}%`, background: CLAY }}
-              />
-            </div>
-            <span
-              className="text-xs font-semibold tabular-nums"
-              style={{ color: INK, fontFamily: "'Space Mono', monospace", minWidth: 28 }}
-            >
-              {readyPct}
-            </span>
-            <span className="text-xs font-medium" style={{ color: "#9CA3AF" }}>READY</span>
-          </div>
-
-          {/* Notion synced chip */}
+        <div className="flex items-center gap-2 shrink-0">
           {record.notionPageId && (
-            <a
-              href={`https://notion.so/${record.notionPageId.replace(/-/g, "")}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-opacity hover:opacity-70"
-              style={{
-                background: "#EAF5EE", color: "#065F46",
-                fontFamily: "'Instrument Sans', sans-serif",
-              }}
-            >
-              <ExternalLink className="w-3 h-3" />
-              NOTION SYNCED
+            <a href={`https://notion.so/${record.notionPageId.replace(/-/g, "")}`} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium"
+              style={{ background: "#EAF5EE", color: "#065F46" }}>
+              <ExternalLink className="w-3 h-3" /> Notion
             </a>
           )}
-
-          {/* Generate (disabled for Step 2) */}
-          <button
-            disabled
-            className="px-4 py-1.5 rounded-lg text-sm font-medium opacity-40 cursor-not-allowed"
-            style={{
-              background: INK, color: "white",
-              fontFamily: "'Instrument Sans', sans-serif",
-            }}
-          >
-            Generate
-          </button>
         </div>
       </header>
 
-      {/* ════════════════════════════════════ BODY ══════════════════════════ */}
+      {/* BODY */}
       <div className="flex flex-1 min-h-0">
+        {/* LEFT RAIL */}
+        <LeftRail
+          records={filteredRecords} recordId={recordId}
+          filterType={filterType} filterVisibility={filterVisibility} filterStability={filterStability}
+          setFilterType={setFilterType} setFilterVisibility={setFilterVisibility} setFilterStability={setFilterStability}
+        />
 
-        {/* ══════════════ LEFT RAIL (236px) ══════════════════════════════════ */}
-        <aside
-          className="shrink-0 flex flex-col"
-          style={{
-            width: 236,
-            borderRight: `1px solid ${WARM_BORDER}`,
-            background: WARM_BG,
-          }}
-        >
-          {/* World header */}
-          <div
-            className="shrink-0 px-4 pt-5 pb-4"
-            style={{ borderBottom: `1px solid ${WARM_BORDER}` }}
-          >
-            {/* Code circle */}
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center mb-3 text-xs font-bold"
-              style={{
-                background: INK, color: "white",
-                fontFamily: "'Space Mono', monospace",
-              }}
-            >
-              {world?.code?.slice(0, 2).toUpperCase() ?? "WS"}
-            </div>
-            <p
-              className="text-sm font-semibold leading-tight mb-1"
-              style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
-            >
-              {world?.name ?? "—"}
-            </p>
-            {world && (
-              <p
-                className="text-[11px] leading-snug"
-                style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-              >
-                {world.code} · Canon
-              </p>
-            )}
-          </div>
-
-          {/* Records list header */}
-          <div
-            className="shrink-0 flex items-center justify-between px-4 py-2.5"
-            style={{ borderBottom: `1px solid ${WARM_BORDER}` }}
-          >
-            <span
-              className="text-[10px] font-semibold tracking-widest uppercase"
-              style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-            >
-              Records
-            </span>
-            <span
-              className="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded"
-              style={{ background: PARCHMENT, color: INK }}
-            >
-              {(filterVisibility || filterStability || filterType)
-                ? `${filteredRecords.length}/${allRecords.length}`
-                : allRecords.length}
-            </span>
-          </div>
-
-          {/* Filter chips — Type, Visibility, Stability */}
-          <div
-            className="shrink-0 px-3 py-2 space-y-1.5"
-            style={{ borderBottom: `1px solid ${WARM_BORDER}` }}
-          >
-            {/* Type */}
-            <div className="flex gap-1 flex-wrap">
-              {CANON_TYPES.map(t => {
-                const active = filterType === t.key;
-                return (
-                  <button
-                    key={t.key}
-                    title={t.label}
-                    onClick={() => setFilterType(active ? null : t.key)}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-medium transition-all"
-                    style={{
-                      background: active ? `${t.color}20` : "transparent",
-                      color: active ? t.color : "#9CA3AF",
-                      border: `1px solid ${active ? `${t.color}50` : "transparent"}`,
-                      fontFamily: "'Instrument Sans', sans-serif",
-                    }}
-                  >
-                    <t.Icon style={{ width: 8, height: 8, flexShrink: 0 }} />
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
-            {/* Visibility + Stability row */}
-            <div className="flex gap-1 flex-wrap">
-              {([
-                { key: "background", label: "BG",       color: "#6B7280" },
-                { key: "hinted",     label: "Hinted",   color: "#B45309" },
-                { key: "explicit",   label: "Explicit",  color: "#065F46" },
-              ] as const).map(v => {
-                const active = filterVisibility === v.key;
-                return (
-                  <button
-                    key={v.key}
-                    title={`Visibility: ${v.key}`}
-                    onClick={() => setFilterVisibility(active ? null : v.key)}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-medium transition-all"
-                    style={{
-                      background: active ? `${v.color}20` : "transparent",
-                      color: active ? v.color : "#9CA3AF",
-                      border: `1px solid ${active ? `${v.color}50` : "transparent"}`,
-                      fontFamily: "'Instrument Sans', sans-serif",
-                    }}
-                  >
-                    {v.key === "background" && <EyeOff style={{ width: 8, height: 8, flexShrink: 0 }} />}
-                    {v.key !== "background" && <Eye    style={{ width: 8, height: 8, flexShrink: 0, opacity: v.key === "hinted" ? 0.6 : 1 }} />}
-                    {v.label}
-                  </button>
-                );
-              })}
-              {([
-                { key: "low",    label: "Low stab",    dot: "●", color: "#9CA3AF" },
-                { key: "medium", label: "Med stab",    dot: "◐", color: "#B45309" },
-                { key: "high",   label: "High stab",   dot: "●", color: "#065F46" },
-              ] as const).map(s => {
-                const active = filterStability === s.key;
-                return (
-                  <button
-                    key={s.key}
-                    title={`Stability: ${s.key}`}
-                    onClick={() => setFilterStability(active ? null : s.key)}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-medium transition-all"
-                    style={{
-                      background: active ? `${s.color}20` : "transparent",
-                      color: active ? s.color : "#9CA3AF",
-                      border: `1px solid ${active ? `${s.color}50` : "transparent"}`,
-                      fontFamily: "'Instrument Sans', sans-serif",
-                    }}
-                  >
-                    <span style={{ fontSize: 7 }}>{s.dot}</span>
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Active-filter banner — shown only when at least one filter is on */}
-          {(filterVisibility || filterStability || filterType) && (
-            <button
-              onClick={() => {
-                setFilterVisibility(null);
-                setFilterStability(null);
-                setFilterType(null);
-              }}
-              className="shrink-0 w-full flex items-center justify-between px-4 py-1.5 transition-colors"
-              style={{
-                background: `${CLAY}14`,
-                borderBottom: `1px solid ${CLAY}30`,
-              }}
-            >
-              <span
-                className="text-[10px] font-semibold tracking-wide"
-                style={{ color: CLAY, fontFamily: "'Instrument Sans', sans-serif" }}
-              >
-                Filtered · {filteredRecords.length}/{allRecords.length} shown
-              </span>
-              <span
-                className="text-[10px] font-medium flex items-center gap-0.5"
-                style={{ color: CLAY, fontFamily: "'Instrument Sans', sans-serif" }}
-              >
-                <X className="w-2.5 h-2.5" />
-                clear
-              </span>
-            </button>
-          )}
-
-          {/* Scrollable list */}
-          <div className="flex-1 overflow-y-auto">
-            {filteredRecords.map((r, i) => {
-              const active = r.id === recordId;
-              const rm = regMeta(r.emotionalRegister);
-
-              // Stability dot
-              const stabMap: Record<string, { char: string; color: string }> = {
-                low:    { char: "●", color: "#9CA3AF" },
-                medium: { char: "◐", color: "#B45309" },
-                high:   { char: "●", color: "#065F46" },
-              };
-              const stabDot = stabMap[r.canonStability ?? ""] ?? null;
-
-              // Visibility icon
-              const visIconProps = (() => {
-                if (r.narrativeVisibility === "background") return { Icon: EyeOff, color: "#9CA3AF", opacity: 1 };
-                if (r.narrativeVisibility === "hinted")     return { Icon: Eye,    color: "#B45309", opacity: 0.55 };
-                if (r.narrativeVisibility === "explicit")   return { Icon: Eye,    color: "#065F46", opacity: 1 };
-                return null;
-              })();
-
-              return (
-                <Link key={r.id} href={`/super/worldsmith/editorial/canon/${r.id}`}>
-                  <a
-                    className="flex items-start gap-2 px-4 py-2.5 transition-colors group"
-                    style={{
-                      borderLeft: active ? `3px solid ${CLAY}` : "3px solid transparent",
-                      background: active ? PARCHMENT : "transparent",
-                      paddingLeft: "13px",
-                    }}
-                  >
-                    {/* Dots column: register + stability stacked */}
-                    <div className="shrink-0 flex flex-col items-center gap-0.5 mt-0.5">
-                      <span
-                        className="w-2 h-2 rounded-full"
-                        style={{ background: rm ? rm.color : "#D1D5DB" }}
-                      />
-                      {stabDot ? (
-                        <span
-                          style={{
-                            fontSize: 7,
-                            lineHeight: 1,
-                            color: stabDot.color,
-                            fontFamily: "sans-serif",
-                          }}
-                        >
-                          {stabDot.char}
-                        </span>
-                      ) : (
-                        <span className="w-1.5 h-1.5" />
-                      )}
-                    </div>
-
-                    {/* Name + temporal scope */}
-                    <div className="flex-1 min-w-0">
-                      <span
-                        className="block text-xs leading-snug truncate"
-                        style={{
-                          color: active ? INK : "#6B7280",
-                          fontWeight: active ? 600 : 400,
-                          fontFamily: "'Instrument Sans', sans-serif",
-                        }}
-                      >
-                        {r.name}
-                      </span>
-                      {r.temporalScope && (
-                        <span
-                          className="block text-[10px] leading-snug truncate mt-0.5"
-                          style={{
-                            color: "#9CA3AF",
-                            fontFamily: "'Instrument Sans', sans-serif",
-                          }}
-                        >
-                          {r.temporalScope}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Visibility icon */}
-                    {visIconProps ? (
-                      <visIconProps.Icon
-                        className="shrink-0 mt-0.5"
-                        style={{ width: 10, height: 10, color: visIconProps.color, opacity: visIconProps.opacity }}
-                      />
-                    ) : (
-                      <span className="shrink-0 w-2.5" />
-                    )}
-
-                    {/* ID right-aligned */}
-                    <span
-                      className="shrink-0 text-[10px] tabular-nums mt-0.5"
-                      style={{
-                        color: active ? "#9CA3AF" : "#D1D5DB",
-                        fontFamily: "'Space Mono', monospace",
-                      }}
-                    >
-                      {String(i + 1).padStart(3, "0")}
-                    </span>
-                  </a>
-                </Link>
-              );
-            })}
-          </div>
-        </aside>
-
-        {/* ══════════════ RECORD EDITOR (fluid) ══════════════════════════════ */}
-        <main
-          className="flex-1 overflow-y-auto"
-          style={{ background: WARM_WHITE }}
-        >
-          <div className="max-w-2xl mx-auto px-8 py-7 pb-20">
-
-            {/* ═══ WORLD BIBLE STRIP ══════════════════════════════════════
-                 Collapsible aesthetic context panel — hidden entirely when
-                 all four aesthetic fields are null (no visual noise).
-                 Uses recordWorld (bound to record.worldId) so the strip
-                 always reflects the record being edited, not the selector.
-            ═══════════════════════════════════════════════════════════════ */}
-            {(recordWorld?.visualPalette || recordWorld?.proseVoice || recordWorld?.atmosphericNotes || recordWorld?.materialWorld || (recordWorld?.worldRules && recordWorld.worldRules.length > 0)) && (
-              <div
-                className="rounded-xl overflow-hidden mb-5"
-                style={{ border: `1px solid ${WARM_BORDER}` }}
-              >
-                {/* Collapse toggle header */}
-                <button
-                  onClick={() => setWorldBibleOpen(o => !o)}
-                  className="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-black/[0.02]"
-                  style={{ background: PARCHMENT }}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="text-[10px] font-semibold tracking-widest uppercase"
-                      style={{ color: INK, opacity: 0.55, fontFamily: "'Instrument Sans', sans-serif" }}
-                    >
-                      World Bible
-                    </span>
-                    <span
-                      className="text-[10px] font-medium px-1.5 py-0.5 rounded"
-                      style={{ background: `${INK}12`, color: INK, fontFamily: "'Space Mono', monospace" }}
-                    >
-                      {recordWorld?.code?.toUpperCase() ?? ""}
-                    </span>
-                  </div>
-                  <ChevronDown
-                    className="w-3.5 h-3.5 transition-transform"
-                    style={{
-                      color: INK,
-                      opacity: 0.4,
-                      transform: worldBibleOpen ? "rotate(180deg)" : "rotate(0deg)",
-                    }}
-                  />
-                </button>
-
-                {/* Expanded content */}
-                {worldBibleOpen && (
-                  <div
-                    className="divide-y"
-                    style={{ borderTop: `1px solid ${WARM_BORDER}` }}
-                  >
-                    {recordWorld?.visualPalette && (
-                      <div className="px-4 py-3 flex flex-col gap-1">
-                        <span
-                          className="text-[10px] font-semibold tracking-widest uppercase"
-                          style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                        >
-                          Visual Palette
-                        </span>
-                        <p
-                          className="text-[13px] leading-relaxed"
-                          style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
-                        >
-                          {recordWorld.visualPalette}
-                        </p>
-                      </div>
-                    )}
-                    {recordWorld?.proseVoice && (
-                      <div className="px-4 py-3 flex flex-col gap-1">
-                        <span
-                          className="text-[10px] font-semibold tracking-widest uppercase"
-                          style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                        >
-                          Prose Voice
-                        </span>
-                        <p
-                          className="text-[13px] leading-relaxed"
-                          style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
-                        >
-                          {recordWorld.proseVoice}
-                        </p>
-                      </div>
-                    )}
-                    {recordWorld?.atmosphericNotes && (
-                      <div className="px-4 py-3 flex flex-col gap-1">
-                        <span
-                          className="text-[10px] font-semibold tracking-widest uppercase"
-                          style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                        >
-                          Atmospheric Notes
-                        </span>
-                        <p
-                          className="text-[13px] leading-relaxed"
-                          style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
-                        >
-                          {recordWorld.atmosphericNotes}
-                        </p>
-                      </div>
-                    )}
-                    {recordWorld?.materialWorld && (
-                      <div className="px-4 py-3 flex flex-col gap-1">
-                        <span
-                          className="text-[10px] font-semibold tracking-widest uppercase"
-                          style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                        >
-                          Material World
-                        </span>
-                        <p
-                          className="text-[13px] leading-relaxed"
-                          style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
-                        >
-                          {recordWorld.materialWorld}
-                        </p>
-                      </div>
-                    )}
-                    {recordWorld?.worldRules && recordWorld.worldRules.length > 0 && (
-                      <div className="px-4 py-3 flex flex-col gap-1.5">
-                        <span
-                          className="text-[10px] font-semibold tracking-widest uppercase"
-                          style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                        >
-                          World Rules · {recordWorld.worldRules.length}
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {recordWorld.worldRules.map((rule, i) => (
-                            <span
-                              key={i}
-                              className="text-[12px] px-2.5 py-1 rounded-lg leading-snug"
-                              style={{
-                                background: `${INK}0C`,
-                                color: INK,
-                                fontFamily: "'Instrument Sans', sans-serif",
-                              }}
-                            >
-                              {rule}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ID stamp + pills ─────────────────────────────────────────── */}
-            <div className="flex items-center gap-2.5 mb-4">
-              <span
-                className="text-[11px] font-bold tracking-wider px-2.5 py-1 rounded"
-                style={{
-                  background: PARCHMENT,
-                  color: INK,
-                  fontFamily: "'Space Mono', monospace",
-                }}
-              >
-                {idStamp}
-              </span>
-
-              {typeMeta && (
-                <span
-                  className="text-[11px] font-medium px-2.5 py-1 rounded-full"
-                  style={{ background: `${typeMeta.color}18`, color: typeMeta.color }}
-                >
-                  {typeMeta.label}
-                </span>
-              )}
-
-              {record.specRefCount > 0 && (
-                <span
-                  className="text-[11px] font-medium px-2.5 py-1 rounded-full"
-                  style={{ background: "#F3F4F6", color: "#6B7280" }}
-                >
-                  {record.specRefCount} spec{record.specRefCount !== 1 ? "s" : ""}
-                </span>
-              )}
-
-              {record.registerLocked && (
-                <span
-                  className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-full"
-                  style={{ background: `${CLAY}18`, color: CLAY }}
-                >
-                  <Lock className="w-2.5 h-2.5" />
-                  Locked
-                </span>
-              )}
-            </div>
-
-            {/* Record title ─────────────────────────────────────────────── */}
-            <h1
-              className="mb-5 leading-tight"
-              style={{
-                fontFamily: "'Spectral', Georgia, serif",
-                fontWeight: 600,
-                fontSize: 29,
-                color: INK,
-              }}
-            >
+        {/* MAIN */}
+        <main className="flex-1 overflow-y-auto px-10 py-8" style={{ background: WARM_WHITE }}>
+          <div style={{ maxWidth: 680 }}>
+            {/* Record name */}
+            <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 38, color: INK, fontWeight: 600, marginBottom: 8 }}>
               {record.name}
             </h1>
 
-            {/* Status / Confidence / Source card ───────────────────────── */}
-            <div
-              className="grid grid-cols-3 rounded-xl mb-6 overflow-hidden"
-              style={{ border: `1px solid ${WARM_BORDER}` }}
-            >
-              {[
-                {
-                  label: "Status",
-                  value: (
-                    <span
-                      className="text-sm font-semibold px-2 py-0.5 rounded-full"
-                      style={{ background: statusMeta.bg, color: statusMeta.color }}
-                    >
-                      {statusMeta.label}
-                    </span>
-                  ),
-                },
-                {
-                  label: "Confidence",
-                  value: (
-                    <span
-                      className="text-sm font-semibold"
-                      style={{ color: confMeta.color }}
-                    >
-                      {confMeta.label}
-                    </span>
-                  ),
-                },
-                {
-                  label: "Source",
-                  value: record.notionPageId ? (
-                    <a
-                      href={`https://notion.so/${record.notionPageId.replace(/-/g, "")}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-sm font-medium"
-                      style={{ color: CLAY }}
-                    >
-                      Notion <ExternalLink className="w-3 h-3" />
-                    </a>
-                  ) : (
-                    <span className="text-sm" style={{ color: "#9CA3AF" }}>Local</span>
-                  ),
-                },
-              ].map(cell => (
-                <div key={cell.label} className="flex flex-col gap-1.5 px-5 py-3.5">
-                  <span
-                    className="text-[10px] font-semibold tracking-widest uppercase"
-                    style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                  >
-                    {cell.label}
-                  </span>
-                  {cell.value}
-                </div>
+            {/* Badges row */}
+            <div className="flex items-center gap-3 mb-8">
+              {typeMeta && (
+                <span className="rounded-full text-xs px-2.5 py-0.5 font-medium"
+                  style={{ background: `${typeMeta.color}20`, color: typeMeta.color }}>
+                  {typeMeta.label}
+                </span>
+              )}
+              <span style={{ fontSize: 11, color: "#9CA3AF", fontFamily: "'Space Mono', monospace" }}>{idStamp}</span>
+              <span className="rounded-full text-[10px] font-semibold px-2 py-0.5"
+                style={{ background: statusMeta.bg, color: statusMeta.color }}>
+                {statusMeta.label}
+              </span>
+            </div>
+
+            {/* Prose textarea */}
+            <div className="relative group mb-8">
+              <AutoField label="" field="narrativeDetails" value={record.narrativeDetails}
+                placeholder="Write this record's story here — how it exists in your world, what it feels like, what it carries…"
+                onSave={handleField} rows={5} />
+            </div>
+
+            {/* Tabs */}
+            <div className="flex mb-6" style={{ borderBottom: `1px solid ${WARM_BORDER}` }}>
+              {tabs.map(tab => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                  className="pb-2.5 mr-7 text-sm font-medium"
+                  style={{
+                    borderBottom: activeTab === tab.id ? `2px solid ${CLAY}` : "2px solid transparent",
+                    color: activeTab === tab.id ? CLAY : "#9CA3AF",
+                    marginBottom: -1,
+                  }}>
+                  {tab.label}
+                </button>
               ))}
             </div>
 
-            {/* Narrative Visibility / Temporal Scope / Canon Stability ──── */}
-            <div
-              className="grid grid-cols-3 rounded-xl mb-6 overflow-hidden"
-              style={{ border: `1px solid ${WARM_BORDER}` }}
-            >
-              {/* Narrative Visibility */}
-              <div
-                className="flex flex-col gap-1.5 px-5 py-3.5"
-                style={{ borderRight: `1px solid ${WARM_BORDER}` }}
-              >
-                <span
-                  className="text-[10px] font-semibold tracking-widest uppercase"
-                  style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                >
-                  Visibility
-                </span>
-                <select
-                  value={record.narrativeVisibility ?? ""}
-                  onChange={e => patchMutation.mutate({ narrative_visibility: e.target.value || null })}
-                  className="text-sm font-semibold bg-transparent border-none outline-none cursor-pointer"
-                  style={{
-                    color: nvMeta ? nvMeta.color : "#D1D5DB",
-                    fontFamily: "'Instrument Sans', sans-serif",
-                  }}
-                >
-                  <option value="">— not set —</option>
-                  <option value="background">Background</option>
-                  <option value="hinted">Hinted</option>
-                  <option value="explicit">Explicit</option>
-                </select>
-                <p className="text-[10px]" style={{ color: "#9CA3AF" }}>
-                  {nvMeta?.label === "Background" && "Never stated — shapes the world silently"}
-                  {nvMeta?.label === "Hinted" && "Implied through sensory or contextual detail"}
-                  {nvMeta?.label === "Explicit" && "Named or stated directly in the text"}
-                  {!nvMeta && "How directly this fact surfaces in prose"}
-                </p>
-              </div>
-
-              {/* Temporal Scope */}
-              <div
-                className="flex flex-col gap-1.5 px-5 py-3.5"
-                style={{ borderRight: `1px solid ${WARM_BORDER}` }}
-              >
-                <span
-                  className="text-[10px] font-semibold tracking-widest uppercase"
-                  style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                >
-                  Temporal Scope
-                </span>
-                {/* datalist gives autocomplete suggestions while still accepting any free text */}
-                <datalist id="temporal-scope-suggestions">
-                  {/* ── Story phases ── */}
-                  <option value="Prologue" />
-                  <option value="Early story" />
-                  <option value="Mid-arc" />
-                  <option value="Climax" />
-                  <option value="Epilogue" />
-                  <option value="Throughout" />
-                  {/* ── Legendary / mythic ── */}
-                  <option value="Before the Reckoning" />
-                  <option value="The First Age" />
-                  <option value="The Second Age" />
-                  <option value="Age of Founding" />
-                  <option value="Age of Strife" />
-                  <option value="The Sundering" />
-                  <option value="The Restoration" />
-                  <option value="The Silence" />
-                  <option value="Ancient days" />
-                  {/* ── Conflict arc ── */}
-                  <option value="Pre-war" />
-                  <option value="Wartime" />
-                  <option value="Post-war" />
-                  <option value="Reconstruction" />
-                  <option value="Occupation" />
-                  {/* ── Historical-flavoured ── */}
-                  <option value="Ancient era" />
-                  <option value="Classical period" />
-                  <option value="Medieval period" />
-                  <option value="Renaissance" />
-                  <option value="Early modern" />
-                  <option value="Industrial age" />
-                  <option value="Victorian era" />
-                  <option value="Edwardian era" />
-                  <option value="Interwar period" />
-                  <option value="Contemporary" />
-                  <option value="Near future" />
-                  <option value="Far future" />
-                  {/* ── Seasonal / cyclical ── */}
-                  <option value="Spring awakening" />
-                  <option value="High summer" />
-                  <option value="Harvest season" />
-                  <option value="Deep winter" />
-                </datalist>
-                <input
-                  list="temporal-scope-suggestions"
-                  value={temporalScopeDraft}
-                  onChange={e => setTemporalScopeDraft(e.target.value)}
-                  onBlur={() => {
-                    const trimmed = temporalScopeDraft.trim();
-                    const prev = record.temporalScope ?? "";
-                    if (trimmed !== prev) {
-                      patchMutation.mutate({ temporal_scope: trimmed || null });
-                    }
-                  }}
-                  onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                  placeholder="e.g. Victorian era"
-                  className="text-sm font-semibold bg-transparent border-none outline-none"
-                  style={{
-                    color: temporalScopeDraft ? INK : "#D1D5DB",
-                    fontFamily: "'Instrument Sans', sans-serif",
-                  }}
-                />
-                <p className="text-[10px]" style={{ color: "#9CA3AF" }}>
-                  Era or phase when this record applies
-                </p>
-              </div>
-
-              {/* Canon Stability */}
-              <div className="flex flex-col gap-1.5 px-5 py-3.5">
-                <span
-                  className="text-[10px] font-semibold tracking-widest uppercase"
-                  style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                >
-                  Stability
-                </span>
-                <select
-                  value={record.canonStability ?? ""}
-                  onChange={e => patchMutation.mutate({ canon_stability: e.target.value || null })}
-                  className="text-sm font-semibold bg-transparent border-none outline-none cursor-pointer"
-                  style={{
-                    color: csMeta ? csMeta.color : "#D1D5DB",
-                    fontFamily: "'Instrument Sans', sans-serif",
-                  }}
-                >
-                  <option value="">— not set —</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-                <p className="text-[10px]" style={{ color: "#9CA3AF" }}>
-                  {csMeta?.label === "Low" && "Provisional — may be retconned"}
-                  {csMeta?.label === "Medium" && "Settled but could evolve"}
-                  {csMeta?.label === "High" && "Load-bearing — treat as fixed"}
-                  {!csMeta && "How likely this is to change"}
-                </p>
-              </div>
-            </div>
-
-            {/* ═══ RELATIONSHIP ENTITY PICKERS (REL only) ════════════════
-                 Shown only when canonType === "relationship".
-                 Lets editors wire a bond between two canon records.
-            ═══════════════════════════════════════════════════════════════ */}
-            {record.canonType === "relationship" && (
-              <div
-                className="rounded-xl overflow-hidden mb-6"
-                style={{ border: `1px solid #06B6D440` }}
-              >
-                {/* Header */}
-                <div
-                  className="px-5 py-3 flex items-center gap-2"
-                  style={{ background: "#ECFEFF", borderBottom: `1px solid #06B6D430` }}
-                >
-                  <GitBranch className="w-3.5 h-3.5" style={{ color: "#06B6D4" }} />
-                  <span
-                    className="text-[10px] font-semibold tracking-widest uppercase"
-                    style={{ color: "#06B6D4", fontFamily: "'Instrument Sans', sans-serif" }}
-                  >
-                    Relational Bond
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-0">
-                  {/* From entity */}
-                  <div
-                    className="px-5 py-4 flex flex-col gap-2"
-                    style={{ borderRight: `1px solid ${WARM_BORDER}` }}
-                  >
-                    <label
-                      className="text-[10px] font-semibold tracking-widest uppercase"
-                      style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                    >
-                      From
-                    </label>
-                    <select
-                      value={record.fromEntityId ?? ""}
-                      onChange={e =>
-                        patchMutation.mutate({ from_entity_id: e.target.value || null })
-                      }
-                      className="text-sm font-medium bg-transparent border rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"
-                      style={{
-                        borderColor: WARM_BORDER,
-                        color: record.fromEntityId ? INK : "#9CA3AF",
-                        fontFamily: "'Instrument Sans', sans-serif",
-                      }}
-                    >
-                      <option value="">— select entity —</option>
-                      {allRecords
-                        .filter(r => r.id !== recordId)
-                        .map(r => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
-                        ))}
-                    </select>
-                    {record.fromEntityId && (
-                      <span
-                        className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full w-fit"
-                        style={{ background: "#06B6D418", color: "#06B6D4", fontFamily: "'Instrument Sans', sans-serif" }}
-                      >
-                        <GitBranch className="w-3 h-3" />
-                        {allRecords.find(r => r.id === record.fromEntityId)?.name ?? record.fromEntityId.slice(0, 8)}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* To entity */}
-                  <div className="px-5 py-4 flex flex-col gap-2">
-                    <label
-                      className="text-[10px] font-semibold tracking-widest uppercase"
-                      style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                    >
-                      To
-                    </label>
-                    <select
-                      value={record.toEntityId ?? ""}
-                      onChange={e =>
-                        patchMutation.mutate({ to_entity_id: e.target.value || null })
-                      }
-                      className="text-sm font-medium bg-transparent border rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"
-                      style={{
-                        borderColor: WARM_BORDER,
-                        color: record.toEntityId ? INK : "#9CA3AF",
-                        fontFamily: "'Instrument Sans', sans-serif",
-                      }}
-                    >
-                      <option value="">— select entity —</option>
-                      {allRecords
-                        .filter(r => r.id !== recordId)
-                        .map(r => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
-                        ))}
-                    </select>
-                    {record.toEntityId && (
-                      <span
-                        className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full w-fit"
-                        style={{ background: "#06B6D418", color: "#06B6D4", fontFamily: "'Instrument Sans', sans-serif" }}
-                      >
-                        <GitBranch className="w-3 h-3" />
-                        {allRecords.find(r => r.id === record.toEntityId)?.name ?? record.toEntityId.slice(0, 8)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Emotional valence row */}
-                <div
-                  className="px-5 py-3 flex items-center gap-4"
-                  style={{ borderTop: `1px solid ${WARM_BORDER}`, background: WARM_WHITE }}
-                >
-                  <label
-                    className="text-[10px] font-semibold tracking-widest uppercase shrink-0"
-                    style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                  >
-                    Emotional Valence
-                  </label>
-                  <select
-                    value={record.emotionalValence ?? ""}
-                    onChange={e =>
-                      patchMutation.mutate({ emotional_valence: e.target.value || null })
-                    }
-                    className="text-sm font-medium bg-transparent border rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"
-                    style={{
-                      borderColor: WARM_BORDER,
-                      color: record.emotionalValence ? INK : "#9CA3AF",
-                      fontFamily: "'Instrument Sans', sans-serif",
-                    }}
-                  >
-                    <option value="">— not set —</option>
-                    <option value="admiration">Admiration</option>
-                    <option value="affection">Affection</option>
-                    <option value="rivalry">Rivalry</option>
-                    <option value="estrangement">Estrangement</option>
-                    <option value="dependency">Dependency</option>
-                    <option value="betrayal">Betrayal</option>
-                    <option value="grief">Grief</option>
-                    <option value="obligation">Obligation</option>
-                    <option value="ambivalence">Ambivalence</option>
-                  </select>
-                  <p
-                    className="text-[10px] leading-snug"
-                    style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                  >
-                    The felt quality of the bond — compiles into sensory grounding
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* ═══ EMOTIONAL REGISTER / SENSORY CLAUSES ══════════════════
-                 This block MUST be above the fold at 1080p — keep it here,
-                 before the narrative/historical text blocks.
-            ═══════════════════════════════════════════════════════════════ */}
-            <div
-              className="rounded-xl overflow-hidden mb-6"
-              style={{ border: `1px solid ${regM ? regM.color + "40" : "#FCA5A5"}` }}
-            >
-              {/* Header bar */}
-              <div
-                className="px-5 py-3 flex items-center justify-between"
-                style={{
-                  background: regM ? regM.bg : "#FEF2F2",
-                  borderBottom: `1px solid ${regM ? regM.color + "30" : "#FCA5A5"}`,
-                }}
-              >
-                <span
-                  className="text-[10px] font-semibold tracking-widest uppercase"
-                  style={{
-                    color: regM ? regM.color : "#EF4444",
-                    fontFamily: "'Instrument Sans', sans-serif",
-                  }}
-                >
-                  Emotional Register
-                </span>
-                <span
-                  className="text-[10px] tracking-wide"
-                  style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                >
-                  {record.registerLocked ? "Cascade locked" : "Cascade on"}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2" style={{ borderTop: `1px solid ${WARM_BORDER}30` }}>
-                {/* Left: register picker */}
-                <div className="px-5 py-4 flex flex-col gap-3">
-                  <RegisterPicker
-                    value={record.emotionalRegister}
-                    locked={record.registerLocked}
-                    onSelect={val => patchMutation.mutate({ emotional_register: val })}
-                    onToggleLock={() => patchMutation.mutate({ register_locked: !record.registerLocked })}
-                  />
-
-                  {/* Transition controls live here */}
-                  {transitions.length > 0 && (
-                    <div className="flex flex-col gap-1.5 mt-1">
-                      <span
-                        className="text-[10px] font-semibold tracking-widest uppercase"
-                        style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                      >
-                        Workflow
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {transitions.map(t => (
-                          <button
-                            key={t}
-                            onClick={() => transitionMutation.mutate(t)}
-                            disabled={transitionMutation.isPending}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all hover:shadow-sm disabled:opacity-50"
-                            style={{ borderColor: WARM_BORDER, color: INK, background: "white" }}
-                          >
-                            {transitionMutation.isPending
-                              ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                              : <ChevronRight className="w-2.5 h-2.5" />}
-                            {TRANSITION_LABELS[t] ?? t}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Right: sensory clauses */}
-                <div className="px-5 py-4">
-                  <AutoField
-                    label="Sensory Clauses"
-                    field="sensoryClauses"
-                    value={record.sensoryClauses ?? ""}
-                    placeholder={"One clause per line.\nCompiled verbatim into the prompt."}
-                    mono
-                    onSave={handleField}
-                    rows={4}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Narrative divider */}
-            <div
-              className="flex items-center gap-3 mb-5"
-              style={{ color: "#D1D5DB" }}
-            >
-              <div className="flex-1 h-px" style={{ background: WARM_BORDER }} />
-              <span
-                className="text-[10px] font-semibold tracking-widest uppercase"
-                style={{ color: "#D1D5DB", fontFamily: "'Instrument Sans', sans-serif" }}
-              >
-                Narrative
-              </span>
-              <div className="flex-1 h-px" style={{ background: WARM_BORDER }} />
-            </div>
-
-            {/* Summary (Narrative Details) ─────────────────────────────── */}
-            <div className="mb-5">
-              <AutoField
-                label="Summary"
-                field="narrativeDetails"
-                value={record.narrativeDetails}
-                placeholder={
-                  record.canonType === "character"    ? "Role, motivation, significance…"
-                  : record.canonType === "location"     ? "Place, atmosphere, narrative importance…"
-                  : record.canonType === "atmosphere"   ? "Mood and feeling…"
-                  : record.canonType === "relationship" ? "Nature of the bond, how it shapes both parties, what it costs or enables…"
-                  : record.canonType === "motif"        ? "The image or gesture, where it first appeared, why it recurs — compile into 'watch for opportunities to echo this'…"
-                  : "Describe this record's role and significance…"
-                }
-                onSave={handleField}
-                rows={4}
-              />
-            </div>
-
-            {/* Details (Historical Context) ────────────────────────────── */}
-            <div className="mb-5">
-              <AutoField
-                label="Historical Context"
-                field="historicalContext"
-                value={record.historicalContext}
-                placeholder="Origin, what shaped it, how it has changed…"
-                onSave={handleField}
-                rows={3}
-              />
-            </div>
-
-            {/* Visual Notes ────────────────────────────────────────────── */}
-            <div className="mb-6">
-              <AutoField
-                label="Visual Notes"
-                field="visualNotes"
-                value={record.visualNotes}
-                placeholder="Appearance, light quality, materials, distinctive features for prompt reference…"
-                onSave={handleField}
-                rows={3}
-              />
-            </div>
-
-            {/* Related Canon ───────────────────────────────────────────── */}
-            <div className="mb-6">
-              <div
-                className="rounded-xl overflow-hidden"
-                style={{ border: `1px solid ${WARM_BORDER}` }}
-              >
-                {/* Header */}
-                <div
-                  className="flex items-center justify-between px-5 py-3"
-                  style={{
-                    background: PARCHMENT,
-                    borderBottom: relations.length > 0 || showAddRel ? `1px solid ${WARM_BORDER}` : undefined,
-                  }}
-                >
-                  <div className="flex items-center gap-2">
-                    <Link2 className="w-3.5 h-3.5" style={{ color: "#9CA3AF" }} />
-                    <span
-                      className="text-[10px] font-semibold tracking-widest uppercase"
-                      style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                    >
-                      Related Canon
-                    </span>
-                    {relations.length > 0 && (
-                      <span
-                        className="text-[10px] font-mono px-1.5 py-0.5 rounded tabular-nums"
-                        style={{ background: WARM_BORDER, color: INK }}
-                      >
-                        {relations.length}
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setShowAddRel(v => !v)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors"
-                    style={{
-                      color: showAddRel ? CLAY : "#9CA3AF",
-                      background: showAddRel ? `${CLAY}12` : "transparent",
-                      fontFamily: "'Instrument Sans', sans-serif",
-                    }}
-                  >
-                    <Plus className="w-3 h-3" />
-                    Add
-                  </button>
-                </div>
-
-                {/* Existing relation chips */}
-                {(relations.length > 0 || relLoading) && (
-                  <div className="px-5 py-3 flex flex-col gap-2" style={{ background: WARM_WHITE }}>
-                    {relLoading && (
-                      <div className="flex items-center gap-2 text-xs" style={{ color: "#9CA3AF" }}>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Loading…
-                      </div>
-                    )}
-                    {relations.map(rel => {
-                      const rtm = relTypeMeta(rel.relationType);
-                      const ttype = CANON_TYPES.find(t => t.key === rel.targetCanonType);
-                      return (
-                        <div
-                          key={rel.toRecordId}
-                          className="flex items-center gap-2 group"
-                        >
-                          {/* Type badge (dropdown) */}
-                          <div className="relative">
-                            <select
-                              value={rel.relationType ?? "related"}
-                              onChange={e =>
-                                patchRelTypeMutation.mutate({ toId: rel.toRecordId, type: e.target.value })
-                              }
-                              className="appearance-none text-[11px] font-semibold px-2.5 py-1 rounded-full cursor-pointer focus:outline-none transition-colors pr-5"
-                              style={{
-                                background: rtm.bg,
-                                color: rtm.color,
-                                border: `1px solid ${rtm.color}30`,
-                                fontFamily: "'Instrument Sans', sans-serif",
-                              }}
-                              disabled={patchRelTypeMutation.isPending}
-                            >
-                              {RELATION_TYPES.map(rt => (
-                                <option key={rt.key} value={rt.key}>{rt.label}</option>
-                              ))}
-                            </select>
-                            <ChevronDown
-                              className="absolute right-1.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 pointer-events-none"
-                              style={{ color: rtm.color }}
-                            />
-                          </div>
-
-                          {/* Target chip */}
-                          <div
-                            className="flex-1 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium min-w-0"
-                            style={{
-                              background: "#F9FAFB",
-                              border: `1px solid ${WARM_BORDER}`,
-                              color: INK,
-                              fontFamily: "'Instrument Sans', sans-serif",
-                            }}
-                          >
-                            {ttype && <ttype.Icon className="w-3 h-3 shrink-0" style={{ color: ttype.color }} />}
-                            <span className="truncate">{rel.targetName}</span>
-                          </div>
-
-                          {/* Remove */}
-                          <button
-                            onClick={() => removeRelMutation.mutate(rel.toRecordId)}
-                            disabled={removeRelMutation.isPending}
-                            className="shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-40"
-                            style={{ color: "#9CA3AF" }}
-                            title="Remove relation"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Add relation panel */}
-                {showAddRel && (
-                  <div
-                    className="px-5 py-4 flex flex-col gap-3"
-                    style={{
-                      background: "#FDFAF7",
-                      borderTop: relations.length > 0 ? `1px solid ${WARM_BORDER}` : undefined,
-                    }}
-                  >
-                    {/* Type selector */}
-                    <div className="flex gap-1.5 flex-wrap">
-                      {RELATION_TYPES.map(rt => (
-                        <button
-                          key={rt.key}
-                          onClick={() => setAddRelType(rt.key)}
-                          className="px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all"
-                          style={
-                            addRelType === rt.key
-                              ? { background: rt.bg, color: rt.color, border: `1px solid ${rt.color}40` }
-                              : { background: "transparent", color: "#9CA3AF", border: "1px solid #E5E7EB" }
-                          }
-                        >
-                          {rt.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Search */}
-                    <input
-                      value={addRelSearch}
-                      onChange={e => setAddRelSearch(e.target.value)}
-                      placeholder="Search canon records…"
-                      autoFocus
-                      className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none"
-                      style={{
-                        border: `1px solid ${WARM_BORDER}`,
-                        background: "white",
-                        color: INK,
-                        fontFamily: "'Instrument Sans', sans-serif",
-                      }}
-                    />
-
-                    {/* Candidates */}
-                    {addRelCandidates.length > 0 ? (
-                      <div
-                        className="rounded-lg overflow-hidden"
-                        style={{ border: `1px solid ${WARM_BORDER}` }}
-                      >
-                        {addRelCandidates.map(r => {
-                          const ttype = CANON_TYPES.find(t => t.key === r.canonType);
-                          return (
-                            <button
-                              key={r.id}
-                              onClick={() => addRelMutation.mutate({ toId: r.id, type: addRelType })}
-                              disabled={addRelMutation.isPending}
-                              className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-left transition-colors hover:bg-gray-50 disabled:opacity-50"
-                              style={{
-                                color: INK,
-                                borderBottom: `1px solid ${WARM_BORDER}`,
-                                fontFamily: "'Instrument Sans', sans-serif",
-                              }}
-                            >
-                              {ttype && <ttype.Icon className="w-3 h-3 shrink-0" style={{ color: ttype.color }} />}
-                              <span className="flex-1 truncate font-medium">{r.name}</span>
-                              {addRelMutation.isPending
-                                ? <Loader2 className="w-3 h-3 animate-spin shrink-0 opacity-40" />
-                                : <Plus className="w-3 h-3 shrink-0 opacity-30" />
-                              }
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p
-                        className="text-xs text-center py-2"
-                        style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                      >
-                        {addRelSearch.trim()
-                          ? "No matching records"
-                          : allRecords.length <= 1 ? "No other records in this world yet" : "Type to search…"}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Linked Specs ────────────────────────────────────────────── */}
-            {linkedSpecs.length > 0 && (
-              <div className="mb-6">
-                <div
-                  className="rounded-xl p-5"
-                  style={{ background: PARCHMENT, border: `1px solid ${WARM_BORDER}` }}
-                >
-                  <SectionLabel>Referenced in {linkedSpecs.length} spec{linkedSpecs.length !== 1 ? "s" : ""}</SectionLabel>
-                  <div className="flex flex-wrap gap-2">
-                    {linkedSpecs.map(spec => (
-                      <Link key={spec.id} href={`/super/worldsmith/editorial/specs/${spec.id}`}>
-                        <a
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all hover:shadow-sm"
-                          style={{
-                            background: "white",
-                            color: INK,
-                            border: `1px solid ${WARM_BORDER}`,
-                            fontFamily: "'Instrument Sans', sans-serif",
-                          }}
-                        >
-                          <FileText className="w-3 h-3 opacity-50" />
-                          {spec.productionItem}
-                        </a>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Prompt Effect bar ───────────────────────────────────────── */}
-            <div
-              className="rounded-xl px-5 py-4"
-              style={{ background: "#F1EAE0", border: `1px solid ${WARM_BORDER}` }}
-            >
-              <SectionLabel>Prompt Effect</SectionLabel>
-              <p
-                className="text-sm leading-relaxed"
-                style={{
-                  color: regM ? regM.color : "#9CA3AF",
-                  fontFamily: "'Spectral', Georgia, serif",
-                  fontStyle: "italic",
-                }}
-              >
-                {regM
-                  ? `This record contributes ${regM.key.toLowerCase()} tone to the prompt. ${record.registerLocked ? "The register is locked — it will not propagate to related records." : "Related records without a locked register will inherit this tone."}`
-                  : "Set an Emotional Register above to preview how this record shapes the compiled prompt."}
-              </p>
-            </div>
-
-            {/* Danger zone ─────────────────────────────────────────────── */}
-            <div className="mt-8 pt-6" style={{ borderTop: `1px dashed ${WARM_BORDER}` }}>
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="flex items-center gap-2 text-xs font-medium transition-colors"
-                style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                onMouseEnter={e => (e.currentTarget.style.color = "#EF4444")}
-                onMouseLeave={e => (e.currentTarget.style.color = "#9CA3AF")}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete this record
-              </button>
-            </div>
+            {activeTab === "ideas" && <ImageIdeasTab ideas={imageIdeas} />}
+            {activeTab === "scene" && <SceneBuilderTab record={record} relations={relations} />}
+            {activeTab === "daybook" && <DaybookGameTab record={record} recordId={recordId} />}
           </div>
         </main>
 
-        {/* ══════════════ MARGIN RAIL (352px) ════════════════════════════════ */}
-        <aside
-          className="shrink-0 flex flex-col overflow-y-auto"
-          style={{
-            width: 352,
-            background: MARGIN_BG,
-            borderLeft: `1px dashed ${DASHED_BORDER}`,
-          }}
-        >
-          {/* Header */}
-          <div
-            className="shrink-0 px-6 pt-6 pb-4"
-            style={{ borderBottom: `1px dashed ${DASHED_BORDER}` }}
-          >
-            <p
-              className="text-sm leading-snug mb-3"
-              style={{
-                fontFamily: "'Spectral', Georgia, serif",
-                fontStyle: "italic",
-                color: "#9CA3AF",
-              }}
-            >
-              Worldsmith, in the margin
-            </p>
-
-          </div>
-
-          {/* Placeholder — AI Assist coming in Step 3 */}
-          <div className="flex-1 flex flex-col items-center justify-center px-8 text-center gap-3">
-            <p
-              className="text-sm leading-relaxed"
-              style={{
-                fontFamily: "'Spectral', Georgia, serif",
-                fontStyle: "italic",
-                color: "#C9BEA8",
-              }}
-            >
-              "Assist never blocks — it will appear here when you're ready."
-            </p>
-          </div>
-
-          {/* Register cascade ── lives here so operators can reach it at any time */}
-          <div
-            className="shrink-0 px-5 py-4"
-            style={{ borderTop: `1px dashed ${DASHED_BORDER}` }}
-          >
-            <SectionLabel>Register Cascade</SectionLabel>
-
-            {/* Contradiction warning — shown when other records declare contradicts→this */}
-            {contradictionsIn.length > 0 && (
-              <div
-                className="flex items-start gap-2 rounded-lg px-3 py-2.5 mb-3 text-xs"
-                style={{
-                  background: "#FEF2F2",
-                  border: "1px solid #FECACA",
-                  color: "#9B1C1C",
-                  fontFamily: "'Instrument Sans', sans-serif",
-                }}
-              >
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold mb-0.5">
-                    {contradictionsIn.length} contradiction{contradictionsIn.length !== 1 ? "s" : ""} point here
-                  </p>
-                  <p className="opacity-70 leading-snug">
-                    {contradictionsIn.map(r => r.sourceName).join(", ")} — review before compiling
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {record.emotionalRegister ? (
-              <div className="flex flex-col gap-2">
-                <p
-                  className="text-xs leading-relaxed"
-                  style={{ color: "#9CA3AF", fontFamily: "'Instrument Sans', sans-serif" }}
-                >
-                  Propagate{" "}
-                  <span style={{ color: regM?.color ?? CLAY, fontWeight: 600 }}>
-                    {record.emotionalRegister}
-                  </span>{" "}
-                  to all related records that are not locked.
-                </p>
-
-                <button
-                  onClick={() => { setCascadeResult(null); cascadeMutation.mutate(); }}
-                  disabled={cascadeMutation.isPending || record.registerLocked}
-                  className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-xs font-semibold transition-all disabled:opacity-40"
-                  style={{
-                    background: INK,
-                    color: "white",
-                    fontFamily: "'Instrument Sans', sans-serif",
-                  }}
-                  title={record.registerLocked ? "This record is locked — unlock it first" : "Propagate register to related records"}
-                >
-                  {cascadeMutation.isPending
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    : <Share2 className="w-3.5 h-3.5" />}
-                  Propagate Register
-                </button>
-
-                {cascadeResult !== null && !cascadeMutation.isPending && (
-                  <div
-                    className="rounded-lg px-3 py-2.5 text-xs"
-                    style={{
-                      background: cascadeResult.updated > 0 ? "#EAF5EE" : "#F3F4F6",
-                      color: cascadeResult.updated > 0 ? "#065F46" : "#6B7280",
-                      fontFamily: "'Instrument Sans', sans-serif",
-                    }}
-                  >
-                    <p className="font-semibold">
-                      {cascadeResult.updated > 0
-                        ? `✓ ${cascadeResult.updated} record${cascadeResult.updated !== 1 ? "s" : ""} updated`
-                        : "No related records to update"}
-                    </p>
-                    {cascadeResult.skipped_locked > 0 && (
-                      <p className="mt-0.5 opacity-70">
-                        {cascadeResult.skipped_locked} locked record{cascadeResult.skipped_locked !== 1 ? "s" : ""} skipped
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p
-                className="text-xs"
-                style={{ color: "#D1D5DB", fontFamily: "'Instrument Sans', sans-serif" }}
-              >
-                Set an Emotional Register first to enable propagation.
-              </p>
-            )}
-          </div>
-
-          {/* Type selector — lives here in the margin for non-blocking access */}
-          <div
-            className="shrink-0 px-5 py-4"
-            style={{ borderTop: `1px dashed ${DASHED_BORDER}` }}
-          >
-            <SectionLabel>Canon Type</SectionLabel>
-            <div className="flex flex-wrap gap-1.5">
-              {CANON_TYPES.map(t => (
-                <button
-                  key={t.key}
-                  onClick={() => patchMutation.mutate({ canon_type: t.key })}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
-                  style={
-                    record.canonType === t.key
-                      ? { background: `${t.color}18`, color: t.color, border: `1px solid ${t.color}40` }
-                      : { background: "transparent", color: "#9CA3AF", border: "1px solid transparent" }
-                  }
-                >
-                  <t.Icon className="w-3 h-3" />
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Metadata */}
-          <div
-            className="shrink-0 px-5 py-4"
-            style={{ borderTop: `1px dashed ${DASHED_BORDER}` }}
-          >
-            <SectionLabel>Metadata</SectionLabel>
-            <dl className="space-y-1.5 text-xs" style={{ fontFamily: "'Instrument Sans', sans-serif" }}>
-              <div className="flex items-center justify-between">
-                <dt style={{ color: "#9CA3AF" }}>ID</dt>
-                <dd style={{ color: INK, fontFamily: "'Space Mono', monospace", fontSize: 11 }}>
-                  {record.id.slice(0, 8)}…
-                </dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt style={{ color: "#9CA3AF" }}>Created</dt>
-                <dd style={{ color: INK }}>{new Date(record.createdAt).toLocaleDateString()}</dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt style={{ color: "#9CA3AF" }}>Updated</dt>
-                <dd style={{ color: INK }}>{new Date(record.updatedAt).toLocaleDateString()}</dd>
-              </div>
-            </dl>
-          </div>
-        </aside>
+        {/* RIGHT PANEL */}
+        <RightPanel
+          record={record} recordId={recordId} relations={relations} allRecords={allRecords}
+          patchMutation={patchMutation} transitionMutation={transitionMutation}
+          deleteMutation={deleteMutation} setShowDeleteConfirm={setShowDeleteConfirm}
+          cascadeMutation={cascadeMutation} addRelMutation={addRelMutation}
+          removeRelMutation={removeRelMutation} patchRelTypeMutation={patchRelTypeMutation}
+          linkedSpecs={linkedSpecs} worldId={worldId}
+        />
       </div>
 
-      {/* ════════════════════════════════════ DELETE DIALOG ═════════════════ */}
+      {/* Delete confirmation */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
-            <div className="px-6 pt-6 pb-4">
-              <div className="flex items-start justify-between mb-3">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                  style={{ background: "#FEF2F2" }}
-                >
-                  <Trash2 className="w-5 h-5 text-red-500" />
-                </div>
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <h2
-                className="text-base font-semibold mb-1.5"
-                style={{ color: INK, fontFamily: "'Instrument Sans', sans-serif" }}
-              >
-                Delete canon record?
-              </h2>
-              <p
-                className="text-sm leading-relaxed"
-                style={{ color: "#6B7280", fontFamily: "'Instrument Sans', sans-serif" }}
-              >
-                <span className="font-medium" style={{ color: INK }}>"{record.name}"</span> will be
-                permanently removed. This cannot be undone.
-                {record.specRefCount > 0 && (
-                  <span className="block mt-2 font-medium text-amber-600">
-                    ⚠ Referenced by {record.specRefCount} production spec{record.specRefCount !== 1 ? "s" : ""}.
-                  </span>
-                )}
-              </p>
-            </div>
-            <div
-              className="px-6 py-4 flex items-center justify-end gap-3"
-              style={{ background: "#F9FAFB", borderTop: "1px solid #F3F4F6" }}
-            >
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="px-4 py-2 text-sm font-medium rounded-lg border transition-colors"
-                style={{ borderColor: "#E5E7EB", color: "#6B7280" }}
-              >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="rounded-2xl p-6 shadow-xl" style={{ background: "white", maxWidth: 360, width: "100%" }}>
+            <h3 className="font-semibold mb-2" style={{ color: INK }}>Delete "{record.name}"?</h3>
+            <p className="text-sm mb-5" style={{ color: "#6B7280" }}>This cannot be undone. All relations will be removed.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 rounded-lg py-2 text-sm font-medium" style={{ border: `1px solid ${WARM_BORDER}`, color: "#6B7280" }}>
                 Cancel
               </button>
-              <button
-                onClick={() => deleteMutation.mutate()}
-                disabled={deleteMutation.isPending}
-                className="px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
-                style={{ background: "#EF4444", color: "white" }}
-              >
-                {deleteMutation.isPending && <Loader2 className="w-3 h-3 animate-spin" />}
-                Delete
+              <button onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending}
+                className="flex-1 rounded-lg py-2 text-sm font-medium text-white" style={{ background: "#DC2626" }}>
+                {deleteMutation.isPending ? "Deleting…" : "Delete"}
               </button>
             </div>
           </div>
@@ -2271,27 +1249,3 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     </div>
   );
 }
-
-function relTypeMeta(key: string | null | undefined) {
-  return RELATION_TYPES.find(r => r.key === key) ?? RELATION_TYPES[0];
-}
-
-type RelationTypeKey = typeof RELATION_TYPES[number]["key"];
-
-interface InboundRelation {
-  fromRecordId: string;
-  toRecordId: string;
-  relationType: string | null;
-  createdAt: string;
-  sourceName: string;
-  sourceCanonType: string | null;
-  sourceStatus: string;
-}
-
-const RELATION_TYPES = [
-  { key: "related",     label: "Related",     color: "#6B7280", bg: "#F3F4F6" },
-  { key: "supports",    label: "Supports",    color: "#065F46", bg: "#D1FAE5" },
-  { key: "contradicts", label: "Contradicts", color: "#9B1C1C", bg: "#FEE2E2" },
-  { key: "precedes",    label: "Precedes",    color: "#1D4ED8", bg: "#DBEAFE" },
-  { key: "follows",     label: "Follows",     color: "#4338CA", bg: "#EEF2FF" },
-] as const;

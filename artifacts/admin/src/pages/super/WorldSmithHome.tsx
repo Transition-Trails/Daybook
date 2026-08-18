@@ -478,7 +478,7 @@ function FocusedWorldView({
   integrations: HealthStatus[];
   onBack: () => void;
 }) {
-  const [activeSection, setActiveSection] = useState<"overview" | "production" | "review" | "integrations">("overview");
+  const [activeSection, setActiveSection] = useState<"overview" | "production" | "review" | "integrations" | "stories" | "bible">("overview");
   // When the user clicks "Edit" on the World Bible card in Overview, jump to Settings
   // and tell IntegrationsSection to open in edit mode immediately.
   const [openSettingsEditing, setOpenSettingsEditing] = useState(false);
@@ -506,6 +506,8 @@ function FocusedWorldView({
 
   const SECTIONS = [
     { id: "overview",     label: "Overview" },
+    { id: "stories",      label: "Stories" },
+    { id: "bible",        label: "World Bible" },
     { id: "production",   label: `Runs (${runs.length})` },
     { id: "review",       label: `Review (${reviewQueue.length})` },
     { id: "integrations", label: "Settings" },
@@ -634,6 +636,14 @@ function FocusedWorldView({
             </div>
           )}
         </div>
+      </div>
+
+      <div style={{ display: activeSection === "stories" ? undefined : "none" }}>
+        <StoriesSection world={world} />
+      </div>
+
+      <div style={{ display: activeSection === "bible" ? undefined : "none" }}>
+        <WorldBibleSection world={world} />
       </div>
 
       {/* IntegrationsSection must stay mounted so its form state survives tab switches.
@@ -799,6 +809,299 @@ function OverviewSection({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Stories section ───────────────────────────────────────────────────────────
+
+interface WsStoryWithActs {
+  id: string; worldId: string; title: string; summary: string;
+  status: string; sortOrder: number; createdAt: string; updatedAt: string;
+  acts: { id: string; storyId: string; actNumber: number; title: string; tagline: string }[];
+}
+
+function StoriesSection({ world }: { world: WsWorld }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
+  const [addingStory, setAddingStory] = useState(false);
+  const [newStoryTitle, setNewStoryTitle] = useState("");
+  const [newStoryStatus, setNewStoryStatus] = useState("draft");
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["ws-stories", world.id],
+    queryFn: () => apiFetch<{ stories: WsStoryWithActs[] }>(`/v1/editorial/stories?world_id=${encodeURIComponent(world.id)}`),
+    staleTime: 30_000,
+  });
+  const stories = data?.stories ?? [];
+  const selectedStory = stories.find(s => s.id === selectedStoryId) ?? stories[0] ?? null;
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/v1/editorial/stories`, {
+        method: "POST",
+        body: JSON.stringify({ world_id: world.id, title: newStoryTitle.trim(), status: newStoryStatus }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ws-stories", world.id] });
+      setAddingStory(false); setNewStoryTitle(""); toast({ title: "Story created" });
+    },
+    onError: () => toast({ title: "Failed to create story", variant: "destructive" }),
+  });
+
+  const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+    active:   { bg: "#D1FAE5", color: "#065F46" },
+    draft:    { bg: "#F3F4F6", color: "#6B7280" },
+    planned:  { bg: "#EDE9FE", color: "#6D28D9" },
+    archived: { bg: "#F3F4F6", color: "#9CA3AF" },
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Story picker row */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 flex items-center gap-2 flex-wrap">
+          {isLoading ? (
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          ) : stories.length === 0 ? (
+            <p className="text-[12.5px] text-muted-foreground italic">No stories yet for {world.name}</p>
+          ) : (
+            stories.map(s => {
+              const sm = STATUS_COLORS[s.status] ?? STATUS_COLORS.draft;
+              return (
+                <button key={s.id} onClick={() => setSelectedStoryId(s.id)}
+                  className="rounded-full px-3 py-1.5 text-[12px] font-medium border transition-all"
+                  style={selectedStory?.id === s.id
+                    ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
+                    : { background: "white", color: "#374151", borderColor: "#E5E7EB" }}>
+                  {s.title}
+                  <span className="ml-1.5 text-[10px] rounded-full px-1.5 py-0.5" style={sm}>{s.status}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+        <button onClick={() => setAddingStory(o => !o)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-dashed border-[#C87560] text-[#C87560] hover:bg-[#C87560]/5">
+          <Plus className="w-3 h-3" /> New Story
+        </button>
+      </div>
+
+      {/* New story form */}
+      {addingStory && (
+        <div className="rounded-xl border border-border bg-card p-4 flex items-end gap-3">
+          <div className="flex-1">
+            <label className="block text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Title</label>
+            <input value={newStoryTitle} onChange={e => setNewStoryTitle(e.target.value)}
+              placeholder="The Wychcombe Inheritance..."
+              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-foreground/30"
+              onKeyDown={e => e.key === "Enter" && newStoryTitle.trim() && createMutation.mutate()} />
+          </div>
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Status</label>
+            <select value={newStoryStatus} onChange={e => setNewStoryStatus(e.target.value)}
+              className="rounded-lg border border-border px-2 py-2 text-sm outline-none">
+              {["draft", "active", "planned", "archived"].map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <button onClick={() => createMutation.mutate()} disabled={!newStoryTitle.trim() || createMutation.isPending}
+            className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            style={{ background: "#1B2A4A" }}>
+            {createMutation.isPending ? "Creating…" : "Create"}
+          </button>
+          <button onClick={() => setAddingStory(false)} className="p-2 text-muted-foreground">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Acts display */}
+      {selectedStory ? (
+        <div>
+          <div className="flex items-baseline gap-3 mb-3">
+            <h2 className="font-display font-semibold text-lg">{selectedStory.title}</h2>
+            {selectedStory.summary && <p className="text-[12.5px] text-muted-foreground">{selectedStory.summary}</p>}
+          </div>
+          {selectedStory.acts.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border p-10 text-center">
+              <BookOpen className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm font-medium text-foreground mb-1">No acts yet</p>
+              <p className="text-[12.5px] text-muted-foreground mb-3">Acts divide the story into movements. Add Act I to get started.</p>
+              <Link href="/super/worldsmith/editorial/canon">
+                <span className="text-[12px] font-medium text-[#C87560] hover:underline cursor-pointer">
+                  Link canon records to this story →
+                </span>
+              </Link>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {selectedStory.acts.map(act => (
+                <div key={act.id} className="rounded-xl border border-border bg-card p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Act {act.actNumber}</p>
+                  <p className="font-semibold text-[14px] text-foreground mb-1">{act.title}</p>
+                  {act.tagline && <p className="text-[12px] text-muted-foreground italic">{act.tagline}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : !isLoading && stories.length === 0 && (
+        <div className="rounded-xl border border-border bg-card p-10 text-center">
+          <BookOpen className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-sm font-medium text-foreground mb-1">No stories for {world.name} yet</p>
+          <p className="text-[12.5px] text-muted-foreground mb-4">
+            A story gives your canon records narrative purpose — characters to encounter, locations to explore, objects to uncover.
+          </p>
+          <button onClick={() => setAddingStory(true)}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-white" style={{ background: "#1B2A4A" }}>
+            Create first story
+          </button>
+        </div>
+      )}
+
+      {/* Products strip */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-3">Products from {world.name}</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { name: "Solo RPG Daybook",    desc: "Session journal with encounter tables",   status: "planned",  color: "#8B5CF6" },
+            { name: "Junk Journal Kit",     desc: "Printable ephemera & texture pages",      status: "planned",  color: "#C87560" },
+            { name: "Sticker Kit",          desc: "Object-of-mystery sticker pack",          status: "draft",    color: "#F59E0B" },
+            { name: "Monthly Membership",   desc: "Growing world subscription",              status: "draft",    color: "#10B981" },
+          ].map(p => (
+            <div key={p.name} className="rounded-lg border border-border p-3">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+                <span className="text-[11px] font-semibold text-foreground">{p.name}</span>
+              </div>
+              <p className="text-[10.5px] text-muted-foreground mb-2">{p.desc}</p>
+              <span className="text-[9.5px] font-medium rounded-full px-2 py-0.5 bg-muted text-muted-foreground capitalize">{p.status}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── World Bible section ───────────────────────────────────────────────────────
+
+function WorldBibleSection({ world }: { world: WsWorld }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    visualPalette: world.visualPalette ?? "",
+    proseVoice: world.proseVoice ?? "",
+    atmosphericNotes: world.atmosphericNotes ?? "",
+    materialWorld: world.materialWorld ?? "",
+    worldRules: world.worldRules ?? [] as string[],
+  });
+  const [newRule, setNewRule] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(world.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          visualPalette: form.visualPalette.trim() || null,
+          proseVoice: form.proseVoice.trim() || null,
+          atmosphericNotes: form.atmosphericNotes.trim() || null,
+          materialWorld: form.materialWorld.trim() || null,
+          worldRules: form.worldRules,
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["worldsmith/worlds"] });
+      toast({ title: "World Bible saved" });
+      setDirty(false);
+    },
+    onError: () => toast({ title: "Failed to save", variant: "destructive" }),
+  });
+
+  const set = (field: keyof typeof form, value: string) => {
+    setForm(f => ({ ...f, [field]: value })); setDirty(true);
+  };
+
+  const QUESTIONS: { field: keyof typeof form; label: string; q: string; hint: string }[] = [
+    { field: "visualPalette",   label: "Visual Palette",    q: "What does this world look like?",            hint: "Colours, lighting, textures…" },
+    { field: "proseVoice",      label: "Prose Voice",       q: "How does this world speak?",                 hint: "Register, rhythm, vocabulary…" },
+    { field: "atmosphericNotes", label: "Atmospheric Notes", q: "What does this world feel like?",            hint: "Temperature, sound, smell, mood…" },
+    { field: "materialWorld",   label: "Material World",    q: "What does this world smell, sound, touch like?", hint: "Tactile qualities, sensory anchors…" },
+  ];
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      <div>
+        <h2 className="font-display font-semibold text-lg text-foreground mb-1">{world.name} — World Bible</h2>
+        <p className="text-[12.5px] text-muted-foreground">
+          These fields are injected into every generation prompt for {world.name}.
+          Write freely — this is the voice of your world, not a form to fill.
+        </p>
+      </div>
+
+      <div className="space-y-5">
+        {QUESTIONS.map(({ field, label, q, hint }) => (
+          <div key={field}>
+            <label className="block text-sm font-semibold text-foreground mb-0.5">{q}</label>
+            <p className="text-[11.5px] text-muted-foreground mb-2">{hint}</p>
+            <textarea
+              value={form[field] as string}
+              onChange={e => set(field, e.target.value)}
+              rows={3}
+              placeholder={`${label}…`}
+              className="w-full rounded-xl border border-border px-4 py-3 text-sm leading-relaxed resize-none outline-none focus:border-foreground/30"
+              style={{ fontFamily: "'Spectral', Georgia, serif" }}
+            />
+          </div>
+        ))}
+
+        {/* World Rules */}
+        <div>
+          <label className="block text-sm font-semibold text-foreground mb-0.5">What rules does this world follow?</label>
+          <p className="text-[11.5px] text-muted-foreground mb-2">Rules that constrain or define what's possible — never break these in any output</p>
+          <div className="space-y-2 mb-2">
+            {form.worldRules.map((rule, i) => (
+              <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-card text-sm">
+                <span className="flex-1 text-foreground">{rule}</span>
+                <button onClick={() => { setForm(f => ({ ...f, worldRules: f.worldRules.filter((_, j) => j !== i) })); setDirty(true); }}
+                  className="text-muted-foreground hover:text-foreground">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input value={newRule} onChange={e => setNewRule(e.target.value)}
+              placeholder="Add a rule…"
+              className="flex-1 rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-foreground/30"
+              onKeyDown={e => {
+                if (e.key === "Enter" && newRule.trim()) {
+                  setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
+                  setNewRule(""); setDirty(true);
+                }
+              }} />
+            <button onClick={() => { if (!newRule.trim()) return; setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] })); setNewRule(""); setDirty(true); }}
+              className="px-3 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground">
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="pt-2 flex items-center gap-3">
+        <button onClick={() => saveMutation.mutate()} disabled={!dirty || saveMutation.isPending}
+          className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
+          style={{ background: "#1B2A4A" }}>
+          {saveMutation.isPending ? "Saving…" : dirty ? "Save World Bible" : "Saved"}
+        </button>
+        {!dirty && !saveMutation.isPending && (
+          <span className="text-[12px] text-green-600 flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5" /> Saved
+          </span>
+        )}
+      </div>
     </div>
   );
 }

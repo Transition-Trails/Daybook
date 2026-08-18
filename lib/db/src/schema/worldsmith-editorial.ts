@@ -249,3 +249,92 @@ export const wsPromptPayloadsTable = pgTable("ws_prompt_payloads", {
 
 export type WsPromptPayload = typeof wsPromptPayloadsTable.$inferSelect;
 export type InsertWsPromptPayload = typeof wsPromptPayloadsTable.$inferInsert;
+
+// ── WorldSmith Stories ────────────────────────────────────────────────────────
+
+export const wsStoriesTable = pgTable("ws_stories", {
+  id:        text("id").primaryKey(),
+  worldId:   text("world_id").notNull(),
+  title:     text("title").notNull(),
+  summary:   text("summary").notNull().default(""),
+  status:    text("status").notNull().default("draft"), // active | draft | planned | archived
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+    .$onUpdate(() => new Date()),
+}, (t) => [index("ws_stories_world_idx").on(t.worldId)]);
+
+export type WsStory = typeof wsStoriesTable.$inferSelect;
+export type InsertWsStory = typeof wsStoriesTable.$inferInsert;
+
+// ── Story Acts ────────────────────────────────────────────────────────────────
+
+export const wsStoryActsTable = pgTable("ws_story_acts", {
+  id:        text("id").primaryKey(),
+  storyId:   text("story_id").notNull(),
+  worldId:   text("world_id").notNull(),
+  actNumber: integer("act_number").notNull().default(1),
+  title:     text("title").notNull(),
+  tagline:   text("tagline").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+    .$onUpdate(() => new Date()),
+}, (t) => [
+  index("ws_story_acts_story_idx").on(t.storyId),
+  index("ws_story_acts_world_idx").on(t.worldId),
+]);
+
+export type WsStoryAct = typeof wsStoryActsTable.$inferSelect;
+export type InsertWsStoryAct = typeof wsStoryActsTable.$inferInsert;
+
+// ── Encounters ────────────────────────────────────────────────────────────────
+
+export const wsEncountersTable = pgTable("ws_encounters", {
+  id:               text("id").primaryKey(),
+  actId:            text("act_id").notNull(),
+  locationRecordId: text("location_record_id"),
+  triggerText:      text("trigger_text").notNull().default(""),
+  description:      text("description").notNull().default(""),
+  rollType:         text("roll_type"),
+  outcomeText:      text("outcome_text").notNull().default(""),
+  createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+    .$onUpdate(() => new Date()),
+}, (t) => [index("ws_encounters_act_idx").on(t.actId)]);
+
+export type WsEncounter = typeof wsEncountersTable.$inferSelect;
+export type InsertWsEncounter = typeof wsEncountersTable.$inferInsert;
+
+// ── Journal Prompts ───────────────────────────────────────────────────────────
+
+export const wsJournalPromptsTable = pgTable("ws_journal_prompts", {
+  id:         text("id").primaryKey(),
+  recordId:   text("record_id").notNull(),
+  storyId:    text("story_id"),
+  promptText: text("prompt_text").notNull(),
+  hintLabel:  text("hint_label").notNull().default(""),
+  sortOrder:  integer("sort_order").notNull().default(0),
+  createdAt:  timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("ws_journal_prompts_record_idx").on(t.recordId),
+  index("ws_journal_prompts_story_idx").on(t.storyId),
+]);
+
+export type WsJournalPrompt = typeof wsJournalPromptsTable.$inferSelect;
+export type InsertWsJournalPrompt = typeof wsJournalPromptsTable.$inferInsert;
+
+// ── Canon Record → Story Links ────────────────────────────────────────────────
+
+export const wsCanonRecordStoryLinksTable = pgTable("ws_canon_record_story_links", {
+  canonRecordId: text("canon_record_id").notNull(),
+  storyId:       text("story_id").notNull(),
+  actId:         text("act_id"),
+  createdAt:     timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.canonRecordId, t.storyId] }),
+  index("ws_crsl_record_idx").on(t.canonRecordId),
+  index("ws_crsl_story_idx").on(t.storyId),
+]);
+
+export type WsCanonRecordStoryLink = typeof wsCanonRecordStoryLinksTable.$inferSelect;

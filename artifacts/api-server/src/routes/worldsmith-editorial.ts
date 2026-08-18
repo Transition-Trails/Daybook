@@ -38,9 +38,15 @@ import {
   wsProductionSpecsTable,
   wsPromptPayloadsTable,
   worldsmithWorldsTable,
+  wsStoriesTable,
+  wsStoryActsTable,
+  wsEncountersTable,
+  wsJournalPromptsTable,
+  wsCanonRecordStoryLinksTable,
   type InsertWsProductionSpec,
   type InsertWsCanonRecord,
 } from "@workspace/db";
+import { randomUUID } from "crypto";
 import { and, eq, inArray, like, desc, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
@@ -1933,6 +1939,259 @@ router.post("/v1/editorial/specs/:id/publish", async (req: Request, res: Respons
     });
   } catch (err) {
     logger.error({ err }, "editorial: publish spec");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Stories CRUD ──────────────────────────────────────────────────────────────
+
+// List stories for a world
+router.get("/v1/editorial/stories", async (req: Request, res: Response) => {
+  try {
+    const worldId = req.query.world_id as string;
+    if (!worldId) { res.status(400).json({ error: "world_id required" }); return; }
+    const stories = await db
+      .select()
+      .from(wsStoriesTable)
+      .where(eq(wsStoriesTable.worldId, worldId))
+      .orderBy(wsStoriesTable.sortOrder, wsStoriesTable.createdAt);
+    const storyIds = stories.map(s => s.id);
+    const acts = storyIds.length > 0
+      ? await db.select().from(wsStoryActsTable)
+          .where(inArray(wsStoryActsTable.storyId, storyIds))
+          .orderBy(wsStoryActsTable.storyId, wsStoryActsTable.actNumber)
+      : [];
+    const actsById: Record<string, typeof acts> = {};
+    for (const act of acts) {
+      if (!actsById[act.storyId]) actsById[act.storyId] = [];
+      actsById[act.storyId].push(act);
+    }
+    res.json({ stories: stories.map(s => ({ ...s, acts: actsById[s.id] ?? [] })) });
+  } catch (err) {
+    logger.error({ err }, "editorial: list stories");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create a story
+router.post("/v1/editorial/stories", async (req: Request, res: Response) => {
+  try {
+    const { world_id, title, summary, status } = req.body;
+    if (!world_id || !title) { res.status(400).json({ error: "world_id and title required" }); return; }
+    const [story] = await db.insert(wsStoriesTable).values({
+      id: randomUUID(),
+      worldId: world_id,
+      title,
+      summary: summary ?? "",
+      status: status ?? "draft",
+    }).returning();
+    res.status(201).json({ story });
+  } catch (err) {
+    logger.error({ err }, "editorial: create story");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update a story
+router.patch("/v1/editorial/stories/:id", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { title, summary, status, sort_order } = req.body;
+    const update: Record<string, unknown> = {};
+    if (title !== undefined) update.title = title;
+    if (summary !== undefined) update.summary = summary;
+    if (status !== undefined) update.status = status;
+    if (sort_order !== undefined) update.sortOrder = sort_order;
+    const [story] = await db.update(wsStoriesTable).set(update).where(eq(wsStoriesTable.id, id as string)).returning();
+    if (!story) { res.status(404).json({ error: "Story not found" }); return; }
+    res.json({ story });
+  } catch (err) {
+    logger.error({ err }, "editorial: update story");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete a story
+router.delete("/v1/editorial/stories/:id", async (req: Request, res: Response) => {
+  try {
+    await db.delete(wsStoriesTable).where(eq(wsStoriesTable.id, req.params.id as string));
+    res.status(204).end();
+  } catch (err) {
+    logger.error({ err }, "editorial: delete story");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// List acts for a story
+router.get("/v1/editorial/stories/:id/acts", async (req: Request, res: Response) => {
+  try {
+    const acts = await db.select().from(wsStoryActsTable)
+      .where(eq(wsStoryActsTable.storyId, req.params.id as string))
+      .orderBy(wsStoryActsTable.actNumber);
+    res.json({ acts });
+  } catch (err) {
+    logger.error({ err }, "editorial: list acts");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create an act
+router.post("/v1/editorial/stories/:id/acts", async (req: Request, res: Response) => {
+  try {
+    const { title, tagline, act_number, world_id } = req.body;
+    if (!title || !world_id) { res.status(400).json({ error: "title and world_id required" }); return; }
+    const [act] = await db.insert(wsStoryActsTable).values({
+      id: randomUUID(),
+      storyId: req.params.id as string,
+      worldId: world_id,
+      actNumber: act_number ?? 1,
+      title,
+      tagline: tagline ?? "",
+    }).returning();
+    res.status(201).json({ act });
+  } catch (err) {
+    logger.error({ err }, "editorial: create act");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update an act
+router.patch("/v1/editorial/acts/:id", async (req: Request, res: Response) => {
+  try {
+    const { title, tagline, act_number } = req.body;
+    const update: Record<string, unknown> = {};
+    if (title !== undefined) update.title = title;
+    if (tagline !== undefined) update.tagline = tagline;
+    if (act_number !== undefined) update.actNumber = act_number;
+    const [act] = await db.update(wsStoryActsTable).set(update).where(eq(wsStoryActsTable.id, req.params.id as string)).returning();
+    if (!act) { res.status(404).json({ error: "Act not found" }); return; }
+    res.json({ act });
+  } catch (err) {
+    logger.error({ err }, "editorial: update act");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete an act
+router.delete("/v1/editorial/acts/:id", async (req: Request, res: Response) => {
+  try {
+    await db.delete(wsStoryActsTable).where(eq(wsStoryActsTable.id, req.params.id as string));
+    res.status(204).end();
+  } catch (err) {
+    logger.error({ err }, "editorial: delete act");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// List journal prompts for a canon record
+router.get("/v1/editorial/canon-records/:id/journal-prompts", async (req: Request, res: Response) => {
+  try {
+    const prompts = await db.select().from(wsJournalPromptsTable)
+      .where(eq(wsJournalPromptsTable.recordId, req.params.id as string))
+      .orderBy(wsJournalPromptsTable.sortOrder, wsJournalPromptsTable.createdAt);
+    res.json({ journal_prompts: prompts });
+  } catch (err) {
+    logger.error({ err }, "editorial: list journal prompts");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create a journal prompt
+router.post("/v1/editorial/canon-records/:id/journal-prompts", async (req: Request, res: Response) => {
+  try {
+    const { prompt_text, hint_label, story_id, sort_order } = req.body;
+    if (!prompt_text) { res.status(400).json({ error: "prompt_text required" }); return; }
+    const [prompt] = await db.insert(wsJournalPromptsTable).values({
+      id: randomUUID(),
+      recordId: req.params.id as string,
+      storyId: story_id ?? null,
+      promptText: prompt_text,
+      hintLabel: hint_label ?? "",
+      sortOrder: sort_order ?? 0,
+    }).returning();
+    res.status(201).json({ journal_prompt: prompt });
+  } catch (err) {
+    logger.error({ err }, "editorial: create journal prompt");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete a journal prompt
+router.delete("/v1/editorial/journal-prompts/:id", async (req: Request, res: Response) => {
+  try {
+    await db.delete(wsJournalPromptsTable).where(eq(wsJournalPromptsTable.id, req.params.id as string));
+    res.status(204).end();
+  } catch (err) {
+    logger.error({ err }, "editorial: delete journal prompt");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// List encounters for a canon record (location)
+router.get("/v1/editorial/canon-records/:id/encounters", async (req: Request, res: Response) => {
+  try {
+    const encounters = await db.select().from(wsEncountersTable)
+      .where(eq(wsEncountersTable.locationRecordId, req.params.id as string))
+      .orderBy(wsEncountersTable.createdAt);
+    res.json({ encounters });
+  } catch (err) {
+    logger.error({ err }, "editorial: list encounters");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Link a canon record to a story
+router.post("/v1/editorial/canon-records/:id/story-links", async (req: Request, res: Response) => {
+  try {
+    const { story_id, act_id } = req.body;
+    if (!story_id) { res.status(400).json({ error: "story_id required" }); return; }
+    await db.insert(wsCanonRecordStoryLinksTable).values({
+      canonRecordId: req.params.id as string,
+      storyId: story_id,
+      actId: act_id ?? null,
+    }).onConflictDoUpdate({
+      target: [wsCanonRecordStoryLinksTable.canonRecordId, wsCanonRecordStoryLinksTable.storyId],
+      set: { actId: act_id ?? null },
+    });
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "editorial: create story link");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// List story links for a canon record
+router.get("/v1/editorial/canon-records/:id/story-links", async (req: Request, res: Response) => {
+  try {
+    const links = await db.select({
+      storyId: wsCanonRecordStoryLinksTable.storyId,
+      actId: wsCanonRecordStoryLinksTable.actId,
+      storyTitle: wsStoriesTable.title,
+      storyStatus: wsStoriesTable.status,
+    })
+    .from(wsCanonRecordStoryLinksTable)
+    .leftJoin(wsStoriesTable, eq(wsCanonRecordStoryLinksTable.storyId, wsStoriesTable.id))
+    .where(eq(wsCanonRecordStoryLinksTable.canonRecordId, req.params.id as string));
+    res.json({ story_links: links });
+  } catch (err) {
+    logger.error({ err }, "editorial: list story links");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Remove a story link
+router.delete("/v1/editorial/canon-records/:id/story-links/:storyId", async (req: Request, res: Response) => {
+  try {
+    await db.delete(wsCanonRecordStoryLinksTable)
+      .where(
+        and(
+          eq(wsCanonRecordStoryLinksTable.canonRecordId, req.params.id as string),
+          eq(wsCanonRecordStoryLinksTable.storyId, req.params.storyId as string),
+        )
+      );
+    res.status(204).end();
+  } catch (err) {
+    logger.error({ err }, "editorial: delete story link");
     res.status(500).json({ error: "Internal server error" });
   }
 });

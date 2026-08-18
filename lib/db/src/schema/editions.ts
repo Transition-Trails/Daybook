@@ -68,6 +68,11 @@ export const editionsTable = pgTable("editions", {
   revisionOf: text("revision_of"), // edition id | null
   year: integer("year"),
   /**
+   * World code this edition belongs to (e.g. "VGJ", "WYC").
+   * Null means the edition is not linked to a specific WorldSmith world.
+   */
+  world: text("world"),
+  /**
    * Product type — drives studio section menu and generator page set.
    * Defaults to 'planner' for all existing rows.
    */

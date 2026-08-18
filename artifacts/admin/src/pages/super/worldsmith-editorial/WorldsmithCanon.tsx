@@ -256,8 +256,19 @@ function generateImageIdeas(record: CanonRecord, world: { visualPalette?: string
 }
 
 // ── Left Rail ──────────────────────────────────────────────────────────────────
-function LeftRail({ records, recordId, filterType, filterVisibility, filterStability, setFilterType, setFilterVisibility, setFilterStability }:
-  { records: CanonListItem[]; recordId: string; filterType: string | null; filterVisibility: string | null; filterStability: string | null;
+const VISIBILITY_OPTIONS = [
+  { key: "explicit",   label: "Explicit"   },
+  { key: "background", label: "Background" },
+  { key: "hinted",     label: "Hinted"     },
+];
+const STABILITY_OPTIONS = [
+  { key: "high",   label: "High"   },
+  { key: "medium", label: "Medium" },
+  { key: "low",    label: "Low"    },
+];
+
+function LeftRail({ records, totalCount, recordId, filterType, filterVisibility, filterStability, setFilterType, setFilterVisibility, setFilterStability }:
+  { records: CanonListItem[]; totalCount: number; recordId: string; filterType: string | null; filterVisibility: string | null; filterStability: string | null;
     setFilterType: (v: string | null) => void; setFilterVisibility: (v: string | null) => void; setFilterStability: (v: string | null) => void }) {
   const groups = CANON_TYPES.map(ct => ({ ...ct, items: records.filter(r => r.canonType === ct.key) })).filter(g => g.items.length > 0);
   const uncategorised = records.filter(r => !r.canonType);
@@ -266,28 +277,71 @@ function LeftRail({ records, recordId, filterType, filterVisibility, filterStabi
   return (
     <div className="flex flex-col flex-none overflow-hidden border-r"
       style={{ width: 210, background: WARM_BG, borderColor: WARM_BORDER }}>
-      {/* Filter chips */}
+      {/* Filter chips — type (full labels for accessibility) */}
       <div className="px-3 py-2 border-b flex flex-wrap gap-1" style={{ borderColor: WARM_BORDER }}>
         {CANON_TYPES.map(t => {
           const active = filterType === t.key;
           return (
-            <button key={t.key} title={t.label} onClick={() => setFilterType(active ? null : t.key)}
+            <button key={t.key} onClick={() => setFilterType(active ? null : t.key)}
+              aria-pressed={active}
               className="text-[9px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide"
               style={active ? { background: `${t.color}20`, color: t.color } : { color: "#9CA3AF" }}>
-              {t.label.slice(0, 3)}
+              {t.label}
             </button>
           );
         })}
-        {hasFilter && (
-          <button onClick={() => { setFilterType(null); setFilterVisibility(null); setFilterStability(null); }}
-            className="text-[9px] px-1 py-0.5 rounded" style={{ color: CLAY }}>✕ clear</button>
-        )}
       </div>
 
-      {/* Record count */}
-      <div className="px-4 py-2 border-b" style={{ borderColor: WARM_BORDER }}>
+      {/* Filter chips — visibility */}
+      <div className="px-3 py-1.5 border-b flex flex-wrap gap-1" style={{ borderColor: WARM_BORDER }}>
+        {VISIBILITY_OPTIONS.map(v => {
+          const active = filterVisibility === v.key;
+          return (
+            <button key={v.key} onClick={() => setFilterVisibility(active ? null : v.key)}
+              aria-pressed={active}
+              className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
+              style={active ? { background: `${CLAY}20`, color: CLAY } : { color: "#9CA3AF" }}>
+              {v.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Filter chips — stability */}
+      <div className="px-3 py-1.5 border-b flex flex-wrap gap-1" style={{ borderColor: WARM_BORDER }}>
+        {STABILITY_OPTIONS.map(s => {
+          const active = filterStability === s.key;
+          return (
+            <button key={s.key} onClick={() => setFilterStability(active ? null : s.key)}
+              aria-pressed={active}
+              className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
+              style={active ? { background: `${CLAY}20`, color: CLAY } : { color: "#9CA3AF" }}>
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Active filter banner — is itself a button so clicking clears all filters */}
+      {hasFilter && (
+        <button
+          onClick={() => { setFilterType(null); setFilterVisibility(null); setFilterStability(null); }}
+          className="w-full px-3 py-1.5 border-b text-left"
+          style={{ background: `${CLAY}12`, borderColor: WARM_BORDER }}
+        >
+          <span className="text-[9.5px] font-semibold" style={{ color: CLAY }}>
+            Filtered · {records.length}/{totalCount} shown
+          </span>
+        </button>
+      )}
+
+      {/* Record count — standalone count badge so getByText("5") resolves */}
+      <div className="px-4 py-2 border-b flex items-center justify-between" style={{ borderColor: WARM_BORDER }}>
         <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>
-          Records · {records.length}
+          Records
+        </span>
+        <span className="text-[10px] font-bold tabular-nums" style={{ color: "#9CA3AF" }}>
+          {hasFilter ? `${records.length}/${totalCount}` : totalCount}
         </span>
       </div>
 
@@ -1160,7 +1214,7 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
       <div className="flex flex-1 min-h-0">
         {/* LEFT RAIL */}
         <LeftRail
-          records={filteredRecords} recordId={recordId}
+          records={filteredRecords} totalCount={allRecords.length} recordId={recordId}
           filterType={filterType} filterVisibility={filterVisibility} filterStability={filterStability}
           setFilterType={setFilterType} setFilterVisibility={setFilterVisibility} setFilterStability={setFilterStability}
         />

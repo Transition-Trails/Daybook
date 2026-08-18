@@ -39,6 +39,7 @@ const editionSchema = z.object({
   bindingFinish: z.string().default(''),
   priceLow: z.coerce.number().optional(),
   priceHigh: z.coerce.number().optional(),
+  world: z.string().default(''),
 });
 
 type EditionFormValues = z.infer<typeof editionSchema>;
@@ -132,7 +133,7 @@ export default function EditionDetail() {
 
   const form = useForm<EditionFormValues>({
     resolver: zodResolver(editionSchema),
-    defaultValues: { id: '', name: '', tier: 'basic', productType: 'planner', sections: '', bindingType: '', bindingFinish: '', priceLow: 0, priceHigh: 0 }
+    defaultValues: { id: '', name: '', tier: 'basic', productType: 'planner', sections: '', bindingType: '', bindingFinish: '', priceLow: 0, priceHigh: 0, world: '' }
   });
 
   const initializedForId = useRef<string | null>(null);
@@ -151,6 +152,7 @@ export default function EditionDetail() {
         bindingFinish: binding?.finish ?? '',
         priceLow: edition.priceLow ?? 0,
         priceHigh: edition.priceHigh ?? 0,
+        world: ((edition as any).world ?? '') as string,
       });
     }
   }, [edition, id, form]);
@@ -163,6 +165,8 @@ export default function EditionDetail() {
       ? { type: data.bindingType as "coil" | "twin-loop" | "discs" | "3-ring" | "none", finish: (data.bindingFinish || 'gold') as "gold" | "rose gold" | "silver" | "matte black" | "white" }
       : null;
 
+    const worldValue = data.world.trim().toUpperCase() || null;
+
     if (isNew) {
       const payload: EditionInput = {
         id: data.id,
@@ -172,7 +176,7 @@ export default function EditionDetail() {
         priceLow: data.priceLow || undefined,
         priceHigh: data.priceHigh || undefined,
       };
-      createEdition.mutate({ data: { ...payload, productType: data.productType, ...(bindingPayload ? { binding: bindingPayload } : {}) } as EditionInput }, {
+      createEdition.mutate({ data: { ...payload, productType: data.productType, world: worldValue, ...(bindingPayload ? { binding: bindingPayload } : {}) } as EditionInput }, {
         onSuccess: (res) => {
           toast({ title: 'Edition created' });
           queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
@@ -189,6 +193,7 @@ export default function EditionDetail() {
         priceHigh: data.priceHigh ?? null,
         ...(data.productType ? { productType: data.productType } : {}),
         ...(bindingPayload ? { binding: bindingPayload } : {}),
+        world: worldValue,
       };
       updateEdition.mutate({ id, data: payload }, {
         onSuccess: () => {
@@ -322,6 +327,14 @@ export default function EditionDetail() {
                         </SelectContent>
                       </Select>
                       <FormDescription>Controls which studio modes and generator spreads are available.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="world" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>World code <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
+                      <FormControl><Input {...field} placeholder="VGJ" className="font-mono uppercase" /></FormControl>
+                      <FormDescription>Link this edition to a WorldSmith world. Use the world's code (e.g. VGJ). Saved in uppercase.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )} />

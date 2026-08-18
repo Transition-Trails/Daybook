@@ -960,27 +960,104 @@ function StoriesSection({ world }: { world: WsWorld }) {
         </div>
       )}
 
-      {/* Products strip */}
-      <div className="rounded-xl border border-border bg-card p-5">
-        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-3">Products from {world.name}</p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { name: "Solo RPG Daybook",    desc: "Session journal with encounter tables",   status: "planned",  color: "#8B5CF6" },
-            { name: "Junk Journal Kit",     desc: "Printable ephemera & texture pages",      status: "planned",  color: "#C87560" },
-            { name: "Sticker Kit",          desc: "Object-of-mystery sticker pack",          status: "draft",    color: "#F59E0B" },
-            { name: "Monthly Membership",   desc: "Growing world subscription",              status: "draft",    color: "#10B981" },
-          ].map(p => (
-            <div key={p.name} className="rounded-lg border border-border p-3">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-                <span className="text-[11px] font-semibold text-foreground">{p.name}</span>
-              </div>
-              <p className="text-[10.5px] text-muted-foreground mb-2">{p.desc}</p>
-              <span className="text-[9.5px] font-medium rounded-full px-2 py-0.5 bg-muted text-muted-foreground capitalize">{p.status}</span>
-            </div>
-          ))}
-        </div>
+      {/* Products strip — real editions linked to this world */}
+      <WorldEditionsStrip world={world} />
+    </div>
+  );
+}
+
+// ── World editions strip ──────────────────────────────────────────────────────
+
+interface EditionRow {
+  id: string;
+  name: string;
+  status: string;
+  productType: string;
+  world: string | null;
+}
+
+const EDITION_STATUS_STYLES: Record<string, { bg: string; color: string }> = {
+  live:    { bg: "#D1FAE5", color: "#065F46" },
+  draft:   { bg: "#F3F4F6", color: "#6B7280" },
+  deleted: { bg: "#FEE2E2", color: "#991B1B" },
+};
+
+const PRODUCT_TYPE_COLORS: Record<string, string> = {
+  planner:        "#8B5CF6",
+  notebook:       "#C87560",
+  journal:        "#F59E0B",
+  "memory-keeping": "#10B981",
+};
+
+function WorldEditionsStrip({ world }: { world: WsWorld }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["editions-by-world", world.code],
+    queryFn: () =>
+      apiFetch<EditionRow[]>(`/v1/catalog/editions?world=${encodeURIComponent(world.code.toUpperCase())}`),
+    staleTime: 30_000,
+  });
+
+  const editions = Array.isArray(data) ? data : [];
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+          Products from {world.name}
+        </p>
+        <Link href="/editions">
+          <span className="text-[11.5px] font-medium text-[#C87560] hover:underline cursor-pointer flex items-center gap-1">
+            All editions <ArrowRight className="w-3 h-3" />
+          </span>
+        </Link>
       </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-6">
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : editions.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border p-6 text-center">
+          <p className="text-sm font-medium text-foreground mb-1">No editions linked to {world.name} yet</p>
+          <p className="text-[12px] text-muted-foreground mb-3">
+            Set the <code className="bg-muted px-1 py-0.5 rounded text-[11px]">world</code> field on an edition to{" "}
+            <span className="font-mono font-semibold">{world.code.toUpperCase()}</span> to surface it here.
+          </p>
+          <Link href="/editions/new">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white cursor-pointer hover:opacity-90 transition-opacity"
+              style={{ background: "#1B2A4A" }}>
+              <Plus className="w-3 h-3" />
+              Add first edition
+            </span>
+          </Link>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {editions.map(ed => {
+            const statusStyle = EDITION_STATUS_STYLES[ed.status] ?? EDITION_STATUS_STYLES.draft;
+            const dotColor    = PRODUCT_TYPE_COLORS[ed.productType] ?? "#9CA3AF";
+            return (
+              <Link key={ed.id} href={`/editions/${ed.id}`}>
+                <div className="rounded-lg border border-border p-3 hover:shadow-sm hover:border-foreground/20 transition-all cursor-pointer group">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dotColor }} />
+                    <span className="text-[11px] font-semibold text-foreground leading-tight line-clamp-1 group-hover:text-[#C87560] transition-colors">
+                      {ed.name}
+                    </span>
+                  </div>
+                  <p className="text-[10.5px] text-muted-foreground mb-2 capitalize">{ed.productType.replace("-", " ")}</p>
+                  <span
+                    className="text-[9.5px] font-medium rounded-full px-2 py-0.5 capitalize"
+                    style={statusStyle}
+                  >
+                    {ed.status}
+                  </span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

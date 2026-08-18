@@ -123,6 +123,7 @@ import {
   WorldsmithCanon,
   NewSpecFlow,
   SpecEditor,
+  SpecsList,
   StyleGuides,
   PromptModules,
 } from "@/pages/super/worldsmith-editorial";
@@ -222,9 +223,10 @@ function RootRouter() {
       </Route>
 
       {/* ── WorldSmith Editorial Suite ────────────────────────────────────── */}
-      {/* /specs without an id redirects to the board (the swimlane is the list view) */}
       <Route path="/super/worldsmith/editorial/specs">
-        <Redirect to="/super/worldsmith/editorial/board" />
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="specs"><SpecsList /></EditorialShell>
+        </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/specs/new">
         <RequireSuperAdmin state={state}>

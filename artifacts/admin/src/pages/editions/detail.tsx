@@ -180,6 +180,8 @@ export default function EditionDetail() {
         onSuccess: (res) => {
           toast({ title: 'Edition created' });
           queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
+          // Invalidate the world-specific strip so the Stories tab reflects the new link immediately.
+          queryClient.invalidateQueries({ queryKey: ["editions-by-world"] });
           setLocation(`/editions/${res.id}`);
         },
         onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
@@ -200,6 +202,8 @@ export default function EditionDetail() {
           toast({ title: 'Edition updated' });
           queryClient.invalidateQueries({ queryKey: getGetEditionQueryKey(id) });
           queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
+          // Invalidate the world-specific strip so the Stories tab reflects the new link immediately.
+          queryClient.invalidateQueries({ queryKey: ["editions-by-world"] });
         }
       });
     }

@@ -994,7 +994,7 @@ function WorldEditionsStrip({ world }: { world: WsWorld }) {
     queryKey: ["editions-by-world", world.code],
     queryFn: () =>
       apiFetch<EditionRow[]>(`/v1/catalog/editions?world=${encodeURIComponent(world.code.toUpperCase())}`),
-    staleTime: 30_000,
+    staleTime: 0,
   });
 
   const editions = Array.isArray(data) ? data : [];

@@ -5,6 +5,7 @@
  * specs to provide visual / tone grounding during compilation.
  */
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Layers, FileText, ChevronRight, Loader2, X, Save, Pencil, RefreshCw,
@@ -211,7 +212,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
         that the compiler uses when generating artwork for a spec.
       </p>
       <button
-        onClick={onNew}
+        onClick={() => onNew()}
         className="flex items-center gap-2 px-4 py-2 bg-[#1B2A4A] text-white text-sm rounded-lg hover:bg-[#243660] transition-colors"
       >
         <Plus className="w-4 h-4" />
@@ -227,6 +228,7 @@ export default function StyleGuides() {
   const { selectedWorldId, selectedWorld } = useEditorial();
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [drawerGuide, setDrawerGuide] = useState<StyleGuide | null | "new">(undefined as any);
   const drawerOpen = drawerGuide !== undefined && drawerGuide !== (undefined as any);
 
@@ -293,7 +295,7 @@ export default function StyleGuides() {
             Sync from Notion
           </button>
           <button
-            onClick={openNew}
+            onClick={() => navigate("/super/worldsmith/editorial/style-guides/new")}
             className="flex items-center gap-2 px-3 py-2 bg-[#1B2A4A] text-white text-sm rounded-lg hover:bg-[#243660] transition-colors"
           >
             <Plus className="w-4 h-4" />

@@ -125,6 +125,7 @@ import {
   SpecEditor,
   SpecsList,
   StyleGuides,
+  NewStyleGuideFlow,
   PromptModules,
 } from "@/pages/super/worldsmith-editorial";
 import { EditorialProvider } from "@/contexts/EditorialContext";
@@ -255,6 +256,10 @@ function RootRouter() {
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="canon"><CanonLibrary /></EditorialShell>
         </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/style-guides/new">
+        {() =>
+          <EditorialProvider><NewStyleGuideFlow /></EditorialProvider>}
       </Route>
       <Route path="/super/worldsmith/editorial/style-guides">
         <RequireSuperAdmin state={state}>

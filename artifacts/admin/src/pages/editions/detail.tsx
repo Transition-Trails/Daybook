@@ -182,6 +182,8 @@ export default function EditionDetail() {
           queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
           // Invalidate the world-specific strip so the Stories tab reflects the new link immediately.
           queryClient.invalidateQueries({ queryKey: ["editions-by-world"] });
+          // Invalidate all ws-stories caches so the Stories tab updates without a page reload.
+          queryClient.invalidateQueries({ queryKey: ["ws-stories"] });
           setLocation(`/editions/${res.id}`);
         },
         onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
@@ -204,6 +206,9 @@ export default function EditionDetail() {
           queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
           // Invalidate the world-specific strip so the Stories tab reflects the new link immediately.
           queryClient.invalidateQueries({ queryKey: ["editions-by-world"] });
+          // Invalidate all ws-stories caches so the Stories tab updates without a page reload
+          // when this edition's world link is added, changed, or cleared.
+          queryClient.invalidateQueries({ queryKey: ["ws-stories"] });
         }
       });
     }

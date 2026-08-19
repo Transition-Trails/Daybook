@@ -6,7 +6,7 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
-  Search, X, Plus, RefreshCw, Loader2, FileText,
+  Search, X, Plus, RefreshCw, Loader2, FileText, Sparkles,
   ChevronUp, ChevronDown, ChevronsUpDown,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -303,34 +303,44 @@ export default function SpecsList() {
               Try again
             </button>
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
-            <FileText className="w-8 h-8 text-gray-300" />
-            {hasFilters ? (
-              <>
-                <p className="text-sm">No specs match your filters</p>
-                <button
-                  onClick={clearFilters}
-                  className="text-sm text-[#C87560] hover:underline"
-                >
-                  Clear filters
-                </button>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-gray-500">No production specs yet</p>
-                <p className="text-xs text-gray-400">Create your first spec to get started</p>
+          ) : filtered.length === 0 ? (
+          hasFilters ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
+              <FileText className="w-8 h-8 text-gray-300" />
+              <p className="text-sm">No specs match your filters</p>
+              <button
+                onClick={clearFilters}
+                className="text-sm text-[#C87560] hover:underline"
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : (
+            /* ── Full-list empty state ── */
+            <div className="flex items-center justify-center h-full min-h-[320px]">
+              <div className="text-center max-w-sm px-4">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#1B2A4A]/8 mb-5">
+                  <Sparkles className="w-7 h-7 text-[#1B2A4A] opacity-50" />
+                </div>
+                <h3 className="text-base font-semibold text-gray-800 mb-2">
+                  No specs yet for this world
+                </h3>
+                <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+                  Production specs track each printable component — hero papers, journal cards,
+                  ephemera sheets, and more — through the pipeline from draft to published.
+                  Create your first spec to get started.
+                </p>
                 <button
                   onClick={() => navigate("/super/worldsmith/editorial/specs/new")}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white mt-1"
-                  style={{ background: "#C87560" }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors hover:opacity-90"
+                  style={{ background: "#1B2A4A" }}
                 >
                   <Plus className="w-4 h-4" />
-                  New Spec
+                  Create your first spec
                 </button>
-              </>
-            )}
-          </div>
+              </div>
+            </div>
+          )
         ) : (
           <table className="w-full text-sm border-collapse">
             <thead>

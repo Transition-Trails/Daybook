@@ -195,15 +195,84 @@ function renderSimpleMarkdown(md: string): string {
 
 // ── Notes field ────────────────────────────────────────────────────────────────
 function NotesField({ value, onSave }: { value: string; onSave: (v: string) => void }) {
-  const [local, setLocal]   = useState(value);
-  const [mode, setMode]     = useState<"write" | "preview">("write");
-  const [dirty, setDirty]   = useState(false);
-  const prev = useRef(value);
-  useEffect(() => { if (prev.current !== value && !dirty) { setLocal(value); prev.current = value; } }, [value, dirty]);
-  const commit = () => { if (dirty && local !== prev.current) { onSave(local); prev.current = local; } setDirty(false); };
+  const [local, setLocal] = useState(value);
+  const [mode, setMode]   = useState<"write" | "preview">("write");
+  const [dirty, setDirty] = useState(false);
+  const prev    = useRef(value);
+  const taRef   = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (prev.current !== value && !dirty) { setLocal(value); prev.current = value; }
+  }, [value, dirty]);
+
+  const commit = () => {
+    if (dirty && local !== prev.current) { onSave(local); prev.current = local; }
+    setDirty(false);
+  };
   const switchToPreview = () => { commit(); setMode("preview"); };
+
+  /** Insert or wrap selection with a markdown token. */
+  const fmt = (type: "bold" | "italic" | "heading" | "bullet" | "hr") => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end   = ta.selectionEnd;
+    const sel   = local.slice(start, end);
+    let next = local;
+    let cursorOffset = 0;
+
+    if (type === "bold") {
+      const wrapped = `**${sel || "bold text"}**`;
+      next = local.slice(0, start) + wrapped + local.slice(end);
+      cursorOffset = sel ? wrapped.length : 2; // move inside ** if no sel
+    } else if (type === "italic") {
+      const wrapped = `*${sel || "italic text"}*`;
+      next = local.slice(0, start) + wrapped + local.slice(end);
+      cursorOffset = sel ? wrapped.length : 1;
+    } else if (type === "heading") {
+      // Insert at start of line
+      const lineStart = local.lastIndexOf("\n", start - 1) + 1;
+      const prefix = "## ";
+      next = local.slice(0, lineStart) + prefix + local.slice(lineStart);
+      cursorOffset = prefix.length + (start - lineStart);
+    } else if (type === "bullet") {
+      const lineStart = local.lastIndexOf("\n", start - 1) + 1;
+      const prefix = "- ";
+      next = local.slice(0, lineStart) + prefix + local.slice(lineStart);
+      cursorOffset = prefix.length + (start - lineStart);
+    } else if (type === "hr") {
+      const hr = "\n\n---\n\n";
+      next = local.slice(0, start) + hr + local.slice(end);
+      cursorOffset = hr.length;
+    }
+
+    setLocal(next);
+    setDirty(true);
+    // Restore focus + cursor after React re-render
+    requestAnimationFrame(() => {
+      ta.focus();
+      if (type === "bold" && !sel) {
+        ta.setSelectionRange(start + 2, start + 2 + "bold text".length);
+      } else if (type === "italic" && !sel) {
+        ta.setSelectionRange(start + 1, start + 1 + "italic text".length);
+      } else {
+        const pos = start + cursorOffset;
+        ta.setSelectionRange(pos, pos);
+      }
+    });
+  };
+
+  const FMT_BUTTONS: { id: "bold"|"italic"|"heading"|"bullet"|"hr"; label: string; title: string }[] = [
+    { id: "bold",    label: "B",  title: "Bold (**text**)" },
+    { id: "italic",  label: "I",  title: "Italic (*text*)" },
+    { id: "heading", label: "H",  title: "Heading (## ...)" },
+    { id: "bullet",  label: "•",  title: "Bullet list (- ...)" },
+    { id: "hr",      label: "—",  title: "Horizontal rule (---)" },
+  ];
+
   return (
     <div className="mb-8">
+      {/* Label row */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
           <StickyNote className="w-3 h-3" style={{ color: "#9CA3AF" }} />
@@ -211,7 +280,8 @@ function NotesField({ value, onSave }: { value: string; onSave: (v: string) => v
         </div>
         <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: WARM_BORDER }}>
           {(["write", "preview"] as const).map(m => (
-            <button key={m} onClick={() => m === "write" ? setMode("write") : switchToPreview()}
+            <button key={m}
+              onClick={() => m === "write" ? setMode("write") : switchToPreview()}
               className="px-2.5 py-0.5 text-[10px] font-semibold capitalize"
               style={{ background: mode === m ? INK : "transparent", color: mode === m ? "white" : "#9CA3AF" }}>
               {m}
@@ -219,21 +289,59 @@ function NotesField({ value, onSave }: { value: string; onSave: (v: string) => v
           ))}
         </div>
       </div>
+
       {mode === "write" ? (
-        <textarea value={local} rows={5}
-          onChange={e => { setLocal(e.target.value); setDirty(true); }}
-          onBlur={commit}
-          placeholder={"Write editorial notes here — observations, flags, cross-references, open questions…\n\nMarkdown supported: **bold**, *italic*, # Heading, - bullet"}
-          className="w-full rounded-lg px-3 py-2.5 leading-relaxed resize-none focus:outline-none"
-          style={{ border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE, color: INK,
-            fontFamily: "'Spectral', Georgia, serif", fontSize: 13 }} />
+        <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${WARM_BORDER}` }}>
+          {/* Formatting toolbar */}
+          <div
+            className="flex items-center gap-0.5 px-2 py-1.5 border-b"
+            style={{ borderColor: WARM_BORDER, background: "#F5F0E8" }}
+          >
+            {FMT_BUTTONS.map(btn => (
+              <button
+                key={btn.id}
+                onMouseDown={e => { e.preventDefault(); fmt(btn.id); }}
+                title={btn.title}
+                className="w-6 h-6 flex items-center justify-center rounded text-[11px] font-bold transition-colors hover:bg-black/8"
+                style={{
+                  color: INK,
+                  fontStyle: btn.id === "italic" ? "italic" : "normal",
+                  fontFamily: btn.id === "bold" || btn.id === "italic" ? "Georgia, serif" : "inherit",
+                  letterSpacing: btn.id === "hr" ? "0" : undefined,
+                }}
+              >
+                {btn.label}
+              </button>
+            ))}
+          </div>
+          {/* Textarea — resizable */}
+          <textarea
+            ref={taRef}
+            value={local}
+            rows={6}
+            onChange={e => { setLocal(e.target.value); setDirty(true); }}
+            onBlur={commit}
+            placeholder={"Write editorial notes here — observations, flags, cross-references, open questions…"}
+            className="w-full px-3 py-2.5 leading-relaxed resize-y focus:outline-none"
+            style={{
+              background: WARM_WHITE,
+              color: INK,
+              fontFamily: "'Spectral', Georgia, serif",
+              fontSize: 13,
+              minHeight: 112,
+              border: "none",
+            }}
+          />
+        </div>
       ) : (
-        <div className="w-full rounded-lg px-3 py-2.5 leading-relaxed min-h-[112px]"
+        <div
+          className="w-full rounded-lg px-3 py-2.5 leading-relaxed min-h-[112px]"
           style={{ border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE, color: INK,
             fontFamily: "'Spectral', Georgia, serif", fontSize: 13 }}
           dangerouslySetInnerHTML={{ __html: local.trim()
             ? renderSimpleMarkdown(local)
-            : `<span style="color:#C9BFB0;font-style:italic">Nothing written yet.</span>` }} />
+            : `<span style="color:#C9BFB0;font-style:italic">Nothing written yet.</span>` }}
+        />
       )}
     </div>
   );

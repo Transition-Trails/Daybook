@@ -32,6 +32,7 @@ interface EditorialContextValue {
   selectedWorldId: string | null;
   setSelectedWorldId: (id: string | null) => void;
   selectedWorld: WorldRecord | null;
+  updateWorld: (world: WorldRecord) => void;
   collections: CollectionRecord[];
   collectionsLoading: boolean;
   selectedCollectionId: string | null;
@@ -93,6 +94,9 @@ export function EditorialProvider({ children }: { children: ReactNode }) {
   }, [selectedCollectionId]);
 
   const selectedWorld = worlds.find(w => w.id === selectedWorldId) ?? null;
+  const updateWorld = (updatedWorld: WorldRecord) => {
+    setWorlds(current => current.map(world => world.id === updatedWorld.id ? updatedWorld : world));
+  };
 
   return (
     <EditorialContext.Provider value={{
@@ -101,6 +105,7 @@ export function EditorialProvider({ children }: { children: ReactNode }) {
       selectedWorldId,
       setSelectedWorldId,
       selectedWorld,
+      updateWorld,
       collections,
       collectionsLoading,
       selectedCollectionId,

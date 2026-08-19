@@ -1183,36 +1183,51 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
   const worldId = req.params.id as string;
 
   const body = req.body as {
-    notionProductionDbId?: string | null;
-    notionCanonDbId?: string | null;
-    driveFolderId?: string | null;
-    imageProvider?: string | null;
+    notionProductionDbId?: unknown;
+    notionCanonDbId?: unknown;
+    driveFolderId?: unknown;
+    imageProvider?: unknown;
     status?: string;
-    currentCollection?: string | null;
-    currentVolume?: string | null;
-    worldRules?: string[] | null;
+    currentCollection?: unknown;
+    currentVolume?: unknown;
+    worldRules?: unknown;
     // World Bible fields
-    visualPalette?: string | null;
-    proseVoice?: string | null;
-    atmosphericNotes?: string | null;
-    materialWorld?: string | null;
-    coverImageUrl?: string | null;
+    visualPalette?: unknown;
+    proseVoice?: unknown;
+    atmosphericNotes?: unknown;
+    materialWorld?: unknown;
+    coverImageUrl?: unknown;
   };
 
   // Build a patch object with only the keys the caller supplied
   const patch: Record<string, unknown> = {};
-  if ("notionProductionDbId" in body) {
-    patch.notionProductionDbId = body.notionProductionDbId?.trim() || null;
+  const addNullableText = (requestKey: string, dbKey: string) => {
+    if (!(requestKey in body)) return true;
+    const value = body[requestKey as keyof typeof body];
+    if (value !== null && typeof value !== "string") {
+      res.status(400).json({ error: `${requestKey} must be a string or null`, code: "INVALID_FIELD" });
+      return false;
+    }
+    patch[dbKey] = typeof value === "string" ? value.trim() || null : null;
+    return true;
+  };
+
+  for (const [requestKey, dbKey] of [
+    ["notionProductionDbId", "notionProductionDbId"],
+    ["notionCanonDbId", "notionCanonDbId"],
+    ["driveFolderId", "driveFolderId"],
+    ["imageProvider", "imageProvider"],
+    ["currentCollection", "currentCollection"],
+    ["currentVolume", "currentVolume"],
+    ["visualPalette", "visualPalette"],
+    ["proseVoice", "proseVoice"],
+    ["atmosphericNotes", "atmosphericNotes"],
+    ["materialWorld", "materialWorld"],
+    ["coverImageUrl", "coverImageUrl"],
+  ] as const) {
+    if (!addNullableText(requestKey, dbKey)) return;
   }
-  if ("notionCanonDbId" in body) {
-    patch.notionCanonDbId = body.notionCanonDbId?.trim() || null;
-  }
-  if ("driveFolderId" in body) {
-    patch.driveFolderId = body.driveFolderId?.trim() || null;
-  }
-  if ("imageProvider" in body) {
-    patch.imageProvider = body.imageProvider?.trim() || null;
-  }
+
   if ("status" in body) {
     const validStatuses = ["active", "in_setup", "archived"];
     if (!validStatuses.includes(body.status as string)) {
@@ -1221,14 +1236,12 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
     }
     patch.status = body.status;
   }
-  if ("currentCollection" in body) {
-    patch.currentCollection = body.currentCollection?.trim() || null;
-  }
-  if ("currentVolume" in body) {
-    patch.currentVolume = body.currentVolume?.trim() || null;
-  }
   if ("worldRules" in body) {
     if (!Array.isArray(body.worldRules) && body.worldRules !== null) {
+      res.status(400).json({ error: "worldRules must be an array of strings or null", code: "INVALID_WORLD_RULES" });
+      return;
+    }
+    if (Array.isArray(body.worldRules) && body.worldRules.some(rule => typeof rule !== "string")) {
       res.status(400).json({ error: "worldRules must be an array of strings or null", code: "INVALID_WORLD_RULES" });
       return;
     }
@@ -1237,12 +1250,6 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
       ? body.worldRules.map((r: string) => r.trim()).filter(Boolean)
       : [];
   }
-  // World Bible text fields — trim and null-coerce blank strings
-  if ("visualPalette"    in body) patch.visualPalette    = body.visualPalette?.trim()    || null;
-  if ("proseVoice"       in body) patch.proseVoice       = body.proseVoice?.trim()       || null;
-  if ("atmosphericNotes" in body) patch.atmosphericNotes = body.atmosphericNotes?.trim() || null;
-  if ("materialWorld"    in body) patch.materialWorld    = body.materialWorld?.trim()    || null;
-  if ("coverImageUrl"    in body) patch.coverImageUrl    = body.coverImageUrl?.trim()    || null;
 
   if (Object.keys(patch).length === 0) {
     res.status(400).json({ error: "No updatable fields provided", code: "MISSING_FIELDS" });

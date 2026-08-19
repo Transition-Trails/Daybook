@@ -20,8 +20,9 @@ import WorldSmithHome from "@/pages/super/WorldSmithHome";
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { mockRequestUploadUrl, mockApiFetch, mockToast } = vi.hoisted(() => ({
+const { mockRequestUploadUrl, mockDeleteObject, mockApiFetch, mockToast } = vi.hoisted(() => ({
   mockRequestUploadUrl: vi.fn(),
+  mockDeleteObject: vi.fn(),
   mockApiFetch: vi.fn(),
   mockToast: vi.fn(),
 }));
@@ -30,7 +31,10 @@ const { mockRequestUploadUrl, mockApiFetch, mockToast } = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({
   apiFetch: mockApiFetch,
-  storageApi: { requestUploadUrl: mockRequestUploadUrl },
+  storageApi: {
+    requestUploadUrl: mockRequestUploadUrl,
+    deleteObject: mockDeleteObject,
+  },
 }));
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -78,17 +82,23 @@ const MOCK_WORLD = {
   updatedAt: "2025-01-01T00:00:00Z",
 };
 
+const COVER_URL = "/objects/worldsmith/vr/cover.jpg";
+const MOCK_WORLD_WITH_COVER = {
+  ...MOCK_WORLD,
+  coverImageUrl: COVER_URL,
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeFile(name = "cover.jpg", type = "image/jpeg"): File {
   return new File(["data"], name, { type });
 }
 
-function renderApp() {
+function renderApp(world = MOCK_WORLD) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  qc.setQueryData(["worldsmith/worlds"], { worlds: [MOCK_WORLD] });
+  qc.setQueryData(["worldsmith/worlds"], { worlds: [world] });
   qc.setQueryData(["worldsmith/assets"], { assets: [] });
   qc.setQueryData(["worldsmith/health"], { integrations: [] });
 
@@ -99,9 +109,13 @@ function renderApp() {
   );
 }
 
-async function navigateToWorldAndGetInput(): Promise<HTMLInputElement> {
-  const card = await screen.findByLabelText(`Open ${MOCK_WORLD.name}`);
+async function navigateToWorld(world = MOCK_WORLD): Promise<void> {
+  const card = await screen.findByLabelText(`Open ${world.name}`);
   fireEvent.click(card);
+}
+
+async function navigateToWorldAndGetInput(world = MOCK_WORLD): Promise<HTMLInputElement> {
+  await navigateToWorld(world);
   return screen.findByTestId("cover-file-input") as Promise<HTMLInputElement>;
 }
 
@@ -156,6 +170,7 @@ describe("cover upload — input reset", () => {
       uploadURL: "https://storage.example.com/upload",
       objectPath: "/covers/cover.jpg",
     });
+    mockDeleteObject.mockResolvedValue(undefined);
     mockApiFetch.mockResolvedValue({ id: WORLD_ID });
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 
@@ -233,5 +248,45 @@ describe("cover upload — input reset", () => {
     // The reset must still fire so re-selecting any file (including a valid
     // image after a mistaken PDF pick) works correctly.
     expect(getResetCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it("removes the stored cover and reverts the hero to its gradient without reloading", async () => {
+    const worldWithoutCover = { ...MOCK_WORLD, coverImageUrl: null };
+    mockApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === `/v1/worldsmith/worlds/${WORLD_ID}` && init?.method === "PATCH") {
+        return worldWithoutCover;
+      }
+      if (path === "/v1/worldsmith/worlds") {
+        return { worlds: [worldWithoutCover] };
+      }
+      return { id: WORLD_ID };
+    });
+
+    renderApp(MOCK_WORLD_WITH_COVER);
+    await navigateToWorld(MOCK_WORLD_WITH_COVER);
+
+    expect(screen.getByTestId("world-cover-image")).toHaveAttribute(
+      "src",
+      `/api/storage${COVER_URL}`,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove cover image" }));
+
+    await waitFor(() => {
+      expect(mockApiFetch).toHaveBeenCalledWith(
+        `/v1/worldsmith/worlds/${WORLD_ID}`,
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ coverImageUrl: null }),
+        }),
+      );
+      expect(mockDeleteObject).toHaveBeenCalledWith(COVER_URL);
+      expect(screen.queryByTestId("world-cover-image")).toBeNull();
+    });
+
+    // The same mounted hero must now use the world's configured gradient colour.
+    expect(screen.getByTestId("world-hero")).toHaveStyle({
+      background: MOCK_WORLD.coverColor,
+    });
   });
 });

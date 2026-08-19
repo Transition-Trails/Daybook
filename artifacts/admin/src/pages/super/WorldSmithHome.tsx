@@ -586,11 +586,13 @@ function FocusedWorldView({
     <div className="space-y-6">
       {/* World hero */}
       <div
+        data-testid="world-hero"
         className="rounded-2xl overflow-hidden border border-border relative group/hero"
         style={{ background: world.coverColor }}
       >
         {world.coverImageUrl && (
           <img
+            data-testid="world-cover-image"
             src={`/api/storage${world.coverImageUrl}`}
             alt=""
             aria-hidden="true"

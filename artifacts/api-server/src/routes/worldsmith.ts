@@ -819,9 +819,22 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     message?: string;
     history?: { role: string; content: string }[];
     context?: Record<string, unknown>;
+    /** Base64 data URI — "data:<mime>;base64,…" — for the current turn's attachment. */
+    attachmentDataUrl?: string;
+    /** MIME type declared by the client, e.g. "image/png" or "text/plain". */
+    attachmentMediaType?: string;
+    /** "image" | "document" */
+    attachmentKind?: string;
+    /** Original filename shown in prompts. */
+    attachmentName?: string;
   };
 
-  const { surface, worldId, field, fieldLabel: rawFieldLabel = field ?? "this field", message, history, context } = body;
+  const {
+    surface, worldId, field,
+    fieldLabel: rawFieldLabel = field ?? "this field",
+    message, history, context,
+    attachmentDataUrl, attachmentMediaType, attachmentKind, attachmentName,
+  } = body;
   const fieldLabel = typeof rawFieldLabel === "string" ? rawFieldLabel.trim().slice(0, 160) || "this field" : "this field";
 
   if (!message || typeof message !== "string" || !message.trim()) {
@@ -1110,10 +1123,110 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     const firstUserIdx = safeHistory.findIndex(m => m.role === "user");
     const normalizedHistory = firstUserIdx < 0 ? [] : safeHistory.slice(firstUserIdx);
 
+    // ── Attachment handling ─────────────────────────────────────────────────
+    // Supported image types for all configured vision-capable providers.
+    const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
+    const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+    // Max text length for document attachments (50 000 chars).
+    const MAX_DOC_CHARS = 50_000;
+
+    let aiCallOptions: import("../lib/ai-proxy.js").AiCallOptions | undefined;
+    const provider = process.env.DEFAULT_AI_PROVIDER ?? "claude";
+
+    if (attachmentDataUrl && typeof attachmentDataUrl === "string" && attachmentDataUrl.startsWith("data:")) {
+      const commaIdx = attachmentDataUrl.indexOf(",");
+      if (commaIdx === -1) {
+        res.status(400).json({ error: "attachmentDataUrl is malformed (no comma separator)", code: "INVALID_ATTACHMENT" });
+        return;
+      }
+      const b64 = attachmentDataUrl.slice(commaIdx + 1);
+
+      if (attachmentKind === "image") {
+        // Validate media type
+        const normalizedType = attachmentMediaType ?? "";
+        if (!ALLOWED_IMAGE_TYPES.has(normalizedType)) {
+          res.status(400).json({
+            error: `Unsupported image type '${normalizedType}'. Use PNG, JPEG, WebP, or GIF.`,
+            code: "INVALID_ATTACHMENT_TYPE",
+          });
+          return;
+        }
+        const expectedPrefix = `data:${normalizedType};base64,`;
+        if (!attachmentDataUrl.startsWith(expectedPrefix)) {
+          res.status(400).json({ error: "attachmentDataUrl media type does not match attachmentMediaType", code: "INVALID_ATTACHMENT" });
+          return;
+        }
+
+        // Validate and bound decoded image bytes server-side. Browser validation
+        // is UX only; the API remains authoritative for direct callers.
+        const compactB64 = b64.trim();
+        if (!compactB64 || compactB64 !== b64 || compactB64.length % 4 !== 0) {
+          res.status(400).json({ error: "attachmentDataUrl base64 payload is empty", code: "INVALID_ATTACHMENT" });
+          return;
+        }
+
+        // Reject large payloads based on their encoded length before decoding or
+        // applying any potentially expensive validation. This avoids allocating
+        // or regex-scanning attacker-controlled multi-megabyte strings.
+        const paddingBytes = compactB64.endsWith("==") ? 2 : compactB64.endsWith("=") ? 1 : 0;
+        const estimatedDecodedBytes = (compactB64.length / 4) * 3 - paddingBytes;
+        if (estimatedDecodedBytes > MAX_IMAGE_BYTES) {
+          res.status(400).json({
+            error: "Attached image exceeds the 4 MB limit.",
+            code: "ATTACHMENT_TOO_LARGE",
+          });
+          return;
+        }
+
+        const imageBytes = Buffer.from(compactB64, "base64");
+        if (
+          !imageBytes.byteLength ||
+          imageBytes.byteLength > MAX_IMAGE_BYTES ||
+          imageBytes.toString("base64") !== compactB64
+        ) {
+          res.status(400).json({
+            error: "attachmentDataUrl contains invalid base64.",
+            code: "INVALID_ATTACHMENT",
+          });
+          return;
+        }
+        aiCallOptions = {
+          imageAttachments: [{
+            base64: compactB64,
+            mediaType: normalizedType === "image/jpg" ? "image/jpeg" : normalizedType,
+            name: attachmentName ?? "attachment",
+          }],
+        };
+      } else if (attachmentKind === "document") {
+        // Decode base64 to UTF-8 text
+        let decodedText: string;
+        try {
+          decodedText = Buffer.from(b64, "base64").toString("utf-8");
+        } catch {
+          res.status(400).json({ error: "attachmentDataUrl contains invalid base64", code: "INVALID_ATTACHMENT" });
+          return;
+        }
+        if (decodedText.length > MAX_DOC_CHARS) {
+          res.status(400).json({
+            error: `Attached document is too long (${decodedText.length.toLocaleString()} characters). Maximum is 50 000.`,
+            code: "ATTACHMENT_TOO_LONG",
+          });
+          return;
+        }
+        aiCallOptions = {
+          textAttachments: [{
+            text: decodedText,
+            name: attachmentName ?? "document",
+          }],
+        };
+      }
+    }
+
     const result = await callAi(
       [...normalizedHistory, { role: "user" as const, content: message.trim().slice(0, 3000) }],
-      process.env.DEFAULT_AI_PROVIDER ?? "claude",
+      provider,
       systemPrompt,
+      aiCallOptions,
     );
 
     // Parse record suggestions embedded by the model for the "editorial" surface.

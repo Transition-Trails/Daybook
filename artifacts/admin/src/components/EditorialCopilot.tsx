@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { CopilotPanel, type ApplyTarget } from "@/components/CopilotPanel";
+import { CopilotPanel, type ApplyTarget, type PendingAttachment } from "@/components/CopilotPanel";
 import { apiFetch } from "@/lib/api";
 
 export type EditorialCopilotSurface = "spec" | "style_guide" | "prompt_module";
@@ -24,6 +24,10 @@ interface EditorialCopilotProps {
  * sent, while CopilotPanel snapshots the apply target before that async work
  * starts. This keeps responses grounded in the current draft without letting an
  * Apply action drift when the editor changes fields or sections.
+ *
+ * Attachments are always enabled for editorial surfaces — the paperclip button
+ * lets editors paste a reference image or paste/upload a short document and
+ * the attachment travels as a base64 payload in the request body for that turn.
  */
 export function EditorialCopilot({
   isOpen,
@@ -57,8 +61,9 @@ export function EditorialCopilot({
       greeting={greeting}
       className={className}
       panelStyle={panelStyle}
+      allowAttachments
       onCaptureTarget={() => ({ ...targetRef.current })}
-      onSend={(message, history) =>
+      onSend={(message, history, attachment?: PendingAttachment) =>
         apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
           method: "POST",
           body: JSON.stringify({
@@ -69,6 +74,14 @@ export function EditorialCopilot({
             message,
             history,
             context: contextRef.current,
+            ...(attachment
+              ? {
+                  attachmentDataUrl: attachment.dataUrl,
+                  attachmentMediaType: attachment.mediaType,
+                  attachmentKind: attachment.kind,
+                  attachmentName: attachment.name,
+                }
+              : {}),
           }),
         })
       }

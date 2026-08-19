@@ -79,7 +79,8 @@ function EditorialCopilot({
           `Tell me what you want to develop, refine, or connect. I can spot inconsistencies, draft prose, ` +
           `suggest missing records, connect storylines to canon, or turn a digital moment into a physical piece.`
         }
-        onSend={async (message, history) =>
+        allowAttachments
+        onSend={async (message, history, attachment) =>
           apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
             method: "POST",
             body: JSON.stringify({
@@ -89,6 +90,12 @@ function EditorialCopilot({
               fieldLabel: world.name,
               message,
               history,
+              ...(attachment ? {
+                attachmentDataUrl: attachment.dataUrl,
+                attachmentMediaType: attachment.mediaType,
+                attachmentKind: attachment.kind,
+                attachmentName: attachment.name,
+              } : {}),
               context: {
                 worldName: world.name,
                 worldBible: {

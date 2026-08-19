@@ -574,7 +574,8 @@ function CreateDrawer({
             title="Co-write"
             activeFieldLabel="Narrative"
             greeting={`I'll help you write the narrative for this ${type?.label.toLowerCase() ?? "record"}. Tell me anything — its name, a rough idea, its role in ${worldName}. Even a single evocative detail is enough to start.`}
-            onSend={async (message, history) => {
+            allowAttachments
+            onSend={async (message, history, attachment) => {
               const result = await apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
                 method: "POST",
                 body: JSON.stringify({
@@ -583,6 +584,12 @@ function CreateDrawer({
                   fieldLabel: "Narrative",
                   message,
                   history,
+                  ...(attachment ? {
+                    attachmentDataUrl: attachment.dataUrl,
+                    attachmentMediaType: attachment.mediaType,
+                    attachmentKind: attachment.kind,
+                    attachmentName: attachment.name,
+                  } : {}),
                   context: {
                     recordName: name || "(not yet named)",
                     recordType: canonType,
@@ -1027,12 +1034,15 @@ export default function CanonLibrary() {
   // Reset selection when filters change
   useEffect(() => { setSelectedIds(new Set()); }, [activeType, activeStatus, activeVisibility, activeStability, activeEmotionalRegister, debouncedSearch]);
 
-  const { data, isLoading, refetch } = useQuery<CanonListResponse>({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery<CanonListResponse>({
     queryKey: ["editorial-canon-library", selectedWorldId],
     queryFn: () =>
       apiFetch<CanonListResponse>(`/v1/editorial/canon-records?world_id=${selectedWorldId}`),
     enabled: !!selectedWorldId,
     staleTime: 15_000,
+    // The library is the source of truth for an editor's existing canon. Do not
+    // leave a cached empty result on screen when returning to this route.
+    refetchOnMount: "always",
   });
 
   const bulkMutation = useMutation({
@@ -1104,6 +1114,8 @@ export default function CanonLibrary() {
   // Quick-start is onboarding only — once any record exists, always show the
   // full library so deleting a record never flips the UI back to the launcher.
   const isQuickStart =
+    !!data &&
+    !isFetching &&
     total === 0 &&
     !hasActiveFilter;
 
@@ -1210,9 +1222,27 @@ export default function CanonLibrary() {
       </div>
 
       {/* ── Body ───────────────────────────────────────────────────────────── */}
-      {isLoading ? (
+      {isLoading || (!data && isFetching) ? (
         <div className="flex flex-col h-full items-center justify-center">
           <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        </div>
+      ) : isError && !data ? (
+        <div className="flex flex-col h-full items-center justify-center px-6 text-center">
+          <BookOpen className="w-9 h-9 mb-3 text-gray-300" />
+          <h1 className="text-base font-semibold" style={{ color: "#1B2A4A" }}>
+            We couldn’t load your canon records.
+          </h1>
+          <p className="mt-1 max-w-sm text-sm text-gray-500">
+            Your records have not been removed. Try loading the library again.
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-white"
+            style={{ background: "#1B2A4A" }}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry
+          </button>
         </div>
       ) : isQuickStart ? (
         /* ── Quick-start ─────────────────────────────────────────────────── */

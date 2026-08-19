@@ -1116,7 +1116,8 @@ function StoriesSection({ world }: { world: WsWorld }) {
               title="Story Brainstorm"
               activeFieldLabel="Title"
               greeting={`Let's develop a story idea for ${world.name}. Tell me anything — a character, a mood, a conflict, a single image. I'll help you shape it into a story concept and suggest a title.`}
-              onSend={async (message, history) =>
+              allowAttachments
+              onSend={async (message, history, attachment) =>
                 apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
                   method: "POST",
                   body: JSON.stringify({
@@ -1126,6 +1127,12 @@ function StoriesSection({ world }: { world: WsWorld }) {
                     fieldLabel: "Title",
                     message,
                     history,
+                    ...(attachment ? {
+                      attachmentDataUrl: attachment.dataUrl,
+                      attachmentMediaType: attachment.mediaType,
+                      attachmentKind: attachment.kind,
+                      attachmentName: attachment.name,
+                    } : {}),
                     context: { worldName: world.name, brainstorm: true },
                   }),
                 })
@@ -1207,7 +1214,8 @@ function StoriesSection({ world }: { world: WsWorld }) {
             title="Story Copilot"
             activeFieldLabel="Summary"
             greeting={`I'm here to help you write the story for ${world.name}. What's the core premise of "${selectedStory.title}" — who are the main characters and what's at stake?`}
-            onSend={async (message, history) =>
+            allowAttachments
+            onSend={async (message, history, attachment) =>
               apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
                 method: "POST",
                 body: JSON.stringify({
@@ -1217,6 +1225,12 @@ function StoriesSection({ world }: { world: WsWorld }) {
                   fieldLabel: "Summary",
                   message,
                   history,
+                  ...(attachment ? {
+                    attachmentDataUrl: attachment.dataUrl,
+                    attachmentMediaType: attachment.mediaType,
+                    attachmentKind: attachment.kind,
+                    attachmentName: attachment.name,
+                  } : {}),
                   context: {
                     storyTitle: selectedStory.title,
                     storyActs: selectedStory.acts,

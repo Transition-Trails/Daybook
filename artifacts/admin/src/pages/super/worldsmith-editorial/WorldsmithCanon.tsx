@@ -1609,7 +1609,8 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
             title="Canon Copilot"
             activeFieldLabel="Narrative"
             greeting={`I'm here to help you write the narrative for ${record.name}. Tell me how this ${(CANON_TYPES.find(t => t.key === record.canonType)?.label ?? "record").toLowerCase()} exists in your world — even a rough impression is enough to start.`}
-            onSend={async (message, history) =>
+            allowAttachments
+            onSend={async (message, history, attachment) =>
               apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
                 method: "POST",
                 body: JSON.stringify({
@@ -1619,6 +1620,12 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                   fieldLabel: "Narrative",
                   message,
                   history,
+                  ...(attachment ? {
+                    attachmentDataUrl: attachment.dataUrl,
+                    attachmentMediaType: attachment.mediaType,
+                    attachmentKind: attachment.kind,
+                    attachmentName: attachment.name,
+                  } : {}),
                   context: {
                     recordName: record.name,
                     recordType: record.canonType,

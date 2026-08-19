@@ -430,7 +430,7 @@ shared_prompt: [value]
 front_prompt: [value]
 ${draft.backNeeded ? "back_prompt: [value]\n" : ""}${draft.assemblyNeeded ? "assembly_prompt: [value]\n" : ""}negative_prompt: [value]`;
 
-  const provider = process.env.DEFAULT_AI_PROVIDER ?? "claude";
+  const provider = process.env.DEFAULT_AI_PROVIDER ?? "chatgpt";
   const aiResponse = await callAi(
     [{ role: "user", content: USER }],
     provider,

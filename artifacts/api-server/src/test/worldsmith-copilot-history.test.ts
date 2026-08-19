@@ -280,4 +280,67 @@ describe("POST /api/v1/worldsmith/worlds/:id/bible-copilot — history normalisa
     expect(messages[2]).toEqual({ role: "user", content: "Give me the CMYK values." });
     expect(messages).toHaveLength(3);
   });
+
+  it("routes an attached image through Claude as a multimodal user turn", async () => {
+    process.env.DEFAULT_AI_PROVIDER = "chatgpt";
+    const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    const res = await request(app)
+      .post(`/api/v1/worldsmith/worlds/${WORLD_ROW.id}/bible-copilot`)
+      .send({
+        field: "visualPalette",
+        message: "Name the colours in this swatch.",
+        history: [],
+        draft: {},
+        attachmentDataUrl: `data:image/png;base64,${base64}`,
+        attachmentMediaType: "image/png",
+        attachmentKind: "image",
+        attachmentName: "swatch.png",
+      });
+
+    expect(res.status).toBe(200);
+    const [messages, provider] = mockCallAi.mock.calls[0] as [unknown[], string, ...unknown[]];
+    expect(provider).toBe("claude");
+    expect(messages[messages.length - 1]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: base64 },
+        },
+        { type: "text", text: "Name the colours in this swatch." },
+      ],
+    });
+  });
+
+  it("prepends a decoded document attachment to the current Bible prompt", async () => {
+    const documentText = "The marsh market is lit by amber lamps at dusk.";
+    const encodedText = Buffer.from(documentText, "utf8").toString("base64");
+
+    const res = await request(app)
+      .post(`/api/v1/worldsmith/worlds/${WORLD_ROW.id}/bible-copilot`)
+      .send({
+        field: "atmosphericNotes",
+        message: "Develop this mood into a field draft.",
+        history: [],
+        draft: {},
+        attachmentDataUrl: `data:text/plain;base64,${encodedText}`,
+        attachmentMediaType: "text/plain",
+        attachmentKind: "document",
+        attachmentName: "market-notes.md",
+      });
+
+    expect(res.status).toBe(200);
+    const [messages, provider] = mockCallAi.mock.calls[0] as [
+      { role: string; content: string }[],
+      string,
+      ...unknown[],
+    ];
+    const currentTurn = messages[messages.length - 1];
+    expect(provider).toBe("claude");
+    expect(currentTurn.content).toContain('Attached document: "market-notes.md"');
+    expect(currentTurn.content).toContain(documentText);
+    expect(currentTurn.content.indexOf(documentText))
+      .toBeLessThan(currentTurn.content.indexOf("Develop this mood into a field draft."));
+  });
 });

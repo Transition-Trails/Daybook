@@ -24,7 +24,6 @@ import {
 import { apiFetch, storageApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
-import { CopilotPanel } from "@/components/CopilotPanel";
 import { REGISTERS } from "./canon-registers";
 
 export { REGISTERS } from "./canon-registers";
@@ -1420,9 +1419,6 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     patchMutation.mutate({ [map[field] ?? field]: value });
   }, [patchMutation]);
 
-  // ── Copilot ─────────────────────────────────────────────────────────────────
-  const [copilotOpen, setCopilotOpen] = useState(false);
-
   // ── Portrait upload ──────────────────────────────────────────────────────────
   const [portraitUploading, setPortraitUploading] = useState(false);
   const handlePortraitUpload = useCallback(async (file: File) => {
@@ -1561,15 +1557,6 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
             <div className="relative group mb-8">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>Narrative</p>
-                <button
-                  onClick={() => setCopilotOpen(o => !o)}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-semibold border transition-colors ${
-                    copilotOpen ? "text-white border-transparent" : "border-border hover:border-foreground/30"
-                  }`}
-                  style={copilotOpen ? { background: INK } : { color: INK }}
-                >
-                  <Sparkles className="w-3 h-3" /> Co-write
-                </button>
               </div>
               <AutoField label="" field="narrativeDetails" value={record.narrativeDetails}
                 placeholder="Write this record's story here — how it exists in your world, what it feels like, what it carries…"
@@ -1600,64 +1587,14 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
           </div>
         </main>
 
-        {/* RIGHT PANEL / COPILOT */}
-        {copilotOpen ? (
-          <CopilotPanel
-            isOpen
-            onClose={() => setCopilotOpen(false)}
-            storageKey={`copilot-canon-${record.id}`}
-            title="Canon Copilot"
-            activeFieldLabel="Narrative"
-            greeting={`I'm here to help you write the narrative for ${record.name}. Tell me how this ${(CANON_TYPES.find(t => t.key === record.canonType)?.label ?? "record").toLowerCase()} exists in your world — even a rough impression is enough to start.`}
-            allowAttachments
-            onSend={async (message, history, attachment) =>
-              apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
-                method: "POST",
-                body: JSON.stringify({
-                  surface: "canon_record",
-                  worldId: recordWorld?.id,
-                  field: "narrativeDetails",
-                  fieldLabel: "Narrative",
-                  message,
-                  history,
-                  ...(attachment ? {
-                    attachmentDataUrl: attachment.dataUrl,
-                    attachmentMediaType: attachment.mediaType,
-                    attachmentKind: attachment.kind,
-                    attachmentName: attachment.name,
-                  } : {}),
-                  context: {
-                    recordName: record.name,
-                    recordType: record.canonType,
-                    draft: {
-                      narrativeDetails: record.narrativeDetails ?? "",
-                      notes: record.notes ?? "",
-                    },
-                    // Pass a summary of all records so the copilot can reason
-                    // holistically about the world — relationships, consistency, gaps.
-                    relatedRecords: allRecords
-                      .filter(r => r.id !== record.id)
-                      .slice(0, 120)
-                      .map(r => ({ name: r.name, type: r.canonType })),
-                  },
-                }),
-              })
-            }
-            onCaptureTarget={() => ({ key: "narrativeDetails", label: "Narrative" })}
-            onApply={(text, key) => handleField(key || "narrativeDetails", text.trim())}
-            panelStyle={{ position: "sticky", top: 0, maxHeight: "100dvh", minHeight: "auto", height: "100%", borderRadius: 0, borderLeft: `1px solid ${WARM_BORDER}`, borderTop: "none", borderRight: "none", borderBottom: "none" }}
-            className="!rounded-none !border-l !border-t-0 !border-r-0 !border-b-0 !sticky !top-0"
-          />
-        ) : (
-          <RightPanel
-            record={record} recordId={recordId} relations={relations} allRecords={allRecords}
-            patchMutation={patchMutation} transitionMutation={transitionMutation}
-            deleteMutation={deleteMutation} setShowDeleteConfirm={setShowDeleteConfirm}
-            cascadeMutation={cascadeMutation} addRelMutation={addRelMutation}
-            removeRelMutation={removeRelMutation} patchRelTypeMutation={patchRelTypeMutation}
-            linkedSpecs={linkedSpecs} worldId={worldId}
-          />
-        )}
+        <RightPanel
+          record={record} recordId={recordId} relations={relations} allRecords={allRecords}
+          patchMutation={patchMutation} transitionMutation={transitionMutation}
+          deleteMutation={deleteMutation} setShowDeleteConfirm={setShowDeleteConfirm}
+          cascadeMutation={cascadeMutation} addRelMutation={addRelMutation}
+          removeRelMutation={removeRelMutation} patchRelTypeMutation={patchRelTypeMutation}
+          linkedSpecs={linkedSpecs} worldId={worldId}
+        />
       </div>
 
       {/* Delete confirmation */}

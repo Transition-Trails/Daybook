@@ -2,11 +2,13 @@
  * WorldSmith copilot — attachment handling tests.
  *
  * Verifies:
- *  a) Image attachment: builds correct multimodal AiCallOptions and calls callAi with it.
- *  b) Document attachment: decodes base64 text and passes it as textAttachments.
- *  c) Oversized document (> 50 000 chars) is rejected with 400.
- *  d) Unknown/unsupported image media type is rejected with 400.
- *  e) Text-only request (no attachment) continues to work unchanged.
+ *  (a) Image path builds the correct multimodal content array and calls callAi with it.
+ *  (b) Document path prepends the decoded text as a context block to the user message.
+ *  (c) Oversized image payload is rejected with 400.
+ *  (d) Oversized document text is rejected with 400.
+ *  (e) Unknown / unrecognised image media type is rejected with 400.
+ *  (f) Image turns force Claude even when another provider is configured.
+ *  (g) Missing attachmentDataUrl when attachmentKind is set → 400.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -14,7 +16,7 @@ import request from "supertest";
 import express, { type Request, type Response, type NextFunction } from "express";
 import type { User } from "@workspace/db";
 
-// ── vi.hoisted ────────────────────────────────────────────────────────────────
+// ── vi.hoisted — variables referenced inside vi.mock factories ─────────────────
 
 const { mockCallAi, mockDbResult } = vi.hoisted(() => ({
   mockCallAi: vi.fn(),
@@ -25,6 +27,15 @@ const { mockCallAi, mockDbResult } = vi.hoisted(() => ({
 
 vi.mock("../lib/ai-proxy.js", () => ({
   callAi: mockCallAi,
+}));
+
+vi.mock("../lib/logger.js", () => ({
+  logger: {
+    info:  vi.fn(),
+    warn:  vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
 }));
 
 vi.mock("@workspace/db", async () => {
@@ -50,12 +61,12 @@ vi.mock("@workspace/db", async () => {
 
 import worldsmithRouter from "../routes/worldsmith.js";
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
+// ── App fixture ───────────────────────────────────────────────────────────────
 
 const superAdminUser: User = {
   id: "u-sa-attach",
-  email: "test@daybook.app",
-  name: "Test Super Admin",
+  email: "attach@daybook.app",
+  name: "Attach Test Admin",
   role: "owner",
   platformRole: "super_admin",
   provider: "google",
@@ -65,34 +76,24 @@ const superAdminUser: User = {
   aiEnabled: true,
   aiProvider: "claude",
   connections: {
-    googleDrive: false,
-    googleCalendar: false,
-    googleTasks: false,
-    googleDocs: false,
-    notion: false,
+    googleDrive: false, googleCalendar: false, googleTasks: false,
+    googleDocs: false, notion: false,
   },
-  googleId: null,
-  googleAccessToken: null,
-  googleRefreshToken: null,
-  googleTokenExpiry: null,
-  notionToken: null,
-  passwordHash: null,
-  stripeCustomerId: null,
-  createdAt: new Date(),
-  updatedAt: new Date(),
+  googleId: null, googleAccessToken: null, googleRefreshToken: null,
+  googleTokenExpiry: null, notionToken: null, passwordHash: null,
+  stripeCustomerId: null, createdAt: new Date(), updatedAt: new Date(),
 };
 
 function makeApp() {
   const app = express();
-  app.use(express.json({ limit: "10mb" }));
+  app.use(express.json({ limit: "15mb" }));
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    (req as any).log = { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} };
+    (req as any).log = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
     next();
   });
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    const r = req as any;
-    r.isAuthenticated = () => true;
-    r.user = superAdminUser;
+    (req as any).isAuthenticated = () => true;
+    (req as any).user = superAdminUser;
     next();
   });
   app.use("/api", worldsmithRouter);
@@ -101,34 +102,40 @@ function makeApp() {
 
 const app = makeApp();
 
-/** Encode a string as a base64 data URI for text/plain */
-function textDataUri(text: string): string {
-  return `data:text/plain;base64,${Buffer.from(text).toString("base64")}`;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** 1×1 transparent PNG as a base64 string */
+const TINY_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+const TINY_PNG_DATA_URL = `data:image/png;base64,${TINY_PNG_B64}`;
+
+function textToBase64DataUrl(text: string): string {
+  const b64 = Buffer.from(text, "utf8").toString("base64");
+  return `data:text/plain;base64,${b64}`;
 }
 
-/** Build a minimal fake PNG base64 data URI (1×1 PNG) */
-const TINY_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-const TINY_PNG_DATA_URI = `data:image/png;base64,${TINY_PNG_B64}`;
+const BASE_BODY = {
+  surface: "canon_record",
+  message: "Tell me about the colour palette.",
+  history: [],
+  context: { recordName: "Lady Mireth", recordType: "character" },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockDbResult.value = [];
-  mockCallAi.mockResolvedValue({ content: "A fine reply.", provider: "claude", model: "claude-opus-4-5" });
+  mockCallAi.mockResolvedValue({ content: "A rich reply.", provider: "claude", model: "claude-opus-4-5" });
   process.env.DEFAULT_AI_PROVIDER = "claude";
 });
 
-// ── (a) Image attachment ──────────────────────────────────────────────────────
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /api/v1/worldsmith/copilot — image attachment", () => {
-  it("calls callAi with imageAttachments on the options arg when an image is attached", async () => {
+  it("(a) builds a multimodal content array for Claude when an image is attached", async () => {
     const res = await request(app)
       .post("/api/v1/worldsmith/copilot")
       .send({
-        surface: "editorial",
-        message: "What colours does this image use?",
-        history: [],
-        context: {},
-        attachmentDataUrl: TINY_PNG_DATA_URI,
+        ...BASE_BODY,
+        attachmentDataUrl: TINY_PNG_DATA_URL,
         attachmentMediaType: "image/png",
         attachmentKind: "image",
         attachmentName: "swatch.png",
@@ -137,202 +144,179 @@ describe("POST /api/v1/worldsmith/copilot — image attachment", () => {
     expect(res.status).toBe(200);
     expect(mockCallAi).toHaveBeenCalledOnce();
 
-    const [messages, , , options] = mockCallAi.mock.calls[0] as Parameters<typeof mockCallAi>;
+    const [messages] = mockCallAi.mock.calls[0] as [unknown[], ...unknown[]];
+    const lastMsg = messages[messages.length - 1] as {
+      role: string;
+      content: Array<{ type: string; source?: { type: string; media_type: string; data: string }; text?: string }>;
+    };
 
-    // The final user message should be text-only (options carries the image)
-    expect(messages[messages.length - 1]).toEqual({
-      role: "user",
-      content: "What colours does this image use?",
-    });
+    expect(lastMsg.role).toBe("user");
+    expect(Array.isArray(lastMsg.content)).toBe(true);
 
-    // Options must contain the image attachment
-    expect(options).toBeDefined();
-    expect(options.imageAttachments).toHaveLength(1);
-    expect(options.imageAttachments[0]).toMatchObject({
-      base64: TINY_PNG_B64,
-      mediaType: "image/png",
-      name: "swatch.png",
-    });
-    expect(options.textAttachments).toBeUndefined();
+    const imageBlock = lastMsg.content.find(b => b.type === "image");
+    expect(imageBlock).toBeDefined();
+    expect(imageBlock?.source?.type).toBe("base64");
+    expect(imageBlock?.source?.media_type).toBe("image/png");
+    expect(imageBlock?.source?.data).toBe(TINY_PNG_B64);
+
+    const textBlock = lastMsg.content.find(b => b.type === "text");
+    expect(textBlock).toBeDefined();
+    expect(textBlock?.text).toBe(BASE_BODY.message);
   });
 
-  it("normalises image/jpg to image/jpeg in the attachment block", async () => {
-    const jpgDataUri = `data:image/jpg;base64,${TINY_PNG_B64}`;
-
-    await request(app)
-      .post("/api/v1/worldsmith/copilot")
-      .send({
-        surface: "spec",
-        message: "Describe this.",
-        history: [],
-        context: {},
-        attachmentDataUrl: jpgDataUri,
-        attachmentMediaType: "image/jpg",
-        attachmentKind: "image",
-        attachmentName: "ref.jpg",
-      });
-
-    const [, , , options] = mockCallAi.mock.calls[0] as Parameters<typeof mockCallAi>;
-    expect(options.imageAttachments[0].mediaType).toBe("image/jpeg");
-  });
-
-  it.each(["claude", "chatgpt", "gemini"] as const)(
-    "passes the vision attachment through when %s is the configured provider",
-    async (provider) => {
-      process.env.DEFAULT_AI_PROVIDER = provider;
-
-      const res = await request(app)
-        .post("/api/v1/worldsmith/copilot")
-        .send({
-          surface: "editorial",
-          message: "Use this visual reference.",
-          history: [],
-          context: {},
-          attachmentDataUrl: TINY_PNG_DATA_URI,
-          attachmentMediaType: "image/png",
-          attachmentKind: "image",
-          attachmentName: "reference.png",
-        });
-
-      expect(res.status).toBe(200);
-      const [, configuredProvider, , options] = mockCallAi.mock.calls[0] as Parameters<typeof mockCallAi>;
-      expect(configuredProvider).toBe(provider);
-      expect(options.imageAttachments[0]).toMatchObject({
-        base64: TINY_PNG_B64,
-        mediaType: "image/png",
-        name: "reference.png",
-      });
-    },
-  );
-});
-
-// ── (b) Document attachment ───────────────────────────────────────────────────
-
-describe("POST /api/v1/worldsmith/copilot — document attachment", () => {
-  it("decodes base64 text and passes it as textAttachments", async () => {
-    const docText = "The Amber Archive — world overview.\nWychcombe was founded in 1847.";
-    const dataUri = textDataUri(docText);
+  it("(c) rejects an image payload exceeding 4 MB with 400", async () => {
+    // Generate > 4 MB of base64 data (the bytes themselves need to be > 4 MB)
+    const overLimitBytes = Buffer.alloc(4 * 1024 * 1024 + 1, 0xff);
+    const bigB64 = overLimitBytes.toString("base64");
+    const bigDataUrl = `data:image/png;base64,${bigB64}`;
 
     const res = await request(app)
       .post("/api/v1/worldsmith/copilot")
       .send({
-        surface: "editorial",
-        message: "Summarise this document.",
-        history: [],
-        context: {},
-        attachmentDataUrl: dataUri,
-        attachmentMediaType: "text/plain",
-        attachmentKind: "document",
-        attachmentName: "overview.txt",
-      });
-
-    expect(res.status).toBe(200);
-    expect(mockCallAi).toHaveBeenCalledOnce();
-
-    const [, , , options] = mockCallAi.mock.calls[0] as Parameters<typeof mockCallAi>;
-    expect(options).toBeDefined();
-    expect(options.textAttachments).toHaveLength(1);
-    expect(options.textAttachments[0]).toMatchObject({
-      text: docText,
-      name: "overview.txt",
-    });
-    expect(options.imageAttachments).toBeUndefined();
-  });
-});
-
-// ── (c) Oversized document ────────────────────────────────────────────────────
-
-describe("POST /api/v1/worldsmith/copilot — oversized document", () => {
-  it("returns 400 when the decoded text exceeds 50 000 characters", async () => {
-    const longText = "A".repeat(50_001);
-    const dataUri = textDataUri(longText);
-
-    const res = await request(app)
-      .post("/api/v1/worldsmith/copilot")
-      .set("content-type", "application/json")
-      .send(
-        JSON.stringify({
-          surface: "spec",
-          message: "Read this.",
-          history: [],
-          context: {},
-          attachmentDataUrl: dataUri,
-          attachmentMediaType: "text/plain",
-          attachmentKind: "document",
-          attachmentName: "too-big.txt",
-        }),
-      );
-
-    expect(res.status).toBe(400);
-    expect(res.body.code).toBe("ATTACHMENT_TOO_LONG");
-    expect(mockCallAi).not.toHaveBeenCalled();
-  });
-});
-
-describe("POST /api/v1/worldsmith/copilot — oversized image", () => {
-  it("returns 400 before calling AI when decoded image bytes exceed 4 MB", async () => {
-    const tooLargeBase64 = Buffer.alloc(4 * 1024 * 1024 + 1).toString("base64");
-
-    const res = await request(app)
-      .post("/api/v1/worldsmith/copilot")
-      .send({
-        surface: "spec",
-        message: "Read this reference.",
-        history: [],
-        context: {},
-        attachmentDataUrl: `data:image/png;base64,${tooLargeBase64}`,
+        ...BASE_BODY,
+        attachmentDataUrl: bigDataUrl,
         attachmentMediaType: "image/png",
         attachmentKind: "image",
-        attachmentName: "too-large.png",
+        attachmentName: "big.png",
       });
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe("ATTACHMENT_TOO_LARGE");
     expect(mockCallAi).not.toHaveBeenCalled();
   });
-});
 
-// ── (d) Unknown image media type ──────────────────────────────────────────────
-
-describe("POST /api/v1/worldsmith/copilot — unsupported image type", () => {
-  it("returns 400 for a non-allowlisted image MIME type", async () => {
+  it("(e) rejects an unknown image media type with 400", async () => {
+    const b64 = Buffer.from("fake data").toString("base64");
+    // TIFF is not an accepted type
     const res = await request(app)
       .post("/api/v1/worldsmith/copilot")
       .send({
-        surface: "spec",
-        message: "Look at this.",
-        history: [],
-        context: {},
-        attachmentDataUrl: `data:image/tiff;base64,${TINY_PNG_B64}`,
+        ...BASE_BODY,
+        attachmentDataUrl: `data:image/tiff;base64,${b64}`,
         attachmentMediaType: "image/tiff",
         attachmentKind: "image",
         attachmentName: "scan.tiff",
       });
 
     expect(res.status).toBe(400);
-    expect(res.body.code).toBe("INVALID_ATTACHMENT_TYPE");
+    expect(res.body.code).toBe("INVALID_ATTACHMENT_MEDIA_TYPE");
     expect(mockCallAi).not.toHaveBeenCalled();
   });
-});
 
-// ── (e) Text-only request (no attachment) ─────────────────────────────────────
-
-describe("POST /api/v1/worldsmith/copilot — no attachment", () => {
-  it("calls callAi without options when no attachment is supplied", async () => {
+  it("(g) rejects request when attachmentKind is set but attachmentDataUrl is missing", async () => {
     const res = await request(app)
       .post("/api/v1/worldsmith/copilot")
       .send({
-        surface: "story",
-        message: "Who is Lady Mireth?",
-        history: [],
-        context: {},
+        ...BASE_BODY,
+        attachmentKind: "image",
+        attachmentName: "missing.png",
+        // no attachmentDataUrl
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("INVALID_ATTACHMENT");
+    expect(mockCallAi).not.toHaveBeenCalled();
+  });
+
+  it("(f) routes image-bearing turns through Claude even when another provider is configured", async () => {
+    process.env.DEFAULT_AI_PROVIDER = "chatgpt";
+
+    const res = await request(app)
+      .post("/api/v1/worldsmith/copilot")
+      .send({
+        ...BASE_BODY,
+        attachmentDataUrl: TINY_PNG_DATA_URL,
+        attachmentMediaType: "image/png",
+        attachmentKind: "image",
+        attachmentName: "swatch.png",
       });
 
     expect(res.status).toBe(200);
     expect(mockCallAi).toHaveBeenCalledOnce();
 
-    const [, , , options] = mockCallAi.mock.calls[0] as Parameters<typeof mockCallAi>;
-    // options should be undefined — no attachment was supplied
-    expect(options).toBeUndefined();
+    const [messages, provider] = mockCallAi.mock.calls[0] as [unknown[], string, ...unknown[]];
+    const lastMsg = messages[messages.length - 1] as { role: string; content: unknown };
+
+    expect(provider).toBe("claude");
+    expect(lastMsg.content).toEqual([
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: TINY_PNG_B64,
+        },
+      },
+      { type: "text", text: BASE_BODY.message },
+    ]);
+  });
+});
+
+describe("POST /api/v1/worldsmith/copilot — document attachment", () => {
+  it("(b) prepends decoded document text as a context block before the user message", async () => {
+    const docText = "Chapter 1: The amber market opened at dawn.";
+    const docDataUrl = textToBase64DataUrl(docText);
+
+    const res = await request(app)
+      .post("/api/v1/worldsmith/copilot")
+      .send({
+        ...BASE_BODY,
+        attachmentDataUrl: docDataUrl,
+        attachmentMediaType: "text/plain",
+        attachmentKind: "document",
+        attachmentName: "chapter1.txt",
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockCallAi).toHaveBeenCalledOnce();
+
+    const [messages] = mockCallAi.mock.calls[0] as [unknown[], ...unknown[]];
+    const lastMsg = messages[messages.length - 1] as { role: string; content: string };
+
+    expect(lastMsg.role).toBe("user");
+    expect(typeof lastMsg.content).toBe("string");
+    // Must contain the document text
+    expect(lastMsg.content).toContain(docText);
+    // Must contain the user message after the doc context
+    expect(lastMsg.content).toContain(BASE_BODY.message);
+    // Document must appear before the user message
+    expect(lastMsg.content.indexOf(docText)).toBeLessThan(lastMsg.content.indexOf(BASE_BODY.message));
+    // Should carry the file name label
+    expect(lastMsg.content).toContain("chapter1.txt");
+  });
+
+  it("(d) rejects a document whose decoded text exceeds 50,000 characters with 400", async () => {
+    const bigText = "A".repeat(50_001);
+    const bigDataUrl = textToBase64DataUrl(bigText);
+
+    const res = await request(app)
+      .post("/api/v1/worldsmith/copilot")
+      .send({
+        ...BASE_BODY,
+        attachmentDataUrl: bigDataUrl,
+        attachmentMediaType: "text/plain",
+        attachmentKind: "document",
+        attachmentName: "too-large.txt",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("ATTACHMENT_TOO_LARGE");
+    expect(mockCallAi).not.toHaveBeenCalled();
+  });
+
+  it("works when no attachment is present (baseline unchanged)", async () => {
+    const res = await request(app)
+      .post("/api/v1/worldsmith/copilot")
+      .send(BASE_BODY);
+
+    expect(res.status).toBe(200);
+    expect(mockCallAi).toHaveBeenCalledOnce();
+
+    const [messages] = mockCallAi.mock.calls[0] as [unknown[], ...unknown[]];
+    const lastMsg = messages[messages.length - 1] as { role: string; content: unknown };
+
+    // Must be a plain string, not a multimodal array
+    expect(typeof lastMsg.content).toBe("string");
+    expect(lastMsg.content).toBe(BASE_BODY.message);
   });
 });

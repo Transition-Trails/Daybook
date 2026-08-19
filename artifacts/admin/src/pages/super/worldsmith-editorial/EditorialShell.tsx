@@ -74,12 +74,12 @@ function EditorialCopilot({
         storageKey={`copilot-editorial-${worldId}`}
         title="Co-write partner"
         activeFieldLabel={isLoading ? world.name : `${world.name} · ${records.length} records`}
+        allowAttachments
         greeting={
           `I have the full picture for ${world.name} — ${records.length} canon record${records.length !== 1 ? "s" : ""} across your world. ` +
           `Tell me what you want to develop, refine, or connect. I can spot inconsistencies, draft prose, ` +
           `suggest missing records, connect storylines to canon, or turn a digital moment into a physical piece.`
         }
-        allowAttachments
         onSend={async (message, history, attachment) =>
           apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
             method: "POST",

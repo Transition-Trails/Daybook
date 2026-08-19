@@ -9,13 +9,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Save, ChevronRight, ArrowLeft, CheckCircle2, AlertTriangle,
   Send, Trash2, X, ExternalLink, RefreshCw, Clock, BookOpen,
-  FileText, Zap, GitBranch, Circle, Sparkles,
+  FileText, Zap, GitBranch, Circle,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
-import { EditorialCopilot } from "@/components/EditorialCopilot";
-import type { ApplyTarget } from "@/components/CopilotPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -570,15 +568,6 @@ export default function SpecEditor({ specId }: { specId: string }) {
   const [activeTab, setActiveTab] = useState<TabId>("identity");
   const [localSpec, setLocalSpec] = useState<Spec | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [copilotOpen, setCopilotOpen] = useState(false);
-  const [activeCoField, setActiveCoField] = useState<ApplyTarget>({ key: "productionItem", label: "Production Item Name" });
-  const tabTargets: Record<TabId, ApplyTarget> = {
-    identity: { key: "productionItem", label: "Production Item Name" },
-    creative: { key: "designIntent", label: "Design Intent" },
-    canon: { key: "requiredContent", label: "Canon Requirements" },
-    payload: { key: "promptPayload", label: "Prompt Payload" },
-  };
-  useEffect(() => setActiveCoField(tabTargets[activeTab]), [activeTab]);
 
   const { data, isLoading, error } = useQuery<SpecResponse>({
     queryKey: ["editorial-spec", specId],
@@ -596,7 +585,6 @@ export default function SpecEditor({ specId }: { specId: string }) {
     setLocalSpec(prev => prev ? { ...prev, ...patch } : null);
     setDirty(true);
   };
-  const handleCoFieldFocus: OnSpecFieldFocus = (field, label) => setActiveCoField({ key: field, label });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -697,14 +685,6 @@ export default function SpecEditor({ specId }: { specId: string }) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => setCopilotOpen(open => !open)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors"
-            style={copilotOpen ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" } : { color: "#4B5563", borderColor: "#E5E7EB" }}
-          >
-            <Sparkles className="w-3.5 h-3.5" style={{ color: copilotOpen ? "#C87560" : undefined }} />
-            Co-write
-          </button>
-          <button
             onClick={() => deleteMutation.mutate()}
             className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
             title="Delete spec"
@@ -749,42 +729,13 @@ export default function SpecEditor({ specId }: { specId: string }) {
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto p-6">
             <div style={{ maxWidth: 640 }}>
-            {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} onFocus={handleCoFieldFocus} />}
-            {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} onFocus={handleCoFieldFocus} />}
-            {activeTab === "canon" && <CanonTab spec={spec} onChange={onChange} onFocus={handleCoFieldFocus} />}
-            {activeTab === "payload" && <PayloadTab spec={spec} onChange={onChange} onFocus={handleCoFieldFocus} />}
+            {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} />}
+            {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} />}
+            {activeTab === "canon" && <CanonTab spec={spec} onChange={onChange} />}
+            {activeTab === "payload" && <PayloadTab spec={spec} onChange={onChange} />}
             </div>
           </div>
         </div>
-
-        <EditorialCopilot
-          isOpen={copilotOpen}
-          onClose={() => setCopilotOpen(false)}
-          surface="spec"
-          worldId={spec.worldId}
-          storageKey={`copilot-spec-${spec.id}`}
-          title="Production Spec Copilot"
-          greeting={`I can help refine "${spec.productionItem}" — check canon consistency, strengthen the active field, or turn a rough direction into production-ready copy.`}
-          activeTarget={activeCoField}
-          context={{
-            section: TABS.find(tab => tab.id === activeTab)?.label,
-            draft: spec,
-            linkedAssets: {
-              canonRecordIds: spec.canonRecordIds,
-              styleGuideId: spec.styleGuideId || null,
-              componentSpecId: spec.componentSpecId || null,
-              promptModuleIds: spec.promptModuleIds,
-            },
-            linkedAssetSummaries: [
-              rels.style_guide ? `Style guide: ${rels.style_guide.name}` : "",
-              rels.component_spec ? `Component spec: ${rels.component_spec.name}` : "",
-              ...rels.canon_records.map(record => `Canon (${record.status}): ${record.name}`),
-              ...rels.prompt_modules.map(module => `Prompt module: ${module.name}`),
-            ].filter(Boolean),
-          }}
-          onApply={(text, key) => onChange({ [key]: text.trim() } as Partial<Spec>)}
-          className="max-xl:absolute max-xl:right-3 max-xl:top-3 max-xl:z-30"
-        />
 
         {/* Sidebar */}
         <CompletionSidebar

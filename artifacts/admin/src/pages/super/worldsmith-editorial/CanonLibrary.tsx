@@ -21,7 +21,6 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
-import { CopilotPanel } from "@/components/CopilotPanel";
 import { REGISTERS } from "./canon-registers";
 
 // ── Type configuration ────────────────────────────────────────────────────────
@@ -341,25 +340,20 @@ function QuickStartTypeCard({ type, onClick }: { type: TypeConfig; onClick: () =
 
 function CreateDrawer({
   worldId,
-  worldName,
   prefilledType,
   prefilledName,
   prefilledNarrative,
   onClose,
   onCreated,
-  initialMode,
 }: {
   worldId: string;
-  worldName: string;
   prefilledType: string;
   prefilledName?: string;
   prefilledNarrative?: string;
   onClose: () => void;
   onCreated: (record: CanonRecord) => void;
-  initialMode?: "manual" | "cowrite";
 }) {
   const { toast } = useToast();
-  const [mode, setMode] = useState<"manual" | "cowrite">(initialMode ?? "manual");
   const [name, setName] = useState(prefilledName ?? "");
   const [canonType, setCanonType] = useState(prefilledType);
   const [narrativeDetails, setNarrativeDetails] = useState(prefilledNarrative ?? "");
@@ -410,7 +404,7 @@ function CreateDrawer({
       {/* Drawer panel */}
       <div
         className="w-full bg-white flex shadow-2xl overflow-hidden"
-        style={{ maxWidth: mode === "cowrite" ? 820 : 448 }}
+        style={{ maxWidth: 448 }}
       >
         {/* ── Form side (always visible) ── */}
         <div className="w-full max-w-md flex flex-col shrink-0" style={{ width: 448 }}>
@@ -421,20 +415,6 @@ function CreateDrawer({
               <p className="text-xs text-gray-500 mt-0.5">Add an authoritative entry to your world's canon</p>
             </div>
             <div className="flex items-center gap-1">
-              {/* Mode toggle */}
-              <button
-                onClick={() => setMode(m => m === "manual" ? "cowrite" : "manual")}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all"
-                style={
-                  mode === "cowrite"
-                    ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
-                    : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
-                }
-                title={mode === "cowrite" ? "Switch to manual entry" : "Open AI co-write panel"}
-              >
-                <Sparkles className="w-3 h-3" />
-                Co-write
-              </button>
               <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 ml-1">
                 <X className="w-4 h-4" />
               </button>
@@ -479,16 +459,14 @@ function CreateDrawer({
                 ref={nameRef}
                 value={name}
                 onChange={e => setName(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && name.trim() && mode === "manual") handleCreate(); }}
+                onKeyDown={e => { if (e.key === "Enter" && name.trim()) handleCreate(); }}
                 className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none transition-colors"
                 style={{ borderColor: "#E5E7EB" }}
                 placeholder={`e.g. ${type?.key === "character" ? "Lady Arabella Montrose" : type?.key === "location" ? "The Botanical Library" : type?.key === "object" ? "The Brass Sextant" : "Add a name…"}`}
               />
             </div>
 
-            {/* Manual fields — hidden when co-write panel is open */}
-            {mode === "manual" && (
-              <>
+            <>
                 {/* Narrative Details */}
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-1.5">
@@ -533,19 +511,7 @@ function CreateDrawer({
                     placeholder={type?.visualPlaceholder}
                   />
                 </div>
-              </>
-            )}
-
-            {/* Co-write mode — show drafted narrative preview */}
-            {mode === "cowrite" && narrativeDetails && (
-              <div className="rounded-lg border p-3" style={{ borderColor: "#E5E7EB", background: "#FAFAFA" }}>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Drafted narrative</p>
-                <p className="text-[12.5px] text-gray-700 leading-relaxed whitespace-pre-wrap">{narrativeDetails}</p>
-              </div>
-            )}
-            {mode === "cowrite" && !narrativeDetails && (
-              <p className="text-xs text-gray-400 italic">Use the co-write panel on the right to draft this record's narrative. Apply will populate it here.</p>
-            )}
+            </>
           </div>
 
           {/* Footer */}
@@ -565,47 +531,6 @@ function CreateDrawer({
           </div>
         </div>
 
-        {/* ── Co-write panel (right side, only when mode=cowrite) ── */}
-        {mode === "cowrite" && (
-          <CopilotPanel
-            isOpen
-            onClose={() => setMode("manual")}
-            storageKey={`copilot-canon-create-${worldId}`}
-            title="Co-write"
-            activeFieldLabel="Narrative"
-            greeting={`I'll help you write the narrative for this ${type?.label.toLowerCase() ?? "record"}. Tell me anything — its name, a rough idea, its role in ${worldName}. Even a single evocative detail is enough to start.`}
-            allowAttachments
-            onSend={async (message, history, attachment) => {
-              const result = await apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
-                method: "POST",
-                body: JSON.stringify({
-                  surface: "canon_record",
-                  field: "narrativeDetails",
-                  fieldLabel: "Narrative",
-                  message,
-                  history,
-                  ...(attachment ? {
-                    attachmentDataUrl: attachment.dataUrl,
-                    attachmentMediaType: attachment.mediaType,
-                    attachmentKind: attachment.kind,
-                    attachmentName: attachment.name,
-                  } : {}),
-                  context: {
-                    recordName: name || "(not yet named)",
-                    recordType: canonType,
-                    worldName,
-                    draft: { narrativeDetails },
-                  },
-                }),
-              });
-              return result;
-            }}
-            onCaptureTarget={() => ({ key: "narrativeDetails", label: "Narrative" })}
-            onApply={(text) => setNarrativeDetails(text.trim())}
-            className="!rounded-none !border-l !border-t-0 !border-r-0 !border-b-0 flex-1 min-w-0"
-            panelStyle={{ position: "relative", height: "100%", maxHeight: "100%", borderRadius: 0, borderLeft: "1px solid #E5E7EB", borderTop: "none", borderRight: "none", borderBottom: "none", minHeight: "auto" }}
-          />
-        )}
       </div>
     </div>
   );
@@ -1005,7 +930,6 @@ export default function CanonLibrary() {
   const [prefilledType, setPrefilledType] = useState("location");
   const [prefilledName, setPrefilledName] = useState("");
   const [prefilledNarrative, setPrefilledNarrative] = useState("");
-  const [createMode, setCreateMode] = useState<"manual" | "cowrite">("manual");
 
   // Auto-open the create drawer when navigated here with ?new=1&name=…&type=…&narrative=…
   // (e.g. from the editorial co-write panel's "Create record" button).
@@ -1015,7 +939,6 @@ export default function CanonLibrary() {
       setPrefilledName(params.get("name") ?? "");
       setPrefilledType(params.get("type") ?? "location");
       setPrefilledNarrative(params.get("narrative") ?? "");
-      setCreateMode("manual");
       setShowCreate(true);
       // Clean the URL so a refresh doesn't re-trigger the drawer
       window.history.replaceState({}, "", window.location.pathname);
@@ -1119,9 +1042,8 @@ export default function CanonLibrary() {
     total === 0 &&
     !hasActiveFilter;
 
-  const openCreate = (type = "location", mode: "manual" | "cowrite" = "manual") => {
+  const openCreate = (type = "location") => {
     setPrefilledType(type);
-    setCreateMode(mode);
     setShowCreate(true);
   };
 
@@ -1202,13 +1124,6 @@ export default function CanonLibrary() {
           >
             <Wand2 className="w-3.5 h-3.5" />
             Suggest
-          </button>
-          <button
-            onClick={() => openCreate("character", "cowrite")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-600 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            Co-write
           </button>
           <button
             onClick={() => openCreate()}
@@ -1573,11 +1488,9 @@ export default function CanonLibrary() {
       {showCreate && selectedWorldId && (
         <CreateDrawer
           worldId={selectedWorldId}
-          worldName={selectedWorld?.name ?? "your world"}
           prefilledType={prefilledType}
           prefilledName={prefilledName}
           prefilledNarrative={prefilledNarrative}
-          initialMode={createMode}
           onClose={() => { setShowCreate(false); setPrefilledName(""); setPrefilledNarrative(""); }}
           onCreated={handleCreated}
         />

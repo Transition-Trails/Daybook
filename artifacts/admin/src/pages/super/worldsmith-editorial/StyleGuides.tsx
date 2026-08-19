@@ -4,17 +4,15 @@
  * Each style guide is a named text document that gets linked to production
  * specs to provide visual / tone grounding during compilation.
  */
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Plus, Layers, FileText, ChevronRight, Loader2, X, Save, Pencil, RefreshCw, Sparkles,
+  Plus, Layers, FileText, ChevronRight, Loader2, X, Save, Pencil, RefreshCw,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
-import { EditorialCopilot } from "@/components/EditorialCopilot";
-import type { ApplyTarget } from "@/components/CopilotPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,9 +46,6 @@ function StyleGuideDrawer({ worldId, guide, onClose }: DrawerProps) {
   const { toast } = useToast();
   const [name, setName] = useState(guide?.name ?? "");
   const [content, setContent] = useState(guide?.content ?? "");
-  const [copilotOpen, setCopilotOpen] = useState(false);
-  const [activeTarget, setActiveTarget] = useState<ApplyTarget>({ key: "content", label: "Content" });
-  const copilotSession = useRef(`copilot-style-guide-${worldId}-${guide?.id ?? "new"}`);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -95,14 +90,6 @@ function StyleGuideDrawer({ worldId, guide, onClose }: DrawerProps) {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setCopilotOpen(open => !open)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border"
-              style={copilotOpen ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" } : { color: "#4B5563", borderColor: "#E5E7EB" }}
-            >
-              <Sparkles className="w-3.5 h-3.5" style={{ color: copilotOpen ? "#C87560" : undefined }} />
-              Co-write
-            </button>
             <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
               <X className="w-4 h-4 text-gray-500" />
             </button>
@@ -121,7 +108,6 @@ function StyleGuideDrawer({ worldId, guide, onClose }: DrawerProps) {
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              onFocus={() => setActiveTarget({ key: "name", label: "Name" })}
               placeholder="e.g. Volume I Visual Language Guide"
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C87560]/30 focus:border-[#C87560]"
             />
@@ -138,7 +124,6 @@ function StyleGuideDrawer({ worldId, guide, onClose }: DrawerProps) {
             <textarea
               value={content}
               onChange={e => setContent(e.target.value)}
-              onFocus={() => setActiveTarget({ key: "content", label: "Content" })}
               placeholder="Describe the visual language, tone, palette references, typography rules, illustration style, and any negative constraints for this collection…"
               rows={20}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C87560]/30 focus:border-[#C87560] resize-y font-mono leading-relaxed"
@@ -148,23 +133,6 @@ function StyleGuideDrawer({ worldId, guide, onClose }: DrawerProps) {
             </p>
           </div>
         </div>
-        <EditorialCopilot
-          isOpen={copilotOpen}
-          onClose={() => setCopilotOpen(false)}
-          surface="style_guide"
-          worldId={worldId}
-          storageKey={copilotSession.current}
-          title="Style Guide Copilot"
-          greeting={`I can help refine ${name ? `"${name}"` : "this style guide"} with precise visual, tone, and production rules.`}
-          activeTarget={activeTarget}
-          context={{ guideName: name, draft: { name, content }, assetId: guide?.id ?? null }}
-          onApply={(text, key) => {
-            if (key === "name") setName(text.trim());
-            else setContent(text.trim());
-          }}
-          className="max-xl:!absolute max-xl:!right-3 max-xl:!top-3 max-xl:z-30"
-          panelStyle={{ maxHeight: "calc(100% - 1.5rem)", minHeight: "min(420px, calc(100% - 1.5rem))" }}
-        />
         </div>
 
         {/* Footer */}

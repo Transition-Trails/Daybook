@@ -1411,6 +1411,12 @@ export function WorldBibleSection({
   const handleCopilotSend = useCallback(async (
     message: string,
     history: { role: "user" | "assistant"; content: string }[],
+    attachment?: {
+      dataUrl: string;
+      mediaType: string;
+      kind: "image" | "document";
+      name: string;
+    },
   ) => {
     return apiFetch<{ reply: string }>(`/v1/worldsmith/worlds/${encodeURIComponent(world.id)}/bible-copilot`, {
       method: "POST",
@@ -1418,6 +1424,12 @@ export function WorldBibleSection({
         field: activeFieldRef.current,
         message,
         history,
+        ...(attachment ? {
+          attachmentDataUrl: attachment.dataUrl,
+          attachmentMediaType: attachment.mediaType,
+          attachmentKind: attachment.kind,
+          attachmentName: attachment.name,
+        } : {}),
         draft: {
           visualPalette: formRef.current.visualPalette,
           proseVoice: formRef.current.proseVoice,
@@ -1593,6 +1605,7 @@ export function WorldBibleSection({
         storageKey={`copilot-bible-${world.id}`}
         title="Bible Copilot"
         activeFieldLabel={BIBLE_FIELD_LABELS[activeField]}
+        allowAttachments
         onSend={handleCopilotSend}
         onCaptureTarget={() => ({ key: activeFieldRef.current, label: BIBLE_FIELD_LABELS[activeFieldRef.current] })}
         onApply={(text, key) => applyToField(text, key)}

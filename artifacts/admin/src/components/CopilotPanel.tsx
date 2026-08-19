@@ -13,7 +13,7 @@
  * Apply from drifting to a different field or record if the user navigates
  * while a request is in-flight.
  */
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Sparkles, X, ArrowRight, Loader2, Paperclip } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 
@@ -36,16 +36,6 @@ export interface RecordSuggestion {
   narrative?: string;
 }
 
-/** An attachment pending send — not persisted to sessionStorage. */
-export interface PendingAttachment {
-  /** Full data: URI — "data:<mime>;base64,…" */
-  dataUrl: string;
-  mediaType: string;
-  /** "image" for image/* types, "document" for text/plain, text/markdown, application/pdf */
-  kind: "image" | "document";
-  name: string;
-}
-
 export interface CopilotMsg {
   id: number;
   role: "user" | "assistant";
@@ -63,6 +53,20 @@ export interface CopilotMsg {
   applyTarget?: ApplyTarget;
   /** Canon record suggestions surfaced by the editorial copilot. */
   suggestions?: RecordSuggestion[];
+  /**
+   * Attachment stored with the user turn so that a transient failure can
+   * be retried with the original attachment intact. Only present on user
+   * messages that were sent with an attachment.
+   */
+  attachment?: PendingAttachment;
+}
+
+/** A pending attachment the user has selected but not yet sent. */
+export interface PendingAttachment {
+  dataUrl: string;
+  mediaType: string;
+  kind: "image" | "document";
+  name: string;
 }
 
 export interface CopilotPanelProps {
@@ -86,10 +90,10 @@ export interface CopilotPanelProps {
    */
   storageKey?: string;
   /**
-   * When true, renders the paperclip attachment button beside the send button.
-   * Accepts image/* (≤ 4 MB) and plain-text documents — .txt, .md, .pdf (≤ 50 KB extracted).
-   * The attachment travels as a base64 payload in the request body for the current turn only;
-   * it is NOT stored in sessionStorage or sent in subsequent history.
+   * When true, shows a paperclip button beside the send button that lets the
+   * user attach an image (PNG/JPG/WEBP/GIF ≤ 4 MB) or a document
+   * (TXT/MD/PDF text layer ≤ 50 KB). The attachment is base64-encoded and
+   * forwarded to `onSend` as a third argument. Default: false.
    */
   allowAttachments?: boolean;
   /**
@@ -134,83 +138,94 @@ export interface CopilotPanelProps {
   footerCta?: React.ReactNode;
 }
 
-// ── sessionStorage helpers ────────────────────────────────────────────────────
-function loadThread(key: string): CopilotMsg[] {
-  try {
-    const raw = sessionStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as CopilotMsg[]) : [];
-  } catch {
-    return [];
-  }
-}
-function saveThread(key: string, msgs: CopilotMsg[]) {
-  try { sessionStorage.setItem(key, JSON.stringify(msgs)); } catch { /* storage full */ }
-}
+// ── Constants ─────────────────────────────────────────────────────────────────
+const IMAGE_ACCEPT  = "image/png,image/jpeg,image/webp,image/gif";
+const DOC_ACCEPT    = ".txt,.md,.pdf";
+const ACCEPT_ALL    = `${IMAGE_ACCEPT},${DOC_ACCEPT}`;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;       // 4 MB
+const MAX_DOC_BYTES   = 50 * 1024;              // 50 KB extracted UTF-8
 
-// ── Attachment limits ─────────────────────────────────────────────────────────
-const IMAGE_MAX_BYTES    = 4 * 1024 * 1024;   // 4 MiB
-const DOCUMENT_MAX_CHARS = 50_000;             // 50 K chars extracted text
-
-const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
-const ACCEPTED_DOC_TYPES   = new Set(["text/plain", "text/markdown", "application/pdf"]);
-
-// PDF.js is loaded from the same CDN pattern used by the Ink viewer. Do not add
-// pdfjs-dist to the Vite dependency graph: its package build is incompatible
-// with this app's Vite setup.
+// Never install pdfjs-dist into this Vite project: its worker bundle can corrupt
+// Vite's dependency optimizer. Load it from the CDN exactly as PlannerLibrary
+// does, and cache the module so repeated PDF attachments reuse the same loader.
 const PDFJS_BASE = "https://unpkg.com/pdfjs-dist@6.1.200/build";
-let pdfjsCache: Promise<{
-  GlobalWorkerOptions: { workerSrc: string };
-  getDocument: (options: { data: Uint8Array }) => {
-    promise: Promise<{
-      numPages: number;
-      getPage: (pageNumber: number) => Promise<{
-        getTextContent: () => Promise<{ items: Array<{ str?: string }> }>;
-      }>;
-    }>;
-  };
-}> | null = null;
-
-function getPdfjs() {
+let pdfjsCache: Promise<unknown> | null = null;
+function getPdfjs(): Promise<unknown> {
   if (!pdfjsCache) {
     pdfjsCache = (
-      import(/* @vite-ignore */ `${PDFJS_BASE}/pdf.min.mjs`) as Promise<{
-        GlobalWorkerOptions: { workerSrc: string };
-        getDocument: (options: { data: Uint8Array }) => {
-          promise: Promise<{
-            numPages: number;
-            getPage: (pageNumber: number) => Promise<{
-              getTextContent: () => Promise<{ items: Array<{ str?: string }> }>;
-            }>;
-          }>;
-        };
-      }>
+      import(/* @vite-ignore */ `${PDFJS_BASE}/pdf.min.mjs`) as Promise<Record<string, unknown>>
     ).then((lib) => {
-      lib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.mjs`;
+      (lib.GlobalWorkerOptions as { workerSrc: string }).workerSrc =
+        `${PDFJS_BASE}/pdf.worker.min.mjs`;
       return lib;
     });
   }
   return pdfjsCache;
 }
 
-async function extractPdfText(file: File): Promise<string> {
-  const data = new Uint8Array(await file.arrayBuffer());
-  const pdfjs = await getPdfjs();
-  const document = await pdfjs.getDocument({ data }).promise;
-  // Keep both request size and model context bounded. The final character cap
-  // below is authoritative; this page cap avoids unnecessary work on long PDFs.
-  const pageCount = Math.min(document.numPages, 40);
-  const textPages: string[] = [];
+type PdfjsLoader = () => Promise<unknown>;
 
-  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+export async function extractPdfText(file: File, loadPdfjs: PdfjsLoader = getPdfjs): Promise<string> {
+  const pdfjs = await loadPdfjs() as {
+    getDocument: (params: { data: ArrayBuffer }) => {
+      promise: Promise<{
+        numPages: number;
+        getPage: (pageNumber: number) => Promise<{
+          getTextContent: () => Promise<{ items: Array<{ str?: unknown }> }>;
+        }>;
+      }>;
+    };
+  };
+  const document = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const parts: string[] = [];
+  let textBytes = 0;
+
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
     const page = await document.getPage(pageNumber);
-    const content = await page.getTextContent();
-    textPages.push(content.items.map((item) => item.str ?? "").join(" "));
-    if (textPages.join("\n").length > DOCUMENT_MAX_CHARS) break;
+    const pageText = (await page.getTextContent()).items
+      .map(item => typeof item.str === "string" ? item.str : "")
+      .filter(Boolean)
+      .join(" ");
+    if (pageText) {
+      const separator = parts.length > 0 ? "\n\n" : "";
+      textBytes += new TextEncoder().encode(separator + pageText).length;
+      if (textBytes > MAX_DOC_BYTES) {
+        throw new Error("Document text must be 50 KB or less.");
+      }
+      parts.push(pageText);
+    }
   }
 
-  return textPages.join("\n").trim();
+  const text = parts.join("\n\n").trim();
+  if (!text) {
+    throw new Error("This PDF has no readable text layer. Try an image of the page instead.");
+  }
+  return text;
+}
+
+// ── sessionStorage helpers ────────────────────────────────────────────────────
+function loadThread(key: string): CopilotMsg[] {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    // Attachments are deliberately turn-local. Strip any attachment shape from
+    // legacy sessions too, so a page reload can never restore base64 file data.
+    return Array.isArray(parsed)
+      ? (parsed as CopilotMsg[]).map(({ attachment: _attachment, ...message }) => message)
+      : [];
+  } catch {
+    return [];
+  }
+}
+function saveThread(key: string, msgs: CopilotMsg[]) {
+  try {
+    // Keep the chat transcript, but never persist attachment payloads.
+    sessionStorage.setItem(
+      key,
+      JSON.stringify(msgs.map(({ attachment: _attachment, ...message }) => message)),
+    );
+  } catch { /* storage full */ }
 }
 
 // ── Suggestion card ───────────────────────────────────────────────────────────
@@ -263,6 +278,43 @@ function SuggestionCard({
   );
 }
 
+// ── Attachment chip ───────────────────────────────────────────────────────────
+function AttachmentChip({
+  attachment,
+  onClear,
+}: {
+  attachment: PendingAttachment;
+  onClear: () => void;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 mb-2 rounded-lg px-2.5 py-1.5 text-[12px] max-w-full"
+      style={{ background: PARCHMENT, border: `1px solid ${WARM_BORDER}`, color: INK }}
+    >
+      {attachment.kind === "image" ? (
+        <img
+          src={attachment.dataUrl}
+          alt={attachment.name}
+          className="w-8 h-8 rounded object-cover shrink-0"
+        />
+      ) : (
+        <Paperclip className="w-3.5 h-3.5 shrink-0" style={{ color: CLAY }} />
+      )}
+      <span className="truncate flex-1 leading-tight" title={attachment.name}>
+        {attachment.name}
+      </span>
+      <button
+        onClick={onClear}
+        aria-label="Remove attachment"
+        className="shrink-0 hover:opacity-70 transition-opacity"
+        style={{ color: "#9B8E80" }}
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
 /**
  * A conversation belongs to its storage key, not to the mounted drawer.
  * Keying the stateful session means switching worlds or records atomically
@@ -294,16 +346,14 @@ function CopilotPanelSession({
     storageKey ? loadThread(storageKey) : [],
   );
   const [chatInput, setChatInput] = useState("");
+  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
+  const [attachmentProcessing, setAttachmentProcessing] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // Seed msgIdRef above any restored messages so IDs don't collide.
   const msgIdRef = useRef(chat.reduce((max, m) => Math.max(max, m.id), 0));
   const nextId = () => ++msgIdRef.current;
-
-  // ── Attachment state ─────────────────────────────────────────────────────
-  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const [attachmentLoading, setAttachmentLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Persist to sessionStorage whenever the thread changes.
   useEffect(() => {
@@ -327,88 +377,101 @@ function CopilotPanelSession({
     }
   }, [isOpen, greeting, chat.length]);
 
-  // ── Attachment file reader ──────────────────────────────────────────────
-  const processFile = async (file: File) => {
+  // ── Attachment file processing ─────────────────────────────────────────────
+
+  const processFile = useCallback(async (file: File) => {
     setAttachmentError(null);
+    setAttachmentProcessing(true);
+    try {
+      const isImage = file.type.startsWith("image/");
+      const isDocument = !isImage && (
+        file.type === "text/plain" ||
+        file.type === "text/markdown" ||
+        file.name.endsWith(".md") ||
+        file.name.endsWith(".txt") ||
+        file.type === "application/pdf" ||
+        file.name.endsWith(".pdf")
+      );
 
-    const isImage = ACCEPTED_IMAGE_TYPES.has(file.type);
-    const isDoc   = ACCEPTED_DOC_TYPES.has(file.type) || file.name.endsWith(".md");
-
-    if (!isImage && !isDoc) {
-      setAttachmentError("Unsupported type. Attach an image (PNG/JPG/WebP/GIF) or text file (TXT/MD/PDF).");
-      return;
-    }
-
-    if (isImage && file.size > IMAGE_MAX_BYTES) {
-      setAttachmentError("Images must be 4 MB or smaller.");
-      return;
-    }
-
-    setAttachmentLoading(true);
-    if (isImage) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        setPendingAttachment({ dataUrl, mediaType: file.type, kind: "image", name: file.name });
-        setAttachmentLoading(false);
-      };
-      reader.onerror = () => { setAttachmentError("Could not read file."); setAttachmentLoading(false); };
-      reader.readAsDataURL(file);
-    } else if (file.type === "application/pdf") {
-      try {
-        const text = await extractPdfText(file);
-        if (!text) {
-          setAttachmentError("This PDF has no readable text layer. Attach a text PDF or an image instead.");
-        } else if (text.length > DOCUMENT_MAX_CHARS) {
-          setAttachmentError("Document too long. Attach documents with fewer than 50 000 characters.");
-        } else {
-          const b64 = btoa(unescape(encodeURIComponent(text)));
-          setPendingAttachment({
-            dataUrl: `data:text/plain;base64,${b64}`,
-            mediaType: "text/plain",
-            kind: "document",
-            name: file.name,
-          });
-        }
-      } catch {
-        setAttachmentError("Could not read this PDF. Attach a text PDF or an image instead.");
-      } finally {
-        setAttachmentLoading(false);
+      if (!isImage && !isDocument) {
+        setAttachmentError("Unsupported file type. Use PNG, JPG, WEBP, or GIF for images; TXT, MD, or PDF for documents.");
+        return;
       }
-    } else {
-      // TXT and Markdown documents are read as UTF-8 text.
-      const reader = new FileReader();
-      reader.onload = () => {
-        const text = reader.result as string;
-        if (text.length > DOCUMENT_MAX_CHARS) {
-          setAttachmentError(`Document too long. Attach documents with fewer than 50 000 characters.`);
-          setAttachmentLoading(false);
+
+      if (isImage) {
+        if (file.size > MAX_IMAGE_BYTES) {
+          setAttachmentError("Image must be 4 MB or smaller.");
           return;
         }
-        // Store as data URI for uniform handling: base64-encode the UTF-8 text
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.onerror = () => reject(new Error("Failed to read file"));
+          reader.readAsDataURL(file);
+        });
+        const mediaType = file.type || "image/png";
+        setPendingAttachment({ dataUrl, mediaType, kind: "image", name: file.name });
+      } else {
+        // PDF needs actual text-layer extraction; FileReader.readAsText would
+        // only decode the binary PDF container and produce unusable mojibake.
+        const isPdf = file.type === "application/pdf" || file.name.endsWith(".pdf");
+        if (!isPdf && file.size > MAX_DOC_BYTES) {
+          setAttachmentError("Document text must be 50 KB or less.");
+          return;
+        }
+        const text = isPdf
+          ? await extractPdfText(file)
+          : await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = (e) => resolve(e.target?.result as string);
+              reader.onerror = () => reject(new Error("Failed to read file"));
+              reader.readAsText(file, "utf-8");
+            });
+
+        // Check size of the extracted text
+        const textBytes = new TextEncoder().encode(text).length;
+        if (textBytes > MAX_DOC_BYTES) {
+          setAttachmentError("Document text must be 50 KB or less.");
+          return;
+        }
+
+        // Encode as base64 data URL for uniform handling
         const b64 = btoa(unescape(encodeURIComponent(text)));
         const dataUrl = `data:text/plain;base64,${b64}`;
         setPendingAttachment({ dataUrl, mediaType: "text/plain", kind: "document", name: file.name });
-        setAttachmentLoading(false);
-      };
-      reader.onerror = () => { setAttachmentError("Could not read file."); setAttachmentLoading(false); };
-      reader.readAsText(file);
+      }
+    } catch (err) {
+      setAttachmentError(`Failed to read file: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAttachmentProcessing(false);
     }
-  };
+  }, []);
 
-  // Paste handler — intercept images pasted from clipboard
-  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) void processFile(file);
+    // Reset so the same file can be picked again after clearing
+    e.target.value = "";
+  }, [processFile]);
+
+  // ── Paste handler: images from clipboard ──────────────────────────────────
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (!allowAttachments) return;
     const items = Array.from(e.clipboardData.items);
-    const imageItem = items.find(i => i.kind === "file" && i.type.startsWith("image/"));
-    if (imageItem) {
-      const file = imageItem.getAsFile();
-      if (file) {
-        e.preventDefault();
-        processFile(file);
-      }
-    }
-  };
+    const imageItem = items.find(i => i.type.startsWith("image/"));
+    if (!imageItem) return;
+    e.preventDefault();
+    const file = imageItem.getAsFile();
+    if (file) void processFile(file);
+  }, [allowAttachments, processFile]);
+
+  const clearAttachment = useCallback(() => {
+    setPendingAttachment(null);
+    setAttachmentError(null);
+  }, []);
+
+  // ── Mutation ──────────────────────────────────────────────────────────────
 
   const sendMutation = useMutation({
     mutationFn: (payload: {
@@ -452,14 +515,31 @@ function CopilotPanelSession({
 
   const sendChat = (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || sendMutation.isPending || attachmentLoading) return;
+    if (!trimmed || sendMutation.isPending || attachmentProcessing) return;
     // Snapshot the target synchronously before any async work
     const capturedTarget: ApplyTarget = onCaptureTarget?.() ?? { key: "", label: activeFieldLabel };
     const history = chat.filter(m => !m.failed && !m.synthetic);
     const turnId = nextId();
-    setChat(c => [...c, { id: turnId, role: "user", content: trimmed }]);
-    setChatInput("");
+    // Capture and clear attachment before any state update
     const attachmentToSend = pendingAttachment;
+    // Display a user message with attachment indicator if present.
+    // The attachment is stored on the message itself so that a failed turn
+    // can be retried with the original attachment intact.
+    const displayContent = attachmentToSend
+      ? (attachmentToSend.kind === "image"
+          ? `[📎 ${attachmentToSend.name}] ${trimmed}`
+          : `[📄 ${attachmentToSend.name}] ${trimmed}`)
+      : trimmed;
+    setChat(c => [
+      ...c,
+      {
+        id: turnId,
+        role: "user",
+        content: displayContent,
+        attachment: attachmentToSend ?? undefined,
+      },
+    ]);
+    setChatInput("");
     setPendingAttachment(null);
     setAttachmentError(null);
     sendMutation.mutate({ turnId, message: trimmed, history, capturedTarget, attachment: attachmentToSend });
@@ -473,12 +553,16 @@ function CopilotPanelSession({
     const capturedTarget: ApplyTarget = onCaptureTarget?.() ?? { key: "", label: activeFieldLabel };
     // Strip failed turns AND synthetic greetings (same rule as in sendMutation)
     const history = chat.filter(m => !m.failed && !m.synthetic && m.id !== turnId);
+    // Strip the attachment display prefix (📎/📄) to recover the raw text message.
+    const content = msg.content.replace(/^\[(?:📎|📄)[^\]]*\] /, "");
     setChat(c => c.map(m => m.id === turnId ? { ...m, failed: false } : m));
-    // Attachments are not retried — they were a one-shot payload
-    sendMutation.mutate({ turnId, message: msg.content, history, capturedTarget, attachment: null });
+    // Replay the stored attachment so the retry is equivalent to the original request.
+    sendMutation.mutate({ turnId, message: content, history, capturedTarget, attachment: msg.attachment ?? null });
   };
 
   if (!isOpen) return null;
+
+  const sendDisabled = !chatInput.trim() || sendMutation.isPending || attachmentProcessing;
 
   return (
     <aside
@@ -532,7 +616,7 @@ function CopilotPanelSession({
                 {m.failed && (
                   <div className="text-[11px] text-red-600 mt-1 text-right">
                     Failed.{" "}
-                    <button onClick={() => retryTurn(m.id)} className="underline">
+                    <button onClick={() => retryTurn(m.id)} className="underline" aria-label="Retry">
                       Retry
                     </button>
                   </div>
@@ -585,78 +669,50 @@ function CopilotPanelSession({
         )}
       </div>
 
-      {/* Input area */}
+      {/* Input */}
       <div
         className="p-3 shrink-0"
         style={{ borderTop: `1px solid ${WARM_BORDER}`, background: WARM_WHITE }}
       >
-        {/* ── Attachment chip ── */}
-        {allowAttachments && pendingAttachment && (
-          <div className="mb-2 flex items-center gap-2">
-            {pendingAttachment.kind === "image" ? (
-              <div
-                className="relative rounded-lg overflow-hidden shrink-0"
-                style={{ width: 48, height: 48, border: `1px solid ${WARM_BORDER}` }}
-              >
-                <img
-                  src={pendingAttachment.dataUrl}
-                  alt={pendingAttachment.name}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            ) : (
-              <div
-                className="rounded-lg px-2.5 py-1.5 text-[11px] font-medium truncate max-w-[180px]"
-                style={{ background: PARCHMENT, color: INK, border: `1px solid ${WARM_BORDER}` }}
-                title={pendingAttachment.name}
-              >
-                📄 {pendingAttachment.name}
-              </div>
-            )}
-            <button
-              onClick={() => { setPendingAttachment(null); setAttachmentError(null); }}
-              className="shrink-0 rounded-full p-0.5 hover:opacity-70"
-              style={{ background: "#E5D9CC", color: INK }}
-              aria-label="Remove attachment"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
+        {/* Attachment chip */}
+        {pendingAttachment && (
+          <AttachmentChip attachment={pendingAttachment} onClear={clearAttachment} />
         )}
-
-        {/* ── Attachment loading indicator ── */}
-        {allowAttachments && attachmentLoading && (
-          <div className="mb-2 flex items-center gap-2 text-[11px]" style={{ color: "#9B8E80" }}>
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Reading file…
-          </div>
-        )}
-
-        {/* ── Attachment error ── */}
-        {allowAttachments && attachmentError && (
-          <div className="mb-2 text-[11px] text-red-600 leading-snug">
-            {attachmentError}
-          </div>
+        {/* Attachment error */}
+        {attachmentError && (
+          <p className="text-[11px] text-red-600 mb-2">{attachmentError}</p>
         )}
 
         <div className="flex items-end gap-2">
-          {/* Hidden file input */}
           {allowAttachments && (
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,text/plain,text/markdown,application/pdf"
-              className="sr-only"
-              aria-label="Attach file"
-              onChange={e => {
-                const file = e.target.files?.[0];
-                if (file) processFile(file);
-                // Reset so the same file can be re-selected after removal
-                e.target.value = "";
-              }}
-            />
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPT_ALL}
+                className="hidden"
+                aria-hidden="true"
+                onChange={handleFileChange}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={attachmentProcessing || sendMutation.isPending}
+                aria-label="Attach file"
+                title="Attach image or document"
+                className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center disabled:opacity-40 transition-colors"
+                style={{
+                  border: `1px solid ${WARM_BORDER}`,
+                  background: pendingAttachment ? PARCHMENT : "white",
+                  color: pendingAttachment ? CLAY : "#9B8E80",
+                }}
+              >
+                {attachmentProcessing
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Paperclip className="w-3.5 h-3.5" />}
+              </button>
+            </>
           )}
-
           <textarea
             value={chatInput}
             onChange={e => setChatInput(e.target.value)}
@@ -666,7 +722,7 @@ function CopilotPanelSession({
                 sendChat(chatInput);
               }
             }}
-            onPaste={handlePaste}
+            onPaste={allowAttachments ? handlePaste : undefined}
             rows={2}
             placeholder={`Ask about ${activeFieldLabel.toLowerCase()}…`}
             className="flex-1 rounded-xl px-3 py-2 text-[13px] leading-relaxed resize-none outline-none"
@@ -676,37 +732,20 @@ function CopilotPanelSession({
               color: INK,
             }}
           />
-
-          <div className="flex flex-col gap-1.5 shrink-0">
-            {/* Paperclip button — only shown when allowAttachments */}
-            {allowAttachments && (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={attachmentLoading || !!pendingAttachment}
-                className="w-9 h-9 rounded-xl flex items-center justify-center disabled:opacity-40 transition-opacity"
-                style={{ background: PARCHMENT, color: INK, border: `1px solid ${WARM_BORDER}` }}
-                aria-label="Attach file"
-                title="Attach an image or document"
-              >
-                <Paperclip className="w-4 h-4" />
-              </button>
-            )}
-
-            <button
-              onClick={() => sendChat(chatInput)}
-              disabled={!chatInput.trim() || sendMutation.isPending || attachmentLoading}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-opacity"
-              style={{ background: INK }}
-              aria-label="Send"
-            >
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            onClick={() => sendChat(chatInput)}
+            disabled={sendDisabled}
+            className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-opacity"
+            style={{ background: INK }}
+            aria-label="Send"
+          >
+            <ArrowRight className="w-4 h-4" />
+          </button>
         </div>
         <p className="text-[10.5px] mt-1.5" style={{ color: "#9B8E80" }}>
           Shift+Enter to send
-          {allowAttachments && " · Paste or attach an image / document"}
           {onApply && " · Apply replaces the targeted field"}
+          {allowAttachments && " · Paste or attach an image/document"}
         </p>
       </div>
 

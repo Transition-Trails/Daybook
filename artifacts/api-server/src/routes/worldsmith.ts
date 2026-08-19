@@ -828,7 +828,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     res.status(400).json({ error: "surface is required", code: "MISSING_SURFACE" });
     return;
   }
-  const VALID_SURFACES = ["story", "canon_record", "style_guide", "spec"];
+  const VALID_SURFACES = ["story", "canon_record", "style_guide", "spec", "editorial"];
   if (!VALID_SURFACES.includes(surface)) {
     res.status(400).json({ error: `surface must be one of: ${VALID_SURFACES.join(", ")}`, code: "INVALID_SURFACE" });
     return;
@@ -915,6 +915,58 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
         "- When writing prose, match the world's established voice exactly",
         "- Consider how this record relates to others in the world — it should feel placed",
         "- Keep conversational replies short (2–4 sentences); only go longer for a requested draft",
+      ].filter(Boolean).join("\n");
+
+    } else if (surface === "editorial") {
+      const { worldName, worldBible, recordsByType, totalRecords, currentPage } = (context ?? {}) as {
+        worldName?: string;
+        worldBible?: {
+          description?: string | null;
+          visualPalette?: string | null;
+          proseVoice?: string | null;
+          atmosphericNotes?: string | null;
+          materialWorld?: string | null;
+          worldRules?: string[] | null;
+        };
+        recordsByType?: Record<string, string[]>;
+        totalRecords?: number;
+        currentPage?: string;
+      };
+
+      const bibleLines: string[] = [];
+      if (worldBible?.description)      bibleLines.push(`Description: ${worldBible.description.slice(0, 800)}`);
+      if (worldBible?.visualPalette)    bibleLines.push(`Visual Palette: ${worldBible.visualPalette.slice(0, 400)}`);
+      if (worldBible?.proseVoice)       bibleLines.push(`Prose Voice: ${worldBible.proseVoice.slice(0, 400)}`);
+      if (worldBible?.atmosphericNotes) bibleLines.push(`Atmospheric Notes: ${worldBible.atmosphericNotes.slice(0, 400)}`);
+      if (worldBible?.materialWorld)    bibleLines.push(`Material World: ${worldBible.materialWorld.slice(0, 400)}`);
+      if (worldBible?.worldRules?.length) {
+        bibleLines.push(`World Rules:\n${worldBible.worldRules.slice(0, 10).map(r => `  - ${r}`).join("\n")}`);
+      }
+
+      const rosterLines = Object.entries(recordsByType ?? {}).map(([type, names]) => {
+        const label = type.charAt(0).toUpperCase() + type.slice(1);
+        const list = (names as string[]).slice(0, 30).join(", ");
+        const extra = (names as string[]).length > 30 ? ` (+${(names as string[]).length - 30} more)` : "";
+        return `${label}s (${(names as string[]).length}): ${list}${extra}`;
+      });
+
+      systemPrompt = [
+        `You are the WorldSmith Editorial Copilot for ${worldName ?? "this world"} — a knowledgeable creative collaborator with full awareness of the entire world and all its canon records.`,
+        bibleLines.length ? `\n## World Bible\n${bibleLines.join("\n")}` : "",
+        rosterLines.length
+          ? `\n## Canon Roster (${totalRecords ?? rosterLines.length} records total)\n${rosterLines.join("\n")}`
+          : "",
+        currentPage ? `\n## Current Editorial Page\n${currentPage}` : "",
+        `\n## Your Role`,
+        "- Think holistically across the entire world — spot inconsistencies, suggest connections between records",
+        "- Identify records that are underdeveloped given the world's established voice",
+        "- Flag canon gaps: missing character types, unexplored locations, under-explained lore",
+        "- Help plan story arcs and narrative threads connecting characters, locations, and objects",
+        "- Draft or improve prose for any record — narrative, notes, visual descriptions — grounded in the world's established voice",
+        "- Maintain strict internal consistency across all records",
+        "- When asked about a specific record, reference the world context to give richer, more specific advice",
+        "- Keep replies focused and actionable (2–4 sentences unless drafting content)",
+        "- When asked to draft content, write polished, world-grounded prose ready to use",
       ].filter(Boolean).join("\n");
 
     } else if (surface === "spec") {

@@ -1577,6 +1577,7 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
           <CopilotPanel
             isOpen
             onClose={() => setCopilotOpen(false)}
+            storageKey={`copilot-canon-${record.id}`}
             title="Canon Copilot"
             activeFieldLabel="Narrative"
             greeting={`I'm here to help you write the narrative for ${record.name}. Tell me how this ${(CANON_TYPES.find(t => t.key === record.canonType)?.label ?? "record").toLowerCase()} exists in your world — even a rough impression is enough to start.`}
@@ -1597,6 +1598,12 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                       narrativeDetails: record.narrativeDetails ?? "",
                       notes: record.notes ?? "",
                     },
+                    // Pass a summary of all records so the copilot can reason
+                    // holistically about the world — relationships, consistency, gaps.
+                    relatedRecords: allRecords
+                      .filter(r => r.id !== record.id)
+                      .slice(0, 120)
+                      .map(r => ({ name: r.name, type: r.canonType })),
                   },
                 }),
               })

@@ -544,6 +544,7 @@ function CreateDrawer({
           <CopilotPanel
             isOpen
             onClose={() => setMode("manual")}
+            storageKey={`copilot-canon-create-${worldId}`}
             title="Co-write"
             activeFieldLabel="Narrative"
             greeting={`I'll help you write the narrative for this ${type?.label.toLowerCase() ?? "record"}. Tell me anything — its name, a rough idea, its role in ${worldName}. Even a single evocative detail is enough to start.`}

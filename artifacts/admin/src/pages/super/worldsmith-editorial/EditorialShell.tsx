@@ -1,15 +1,17 @@
 /**
  * EditorialShell — persistent left-nav layout for all WorldSmith Editorial pages.
- * Provides world selector, record-type tree navigation, and sync status footer.
+ * Provides world selector, record-type tree navigation, sync status, and a
+ * persistent holistic co-write right drawer.
  */
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, FileText, BookOpen, Puzzle, Layers,
   ChevronDown, Globe, Plus, ArrowLeft, CheckCircle2,
-  Clock, Loader2, RefreshCw, Sparkles, ArrowRight,
+  Loader2, RefreshCw, Sparkles,
 } from "lucide-react";
-import { EditorialProvider, useEditorial } from "@/contexts/EditorialContext";
+import { useQuery } from "@tanstack/react-query";
+import { EditorialProvider, useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
 import { CopilotPanel } from "@/components/CopilotPanel";
 import { apiFetch } from "@/lib/api";
 
@@ -17,6 +19,107 @@ interface EditorialShellProps {
   children: ReactNode;
   activePage?: "board" | "specs" | "canon" | "style-guides" | "modules";
 }
+
+// ── Holistic editorial copilot ────────────────────────────────────────────────
+
+interface RecordSummary { name: string; canonType: string | null; canonStability: string | null; }
+
+const PAGE_LABELS: Record<string, string> = {
+  board: "Readiness Board",
+  specs: "Production Specs",
+  canon: "Canon Records",
+  "style-guides": "Style Guides",
+  modules: "Prompt Modules",
+};
+
+function EditorialCopilot({
+  worldId,
+  world,
+  activePage,
+  onClose,
+}: {
+  worldId: string;
+  world: WorldRecord;
+  activePage: string;
+  onClose: () => void;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["editorial-copilot-records", worldId],
+    queryFn: () =>
+      apiFetch<{ canon_records: RecordSummary[] }>(
+        `/v1/editorial/canon-records?world_id=${encodeURIComponent(worldId)}&limit=300`,
+      ),
+    staleTime: 60_000,
+  });
+  const records = data?.canon_records ?? [];
+
+  const recordsByType = records.reduce<Record<string, string[]>>((acc, r) => {
+    const t = r.canonType ?? "other";
+    (acc[t] ??= []).push(r.name);
+    return acc;
+  }, {});
+
+  return (
+    <div
+      className="flex flex-col h-full shrink-0"
+      style={{ width: 380, borderLeft: "1px solid #DDD4C4", background: "#FDFAF7" }}
+    >
+      <CopilotPanel
+        isOpen
+        onClose={onClose}
+        storageKey={`copilot-editorial-${worldId}`}
+        title="Editorial Co-write"
+        activeFieldLabel={isLoading ? world.name : `${world.name} · ${records.length} records`}
+        greeting={
+          `I have the full picture for ${world.name} — ${records.length} canon record${records.length !== 1 ? "s" : ""} across your world. ` +
+          `Tell me what you want to develop, refine, or connect. I can spot inconsistencies, draft prose, ` +
+          `suggest missing records, or help you plan how existing characters and places relate.`
+        }
+        onSend={async (message, history) =>
+          apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
+            method: "POST",
+            body: JSON.stringify({
+              surface: "editorial",
+              worldId,
+              field: "world",
+              fieldLabel: world.name,
+              message,
+              history,
+              context: {
+                worldName: world.name,
+                worldBible: {
+                  description: world.description,
+                  visualPalette: world.visualPalette,
+                  proseVoice: world.proseVoice,
+                  atmosphericNotes: world.atmosphericNotes,
+                  materialWorld: world.materialWorld,
+                  worldRules: world.worldRules,
+                },
+                recordsByType,
+                totalRecords: records.length,
+                currentPage: PAGE_LABELS[activePage] ?? activePage,
+              },
+            }),
+          })
+        }
+        onCaptureTarget={() => ({ key: "world", label: world.name })}
+        panelStyle={{
+          width: "100%",
+          height: "100%",
+          maxHeight: "100%",
+          minHeight: 0,
+          borderRadius: 0,
+          border: "none",
+          position: "relative",
+          top: 0,
+        }}
+        className="!static !rounded-none !w-full flex-1 !max-h-none"
+      />
+    </div>
+  );
+}
+
+// ── Shell inner ───────────────────────────────────────────────────────────────
 
 function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
   const [location] = useLocation();
@@ -28,8 +131,14 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
   } = useEditorial();
   const [worldDropOpen, setWorldDropOpen] = useState(false);
   const [collDropOpen, setCollDropOpen] = useState(false);
-  const [showCowrite, setShowCowrite] = useState(false);
-  const [, navigate] = useLocation();
+
+  // Copilot open/closed — persisted across navigation
+  const [copilotOpen, setCopilotOpen] = useState(() => {
+    try { return localStorage.getItem("ws:editorial:copilot") === "true"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("ws:editorial:copilot", copilotOpen ? "true" : "false"); } catch { /* ok */ }
+  }, [copilotOpen]);
 
   const navItem = (
     label: string,
@@ -65,7 +174,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "#FAF8F3" }}>
-      {/* ── Left panel ──────────────────────────────────────────────────────── */}
+      {/* ── Left sidebar ─────────────────────────────────────────────────────── */}
       <aside
         className="flex flex-col border-r overflow-hidden"
         style={{ width: 260, background: "white", borderColor: "#E5E7EB", flexShrink: 0 }}
@@ -79,6 +188,20 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
                 WorldSmith
               </span>
             </Link>
+            {/* Co-write toggle */}
+            <button
+              onClick={() => setCopilotOpen(o => !o)}
+              title={copilotOpen ? "Close co-write panel" : "Open holistic co-write"}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-all"
+              style={
+                copilotOpen
+                  ? { background: "#1B2A4A", color: "white" }
+                  : { background: "transparent", color: "#9CA3AF", border: "1px solid #E5E7EB" }
+              }
+            >
+              <Sparkles className="w-3 h-3" style={{ color: copilotOpen ? "#C87560" : undefined }} />
+              Co-write
+            </button>
           </div>
           <div
             className="font-semibold text-[#1B2A4A]"
@@ -188,7 +311,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
           {navItem("Style Guides", Layers, "/super/worldsmith/editorial/style-guides", "style-guides")}
           {navItem("Prompt Modules", Puzzle, "/super/worldsmith/editorial/modules", "modules")}
 
-          <div className="pt-3 flex flex-col gap-1.5">
+          <div className="pt-3">
             <Link href="/super/worldsmith/editorial/specs/new">
               <span
                 className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors"
@@ -198,14 +321,6 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
                 New Asset
               </span>
             </Link>
-            <button
-              onClick={() => setShowCowrite(true)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
-              style={{ background: "transparent", color: "#1B2A4A", fontWeight: 500, border: "1.5px solid #1B2A4A" }}
-            >
-              <Sparkles className="w-4 h-4 shrink-0" style={{ color: "#C87560" }} />
-              Co-write Asset
-            </button>
           </div>
         </nav>
 
@@ -235,60 +350,14 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
         {children}
       </main>
 
-      {/* ── Spec co-write overlay ────────────────────────────────────────────── */}
-      {showCowrite && (
-        <div className="fixed inset-0 z-50 flex justify-end pointer-events-none">
-          <div
-            className="flex-1 pointer-events-auto"
-            onClick={() => setShowCowrite(false)}
-          />
-          <div className="pointer-events-auto flex flex-col h-full" style={{ width: 420 }}>
-            <CopilotPanel
-              isOpen
-              onClose={() => setShowCowrite(false)}
-              title="Co-write Asset"
-              activeFieldLabel="Spec"
-              greeting={`Let's shape a new production asset for ${selectedWorld?.name ?? "your world"}. Tell me what you have in mind — a rough idea, a component type, a feeling. Even a single evocative detail is enough to start.`}
-              onSend={async (message, history) => {
-                const result = await apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
-                  method: "POST",
-                  body: JSON.stringify({
-                    surface: "spec",
-                    worldId: selectedWorldId,
-                    field: "spec",
-                    fieldLabel: "Spec",
-                    message,
-                    history,
-                    context: { worldName: selectedWorld?.name },
-                  }),
-                });
-                return result;
-              }}
-              onCaptureTarget={() => ({ key: "spec", label: "Spec" })}
-              className="!rounded-none !w-full flex-1"
-              panelStyle={{
-                width: "100%",
-                maxWidth: "100%",
-                height: "100%",
-                maxHeight: "100%",
-                minHeight: "unset",
-                borderRadius: 0,
-                border: "none",
-                borderLeft: "1px solid #DDD4C4",
-              }}
-              footerCta={
-                <button
-                  onClick={() => { setShowCowrite(false); navigate("/super/worldsmith/editorial/specs/new"); }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
-                  style={{ background: "#1B2A4A" }}
-                >
-                  Continue to Spec Form
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              }
-            />
-          </div>
-        </div>
+      {/* ── Persistent holistic co-write drawer ──────────────────────────────── */}
+      {copilotOpen && selectedWorldId && selectedWorld && (
+        <EditorialCopilot
+          worldId={selectedWorldId}
+          world={selectedWorld}
+          activePage={activePage}
+          onClose={() => setCopilotOpen(false)}
+        />
       )}
     </div>
   );

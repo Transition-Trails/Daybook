@@ -1107,6 +1107,7 @@ function StoriesSection({ world }: { world: WsWorld }) {
             <CopilotPanel
               isOpen
               onClose={() => setBrainstormOpen(false)}
+              storageKey={`copilot-brainstorm-${world.id}`}
               title="Story Brainstorm"
               activeFieldLabel="Title"
               greeting={`Let's develop a story idea for ${world.name}. Tell me anything — a character, a mood, a conflict, a single image. I'll help you shape it into a story concept and suggest a title.`}
@@ -1197,6 +1198,7 @@ function StoriesSection({ world }: { world: WsWorld }) {
           <CopilotPanel
             isOpen={copilotOpen}
             onClose={() => setCopilotOpen(false)}
+            storageKey={selectedStory ? `copilot-story-${selectedStory.id}` : undefined}
             title="Story Copilot"
             activeFieldLabel="Summary"
             greeting={`I'm here to help you write the story for ${world.name}. What's the core premise of "${selectedStory.title}" — who are the main characters and what's at stake?`}
@@ -1557,6 +1559,7 @@ function WorldBibleSection({ world }: { world: WsWorld }) {
     <CopilotPanel
       isOpen={copilotOpen}
       onClose={() => setCopilotOpen(false)}
+      storageKey={`copilot-bible-${world.id}`}
       title="Bible Copilot"
       activeFieldLabel={BIBLE_FIELD_LABELS[activeField]}
       onSend={handleCopilotSend}

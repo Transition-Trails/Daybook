@@ -58,6 +58,15 @@ export interface CopilotPanelProps {
   /** Extra inline styles applied to the root <aside>. */
   panelStyle?: React.CSSProperties;
   /**
+   * When provided, the conversation thread is persisted to sessionStorage under
+   * this key. Navigating away and returning restores the previous thread rather
+   * than starting fresh. Use a stable, entity-scoped key like
+   * `"copilot-canon-<recordId>"` or `"copilot-story-<storyId>"`.
+   *
+   * The greeting is suppressed on restore so the user re-enters mid-conversation.
+   */
+  storageKey?: string;
+  /**
    * Called when the user sends a message.
    * Receives the text + sanitised conversation history.
    * Must return {reply: string}.
@@ -93,6 +102,21 @@ export interface CopilotPanelProps {
   footerCta?: React.ReactNode;
 }
 
+// ── sessionStorage helpers ────────────────────────────────────────────────────
+function loadThread(key: string): CopilotMsg[] {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as CopilotMsg[]) : [];
+  } catch {
+    return [];
+  }
+}
+function saveThread(key: string, msgs: CopilotMsg[]) {
+  try { sessionStorage.setItem(key, JSON.stringify(msgs)); } catch { /* storage full */ }
+}
+
 export function CopilotPanel({
   isOpen,
   onClose,
@@ -105,26 +129,38 @@ export function CopilotPanel({
   className = "",
   panelStyle,
   footerCta,
+  storageKey,
 }: CopilotPanelProps) {
-  const [chat, setChat] = useState<CopilotMsg[]>([]);
+  // Seed chat from sessionStorage if a key is provided, so the thread
+  // survives navigation away and back.
+  const [chat, setChat] = useState<CopilotMsg[]>(() =>
+    storageKey ? loadThread(storageKey) : [],
+  );
   const [chatInput, setChatInput] = useState("");
   const threadRef = useRef<HTMLDivElement>(null);
-  const msgIdRef = useRef(0);
+  // Seed msgIdRef above any restored messages so IDs don't collide.
+  const msgIdRef = useRef(chat.reduce((max, m) => Math.max(max, m.id), 0));
   const nextId = () => ++msgIdRef.current;
+
+  // Persist to sessionStorage whenever the thread changes.
+  useEffect(() => {
+    if (storageKey) saveThread(storageKey, chat);
+  }, [storageKey, chat]);
 
   // Show greeting on first open (while chat is still empty).
   // The greeting is flagged `synthetic: true` so it is NEVER included in the
   // history array sent to the server — Anthropic's Messages API rejects
   // conversations that start with an assistant message.
-  const greetedRef = useRef(false);
+  // Skip greeting entirely when restoring a saved thread.
+  const greetedRef = useRef(chat.length > 0); // pre-mark as greeted if thread restored
   useEffect(() => {
     if (isOpen && !greetedRef.current && greeting && chat.length === 0) {
       greetedRef.current = true;
       setChat([{ id: nextId(), role: "assistant", content: greeting, synthetic: true }]);
     }
     if (!isOpen) {
-      // allow re-greeting if panel is closed and reopened with new content
-      greetedRef.current = false;
+      // allow re-greeting only if the thread is empty (e.g. after a clear)
+      greetedRef.current = chat.length > 0;
     }
   }, [isOpen, greeting, chat.length]);
 

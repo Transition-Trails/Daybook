@@ -88,6 +88,13 @@ async function run() {
         ON worldsmith_assets (prompt_hash);
     `);
 
+    // ── cover_image_url on worldsmith_worlds ──────────────────────────────────
+    console.log("4. Adding cover_image_url column to worldsmith_worlds (if missing)…");
+    await client.query(`
+      ALTER TABLE worldsmith_worlds
+        ADD COLUMN IF NOT EXISTS cover_image_url TEXT;
+    `);
+
     await client.query("COMMIT");
     console.log("✓ WorldSmith tables created successfully.");
   } catch (err) {

@@ -9,9 +9,9 @@ import { Link } from "wouter";
 import {
   Sparkles, Plus, LayoutGrid, List, Search, X, ChevronLeft,
   ArrowRight, BookOpen, Loader2, CheckCircle2, XCircle,
-  AlertCircle, ExternalLink, Clock, Wrench, Pencil, Save,
+  AlertCircle, ExternalLink, Clock, Wrench, Pencil, Save, ImageUp,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, storageApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { CopilotPanel } from "@/components/CopilotPanel";
 
@@ -41,6 +41,8 @@ export interface WsWorld {
   materialWorld?: string | null;
   createdAt: string;
   updatedAt: string;
+  // Hero background image
+  coverImageUrl?: string | null;
   // Computed fields from the server
   assetCount: number;
   reviewCount: number;
@@ -383,6 +385,14 @@ function WorldCard({
         className="h-32 w-full relative flex items-end p-4"
         style={{ background: world.coverColor }}
       >
+        {world.coverImageUrl && (
+          <img
+            src={`/api/storage${world.coverImageUrl}`}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" aria-hidden="true" />
         <div className="relative z-10 flex items-end justify-between w-full">
           <div>
@@ -514,14 +524,82 @@ function FocusedWorldView({
     { id: "integrations", label: "Settings" },
   ];
 
+  const coverUploadRef = useRef<HTMLInputElement>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  async function handleCoverUpload(file: File) {
+    if (!file.type.startsWith("image/")) return;
+    setCoverUploading(true);
+    try {
+      // Request presigned URL using the established storageApi contract
+      const { uploadURL, objectPath } = await storageApi.requestUploadUrl(file.name, file.size, file.type);
+      // Upload directly to the presigned URL
+      const putRes = await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      if (!putRes.ok) {
+        throw new Error(`Upload failed: ${putRes.status}`);
+      }
+      // Save the object path to the world
+      await apiFetch(`/v1/worldsmith/worlds/${world.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ coverImageUrl: objectPath }),
+      });
+      queryClient.invalidateQueries({ queryKey: ["worldsmith/worlds"] });
+    } catch {
+      toast({ title: "Cover upload failed", description: "The image could not be saved. Please try again.", variant: "destructive" });
+    } finally {
+      setCoverUploading(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* World hero */}
       <div
-        className="rounded-2xl overflow-hidden border border-border relative"
+        className="rounded-2xl overflow-hidden border border-border relative group/hero"
         style={{ background: world.coverColor }}
       >
+        {world.coverImageUrl && (
+          <img
+            src={`/api/storage${world.coverImageUrl}`}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" aria-hidden="true" />
+        {/* Upload button — visible on hover */}
+        <div className="absolute bottom-4 right-4 z-20 opacity-0 group-hover/hero:opacity-100 transition-opacity">
+          <button
+            onClick={() => coverUploadRef.current?.click()}
+            disabled={coverUploading}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 text-white text-[11px] font-medium transition-colors"
+            aria-label="Upload cover image"
+          >
+            {coverUploading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <ImageUp className="w-3.5 h-3.5" />
+            )}
+            {coverUploading ? "Uploading…" : "Change cover"}
+          </button>
+          <input
+            ref={coverUploadRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) handleCoverUpload(f);
+              e.target.value = "";
+            }}
+          />
+        </div>
         <div className="relative z-10 p-6 flex items-start gap-4">
           <button
             onClick={onBack}
@@ -536,11 +614,6 @@ function FocusedWorldView({
             <p className="text-sm text-white/70 mt-1 max-w-lg">{world.description}</p>
             <div className="flex items-center gap-3 mt-3 flex-wrap">
               <WorldStatusBadge status={world.status} invert />
-              {world.currentVolume && (
-                <span className="text-[11.5px] text-white/80 bg-white/10 rounded-full px-2.5 py-0.5">
-                  {world.currentCollection} · {world.currentVolume}
-                </span>
-              )}
               {world.assetCount > 0 && (
                 <span className="text-[11.5px] text-white/80 bg-white/10 rounded-full px-2.5 py-0.5">
                   {world.assetCount} asset{world.assetCount !== 1 ? "s" : ""}
@@ -552,19 +625,6 @@ function FocusedWorldView({
                 </span>
               )}
             </div>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <Link href="/super/worldsmith/compiler">
-              <span className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/20 text-white hover:bg-white/30 transition-colors cursor-pointer">
-                Open Compiler
-              </span>
-            </Link>
-            <Link href="/super/worldsmith/editorial/canon">
-              <span className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-white/20 text-white hover:bg-white/30 transition-colors cursor-pointer flex items-center gap-1.5">
-                <BookOpen className="w-3 h-3" />
-                Canon Library
-              </span>
-            </Link>
           </div>
         </div>
       </div>

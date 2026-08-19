@@ -154,7 +154,7 @@ export function CopilotPanel({
     if (!trimmed || sendMutation.isPending) return;
     // Snapshot the target synchronously before any async work
     const capturedTarget: ApplyTarget = onCaptureTarget?.() ?? { key: "", label: activeFieldLabel };
-    const history = chat.filter(m => !m.failed);
+    const history = chat.filter(m => !m.failed && !m.synthetic);
     const turnId = nextId();
     setChat(c => [...c, { id: turnId, role: "user", content: trimmed }]);
     setChatInput("");

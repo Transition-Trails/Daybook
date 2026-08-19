@@ -178,6 +178,8 @@ export const worldsmithWorldsTable = pgTable("worldsmith_worlds", {
   driveFolderId: text("drive_folder_id"),
   // Image provider
   imageProvider: text("image_provider"),    // dalle3 | stability | none
+  // Hero background image (object-storage path or URL)
+  coverImageUrl: text("cover_image_url"),
   createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })

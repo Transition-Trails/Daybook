@@ -539,6 +539,7 @@ export function buildEnrichedWorld(
     atmosphericNotes: w.atmosphericNotes,
     materialWorld: w.materialWorld,
     worldRules: w.worldRules,
+    coverImageUrl: w.coverImageUrl ?? null,
   };
 }
 
@@ -1087,6 +1088,7 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
     proseVoice?: string | null;
     atmosphericNotes?: string | null;
     materialWorld?: string | null;
+    coverImageUrl?: string | null;
   };
 
   // Build a patch object with only the keys the caller supplied
@@ -1132,6 +1134,7 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
   if ("proseVoice"       in body) patch.proseVoice       = body.proseVoice?.trim()       || null;
   if ("atmosphericNotes" in body) patch.atmosphericNotes = body.atmosphericNotes?.trim() || null;
   if ("materialWorld"    in body) patch.materialWorld    = body.materialWorld?.trim()    || null;
+  if ("coverImageUrl"    in body) patch.coverImageUrl    = body.coverImageUrl?.trim()    || null;
 
   if (Object.keys(patch).length === 0) {
     res.status(400).json({ error: "No updatable fields provided", code: "MISSING_FIELDS" });

@@ -49,6 +49,7 @@ function makeWorldRow(overrides: Partial<WorldRow> = {}): WorldRow {
     atmosphericNotes: "Persistent low damp. Smoke and mildew undercut every interior.",
     materialWorld: "Worn leather, tallow candles, iron rivets, stone that never fully dries.",
     worldRules: ["No magic north of the Ridgeline", "Time moves faster in the Undercroft"],
+    coverImageUrl: null,
     ...overrides,
   };
 }

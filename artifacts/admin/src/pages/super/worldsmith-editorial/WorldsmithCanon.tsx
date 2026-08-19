@@ -25,6 +25,9 @@ import { apiFetch, storageApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
 import { CopilotPanel } from "@/components/CopilotPanel";
+import { REGISTERS } from "./canon-registers";
+
+export { REGISTERS } from "./canon-registers";
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const INK         = "#1B2A4A";
@@ -36,16 +39,6 @@ const WARM_BORDER = "#DDD4C4";
 const AMBER       = "#D97706";
 const AMBER_BG    = "#FEF3C7";
 
-// ── Register palette ───────────────────────────────────────────────────────────
-export const REGISTERS = [
-  { key: "Withholding", color: "#4A5E78", bg: "#EAF0F7" },
-  { key: "Intimate",    color: "#A85C6E", bg: "#F7EAF0" },
-  { key: "Guarded",     color: "#3D7A5C", bg: "#EAF5EE" },
-  { key: "Trespass",    color: "#8B6220", bg: "#F5EDDB" },
-  { key: "Absence",     color: "#6B7C8C", bg: "#EFF3F6" },
-  { key: "Confidence",  color: CLAY,      bg: "#F7EDE8" },
-] as const;
-type RegisterKey = typeof REGISTERS[number]["key"];
 const regMeta = (key: string | null | undefined) =>
   REGISTERS.find(r => r.key === key) ?? null;
 

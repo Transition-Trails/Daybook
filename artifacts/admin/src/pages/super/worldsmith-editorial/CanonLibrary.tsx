@@ -22,7 +22,7 @@ import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
 import { CopilotPanel } from "@/components/CopilotPanel";
-import { REGISTERS } from "./WorldsmithCanon";
+import { REGISTERS } from "./canon-registers";
 
 // ── Type configuration ────────────────────────────────────────────────────────
 
@@ -1345,6 +1345,7 @@ export default function CanonLibrary() {
             <div className="flex items-center rounded-lg border overflow-hidden shrink-0 ml-auto" style={{ borderColor: "#E5E7EB" }}>
               <button
                 onClick={() => setViewMode("cards")}
+                aria-label="Show card view"
                 className="p-1.5 transition-colors"
                 style={viewMode === "cards" ? { background: "#1B2A4A", color: "white" } : { color: "#6B7280" }}
               >
@@ -1352,6 +1353,7 @@ export default function CanonLibrary() {
               </button>
               <button
                 onClick={() => setViewMode("table")}
+                aria-label="Show table view"
                 className="p-1.5 transition-colors"
                 style={viewMode === "table" ? { background: "#1B2A4A", color: "white" } : { color: "#6B7280" }}
               >

@@ -1355,7 +1355,13 @@ const BIBLE_FIELD_LABELS: Record<BibleTextField, string> = {
   materialWorld: "Material World",
 };
 
-function WorldBibleSection({ world }: { world: WsWorld }) {
+export function WorldBibleSection({
+  world,
+  showCopilot = true,
+}: {
+  world: Pick<WsWorld, "id" | "name" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "worldRules">;
+  showCopilot?: boolean;
+}) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [form, setForm] = useState({
@@ -1469,17 +1475,19 @@ function WorldBibleSection({ world }: { world: WsWorld }) {
             Write freely — this is the voice of your world, not a form to fill.
           </p>
         </div>
-        <button
-          onClick={() => setCopilotOpen(o => !o)}
-          className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors ${
-            copilotOpen
-              ? "text-white border-transparent"
-              : "text-foreground border-border hover:border-foreground/30"
-          }`}
-          style={copilotOpen ? { background: "#1B2A4A" } : undefined}
-        >
-          <Sparkles className="w-3.5 h-3.5" /> Co-write
-        </button>
+        {showCopilot && (
+          <button
+            onClick={() => setCopilotOpen(o => !o)}
+            className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors ${
+              copilotOpen
+                ? "text-white border-transparent"
+                : "text-foreground border-border hover:border-foreground/30"
+            }`}
+            style={copilotOpen ? { background: "#1B2A4A" } : undefined}
+          >
+            <Sparkles className="w-3.5 h-3.5" /> Co-write
+          </button>
+        )}
       </div>
 
       <div className="space-y-5">
@@ -1553,17 +1561,19 @@ function WorldBibleSection({ world }: { world: WsWorld }) {
       </div>
     </div>
 
-    <CopilotPanel
-      isOpen={copilotOpen}
-      onClose={() => setCopilotOpen(false)}
-      storageKey={`copilot-bible-${world.id}`}
-      title="Bible Copilot"
-      activeFieldLabel={BIBLE_FIELD_LABELS[activeField]}
-      onSend={handleCopilotSend}
-      onCaptureTarget={() => ({ key: activeFieldRef.current, label: BIBLE_FIELD_LABELS[activeFieldRef.current] })}
-      onApply={(text, key) => applyToField(text, key)}
-      greeting={bibleGreeting}
-    />
+    {showCopilot && (
+      <CopilotPanel
+        isOpen={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
+        storageKey={`copilot-bible-${world.id}`}
+        title="Bible Copilot"
+        activeFieldLabel={BIBLE_FIELD_LABELS[activeField]}
+        onSend={handleCopilotSend}
+        onCaptureTarget={() => ({ key: activeFieldRef.current, label: BIBLE_FIELD_LABELS[activeFieldRef.current] })}
+        onApply={(text, key) => applyToField(text, key)}
+        greeting={bibleGreeting}
+      />
+    )}
     </div>
   );
 }

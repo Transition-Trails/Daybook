@@ -17,7 +17,7 @@ import { apiFetch } from "@/lib/api";
 
 interface EditorialShellProps {
   children: ReactNode;
-  activePage?: "board" | "stories" | "connections" | "specs" | "canon" | "style-guides" | "modules";
+  activePage?: "board" | "bible" | "stories" | "connections" | "specs" | "canon" | "style-guides" | "modules";
 }
 
 // ── Holistic editorial copilot ────────────────────────────────────────────────
@@ -26,6 +26,7 @@ interface RecordSummary { name: string; canonType: string | null; canonStability
 
 const PAGE_LABELS: Record<string, string> = {
   board: "Readiness Board",
+  bible: "World Bible",
   stories: "Storylines",
   connections: "Story Map",
   specs: "Production Specs",
@@ -491,6 +492,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
             </p>
           )}
           {navItem("Readiness Board", LayoutDashboard, "/super/worldsmith/editorial/board", "board")}
+          {navItem("World Bible", BookOpen, "/super/worldsmith/editorial/bible", "bible")}
           {navItem("Storylines", BookOpen, "/super/worldsmith/editorial/stories", "stories")}
           {navItem("Story Map", Network, "/super/worldsmith/editorial/connections", "connections")}
           {navItem("Canon Records", BookOpen, "/super/worldsmith/editorial/canon", "canon")}

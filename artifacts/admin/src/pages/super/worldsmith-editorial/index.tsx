@@ -17,3 +17,4 @@ export { default as WorldsmithCanon } from "./WorldsmithCanon";
 export { default as SpecsList } from "./SpecsList";
 export { default as StoriesStudio } from "./StoriesStudio";
 export { default as StoryConnections } from "./StoryConnections";
+export { default as WorldBibleStudio } from "./WorldBibleStudio";

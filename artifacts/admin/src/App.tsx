@@ -130,6 +130,7 @@ import {
   PromptModules,
   StoriesStudio,
   StoryConnections,
+  WorldBibleStudio,
 } from "@/pages/super/worldsmith-editorial";
 
 const queryClient = new QueryClient({
@@ -226,6 +227,11 @@ function RootRouter() {
       </Route>
 
       {/* ── WorldSmith Editorial Suite ────────────────────────────────────── */}
+      <Route path="/super/worldsmith/editorial/bible">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="bible"><WorldBibleStudio /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
       <Route path="/super/worldsmith/editorial/stories">
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="stories"><StoriesStudio /></EditorialShell>

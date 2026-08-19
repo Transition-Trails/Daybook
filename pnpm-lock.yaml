@@ -742,6 +742,9 @@ importers:
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
       sharp:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@25.9.5)

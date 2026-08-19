@@ -12,11 +12,16 @@ async function main() {
 
   const client = await pool.connect();
   try {
+    await client.query("BEGIN");
     await client.query(`
       ALTER TABLE editions
         ADD COLUMN IF NOT EXISTS world text;
     `);
+    await client.query("COMMIT");
     console.log("  ✔ editions.world column present (added or already existed).");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
   } finally {
     client.release();
     await pool.end();

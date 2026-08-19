@@ -321,6 +321,8 @@ function CreateDrawer({
   worldId,
   worldName,
   prefilledType,
+  prefilledName,
+  prefilledNarrative,
   onClose,
   onCreated,
   initialMode,
@@ -328,15 +330,17 @@ function CreateDrawer({
   worldId: string;
   worldName: string;
   prefilledType: string;
+  prefilledName?: string;
+  prefilledNarrative?: string;
   onClose: () => void;
   onCreated: (record: CanonRecord) => void;
   initialMode?: "manual" | "cowrite";
 }) {
   const { toast } = useToast();
   const [mode, setMode] = useState<"manual" | "cowrite">(initialMode ?? "manual");
-  const [name, setName] = useState("");
+  const [name, setName] = useState(prefilledName ?? "");
   const [canonType, setCanonType] = useState(prefilledType);
-  const [narrativeDetails, setNarrativeDetails] = useState("");
+  const [narrativeDetails, setNarrativeDetails] = useState(prefilledNarrative ?? "");
   const [historicalContext, setHistoricalContext] = useState("");
   const [visualNotes, setVisualNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -960,7 +964,24 @@ export default function CanonLibrary() {
   // Create drawer
   const [showCreate, setShowCreate] = useState(false);
   const [prefilledType, setPrefilledType] = useState("location");
+  const [prefilledName, setPrefilledName] = useState("");
+  const [prefilledNarrative, setPrefilledNarrative] = useState("");
   const [createMode, setCreateMode] = useState<"manual" | "cowrite">("manual");
+
+  // Auto-open the create drawer when navigated here with ?new=1&name=…&type=…&narrative=…
+  // (e.g. from the editorial co-write panel's "Create record" button).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("new") === "1") {
+      setPrefilledName(params.get("name") ?? "");
+      setPrefilledType(params.get("type") ?? "location");
+      setPrefilledNarrative(params.get("narrative") ?? "");
+      setCreateMode("manual");
+      setShowCreate(true);
+      // Clean the URL so a refresh doesn't re-trigger the drawer
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   // Suggestions panel
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -1453,8 +1474,10 @@ export default function CanonLibrary() {
           worldId={selectedWorldId}
           worldName={selectedWorld?.name ?? "your world"}
           prefilledType={prefilledType}
+          prefilledName={prefilledName}
+          prefilledNarrative={prefilledNarrative}
           initialMode={createMode}
-          onClose={() => setShowCreate(false)}
+          onClose={() => { setShowCreate(false); setPrefilledName(""); setPrefilledNarrative(""); }}
           onCreated={handleCreated}
         />
       )}

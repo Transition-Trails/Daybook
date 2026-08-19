@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { EditorialProvider, useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
-import { CopilotPanel } from "@/components/CopilotPanel";
+import { CopilotPanel, type RecordSuggestion } from "@/components/CopilotPanel";
 import { apiFetch } from "@/lib/api";
 
 interface EditorialShellProps {
@@ -43,6 +43,7 @@ function EditorialCopilot({
   activePage: string;
   onClose: () => void;
 }) {
+  const [, navigate] = useLocation();
   const { data, isLoading } = useQuery({
     queryKey: ["editorial-copilot-records", worldId],
     queryFn: () =>
@@ -103,6 +104,15 @@ function EditorialCopilot({
           })
         }
         onCaptureTarget={() => ({ key: "world", label: world.name })}
+        onCreateRecord={(s: RecordSuggestion) => {
+          const params = new URLSearchParams({
+            new: "1",
+            name: s.name,
+            type: s.canonType,
+            narrative: s.narrative ?? "",
+          });
+          navigate(`/super/worldsmith/editorial/canon?${params.toString()}`);
+        }}
         panelStyle={{
           width: "100%",
           height: "100%",

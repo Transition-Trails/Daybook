@@ -967,6 +967,18 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
         "- When asked about a specific record, reference the world context to give richer, more specific advice",
         "- Keep replies focused and actionable (2–4 sentences unless drafting content)",
         "- When asked to draft content, write polished, world-grounded prose ready to use",
+        `\n## Suggesting new canon records`,
+        "- Whenever the conversation reveals that a new character, location, object, faction, creature, or concept would meaningfully enrich the world, suggest it as a new record.",
+        "- A single conversation can spawn multiple suggestions — e.g. discussing a heist story might reveal a fence character AND a hidden warehouse location.",
+        "- At the END of any response where you identify one or more records worth creating, append a structured block in EXACTLY this format (do not include it if you have no suggestions):",
+        "```",
+        "[RECORD_SUGGESTIONS]",
+        `[{"name":"<record name>","canonType":"<character|location|object|faction|creature|concept>","narrative":"<1-2 sentence world-grounded narrative description>"}]`,
+        "[/RECORD_SUGGESTIONS]",
+        "```",
+        "- The block must be valid JSON — an array, even for a single suggestion.",
+        "- canonType must be one of: character, location, object, faction, creature, concept.",
+        "- Do NOT mention the block or the format in the conversational part of your reply.",
       ].filter(Boolean).join("\n");
 
     } else if (surface === "spec") {
@@ -1034,7 +1046,24 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
       systemPrompt,
     );
 
-    res.json({ reply: result.content, provider: result.provider, model: result.model });
+    // Parse record suggestions embedded by the model for the "editorial" surface.
+    let replyText = result.content;
+    let suggestions: { name: string; canonType: string; narrative?: string }[] | undefined;
+    if (surface === "editorial") {
+      const suggestMatch = replyText.match(/\[RECORD_SUGGESTIONS\]\s*([\s\S]*?)\s*\[\/RECORD_SUGGESTIONS\]/);
+      if (suggestMatch) {
+        try {
+          const parsed = JSON.parse(suggestMatch[1]!.trim());
+          if (Array.isArray(parsed) && parsed.length > 0) suggestions = parsed;
+        } catch { /* malformed JSON — ignore */ }
+        // Strip the block (and surrounding blank lines) from the visible reply
+        replyText = replyText
+          .replace(/\n?\[RECORD_SUGGESTIONS\][\s\S]*?\[\/RECORD_SUGGESTIONS\]\n?/, "")
+          .trim();
+      }
+    }
+
+    res.json({ reply: replyText, suggestions, provider: result.provider, model: result.model });
   } catch (err) {
     logger.error({ err }, "WorldSmith copilot failed");
     res.status(502).json({ error: "The copilot couldn't respond. Try again.", code: "AI_ERROR" });

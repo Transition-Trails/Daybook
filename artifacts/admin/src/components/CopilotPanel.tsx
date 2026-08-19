@@ -29,6 +29,13 @@ export interface ApplyTarget {
   label: string;
 }
 
+/** A canon record the AI has identified as worth creating based on the conversation. */
+export interface RecordSuggestion {
+  name: string;
+  canonType: string;
+  narrative?: string;
+}
+
 export interface CopilotMsg {
   id: number;
   role: "user" | "assistant";
@@ -44,6 +51,8 @@ export interface CopilotMsg {
   synthetic?: boolean;
   /** Captured at send time — immutable once set. Only present on real assistant messages. */
   applyTarget?: ApplyTarget;
+  /** Canon record suggestions surfaced by the editorial copilot. */
+  suggestions?: RecordSuggestion[];
 }
 
 export interface CopilotPanelProps {
@@ -69,12 +78,17 @@ export interface CopilotPanelProps {
   /**
    * Called when the user sends a message.
    * Receives the text + sanitised conversation history.
-   * Must return {reply: string}.
+   * Must return {reply: string} — may also include suggestions[] for the editorial surface.
    */
   onSend: (
     message: string,
     history: { role: "user" | "assistant"; content: string }[],
-  ) => Promise<{ reply: string }>;
+  ) => Promise<{ reply: string; suggestions?: RecordSuggestion[] }>;
+  /**
+   * Called when the user clicks "Create record" on an AI-suggested canon record.
+   * Only meaningful when connected to the editorial surface.
+   */
+  onCreateRecord?: (suggestion: RecordSuggestion) => void;
   /**
    * Called once per send/retry, synchronously, before the network request is
    * made. Return a snapshot of the current target (field key + label).  The
@@ -117,6 +131,56 @@ function saveThread(key: string, msgs: CopilotMsg[]) {
   try { sessionStorage.setItem(key, JSON.stringify(msgs)); } catch { /* storage full */ }
 }
 
+// ── Suggestion card ───────────────────────────────────────────────────────────
+const TYPE_LABELS: Record<string, string> = {
+  character: "Character",
+  location: "Location",
+  object: "Object",
+  faction: "Faction",
+  creature: "Creature",
+  concept: "Concept",
+};
+
+function SuggestionCard({
+  suggestion,
+  onCreateRecord,
+}: {
+  suggestion: RecordSuggestion;
+  onCreateRecord: (s: RecordSuggestion) => void;
+}) {
+  return (
+    <div
+      className="rounded-xl p-3 mt-1"
+      style={{ background: "#F0E9DF", border: `1px solid ${WARM_BORDER}` }}
+    >
+      <div className="flex items-start gap-2 min-w-0">
+        <div className="min-w-0 flex-1">
+          <p className="text-[12.5px] font-semibold leading-tight" style={{ color: INK }}>
+            {suggestion.name}
+          </p>
+          <p className="text-[10.5px] uppercase tracking-widest mt-0.5 font-medium" style={{ color: CLAY }}>
+            {TYPE_LABELS[suggestion.canonType] ?? suggestion.canonType}
+          </p>
+          {suggestion.narrative && (
+            <p className="text-[11.5px] mt-1.5 leading-relaxed" style={{ color: "#4B5563" }}>
+              {suggestion.narrative.length > 120
+                ? suggestion.narrative.slice(0, 120) + "…"
+                : suggestion.narrative}
+            </p>
+          )}
+        </div>
+      </div>
+      <button
+        onClick={() => onCreateRecord(suggestion)}
+        className="mt-2 flex items-center gap-1 text-[11.5px] font-semibold hover:underline"
+        style={{ color: CLAY }}
+      >
+        Create record <ArrowRight className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}
+
 export function CopilotPanel({
   isOpen,
   onClose,
@@ -125,6 +189,7 @@ export function CopilotPanel({
   onSend,
   onCaptureTarget,
   onApply,
+  onCreateRecord,
   greeting,
   className = "",
   panelStyle,
@@ -183,7 +248,13 @@ export function CopilotPanel({
     onSuccess: (data) => {
       setChat(c => [
         ...c,
-        { id: nextId(), role: "assistant", content: data.reply, applyTarget: data.capturedTarget },
+        {
+          id: nextId(),
+          role: "assistant",
+          content: data.reply,
+          applyTarget: data.capturedTarget,
+          suggestions: data.suggestions,
+        },
       ]);
     },
     onError: (_err, vars) => {
@@ -299,6 +370,16 @@ export function CopilotPanel({
                   >
                     Apply to {m.applyTarget.label} <ArrowRight className="w-3 h-3" />
                   </button>
+                )}
+                {onCreateRecord && m.suggestions && m.suggestions.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-[10.5px] uppercase tracking-widest font-semibold" style={{ color: CLAY }}>
+                      {m.suggestions.length === 1 ? "Suggested record" : `${m.suggestions.length} suggested records`}
+                    </p>
+                    {m.suggestions.map((s, si) => (
+                      <SuggestionCard key={si} suggestion={s} onCreateRecord={onCreateRecord} />
+                    ))}
+                  </div>
                 )}
               </div>
             </div>

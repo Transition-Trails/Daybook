@@ -5,7 +5,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   Sparkles, Plus, LayoutGrid, List, Search, X, ChevronLeft,
   ArrowRight, BookOpen, Loader2, CheckCircle2, XCircle,
@@ -490,6 +490,7 @@ function FocusedWorldView({
   onBack: () => void;
 }) {
   const [activeSection, setActiveSection] = useState<"overview" | "production" | "review" | "integrations" | "bible">("overview");
+  const [, navigate] = useLocation();
   // When the user clicks "Edit" on the World Bible card in Overview, jump to Settings
   // and tell IntegrationsSection to open in edit mode immediately.
   const [openSettingsEditing, setOpenSettingsEditing] = useState(false);
@@ -672,7 +673,14 @@ function FocusedWorldView({
         {SECTIONS.map(s => (
           <button
             key={s.id}
-            onClick={() => setActiveSection(s.id as typeof activeSection)}
+            onClick={() => {
+              if (s.id === "bible") {
+                localStorage.setItem("ws:editorial:world", world.id);
+                navigate("/super/worldsmith/editorial/bible");
+                return;
+              }
+              setActiveSection(s.id as typeof activeSection);
+            }}
             className={[
               "px-4 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors",
               activeSection === s.id
@@ -1358,9 +1366,11 @@ const BIBLE_FIELD_LABELS: Record<BibleTextField, string> = {
 export function WorldBibleSection({
   world,
   showCopilot = true,
+  onSaved,
 }: {
   world: Pick<WsWorld, "id" | "name" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "worldRules">;
   showCopilot?: boolean;
+  onSaved?: (updatedWorld: WsWorld) => void;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -1442,8 +1452,9 @@ export function WorldBibleSection({
           worldRules: form.worldRules,
         }),
       }),
-    onSuccess: () => {
+    onSuccess: (updatedWorld) => {
       qc.invalidateQueries({ queryKey: ["worldsmith/worlds"] });
+      onSaved?.(updatedWorld);
       toast({ title: "World Bible saved" });
       setDirty(false);
       setUndoBuffer(null);

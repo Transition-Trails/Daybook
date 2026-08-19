@@ -4,7 +4,7 @@ import { useEditorial } from "@/contexts/EditorialContext";
 import { WorldBibleSection } from "@/pages/super/WorldSmithHome";
 
 export default function WorldBibleStudio() {
-  const { selectedWorld } = useEditorial();
+  const { selectedWorld, updateWorld } = useEditorial();
 
   if (!selectedWorld) {
     return (
@@ -47,7 +47,12 @@ export default function WorldBibleStudio() {
         </div>
 
         <section className="rounded-2xl p-7" style={{ background: "#FFFCF8", border: "1px solid #E7E0D7" }}>
-          <WorldBibleSection world={selectedWorld} showCopilot={false} />
+          <WorldBibleSection
+            key={selectedWorld.id}
+            world={selectedWorld}
+            showCopilot={false}
+            onSaved={updatedWorld => updateWorld({ ...selectedWorld, ...updatedWorld })}
+          />
         </section>
       </div>
     </div>

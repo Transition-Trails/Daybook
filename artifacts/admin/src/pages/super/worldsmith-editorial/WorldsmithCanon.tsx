@@ -819,8 +819,8 @@ function DaybookGameTab({ record, recordId }:
         {storyLinks.length === 0 ? (
           <div className="text-center py-3">
             <p className="text-xs italic mb-2" style={{ color: "#9CA3AF" }}>Not placed in any story yet</p>
-            <Link href="/super/worldsmith">
-              <span className="text-xs font-medium cursor-pointer" style={{ color: CLAY }}>Add to a story →</span>
+            <Link href="/super/worldsmith/editorial/connections">
+              <span className="text-xs font-medium cursor-pointer" style={{ color: CLAY }}>Add on the Story Map →</span>
             </Link>
           </div>
         ) : (

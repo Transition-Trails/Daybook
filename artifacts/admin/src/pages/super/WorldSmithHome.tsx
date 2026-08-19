@@ -489,7 +489,7 @@ function FocusedWorldView({
   integrations: HealthStatus[];
   onBack: () => void;
 }) {
-  const [activeSection, setActiveSection] = useState<"overview" | "production" | "review" | "integrations" | "stories" | "bible">("overview");
+  const [activeSection, setActiveSection] = useState<"overview" | "production" | "review" | "integrations" | "bible">("overview");
   // When the user clicks "Edit" on the World Bible card in Overview, jump to Settings
   // and tell IntegrationsSection to open in edit mode immediately.
   const [openSettingsEditing, setOpenSettingsEditing] = useState(false);
@@ -517,7 +517,6 @@ function FocusedWorldView({
 
   const SECTIONS = [
     { id: "overview",     label: "Overview" },
-    { id: "stories",      label: "Stories" },
     { id: "bible",        label: "World Bible" },
     { id: "production",   label: `Runs (${runs.length})` },
     { id: "review",       label: `Review (${reviewQueue.length})` },
@@ -751,10 +750,6 @@ function FocusedWorldView({
             </div>
           )}
         </div>
-      </div>
-
-      <div style={{ display: activeSection === "stories" ? undefined : "none" }}>
-        <StoriesSection world={world} />
       </div>
 
       <div style={{ display: activeSection === "bible" ? undefined : "none" }}>

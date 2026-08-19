@@ -181,7 +181,16 @@ function SuggestionCard({
   );
 }
 
-export function CopilotPanel({
+/**
+ * A conversation belongs to its storage key, not to the mounted drawer.
+ * Keying the stateful session means switching worlds or records atomically
+ * tears down the old thread before the new key can receive any writes.
+ */
+export function CopilotPanel(props: CopilotPanelProps) {
+  return <CopilotPanelSession key={props.storageKey ?? "__copilot-transient__"} {...props} />;
+}
+
+function CopilotPanelSession({
   isOpen,
   onClose,
   activeFieldLabel,

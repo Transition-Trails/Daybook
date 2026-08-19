@@ -8,7 +8,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, FileText, BookOpen, Puzzle, Layers,
   ChevronDown, Globe, Plus, ArrowLeft, CheckCircle2,
-  Loader2, RefreshCw, Sparkles,
+  Loader2, RefreshCw, Sparkles, Network,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { EditorialProvider, useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
@@ -17,7 +17,7 @@ import { apiFetch } from "@/lib/api";
 
 interface EditorialShellProps {
   children: ReactNode;
-  activePage?: "board" | "specs" | "canon" | "style-guides" | "modules";
+  activePage?: "board" | "stories" | "connections" | "specs" | "canon" | "style-guides" | "modules";
 }
 
 // ── Holistic editorial copilot ────────────────────────────────────────────────
@@ -26,6 +26,8 @@ interface RecordSummary { name: string; canonType: string | null; canonStability
 
 const PAGE_LABELS: Record<string, string> = {
   board: "Readiness Board",
+  stories: "Storylines",
+  connections: "Story Map",
   specs: "Production Specs",
   canon: "Canon Records",
   "style-guides": "Style Guides",
@@ -69,12 +71,12 @@ function EditorialCopilot({
         isOpen
         onClose={onClose}
         storageKey={`copilot-editorial-${worldId}`}
-        title="Editorial Co-write"
+        title="Co-write partner"
         activeFieldLabel={isLoading ? world.name : `${world.name} · ${records.length} records`}
         greeting={
           `I have the full picture for ${world.name} — ${records.length} canon record${records.length !== 1 ? "s" : ""} across your world. ` +
           `Tell me what you want to develop, refine, or connect. I can spot inconsistencies, draft prose, ` +
-          `suggest missing records, or help you plan how existing characters and places relate.`
+          `suggest missing records, connect storylines to canon, or turn a digital moment into a physical piece.`
         }
         onSend={async (message, history) =>
           apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
@@ -220,7 +222,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
             WorldSmith
           </div>
           <div className="text-[10px] uppercase tracking-widest text-gray-400 mt-0.5">
-            Editorial Suite
+            Editorial Studio
           </div>
 
           {/* World selector */}
@@ -313,25 +315,19 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
           <p className="text-[10px] uppercase tracking-widest text-gray-400 px-2 mb-2 font-medium">
-            Workspace
+            Create & connect
           </p>
           {navItem("Readiness Board", LayoutDashboard, "/super/worldsmith/editorial/board", "board")}
-          {navItem("Production Specs", FileText, "/super/worldsmith/editorial/specs", "specs")}
+          {navItem("Storylines", BookOpen, "/super/worldsmith/editorial/stories", "stories")}
+          {navItem("Story Map", Network, "/super/worldsmith/editorial/connections", "connections")}
           {navItem("Canon Records", BookOpen, "/super/worldsmith/editorial/canon", "canon")}
+
+          <p className="text-[10px] uppercase tracking-widest text-gray-400 px-2 pt-5 mb-2 font-medium">
+            Make it real
+          </p>
+          {navItem("Production Specs", FileText, "/super/worldsmith/editorial/specs", "specs")}
           {navItem("Style Guides", Layers, "/super/worldsmith/editorial/style-guides", "style-guides")}
           {navItem("Prompt Modules", Puzzle, "/super/worldsmith/editorial/modules", "modules")}
-
-          <div className="pt-3">
-            <Link href="/super/worldsmith/editorial/specs/new">
-              <span
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors"
-                style={{ background: "#C87560", color: "white", fontWeight: 500 }}
-              >
-                <Plus className="w-4 h-4 shrink-0" />
-                New Asset
-              </span>
-            </Link>
-          </div>
         </nav>
 
         {/* Sync status footer */}

@@ -128,6 +128,8 @@ import {
   NewStyleGuideFlow,
   NewPromptModuleFlow,
   PromptModules,
+  StoriesStudio,
+  StoryConnections,
 } from "@/pages/super/worldsmith-editorial";
 import { EditorialProvider } from "@/contexts/EditorialContext";
 
@@ -225,6 +227,16 @@ function RootRouter() {
       </Route>
 
       {/* ── WorldSmith Editorial Suite ────────────────────────────────────── */}
+      <Route path="/super/worldsmith/editorial/stories">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="stories"><StoriesStudio /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/connections">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="connections"><StoryConnections /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
       <Route path="/super/worldsmith/editorial/specs">
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="specs"><SpecsList /></EditorialShell>

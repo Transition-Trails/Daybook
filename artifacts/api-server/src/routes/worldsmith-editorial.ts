@@ -2145,6 +2145,107 @@ router.get("/v1/editorial/stories", async (req: Request, res: Response) => {
   }
 });
 
+// World-level narrative map: stories, canon records, and their saved links.
+// This keeps the visual Story Map grounded in actual editorial relationships.
+router.get("/v1/editorial/story-connections", async (req: Request, res: Response) => {
+  try {
+    const worldId = req.query.world_id as string;
+    if (!worldId) { res.status(400).json({ error: "world_id required" }); return; }
+    const selectedStoryId = typeof req.query.story_id === "string" ? req.query.story_id : null;
+    const requestedLimit = Number(req.query.limit ?? 80);
+    const linkLimit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 160)) : 80;
+
+    const storyRows = await db.select({
+      id: wsStoriesTable.id,
+      title: wsStoriesTable.title,
+      summary: wsStoriesTable.summary,
+      status: wsStoriesTable.status,
+    })
+      .from(wsStoriesTable)
+      .where(eq(wsStoriesTable.worldId, worldId))
+      .orderBy(wsStoriesTable.sortOrder, wsStoriesTable.createdAt);
+
+    if (selectedStoryId && !storyRows.some(story => story.id === selectedStoryId)) {
+      res.status(404).json({ error: "Story not found in this world" });
+      return;
+    }
+
+    const storyIds = storyRows.map(story => story.id);
+    const acts = storyIds.length > 0
+      ? await db.select({
+        id: wsStoryActsTable.id,
+        storyId: wsStoryActsTable.storyId,
+        actNumber: wsStoryActsTable.actNumber,
+        title: wsStoryActsTable.title,
+      })
+        .from(wsStoryActsTable)
+        .where(inArray(wsStoryActsTable.storyId, storyIds))
+        .orderBy(wsStoryActsTable.storyId, wsStoryActsTable.actNumber)
+      : [];
+    const actsByStory = new Map<string, typeof acts>();
+    for (const act of acts) {
+      const existing = actsByStory.get(act.storyId) ?? [];
+      existing.push(act);
+      actsByStory.set(act.storyId, existing);
+    }
+
+    const linkWhere = selectedStoryId
+      ? and(
+        eq(wsCanonRecordsTable.worldId, worldId),
+        eq(wsStoriesTable.worldId, worldId),
+        eq(wsCanonRecordStoryLinksTable.storyId, selectedStoryId),
+      )
+      : and(eq(wsCanonRecordsTable.worldId, worldId), eq(wsStoriesTable.worldId, worldId));
+
+    const [canonRecords, links, totalLinkRows] = await Promise.all([
+      db.select({
+        id: wsCanonRecordsTable.id,
+        name: wsCanonRecordsTable.name,
+        canonType: wsCanonRecordsTable.canonType,
+        status: wsCanonRecordsTable.status,
+      })
+        .from(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.worldId, worldId))
+        .orderBy(wsCanonRecordsTable.name)
+        .limit(160),
+      db.select({
+        storyId: wsCanonRecordStoryLinksTable.storyId,
+        storyTitle: wsStoriesTable.title,
+        canonRecordId: wsCanonRecordStoryLinksTable.canonRecordId,
+        recordName: wsCanonRecordsTable.name,
+        canonType: wsCanonRecordsTable.canonType,
+        actId: wsCanonRecordStoryLinksTable.actId,
+        actNumber: wsStoryActsTable.actNumber,
+        actTitle: wsStoryActsTable.title,
+      })
+        .from(wsCanonRecordStoryLinksTable)
+        .innerJoin(wsCanonRecordsTable, eq(wsCanonRecordStoryLinksTable.canonRecordId, wsCanonRecordsTable.id))
+        .innerJoin(wsStoriesTable, eq(wsCanonRecordStoryLinksTable.storyId, wsStoriesTable.id))
+        .leftJoin(wsStoryActsTable, eq(wsCanonRecordStoryLinksTable.actId, wsStoryActsTable.id))
+        .where(linkWhere)
+        .limit(linkLimit),
+      db.select({ count: sql<number>`count(*)` })
+        .from(wsCanonRecordStoryLinksTable)
+        .innerJoin(wsCanonRecordsTable, eq(wsCanonRecordStoryLinksTable.canonRecordId, wsCanonRecordsTable.id))
+        .innerJoin(wsStoriesTable, eq(wsCanonRecordStoryLinksTable.storyId, wsStoriesTable.id))
+        .where(linkWhere),
+    ]);
+
+    const totalLinks = Number(totalLinkRows[0]?.count ?? 0);
+    res.json({
+      stories: storyRows.map(story => ({ ...story, acts: actsByStory.get(story.id) ?? [] })),
+      canonRecords,
+      links,
+      totalLinks,
+      linksTruncated: totalLinks > links.length,
+      recordsTruncated: canonRecords.length === 160,
+    });
+  } catch (err) {
+    logger.error({ err }, "editorial: list story connections");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Create a story
 router.post("/v1/editorial/stories", async (req: Request, res: Response) => {
   try {
@@ -2317,14 +2418,45 @@ router.post("/v1/editorial/canon-records/:id/story-links", async (req: Request, 
   try {
     const { story_id, act_id } = req.body;
     if (!story_id) { res.status(400).json({ error: "story_id required" }); return; }
-    await db.insert(wsCanonRecordStoryLinksTable).values({
-      canonRecordId: req.params.id as string,
-      storyId: story_id,
-      actId: act_id ?? null,
-    }).onConflictDoUpdate({
-      target: [wsCanonRecordStoryLinksTable.canonRecordId, wsCanonRecordStoryLinksTable.storyId],
-      set: { actId: act_id ?? null },
+
+    const result = await db.transaction(async tx => {
+      const [record] = await tx.select({ worldId: wsCanonRecordsTable.worldId })
+        .from(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.id, req.params.id as string))
+        .limit(1);
+      if (!record) return { error: "CANON_RECORD_NOT_FOUND" as const };
+
+      const [story] = await tx.select({ worldId: wsStoriesTable.worldId })
+        .from(wsStoriesTable)
+        .where(eq(wsStoriesTable.id, story_id))
+        .limit(1);
+      if (!story) return { error: "STORY_NOT_FOUND" as const };
+      if (record.worldId !== story.worldId) return { error: "WORLD_MISMATCH" as const };
+
+      if (act_id) {
+        const [act] = await tx.select({ storyId: wsStoryActsTable.storyId })
+          .from(wsStoryActsTable)
+          .where(eq(wsStoryActsTable.id, act_id))
+          .limit(1);
+        if (!act || act.storyId !== story_id) return { error: "ACT_MISMATCH" as const };
+      }
+
+      await tx.insert(wsCanonRecordStoryLinksTable).values({
+        canonRecordId: req.params.id as string,
+        storyId: story_id,
+        actId: act_id ?? null,
+      }).onConflictDoUpdate({
+        target: [wsCanonRecordStoryLinksTable.canonRecordId, wsCanonRecordStoryLinksTable.storyId],
+        set: { actId: act_id ?? null },
+      });
+      return { ok: true as const };
     });
+
+    if ("error" in result) {
+      const status = result.error === "CANON_RECORD_NOT_FOUND" || result.error === "STORY_NOT_FOUND" ? 404 : 400;
+      res.status(status).json({ error: result.error });
+      return;
+    }
     res.status(201).json({ ok: true });
   } catch (err) {
     logger.error({ err }, "editorial: create story link");

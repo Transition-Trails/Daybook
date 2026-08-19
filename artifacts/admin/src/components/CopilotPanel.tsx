@@ -17,7 +17,12 @@ import { useState, useRef, useEffect } from "react";
 import { Sparkles, X, ArrowRight, Loader2 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 
-const INK = "#1B2A4A";
+// ── WorldSmith editorial palette ──────────────────────────────────────────────
+const INK         = "#1B2A4A";
+const CLAY        = "#C87560";
+const PARCHMENT   = "#EFE9E1";
+const WARM_WHITE  = "#FDFAF7";
+const WARM_BORDER = "#DDD4C4";
 
 export interface ApplyTarget {
   key: string;
@@ -81,6 +86,11 @@ export interface CopilotPanelProps {
    * this text is shown as the opening AI message.
    */
   greeting?: string;
+  /**
+   * Optional CTA rendered at the bottom of the panel, below the input.
+   * Use for actions like "Create Spec →" that follow a brainstorm session.
+   */
+  footerCta?: React.ReactNode;
 }
 
 export function CopilotPanel({
@@ -94,6 +104,7 @@ export function CopilotPanel({
   greeting,
   className = "",
   panelStyle,
+  footerCta,
 }: CopilotPanelProps) {
   const [chat, setChat] = useState<CopilotMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -178,39 +189,49 @@ export function CopilotPanel({
   return (
     <aside
       className={[
-        "w-[340px] shrink-0 sticky top-4 flex flex-col rounded-2xl border border-border bg-card overflow-hidden animate-in slide-in-from-right-4 fade-in duration-200",
+        "w-[340px] shrink-0 sticky top-4 flex flex-col rounded-2xl overflow-hidden animate-in slide-in-from-right-4 fade-in duration-200",
         className,
       ].join(" ")}
-      style={{ maxHeight: "calc(100vh - 8rem)", minHeight: "420px", ...panelStyle }}
+      style={{
+        maxHeight: "calc(100vh - 8rem)",
+        minHeight: "420px",
+        background: WARM_WHITE,
+        border: `1px solid ${WARM_BORDER}`,
+        ...panelStyle,
+      }}
     >
       {/* Header */}
       <div
-        className="px-4 py-3 border-b border-border flex items-center justify-between gap-2"
-        style={{ background: INK }}
+        className="px-4 py-3 flex items-center justify-between gap-2 shrink-0"
+        style={{ background: INK, borderBottom: `1px solid ${INK}` }}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <Sparkles className="w-3.5 h-3.5 text-white/80 shrink-0" />
+          <Sparkles className="w-3.5 h-3.5 shrink-0" style={{ color: CLAY }} />
           <div className="min-w-0">
             <div className="text-[13px] font-semibold text-white leading-tight">{title}</div>
-            <div className="text-[11px] text-white/60 truncate">
+            <div className="text-[11px] truncate" style={{ color: "rgba(255,255,255,0.55)" }}>
               Helping with: {activeFieldLabel}
             </div>
           </div>
         </div>
-        <button onClick={onClose} className="text-white/60 hover:text-white shrink-0">
+        <button onClick={onClose} className="hover:opacity-80 shrink-0" style={{ color: "rgba(255,255,255,0.6)" }}>
           <X className="w-4 h-4" />
         </button>
       </div>
 
       {/* Thread */}
-      <div ref={threadRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+      <div
+        ref={threadRef}
+        className="flex-1 overflow-y-auto px-3 py-3 space-y-3"
+        style={{ background: WARM_WHITE }}
+      >
         {chat.map((m, i) =>
           m.role === "user" ? (
             <div key={m.id} className="flex justify-end">
               <div className="max-w-[85%]">
                 <div
-                  className="rounded-2xl rounded-br-sm px-3.5 py-2.5 text-[13px] leading-relaxed text-foreground"
-                  style={{ background: "#F5EDE4" }}
+                  className="rounded-2xl rounded-br-sm px-3.5 py-2.5 text-[13px] leading-relaxed"
+                  style={{ background: PARCHMENT, color: INK }}
                 >
                   {m.content}
                 </div>
@@ -227,15 +248,18 @@ export function CopilotPanel({
           ) : (
             <div key={m.id} className="flex justify-start">
               <div className="max-w-[90%]">
-                <div className="rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-[13px] leading-relaxed bg-muted/60 text-foreground whitespace-pre-wrap">
-                  <span style={{ color: INK }} className="mr-1">✦</span>
+                <div
+                  className="rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap"
+                  style={{ background: "#EDE4D8", color: INK }}
+                >
+                  <span style={{ color: CLAY }} className="mr-1">✦</span>
                   {m.content}
                 </div>
                 {onApply && i > 0 && m.applyTarget && (
                   <button
                     onClick={() => onApply(m.content, m.applyTarget!.key, m.applyTarget!.label)}
-                    className="mt-1 text-[11.5px] font-semibold hover:underline flex items-center gap-0.5"
-                    style={{ color: INK }}
+                    className="mt-1.5 text-[11.5px] font-semibold hover:underline flex items-center gap-0.5"
+                    style={{ color: CLAY }}
                   >
                     Apply to {m.applyTarget.label} <ArrowRight className="w-3 h-3" />
                   </button>
@@ -246,15 +270,22 @@ export function CopilotPanel({
         )}
         {sendMutation.isPending && (
           <div className="flex justify-start">
-            <div className="rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-[13px] bg-muted/60 text-muted-foreground flex items-center gap-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> thinking…
+            <div
+              className="rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-[13px] flex items-center gap-2"
+              style={{ background: "#EDE4D8", color: "#8A7B6A" }}
+            >
+              <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: CLAY }} />
+              thinking…
             </div>
           </div>
         )}
       </div>
 
       {/* Input */}
-      <div className="border-t border-border p-3">
+      <div
+        className="p-3 shrink-0"
+        style={{ borderTop: `1px solid ${WARM_BORDER}`, background: WARM_WHITE }}
+      >
         <div className="flex items-end gap-2">
           <textarea
             value={chatInput}
@@ -267,23 +298,38 @@ export function CopilotPanel({
             }}
             rows={2}
             placeholder={`Ask about ${activeFieldLabel.toLowerCase()}…`}
-            className="flex-1 rounded-xl border border-border px-3 py-2 text-[13px] leading-relaxed resize-none outline-none focus:border-foreground/30"
+            className="flex-1 rounded-xl px-3 py-2 text-[13px] leading-relaxed resize-none outline-none"
+            style={{
+              border: `1px solid ${WARM_BORDER}`,
+              background: "white",
+              color: INK,
+            }}
           />
           <button
             onClick={() => sendChat(chatInput)}
             disabled={!chatInput.trim() || sendMutation.isPending}
-            className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40"
+            className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-opacity"
             style={{ background: INK }}
             aria-label="Send"
           >
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
-        <p className="text-[10.5px] text-muted-foreground mt-1.5">
+        <p className="text-[10.5px] mt-1.5" style={{ color: "#9B8E80" }}>
           Shift+Enter to send
           {onApply && " · Apply replaces the targeted field"}
         </p>
       </div>
+
+      {/* Optional footer CTA */}
+      {footerCta && (
+        <div
+          className="px-3 pb-3 shrink-0"
+          style={{ background: WARM_WHITE }}
+        >
+          {footerCta}
+        </div>
+      )}
     </aside>
   );
 }

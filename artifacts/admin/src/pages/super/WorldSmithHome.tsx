@@ -941,6 +941,7 @@ function StoriesSection({ world }: { world: WsWorld }) {
   const [newStoryStatus, setNewStoryStatus] = useState("draft");
   const [summaryDraft, setSummaryDraft] = useState<Record<string, string>>({});
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [brainstormOpen, setBrainstormOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["ws-stories", world.id],
@@ -995,37 +996,107 @@ function StoriesSection({ world }: { world: WsWorld }) {
             })
           )}
         </div>
-        <button onClick={() => setAddingStory(o => !o)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-dashed border-[#C87560] text-[#C87560] hover:bg-[#C87560]/5">
-          <Plus className="w-3 h-3" /> New Story
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => { setBrainstormOpen(o => !o); setAddingStory(true); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors"
+            style={brainstormOpen
+              ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
+              : { background: "transparent", color: "#1B2A4A", borderColor: "#1B2A4A" }}
+          >
+            <Sparkles className="w-3 h-3" style={{ color: brainstormOpen ? "#C87560" : "#C87560" }} />
+            Co-write
+          </button>
+          <button onClick={() => setAddingStory(o => !o)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-dashed border-[#C87560] text-[#C87560] hover:bg-[#C87560]/5">
+            <Plus className="w-3 h-3" /> New Story
+          </button>
+        </div>
       </div>
 
-      {/* New story form */}
+      {/* Story creation area — form + optional brainstorm panel side by side */}
       {addingStory && (
-        <div className="rounded-xl border border-border bg-card p-4 flex items-end gap-3">
-          <div className="flex-1">
-            <label className="block text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Title</label>
-            <input value={newStoryTitle} onChange={e => setNewStoryTitle(e.target.value)}
-              placeholder="The Wychcombe Inheritance..."
-              className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-foreground/30"
-              onKeyDown={e => e.key === "Enter" && newStoryTitle.trim() && createMutation.mutate()} />
+        <div className="flex gap-4 items-stretch">
+          {/* Form */}
+          <div className="flex-1 rounded-xl border p-4 flex flex-col gap-3" style={{ borderColor: "#DDD4C4", background: "#FDFAF7" }}>
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>New Story</p>
+              {brainstormOpen && newStoryTitle && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: "#EFE9E1", color: "#1B2A4A" }}>
+                  Title suggested by Co-write ✦
+                </span>
+              )}
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "#9CA3AF" }}>Title</label>
+              <input
+                value={newStoryTitle}
+                onChange={e => setNewStoryTitle(e.target.value)}
+                placeholder="The Wychcombe Inheritance…"
+                className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                style={{ border: "1px solid #DDD4C4", background: "white", color: "#1B2A4A" }}
+                onKeyDown={e => e.key === "Enter" && newStoryTitle.trim() && createMutation.mutate()}
+              />
+            </div>
+            <div className="flex items-end gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "#9CA3AF" }}>Status</label>
+                <select value={newStoryStatus} onChange={e => setNewStoryStatus(e.target.value)}
+                  className="rounded-lg px-2 py-2 text-sm outline-none"
+                  style={{ border: "1px solid #DDD4C4", background: "white" }}>
+                  {["draft", "active", "planned", "archived"].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <button
+                onClick={() => createMutation.mutate()}
+                disabled={!newStoryTitle.trim() || createMutation.isPending}
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                style={{ background: "#1B2A4A" }}
+              >
+                {createMutation.isPending ? "Creating…" : "Create"}
+              </button>
+              <button
+                onClick={() => { setAddingStory(false); setBrainstormOpen(false); setNewStoryTitle(""); }}
+                className="p-2"
+                style={{ color: "#9CA3AF" }}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-          <div>
-            <label className="block text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Status</label>
-            <select value={newStoryStatus} onChange={e => setNewStoryStatus(e.target.value)}
-              className="rounded-lg border border-border px-2 py-2 text-sm outline-none">
-              {["draft", "active", "planned", "archived"].map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <button onClick={() => createMutation.mutate()} disabled={!newStoryTitle.trim() || createMutation.isPending}
-            className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-            style={{ background: "#1B2A4A" }}>
-            {createMutation.isPending ? "Creating…" : "Create"}
-          </button>
-          <button onClick={() => setAddingStory(false)} className="p-2 text-muted-foreground">
-            <X className="w-4 h-4" />
-          </button>
+
+          {/* Brainstorm panel */}
+          {brainstormOpen && (
+            <CopilotPanel
+              isOpen
+              onClose={() => setBrainstormOpen(false)}
+              title="Story Brainstorm"
+              activeFieldLabel="Title"
+              greeting={`Let's develop a story idea for ${world.name}. Tell me anything — a character, a mood, a conflict, a single image. I'll help you shape it into a story concept and suggest a title.`}
+              onSend={async (message, history) =>
+                apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    surface: "story",
+                    worldId: world.id,
+                    field: "title",
+                    fieldLabel: "Title",
+                    message,
+                    history,
+                    context: { worldName: world.name, brainstorm: true },
+                  }),
+                })
+              }
+              onCaptureTarget={() => ({ key: "title", label: "Title" })}
+              onApply={(text) => {
+                // Strip leading punctuation / quotes if AI wrapped it
+                const clean = text.replace(/^["'«»\s]+|["'»«\s]+$/g, "").split("\n")[0]?.trim() ?? text;
+                setNewStoryTitle(clean);
+              }}
+              className="shrink-0"
+              panelStyle={{ width: 340, minHeight: 320, maxHeight: 480, position: "relative", top: 0 }}
+            />
+          )}
         </div>
       )}
 

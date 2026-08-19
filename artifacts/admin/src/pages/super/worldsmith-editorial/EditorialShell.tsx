@@ -7,9 +7,11 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, FileText, BookOpen, Puzzle, Layers,
   ChevronDown, Globe, Plus, ArrowLeft, CheckCircle2,
-  Clock, Loader2, RefreshCw,
+  Clock, Loader2, RefreshCw, Sparkles, ArrowRight,
 } from "lucide-react";
 import { EditorialProvider, useEditorial } from "@/contexts/EditorialContext";
+import { CopilotPanel } from "@/components/CopilotPanel";
+import { apiFetch } from "@/lib/api";
 
 interface EditorialShellProps {
   children: ReactNode;
@@ -26,6 +28,8 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
   } = useEditorial();
   const [worldDropOpen, setWorldDropOpen] = useState(false);
   const [collDropOpen, setCollDropOpen] = useState(false);
+  const [showCowrite, setShowCowrite] = useState(false);
+  const [, navigate] = useLocation();
 
   const navItem = (
     label: string,
@@ -184,7 +188,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
           {navItem("Style Guides", Layers, "/super/worldsmith/editorial/style-guides", "style-guides")}
           {navItem("Prompt Modules", Puzzle, "/super/worldsmith/editorial/modules", "modules")}
 
-          <div className="pt-3">
+          <div className="pt-3 flex flex-col gap-1.5">
             <Link href="/super/worldsmith/editorial/specs/new">
               <span
                 className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors"
@@ -194,6 +198,14 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
                 New Asset
               </span>
             </Link>
+            <button
+              onClick={() => setShowCowrite(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors"
+              style={{ background: "transparent", color: "#1B2A4A", fontWeight: 500, border: "1.5px solid #1B2A4A" }}
+            >
+              <Sparkles className="w-4 h-4 shrink-0" style={{ color: "#C87560" }} />
+              Co-write Asset
+            </button>
           </div>
         </nav>
 
@@ -222,6 +234,62 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
       <main className="flex-1 overflow-hidden flex flex-col min-w-0">
         {children}
       </main>
+
+      {/* ── Spec co-write overlay ────────────────────────────────────────────── */}
+      {showCowrite && (
+        <div className="fixed inset-0 z-50 flex justify-end pointer-events-none">
+          <div
+            className="flex-1 pointer-events-auto"
+            onClick={() => setShowCowrite(false)}
+          />
+          <div className="pointer-events-auto flex flex-col h-full" style={{ width: 420 }}>
+            <CopilotPanel
+              isOpen
+              onClose={() => setShowCowrite(false)}
+              title="Co-write Asset"
+              activeFieldLabel="Spec"
+              greeting={`Let's shape a new production asset for ${selectedWorld?.name ?? "your world"}. Tell me what you have in mind — a rough idea, a component type, a feeling. Even a single evocative detail is enough to start.`}
+              onSend={async (message, history) => {
+                const result = await apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    surface: "spec",
+                    worldId: selectedWorldId,
+                    field: "spec",
+                    fieldLabel: "Spec",
+                    message,
+                    history,
+                    context: { worldName: selectedWorld?.name },
+                  }),
+                });
+                return result;
+              }}
+              onCaptureTarget={() => ({ key: "spec", label: "Spec" })}
+              className="!rounded-none !w-full flex-1"
+              panelStyle={{
+                width: "100%",
+                maxWidth: "100%",
+                height: "100%",
+                maxHeight: "100%",
+                minHeight: "unset",
+                borderRadius: 0,
+                border: "none",
+                borderLeft: "1px solid #DDD4C4",
+              }}
+              footerCta={
+                <button
+                  onClick={() => { setShowCowrite(false); navigate("/super/worldsmith/editorial/specs/new"); }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                  style={{ background: "#1B2A4A" }}
+                >
+                  Continue to Spec Form
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              }
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

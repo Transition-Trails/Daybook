@@ -828,7 +828,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     res.status(400).json({ error: "surface is required", code: "MISSING_SURFACE" });
     return;
   }
-  const VALID_SURFACES = ["story", "canon_record", "style_guide"];
+  const VALID_SURFACES = ["story", "canon_record", "style_guide", "spec"];
   if (!VALID_SURFACES.includes(surface)) {
     res.status(400).json({ error: `surface must be one of: ${VALID_SURFACES.join(", ")}`, code: "INVALID_SURFACE" });
     return;
@@ -860,15 +860,20 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     let systemPrompt = "";
 
     if (surface === "story") {
-      const { storyTitle, storyActs, draft } = (context ?? {}) as {
+      const { storyTitle, storyActs, draft, worldName, brainstorm } = (context ?? {}) as {
         storyTitle?: string;
         storyActs?: { actNumber: number; title: string; tagline?: string }[];
         draft?: Record<string, string>;
+        worldName?: string;
+        brainstorm?: boolean;
       };
+      const isBrainstorm = brainstorm || (!storyTitle && fieldLabel === "Title");
       systemPrompt = [
-        `You are a WorldSmith Story Copilot — a creative collaborator helping develop narrative prose for this story.`,
-        worldBibleLines ? `\n## World Context\n${worldBibleLines}` : "",
-        `\n## Story`,
+        isBrainstorm
+          ? `You are a WorldSmith Story Brainstorm Copilot — a creative collaborator helping develop NEW story ideas for this world. Your primary job is to listen to rough ideas and help shape them into a compelling story concept, then propose a specific, evocative title.`
+          : `You are a WorldSmith Story Copilot — a creative collaborator helping develop narrative prose for this story.`,
+        worldBibleLines ? `\n## World Context\n${worldBibleLines}` : (worldName ? `\n## World\n${worldName}` : ""),
+        !isBrainstorm ? `\n## Story` : "",
         storyTitle ? `Title: ${storyTitle}` : "",
         storyActs?.length
           ? `Acts:\n${storyActs.map(a => `  Act ${a.actNumber}: ${a.title}${a.tagline ? ` — ${a.tagline}` : ""}`).join("\n")}`
@@ -876,11 +881,14 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
         draft?.summary ? `\nCurrent summary:\n${draft.summary.slice(0, 3000)}` : "",
         `\n## Focus\nHelping with: ${fieldLabel}`,
         `\n## Guidelines`,
-        "- Ground all suggestions in the world's established voice and rules",
-        "- Ask clarifying questions when direction is vague",
-        "- Offer specific, concrete prose — not vague thematic statements",
-        "- When asked for a draft, write a polished paragraph ready to use",
-        "- Keep conversational replies short (2–4 sentences); only go longer for a requested draft",
+        isBrainstorm ? "- Accept any seed — a character name, a mood, a conflict, an image — and develop it into a story concept" : "",
+        isBrainstorm ? "- Ask one focused follow-up question to deepen the concept if it's very rough" : "",
+        isBrainstorm ? "- Once the concept has enough shape, propose 2–3 specific, evocative story TITLES — short, memorable, world-grounded. Format them on separate lines, each starting with '✦ '" : "",
+        isBrainstorm ? "- When the user picks or approves a title, reply with only that title as plain text so it can be applied directly" : "",
+        !isBrainstorm ? "- Ground all suggestions in the world's established voice and rules" : "",
+        !isBrainstorm ? "- Offer specific, concrete prose — not vague thematic statements" : "",
+        !isBrainstorm ? "- When asked for a draft, write a polished paragraph ready to use" : "",
+        "- Keep conversational replies short (2–4 sentences); only go longer for title proposals or a requested draft",
       ].filter(Boolean).join("\n");
 
     } else if (surface === "canon_record") {
@@ -907,6 +915,25 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
         "- When writing prose, match the world's established voice exactly",
         "- Consider how this record relates to others in the world — it should feel placed",
         "- Keep conversational replies short (2–4 sentences); only go longer for a requested draft",
+      ].filter(Boolean).join("\n");
+
+    } else if (surface === "spec") {
+      const { specConcept, componentType } = (context ?? {}) as {
+        specConcept?: string;
+        componentType?: string;
+      };
+      systemPrompt = [
+        `You are a WorldSmith Production Spec Copilot — a creative producer helping editorial teams brainstorm and shape new production specs.`,
+        `Production specs define printable components: hero papers, journal cards, ephemera sheets, decorative papers, coordinating papers, and more.`,
+        worldBibleLines ? `\n## World Context\n${worldBibleLines}` : "",
+        componentType ? `\n## Component type in mind\n${componentType}` : "",
+        specConcept ? `\n## Concept so far\n${specConcept}` : "",
+        `\n## Your role`,
+        "- Help the user identify the exact printable component they want to create",
+        "- Ask about its purpose within the world, its visual identity, and which canon records or style guides it should be grounded in",
+        "- Suggest a specific production name (e.g. 'The Wychcombe Cartographer's Header Sheet'), component type, and any canon dependencies",
+        "- When the user has a clear concept, summarise it as a production brief: one specific name, component type, and 2–3 sentences of grounding",
+        "- Keep conversational replies short (2–4 sentences); only expand when producing the final brief",
       ].filter(Boolean).join("\n");
 
     } else {

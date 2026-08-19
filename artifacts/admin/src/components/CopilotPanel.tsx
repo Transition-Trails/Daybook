@@ -1,0 +1,289 @@
+/**
+ * CopilotPanel — reusable slide-in AI co-writing panel.
+ *
+ * Manages its own chat state (messages, input, retry-by-id).
+ * The caller provides:
+ *   onSend          — async fn that sends a message and returns {reply}
+ *   onCaptureTarget — called at send time to snapshot the apply target immutably
+ *   onApply         — called with (text, targetKey, targetLabel) when user clicks Apply
+ *   greeting        — shown as the first AI message when the panel opens
+ *
+ * IMPORTANT: `onCaptureTarget` is called exactly once per send/retry, locking
+ * the target metadata to the assistant response it accompanies. This prevents
+ * Apply from drifting to a different field or record if the user navigates
+ * while a request is in-flight.
+ */
+import { useState, useRef, useEffect } from "react";
+import { Sparkles, X, ArrowRight, Loader2 } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+
+const INK = "#1B2A4A";
+
+export interface ApplyTarget {
+  key: string;
+  label: string;
+}
+
+export interface CopilotMsg {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  failed?: boolean;
+  /**
+   * True for the local greeting message injected before the first real AI
+   * turn.  Synthetic messages are shown in the thread but are NEVER included
+   * in the history sent to the server — Anthropic's Messages API requires
+   * conversations to start with a user message, and even OpenAI performs
+   * better without a fabricated assistant preamble.
+   */
+  synthetic?: boolean;
+  /** Captured at send time — immutable once set. Only present on real assistant messages. */
+  applyTarget?: ApplyTarget;
+}
+
+export interface CopilotPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+  /** Display label for the currently focused field ("Visual Palette", "Summary", …) — used in the header and as the default placeholder. */
+  activeFieldLabel: string;
+  /** Panel header title. Default: "Co-write" */
+  title?: string;
+  /** Extra class names applied to the root <aside> — use to override width/position. */
+  className?: string;
+  /** Extra inline styles applied to the root <aside>. */
+  panelStyle?: React.CSSProperties;
+  /**
+   * Called when the user sends a message.
+   * Receives the text + sanitised conversation history.
+   * Must return {reply: string}.
+   */
+  onSend: (
+    message: string,
+    history: { role: "user" | "assistant"; content: string }[],
+  ) => Promise<{ reply: string }>;
+  /**
+   * Called once per send/retry, synchronously, before the network request is
+   * made. Return a snapshot of the current target (field key + label).  The
+   * returned value is attached to the resulting assistant message; Apply always
+   * uses this snapshot rather than whatever `activeFieldLabel` is at click time.
+   *
+   * If omitted the panel falls back to `activeFieldLabel` with key="".
+   */
+  onCaptureTarget?: () => ApplyTarget;
+  /**
+   * Called when the user clicks "Apply →" on an AI message.
+   * Receives the text to apply, the target key, and the target label —
+   * all captured at the time the original request was sent.
+   */
+  onApply?: (text: string, targetKey: string, targetLabel: string) => void;
+  /**
+   * If supplied and the chat is empty when the panel first opens,
+   * this text is shown as the opening AI message.
+   */
+  greeting?: string;
+}
+
+export function CopilotPanel({
+  isOpen,
+  onClose,
+  activeFieldLabel,
+  title = "Co-write",
+  onSend,
+  onCaptureTarget,
+  onApply,
+  greeting,
+  className = "",
+  panelStyle,
+}: CopilotPanelProps) {
+  const [chat, setChat] = useState<CopilotMsg[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const threadRef = useRef<HTMLDivElement>(null);
+  const msgIdRef = useRef(0);
+  const nextId = () => ++msgIdRef.current;
+
+  // Show greeting on first open (while chat is still empty).
+  // The greeting is flagged `synthetic: true` so it is NEVER included in the
+  // history array sent to the server — Anthropic's Messages API rejects
+  // conversations that start with an assistant message.
+  const greetedRef = useRef(false);
+  useEffect(() => {
+    if (isOpen && !greetedRef.current && greeting && chat.length === 0) {
+      greetedRef.current = true;
+      setChat([{ id: nextId(), role: "assistant", content: greeting, synthetic: true }]);
+    }
+    if (!isOpen) {
+      // allow re-greeting if panel is closed and reopened with new content
+      greetedRef.current = false;
+    }
+  }, [isOpen, greeting, chat.length]);
+
+  const sendMutation = useMutation({
+    mutationFn: (payload: {
+      turnId: number;
+      message: string;
+      history: CopilotMsg[];
+      capturedTarget: ApplyTarget;
+    }) =>
+      onSend(
+        payload.message,
+        // Exclude failed turns and synthetic greetings from history sent to server.
+        // Synthetic exclusion is critical: Anthropic rejects conversations that start
+        // with an assistant message; OpenAI also performs better without fabricated preambles.
+        payload.history
+          .filter(m => !m.failed && !m.synthetic)
+          .map(({ role, content }) => ({ role, content })),
+      ).then(result => ({ ...result, capturedTarget: payload.capturedTarget })),
+    onSuccess: (data) => {
+      setChat(c => [
+        ...c,
+        { id: nextId(), role: "assistant", content: data.reply, applyTarget: data.capturedTarget },
+      ]);
+    },
+    onError: (_err, vars) => {
+      setChat(c => c.map(m => m.id === vars.turnId ? { ...m, failed: true } : m));
+    },
+  });
+
+  // Scroll to bottom after new messages or while thinking
+  useEffect(() => {
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
+  }, [chat.length, sendMutation.isPending]);
+
+  const sendChat = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || sendMutation.isPending) return;
+    // Snapshot the target synchronously before any async work
+    const capturedTarget: ApplyTarget = onCaptureTarget?.() ?? { key: "", label: activeFieldLabel };
+    const history = chat.filter(m => !m.failed);
+    const turnId = nextId();
+    setChat(c => [...c, { id: turnId, role: "user", content: trimmed }]);
+    setChatInput("");
+    sendMutation.mutate({ turnId, message: trimmed, history, capturedTarget });
+  };
+
+  const retryTurn = (turnId: number) => {
+    if (sendMutation.isPending) return;
+    const msg = chat.find(m => m.id === turnId && m.role === "user" && m.failed);
+    if (!msg) return;
+    // Re-capture target at retry time (user may have switched fields intentionally)
+    const capturedTarget: ApplyTarget = onCaptureTarget?.() ?? { key: "", label: activeFieldLabel };
+    // Strip failed turns AND synthetic greetings (same rule as in sendMutation)
+    const history = chat.filter(m => !m.failed && !m.synthetic && m.id !== turnId);
+    setChat(c => c.map(m => m.id === turnId ? { ...m, failed: false } : m));
+    sendMutation.mutate({ turnId, message: msg.content, history, capturedTarget });
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <aside
+      className={[
+        "w-[340px] shrink-0 sticky top-4 flex flex-col rounded-2xl border border-border bg-card overflow-hidden animate-in slide-in-from-right-4 fade-in duration-200",
+        className,
+      ].join(" ")}
+      style={{ maxHeight: "calc(100vh - 8rem)", minHeight: "420px", ...panelStyle }}
+    >
+      {/* Header */}
+      <div
+        className="px-4 py-3 border-b border-border flex items-center justify-between gap-2"
+        style={{ background: INK }}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <Sparkles className="w-3.5 h-3.5 text-white/80 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-white leading-tight">{title}</div>
+            <div className="text-[11px] text-white/60 truncate">
+              Helping with: {activeFieldLabel}
+            </div>
+          </div>
+        </div>
+        <button onClick={onClose} className="text-white/60 hover:text-white shrink-0">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Thread */}
+      <div ref={threadRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+        {chat.map((m, i) =>
+          m.role === "user" ? (
+            <div key={m.id} className="flex justify-end">
+              <div className="max-w-[85%]">
+                <div
+                  className="rounded-2xl rounded-br-sm px-3.5 py-2.5 text-[13px] leading-relaxed text-foreground"
+                  style={{ background: "#F5EDE4" }}
+                >
+                  {m.content}
+                </div>
+                {m.failed && (
+                  <div className="text-[11px] text-red-600 mt-1 text-right">
+                    Failed.{" "}
+                    <button onClick={() => retryTurn(m.id)} className="underline">
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div key={m.id} className="flex justify-start">
+              <div className="max-w-[90%]">
+                <div className="rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-[13px] leading-relaxed bg-muted/60 text-foreground whitespace-pre-wrap">
+                  <span style={{ color: INK }} className="mr-1">✦</span>
+                  {m.content}
+                </div>
+                {onApply && i > 0 && m.applyTarget && (
+                  <button
+                    onClick={() => onApply(m.content, m.applyTarget!.key, m.applyTarget!.label)}
+                    className="mt-1 text-[11.5px] font-semibold hover:underline flex items-center gap-0.5"
+                    style={{ color: INK }}
+                  >
+                    Apply to {m.applyTarget.label} <ArrowRight className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ),
+        )}
+        {sendMutation.isPending && (
+          <div className="flex justify-start">
+            <div className="rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-[13px] bg-muted/60 text-muted-foreground flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> thinking…
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Input */}
+      <div className="border-t border-border p-3">
+        <div className="flex items-end gap-2">
+          <textarea
+            value={chatInput}
+            onChange={e => setChatInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && (e.shiftKey || e.metaKey)) {
+                e.preventDefault();
+                sendChat(chatInput);
+              }
+            }}
+            rows={2}
+            placeholder={`Ask about ${activeFieldLabel.toLowerCase()}…`}
+            className="flex-1 rounded-xl border border-border px-3 py-2 text-[13px] leading-relaxed resize-none outline-none focus:border-foreground/30"
+          />
+          <button
+            onClick={() => sendChat(chatInput)}
+            disabled={!chatInput.trim() || sendMutation.isPending}
+            className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40"
+            style={{ background: INK }}
+            aria-label="Send"
+          >
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+        <p className="text-[10.5px] text-muted-foreground mt-1.5">
+          Shift+Enter to send
+          {onApply && " · Apply replaces the targeted field"}
+        </p>
+      </div>
+    </aside>
+  );
+}

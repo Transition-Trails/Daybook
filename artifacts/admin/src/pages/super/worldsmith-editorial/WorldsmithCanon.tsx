@@ -23,6 +23,7 @@ import {
 import { apiFetch, storageApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
+import { CopilotPanel } from "@/components/CopilotPanel";
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const INK         = "#1B2A4A";
@@ -943,7 +944,10 @@ function RightPanel({ record, recordId, relations, allRecords, patchMutation, tr
 
             {/* Emotional Register */}
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: "#9CA3AF" }}>Emotional Register</div>
+              <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#9CA3AF" }}>Emotional Register</div>
+              <p className="text-[11px] leading-snug mb-2" style={{ color: "#B0A898" }}>
+                The tonal lens this record casts on any scene that references it.
+              </p>
               <RegisterPicker
                 value={record.emotionalRegister} locked={record.registerLocked}
                 onSelect={r => patchMutation.mutate({ emotional_register: r })}
@@ -966,33 +970,85 @@ function RightPanel({ record, recordId, relations, allRecords, patchMutation, tr
 
             {/* Visibility */}
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: "#9CA3AF" }}>Narrative Visibility</div>
+              <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#9CA3AF" }}>Narrative Visibility</div>
+              <p className="text-[11px] leading-snug mb-2" style={{ color: "#B0A898" }}>
+                How directly this record surfaces in the narrative.
+              </p>
               <div className="flex gap-1.5">
-                {(["background", "hinted", "explicit"] as const).map(v => (
-                  <button key={v} onClick={() => patchMutation.mutate({ narrative_visibility: v === record.narrativeVisibility ? null : v })}
-                    className="text-[11px] font-medium rounded-full px-2.5 py-1 capitalize"
-                    style={v === record.narrativeVisibility
-                      ? { background: INK, color: "white" }
-                      : { background: PARCHMENT, color: "#6B7280", border: `1px solid ${WARM_BORDER}` }}>
-                    {v}
-                  </button>
-                ))}
+                {(["background", "hinted", "explicit"] as const).map(v => {
+                  const tips: Record<string, string> = {
+                    background: "Never encountered directly — shapes atmosphere and world-feel only",
+                    hinted:     "Alluded to or felt; readers sense it without full exposure",
+                    explicit:   "Appears openly; characters encounter or interact with it directly",
+                  };
+                  return (
+                    <button key={v}
+                      onClick={() => patchMutation.mutate({ narrative_visibility: v === record.narrativeVisibility ? null : v })}
+                      title={tips[v]}
+                      className="text-[11px] font-medium rounded-full px-2.5 py-1 capitalize"
+                      style={v === record.narrativeVisibility
+                        ? { background: INK, color: "white" }
+                        : { background: PARCHMENT, color: "#6B7280", border: `1px solid ${WARM_BORDER}` }}>
+                      {v}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-1">
+                {(["background", "hinted", "explicit"] as const).map(v => {
+                  const desc: Record<string, string> = {
+                    background: "Shapes atmosphere only",
+                    hinted:     "Felt but not named",
+                    explicit:   "Directly encountered",
+                  };
+                  return (
+                    <p key={v} className="text-[10px] text-center leading-tight" style={{ color: "#C4BAB0" }}>
+                      {desc[v]}
+                    </p>
+                  );
+                })}
               </div>
             </div>
 
             {/* Canon Stability */}
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: "#9CA3AF" }}>Canon Stability</div>
+              <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#9CA3AF" }}>Canon Stability</div>
+              <p className="text-[11px] leading-snug mb-2" style={{ color: "#B0A898" }}>
+                How fixed this record is within the world's canon.
+              </p>
               <div className="flex gap-1.5">
-                {(["low", "medium", "high"] as const).map(s => (
-                  <button key={s} onClick={() => patchMutation.mutate({ canon_stability: s === record.canonStability ? null : s })}
-                    className="text-[11px] font-medium rounded-full px-2.5 py-1 capitalize"
-                    style={s === record.canonStability
-                      ? { background: INK, color: "white" }
-                      : { background: PARCHMENT, color: "#6B7280", border: `1px solid ${WARM_BORDER}` }}>
-                    {s}
-                  </button>
-                ))}
+                {(["low", "medium", "high"] as const).map(s => {
+                  const tips: Record<string, string> = {
+                    low:    "Provisional — may change as the story develops",
+                    medium: "Established but open to refinement",
+                    high:   "Foundational — changes here ripple through the entire world",
+                  };
+                  return (
+                    <button key={s}
+                      onClick={() => patchMutation.mutate({ canon_stability: s === record.canonStability ? null : s })}
+                      title={tips[s]}
+                      className="text-[11px] font-medium rounded-full px-2.5 py-1 capitalize"
+                      style={s === record.canonStability
+                        ? { background: INK, color: "white" }
+                        : { background: PARCHMENT, color: "#6B7280", border: `1px solid ${WARM_BORDER}` }}>
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-1">
+                {(["low", "medium", "high"] as const).map(s => {
+                  const desc: Record<string, string> = {
+                    low:    "Provisional",
+                    medium: "Established",
+                    high:   "Foundational",
+                  };
+                  return (
+                    <p key={s} className="text-[10px] text-center leading-tight" style={{ color: "#C4BAB0" }}>
+                      {desc[s]}
+                    </p>
+                  );
+                })}
               </div>
             </div>
 
@@ -1236,6 +1292,9 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     patchMutation.mutate({ [map[field] ?? field]: value });
   }, [patchMutation]);
 
+  // ── Copilot ─────────────────────────────────────────────────────────────────
+  const [copilotOpen, setCopilotOpen] = useState(false);
+
   // ── Portrait upload ──────────────────────────────────────────────────────────
   const [portraitUploading, setPortraitUploading] = useState(false);
   const handlePortraitUpload = useCallback(async (file: File) => {
@@ -1364,6 +1423,18 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
 
             {/* Prose textarea */}
             <div className="relative group mb-8">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>Narrative</p>
+                <button
+                  onClick={() => setCopilotOpen(o => !o)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-semibold border transition-colors ${
+                    copilotOpen ? "text-white border-transparent" : "border-border hover:border-foreground/30"
+                  }`}
+                  style={copilotOpen ? { background: INK } : { color: INK }}
+                >
+                  <Sparkles className="w-3 h-3" /> Co-write
+                </button>
+              </div>
               <AutoField label="" field="narrativeDetails" value={record.narrativeDetails}
                 placeholder="Write this record's story here — how it exists in your world, what it feels like, what it carries…"
                 onSave={handleField} rows={5} />
@@ -1393,15 +1464,50 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
           </div>
         </main>
 
-        {/* RIGHT PANEL */}
-        <RightPanel
-          record={record} recordId={recordId} relations={relations} allRecords={allRecords}
-          patchMutation={patchMutation} transitionMutation={transitionMutation}
-          deleteMutation={deleteMutation} setShowDeleteConfirm={setShowDeleteConfirm}
-          cascadeMutation={cascadeMutation} addRelMutation={addRelMutation}
-          removeRelMutation={removeRelMutation} patchRelTypeMutation={patchRelTypeMutation}
-          linkedSpecs={linkedSpecs} worldId={worldId}
-        />
+        {/* RIGHT PANEL / COPILOT */}
+        {copilotOpen ? (
+          <CopilotPanel
+            isOpen
+            onClose={() => setCopilotOpen(false)}
+            title="Canon Copilot"
+            activeFieldLabel="Narrative"
+            greeting={`I'm here to help you write the narrative for ${record.name}. Tell me how this ${(CANON_TYPES.find(t => t.key === record.canonType)?.label ?? "record").toLowerCase()} exists in your world — even a rough impression is enough to start.`}
+            onSend={async (message, history) =>
+              apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
+                method: "POST",
+                body: JSON.stringify({
+                  surface: "canon_record",
+                  worldId: recordWorld?.id,
+                  field: "narrativeDetails",
+                  fieldLabel: "Narrative",
+                  message,
+                  history,
+                  context: {
+                    recordName: record.name,
+                    recordType: record.canonType,
+                    draft: {
+                      narrativeDetails: record.narrativeDetails ?? "",
+                      notes: record.notes ?? "",
+                    },
+                  },
+                }),
+              })
+            }
+            onCaptureTarget={() => ({ key: "narrativeDetails", label: "Narrative" })}
+            onApply={(text, key) => handleField(key || "narrativeDetails", text.trim())}
+            panelStyle={{ position: "sticky", top: 0, maxHeight: "100dvh", minHeight: "auto", height: "100%", borderRadius: 0, borderLeft: `1px solid ${WARM_BORDER}`, borderTop: "none", borderRight: "none", borderBottom: "none" }}
+            className="!rounded-none !border-l !border-t-0 !border-r-0 !border-b-0 !sticky !top-0"
+          />
+        ) : (
+          <RightPanel
+            record={record} recordId={recordId} relations={relations} allRecords={allRecords}
+            patchMutation={patchMutation} transitionMutation={transitionMutation}
+            deleteMutation={deleteMutation} setShowDeleteConfirm={setShowDeleteConfirm}
+            cascadeMutation={cascadeMutation} addRelMutation={addRelMutation}
+            removeRelMutation={removeRelMutation} patchRelTypeMutation={patchRelTypeMutation}
+            linkedSpecs={linkedSpecs} worldId={worldId}
+          />
+        )}
       </div>
 
       {/* Delete confirmation */}

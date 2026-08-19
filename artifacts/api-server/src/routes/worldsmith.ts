@@ -21,6 +21,7 @@ import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import type { User } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { callAi } from "../lib/ai-proxy";
 import {
   getPage,
   extractTitle,
@@ -797,6 +798,272 @@ router.get("/v1/worldsmith/health", requireAuth, requireSuperAdmin, async (_req:
   });
 
   res.json({ integrations });
+});
+
+// ── POST /v1/worldsmith/copilot ──────────────────────────────────────────────
+// Generic creative-writing copilot for any WorldSmith prose surface.
+// surface: "story" | "canon_record" | "style_guide"
+// worldId: optional — if supplied the world's Bible is fetched for grounding.
+// context: surface-specific object assembled by the client.
+
+router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const body = req.body as {
+    surface?: string;
+    worldId?: string;
+    field?: string;
+    fieldLabel?: string;
+    message?: string;
+    history?: { role: string; content: string }[];
+    context?: Record<string, unknown>;
+  };
+
+  const { surface, worldId, field, fieldLabel = field ?? "this field", message, history, context } = body;
+
+  if (!message || typeof message !== "string" || !message.trim()) {
+    res.status(400).json({ error: "message is required", code: "MISSING_MESSAGE" });
+    return;
+  }
+  if (!surface) {
+    res.status(400).json({ error: "surface is required", code: "MISSING_SURFACE" });
+    return;
+  }
+  const VALID_SURFACES = ["story", "canon_record", "style_guide"];
+  if (!VALID_SURFACES.includes(surface)) {
+    res.status(400).json({ error: `surface must be one of: ${VALID_SURFACES.join(", ")}`, code: "INVALID_SURFACE" });
+    return;
+  }
+
+  try {
+    // Optionally fetch World Bible for grounding
+    let worldBibleLines = "";
+    if (worldId) {
+      const [world] = await db
+        .select()
+        .from(worldsmithWorldsTable)
+        .where(eq(worldsmithWorldsTable.id, worldId))
+        .limit(1);
+      if (world) {
+        worldBibleLines = [
+          `World: ${world.name}${world.description ? ` — ${world.description}` : ""}`,
+          `Visual Palette: ${world.visualPalette?.trim() || "(not set)"}`,
+          `Prose Voice: ${world.proseVoice?.trim() || "(not set)"}`,
+          `Atmospheric Notes: ${world.atmosphericNotes?.trim() || "(not set)"}`,
+          `Material World: ${world.materialWorld?.trim() || "(not set)"}`,
+          Array.isArray(world.worldRules) && world.worldRules.length > 0
+            ? `World Rules:\n${(world.worldRules as string[]).map((r: string) => `  - ${r}`).join("\n")}`
+            : "",
+        ].filter(Boolean).join("\n");
+      }
+    }
+
+    let systemPrompt = "";
+
+    if (surface === "story") {
+      const { storyTitle, storyActs, draft } = (context ?? {}) as {
+        storyTitle?: string;
+        storyActs?: { actNumber: number; title: string; tagline?: string }[];
+        draft?: Record<string, string>;
+      };
+      systemPrompt = [
+        `You are a WorldSmith Story Copilot — a creative collaborator helping develop narrative prose for this story.`,
+        worldBibleLines ? `\n## World Context\n${worldBibleLines}` : "",
+        `\n## Story`,
+        storyTitle ? `Title: ${storyTitle}` : "",
+        storyActs?.length
+          ? `Acts:\n${storyActs.map(a => `  Act ${a.actNumber}: ${a.title}${a.tagline ? ` — ${a.tagline}` : ""}`).join("\n")}`
+          : "",
+        draft?.summary ? `\nCurrent summary:\n${draft.summary.slice(0, 3000)}` : "",
+        `\n## Focus\nHelping with: ${fieldLabel}`,
+        `\n## Guidelines`,
+        "- Ground all suggestions in the world's established voice and rules",
+        "- Ask clarifying questions when direction is vague",
+        "- Offer specific, concrete prose — not vague thematic statements",
+        "- When asked for a draft, write a polished paragraph ready to use",
+        "- Keep conversational replies short (2–4 sentences); only go longer for a requested draft",
+      ].filter(Boolean).join("\n");
+
+    } else if (surface === "canon_record") {
+      const { recordName, recordType, draft } = (context ?? {}) as {
+        recordName?: string;
+        recordType?: string;
+        draft?: Record<string, string>;
+      };
+      const draftLines = draft
+        ? Object.entries(draft)
+            .filter(([, v]) => typeof v === "string" && (v as string).trim())
+            .map(([k, v]) => `${k}:\n${(v as string).slice(0, 2000)}`)
+            .join("\n\n")
+        : "";
+      systemPrompt = [
+        `You are a WorldSmith Canon Copilot — a creative editor helping write the prose and context for a canon record.`,
+        worldBibleLines ? `\n## World Context\n${worldBibleLines}` : "",
+        `\n## Record\nName: ${recordName ?? "Unknown"}\nType: ${recordType ?? "Unknown"}`,
+        draftLines ? `\nCurrent content:\n${draftLines}` : "",
+        `\n## Focus\nHelping with: ${fieldLabel}`,
+        `\n## Guidelines`,
+        "- Every detail must cohere with the World Bible above — this record exists inside that world",
+        "- Be specific: names, textures, sensory details, history — avoid generalities",
+        "- When writing prose, match the world's established voice exactly",
+        "- Consider how this record relates to others in the world — it should feel placed",
+        "- Keep conversational replies short (2–4 sentences); only go longer for a requested draft",
+      ].filter(Boolean).join("\n");
+
+    } else {
+      // style_guide
+      const { guideName, guideType, draft } = (context ?? {}) as {
+        guideName?: string;
+        guideType?: string;
+        draft?: Record<string, string>;
+      };
+      const filledFields = draft
+        ? Object.entries(draft)
+            .filter(([, v]) => typeof v === "string" && (v as string).trim())
+            .map(([k, v]) => `${k}:\n${(v as string).slice(0, 1500)}`)
+            .join("\n\n")
+        : "";
+      systemPrompt = [
+        `You are a WorldSmith Style Guide Copilot — an expert creative director helping write a ${guideType || "style"} guide.`,
+        `\n## Guide Context\nName: ${guideName ?? "Untitled"}\nType: ${guideType ?? "General"}`,
+        worldBibleLines ? `\n## World Context\n${worldBibleLines}` : "",
+        filledFields ? `\n## Guide content so far\n${filledFields}` : "",
+        `\n## Focus\nHelping with: ${fieldLabel}`,
+        `\n## Guidelines`,
+        "- Style guide prose must be precise and immediately actionable — avoid vague aesthetic language",
+        "- For visual fields (palette, illustration, texture): give measurable specifications alongside evocative language",
+        "- For voice/tone fields: provide example phrases and concrete rules, not generalities",
+        "- Ensure consistency with the rest of the guide content above",
+        "- When asked for a draft, write complete, production-ready copy",
+        "- Keep conversational replies short (2–4 sentences); only go longer for a requested draft",
+      ].filter(Boolean).join("\n");
+    }
+
+    const safeHistory = (Array.isArray(history) ? history : [])
+      .filter((m): m is { role: "user" | "assistant"; content: string } =>
+        (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string")
+      .slice(-20);
+
+    // Normalize: Anthropic requires conversations to start with a user message.
+    // Drop all leading assistant messages (e.g. synthetic greeting from client state).
+    // When firstUserIdx is -1 the history is all-assistant → drop everything.
+    const firstUserIdx = safeHistory.findIndex(m => m.role === "user");
+    const normalizedHistory = firstUserIdx < 0 ? [] : safeHistory.slice(firstUserIdx);
+
+    const result = await callAi(
+      [...normalizedHistory, { role: "user" as const, content: message.trim() }],
+      process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
+      systemPrompt,
+    );
+
+    res.json({ reply: result.content, provider: result.provider, model: result.model });
+  } catch (err) {
+    logger.error({ err }, "WorldSmith copilot failed");
+    res.status(502).json({ error: "The copilot couldn't respond. Try again.", code: "AI_ERROR" });
+  }
+});
+
+// ── POST /v1/worldsmith/worlds/:id/bible-copilot ─────────────────────────────
+// Conversational creative partner for drafting World Bible fields.
+// Grounded on the world's full Bible content + the active field.
+
+const BIBLE_COPILOT_FIELDS: Record<string, string> = {
+  visualPalette: "Visual Palette (what the world looks like — colours, lighting, textures)",
+  proseVoice: "Prose Voice (how the world speaks — register, rhythm, vocabulary)",
+  atmosphericNotes: "Atmospheric Notes (what the world feels like — temperature, sound, smell, mood)",
+  materialWorld: "Material World (tactile qualities and sensory anchors)",
+};
+
+router.post("/v1/worldsmith/worlds/:id/bible-copilot", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const worldId = req.params.id as string;
+  const body = req.body as {
+    field?: string;
+    message?: string;
+    history?: { role: string; content: string }[];
+    draft?: Partial<Record<string, string>>;
+  };
+
+  const { field, message, history, draft } = body;
+
+  if (!message || typeof message !== "string" || !message.trim()) {
+    res.status(400).json({ error: "message is required", code: "MISSING_MESSAGE" });
+    return;
+  }
+  if (field && !BIBLE_COPILOT_FIELDS[field]) {
+    res.status(400).json({
+      error: `field must be one of: ${Object.keys(BIBLE_COPILOT_FIELDS).join(", ")}`,
+      code: "INVALID_FIELD",
+    });
+    return;
+  }
+
+  try {
+    const [world] = await db
+      .select()
+      .from(worldsmithWorldsTable)
+      .where(eq(worldsmithWorldsTable.id, worldId))
+      .limit(1);
+
+    if (!world) {
+      res.status(404).json({ error: "World not found", code: "NOT_FOUND" });
+      return;
+    }
+
+    // Prefer the caller's unsaved draft over the persisted row so suggestions
+    // reflect what's currently on screen. Bounded to keep the prompt sane.
+    const pick = (key: "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld"): string => {
+      const d = draft && typeof draft[key] === "string" ? (draft[key] as string) : undefined;
+      const v = (d !== undefined ? d : (world[key] as string | null) ?? "").trim();
+      return v ? v.slice(0, 4000) : "(not yet written)";
+    };
+
+    const bibleLines = [
+      `Visual Palette: ${pick("visualPalette")}`,
+      `Prose Voice: ${pick("proseVoice")}`,
+      `Atmospheric Notes: ${pick("atmosphericNotes")}`,
+      `Material World: ${pick("materialWorld")}`,
+      `World Rules: ${Array.isArray(world.worldRules) && world.worldRules.length > 0 ? (world.worldRules as string[]).map(r => `\n  - ${r}`).join("") : "(none defined)"}`,
+    ].join("\n");
+
+    const systemPrompt = [
+      `You are the WorldSmith Bible Copilot — a thoughtful creative editor helping a world-builder write the World Bible for "${world.name}"${world.description ? ` (${world.description})` : ""}.`,
+      "",
+      "## The World Bible so far",
+      bibleLines,
+      "",
+      field
+        ? `## Current focus\nThe user is working on the "${BIBLE_COPILOT_FIELDS[field]}" field. Ground your suggestions in the rest of the Bible so the world stays coherent.`
+        : "## Current focus\nNo specific field is focused; help with whichever aspect the user raises.",
+      "",
+      "## How to behave",
+      "- You are a creative collaborator, not a generic assistant. Ask clarifying questions when the direction is vague.",
+      "- Offer concrete example phrases, contrasting directions, and sensory specifics — never vague platitudes.",
+      "- When the user wants a draft, produce a polished paragraph they can drop straight into the field: evocative, specific, and consistent with the world's established voice.",
+      "- Never break the World Rules listed above.",
+      "- Keep conversational replies short (2-5 sentences). Only go longer when producing a requested draft.",
+      "- Respond in plain prose. No markdown headings, no bullet lists unless the user asks for options.",
+    ].join("\n");
+
+    // Sanitise history: only user/assistant roles, cap at last 20 turns.
+    // Then normalize: Anthropic requires conversations to start with a user message.
+    // Drop leading assistant messages (e.g. synthetic greeting injected client-side).
+    const safeHistory = (Array.isArray(history) ? history : [])
+      .filter((m): m is { role: "user" | "assistant"; content: string } =>
+        (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string")
+      .slice(-20);
+
+    const firstUserIdx = safeHistory.findIndex(m => m.role === "user");
+    const normalizedHistory = firstUserIdx < 0 ? [] : safeHistory.slice(firstUserIdx);
+
+    const result = await callAi(
+      [...normalizedHistory, { role: "user", content: message.trim() }],
+      process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
+      systemPrompt,
+    );
+
+    res.json({ reply: result.content, provider: result.provider, model: result.model });
+  } catch (err) {
+    logger.error({ err, worldId }, "Bible copilot failed");
+    res.status(502).json({ error: "The copilot couldn't respond. Try again.", code: "AI_ERROR" });
+  }
 });
 
 // ── PATCH /v1/worldsmith/worlds/:id ──────────────────────────────────────────

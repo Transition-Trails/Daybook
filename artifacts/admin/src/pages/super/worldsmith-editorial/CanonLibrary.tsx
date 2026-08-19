@@ -16,11 +16,12 @@ import {
   Plus, Search, RefreshCw, Loader2, X, LayoutGrid, Table2,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
   BookOpen, ChevronRight, Clock, Sparkles, CheckCircle2, Download,
-  GitBranch, Repeat2,
+  GitBranch, Repeat2, Wand2, RotateCcw,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
+import { CopilotPanel } from "@/components/CopilotPanel";
 
 // ── Type configuration ────────────────────────────────────────────────────────
 
@@ -318,16 +319,21 @@ function QuickStartTypeCard({ type, onClick }: { type: TypeConfig; onClick: () =
 
 function CreateDrawer({
   worldId,
+  worldName,
   prefilledType,
   onClose,
   onCreated,
+  initialMode,
 }: {
   worldId: string;
+  worldName: string;
   prefilledType: string;
   onClose: () => void;
   onCreated: (record: CanonRecord) => void;
+  initialMode?: "manual" | "cowrite";
 }) {
   const { toast } = useToast();
+  const [mode, setMode] = useState<"manual" | "cowrite">(initialMode ?? "manual");
   const [name, setName] = useState("");
   const [canonType, setCanonType] = useState(prefilledType);
   const [narrativeDetails, setNarrativeDetails] = useState("");
@@ -376,124 +382,196 @@ function CreateDrawer({
       <div className="flex-1 bg-black/30" onClick={onClose} />
 
       {/* Drawer panel */}
-      <div className="w-full max-w-md bg-white flex flex-col shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="px-6 py-4 border-b flex items-center justify-between shrink-0" style={{ borderColor: "#E5E7EB" }}>
-          <div>
-            <h2 className="text-base font-semibold" style={{ color: "#1B2A4A" }}>New Canon Record</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Add an authoritative entry to your world's canon</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-          {/* Type selector */}
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-2">
-              Canon Type
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {CANON_TYPES.map(t => (
-                <button
-                  key={t.key}
-                  onClick={() => setCanonType(t.key)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border transition-all"
-                  style={
-                    canonType === t.key
-                      ? { background: `${t.color}18`, color: t.color, borderColor: `${t.color}60` }
-                      : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
-                  }
-                >
-                  <t.Icon className="w-3 h-3" />
-                  {t.label}
-                </button>
-              ))}
+      <div
+        className="w-full bg-white flex shadow-2xl overflow-hidden"
+        style={{ maxWidth: mode === "cowrite" ? 820 : 448 }}
+      >
+        {/* ── Form side (always visible) ── */}
+        <div className="w-full max-w-md flex flex-col shrink-0" style={{ width: 448 }}>
+          {/* Header */}
+          <div className="px-6 py-4 border-b flex items-center justify-between shrink-0" style={{ borderColor: "#E5E7EB" }}>
+            <div>
+              <h2 className="text-base font-semibold" style={{ color: "#1B2A4A" }}>New Canon Record</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Add an authoritative entry to your world's canon</p>
             </div>
-            {type && (
-              <p className="text-xs text-gray-400 mt-2 pl-0.5">{type.desc}</p>
+            <div className="flex items-center gap-1">
+              {/* Mode toggle */}
+              <button
+                onClick={() => setMode(m => m === "manual" ? "cowrite" : "manual")}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all"
+                style={
+                  mode === "cowrite"
+                    ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
+                    : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
+                }
+                title={mode === "cowrite" ? "Switch to manual entry" : "Open AI co-write panel"}
+              >
+                <Sparkles className="w-3 h-3" />
+                Co-write
+              </button>
+              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 ml-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+            {/* Type selector */}
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-2">
+                Canon Type
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {CANON_TYPES.map(t => (
+                  <button
+                    key={t.key}
+                    onClick={() => setCanonType(t.key)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border transition-all"
+                    style={
+                      canonType === t.key
+                        ? { background: `${t.color}18`, color: t.color, borderColor: `${t.color}60` }
+                        : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
+                    }
+                  >
+                    <t.Icon className="w-3 h-3" />
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {type && (
+                <p className="text-xs text-gray-400 mt-2 pl-0.5">{type.desc}</p>
+              )}
+            </div>
+
+            {/* Name */}
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-1.5">
+                Name <span className="text-red-400">*</span>
+              </label>
+              <input
+                ref={nameRef}
+                value={name}
+                onChange={e => setName(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && name.trim() && mode === "manual") handleCreate(); }}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none transition-colors"
+                style={{ borderColor: "#E5E7EB" }}
+                placeholder={`e.g. ${type?.key === "character" ? "Lady Arabella Montrose" : type?.key === "location" ? "The Botanical Library" : type?.key === "object" ? "The Brass Sextant" : "Add a name…"}`}
+              />
+            </div>
+
+            {/* Manual fields — hidden when co-write panel is open */}
+            {mode === "manual" && (
+              <>
+                {/* Narrative Details */}
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-1.5">
+                    Narrative Details
+                  </label>
+                  <textarea
+                    value={narrativeDetails}
+                    onChange={e => setNarrativeDetails(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none resize-none"
+                    style={{ borderColor: "#E5E7EB" }}
+                    rows={3}
+                    placeholder={type?.narrativePlaceholder}
+                  />
+                </div>
+
+                {/* Historical Context */}
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-1.5">
+                    Historical Context
+                  </label>
+                  <textarea
+                    value={historicalContext}
+                    onChange={e => setHistoricalContext(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none resize-none"
+                    style={{ borderColor: "#E5E7EB" }}
+                    rows={2}
+                    placeholder={type?.historicalPlaceholder}
+                  />
+                </div>
+
+                {/* Visual Notes */}
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-1.5">
+                    Visual Notes
+                  </label>
+                  <textarea
+                    value={visualNotes}
+                    onChange={e => setVisualNotes(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none resize-none"
+                    style={{ borderColor: "#E5E7EB" }}
+                    rows={2}
+                    placeholder={type?.visualPlaceholder}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Co-write mode — show drafted narrative preview */}
+            {mode === "cowrite" && narrativeDetails && (
+              <div className="rounded-lg border p-3" style={{ borderColor: "#E5E7EB", background: "#FAFAFA" }}>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Drafted narrative</p>
+                <p className="text-[12.5px] text-gray-700 leading-relaxed whitespace-pre-wrap">{narrativeDetails}</p>
+              </div>
+            )}
+            {mode === "cowrite" && !narrativeDetails && (
+              <p className="text-xs text-gray-400 italic">Use the co-write panel on the right to draft this record's narrative. Apply will populate it here.</p>
             )}
           </div>
 
-          {/* Name */}
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-1.5">
-              Name <span className="text-red-400">*</span>
-            </label>
-            <input
-              ref={nameRef}
-              value={name}
-              onChange={e => setName(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && name.trim()) handleCreate(); }}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none transition-colors"
-              style={{ borderColor: "#E5E7EB" }}
-              placeholder={`e.g. ${type?.key === "character" ? "Lady Arabella Montrose" : type?.key === "location" ? "The Botanical Library" : type?.key === "object" ? "The Brass Sextant" : "Add a name…"}`}
-            />
-          </div>
-
-          {/* Narrative Details */}
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-1.5">
-              Narrative Details
-            </label>
-            <textarea
-              value={narrativeDetails}
-              onChange={e => setNarrativeDetails(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none resize-none"
-              style={{ borderColor: "#E5E7EB" }}
-              rows={3}
-              placeholder={type?.narrativePlaceholder}
-            />
-          </div>
-
-          {/* Historical Context */}
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-1.5">
-              Historical Context
-            </label>
-            <textarea
-              value={historicalContext}
-              onChange={e => setHistoricalContext(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none resize-none"
-              style={{ borderColor: "#E5E7EB" }}
-              rows={2}
-              placeholder={type?.historicalPlaceholder}
-            />
-          </div>
-
-          {/* Visual Notes */}
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 block mb-1.5">
-              Visual Notes
-            </label>
-            <textarea
-              value={visualNotes}
-              onChange={e => setVisualNotes(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none resize-none"
-              style={{ borderColor: "#E5E7EB" }}
-              rows={2}
-              placeholder={type?.visualPlaceholder}
-            />
+          {/* Footer */}
+          <div className="px-6 py-4 border-t flex items-center justify-between shrink-0" style={{ borderColor: "#E5E7EB" }}>
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
+              Cancel
+            </button>
+            <button
+              onClick={handleCreate}
+              disabled={!name.trim() || saving}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg font-medium disabled:opacity-50 transition-opacity"
+              style={{ background: "#1B2A4A" }}
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              {saving ? "Creating…" : "Create Record"}
+            </button>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t flex items-center justify-between shrink-0" style={{ borderColor: "#E5E7EB" }}>
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
-            Cancel
-          </button>
-          <button
-            onClick={handleCreate}
-            disabled={!name.trim() || saving}
-            className="flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg font-medium disabled:opacity-50 transition-opacity"
-            style={{ background: "#1B2A4A" }}
-          >
-            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-            {saving ? "Creating…" : "Create Record"}
-          </button>
-        </div>
+        {/* ── Co-write panel (right side, only when mode=cowrite) ── */}
+        {mode === "cowrite" && (
+          <CopilotPanel
+            isOpen
+            onClose={() => setMode("manual")}
+            title="Co-write"
+            activeFieldLabel="Narrative"
+            greeting={`I'll help you write the narrative for this ${type?.label.toLowerCase() ?? "record"}. Tell me anything — its name, a rough idea, its role in ${worldName}. Even a single evocative detail is enough to start.`}
+            onSend={async (message, history) => {
+              const result = await apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
+                method: "POST",
+                body: JSON.stringify({
+                  surface: "canon_record",
+                  field: "narrativeDetails",
+                  fieldLabel: "Narrative",
+                  message,
+                  history,
+                  context: {
+                    recordName: name || "(not yet named)",
+                    recordType: canonType,
+                    worldName,
+                    draft: { narrativeDetails },
+                  },
+                }),
+              });
+              return result;
+            }}
+            onCaptureTarget={() => ({ key: "narrativeDetails", label: "Narrative" })}
+            onApply={(text) => setNarrativeDetails(text.trim())}
+            className="!rounded-none !border-l !border-t-0 !border-r-0 !border-b-0 flex-1 min-w-0"
+            panelStyle={{ position: "relative", height: "100%", maxHeight: "100%", borderRadius: 0, borderLeft: "1px solid #E5E7EB", borderTop: "none", borderRight: "none", borderBottom: "none", minHeight: "auto" }}
+          />
+        )}
       </div>
     </div>
   );
@@ -530,6 +608,234 @@ function BulkBar({ count, onTransition, onClear }: {
       <button onClick={onClear} className="ml-auto p-1 hover:bg-white/10 rounded-lg">
         <X className="w-3.5 h-3.5" />
       </button>
+    </div>
+  );
+}
+
+// ── SuggestionsPanel ─────────────────────────────────────────────────────────
+
+interface CanonSuggestion {
+  name: string;
+  canonType: string;
+  rationale: string;
+  narrativeDetails: string;
+}
+
+function SuggestionsPanel({
+  worldId,
+  worldName,
+  onClose,
+  onAdd,
+}: {
+  worldId: string;
+  worldName: string;
+  onClose: () => void;
+  onAdd: (s: CanonSuggestion) => void;
+}) {
+  const { toast } = useToast();
+  const [suggestions, setSuggestions] = useState<CanonSuggestion[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [focusType, setFocusType] = useState("all");
+  const [adding, setAdding] = useState<Set<string>>(new Set());
+  const [added, setAdded] = useState<Set<string>>(new Set());
+
+  const generate = async (type?: string) => {
+    setLoading(true);
+    setError(null);
+    setSuggestions([]);
+    setAdded(new Set());
+    try {
+      const result = await apiFetch<{ suggestions: CanonSuggestion[] }>(
+        "/v1/editorial/canon-records/suggest",
+        {
+          method: "POST",
+          body: JSON.stringify({ world_id: worldId, focus_type: type && type !== "all" ? type : undefined }),
+        },
+      );
+      setSuggestions(result.suggestions ?? []);
+    } catch {
+      setError("Couldn't generate suggestions. Check your world has a World Bible set, then try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-generate on mount
+  useEffect(() => { generate(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleAdd = async (s: CanonSuggestion) => {
+    if (adding.has(s.name) || added.has(s.name)) return;
+    setAdding(prev => new Set([...prev, s.name]));
+    try {
+      await apiFetch("/v1/editorial/canon-records", {
+        method: "POST",
+        body: JSON.stringify({
+          world_id: worldId,
+          name: s.name,
+          canon_type: s.canonType,
+          narrative_details: s.narrativeDetails,
+        }),
+      });
+      setAdded(prev => new Set([...prev, s.name]));
+      toast({ title: `"${s.name}" added to Canon Library` });
+      onAdd(s);
+    } catch {
+      toast({ title: "Failed to add record", variant: "destructive" });
+    } finally {
+      setAdding(prev => { const n = new Set(prev); n.delete(s.name); return n; });
+    }
+  };
+
+  const filtered = focusType === "all" ? suggestions : suggestions.filter(s => s.canonType === focusType);
+  const suggestedTypes = [...new Set(suggestions.map(s => s.canonType))];
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="flex-1 bg-black/20" onClick={onClose} />
+      <div
+        className="w-full max-w-md bg-white flex flex-col shadow-2xl overflow-hidden"
+        style={{ borderLeft: "1px solid #E5E7EB" }}
+      >
+        {/* Header */}
+        <div className="px-5 py-4 border-b flex items-center justify-between shrink-0" style={{ borderColor: "#E5E7EB" }}>
+          <div className="flex items-center gap-2.5">
+            <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(200,117,96,0.12)" }}>
+              <Wand2 className="w-3.5 h-3.5" style={{ color: "#C87560" }} />
+            </span>
+            <div>
+              <h2 className="text-sm font-semibold" style={{ color: "#1B2A4A" }}>Suggested Records</h2>
+              <p className="text-[11px] text-gray-400">AI-generated gaps for {worldName}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => generate(focusType !== "all" ? focusType : undefined)}
+              disabled={loading}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-40"
+              title="Regenerate suggestions"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Type filter pills */}
+        {suggestions.length > 0 && (
+          <div className="px-5 py-2.5 border-b flex items-center gap-1.5 overflow-x-auto shrink-0" style={{ borderColor: "#F3F4F6", background: "#FAFAFA" }}>
+            {["all", ...suggestedTypes].map(t => {
+              const cfg = CANON_TYPES.find(c => c.key === t);
+              const active = focusType === t;
+              return (
+                <button
+                  key={t}
+                  onClick={() => setFocusType(t)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all whitespace-nowrap shrink-0"
+                  style={
+                    active
+                      ? { background: cfg?.color ?? "#1B2A4A", color: "white", borderColor: cfg?.color ?? "#1B2A4A" }
+                      : { background: "white", color: "#6B7280", borderColor: "#E5E7EB" }
+                  }
+                >
+                  {cfg?.Icon && <cfg.Icon className="w-2.5 h-2.5" />}
+                  {t === "all" ? "All" : (cfg?.label ?? t)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+          {loading && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 py-16">
+              <Loader2 className="w-6 h-6 animate-spin" style={{ color: "#C87560" }} />
+              <p className="text-sm text-gray-500">Analysing your canon for gaps…</p>
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 px-6 py-16 text-center">
+              <p className="text-sm text-gray-500">{error}</p>
+              <button
+                onClick={() => generate()}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-white"
+                style={{ background: "#1B2A4A" }}
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> Try again
+              </button>
+            </div>
+          )}
+
+          {!loading && !error && filtered.length === 0 && suggestions.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full py-16">
+              <p className="text-sm text-gray-400">No suggestions yet.</p>
+            </div>
+          )}
+
+          {!loading && filtered.length > 0 && (
+            <div className="p-4 space-y-3">
+              {filtered.map(s => {
+                const cfg = CANON_TYPES.find(c => c.key === s.canonType);
+                const isAdding = adding.has(s.name);
+                const isAdded = added.has(s.name);
+                return (
+                  <div
+                    key={s.name}
+                    className="rounded-xl border p-4 transition-all"
+                    style={{
+                      borderColor: isAdded ? "#10B981" : "#E5E7EB",
+                      background: isAdded ? "#F0FDF4" : "white",
+                    }}
+                  >
+                    {/* Type badge */}
+                    {cfg && (
+                      <span
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 mb-2"
+                        style={{ background: `${cfg.color}18`, color: cfg.color }}
+                      >
+                        <cfg.Icon className="w-2.5 h-2.5" />
+                        {cfg.label}
+                      </span>
+                    )}
+                    <p className="text-sm font-semibold mb-1" style={{ color: "#1B2A4A" }}>{s.name}</p>
+                    {s.rationale && (
+                      <p className="text-[12px] text-gray-500 leading-relaxed mb-2">{s.rationale}</p>
+                    )}
+                    {s.narrativeDetails && (
+                      <p className="text-[11.5px] text-gray-400 italic leading-relaxed mb-3 line-clamp-3">
+                        {s.narrativeDetails}
+                      </p>
+                    )}
+                    <button
+                      onClick={() => handleAdd(s)}
+                      disabled={isAdding || isAdded}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-60"
+                      style={
+                        isAdded
+                          ? { background: "#10B98118", color: "#065F46" }
+                          : { background: "#1B2A4A", color: "white" }
+                      }
+                    >
+                      {isAdding ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : isAdded ? (
+                        <CheckCircle2 className="w-3 h-3" />
+                      ) : (
+                        <Plus className="w-3 h-3" />
+                      )}
+                      {isAdded ? "Added" : isAdding ? "Adding…" : "Add to Library"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -653,6 +959,10 @@ export default function CanonLibrary() {
   // Create drawer
   const [showCreate, setShowCreate] = useState(false);
   const [prefilledType, setPrefilledType] = useState("location");
+  const [createMode, setCreateMode] = useState<"manual" | "cowrite">("manual");
+
+  // Suggestions panel
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Debounce search
   useEffect(() => {
@@ -741,8 +1051,9 @@ export default function CanonLibrary() {
     total === 0 &&
     !hasActiveFilter;
 
-  const openCreate = (type = "location") => {
+  const openCreate = (type = "location", mode: "manual" | "cowrite" = "manual") => {
     setPrefilledType(type);
+    setCreateMode(mode);
     setShowCreate(true);
   };
 
@@ -810,6 +1121,26 @@ export default function CanonLibrary() {
               <Download className="w-3.5 h-3.5" />
             )}
             {syncMutation.isPending ? "Syncing…" : "Sync from Notion"}
+          </button>
+          <button
+            onClick={() => setShowSuggestions(s => !s)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors"
+            style={
+              showSuggestions
+                ? { background: "#C87560", color: "white", borderColor: "#C87560" }
+                : { background: "white", color: "#C87560", borderColor: "#C87560" }
+            }
+            title="AI-suggested records to fill gaps in your world's canon"
+          >
+            <Wand2 className="w-3.5 h-3.5" />
+            Suggest
+          </button>
+          <button
+            onClick={() => openCreate("character", "cowrite")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-600 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Co-write
           </button>
           <button
             onClick={() => openCreate()}
@@ -1119,9 +1450,21 @@ export default function CanonLibrary() {
       {showCreate && selectedWorldId && (
         <CreateDrawer
           worldId={selectedWorldId}
+          worldName={selectedWorld?.name ?? "your world"}
           prefilledType={prefilledType}
+          initialMode={createMode}
           onClose={() => setShowCreate(false)}
           onCreated={handleCreated}
+        />
+      )}
+
+      {/* ── Suggestions panel ────────────────────────────────────────────────── */}
+      {showSuggestions && selectedWorldId && (
+        <SuggestionsPanel
+          worldId={selectedWorldId}
+          worldName={selectedWorld?.name ?? "your world"}
+          onClose={() => setShowSuggestions(false)}
+          onAdd={() => qc.invalidateQueries({ queryKey: ["editorial-canon-library"] })}
         />
       )}
 

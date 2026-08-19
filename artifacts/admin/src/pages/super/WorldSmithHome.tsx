@@ -3,7 +3,7 @@
  * Based on the approved World Gallery concept; all data sourced from real API calls.
  * Role switcher removed — only super_admins reach /super/worldsmith.
  */
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { CopilotPanel } from "@/components/CopilotPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -704,6 +705,27 @@ function OverviewSection({
     inProgress: runs.filter(r => r.status === "pending" || r.status === "compiling").length,
   };
 
+  const { data: storiesData, isLoading: storiesLoading } = useQuery({
+    queryKey: ["ws-stories", world.id],
+    queryFn: () => apiFetch<{ stories: unknown[] }>(`/v1/editorial/stories?world_id=${encodeURIComponent(world.id)}`),
+    staleTime: 30_000,
+  });
+  const { data: canonData, isLoading: canonLoading } = useQuery({
+    queryKey: ["editorial-canon-library", world.id],
+    queryFn: () => apiFetch<{ canon_records: unknown[] }>(`/v1/editorial/canon-records?world_id=${encodeURIComponent(world.id)}&limit=500`),
+    staleTime: 30_000,
+  });
+  const { data: editionsData, isLoading: editionsLoading } = useQuery({
+    queryKey: ["editions-by-world", world.code],
+    queryFn: () => apiFetch<EditionRow[]>(`/v1/catalog/editions?world=${encodeURIComponent(world.code.toUpperCase())}`),
+    staleTime: 30_000,
+  });
+
+  const contentLoading = storiesLoading || canonLoading || editionsLoading;
+  const storyCount   = storiesData?.stories?.length ?? 0;
+  const canonCount   = canonData?.canon_records?.length ?? 0;
+  const productCount = (Array.isArray(editionsData) ? editionsData : []).length;
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Asset summary */}
@@ -741,6 +763,20 @@ function OverviewSection({
             <StatTile label="In progress" value={runStats.inProgress} color="#8b5cf6" />
             <StatTile label="Compiled" value={runStats.compiled} color="#10b981" />
             <StatTile label="Failed" value={runStats.failed} color="#ef4444" alert={runStats.failed > 0} />
+          </div>
+        )}
+      </div>
+
+      {/* World content counts — stories / products / canon records */}
+      <div className="md:col-span-2 rounded-xl border border-border bg-card p-5">
+        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-4">World content</p>
+        {contentLoading ? (
+          <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            <StatTile label="Stories" value={storyCount} color="hsl(221 46% 20%)" />
+            <StatTile label="Products" value={productCount} color="#0d9488" />
+            <StatTile label="Canon records" value={canonCount} color="#7c3aed" />
           </div>
         )}
       </div>
@@ -843,6 +879,8 @@ function StoriesSection({ world }: { world: WsWorld }) {
   const [addingStory, setAddingStory] = useState(false);
   const [newStoryTitle, setNewStoryTitle] = useState("");
   const [newStoryStatus, setNewStoryStatus] = useState("draft");
+  const [summaryDraft, setSummaryDraft] = useState<Record<string, string>>({});
+  const [copilotOpen, setCopilotOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["ws-stories", world.id],
@@ -931,35 +969,97 @@ function StoriesSection({ world }: { world: WsWorld }) {
         </div>
       )}
 
-      {/* Acts display */}
+      {/* Selected story detail */}
       {selectedStory ? (
-        <div>
-          <div className="flex items-baseline gap-3 mb-3">
-            <h2 className="font-display font-semibold text-lg">{selectedStory.title}</h2>
-            {selectedStory.summary && <p className="text-[12.5px] text-muted-foreground">{selectedStory.summary}</p>}
+        <div className="flex gap-5 items-start">
+          <div className="flex-1 min-w-0">
+            {/* Title + Co-write */}
+            <div className="flex items-center gap-3 mb-3">
+              <h2 className="font-display font-semibold text-lg flex-1">{selectedStory.title}</h2>
+              <button
+                onClick={() => setCopilotOpen(o => !o)}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12.5px] font-semibold border transition-colors ${
+                  copilotOpen ? "text-white border-transparent" : "text-foreground border-border hover:border-foreground/30"
+                }`}
+                style={copilotOpen ? { background: "#1B2A4A" } : undefined}
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Co-write
+              </button>
+            </div>
+            {/* Editable summary */}
+            <textarea
+              value={summaryDraft[selectedStory.id] ?? selectedStory.summary ?? ""}
+              onChange={e => setSummaryDraft(d => ({ ...d, [selectedStory.id]: e.target.value }))}
+              onBlur={() => {
+                const val = summaryDraft[selectedStory.id];
+                if (val === undefined || val === selectedStory.summary) return;
+                apiFetch(`/v1/editorial/stories/${selectedStory.id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ summary: val }),
+                }).then(() => qc.invalidateQueries({ queryKey: ["ws-stories", world.id] }));
+              }}
+              rows={3}
+              placeholder="What is this story about? A summary grounded in the world…"
+              className="w-full rounded-xl border border-border px-4 py-3 text-sm leading-relaxed resize-y min-h-[72px] outline-none focus:border-foreground/30 mb-4"
+              style={{ fontFamily: "'Spectral', Georgia, serif" }}
+            />
+            {selectedStory.acts.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border p-8 text-center">
+                <BookOpen className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+                <p className="text-sm font-medium text-foreground mb-1">No acts yet</p>
+                <p className="text-[12.5px] text-muted-foreground mb-3">Acts divide the story into movements. Add Act I to get started.</p>
+                <Link href="/super/worldsmith/editorial/canon">
+                  <span className="text-[12px] font-medium text-[#C87560] hover:underline cursor-pointer">
+                    Link canon records to this story →
+                  </span>
+                </Link>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {selectedStory.acts.map(act => (
+                  <div key={act.id} className="rounded-xl border border-border bg-card p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Act {act.actNumber}</p>
+                    <p className="font-semibold text-[14px] text-foreground mb-1">{act.title}</p>
+                    {act.tagline && <p className="text-[12px] text-muted-foreground italic">{act.tagline}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          {selectedStory.acts.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border p-10 text-center">
-              <BookOpen className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-sm font-medium text-foreground mb-1">No acts yet</p>
-              <p className="text-[12.5px] text-muted-foreground mb-3">Acts divide the story into movements. Add Act I to get started.</p>
-              <Link href="/super/worldsmith/editorial/canon">
-                <span className="text-[12px] font-medium text-[#C87560] hover:underline cursor-pointer">
-                  Link canon records to this story →
-                </span>
-              </Link>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {selectedStory.acts.map(act => (
-                <div key={act.id} className="rounded-xl border border-border bg-card p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Act {act.actNumber}</p>
-                  <p className="font-semibold text-[14px] text-foreground mb-1">{act.title}</p>
-                  {act.tagline && <p className="text-[12px] text-muted-foreground italic">{act.tagline}</p>}
-                </div>
-              ))}
-            </div>
-          )}
+          <CopilotPanel
+            isOpen={copilotOpen}
+            onClose={() => setCopilotOpen(false)}
+            title="Story Copilot"
+            activeFieldLabel="Summary"
+            greeting={`I'm here to help you write the story for ${world.name}. What's the core premise of "${selectedStory.title}" — who are the main characters and what's at stake?`}
+            onSend={async (message, history) =>
+              apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
+                method: "POST",
+                body: JSON.stringify({
+                  surface: "story",
+                  worldId: world.id,
+                  field: "summary",
+                  fieldLabel: "Summary",
+                  message,
+                  history,
+                  context: {
+                    storyTitle: selectedStory.title,
+                    storyActs: selectedStory.acts,
+                    draft: { summary: summaryDraft[selectedStory.id] ?? selectedStory.summary ?? "" },
+                  },
+                }),
+              })
+            }
+            onCaptureTarget={() => ({ key: selectedStory.id, label: selectedStory.title })}
+            onApply={(_text, storyId) => {
+              const applied = _text.trim();
+              setSummaryDraft(d => ({ ...d, [storyId]: applied }));
+              apiFetch(`/v1/editorial/stories/${storyId}`, {
+                method: "PATCH",
+                body: JSON.stringify({ summary: applied }),
+              }).then(() => qc.invalidateQueries({ queryKey: ["ws-stories", world.id] }));
+            }}
+          />
         </div>
       ) : !isLoading && stories.length === 0 && (
         <div className="rounded-xl border border-border bg-card p-10 text-center">
@@ -1079,6 +1179,15 @@ function WorldEditionsStrip({ world }: { world: WsWorld }) {
 
 // ── World Bible section ───────────────────────────────────────────────────────
 
+type BibleTextField = "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld";
+
+const BIBLE_FIELD_LABELS: Record<BibleTextField, string> = {
+  visualPalette: "Visual Palette",
+  proseVoice: "Prose Voice",
+  atmosphericNotes: "Atmospheric Notes",
+  materialWorld: "Material World",
+};
+
 function WorldBibleSection({ world }: { world: WsWorld }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -1091,6 +1200,62 @@ function WorldBibleSection({ world }: { world: WsWorld }) {
   });
   const [newRule, setNewRule] = useState("");
   const [dirty, setDirty] = useState(false);
+
+  // ── Copilot ────────────────────────────────────────────────────────────────
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [activeField, setActiveField] = useState<BibleTextField>("visualPalette");
+  const [undoBuffer, setUndoBuffer] = useState<{ field: BibleTextField; prev: string; applied: string } | null>(null);
+  // Use refs so the onSend closure always reads the current field + draft
+  const activeFieldRef = useRef<BibleTextField>("visualPalette");
+  const formRef = useRef(form);
+  activeFieldRef.current = activeField;
+  formRef.current = form;
+
+  const handleCopilotSend = useCallback(async (
+    message: string,
+    history: { role: "user" | "assistant"; content: string }[],
+  ) => {
+    return apiFetch<{ reply: string }>(`/v1/worldsmith/worlds/${encodeURIComponent(world.id)}/bible-copilot`, {
+      method: "POST",
+      body: JSON.stringify({
+        field: activeFieldRef.current,
+        message,
+        history,
+        draft: {
+          visualPalette: formRef.current.visualPalette,
+          proseVoice: formRef.current.proseVoice,
+          atmosphericNotes: formRef.current.atmosphericNotes,
+          materialWorld: formRef.current.materialWorld,
+        },
+      }),
+    });
+  }, [world.id]);
+
+  const bibleGreeting = (() => {
+    const bibleEmpty = !form.visualPalette.trim() && !form.proseVoice.trim()
+      && !form.atmosphericNotes.trim() && !form.materialWorld.trim();
+    return bibleEmpty
+      ? `Welcome — I'm here to help you write the World Bible for ${world.name}. Tell me a little about the world you're building: what does it feel like when you imagine standing inside it? Even a few loose words are enough to start.`
+      : `I've read what you have so far for ${world.name}. Click into any field and tell me what you'd like to develop — I can suggest phrases, push a direction further, or draft a paragraph you can drop straight in.`;
+  })();
+
+  const applyToField = (text: string, targetKey: string) => {
+    const field = (targetKey as BibleTextField) || activeFieldRef.current;
+    const applied = text.trim();
+    setUndoBuffer({ field, prev: formRef.current[field], applied });
+    setForm(f => ({ ...f, [field]: applied }));
+    setDirty(true);
+    toast({ title: `Applied to ${BIBLE_FIELD_LABELS[field]}` });
+  };
+
+  const undoApply = () => {
+    if (!undoBuffer) return;
+    if (form[undoBuffer.field] === undoBuffer.applied) {
+      setForm(f => ({ ...f, [undoBuffer.field]: undoBuffer.prev }));
+      setDirty(true);
+    }
+    setUndoBuffer(null);
+  };
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -1108,12 +1273,15 @@ function WorldBibleSection({ world }: { world: WsWorld }) {
       qc.invalidateQueries({ queryKey: ["worldsmith/worlds"] });
       toast({ title: "World Bible saved" });
       setDirty(false);
+      setUndoBuffer(null);
     },
     onError: () => toast({ title: "Failed to save", variant: "destructive" }),
   });
 
   const set = (field: keyof typeof form, value: string) => {
     setForm(f => ({ ...f, [field]: value })); setDirty(true);
+    // A manual edit invalidates any pending undo for that field
+    setUndoBuffer(u => (u && u.field === field ? null : u));
   };
 
   const QUESTIONS: { field: keyof typeof form; label: string; q: string; hint: string }[] = [
@@ -1124,13 +1292,27 @@ function WorldBibleSection({ world }: { world: WsWorld }) {
   ];
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div>
-        <h2 className="font-display font-semibold text-lg text-foreground mb-1">{world.name} — World Bible</h2>
-        <p className="text-[12.5px] text-muted-foreground">
-          These fields are injected into every generation prompt for {world.name}.
-          Write freely — this is the voice of your world, not a form to fill.
-        </p>
+    <div className="flex gap-6 items-start">
+    <div className="max-w-2xl flex-1 space-y-6">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-display font-semibold text-lg text-foreground mb-1">{world.name} — World Bible</h2>
+          <p className="text-[12.5px] text-muted-foreground">
+            These fields are injected into every generation prompt for {world.name}.
+            Write freely — this is the voice of your world, not a form to fill.
+          </p>
+        </div>
+        <button
+          onClick={() => setCopilotOpen(o => !o)}
+          className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors ${
+            copilotOpen
+              ? "text-white border-transparent"
+              : "text-foreground border-border hover:border-foreground/30"
+          }`}
+          style={copilotOpen ? { background: "#1B2A4A" } : undefined}
+        >
+          <Sparkles className="w-3.5 h-3.5" /> Co-write
+        </button>
       </div>
 
       <div className="space-y-5">
@@ -1141,9 +1323,12 @@ function WorldBibleSection({ world }: { world: WsWorld }) {
             <textarea
               value={form[field] as string}
               onChange={e => set(field, e.target.value)}
+              onFocus={() => setActiveField(field as BibleTextField)}
               rows={3}
               placeholder={`${label}…`}
-              className="w-full rounded-xl border border-border px-4 py-3 text-sm leading-relaxed resize-none outline-none focus:border-foreground/30"
+              className={`w-full min-h-[84px] rounded-xl border px-4 py-3 text-sm leading-relaxed resize-y outline-none focus:border-foreground/30 ${
+                copilotOpen && activeField === field ? "border-[#1B2A4A]/40" : "border-border"
+              }`}
               style={{ fontFamily: "'Spectral', Georgia, serif" }}
             />
           </div>
@@ -1193,7 +1378,24 @@ function WorldBibleSection({ world }: { world: WsWorld }) {
             <CheckCircle2 className="w-3.5 h-3.5" /> Saved
           </span>
         )}
+        {undoBuffer && (
+          <button onClick={undoApply} className="text-[12px] text-muted-foreground underline hover:text-foreground">
+            Undo apply to {BIBLE_FIELD_LABELS[undoBuffer.field]}
+          </button>
+        )}
       </div>
+    </div>
+
+    <CopilotPanel
+      isOpen={copilotOpen}
+      onClose={() => setCopilotOpen(false)}
+      title="Bible Copilot"
+      activeFieldLabel={BIBLE_FIELD_LABELS[activeField]}
+      onSend={handleCopilotSend}
+      onCaptureTarget={() => ({ key: activeFieldRef.current, label: BIBLE_FIELD_LABELS[activeFieldRef.current] })}
+      onApply={(text, key) => applyToField(text, key)}
+      greeting={bibleGreeting}
+    />
     </div>
   );
 }

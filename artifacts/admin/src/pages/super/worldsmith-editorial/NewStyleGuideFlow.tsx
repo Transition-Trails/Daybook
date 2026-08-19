@@ -3,16 +3,17 @@
  * Mirrors the NewSpecFlow pattern: progress sidebar, completion scoring,
  * Suggest chips per field, assembled content document on save.
  */
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import {
   CheckCircle2, Circle, Loader2, ArrowLeft,
-  Layers, Palette, Type, ShieldOff, FileText,
+  Layers, Palette, Type, ShieldOff, FileText, Save, Trash2, Sparkles,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
+import { CopilotPanel } from "@/components/CopilotPanel";
 
 // ── Form state ────────────────────────────────────────────────────────────────
 
@@ -200,7 +201,7 @@ function SuggestChip({ onClick }: { onClick: () => void }) {
 }
 
 const inputCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-[#C87560] transition-colors";
-const textareaCls = `${inputCls} resize-none`;
+const textareaCls = `${inputCls} resize-y min-h-[76px]`;
 const selectCls = `${inputCls} bg-white`;
 
 // ── Type-specific suggestion templates ────────────────────────────────────────
@@ -376,7 +377,13 @@ const DEFAULT_GUIDE_SUGGESTIONS: GuideSuggestions = {
 
 // ── Section forms ─────────────────────────────────────────────────────────────
 
-function IdentitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+type OnFieldFocus = (field: keyof FormState, label: string) => void;
+
+function IdentitySection({ f, set, onFocus }: {
+  f: FormState;
+  set: (k: keyof FormState, v: string) => void;
+  onFocus?: OnFieldFocus;
+}) {
   return (
     <div className="space-y-4">
       <Field label="Style Guide Name" required hint="A clear name that identifies this guide's scope and purpose.">
@@ -408,6 +415,7 @@ function IdentitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v
         <textarea
           value={f.scopeDescription}
           onChange={e => set("scopeDescription", e.target.value)}
+          onFocus={() => onFocus?.("scopeDescription", "Scope Description")}
           className={textareaCls}
           rows={2}
           placeholder="e.g. Governs all visual work for the Victorian Garden Journal Collection, Volumes I–III."
@@ -417,7 +425,11 @@ function IdentitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v
   );
 }
 
-function VisualSection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+function VisualSection({ f, set, onFocus }: {
+  f: FormState;
+  set: (k: keyof FormState, v: string) => void;
+  onFocus?: OnFieldFocus;
+}) {
   const suggest = GUIDE_SUGGESTIONS[f.guideType] ?? DEFAULT_GUIDE_SUGGESTIONS;
   const hasSuggestions = !!f.guideType;
 
@@ -429,7 +441,7 @@ function VisualSection({ f, set }: { f: FormState; set: (k: keyof FormState, v: 
         hint="Named colours, CMYK values, hex codes, and the atmosphere they create."
         action={hasSuggestions ? <SuggestChip onClick={() => set("colourPalette", suggest.colourPalette)} /> : undefined}
       >
-        <textarea value={f.colourPalette} onChange={e => set("colourPalette", e.target.value)} className={textareaCls} rows={5} placeholder="Dominant, accent, neutral, and background colours with print and digital references…" />
+        <textarea value={f.colourPalette} onChange={e => set("colourPalette", e.target.value)} onFocus={() => onFocus?.("colourPalette", "Colour Palette")} className={textareaCls} rows={5} placeholder="Dominant, accent, neutral, and background colours with print and digital references…" />
       </Field>
       <Field
         label="Illustration Style"
@@ -437,7 +449,7 @@ function VisualSection({ f, set }: { f: FormState; set: (k: keyof FormState, v: 
         hint="Medium, technique, line weight, historical references, and what the art must evoke."
         action={hasSuggestions ? <SuggestChip onClick={() => set("illustrationStyle", suggest.illustrationStyle)} /> : undefined}
       >
-        <textarea value={f.illustrationStyle} onChange={e => set("illustrationStyle", e.target.value)} className={textareaCls} rows={5} placeholder="Describe the illustration approach, rendering method, and visual references…" />
+        <textarea value={f.illustrationStyle} onChange={e => set("illustrationStyle", e.target.value)} onFocus={() => onFocus?.("illustrationStyle", "Illustration Style")} className={textareaCls} rows={5} placeholder="Describe the illustration approach, rendering method, and visual references…" />
       </Field>
       <Field
         label="Texture & Materials"
@@ -445,13 +457,17 @@ function VisualSection({ f, set }: { f: FormState; set: (k: keyof FormState, v: 
         hint="Paper simulation, aging effects, overlays, and tactile qualities."
         action={hasSuggestions ? <SuggestChip onClick={() => set("textureAndMaterials", suggest.textureAndMaterials)} /> : undefined}
       >
-        <textarea value={f.textureAndMaterials} onChange={e => set("textureAndMaterials", e.target.value)} className={textareaCls} rows={4} placeholder="Grain, foxing, letterpress impression, ink bleeds, watercolour washes…" />
+        <textarea value={f.textureAndMaterials} onChange={e => set("textureAndMaterials", e.target.value)} onFocus={() => onFocus?.("textureAndMaterials", "Texture & Materials")} className={textareaCls} rows={4} placeholder="Grain, foxing, letterpress impression, ink bleeds, watercolour washes…" />
       </Field>
     </div>
   );
 }
 
-function TypographySection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+function TypographySection({ f, set, onFocus }: {
+  f: FormState;
+  set: (k: keyof FormState, v: string) => void;
+  onFocus?: OnFieldFocus;
+}) {
   const suggest = GUIDE_SUGGESTIONS[f.guideType] ?? DEFAULT_GUIDE_SUGGESTIONS;
   const hasSuggestions = !!f.guideType;
 
@@ -462,14 +478,14 @@ function TypographySection({ f, set }: { f: FormState; set: (k: keyof FormState,
         hint="Named families, weights, and usage context for each."
         action={hasSuggestions ? <SuggestChip onClick={() => set("typefaceDirection", suggest.typefaceDirection)} /> : undefined}
       >
-        <textarea value={f.typefaceDirection} onChange={e => set("typefaceDirection", e.target.value)} className={textareaCls} rows={4} placeholder="Primary, secondary, display typefaces and their contexts…" />
+        <textarea value={f.typefaceDirection} onChange={e => set("typefaceDirection", e.target.value)} onFocus={() => onFocus?.("typefaceDirection", "Typeface Direction")} className={textareaCls} rows={4} placeholder="Primary, secondary, display typefaces and their contexts…" />
       </Field>
       <Field
         label="Type Hierarchy"
         hint="Sizes, weights, tracking, and colours for each heading level and body text."
         action={hasSuggestions ? <SuggestChip onClick={() => set("typeHierarchy", suggest.typeHierarchy)} /> : undefined}
       >
-        <textarea value={f.typeHierarchy} onChange={e => set("typeHierarchy", e.target.value)} className={textareaCls} rows={4} placeholder="H1, H2, H3, body, caption, micro — sizes, weights, leading, colour…" />
+        <textarea value={f.typeHierarchy} onChange={e => set("typeHierarchy", e.target.value)} onFocus={() => onFocus?.("typeHierarchy", "Type Hierarchy")} className={textareaCls} rows={4} placeholder="H1, H2, H3, body, caption, micro — sizes, weights, leading, colour…" />
       </Field>
       <Field
         label="Prose Voice"
@@ -477,7 +493,7 @@ function TypographySection({ f, set }: { f: FormState; set: (k: keyof FormState,
         hint="Describe the editorial voice — register, person, sentence structure, emotional temperature."
         action={hasSuggestions ? <SuggestChip onClick={() => set("proseVoice", suggest.proseVoice)} /> : undefined}
       >
-        <textarea value={f.proseVoice} onChange={e => set("proseVoice", e.target.value)} className={textareaCls} rows={4} placeholder="Who is the author? What do they know, care about, and sound like?…" />
+        <textarea value={f.proseVoice} onChange={e => set("proseVoice", e.target.value)} onFocus={() => onFocus?.("proseVoice", "Prose Voice")} className={textareaCls} rows={4} placeholder="Who is the author? What do they know, care about, and sound like?…" />
       </Field>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Register">
@@ -496,20 +512,24 @@ function TypographySection({ f, set }: { f: FormState; set: (k: keyof FormState,
         hint="4–6 example sentences that exemplify this voice at its best."
         action={hasSuggestions ? <SuggestChip onClick={() => set("referencePhrases", suggest.referencePhrases)} /> : undefined}
       >
-        <textarea value={f.referencePhrases} onChange={e => set("referencePhrases", e.target.value)} className={textareaCls} rows={3} placeholder="Example phrases and sentences that sound exactly right for this world…" />
+        <textarea value={f.referencePhrases} onChange={e => set("referencePhrases", e.target.value)} onFocus={() => onFocus?.("referencePhrases", "Reference Phrases")} className={textareaCls} rows={3} placeholder="Example phrases and sentences that sound exactly right for this world…" />
       </Field>
       <Field
         label="Words & Phrases to Avoid"
         hint="Specific language that breaks the voice or belongs to the wrong world."
         action={hasSuggestions ? <SuggestChip onClick={() => set("wordsToAvoid", suggest.wordsToAvoid)} /> : undefined}
       >
-        <textarea value={f.wordsToAvoid} onChange={e => set("wordsToAvoid", e.target.value)} className={textareaCls} rows={3} placeholder="Words, phrases, or registers that must never appear in this world's voice…" />
+        <textarea value={f.wordsToAvoid} onChange={e => set("wordsToAvoid", e.target.value)} onFocus={() => onFocus?.("wordsToAvoid", "Words to Avoid")} className={textareaCls} rows={3} placeholder="Words, phrases, or registers that must never appear in this world's voice…" />
       </Field>
     </div>
   );
 }
 
-function ConstraintsSection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+function ConstraintsSection({ f, set, onFocus }: {
+  f: FormState;
+  set: (k: keyof FormState, v: string) => void;
+  onFocus?: OnFieldFocus;
+}) {
   const suggest = GUIDE_SUGGESTIONS[f.guideType] ?? DEFAULT_GUIDE_SUGGESTIONS;
   const hasSuggestions = !!f.guideType;
 
@@ -521,14 +541,14 @@ function ConstraintsSection({ f, set }: { f: FormState; set: (k: keyof FormState
         hint="Explicit list of visual choices, typefaces, colours, and approaches that are prohibited."
         action={hasSuggestions ? <SuggestChip onClick={() => set("negativeConstraints", suggest.negativeConstraints)} /> : undefined}
       >
-        <textarea value={f.negativeConstraints} onChange={e => set("negativeConstraints", e.target.value)} className={textareaCls} rows={6} placeholder="List everything explicitly prohibited: illustration styles, typographic choices, colours, compositional approaches…" />
+        <textarea value={f.negativeConstraints} onChange={e => set("negativeConstraints", e.target.value)} onFocus={() => onFocus?.("negativeConstraints", "Negative Constraints")} className={textareaCls} rows={6} placeholder="List everything explicitly prohibited: illustration styles, typographic choices, colours, compositional approaches…" />
       </Field>
       <Field
         label="Production Rules"
         hint="Technical requirements: DPI, colour profiles, bleed, safe zones, font embedding, approval gates."
         action={hasSuggestions ? <SuggestChip onClick={() => set("productionRules", suggest.productionRules)} /> : undefined}
       >
-        <textarea value={f.productionRules} onChange={e => set("productionRules", e.target.value)} className={textareaCls} rows={5} placeholder="Technical specs for print and digital: resolution, colour mode, bleed, font embedding, stock testing…" />
+        <textarea value={f.productionRules} onChange={e => set("productionRules", e.target.value)} onFocus={() => onFocus?.("productionRules", "Production Rules")} className={textareaCls} rows={5} placeholder="Technical specs for print and digital: resolution, colour mode, bleed, font embedding, stock testing…" />
       </Field>
     </div>
   );
@@ -536,15 +556,75 @@ function ConstraintsSection({ f, set }: { f: FormState; set: (k: keyof FormState
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+const DRAFT_KEY = (worldId: string | null | undefined) =>
+  `daybook:style-guide-draft:${worldId ?? "__none__"}`;
+
+function loadDraft(worldId: string | null | undefined): { form: FormState; section: number } | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY(worldId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { form: FormState; section: number };
+    // Only restore if there's at least a name
+    if (!parsed?.form?.name?.trim()) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearDraft(worldId: string | null | undefined) {
+  try { localStorage.removeItem(DRAFT_KEY(worldId)); } catch { /* ignore */ }
+}
+
 export default function NewStyleGuideFlow() {
   const [, navigate] = useLocation();
   const { selectedWorldId } = useEditorial();
   const { toast } = useToast();
 
+  // Draft restore banner
+  const [draftBanner, setDraftBanner] = useState<"idle" | "offered" | "dismissed">("idle");
+  const savedDraft = loadDraft(selectedWorldId);
+
   const [form, setForm] = useState<FormState>({ ...EMPTY });
   const [activeSection, setActiveSection] = useState(0);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [activeCoField, setActiveCoField] = useState<{ field: keyof FormState; label: string }>({ field: "scopeDescription", label: "Scope Description" });
+  // Ref so the onSend closure always reads the latest form + field without re-creating the callback
+  const formRef = useRef(form);
+  const activeCoFieldRef = useRef(activeCoField);
+  formRef.current = form;
+  activeCoFieldRef.current = activeCoField;
+
+  // Offer to restore draft on mount (if one exists)
+  useEffect(() => {
+    if (savedDraft && draftBanner === "idle") {
+      setDraftBanner("offered");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const set = (k: keyof FormState, v: string) => setForm(prev => ({ ...prev, [k]: v }));
+
+  const saveDraft = useCallback(() => {
+    try {
+      localStorage.setItem(DRAFT_KEY(selectedWorldId), JSON.stringify({ form, section: activeSection }));
+      toast({ title: "Draft saved — you can safely leave and return to continue" });
+    } catch {
+      toast({ title: "Could not save draft", variant: "destructive" });
+    }
+  }, [form, activeSection, selectedWorldId, toast]);
+
+  const restoreDraft = () => {
+    if (!savedDraft) return;
+    setForm(savedDraft.form);
+    setActiveSection(savedDraft.section);
+    setDraftBanner("dismissed");
+  };
+
+  const discardDraft = () => {
+    clearDraft(selectedWorldId);
+    setDraftBanner("dismissed");
+  };
 
   // Completion checks
   const checks = SECTIONS.map(s => {
@@ -569,7 +649,8 @@ export default function NewStyleGuideFlow() {
         }),
       });
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
+      clearDraft(selectedWorldId);
       toast({ title: "Style guide created" });
       navigate(`/super/worldsmith/editorial/style-guides`);
     },
@@ -578,11 +659,13 @@ export default function NewStyleGuideFlow() {
     },
   });
 
+  const handleCoFieldFocus: OnFieldFocus = (field, label) => setActiveCoField({ field, label });
+
   const sectionComponents = [
-    <IdentitySection f={form} set={set} />,
-    <VisualSection f={form} set={set} />,
-    <TypographySection f={form} set={set} />,
-    <ConstraintsSection f={form} set={set} />,
+    <IdentitySection f={form} set={set} onFocus={handleCoFieldFocus} />,
+    <VisualSection f={form} set={set} onFocus={handleCoFieldFocus} />,
+    <TypographySection f={form} set={set} onFocus={handleCoFieldFocus} />,
+    <ConstraintsSection f={form} set={set} onFocus={handleCoFieldFocus} />,
   ];
 
   return (
@@ -676,6 +759,23 @@ export default function NewStyleGuideFlow() {
               <span>Step {activeSection + 1} of {SECTIONS.length}</span>
             </div>
             <button
+              onClick={() => setCopilotOpen(o => !o)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-semibold border rounded-lg transition-colors ${
+                copilotOpen ? "text-white border-transparent" : "text-gray-700 border-gray-200 hover:bg-gray-50"
+              }`}
+              style={copilotOpen ? { background: INK } : undefined}
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Co-write
+            </button>
+            <button
+              onClick={saveDraft}
+              disabled={!form.name.trim()}
+              title="Save your progress — return to finish later"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Save className="w-3.5 h-3.5" /> Save Draft
+            </button>
+            <button
               onClick={() => saveMutation.mutate()}
               disabled={!canSubmit || saveMutation.isPending}
               className="flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -687,11 +787,52 @@ export default function NewStyleGuideFlow() {
           </div>
         </div>
 
-        {/* Form */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-8 py-8">
-            {sectionComponents[activeSection]}
+        {/* Form + optional copilot panel */}
+        <div className="flex-1 flex min-h-0">
+          <div className="flex-1 overflow-y-auto">
+            <div className={copilotOpen ? "max-w-2xl px-8 py-8" : "max-w-2xl mx-auto px-8 py-8"}>
+              {/* Draft restore banner */}
+              {draftBanner === "offered" && (
+                <div className="mb-6 flex items-center gap-3 px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm">
+                  <Save className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="flex-1 text-amber-800">You have an unsaved draft. Restore it to pick up where you left off.</span>
+                  <button onClick={restoreDraft} className="font-semibold text-amber-900 hover:underline shrink-0">Restore</button>
+                  <button onClick={discardDraft} className="text-amber-600 hover:text-amber-800 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              )}
+              {sectionComponents[activeSection]}
+            </div>
           </div>
+          <CopilotPanel
+            isOpen={copilotOpen}
+            onClose={() => setCopilotOpen(false)}
+            title="Style Guide Copilot"
+            activeFieldLabel={activeCoField.label}
+            greeting={`I'm here to help you write ${form.name ? `"${form.name}"` : "your style guide"}${form.guideType ? ` (${form.guideType})` : ""}. Click into any field and tell me what you'd like to develop, or just describe the world and I'll help shape the voice.`}
+            onSend={async (message, history) =>
+              apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
+                method: "POST",
+                body: JSON.stringify({
+                  surface: "style_guide",
+                  worldId: selectedWorldId,
+                  field: activeCoFieldRef.current.field,
+                  fieldLabel: activeCoFieldRef.current.label,
+                  message,
+                  history,
+                  context: {
+                    guideName: formRef.current.name,
+                    guideType: formRef.current.guideType,
+                    draft: { ...formRef.current },
+                  },
+                }),
+              })
+            }
+            onCaptureTarget={() => ({
+              key: activeCoFieldRef.current.field as string,
+              label: activeCoFieldRef.current.label,
+            })}
+            onApply={(text, key) => set(key as keyof FormState, text.trim())}
+          />
         </div>
 
         {/* Section navigation footer */}

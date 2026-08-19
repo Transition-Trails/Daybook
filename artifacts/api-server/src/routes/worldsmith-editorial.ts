@@ -50,6 +50,7 @@ import { randomUUID } from "crypto";
 import { and, eq, inArray, like, desc, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
+import { callAi } from "../lib/ai-proxy";
 import {
   updatePage,
   createPage,
@@ -711,6 +712,123 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
   } catch (err) {
     logger.error({ err }, "editorial: sync canon records from notion");
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /v1/editorial/canon-records/suggest ──────────────────────────────────
+// Uses the AI to analyse the world's existing canon and World Bible, then
+// suggests new records that would meaningfully enrich the library.
+// Body: { world_id, focus_type? }
+// Returns: { suggestions: [{ name, canonType, rationale, narrativeDetails }] }
+
+router.post("/v1/editorial/canon-records/suggest", async (req: Request, res: Response) => {
+  const { world_id, focus_type } = req.body as { world_id?: string; focus_type?: string };
+  if (!world_id) {
+    res.status(400).json({ error: "world_id is required" });
+    return;
+  }
+
+  try {
+    // Fetch world bible
+    const [world] = await db
+      .select()
+      .from(worldsmithWorldsTable)
+      .where(eq(worldsmithWorldsTable.id, world_id))
+      .limit(1);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    // Fetch existing canon record names + types (limit 80 so prompt stays sane)
+    const existing = await db
+      .select({
+        name: wsCanonRecordsTable.name,
+        canonType: wsCanonRecordsTable.canonType,
+        status: wsCanonRecordsTable.status,
+      })
+      .from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.worldId, world_id))
+      .orderBy(wsCanonRecordsTable.name)
+      .limit(80);
+
+    const existingLines = existing.length > 0
+      ? existing.map(r => `- ${r.name} [${r.canonType ?? "unknown"}] (${r.status})`).join("\n")
+      : "(no records yet)";
+
+    const worldBible = [
+      world.visualPalette ? `Visual Palette: ${world.visualPalette}` : "",
+      world.proseVoice    ? `Prose Voice: ${world.proseVoice}`       : "",
+      world.atmosphericNotes ? `Atmospheric Notes: ${world.atmosphericNotes}` : "",
+      world.materialWorld ? `Material World: ${world.materialWorld}` : "",
+      Array.isArray(world.worldRules) && world.worldRules.length > 0
+        ? `World Rules:\n${(world.worldRules as string[]).map(r => `  - ${r}`).join("\n")}`
+        : "",
+    ].filter(Boolean).join("\n");
+
+    const focusLine = focus_type
+      ? `Focus specifically on the "${focus_type}" type — all six suggestions must be of that type.`
+      : "Spread suggestions across at least three different types to fill gaps.";
+
+    const systemPrompt = `You are an expert WorldSmith editor who analyses a world's canon library and identifies the most valuable missing entries. Your job is to spot gaps — important characters, locations, objects, events, lore, atmosphere, materials, relationships, or motifs that the existing canon needs but doesn't yet have. Every suggestion must feel like it belongs deeply to this world's specific identity.`;
+
+    const userMessage = `World: ${world.name}${world.description ? ` — ${world.description}` : ""}
+
+## World Bible
+${worldBible || "(not yet written)"}
+
+## Existing Canon Records (${existing.length} total)
+${existingLines}
+
+## Task
+Suggest exactly 6 new canon records that would meaningfully enrich this world. ${focusLine}
+
+Return ONLY a JSON array (no markdown fences, no preamble) where each element has:
+- "name": string — the record's title (specific, evocative, fits this world's voice)
+- "canonType": one of character|location|object|event|lore|atmosphere|material|relationship|motif
+- "rationale": string — 1-2 sentences explaining why this record is missing and why it matters
+- "narrativeDetails": string — 2-4 sentences of polished opening prose for this record, written in the world's voice
+
+All six must be DIFFERENT from existing records and from each other. Avoid generic fantasy/Victorian tropes — ground every entry in this world's specific identity.`;
+
+    const result = await callAi(
+      [{ role: "user", content: userMessage }],
+      process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
+      systemPrompt,
+    );
+
+    // Parse the JSON array from the AI response
+    let suggestions: unknown[] = [];
+    try {
+      const text = result.content.trim();
+      // Strip any accidental code fences
+      const clean = text.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(parsed)) suggestions = parsed.slice(0, 6);
+    } catch {
+      logger.warn({ raw: result.content }, "editorial: suggest — AI returned non-JSON, attempting extraction");
+      // Fallback: try to find the first [ ... ] block
+      const match = result.content.match(/\[[\s\S]*\]/);
+      if (match) {
+        try { suggestions = JSON.parse(match[0]); } catch { /* give up */ }
+      }
+    }
+
+    // Sanitise each suggestion
+    const VALID_TYPES = new Set(["character","location","object","event","lore","atmosphere","material","relationship","motif"]);
+    const sanitised = suggestions
+      .filter((s): s is Record<string, unknown> => typeof s === "object" && s !== null)
+      .map(s => ({
+        name: typeof s.name === "string" ? s.name.trim().slice(0, 120) : "Untitled",
+        canonType: typeof s.canonType === "string" && VALID_TYPES.has(s.canonType) ? s.canonType : "lore",
+        rationale: typeof s.rationale === "string" ? s.rationale.trim().slice(0, 400) : "",
+        narrativeDetails: typeof s.narrativeDetails === "string" ? s.narrativeDetails.trim().slice(0, 800) : "",
+      }));
+
+    res.json({ suggestions: sanitised, world: { name: world.name, code: world.code } });
+  } catch (err) {
+    logger.error({ err }, "editorial: suggest canon records");
+    res.status(502).json({ error: "Could not generate suggestions. Try again.", code: "AI_ERROR" });
   }
 });
 

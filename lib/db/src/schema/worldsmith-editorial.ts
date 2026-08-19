@@ -81,6 +81,10 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   emotionalValence: text("emotional_valence"),
   // How many production specs reference this record (denormalised for the Canon Board)
   specRefCount: integer("spec_ref_count").notNull().default(0),
+  // Portrait image — objectPath from object storage (e.g. /objects/uploads/uuid)
+  portraitUrl: text("portrait_url"),
+  // Rich editorial notes; markdown-formatted free text
+  notes: text("notes").notNull().default(""),
   notionPageId: text("notion_page_id"),
   syncedAt: timestamp("synced_at", { withTimezone: true }),
   createdBy: text("created_by"),

@@ -18,9 +18,9 @@ import {
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
   ChevronRight, Trash2, X, ArrowLeft, Eye, EyeOff,
   GitBranch, Repeat2, Plus, Link2, ChevronDown, ChevronUp,
-  Sparkles, BookOpen, Zap, FileText,
+  Sparkles, BookOpen, Zap, FileText, Upload, ImageIcon, StickyNote,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, storageApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
 
@@ -95,6 +95,7 @@ interface CanonRecord {
   canonStability?: string | null; specRefCount: number; notionPageId?: string | null;
   createdBy?: string | null; createdAt: string; updatedAt: string;
   fromEntityId?: string | null; toEntityId?: string | null; emotionalValence?: string | null;
+  portraitUrl?: string | null; notes?: string | null;
 }
 interface CanonListItem {
   id: string; worldId: string; name: string; status: string;
@@ -138,6 +139,101 @@ function AutoField({ label, field, value, placeholder, mono = false, onSave, row
         className="w-full rounded-lg px-3 py-2 text-sm leading-relaxed resize-none focus:outline-none"
         style={{ border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE, color: INK,
           fontFamily: mono ? "'Space Mono', monospace" : "'Spectral', Georgia, serif", fontSize: 13 }} />
+    </div>
+  );
+}
+
+// ── Portrait well ──────────────────────────────────────────────────────────────
+function PortraitWell({ portraitUrl, onUpload, isUploading }:
+  { portraitUrl?: string | null; onUpload: (file: File) => void; isUploading: boolean }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const imgSrc = portraitUrl ? `/api/storage${portraitUrl}` : null;
+  return (
+    <div onClick={() => !isUploading && fileRef.current?.click()}
+      className="relative flex-none rounded-xl overflow-hidden cursor-pointer group"
+      style={{ width: 96, height: 114, background: WARM_BG, border: `1.5px dashed ${WARM_BORDER}`, flexShrink: 0 }}>
+      {imgSrc ? (
+        <img src={imgSrc} alt="Portrait" className="w-full h-full object-cover" />
+      ) : (
+        <div className="flex flex-col items-center justify-center h-full gap-1.5">
+          <ImageIcon className="w-5 h-5" style={{ color: "#C9BFB0" }} />
+          <span className="text-[9px] font-medium text-center leading-tight px-2" style={{ color: "#C9BFB0" }}>
+            Add portrait
+          </span>
+        </div>
+      )}
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{ background: "rgba(27,42,74,0.5)" }}>
+        {isUploading
+          ? <Loader2 className="w-5 h-5 animate-spin text-white" />
+          : <Upload className="w-4 h-4 text-white" />}
+      </div>
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+        className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }} />
+    </div>
+  );
+}
+
+// ── Inline markdown render ─────────────────────────────────────────────────────
+function applyInlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`(.+?)`/g, `<code style="background:#F3F4F6;padding:1px 4px;border-radius:3px;font-size:11px;font-family:monospace">$1</code>`);
+}
+function renderSimpleMarkdown(md: string): string {
+  return md.split("\n").map(line => {
+    if (/^### /.test(line)) return `<h4 style="font-size:12px;font-weight:700;margin:8px 0 2px;color:#1B2A4A">${applyInlineMarkdown(line.slice(4))}</h4>`;
+    if (/^## /.test(line))  return `<h3 style="font-size:14px;font-weight:700;margin:10px 0 2px;color:#1B2A4A">${applyInlineMarkdown(line.slice(3))}</h3>`;
+    if (/^# /.test(line))   return `<h2 style="font-size:16px;font-weight:700;margin:12px 0 4px;color:#1B2A4A">${applyInlineMarkdown(line.slice(2))}</h2>`;
+    if (/^[-*] /.test(line)) return `<li style="margin-left:16px;list-style-type:disc;padding-left:2px">${applyInlineMarkdown(line.slice(2))}</li>`;
+    if (line.trim() === "") return `<div style="height:6px"></div>`;
+    return `<p style="margin:0 0 3px">${applyInlineMarkdown(line)}</p>`;
+  }).join("");
+}
+
+// ── Notes field ────────────────────────────────────────────────────────────────
+function NotesField({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [local, setLocal]   = useState(value);
+  const [mode, setMode]     = useState<"write" | "preview">("write");
+  const [dirty, setDirty]   = useState(false);
+  const prev = useRef(value);
+  useEffect(() => { if (prev.current !== value && !dirty) { setLocal(value); prev.current = value; } }, [value, dirty]);
+  const commit = () => { if (dirty && local !== prev.current) { onSave(local); prev.current = local; } setDirty(false); };
+  const switchToPreview = () => { commit(); setMode("preview"); };
+  return (
+    <div className="mb-8">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <StickyNote className="w-3 h-3" style={{ color: "#9CA3AF" }} />
+          <label className="text-[10px] font-semibold tracking-widest uppercase" style={{ color: "#9CA3AF" }}>Notes</label>
+        </div>
+        <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: WARM_BORDER }}>
+          {(["write", "preview"] as const).map(m => (
+            <button key={m} onClick={() => m === "write" ? setMode("write") : switchToPreview()}
+              className="px-2.5 py-0.5 text-[10px] font-semibold capitalize"
+              style={{ background: mode === m ? INK : "transparent", color: mode === m ? "white" : "#9CA3AF" }}>
+              {m}
+            </button>
+          ))}
+        </div>
+      </div>
+      {mode === "write" ? (
+        <textarea value={local} rows={5}
+          onChange={e => { setLocal(e.target.value); setDirty(true); }}
+          onBlur={commit}
+          placeholder={"Write editorial notes here — observations, flags, cross-references, open questions…\n\nMarkdown supported: **bold**, *italic*, # Heading, - bullet"}
+          className="w-full rounded-lg px-3 py-2.5 leading-relaxed resize-none focus:outline-none"
+          style={{ border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE, color: INK,
+            fontFamily: "'Spectral', Georgia, serif", fontSize: 13 }} />
+      ) : (
+        <div className="w-full rounded-lg px-3 py-2.5 leading-relaxed min-h-[112px]"
+          style={{ border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE, color: INK,
+            fontFamily: "'Spectral', Georgia, serif", fontSize: 13 }}
+          dangerouslySetInnerHTML={{ __html: local.trim()
+            ? renderSimpleMarkdown(local)
+            : `<span style="color:#C9BFB0;font-style:italic">Nothing written yet.</span>` }} />
+      )}
     </div>
   );
 }
@@ -1135,9 +1231,25 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
       historicalContext: "historical_context",
       visualNotes: "visual_notes",
       sensoryClauses: "sensory_clauses",
+      notes: "notes",
     };
     patchMutation.mutate({ [map[field] ?? field]: value });
   }, [patchMutation]);
+
+  // ── Portrait upload ──────────────────────────────────────────────────────────
+  const [portraitUploading, setPortraitUploading] = useState(false);
+  const handlePortraitUpload = useCallback(async (file: File) => {
+    setPortraitUploading(true);
+    try {
+      const { uploadURL, objectPath } = await storageApi.requestUploadUrl(file.name, file.size, file.type);
+      await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+      patchMutation.mutate({ portrait_url: objectPath });
+    } catch {
+      toast({ title: "Portrait upload failed", variant: "destructive" });
+    } finally {
+      setPortraitUploading(false);
+    }
+  }, [patchMutation, toast]);
 
   // ── Loading / error ─────────────────────────────────────────────────────────
   if (isLoading) return <div className="flex h-screen items-center justify-center"><Loader2 className="w-5 h-5 animate-spin" style={{ color: CLAY }} /></div>;
@@ -1222,24 +1334,32 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
         {/* MAIN */}
         <main className="flex-1 overflow-y-auto px-10 py-8" style={{ background: WARM_WHITE }}>
           <div style={{ maxWidth: 680 }}>
-            {/* Record name */}
-            <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 38, color: INK, fontWeight: 600, marginBottom: 8 }}>
-              {record.name}
-            </h1>
-
-            {/* Badges row */}
-            <div className="flex items-center gap-3 mb-8">
-              {typeMeta && (
-                <span className="rounded-full text-xs px-2.5 py-0.5 font-medium"
-                  style={{ background: `${typeMeta.color}20`, color: typeMeta.color }}>
-                  {typeMeta.label}
-                </span>
-              )}
-              <span style={{ fontSize: 11, color: "#9CA3AF", fontFamily: "'Space Mono', monospace" }}>{idStamp}</span>
-              <span className="rounded-full text-[10px] font-semibold px-2 py-0.5"
-                style={{ background: statusMeta.bg, color: statusMeta.color }}>
-                {statusMeta.label}
-              </span>
+            {/* Portrait + name row */}
+            <div className="flex items-start gap-5 mb-8">
+              <PortraitWell
+                portraitUrl={record.portraitUrl}
+                onUpload={handlePortraitUpload}
+                isUploading={portraitUploading}
+              />
+              <div className="flex-1 min-w-0">
+                <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 36, color: INK, fontWeight: 600, marginBottom: 8, lineHeight: 1.15 }}>
+                  {record.name}
+                </h1>
+                {/* Badges row */}
+                <div className="flex items-center flex-wrap gap-3">
+                  {typeMeta && (
+                    <span className="rounded-full text-xs px-2.5 py-0.5 font-medium"
+                      style={{ background: `${typeMeta.color}20`, color: typeMeta.color }}>
+                      {typeMeta.label}
+                    </span>
+                  )}
+                  <span style={{ fontSize: 11, color: "#9CA3AF", fontFamily: "'Space Mono', monospace" }}>{idStamp}</span>
+                  <span className="rounded-full text-[10px] font-semibold px-2 py-0.5"
+                    style={{ background: statusMeta.bg, color: statusMeta.color }}>
+                    {statusMeta.label}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Prose textarea */}
@@ -1248,6 +1368,9 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
                 placeholder="Write this record's story here — how it exists in your world, what it feels like, what it carries…"
                 onSave={handleField} rows={5} />
             </div>
+
+            {/* Notes */}
+            <NotesField value={record.notes ?? ""} onSave={v => handleField("notes", v)} />
 
             {/* Tabs */}
             <div className="flex mb-6" style={{ borderBottom: `1px solid ${WARM_BORDER}` }}>

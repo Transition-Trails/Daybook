@@ -750,6 +750,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     emotional_register, sensory_clauses, register_locked,
     narrative_visibility, temporal_scope, canon_stability,
     from_entity_id, to_entity_id, emotional_valence,
+    portrait_url, notes,
   } = req.body;
   // Validate emotional_register if provided
   const VALID_REGISTERS = ["Withholding", "Intimate", "Guarded", "Trespass", "Absence", "Confidence"];
@@ -819,6 +820,8 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(from_entity_id !== undefined ? { fromEntityId: from_entity_id } : {}),
         ...(to_entity_id !== undefined ? { toEntityId: to_entity_id } : {}),
         ...(emotional_valence !== undefined ? { emotionalValence: emotional_valence } : {}),
+        ...(portrait_url !== undefined ? { portraitUrl: portrait_url } : {}),
+        ...(notes !== undefined ? { notes } : {}),
       })
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .returning();

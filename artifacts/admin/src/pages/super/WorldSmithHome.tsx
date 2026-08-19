@@ -616,8 +616,23 @@ function FocusedWorldView({
               </Link>
             </div>
           ) : (
-            <div className="divide-y divide-border/50">
-              {runs.map(r => <RunRow key={r.run_id} run={r} />)}
+            <div>
+              {groupRunsByDay(runs).map(group => (
+                <div key={group.label}>
+                  <div className="flex items-center gap-2 px-3 pt-3 pb-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">
+                      {group.label}
+                    </span>
+                    <div className="flex-1 h-px bg-border/40" />
+                    <span className="text-[10px] text-muted-foreground/40 whitespace-nowrap">
+                      {group.runs.length} run{group.runs.length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-border/50 px-2 pb-2">
+                    {group.runs.map(r => <RunRow key={r.run_id} run={r} />)}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -1969,4 +1984,26 @@ function timeAgo(iso: string): string {
   const days = Math.floor(hrs / 24);
   if (days < 30) return `${days}d ago`;
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+function dayLabel(iso: string): string {
+  if (!iso) return "Unknown";
+  const d = new Date(iso);
+  const today = new Date();
+  const toMidnight = (dt: Date) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+  const diffDays = Math.round((toMidnight(today) - toMidnight(d)) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
+function groupRunsByDay(runs: WsRun[]): { label: string; runs: WsRun[] }[] {
+  const groups: { label: string; runs: WsRun[] }[] = [];
+  const seen = new Map<string, WsRun[]>();
+  for (const run of runs) {
+    const label = dayLabel(run.started_at);
+    if (!seen.has(label)) { seen.set(label, []); groups.push({ label, runs: seen.get(label)! }); }
+    seen.get(label)!.push(run);
+  }
+  return groups;
 }

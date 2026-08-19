@@ -83,6 +83,9 @@ async function run() {
     await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS from_entity_id TEXT;`);
     await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS to_entity_id TEXT;`);
     await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS emotional_valence TEXT;`);
+    // Portrait + notes
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS portrait_url TEXT;`);
+    await client.query(`ALTER TABLE ws_canon_records ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';`);
     console.log("  ✓ ws_canon_records");
 
     // ── Style Guides ──────────────────────────────────────────────────────────

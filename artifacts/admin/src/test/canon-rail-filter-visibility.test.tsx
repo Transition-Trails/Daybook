@@ -62,6 +62,7 @@ function makeListItem(
   visibility: string | null,
   stability: string | null,
   type: string | null,
+  emotionalRegister: string | null = null,
 ) {
   return {
     id,
@@ -69,7 +70,7 @@ function makeListItem(
     name,
     status: "accepted",
     canonType: type,
-    emotionalRegister: null,
+    emotionalRegister,
     registerLocked: false,
     specRefCount: 0,
     narrativeVisibility: visibility,
@@ -79,11 +80,11 @@ function makeListItem(
 }
 
 const ALL_RECORDS = [
-  makeListItem(RECORD_ID,  "Hero of the Archive", "explicit",   "high",   "character"),
-  makeListItem("rec-2",    "The Silver Gate",     "explicit",   "medium", "location"),
-  makeListItem("rec-3",    "Shadow Companion",    "background", "low",    "character"),
-  makeListItem("rec-4",    "The Hollow Bell",     "background", "low",    "event"),
-  makeListItem("rec-5",    "A Whispered Name",    "hinted",     "medium", "lore"),
+  makeListItem(RECORD_ID,  "Hero of the Archive", "explicit",   "high",   "character", "Confidence"),
+  makeListItem("rec-2",    "The Silver Gate",     "explicit",   "medium", "location",  "Withholding"),
+  makeListItem("rec-3",    "Shadow Companion",    "background", "low",    "character", "Withholding"),
+  makeListItem("rec-4",    "The Hollow Bell",     "background", "low",    "event",     "Guarded"),
+  makeListItem("rec-5",    "A Whispered Name",    "hinted",     "medium", "lore",      "Intimate"),
 ];
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
@@ -97,7 +98,11 @@ vi.mock("@/lib/api", () => ({
     if (url.includes("/specs"))
       return Promise.resolve({ specs: [] });
     if (url.includes("canon-records?world_id="))
-      return Promise.resolve({ canon_records: ALL_RECORDS });
+      return Promise.resolve({
+        canon_records: ALL_RECORDS,
+        total: ALL_RECORDS.length,
+        by_type: { character: 2, location: 1, event: 1, lore: 1 },
+      });
     // Single-record fetch — matches /canon-records/<id>
     if (url.includes("/canon-records/"))
       return Promise.resolve({ canon_record: MOCK_RECORD });
@@ -456,5 +461,37 @@ describe("WorldsmithCanon — active rail filter visibility", () => {
     await waitFor(() =>
       expect(screen.getByText(/Filtered\s*·\s*0\/5\s*shown/)).toBeInTheDocument(),
     );
+  });
+
+  it("filters the Canon Library by emotional register and persists the selection", async () => {
+    const { default: CanonLibrary } = await import(
+      "@/pages/super/worldsmith-editorial/CanonLibrary"
+    );
+    render(
+      <Wrapper qc={makeQC()}>
+        <CanonLibrary />
+      </Wrapper>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getAllByRole("combobox")).toHaveLength(3),
+    );
+
+    const registerFilter = screen.getAllByRole("combobox")[2]!;
+    expect(within(registerFilter).getByRole("option", { name: "All Registers" })).toBeInTheDocument();
+
+    await userEvent.selectOptions(registerFilter, "Withholding");
+
+    await waitFor(() => {
+      const stored = JSON.parse(
+        sessionStorage.getItem(`canon-filters-${WORLD_ID}`) ?? "{}",
+      );
+      expect(stored.emotionalRegister).toBe("Withholding");
+    });
+
+    expect(screen.getByText("The Silver Gate")).toBeInTheDocument();
+    expect(screen.getByText("Shadow Companion")).toBeInTheDocument();
+    expect(screen.queryByText("Hero of the Archive")).not.toBeInTheDocument();
+    expect(screen.queryByText("A Whispered Name")).not.toBeInTheDocument();
   });
 });

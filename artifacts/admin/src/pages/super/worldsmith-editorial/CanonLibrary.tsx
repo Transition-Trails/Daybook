@@ -22,6 +22,7 @@ import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
 import { CopilotPanel } from "@/components/CopilotPanel";
+import { REGISTERS } from "./WorldsmithCanon";
 
 // ── Type configuration ────────────────────────────────────────────────────────
 
@@ -145,6 +146,7 @@ interface CanonRecord {
   narrativeDetails: string;
   historicalContext: string;
   visualNotes: string;
+  emotionalRegister?: string | null;
   narrativeVisibility?: string | null;
   canonStability?: string | null;
   specRefCount: number;
@@ -858,11 +860,12 @@ interface LibraryFilters {
   search: string;
   visibility: string;
   stability: string;
+  emotionalRegister: string;
 }
 function loadLibraryFilters(worldId: string): LibraryFilters {
   try {
     const raw = sessionStorage.getItem(canonFilterKey(worldId));
-    if (!raw) return { type: "all", status: "all", search: "", visibility: "all", stability: "all" };
+    if (!raw) return { type: "all", status: "all", search: "", visibility: "all", stability: "all", emotionalRegister: "all" };
     const parsed = JSON.parse(raw);
     return {
       type:       typeof parsed.type       === "string" ? parsed.type       : "all",
@@ -872,9 +875,10 @@ function loadLibraryFilters(worldId: string): LibraryFilters {
       // map null → "all" for the library's "no filter" sentinel
       visibility: typeof parsed.visibility === "string" ? parsed.visibility : "all",
       stability:  typeof parsed.stability  === "string" ? parsed.stability  : "all",
+      emotionalRegister: typeof parsed.emotionalRegister === "string" ? parsed.emotionalRegister : "all",
     };
   } catch {
-    return { type: "all", status: "all", search: "", visibility: "all", stability: "all" };
+    return { type: "all", status: "all", search: "", visibility: "all", stability: "all", emotionalRegister: "all" };
   }
 }
 
@@ -897,6 +901,7 @@ function saveLibraryFilters(worldId: string, filters: LibraryFilters) {
         search:     filters.search,
         visibility: filters.visibility === "all" ? null : filters.visibility,
         stability:  filters.stability  === "all" ? null : filters.stability,
+        emotionalRegister: filters.emotionalRegister === "all" ? null : filters.emotionalRegister,
       }),
     );
   } catch { /* storage full or unavailable — silently skip */ }
@@ -917,13 +922,14 @@ export default function CanonLibrary() {
   const [activeStatus, setActiveStatus] = useState("all");
   const [activeVisibility, setActiveVisibility] = useState("all");
   const [activeStability, setActiveStability] = useState("all");
+  const [activeEmotionalRegister, setActiveEmotionalRegister] = useState("all");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
 
   // Tracks which worldId filters were hydrated from so we don't re-hydrate
   // or persist prematurely (same guard pattern as WorldsmithCanon).
   const [hydratedWorldId, setHydratedWorldId] = useState<string | null>(null);
 
-  // Hydrate all five filters from sessionStorage when selectedWorldId resolves
+  // Hydrate all six filters from sessionStorage when selectedWorldId resolves
   // or changes.  Runs before the persist effect thanks to state sequencing.
   useEffect(() => {
     if (!selectedWorldId || selectedWorldId === hydratedWorldId) return;
@@ -938,15 +944,20 @@ export default function CanonLibrary() {
       VISIBILITY_OPTIONS.some(v => v.key === saved.visibility) ? saved.visibility : "all";
     const validStability =
       STABILITY_OPTIONS.some(s => s.key === saved.stability) ? saved.stability : "all";
+    const validEmotionalRegister =
+      saved.emotionalRegister === "all" || REGISTERS.some(r => r.key === saved.emotionalRegister)
+        ? saved.emotionalRegister
+        : "all";
     setActiveType(validType);
     setActiveStatus(validStatus);
     setSearch(saved.search);
     setActiveVisibility(validVisibility);
     setActiveStability(validStability);
+    setActiveEmotionalRegister(validEmotionalRegister);
     setHydratedWorldId(selectedWorldId);
   }, [selectedWorldId, hydratedWorldId]);
 
-  // Persist all five filters whenever they change — only after hydration.
+  // Persist all six filters whenever they change — only after hydration.
   useEffect(() => {
     if (!selectedWorldId || selectedWorldId !== hydratedWorldId) return;
     saveLibraryFilters(selectedWorldId, {
@@ -955,8 +966,9 @@ export default function CanonLibrary() {
       search,
       visibility: activeVisibility,
       stability:  activeStability,
+      emotionalRegister: activeEmotionalRegister,
     });
-  }, [selectedWorldId, hydratedWorldId, activeType, activeStatus, search, activeVisibility, activeStability]);
+  }, [selectedWorldId, hydratedWorldId, activeType, activeStatus, search, activeVisibility, activeStability, activeEmotionalRegister]);
 
   // Selection (table mode)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -993,7 +1005,7 @@ export default function CanonLibrary() {
   }, [search]);
 
   // Reset selection when filters change
-  useEffect(() => { setSelectedIds(new Set()); }, [activeType, activeStatus, activeVisibility, activeStability, debouncedSearch]);
+  useEffect(() => { setSelectedIds(new Set()); }, [activeType, activeStatus, activeVisibility, activeStability, activeEmotionalRegister, debouncedSearch]);
 
   const { data, isLoading, refetch } = useQuery<CanonListResponse>({
     queryKey: ["editorial-canon-library", selectedWorldId],
@@ -1042,12 +1054,13 @@ export default function CanonLibrary() {
   const total = data?.total ?? 0;
   const byType = data?.by_type ?? {};
 
-  // Client-side filter for search/type/status/visibility/stability
+  // Client-side filter for search/type/status/visibility/stability/register
   const filtered = allRecords.filter(r => {
     if (activeType !== "all" && r.canonType !== activeType) return false;
     if (activeStatus !== "all" && r.status !== activeStatus) return false;
     if (activeVisibility !== "all" && r.narrativeVisibility !== activeVisibility) return false;
     if (activeStability !== "all" && r.canonStability !== activeStability) return false;
+    if (activeEmotionalRegister !== "all" && r.emotionalRegister !== activeEmotionalRegister) return false;
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
       return (
@@ -1065,7 +1078,8 @@ export default function CanonLibrary() {
     activeType !== "all" ||
     activeStatus !== "all" ||
     activeVisibility !== "all" ||
-    activeStability !== "all";
+    activeStability !== "all" ||
+    activeEmotionalRegister !== "all";
 
   // Quick-start is onboarding only — once any record exists, always show the
   // full library so deleting a record never flips the UI back to the launcher.
@@ -1276,11 +1290,21 @@ export default function CanonLibrary() {
               const activeCount =
                 (search.trim() ? 1 : 0) +
                 (activeType !== "all" ? 1 : 0) +
-                (activeStatus !== "all" ? 1 : 0);
+                (activeStatus !== "all" ? 1 : 0) +
+                (activeVisibility !== "all" ? 1 : 0) +
+                (activeStability !== "all" ? 1 : 0) +
+                (activeEmotionalRegister !== "all" ? 1 : 0);
               if (activeCount === 0) return null;
               return (
                 <button
-                  onClick={() => { setSearch(""); setActiveType("all"); setActiveStatus("all"); }}
+                  onClick={() => {
+                    setSearch("");
+                    setActiveType("all");
+                    setActiveStatus("all");
+                    setActiveVisibility("all");
+                    setActiveStability("all");
+                    setActiveEmotionalRegister("all");
+                  }}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all shrink-0"
                   style={{ background: "#FEF3C7", borderColor: "#F59E0B", color: "#92400E" }}
                   title="Clear all active filters"
@@ -1404,6 +1428,23 @@ export default function CanonLibrary() {
               ))}
             </select>
 
+            {/* Emotional register dropdown */}
+            <select
+              value={activeEmotionalRegister}
+              onChange={e => setActiveEmotionalRegister(e.target.value)}
+              className="text-xs font-medium border rounded-full px-2.5 py-1 focus:outline-none cursor-pointer transition-colors"
+              style={
+                activeEmotionalRegister !== "all"
+                  ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
+                  : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
+              }
+            >
+              <option value="all">All Registers</option>
+              {REGISTERS.map(r => (
+                <option key={r.key} value={r.key}>{r.key}</option>
+              ))}
+            </select>
+
             {hasActiveFilter && (
               <span className="text-xs text-gray-400 ml-1 whitespace-nowrap">
                 {filtered.length} result{filtered.length !== 1 ? "s" : ""}
@@ -1418,7 +1459,14 @@ export default function CanonLibrary() {
                 <BookOpen className="w-8 h-8 mb-3 opacity-30" />
                 <p className="text-sm">No canon records match these filters.</p>
                 <button
-                  onClick={() => { setSearch(""); setActiveType("all"); setActiveStatus("all"); setActiveVisibility("all"); setActiveStability("all"); }}
+                  onClick={() => {
+                    setSearch("");
+                    setActiveType("all");
+                    setActiveStatus("all");
+                    setActiveVisibility("all");
+                    setActiveStability("all");
+                    setActiveEmotionalRegister("all");
+                  }}
                   className="mt-3 text-xs underline hover:no-underline"
                 >
                   Clear filters

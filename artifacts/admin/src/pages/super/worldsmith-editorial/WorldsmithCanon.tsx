@@ -36,7 +36,7 @@ const AMBER       = "#D97706";
 const AMBER_BG    = "#FEF3C7";
 
 // ── Register palette ───────────────────────────────────────────────────────────
-const REGISTERS = [
+export const REGISTERS = [
   { key: "Withholding", color: "#4A5E78", bg: "#EAF0F7" },
   { key: "Intimate",    color: "#A85C6E", bg: "#F7EAF0" },
   { key: "Guarded",     color: "#3D7A5C", bg: "#EAF5EE" },
@@ -394,19 +394,26 @@ function RegisterPicker({ value, locked, onSelect, onToggleLock }:
 const VALID_VISIBILITY = new Set(["background", "hinted", "explicit"]);
 const VALID_STABILITY  = new Set(["low", "medium", "high"]);
 const VALID_TYPE       = new Set(CANON_TYPES.map(t => t.key));
+const VALID_REGISTER   = new Set(REGISTERS.map(r => r.key));
 function canonFilterKey(worldId: string) { return `canon-filters-${worldId}`; }
-interface PersistedFilters { visibility: string | null; stability: string | null; type: string | null; }
+interface PersistedFilters {
+  visibility: string | null;
+  stability: string | null;
+  type: string | null;
+  emotionalRegister?: string | null;
+}
 function loadPersistedFilters(worldId: string): PersistedFilters {
   try {
     const raw = sessionStorage.getItem(canonFilterKey(worldId));
-    if (!raw) return { visibility: null, stability: null, type: null };
+    if (!raw) return { visibility: null, stability: null, type: null, emotionalRegister: null };
     const parsed = JSON.parse(raw);
     return {
       visibility: VALID_VISIBILITY.has(parsed.visibility) ? parsed.visibility : null,
       stability:  VALID_STABILITY.has(parsed.stability)   ? parsed.stability  : null,
       type:       VALID_TYPE.has(parsed.type)             ? parsed.type       : null,
+      emotionalRegister: VALID_REGISTER.has(parsed.emotionalRegister) ? parsed.emotionalRegister : null,
     };
-  } catch { return { visibility: null, stability: null, type: null }; }
+  } catch { return { visibility: null, stability: null, type: null, emotionalRegister: null }; }
 }
 function savePersistedFilters(worldId: string, filters: PersistedFilters) {
   try {

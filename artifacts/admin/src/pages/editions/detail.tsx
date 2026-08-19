@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useGetEdition, useCreateEdition, useUpdateEdition, useDeleteEdition,
   useListThemes, useListStickerPacks, useListInserts, useListProducts,
@@ -7,7 +8,6 @@ import {
   type Edition, type EditionInput, type EditionUpdate,
   type Theme, type StickerPack, type Insert, type RelatedProduct
 } from '@workspace/api-client-react';
-import { useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -24,10 +24,12 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, ArrowLeft, Trash2, Save } from 'lucide-react';
 import { Link } from 'wouter';
 import { type EditionInputTier } from '@workspace/api-client-react';
+import { apiFetch } from '@/lib/api';
 
 const PRODUCT_TYPES = ['planner', 'notebook', 'journal', 'memory-keeping'] as const;
 const BINDING_TYPES   = ['', 'coil', 'twin-loop', 'discs', '3-ring', 'none'] as const;
 const BINDING_FINISHES = ['', 'gold', 'rose gold', 'silver', 'matte black', 'white'] as const;
+const NO_WORLD_VALUE = '__no-world__';
 
 const editionSchema = z.object({
   id: z.string().min(1, 'ID is required'),
@@ -43,6 +45,11 @@ const editionSchema = z.object({
 });
 
 type EditionFormValues = z.infer<typeof editionSchema>;
+
+type WorldOption = {
+  name: string;
+  code: string;
+};
 
 function MultiSelectPicker({
   title,
@@ -119,11 +126,17 @@ export default function EditionDetail() {
   const { data: packsData } = useListStickerPacks();
   const { data: insertsData } = useListInserts();
   const { data: productsData } = useListProducts();
+  const { data: worldsData, isLoading: worldsLoading } = useQuery({
+    queryKey: ['worldsmith/worlds'],
+    queryFn: () => apiFetch<{ worlds: WorldOption[] }>('/v1/worldsmith/worlds'),
+    staleTime: 30_000,
+  });
   
   const themes = (themesData || []) as Theme[];
   const packs = (packsData || []) as StickerPack[];
   const inserts = (insertsData || []) as Insert[];
   const products = (productsData || []) as RelatedProduct[];
+  const worlds = worldsData?.worlds ?? [];
   
   const createEdition = useCreateEdition();
   const updateEdition = useUpdateEdition();
@@ -341,9 +354,27 @@ export default function EditionDetail() {
                   )} />
                   <FormField control={form.control} name="world" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>World code <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
-                      <FormControl><Input {...field} placeholder="VGJ" className="font-mono uppercase" /></FormControl>
-                      <FormDescription>Link this edition to a WorldSmith world. Use the world's code (e.g. VGJ). Saved in uppercase.</FormDescription>
+                      <FormLabel>World <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
+                      <Select
+                        onValueChange={(value) => field.onChange(value === NO_WORLD_VALUE ? '' : value)}
+                        value={field.value || NO_WORLD_VALUE}
+                        disabled={worldsLoading}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={worldsLoading ? 'Loading worlds…' : 'Select a world'} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value={NO_WORLD_VALUE}>No world</SelectItem>
+                          {worlds.map((world) => (
+                            <SelectItem key={world.code} value={world.code}>
+                              {world.name} <span className="ml-2 font-mono text-xs text-muted-foreground">({world.code})</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>Link this edition to a WorldSmith world. Select “No world” to unlink it.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )} />

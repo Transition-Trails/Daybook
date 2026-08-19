@@ -593,6 +593,7 @@ function FocusedWorldView({
             type="file"
             accept="image/*"
             className="hidden"
+            data-testid="cover-file-input"
             onChange={e => {
               const f = e.target.files?.[0];
               if (f) handleCoverUpload(f);

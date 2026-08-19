@@ -9,7 +9,7 @@ import { Link } from "wouter";
 import {
   Sparkles, Plus, LayoutGrid, List, Search, X, ChevronLeft,
   ArrowRight, BookOpen, Loader2, CheckCircle2, XCircle,
-  AlertCircle, ExternalLink, Clock, Wrench, Pencil, Save, ImageUp,
+  AlertCircle, ExternalLink, Clock, Wrench, Pencil, Save, ImageUp, Trash2,
 } from "lucide-react";
 import { apiFetch, storageApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -91,7 +91,7 @@ const wsApi = {
   worlds: () => apiFetch<{ worlds: WsWorld[] }>("/v1/worldsmith/worlds"),
   createWorld: (body: Partial<WsWorld>) =>
     apiFetch<WsWorld>("/v1/worldsmith/worlds", { method: "POST", body: JSON.stringify(body) }),
-  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume" | "worldRules" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld">>) =>
+  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume" | "worldRules" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "coverImageUrl">>) =>
     apiFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
   runs: (worldId?: string) =>
     apiFetch<{ runs: WsRun[] }>(`/v1/worldsmith/runs${worldId ? `?world_id=${encodeURIComponent(worldId)}` : ""}`),
@@ -544,7 +544,11 @@ function FocusedWorldView({
       if (!putRes.ok) {
         throw new Error(`Upload failed: ${putRes.status}`);
       }
-      // Save the object path to the world
+      // Delete the old image from storage (best-effort — don't block on failure)
+      if (world.coverImageUrl) {
+        storageApi.deleteObject(world.coverImageUrl).catch(() => {});
+      }
+      // Save the new object path to the world
       await apiFetch(`/v1/worldsmith/worlds/${world.id}`, {
         method: "PATCH",
         body: JSON.stringify({ coverImageUrl: objectPath }),
@@ -552,6 +556,27 @@ function FocusedWorldView({
       queryClient.invalidateQueries({ queryKey: ["worldsmith/worlds"] });
     } catch {
       toast({ title: "Cover upload failed", description: "The image could not be saved. Please try again.", variant: "destructive" });
+    } finally {
+      setCoverUploading(false);
+    }
+  }
+
+  async function handleCoverRemove() {
+    const oldUrl = world.coverImageUrl;
+    setCoverUploading(true);
+    try {
+      // Clear the cover URL on the world first so the UI reverts immediately
+      await apiFetch(`/v1/worldsmith/worlds/${world.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ coverImageUrl: null }),
+      });
+      queryClient.invalidateQueries({ queryKey: ["worldsmith/worlds"] });
+      // Then delete the file from storage (best-effort)
+      if (oldUrl) {
+        storageApi.deleteObject(oldUrl).catch(() => {});
+      }
+    } catch {
+      toast({ title: "Remove failed", description: "Could not remove the cover image. Please try again.", variant: "destructive" });
     } finally {
       setCoverUploading(false);
     }
@@ -573,12 +598,23 @@ function FocusedWorldView({
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" aria-hidden="true" />
-        {/* Upload button — visible on hover */}
-        <div className="absolute bottom-4 right-4 z-20 opacity-0 group-hover/hero:opacity-100 transition-opacity">
+        {/* Cover actions — visible on hover */}
+        <div className="absolute bottom-4 right-4 z-20 opacity-0 group-hover/hero:opacity-100 transition-opacity flex items-center gap-1.5">
+          {world.coverImageUrl && (
+            <button
+              onClick={handleCoverRemove}
+              disabled={coverUploading}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/40 hover:bg-red-600/70 text-white text-[11px] font-medium transition-colors disabled:opacity-50"
+              aria-label="Remove cover image"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Remove cover
+            </button>
+          )}
           <button
             onClick={() => coverUploadRef.current?.click()}
             disabled={coverUploading}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 text-white text-[11px] font-medium transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/40 hover:bg-black/60 text-white text-[11px] font-medium transition-colors disabled:opacity-50"
             aria-label="Upload cover image"
           >
             {coverUploading ? (
@@ -586,7 +622,7 @@ function FocusedWorldView({
             ) : (
               <ImageUp className="w-3.5 h-3.5" />
             )}
-            {coverUploading ? "Uploading…" : "Change cover"}
+            {coverUploading ? "Uploading…" : (world.coverImageUrl ? "Change cover" : "Add cover")}
           </button>
           <input
             ref={coverUploadRef}

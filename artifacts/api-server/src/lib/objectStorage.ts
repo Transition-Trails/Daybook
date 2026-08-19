@@ -194,6 +194,11 @@ export class ObjectStorageService {
     return normalizedPath;
   }
 
+  async deleteObjectEntity(objectPath: string): Promise<void> {
+    const file = await this.getObjectEntityFile(objectPath);
+    await file.delete();
+  }
+
   async canAccessObjectEntity({
     userId,
     objectFile,

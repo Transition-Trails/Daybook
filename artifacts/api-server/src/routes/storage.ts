@@ -161,4 +161,28 @@ router.get('/storage/objects/*path', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * DELETE /storage/objects/*
+ *
+ * Delete an object entity from PRIVATE_OBJECT_DIR.
+ * Restricted to super_admin — only platform admins may delete from object storage.
+ */
+router.delete('/storage/objects/*path', requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const raw = req.params.path;
+    const wildcardPath = Array.isArray(raw) ? raw.join('/') : raw;
+    const objectPath = `/objects/${wildcardPath}`;
+    await objectStorageService.deleteObjectEntity(objectPath);
+    res.status(204).end();
+  } catch (error) {
+    if (error instanceof ObjectNotFoundError) {
+      // Treat a missing object as success — the goal (object gone) is already met
+      res.status(204).end();
+      return;
+    }
+    req.log.error({ err: error }, 'Error deleting object');
+    res.status(500).json({ error: 'Failed to delete object' });
+  }
+});
+
 export default router;

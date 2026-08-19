@@ -1672,6 +1672,12 @@ export const storageApi = {
       method: "POST",
       body: JSON.stringify({ name, size, contentType }),
     }),
+  /** Delete a private object entity by its /objects/… path. Resolves on success or if already gone. */
+  deleteObject: (objectPath: string) =>
+    apiFetch<void>(
+      `/storage/objects/${objectPath.replace(/^\/objects\//, "")}`,
+      { method: "DELETE" },
+    ),
 };
 
 // ─── SUPPORT ──────────────────────────────────────────────────────────────────

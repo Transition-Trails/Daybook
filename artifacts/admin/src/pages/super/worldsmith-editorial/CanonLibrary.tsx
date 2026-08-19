@@ -160,6 +160,20 @@ interface CanonListResponse {
   by_type: Record<string, number>;
 }
 
+function EmotionalRegisterBadge({ register }: { register?: string | null }) {
+  const meta = REGISTERS.find(item => item.key === register);
+  if (!meta) return null;
+
+  return (
+    <span
+      className="inline-flex items-center text-[10px] font-semibold rounded-full px-2 py-0.5 whitespace-nowrap"
+      style={{ background: meta.bg, color: meta.color }}
+    >
+      {meta.key}
+    </span>
+  );
+}
+
 // ── CanonCard ────────────────────────────────────────────────────────────────
 
 function CanonCard({ record }: { record: CanonRecord }) {
@@ -184,15 +198,18 @@ function CanonCard({ record }: { record: CanonRecord }) {
       style={{ borderColor: "#E5E7EB" }}
     >
       <div className="flex items-start justify-between gap-2 mb-2.5">
-        {type && (
-          <span
-            className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 shrink-0"
-            style={{ background: `${typeColor}18`, color: typeColor }}
-          >
-            <type.Icon className="w-2.5 h-2.5" />
-            {type.label}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {type && (
+            <span
+              className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 shrink-0"
+              style={{ background: `${typeColor}18`, color: typeColor }}
+            >
+              <type.Icon className="w-2.5 h-2.5" />
+              {type.label}
+            </span>
+          )}
+          <EmotionalRegisterBadge register={record.emotionalRegister} />
+        </div>
         <ChevronRight
           className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
           style={{ color: "#C87560" }}
@@ -272,6 +289,9 @@ function CanonTableRow({ record, selected, onToggle }: {
       </td>
       <td className="px-3 py-3 max-w-xs">
         <p className="text-xs text-gray-500 line-clamp-1">{record.narrativeDetails}</p>
+      </td>
+      <td className="px-3 py-3">
+        <EmotionalRegisterBadge register={record.emotionalRegister} />
       </td>
       <td className="px-3 py-3">
         <span className={`text-[10px] font-medium rounded-full px-2 py-0.5 ${status.bg} ${status.text}`}>
@@ -1494,6 +1514,7 @@ export default function CanonLibrary() {
                       <th className="px-3 py-2.5 w-28">Type</th>
                       <th className="px-3 py-2.5">Name</th>
                       <th className="px-3 py-2.5 max-w-xs">Narrative</th>
+                      <th className="px-3 py-2.5 w-32">Register</th>
                       <th className="px-3 py-2.5 w-32">Status</th>
                       <th className="px-3 py-2.5 text-center w-16">Specs</th>
                       <th className="px-3 py-2.5 w-8" />

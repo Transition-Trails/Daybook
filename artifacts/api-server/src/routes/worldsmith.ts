@@ -978,7 +978,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
 
     const result = await callAi(
       [...normalizedHistory, { role: "user" as const, content: message.trim() }],
-      process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
+      process.env.DEFAULT_AI_PROVIDER ?? "claude",
       systemPrompt,
     );
 
@@ -1083,7 +1083,7 @@ router.post("/v1/worldsmith/worlds/:id/bible-copilot", requireAuth, requireSuper
 
     const result = await callAi(
       [...normalizedHistory, { role: "user", content: message.trim() }],
-      process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
+      process.env.DEFAULT_AI_PROVIDER ?? "claude",
       systemPrompt,
     );
 

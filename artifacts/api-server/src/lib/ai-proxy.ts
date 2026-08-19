@@ -76,14 +76,21 @@ async function callOpenAI(
   messages: ChatMessage[],
   systemPrompt?: string,
 ): Promise<AiResponse> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+  // Prefer the Replit AI integration proxy; fall back to direct OpenAI key
+  const apiKey =
+    process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("No OpenAI API key configured (set OPENAI_API_KEY or AI_INTEGRATIONS_OPENAI_API_KEY)");
+
+  const baseUrl = (
+    process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || "https://api.openai.com/v1"
+  ).replace(/\/$/, "");
 
   const msgs: ChatMessage[] = [];
   if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
   msgs.push(...messages);
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

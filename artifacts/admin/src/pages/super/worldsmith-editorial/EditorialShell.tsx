@@ -3,12 +3,12 @@
  * Provides world selector, record-type tree navigation, sync status, and a
  * persistent holistic co-write right drawer.
  */
-import { type ReactNode, useState, useEffect } from "react";
+import { type ReactNode, useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, FileText, BookOpen, Puzzle, Layers,
   ChevronDown, Globe, Plus, ArrowLeft, CheckCircle2,
-  Loader2, RefreshCw, Sparkles, Network,
+  Loader2, RefreshCw, Sparkles, Network, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { EditorialProvider, useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
@@ -143,6 +143,31 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
   } = useEditorial();
   const [worldDropOpen, setWorldDropOpen] = useState(false);
   const [collDropOpen, setCollDropOpen] = useState(false);
+  const worldSelectorRef = useRef<HTMLButtonElement>(null);
+  const collectionSelectorRef = useRef<HTMLButtonElement>(null);
+  const worldMenuRef = useRef<HTMLDivElement>(null);
+  const collectionMenuRef = useRef<HTMLDivElement>(null);
+  const [drawerCollapsed, setDrawerCollapsed] = useState(() => {
+    try { return localStorage.getItem("ws:editorial:drawer-collapsed") === "true"; } catch { return false; }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("ws:editorial:drawer-collapsed", drawerCollapsed ? "true" : "false");
+    } catch { /* storage may be unavailable */ }
+  }, [drawerCollapsed]);
+
+  useEffect(() => {
+    if (worldDropOpen) {
+      worldMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"]')?.focus();
+    }
+  }, [worldDropOpen]);
+
+  useEffect(() => {
+    if (collDropOpen) {
+      collectionMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"]')?.focus();
+    }
+  }, [collDropOpen]);
 
   // Copilot open/closed — persisted across navigation
   const [copilotOpen, setCopilotOpen] = useState(() => {
@@ -161,18 +186,33 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
   ) => {
     const active = activePage === key || location === href || location.startsWith(href + "/");
     return (
-      <Link href={href} key={href}>
+      <Link
+        href={href}
+        key={href}
+        aria-label={label}
+        aria-current={active ? "page" : undefined}
+        title={drawerCollapsed ? label : undefined}
+      >
         <span
-          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors select-none"
+          className={[
+            "flex items-center rounded-lg text-sm cursor-pointer transition-colors select-none",
+            drawerCollapsed ? "justify-center px-2 py-2.5" : "gap-2.5 px-3 py-2",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C87560] focus-visible:ring-offset-1",
+          ].join(" ")}
           style={
             active
-              ? { background: "rgba(200,117,96,0.15)", color: "#C87560", fontWeight: 500 }
+              ? {
+                  background: "rgba(200,117,96,0.15)",
+                  color: "#C87560",
+                  fontWeight: 500,
+                  ...(drawerCollapsed ? { boxShadow: "inset 3px 0 0 #C87560" } : {}),
+                }
               : { color: "#4B5563" }
           }
         >
           <Icon className="w-4 h-4 shrink-0" />
-          <span className="flex-1">{label}</span>
-          {badge !== undefined && badge > 0 && (
+          <span className={drawerCollapsed ? "sr-only" : "flex-1"}>{label}</span>
+          {!drawerCollapsed && badge !== undefined && badge > 0 && (
             <span className="text-[11px] bg-gray-100 text-gray-500 rounded-full px-1.5 py-0.5 font-medium">
               {badge}
             </span>
@@ -183,74 +223,154 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
   };
 
   const selectedCollection = collections.find(c => c.id === selectedCollectionId) ?? null;
+  const collectionLabel = selectedCollection?.name ?? "All collections";
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "#FAF8F3" }}>
       {/* ── Left sidebar ─────────────────────────────────────────────────────── */}
       <aside
-        className="flex flex-col border-r overflow-hidden"
-        style={{ width: 260, background: "white", borderColor: "#E5E7EB", flexShrink: 0 }}
+        data-testid="editorial-drawer"
+        className="relative flex flex-col border-r overflow-visible transition-[width] duration-200 ease-in-out"
+        style={{
+          width: drawerCollapsed ? 72 : 260,
+          background: "white",
+          borderColor: "#E5E7EB",
+          flexShrink: 0,
+        }}
       >
         {/* Header */}
-        <div className="px-4 py-4 border-b" style={{ borderColor: "#F3F4F6" }}>
-          <div className="flex items-center justify-between mb-1">
-            <Link href="/super/worldsmith">
+        <div
+          className={`${drawerCollapsed ? "px-2 py-3" : "px-4 py-4"} border-b`}
+          style={{ borderColor: "#F3F4F6" }}
+        >
+          <div className={`flex items-center ${drawerCollapsed ? "justify-center" : "justify-between mb-1"}`}>
+            <Link href="/super/worldsmith" aria-label="Back to WorldSmith" title="Back to WorldSmith">
               <span className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 cursor-pointer text-xs">
                 <ArrowLeft className="w-3 h-3" />
-                WorldSmith
+                <span className={drawerCollapsed ? "sr-only" : undefined}>WorldSmith</span>
               </span>
             </Link>
-            {/* Co-write toggle */}
-            <button
-              onClick={() => setCopilotOpen(o => !o)}
-              title={copilotOpen ? "Close co-write panel" : "Open holistic co-write"}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-all"
-              style={
-                copilotOpen
-                  ? { background: "#1B2A4A", color: "white" }
-                  : { background: "transparent", color: "#9CA3AF", border: "1px solid #E5E7EB" }
-              }
-            >
-              <Sparkles className="w-3 h-3" style={{ color: copilotOpen ? "#C87560" : undefined }} />
-              Co-write
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setDrawerCollapsed(collapsed => !collapsed);
+                  setWorldDropOpen(false);
+                  setCollDropOpen(false);
+                }}
+                title={drawerCollapsed ? "Reopen editorial navigation" : "Collapse editorial navigation"}
+                aria-label={drawerCollapsed ? "Reopen editorial navigation" : "Collapse editorial navigation"}
+                aria-expanded={!drawerCollapsed}
+                data-testid="editorial-drawer-toggle"
+                className="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C87560] focus-visible:ring-offset-1"
+              >
+                {drawerCollapsed
+                  ? <PanelLeftOpen className="w-4 h-4" />
+                  : <PanelLeftClose className="w-4 h-4" />}
+              </button>
+              {/* Co-write toggle */}
+              <button
+                type="button"
+                onClick={() => setCopilotOpen(o => !o)}
+                title={copilotOpen ? "Close co-write panel" : "Open holistic co-write"}
+                aria-label={copilotOpen ? "Close co-write panel" : "Open holistic co-write"}
+                className={[
+                  "flex items-center gap-1 rounded-lg text-[11px] font-semibold transition-all",
+                  drawerCollapsed ? "justify-center w-7 h-7 px-0" : "px-2 py-1",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C87560] focus-visible:ring-offset-1",
+                ].join(" ")}
+                style={
+                  copilotOpen
+                    ? { background: "#1B2A4A", color: "white" }
+                    : { background: "transparent", color: "#9CA3AF", border: "1px solid #E5E7EB" }
+                }
+              >
+                <Sparkles className="w-3 h-3" style={{ color: copilotOpen ? "#C87560" : undefined }} />
+                <span className={drawerCollapsed ? "sr-only" : undefined}>Co-write</span>
+              </button>
+            </div>
           </div>
-          <div
-            className="font-semibold text-[#1B2A4A]"
-            style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 18 }}
-          >
-            WorldSmith
-          </div>
-          <div className="text-[10px] uppercase tracking-widest text-gray-400 mt-0.5">
-            Editorial Studio
-          </div>
+          {!drawerCollapsed && (
+            <>
+              <div
+                className="font-semibold text-[#1B2A4A]"
+                style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 18 }}
+              >
+                WorldSmith
+              </div>
+              <div className="text-[10px] uppercase tracking-widest text-gray-400 mt-0.5">
+                Editorial Studio
+              </div>
+            </>
+          )}
 
           {/* World selector */}
-          <div className="mt-3 relative">
+          <div className={`${drawerCollapsed ? "mt-3 flex justify-center" : "mt-3"} relative`}>
             <button
+              type="button"
+              ref={worldSelectorRef}
               onClick={() => { setWorldDropOpen(v => !v); setCollDropOpen(false); }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              onKeyDown={event => {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setWorldDropOpen(true);
+                  setCollDropOpen(false);
+                }
+              }}
+              title={drawerCollapsed ? `Select world${selectedWorld ? ` · ${selectedWorld.name}` : ""}` : undefined}
+              aria-label={`Select world${selectedWorld ? ` · ${selectedWorld.name}` : ""}`}
+              aria-haspopup="menu"
+              aria-controls="editorial-world-menu"
+              aria-expanded={worldDropOpen}
+              className={[
+                "flex items-center rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C87560] focus-visible:ring-offset-1",
+                drawerCollapsed ? "justify-center w-10 h-10 px-0" : "w-full gap-2 px-2.5 py-1.5",
+              ].join(" ")}
               style={{ background: "#FAF8F3", border: "1px solid #E5E7EB" }}
             >
               <Globe className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-              <span className="flex-1 text-left font-medium truncate">
+              <span className={drawerCollapsed ? "sr-only" : "flex-1 text-left font-medium truncate"}>
                 {worldsLoading ? "Loading…" : (selectedWorld?.name ?? "Select world")}
               </span>
-              <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <ChevronDown className={drawerCollapsed ? "hidden" : "w-3.5 h-3.5 text-gray-400 shrink-0"} />
             </button>
 
             {worldDropOpen && !worldsLoading && (
               <div
-                className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-50 py-1"
+                ref={worldMenuRef}
+                id="editorial-world-menu"
+                role="menu"
+                aria-label="Worlds"
+                onKeyDown={event => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setWorldDropOpen(false);
+                    worldSelectorRef.current?.focus();
+                  }
+                }}
+                onBlur={event => {
+                  const nextFocus = event.relatedTarget as Node | null;
+                  if (!event.currentTarget.contains(nextFocus) && nextFocus !== worldSelectorRef.current) {
+                    setWorldDropOpen(false);
+                  }
+                }}
+                className={[
+                  "absolute bg-white border rounded-lg shadow-lg z-50 py-1",
+                  drawerCollapsed ? "left-full top-0 ml-2 w-60" : "top-full left-0 right-0 mt-1",
+                ].join(" ")}
                 style={{ borderColor: "#E5E7EB" }}
               >
                 {worlds.map(w => (
                   <button
                     key={w.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={w.id === selectedWorldId}
                     onClick={() => {
                       setSelectedWorldId(w.id);
                       setSelectedCollectionId(null);
                       setWorldDropOpen(false);
+                      worldSelectorRef.current?.focus();
                     }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-left"
                   >
@@ -270,25 +390,69 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
 
           {/* Collection selector */}
           {collections.length > 0 && (
-            <div className="mt-2 relative">
+            <div className={`${drawerCollapsed ? "mt-2 flex justify-center" : "mt-2"} relative`}>
               <button
+                type="button"
+                ref={collectionSelectorRef}
                 onClick={() => { setCollDropOpen(v => !v); setWorldDropOpen(false); }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+                onKeyDown={event => {
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setCollDropOpen(true);
+                    setWorldDropOpen(false);
+                  }
+                }}
+                title={drawerCollapsed ? `Select collection · ${collectionLabel}` : undefined}
+                aria-label={`Select collection · ${collectionLabel}`}
+                aria-haspopup="menu"
+                aria-controls="editorial-collection-menu"
+                aria-expanded={collDropOpen}
+                className={[
+                  "flex items-center rounded-lg text-xs text-gray-600 hover:bg-gray-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C87560] focus-visible:ring-offset-1",
+                  drawerCollapsed ? "justify-center w-10 h-10 px-0" : "w-full gap-2 px-2.5 py-1.5",
+                ].join(" ")}
                 style={{ border: "1px solid #E5E7EB" }}
               >
                 <Layers className="w-3 h-3 text-gray-400 shrink-0" />
-                <span className="flex-1 text-left truncate">
-                  {selectedCollection?.name ?? "All collections"}
+                <span className={drawerCollapsed ? "sr-only" : "flex-1 text-left truncate"}>
+                  {collectionLabel}
                 </span>
-                <ChevronDown className="w-3 h-3 text-gray-400 shrink-0" />
+                <ChevronDown className={drawerCollapsed ? "hidden" : "w-3 h-3 text-gray-400 shrink-0"} />
               </button>
               {collDropOpen && (
                 <div
-                  className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-50 py-1"
+                  ref={collectionMenuRef}
+                  id="editorial-collection-menu"
+                  role="menu"
+                  aria-label="Collections"
+                  onKeyDown={event => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setCollDropOpen(false);
+                      collectionSelectorRef.current?.focus();
+                    }
+                  }}
+                  onBlur={event => {
+                    const nextFocus = event.relatedTarget as Node | null;
+                    if (!event.currentTarget.contains(nextFocus) && nextFocus !== collectionSelectorRef.current) {
+                      setCollDropOpen(false);
+                    }
+                  }}
+                  className={[
+                    "absolute bg-white border rounded-lg shadow-lg z-50 py-1",
+                    drawerCollapsed ? "left-full top-0 ml-2 w-60" : "top-full left-0 right-0 mt-1",
+                  ].join(" ")}
                   style={{ borderColor: "#E5E7EB" }}
                 >
                   <button
-                    onClick={() => { setSelectedCollectionId(null); setCollDropOpen(false); }}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={!selectedCollectionId}
+                    onClick={() => {
+                      setSelectedCollectionId(null);
+                      setCollDropOpen(false);
+                      collectionSelectorRef.current?.focus();
+                    }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-left text-gray-500"
                   >
                     All collections
@@ -297,7 +461,14 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
                   {collections.map(c => (
                     <button
                       key={c.id}
-                      onClick={() => { setSelectedCollectionId(c.id); setCollDropOpen(false); }}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={c.id === selectedCollectionId}
+                      onClick={() => {
+                        setSelectedCollectionId(c.id);
+                        setCollDropOpen(false);
+                        collectionSelectorRef.current?.focus();
+                      }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 text-left text-gray-700"
                     >
                       <span className="flex-1 truncate">{c.name}</span>
@@ -313,26 +484,41 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-          <p className="text-[10px] uppercase tracking-widest text-gray-400 px-2 mb-2 font-medium">
-            Create & connect
-          </p>
+        <nav className={`flex-1 min-h-0 overflow-y-auto py-3 space-y-0.5 ${drawerCollapsed ? "px-2" : "px-3"}`} aria-label="Editorial destinations">
+          {!drawerCollapsed && (
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 px-2 mb-2 font-medium">
+              Create & connect
+            </p>
+          )}
           {navItem("Readiness Board", LayoutDashboard, "/super/worldsmith/editorial/board", "board")}
           {navItem("Storylines", BookOpen, "/super/worldsmith/editorial/stories", "stories")}
           {navItem("Story Map", Network, "/super/worldsmith/editorial/connections", "connections")}
           {navItem("Canon Records", BookOpen, "/super/worldsmith/editorial/canon", "canon")}
 
-          <p className="text-[10px] uppercase tracking-widest text-gray-400 px-2 pt-5 mb-2 font-medium">
-            Make it real
-          </p>
+          {!drawerCollapsed && (
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 px-2 pt-5 mb-2 font-medium">
+              Make it real
+            </p>
+          )}
           {navItem("Production Specs", FileText, "/super/worldsmith/editorial/specs", "specs")}
           {navItem("Style Guides", Layers, "/super/worldsmith/editorial/style-guides", "style-guides")}
           {navItem("Prompt Modules", Puzzle, "/super/worldsmith/editorial/modules", "modules")}
         </nav>
 
         {/* Sync status footer */}
-        <div className="border-t px-4 py-3" style={{ borderColor: "#F3F4F6" }}>
-          <div className="flex items-center gap-2">
+        <div
+          className={`border-t ${drawerCollapsed ? "px-2 py-3" : "px-4 py-3"}`}
+          style={{ borderColor: "#F3F4F6" }}
+        >
+          <div
+            className={`flex items-center gap-2 ${drawerCollapsed ? "justify-center" : ""}`}
+            title={drawerCollapsed ? (syncStatus === "synced" && lastSyncedAt
+              ? `All synced · ${formatRelativeTime(lastSyncedAt)}`
+              : syncStatus === "pending" ? "Syncing…" : "Sync error") : undefined}
+            aria-label={syncStatus === "synced" && lastSyncedAt
+              ? `All synced · ${formatRelativeTime(lastSyncedAt)}`
+              : syncStatus === "pending" ? "Syncing…" : "Sync error"}
+          >
             {syncStatus === "synced" ? (
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
             ) : syncStatus === "pending" ? (
@@ -340,7 +526,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
             ) : (
               <RefreshCw className="w-3.5 h-3.5 text-red-400 shrink-0" />
             )}
-            <span className="text-xs text-gray-500">
+            <span className={drawerCollapsed ? "sr-only" : "text-xs text-gray-500"}>
               {syncStatus === "synced" && lastSyncedAt
                 ? `All synced · ${formatRelativeTime(lastSyncedAt)}`
                 : syncStatus === "pending"

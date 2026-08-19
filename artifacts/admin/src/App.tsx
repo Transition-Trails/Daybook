@@ -131,7 +131,6 @@ import {
   StoriesStudio,
   StoryConnections,
 } from "@/pages/super/worldsmith-editorial";
-import { EditorialProvider } from "@/contexts/EditorialContext";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -244,7 +243,7 @@ function RootRouter() {
       </Route>
       <Route path="/super/worldsmith/editorial/specs/new">
         <RequireSuperAdmin state={state}>
-          <EditorialProvider><NewSpecFlow /></EditorialProvider>
+          <EditorialShell activePage="specs"><NewSpecFlow /></EditorialShell>
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/specs/:id">
@@ -259,9 +258,9 @@ function RootRouter() {
       <Route path="/super/worldsmith/editorial/canon/:id">
         {(p) => (
           <RequireSuperAdmin state={state}>
-            <EditorialProvider>
+            <EditorialShell activePage="canon">
               <WorldsmithCanon recordId={p.id!} />
-            </EditorialProvider>
+            </EditorialShell>
           </RequireSuperAdmin>
         )}
       </Route>
@@ -271,8 +270,11 @@ function RootRouter() {
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/style-guides/new">
-        {() =>
-          <EditorialProvider><NewStyleGuideFlow /></EditorialProvider>}
+        {() => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="style-guides"><NewStyleGuideFlow /></EditorialShell>
+          </RequireSuperAdmin>
+        )}
       </Route>
       <Route path="/super/worldsmith/editorial/style-guides">
         <RequireSuperAdmin state={state}>
@@ -280,8 +282,11 @@ function RootRouter() {
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/modules/new">
-        {() =>
-          <EditorialProvider><NewPromptModuleFlow /></EditorialProvider>}
+        {() => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="modules"><NewPromptModuleFlow /></EditorialShell>
+          </RequireSuperAdmin>
+        )}
       </Route>
       <Route path="/super/worldsmith/editorial/modules">
         <RequireSuperAdmin state={state}>

@@ -9,16 +9,18 @@
  *   3. Targeting      — applicable component types, canon hint, priority
  *   4. Quality        — good/bad output indicators, module interactions
  */
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import {
   CheckCircle2, Circle, Loader2, ArrowLeft,
-  Puzzle, Zap, Target, ShieldCheck, FileText,
+  Puzzle, Zap, Target, ShieldCheck, FileText, Sparkles,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
+import { EditorialCopilot } from "@/components/EditorialCopilot";
+import type { ApplyTarget } from "@/components/CopilotPanel";
 
 // ── Form state ────────────────────────────────────────────────────────────────
 
@@ -210,6 +212,7 @@ function SuggestChip({ onClick }: { onClick: () => void }) {
 const inputCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-[#C87560] transition-colors";
 const textareaCls = `${inputCls} resize-none`;
 const selectCls = `${inputCls} bg-white`;
+type OnFieldFocus = (field: keyof FormState, label: string) => void;
 
 // ── Type-specific suggestion templates ────────────────────────────────────────
 
@@ -402,7 +405,7 @@ const DEFAULT_MODULE_SUGGESTIONS: ModuleSuggestions = {
 
 // ── Section forms ─────────────────────────────────────────────────────────────
 
-function IdentitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+function IdentitySection({ f, set, onFocus }: { f: FormState; set: (k: keyof FormState, v: string) => void; onFocus?: OnFieldFocus }) {
   const suggest = MODULE_SUGGESTIONS[f.moduleType] ?? DEFAULT_MODULE_SUGGESTIONS;
   const hasSuggestions = !!f.moduleType;
 
@@ -412,6 +415,7 @@ function IdentitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v
         <input
           value={f.name}
           onChange={e => set("name", e.target.value)}
+          onFocus={() => onFocus?.("name", "Module Name")}
           className={inputCls}
           placeholder="e.g. Atmospheric Grounding — Victorian Garden World"
         />
@@ -438,6 +442,7 @@ function IdentitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v
         <textarea
           value={f.usageContext}
           onChange={e => set("usageContext", e.target.value)}
+          onFocus={() => onFocus?.("usageContext", "Usage Context")}
           className={textareaCls}
           rows={3}
           placeholder="Describe which specs this module is for, when to attach it, and any prerequisites…"
@@ -447,7 +452,7 @@ function IdentitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v
   );
 }
 
-function ContentSection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+function ContentSection({ f, set, onFocus }: { f: FormState; set: (k: keyof FormState, v: string) => void; onFocus?: OnFieldFocus }) {
   const suggest = MODULE_SUGGESTIONS[f.moduleType] ?? DEFAULT_MODULE_SUGGESTIONS;
   const hasSuggestions = !!f.moduleType;
 
@@ -462,6 +467,7 @@ function ContentSection({ f, set }: { f: FormState; set: (k: keyof FormState, v:
         <textarea
           value={f.primaryContent}
           onChange={e => set("primaryContent", e.target.value)}
+          onFocus={() => onFocus?.("primaryContent", "Primary Content")}
           className={`${textareaCls} font-mono text-xs leading-relaxed`}
           rows={10}
           placeholder="Write the prompt content exactly as it should appear in the compiled prompt…"
@@ -475,6 +481,7 @@ function ContentSection({ f, set }: { f: FormState; set: (k: keyof FormState, v:
         <textarea
           value={f.alternativePhrasing}
           onChange={e => set("alternativePhrasing", e.target.value)}
+          onFocus={() => onFocus?.("alternativePhrasing", "Alternative Phrasing")}
           className={textareaCls}
           rows={3}
           placeholder="Condensed version or key phrases that capture the module's essence in fewer words…"
@@ -493,7 +500,7 @@ function ContentSection({ f, set }: { f: FormState; set: (k: keyof FormState, v:
   );
 }
 
-function TargetingSection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+function TargetingSection({ f, set, onFocus }: { f: FormState; set: (k: keyof FormState, v: string) => void; onFocus?: OnFieldFocus }) {
   const suggest = MODULE_SUGGESTIONS[f.moduleType] ?? DEFAULT_MODULE_SUGGESTIONS;
   const hasSuggestions = !!f.moduleType;
 
@@ -508,6 +515,7 @@ function TargetingSection({ f, set }: { f: FormState; set: (k: keyof FormState, 
         <textarea
           value={f.applicableTypes}
           onChange={e => set("applicableTypes", e.target.value)}
+          onFocus={() => onFocus?.("applicableTypes", "Applicable Component Types")}
           className={textareaCls}
           rows={3}
           placeholder="e.g. Hero Paper, Journal Card — not Washi Tape or Decorative Paper…"
@@ -521,6 +529,7 @@ function TargetingSection({ f, set }: { f: FormState; set: (k: keyof FormState, 
         <textarea
           value={f.canonDependencyHint}
           onChange={e => set("canonDependencyHint", e.target.value)}
+          onFocus={() => onFocus?.("canonDependencyHint", "Canon Dependency Hint")}
           className={textareaCls}
           rows={2}
           placeholder="Describe the canon dependency level this module is designed to accompany…"
@@ -535,6 +544,7 @@ function TargetingSection({ f, set }: { f: FormState; set: (k: keyof FormState, 
         <textarea
           value={f.priorityNote}
           onChange={e => set("priorityNote", e.target.value)}
+          onFocus={() => onFocus?.("priorityNote", "Priority / Injection Order")}
           className={textareaCls}
           rows={2}
           placeholder="e.g. Inject first in shared_prompt, before component-specific content…"
@@ -544,7 +554,7 @@ function TargetingSection({ f, set }: { f: FormState; set: (k: keyof FormState, 
   );
 }
 
-function QualitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+function QualitySection({ f, set, onFocus }: { f: FormState; set: (k: keyof FormState, v: string) => void; onFocus?: OnFieldFocus }) {
   const suggest = MODULE_SUGGESTIONS[f.moduleType] ?? DEFAULT_MODULE_SUGGESTIONS;
   const hasSuggestions = !!f.moduleType;
 
@@ -562,6 +572,7 @@ function QualitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v:
         <textarea
           value={f.goodOutputIndicators}
           onChange={e => set("goodOutputIndicators", e.target.value)}
+          onFocus={() => onFocus?.("goodOutputIndicators", "Good Output Indicators")}
           className={textareaCls}
           rows={5}
           placeholder="What does a good result look like? List observable qualities you can check in the generated image…"
@@ -576,6 +587,7 @@ function QualitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v:
         <textarea
           value={f.badOutputIndicators}
           onChange={e => set("badOutputIndicators", e.target.value)}
+          onFocus={() => onFocus?.("badOutputIndicators", "Bad Output Indicators")}
           className={textareaCls}
           rows={5}
           placeholder="What does a bad result look like? List specific failure signals that trigger a reject…"
@@ -589,6 +601,7 @@ function QualitySection({ f, set }: { f: FormState; set: (k: keyof FormState, v:
         <textarea
           value={f.moduleInteractions}
           onChange={e => set("moduleInteractions", e.target.value)}
+          onFocus={() => onFocus?.("moduleInteractions", "Module Interactions")}
           className={textareaCls}
           rows={4}
           placeholder="Describe pairings, conflicts, and override rules when this module is combined with others…"
@@ -607,6 +620,16 @@ export default function NewPromptModuleFlow() {
 
   const [form, setForm] = useState<FormState>({ ...EMPTY });
   const [activeSection, setActiveSection] = useState(0);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [activeCoField, setActiveCoField] = useState<ApplyTarget>({ key: "name", label: "Module Name" });
+  const copilotSession = useRef(`copilot-prompt-module-new-${selectedWorldId ?? "unselected"}-${Math.random().toString(36).slice(2)}`);
+  const sectionTargets: ApplyTarget[] = [
+    { key: "name", label: "Module Name" },
+    { key: "primaryContent", label: "Primary Content" },
+    { key: "applicableTypes", label: "Applicable Component Types" },
+    { key: "goodOutputIndicators", label: "Good Output Indicators" },
+  ];
+  useEffect(() => setActiveCoField(sectionTargets[activeSection]!), [activeSection]);
 
   const set = (k: keyof FormState, v: string) => setForm(prev => ({ ...prev, [k]: v }));
 
@@ -641,11 +664,12 @@ export default function NewPromptModuleFlow() {
     },
   });
 
+  const handleFieldFocus: OnFieldFocus = (field, label) => setActiveCoField({ key: field, label });
   const sectionComponents = [
-    <IdentitySection f={form} set={set} />,
-    <ContentSection f={form} set={set} />,
-    <TargetingSection f={form} set={set} />,
-    <QualitySection f={form} set={set} />,
+    <IdentitySection f={form} set={set} onFocus={handleFieldFocus} />,
+    <ContentSection f={form} set={set} onFocus={handleFieldFocus} />,
+    <TargetingSection f={form} set={set} onFocus={handleFieldFocus} />,
+    <QualitySection f={form} set={set} onFocus={handleFieldFocus} />,
   ];
 
   return (
@@ -714,7 +738,7 @@ export default function NewPromptModuleFlow() {
       </aside>
 
       {/* ── Main content ──────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative">
         <div className="flex items-center justify-between px-8 py-4 bg-white border-b border-gray-200 flex-none">
           <div>
             <h1 className="text-base font-semibold text-gray-900">
@@ -734,6 +758,14 @@ export default function NewPromptModuleFlow() {
               <span>Step {activeSection + 1} of {SECTIONS.length}</span>
             </div>
             <button
+              onClick={() => setCopilotOpen(open => !open)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border transition-colors"
+              style={copilotOpen ? { background: INK, color: "white", borderColor: INK } : { color: "#4B5563", borderColor: "#E5E7EB" }}
+            >
+              <Sparkles className="w-3.5 h-3.5" style={{ color: copilotOpen ? CLAY : undefined }} />
+              Co-write
+            </button>
+            <button
               onClick={() => saveMutation.mutate()}
               disabled={!canSubmit || saveMutation.isPending}
               className="flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -745,10 +777,25 @@ export default function NewPromptModuleFlow() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-8 py-8">
-            {sectionComponents[activeSection]}
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-1 overflow-y-auto min-w-0">
+            <div className={copilotOpen ? "max-w-2xl px-8 py-8" : "max-w-2xl mx-auto px-8 py-8"}>
+              {sectionComponents[activeSection]}
+            </div>
           </div>
+          <EditorialCopilot
+            isOpen={copilotOpen}
+            onClose={() => setCopilotOpen(false)}
+            surface="prompt_module"
+            worldId={selectedWorldId}
+            storageKey={copilotSession.current}
+            title="Prompt Module Copilot"
+            greeting={`I can help write ${form.name ? `"${form.name}"` : "this prompt module"} — develop prompt content, targeting, quality checks, and module interactions without losing your place.`}
+            activeTarget={activeCoField}
+            context={{ section: SECTIONS[activeSection].label, draft: form }}
+            onApply={(text, key) => set(key as keyof FormState, text.trim())}
+            className="max-xl:absolute max-xl:right-3 max-xl:top-3 max-xl:z-30"
+          />
         </div>
 
         <div className="flex items-center justify-between px-8 py-4 bg-white border-t border-gray-200 flex-none">

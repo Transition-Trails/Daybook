@@ -2,16 +2,18 @@
  * NewSpecFlow — progressive 5-section creation form for Production Specs.
  * Sections unlock sequentially; completion sidebar tracks readiness score.
  */
-import { useState, type ChangeEvent } from "react";
+import { useState, useRef, useEffect, type ChangeEvent } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ChevronRight, CheckCircle2, Circle, Loader2, ArrowLeft,
-  BookOpen, Layers, Zap, FileText, GitBranch, X, Plus,
+  BookOpen, Layers, Zap, FileText, GitBranch, X, Plus, Sparkles,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
+import { EditorialCopilot } from "@/components/EditorialCopilot";
+import type { ApplyTarget } from "@/components/CopilotPanel";
 
 // ── Form state ────────────────────────────────────────────────────────────────
 
@@ -316,13 +318,15 @@ const DEFAULT_SUGGESTIONS: SpecSuggestions = {
 const inputCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-[#C87560] transition-colors";
 const textareaCls = `${inputCls} resize-none`;
 const selectCls = `${inputCls} bg-white`;
+type OnFieldFocus = (field: keyof FormState, label: string) => void;
 
 // ── Section forms ─────────────────────────────────────────────────────────────
 
-function IdentitySection({ f, set, worldId }: {
+function IdentitySection({ f, set, worldId, onFocus }: {
   f: FormState;
   set: (k: keyof FormState, v: string) => void;
   worldId: string | null;
+  onFocus?: OnFieldFocus;
 }) {
   const { data: setsData } = useQuery({
     queryKey: ["editorial-component-sets", worldId],
@@ -345,7 +349,7 @@ function IdentitySection({ f, set, worldId }: {
           <SuggestChip onClick={() => set("productionItem", suggest.productionItem)} />
         ) : undefined}
       >
-        <input value={f.productionItem} onChange={e => set("productionItem", e.target.value)} className={inputCls} placeholder="e.g. Victorian Garden Journal — Botanical Survey Page" />
+        <input value={f.productionItem} onChange={e => set("productionItem", e.target.value)} onFocus={() => onFocus?.("productionItem", "Production Item Name")} className={inputCls} placeholder="e.g. Victorian Garden Journal — Botanical Survey Page" />
       </Field>
       <Field label="Component Type" required>
         <select value={f.componentType} onChange={e => set("componentType", e.target.value)} className={selectCls}>
@@ -364,6 +368,7 @@ function IdentitySection({ f, set, worldId }: {
         <input
           value={f.componentSet}
           onChange={e => set("componentSet", e.target.value)}
+          onFocus={() => onFocus?.("componentSet", "Component Set")}
           className={inputCls}
           placeholder="e.g. The Herbalist's Collection"
           list="component-set-list"
@@ -379,6 +384,7 @@ function IdentitySection({ f, set, worldId }: {
         <input
           value={f.specId}
           onChange={e => set("specId", e.target.value)}
+          onFocus={() => onFocus?.("specId", "Spec ID")}
           className={inputCls}
           placeholder="Auto-generated on save"
         />
@@ -387,7 +393,7 @@ function IdentitySection({ f, set, worldId }: {
   );
 }
 
-function CreativeSection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+function CreativeSection({ f, set, onFocus }: { f: FormState; set: (k: keyof FormState, v: string) => void; onFocus?: OnFieldFocus }) {
   const suggest = SUGGESTIONS[f.componentType] ?? DEFAULT_SUGGESTIONS;
   const hasSuggestions = !!f.componentType;
 
@@ -399,7 +405,7 @@ function CreativeSection({ f, set }: { f: FormState; set: (k: keyof FormState, v
         hint="What visual experience should this create?"
         action={hasSuggestions ? <SuggestChip onClick={() => set("designIntent", suggest.designIntent)} /> : undefined}
       >
-        <textarea value={f.designIntent} onChange={e => set("designIntent", e.target.value)} className={textareaCls} rows={4} placeholder="Describe the feeling, mood, and visual atmosphere…" />
+        <textarea value={f.designIntent} onChange={e => set("designIntent", e.target.value)} onFocus={() => onFocus?.("designIntent", "Design Intent")} className={textareaCls} rows={4} placeholder="Describe the feeling, mood, and visual atmosphere…" />
       </Field>
       <Field
         label="Narrative Purpose"
@@ -407,7 +413,7 @@ function CreativeSection({ f, set }: { f: FormState; set: (k: keyof FormState, v
         hint="What story does this component serve?"
         action={hasSuggestions ? <SuggestChip onClick={() => set("narrativePurpose", suggest.narrativePurpose)} /> : undefined}
       >
-        <textarea value={f.narrativePurpose} onChange={e => set("narrativePurpose", e.target.value)} className={textareaCls} rows={4} placeholder="How does this connect to the world's narrative…" />
+        <textarea value={f.narrativePurpose} onChange={e => set("narrativePurpose", e.target.value)} onFocus={() => onFocus?.("narrativePurpose", "Narrative Purpose")} className={textareaCls} rows={4} placeholder="How does this connect to the world's narrative…" />
       </Field>
       <Field
         label="Required Content"
@@ -415,7 +421,7 @@ function CreativeSection({ f, set }: { f: FormState; set: (k: keyof FormState, v
         hint="Specific elements that must appear."
         action={hasSuggestions ? <SuggestChip onClick={() => set("requiredContent", suggest.requiredContent)} /> : undefined}
       >
-        <textarea value={f.requiredContent} onChange={e => set("requiredContent", e.target.value)} className={textareaCls} rows={4} placeholder="List required visual elements, motifs, text areas…" />
+        <textarea value={f.requiredContent} onChange={e => set("requiredContent", e.target.value)} onFocus={() => onFocus?.("requiredContent", "Required Content")} className={textareaCls} rows={4} placeholder="List required visual elements, motifs, text areas…" />
       </Field>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Orientation">
@@ -522,11 +528,12 @@ function CanonSection({
   );
 }
 
-function PayloadSection({ f, set, worldId, onToggleModuleId }: {
+function PayloadSection({ f, set, worldId, onToggleModuleId, onFocus }: {
   f: FormState;
   set: (k: keyof FormState, v: string) => void;
   worldId: string | null;
   onToggleModuleId: (id: string) => void;
+  onFocus?: OnFieldFocus;
 }) {
   const { data: pmData } = useQuery({
     queryKey: ["editorial-prompt-modules", worldId],
@@ -546,6 +553,7 @@ function PayloadSection({ f, set, worldId, onToggleModuleId }: {
         <textarea
           value={f.promptPayload}
           onChange={e => set("promptPayload", e.target.value)}
+          onFocus={() => onFocus?.("promptPayload", "Prompt Payload")}
           className={textareaCls}
           rows={10}
           placeholder={f.payloadVersion === "PP-2.0" ? `shared_prompt: Aged botanical illustration from a Victorian naturalist's journal…\n\nfront_prompt: Delicate hand-drawn plant specimen with taxonomic annotations…\n\nnegative_prompt: modern, digital, harsh lines, neon…` : `asset_role: Hero Paper\ncard_role: Hero Paper\nmaterials: Cotton paper, aged foxing…`}
@@ -578,7 +586,7 @@ function PayloadSection({ f, set, worldId, onToggleModuleId }: {
   );
 }
 
-function ReviewSection({ f, set }: { f: FormState; set: (k: keyof FormState, v: string) => void }) {
+function ReviewSection({ f, set, onFocus }: { f: FormState; set: (k: keyof FormState, v: string) => void; onFocus?: OnFieldFocus }) {
   const suggest = SUGGESTIONS[f.componentType] ?? DEFAULT_SUGGESTIONS;
   const hasSuggestions = !!f.componentType;
 
@@ -589,7 +597,7 @@ function ReviewSection({ f, set }: { f: FormState; set: (k: keyof FormState, v: 
         hint="What will you evaluate when reviewing generated images?"
         action={hasSuggestions ? <SuggestChip onClick={() => set("reviewCriteria", suggest.reviewCriteria)} /> : undefined}
       >
-        <textarea value={f.reviewCriteria} onChange={e => set("reviewCriteria", e.target.value)} className={textareaCls} rows={6} placeholder="Does the botanical illustration style match the hero paper?&#10;Are the writing spaces correctly sized?&#10;Does it evoke the Victorian naturalist aesthetic?…" />
+        <textarea value={f.reviewCriteria} onChange={e => set("reviewCriteria", e.target.value)} onFocus={() => onFocus?.("reviewCriteria", "Review Criteria")} className={textareaCls} rows={6} placeholder="Does the botanical illustration style match the hero paper?&#10;Are the writing spaces correctly sized?&#10;Does it evoke the Victorian naturalist aesthetic?…" />
       </Field>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Writing Space %" hint="0 for decorative, 100 for blank paper.">
@@ -616,6 +624,32 @@ export default function NewSpecFlow() {
 
   const [form, setForm] = useState<FormState>({ ...EMPTY });
   const [activeSection, setActiveSection] = useState(0);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [activeCoField, setActiveCoField] = useState<ApplyTarget>({ key: "productionItem", label: "Production Item Name" });
+  const copilotSession = useRef(`copilot-spec-new-${selectedWorldId ?? "unselected"}-${Math.random().toString(36).slice(2)}`);
+  const { data: copilotAssets } = useQuery({
+    queryKey: ["editorial-copilot-assets", selectedWorldId],
+    queryFn: async () => {
+      const [canon, guides, modules, components] = await Promise.all([
+        apiFetch<{ canon_records: { id: string; name: string; status: string }[] }>(`/v1/editorial/canon-records?world_id=${selectedWorldId}&limit=100`),
+        apiFetch<{ style_guides: { id: string; name: string }[] }>(`/v1/editorial/style-guides?world_id=${selectedWorldId}`),
+        apiFetch<{ prompt_modules: { id: string; name: string }[] }>(`/v1/editorial/prompt-modules?world_id=${selectedWorldId}`),
+        apiFetch<{ component_specs: { id: string; name: string }[] }>(`/v1/editorial/component-specs?world_id=${selectedWorldId}`),
+      ]);
+      return { canon: canon.canon_records, guides: guides.style_guides, modules: modules.prompt_modules, components: components.component_specs };
+    },
+    enabled: !!selectedWorldId,
+    staleTime: 60_000,
+  });
+
+  const sectionTargets: ApplyTarget[] = [
+    { key: "productionItem", label: "Production Item Name" },
+    { key: "designIntent", label: "Design Intent" },
+    { key: "requiredContent", label: "Canon Requirements" },
+    { key: "promptPayload", label: "Prompt Payload" },
+    { key: "reviewCriteria", label: "Review Criteria" },
+  ];
+  useEffect(() => setActiveCoField(sectionTargets[activeSection]!), [activeSection]);
 
   const set = (k: keyof FormState, v: string) => setForm(prev => ({ ...prev, [k]: v }));
   const toggleId = (key: "canonRecordIds" | "promptModuleIds", id: string) => {
@@ -667,6 +701,19 @@ export default function NewSpecFlow() {
 
   const canSubmit = !!(form.productionItem.trim() && form.componentType.trim() && selectedWorldId);
   const currentSection = SECTIONS[activeSection];
+  const handleFieldFocus: OnFieldFocus = (field, label) => setActiveCoField({ key: field, label });
+  const linkedAssetSummaries = [
+    ...form.canonRecordIds.map(id => {
+      const record = copilotAssets?.canon.find(item => item.id === id);
+      return record ? `Canon (${record.status}): ${record.name}` : "";
+    }),
+    form.styleGuideId ? `Style guide: ${copilotAssets?.guides.find(item => item.id === form.styleGuideId)?.name ?? form.styleGuideId}` : "",
+    form.componentSpecId ? `Component spec: ${copilotAssets?.components.find(item => item.id === form.componentSpecId)?.name ?? form.componentSpecId}` : "",
+    ...form.promptModuleIds.map(id => {
+      const module = copilotAssets?.modules.find(item => item.id === id);
+      return module ? `Prompt module: ${module.name}` : "";
+    }),
+  ].filter(Boolean);
 
   return (
     <div className="flex h-full overflow-hidden" style={{ background: "#FAF8F3" }}>
@@ -739,7 +786,7 @@ export default function NewSpecFlow() {
       </aside>
 
       {/* Main form area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden relative">
         {/* Top bar */}
         <div className="bg-white border-b px-6 py-3 flex items-center justify-between shrink-0" style={{ borderColor: "#E5E7EB" }}>
           <div className="flex items-center gap-3">
@@ -759,6 +806,14 @@ export default function NewSpecFlow() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCopilotOpen(open => !open)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors"
+              style={copilotOpen ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" } : { color: "#4B5563", borderColor: "#E5E7EB" }}
+            >
+              <Sparkles className="w-3.5 h-3.5" style={{ color: copilotOpen ? "#C87560" : undefined }} />
+              Co-write
+            </button>
             {/* Section nav */}
             <button
               onClick={() => setActiveSection(Math.max(0, activeSection - 1))}
@@ -790,11 +845,12 @@ export default function NewSpecFlow() {
           </div>
         </div>
 
-        {/* Section content */}
-        <div className="flex-1 overflow-y-auto p-8">
-          <div style={{ maxWidth: 640, margin: "0 auto" }}>
-            {activeSection === 0 && <IdentitySection f={form} set={set} worldId={selectedWorldId} />}
-            {activeSection === 1 && <CreativeSection f={form} set={set} />}
+        {/* Section content + contextual co-write rail */}
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-1 overflow-y-auto p-8 min-w-0">
+            <div style={{ maxWidth: 640, margin: "0 auto" }}>
+            {activeSection === 0 && <IdentitySection f={form} set={set} worldId={selectedWorldId} onFocus={handleFieldFocus} />}
+            {activeSection === 1 && <CreativeSection f={form} set={set} onFocus={handleFieldFocus} />}
             {activeSection === 2 && (
               <CanonSection
                 f={form} set={set}
@@ -807,10 +863,35 @@ export default function NewSpecFlow() {
                 f={form} set={set}
                 worldId={selectedWorldId}
                 onToggleModuleId={id => toggleId("promptModuleIds", id)}
+                onFocus={handleFieldFocus}
               />
             )}
-            {activeSection === 4 && <ReviewSection f={form} set={set} />}
+            {activeSection === 4 && <ReviewSection f={form} set={set} onFocus={handleFieldFocus} />}
+            </div>
           </div>
+          <EditorialCopilot
+            isOpen={copilotOpen}
+            onClose={() => setCopilotOpen(false)}
+            surface="spec"
+            worldId={selectedWorldId}
+            storageKey={copilotSession.current}
+            title="Production Spec Copilot"
+            greeting={`I can help shape ${form.productionItem ? `"${form.productionItem}"` : "this production spec"} — draft the active field, check it against canon, or make its print requirements more actionable.`}
+            activeTarget={activeCoField}
+            context={{
+              section: currentSection.label,
+              draft: form,
+              linkedAssets: {
+                canonRecordIds: form.canonRecordIds,
+                styleGuideId: form.styleGuideId || null,
+                componentSpecId: form.componentSpecId || null,
+                promptModuleIds: form.promptModuleIds,
+              },
+              linkedAssetSummaries,
+            }}
+            onApply={(text, key) => set(key as keyof FormState, text.trim())}
+            className="max-xl:absolute max-xl:right-3 max-xl:top-3 max-xl:z-30"
+          />
         </div>
       </div>
     </div>

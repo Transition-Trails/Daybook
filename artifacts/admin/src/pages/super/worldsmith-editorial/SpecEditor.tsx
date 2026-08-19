@@ -9,11 +9,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Save, ChevronRight, ArrowLeft, CheckCircle2, AlertTriangle,
   Send, Trash2, X, ExternalLink, RefreshCw, Clock, BookOpen,
-  FileText, Zap, GitBranch, Circle,
+  FileText, Zap, GitBranch, Circle, Sparkles,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
+import { EditorialCopilot } from "@/components/EditorialCopilot";
+import type { ApplyTarget } from "@/components/CopilotPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -311,7 +313,9 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-function IdentityTab({ spec, onChange }: { spec: Spec; onChange: (patch: Partial<Spec>) => void }) {
+type OnSpecFieldFocus = (field: keyof Spec, label: string) => void;
+
+function IdentityTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch: Partial<Spec>) => void; onFocus?: OnSpecFieldFocus }) {
   const { data: setsData } = useQuery({
     queryKey: ["editorial-component-sets", spec.worldId],
     queryFn: () => apiFetch<{ component_sets: string[] }>(`/v1/editorial/component-sets?world_id=${spec.worldId}`),
@@ -322,11 +326,11 @@ function IdentityTab({ spec, onChange }: { spec: Spec; onChange: (patch: Partial
   return (
     <div className="space-y-4">
       <Field label="Production Item Name">
-        <input value={spec.productionItem} onChange={e => onChange({ productionItem: e.target.value })} className={inputCls} />
+        <input value={spec.productionItem} onChange={e => onChange({ productionItem: e.target.value })} onFocus={() => onFocus?.("productionItem", "Production Item Name")} className={inputCls} />
       </Field>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Spec ID" hint="Auto-generated on creation — override here if needed.">
-          <input value={spec.specId ?? ""} onChange={e => onChange({ specId: e.target.value })} className={inputCls} placeholder="e.g. WYC-HRP-001" />
+          <input value={spec.specId ?? ""} onChange={e => onChange({ specId: e.target.value })} onFocus={() => onFocus?.("specId", "Spec ID")} className={inputCls} placeholder="e.g. WYC-HRP-001" />
         </Field>
         <Field label="Current Version">
           <input value={spec.currentVersion} onChange={e => onChange({ currentVersion: e.target.value })} className={inputCls} />
@@ -392,20 +396,20 @@ function IdentityTab({ spec, onChange }: { spec: Spec; onChange: (patch: Partial
   );
 }
 
-function CreativeTab({ spec, onChange }: { spec: Spec; onChange: (patch: Partial<Spec>) => void }) {
+function CreativeTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch: Partial<Spec>) => void; onFocus?: OnSpecFieldFocus }) {
   return (
     <div className="space-y-4">
       <Field label="Design Intent" hint="The visual experience this component should create.">
-        <textarea value={spec.designIntent} onChange={e => onChange({ designIntent: e.target.value })} className={textareaCls} rows={4} />
+        <textarea value={spec.designIntent} onChange={e => onChange({ designIntent: e.target.value })} onFocus={() => onFocus?.("designIntent", "Design Intent")} className={textareaCls} rows={4} />
       </Field>
       <Field label="Narrative Purpose" hint="How this connects to the world's story.">
-        <textarea value={spec.narrativePurpose} onChange={e => onChange({ narrativePurpose: e.target.value })} className={textareaCls} rows={4} />
+        <textarea value={spec.narrativePurpose} onChange={e => onChange({ narrativePurpose: e.target.value })} onFocus={() => onFocus?.("narrativePurpose", "Narrative Purpose")} className={textareaCls} rows={4} />
       </Field>
       <Field label="Required Content" hint="Specific visual elements, motifs, or text areas that must appear.">
-        <textarea value={spec.requiredContent} onChange={e => onChange({ requiredContent: e.target.value })} className={textareaCls} rows={4} />
+        <textarea value={spec.requiredContent} onChange={e => onChange({ requiredContent: e.target.value })} onFocus={() => onFocus?.("requiredContent", "Required Content")} className={textareaCls} rows={4} />
       </Field>
       <Field label="Review Criteria" hint="How you'll evaluate generated images against this spec.">
-        <textarea value={spec.reviewCriteria} onChange={e => onChange({ reviewCriteria: e.target.value })} className={textareaCls} rows={4} />
+        <textarea value={spec.reviewCriteria} onChange={e => onChange({ reviewCriteria: e.target.value })} onFocus={() => onFocus?.("reviewCriteria", "Review Criteria")} className={textareaCls} rows={4} />
       </Field>
     </div>
   );
@@ -414,9 +418,11 @@ function CreativeTab({ spec, onChange }: { spec: Spec; onChange: (patch: Partial
 function CanonTab({
   spec,
   onChange,
+  onFocus,
 }: {
   spec: Spec;
   onChange: (patch: Partial<Spec>) => void;
+  onFocus?: OnSpecFieldFocus;
 }) {
   const { data: sgData } = useQuery({
     queryKey: ["editorial-style-guides", spec.worldId],
@@ -440,7 +446,7 @@ function CanonTab({
   return (
     <div className="space-y-4">
       <Field label="Canon Dependency">
-        <select value={spec.canonDependency} onChange={e => onChange({ canonDependency: e.target.value })} className={selectCls}>
+        <select value={spec.canonDependency} onChange={e => onChange({ canonDependency: e.target.value })} onFocus={() => onFocus?.("requiredContent", "Canon Constraints")} className={selectCls}>
           <option value="None">None</option>
           <option value="Supports Canon">Supports Canon</option>
           <option value="Canon Reference">Canon Reference</option>
@@ -489,9 +495,11 @@ function CanonTab({
 function PayloadTab({
   spec,
   onChange,
+  onFocus,
 }: {
   spec: Spec;
   onChange: (patch: Partial<Spec>) => void;
+  onFocus?: OnSpecFieldFocus;
 }) {
   const { data: pmData } = useQuery({
     queryKey: ["editorial-prompt-modules", spec.worldId],
@@ -516,6 +524,7 @@ function PayloadTab({
         <textarea
           value={spec.promptPayload}
           onChange={e => onChange({ promptPayload: e.target.value })}
+          onFocus={() => onFocus?.("promptPayload", "Prompt Payload")}
           className={textareaCls}
           rows={14}
           style={{ fontFamily: "ui-monospace, 'Fira Mono', monospace", fontSize: 12 }}
@@ -561,6 +570,15 @@ export default function SpecEditor({ specId }: { specId: string }) {
   const [activeTab, setActiveTab] = useState<TabId>("identity");
   const [localSpec, setLocalSpec] = useState<Spec | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [activeCoField, setActiveCoField] = useState<ApplyTarget>({ key: "productionItem", label: "Production Item Name" });
+  const tabTargets: Record<TabId, ApplyTarget> = {
+    identity: { key: "productionItem", label: "Production Item Name" },
+    creative: { key: "designIntent", label: "Design Intent" },
+    canon: { key: "requiredContent", label: "Canon Requirements" },
+    payload: { key: "promptPayload", label: "Prompt Payload" },
+  };
+  useEffect(() => setActiveCoField(tabTargets[activeTab]), [activeTab]);
 
   const { data, isLoading, error } = useQuery<SpecResponse>({
     queryKey: ["editorial-spec", specId],
@@ -578,6 +596,7 @@ export default function SpecEditor({ specId }: { specId: string }) {
     setLocalSpec(prev => prev ? { ...prev, ...patch } : null);
     setDirty(true);
   };
+  const handleCoFieldFocus: OnSpecFieldFocus = (field, label) => setActiveCoField({ key: field, label });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -678,6 +697,14 @@ export default function SpecEditor({ specId }: { specId: string }) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
+            onClick={() => setCopilotOpen(open => !open)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors"
+            style={copilotOpen ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" } : { color: "#4B5563", borderColor: "#E5E7EB" }}
+          >
+            <Sparkles className="w-3.5 h-3.5" style={{ color: copilotOpen ? "#C87560" : undefined }} />
+            Co-write
+          </button>
+          <button
             onClick={() => deleteMutation.mutate()}
             className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
             title="Delete spec"
@@ -697,7 +724,7 @@ export default function SpecEditor({ specId }: { specId: string }) {
       </div>
 
       {/* Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
         {/* Editor panel */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           {/* Tabs */}
@@ -722,13 +749,42 @@ export default function SpecEditor({ specId }: { specId: string }) {
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto p-6">
             <div style={{ maxWidth: 640 }}>
-              {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} />}
-              {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} />}
-              {activeTab === "canon" && <CanonTab spec={spec} onChange={onChange} />}
-              {activeTab === "payload" && <PayloadTab spec={spec} onChange={onChange} />}
+            {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} onFocus={handleCoFieldFocus} />}
+            {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} onFocus={handleCoFieldFocus} />}
+            {activeTab === "canon" && <CanonTab spec={spec} onChange={onChange} onFocus={handleCoFieldFocus} />}
+            {activeTab === "payload" && <PayloadTab spec={spec} onChange={onChange} onFocus={handleCoFieldFocus} />}
             </div>
           </div>
         </div>
+
+        <EditorialCopilot
+          isOpen={copilotOpen}
+          onClose={() => setCopilotOpen(false)}
+          surface="spec"
+          worldId={spec.worldId}
+          storageKey={`copilot-spec-${spec.id}`}
+          title="Production Spec Copilot"
+          greeting={`I can help refine "${spec.productionItem}" — check canon consistency, strengthen the active field, or turn a rough direction into production-ready copy.`}
+          activeTarget={activeCoField}
+          context={{
+            section: TABS.find(tab => tab.id === activeTab)?.label,
+            draft: spec,
+            linkedAssets: {
+              canonRecordIds: spec.canonRecordIds,
+              styleGuideId: spec.styleGuideId || null,
+              componentSpecId: spec.componentSpecId || null,
+              promptModuleIds: spec.promptModuleIds,
+            },
+            linkedAssetSummaries: [
+              rels.style_guide ? `Style guide: ${rels.style_guide.name}` : "",
+              rels.component_spec ? `Component spec: ${rels.component_spec.name}` : "",
+              ...rels.canon_records.map(record => `Canon (${record.status}): ${record.name}`),
+              ...rels.prompt_modules.map(module => `Prompt module: ${module.name}`),
+            ].filter(Boolean),
+          }}
+          onApply={(text, key) => onChange({ [key]: text.trim() } as Partial<Spec>)}
+          className="max-xl:absolute max-xl:right-3 max-xl:top-3 max-xl:z-30"
+        />
 
         {/* Sidebar */}
         <CompletionSidebar

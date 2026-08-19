@@ -16,7 +16,10 @@ import { getRun, getRunsBySpec, failStaleRunsForSpec, updateRun } from "../lib/w
 import { getAsset, getAssetBySpec } from "../lib/worldsmith/daybook-adapter";
 import { normalizeNotionId } from "../lib/worldsmith/normalize-id";
 import { db } from "@workspace/db";
-import { worldsmithAssetsTable, worldsmithRunsTable, worldsmithWorldsTable } from "@workspace/db";
+import {
+  worldsmithAssetsTable, worldsmithRunsTable, worldsmithWorldsTable,
+  wsCanonRecordsTable, wsComponentSpecsTable, wsPromptModulesTable, wsStyleGuidesTable,
+} from "@workspace/db";
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import type { User } from "@workspace/db";
@@ -803,7 +806,7 @@ router.get("/v1/worldsmith/health", requireAuth, requireSuperAdmin, async (_req:
 
 // ── POST /v1/worldsmith/copilot ──────────────────────────────────────────────
 // Generic creative-writing copilot for any WorldSmith prose surface.
-// surface: "story" | "canon_record" | "style_guide"
+// surface: "story" | "canon_record" | "style_guide" | "spec" | "prompt_module"
 // worldId: optional — if supplied the world's Bible is fetched for grounding.
 // context: surface-specific object assembled by the client.
 
@@ -818,7 +821,8 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     context?: Record<string, unknown>;
   };
 
-  const { surface, worldId, field, fieldLabel = field ?? "this field", message, history, context } = body;
+  const { surface, worldId, field, fieldLabel: rawFieldLabel = field ?? "this field", message, history, context } = body;
+  const fieldLabel = typeof rawFieldLabel === "string" ? rawFieldLabel.trim().slice(0, 160) || "this field" : "this field";
 
   if (!message || typeof message !== "string" || !message.trim()) {
     res.status(400).json({ error: "message is required", code: "MISSING_MESSAGE" });
@@ -828,7 +832,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     res.status(400).json({ error: "surface is required", code: "MISSING_SURFACE" });
     return;
   }
-  const VALID_SURFACES = ["story", "canon_record", "style_guide", "spec", "editorial"];
+  const VALID_SURFACES = ["story", "canon_record", "style_guide", "spec", "prompt_module", "editorial"];
   if (!VALID_SURFACES.includes(surface)) {
     res.status(400).json({ error: `surface must be one of: ${VALID_SURFACES.join(", ")}`, code: "INVALID_SURFACE" });
     return;
@@ -845,13 +849,13 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
         .limit(1);
       if (world) {
         worldBibleLines = [
-          `World: ${world.name}${world.description ? ` — ${world.description}` : ""}`,
-          `Visual Palette: ${world.visualPalette?.trim() || "(not set)"}`,
-          `Prose Voice: ${world.proseVoice?.trim() || "(not set)"}`,
-          `Atmospheric Notes: ${world.atmosphericNotes?.trim() || "(not set)"}`,
-          `Material World: ${world.materialWorld?.trim() || "(not set)"}`,
+          `World: ${world.name}${world.description ? ` — ${world.description.slice(0, 1200)}` : ""}`,
+          `Visual Palette: ${world.visualPalette?.trim().slice(0, 700) || "(not set)"}`,
+          `Prose Voice: ${world.proseVoice?.trim().slice(0, 700) || "(not set)"}`,
+          `Atmospheric Notes: ${world.atmosphericNotes?.trim().slice(0, 700) || "(not set)"}`,
+          `Material World: ${world.materialWorld?.trim().slice(0, 700) || "(not set)"}`,
           Array.isArray(world.worldRules) && world.worldRules.length > 0
-            ? `World Rules:\n${(world.worldRules as string[]).map((r: string) => `  - ${r}`).join("\n")}`
+            ? `World Rules:\n${(world.worldRules as unknown[]).filter((rule): rule is string => typeof rule === "string").slice(0, 10).map(rule => `  - ${rule.trim().slice(0, 400)}`).join("\n")}`
             : "",
         ].filter(Boolean).join("\n");
       }
@@ -982,22 +986,85 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
       ].filter(Boolean).join("\n");
 
     } else if (surface === "spec") {
-      const { specConcept, componentType } = (context ?? {}) as {
-        specConcept?: string;
-        componentType?: string;
+      const { draft, linkedAssets, section } = (context ?? {}) as {
+        draft?: Record<string, unknown>;
+        linkedAssets?: {
+          canonRecordIds?: string[];
+          styleGuideId?: string | null;
+          componentSpecId?: string | null;
+          promptModuleIds?: string[];
+        };
+        linkedAssetSummaries?: string[];
+        section?: string;
       };
+      const safeIds = (value: unknown) => Array.isArray(value)
+        ? value.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 200).slice(0, 20)
+        : [];
+      const canonIds = safeIds(linkedAssets?.canonRecordIds);
+      const moduleIds = safeIds(linkedAssets?.promptModuleIds);
+      const styleGuideIds = safeIds(linkedAssets?.styleGuideId ? [linkedAssets.styleGuideId] : []);
+      const componentSpecIds = safeIds(linkedAssets?.componentSpecId ? [linkedAssets.componentSpecId] : []);
+      const [canonRecords, styleGuides, componentSpecs, promptModules] = worldId
+        ? await Promise.all([
+            canonIds.length ? db.select({ id: wsCanonRecordsTable.id, name: wsCanonRecordsTable.name, status: wsCanonRecordsTable.status }).from(wsCanonRecordsTable).where(and(eq(wsCanonRecordsTable.worldId, worldId), inArray(wsCanonRecordsTable.id, canonIds))) : Promise.resolve([]),
+            styleGuideIds.length ? db.select({ id: wsStyleGuidesTable.id, name: wsStyleGuidesTable.name }).from(wsStyleGuidesTable).where(and(eq(wsStyleGuidesTable.worldId, worldId), inArray(wsStyleGuidesTable.id, styleGuideIds))) : Promise.resolve([]),
+            componentSpecIds.length ? db.select({ id: wsComponentSpecsTable.id, name: wsComponentSpecsTable.name }).from(wsComponentSpecsTable).where(and(eq(wsComponentSpecsTable.worldId, worldId), inArray(wsComponentSpecsTable.id, componentSpecIds))) : Promise.resolve([]),
+            moduleIds.length ? db.select({ id: wsPromptModulesTable.id, name: wsPromptModulesTable.name }).from(wsPromptModulesTable).where(and(eq(wsPromptModulesTable.worldId, worldId), inArray(wsPromptModulesTable.id, moduleIds))) : Promise.resolve([]),
+          ])
+        : [[], [], [], []];
+      const draftLines = draft
+        ? Object.entries(draft)
+            .filter(([, value]) => typeof value === "string" && value.trim())
+            .slice(0, 10)
+            .map(([key, value]) => `${key.slice(0, 80)}:\n${(value as string).slice(0, 1200)}`)
+            .join("\n\n")
+        : "";
+      const relationshipLines = [
+        ...styleGuides.map(guide => `Style guide: ${guide.name}`),
+        ...componentSpecs.map(component => `Component spec: ${component.name}`),
+        ...canonRecords.map(record => `Canon (${record.status}): ${record.name}`),
+        ...promptModules.map(module => `Prompt module: ${module.name}`),
+      ].filter(Boolean).join("\n");
       systemPrompt = [
-        `You are a WorldSmith Production Spec Copilot — a creative producer helping editorial teams brainstorm and shape new production specs.`,
+        `You are a WorldSmith Production Spec Copilot — a creative producer helping editorial teams create and refine production specs.`,
         `Production specs define printable components: hero papers, journal cards, ephemera sheets, decorative papers, coordinating papers, and more.`,
         worldBibleLines ? `\n## World Context\n${worldBibleLines}` : "",
-        componentType ? `\n## Component type in mind\n${componentType}` : "",
-        specConcept ? `\n## Concept so far\n${specConcept}` : "",
+        typeof section === "string" && section.trim() ? `\n## Active section\n${section.trim().slice(0, 160)}` : "",
+        draftLines ? `\n## Current draft\n${draftLines}` : "",
+        relationshipLines ? `\n## Linked editorial assets\n${relationshipLines}` : "",
+        `\n## Focus\nHelping with: ${fieldLabel}`,
         `\n## Your role`,
-        "- Help the user identify the exact printable component they want to create",
-        "- Ask about its purpose within the world, its visual identity, and which canon records or style guides it should be grounded in",
-        "- Suggest a specific production name (e.g. 'The Wychcombe Cartographer's Header Sheet'), component type, and any canon dependencies",
-        "- When the user has a clear concept, summarise it as a production brief: one specific name, component type, and 2–3 sentences of grounding",
-        "- Keep conversational replies short (2–4 sentences); only expand when producing the final brief",
+        "- Ground every recommendation in the World Context and the linked editorial assets",
+        "- Help with drafts, revisions, constraints, examples, canon consistency, payload structure, and review criteria",
+        "- For a request to draft or revise the active field, return only finished, paste-ready content for that field",
+        "- Do not invent accepted canon facts; flag uncertainty and recommend an explicit canon decision",
+        "- Keep conversational replies short (2–4 sentences); only go longer for requested field-ready content",
+      ].filter(Boolean).join("\n");
+
+    } else if (surface === "prompt_module") {
+      const { draft, section } = (context ?? {}) as {
+        draft?: Record<string, unknown>;
+        section?: string;
+      };
+      const draftLines = draft
+        ? Object.entries(draft)
+            .filter(([, value]) => typeof value === "string" && value.trim())
+            .slice(0, 10)
+            .map(([key, value]) => `${key.slice(0, 80)}:\n${(value as string).slice(0, 1200)}`)
+            .join("\n\n")
+        : "";
+      systemPrompt = [
+        `You are a WorldSmith Prompt Module Copilot — a prompt editor helping create reusable, precise production modules.`,
+        worldBibleLines ? `\n## World Context\n${worldBibleLines}` : "",
+        typeof section === "string" && section.trim() ? `\n## Active section\n${section.trim().slice(0, 160)}` : "",
+        draftLines ? `\n## Module draft\n${draftLines}` : "",
+        `\n## Focus\nHelping with: ${fieldLabel}`,
+        `\n## Guidelines`,
+        "- Keep prompt content concrete, composable, and directly usable in a compiled prompt",
+        "- Help distinguish visual direction, targeting, canon constraints, injection priority, and observable quality checks",
+        "- Flag likely conflicts with other modules or production constraints when the draft suggests one",
+        "- For a request to draft or revise the active field, return only finished, paste-ready content for that field",
+        "- Keep conversational replies short (2–4 sentences); only go longer for requested field-ready content",
       ].filter(Boolean).join("\n");
 
     } else {
@@ -1010,7 +1077,8 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
       const filledFields = draft
         ? Object.entries(draft)
             .filter(([, v]) => typeof v === "string" && (v as string).trim())
-            .map(([k, v]) => `${k}:\n${(v as string).slice(0, 1500)}`)
+            .slice(0, 10)
+            .map(([k, v]) => `${k.slice(0, 80)}:\n${(v as string).slice(0, 1200)}`)
             .join("\n\n")
         : "";
       systemPrompt = [
@@ -1032,7 +1100,9 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     const safeHistory = (Array.isArray(history) ? history : [])
       .filter((m): m is { role: "user" | "assistant"; content: string } =>
         (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string")
-      .slice(-20);
+      .map(m => ({ ...m, content: m.content.trim().slice(0, 1500) }))
+      .filter(m => m.content.length > 0)
+      .slice(-10);
 
     // Normalize: Anthropic requires conversations to start with a user message.
     // Drop all leading assistant messages (e.g. synthetic greeting from client state).
@@ -1041,7 +1111,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     const normalizedHistory = firstUserIdx < 0 ? [] : safeHistory.slice(firstUserIdx);
 
     const result = await callAi(
-      [...normalizedHistory, { role: "user" as const, content: message.trim() }],
+      [...normalizedHistory, { role: "user" as const, content: message.trim().slice(0, 3000) }],
       process.env.DEFAULT_AI_PROVIDER ?? "claude",
       systemPrompt,
     );

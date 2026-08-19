@@ -4,15 +4,17 @@
  * Prompt modules are reusable text fragments that get injected into
  * compiled prompts during WorldSmith production spec generation.
  */
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Plus, Puzzle, FileText, ChevronRight, Loader2, X, Save, Pencil,
+  Plus, Puzzle, FileText, ChevronRight, Loader2, X, Save, Pencil, Sparkles,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
+import { EditorialCopilot } from "@/components/EditorialCopilot";
+import type { ApplyTarget } from "@/components/CopilotPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,6 +49,9 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
   const { toast } = useToast();
   const [name, setName] = useState(module?.name ?? "");
   const [content, setContent] = useState(module?.content ?? "");
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [activeTarget, setActiveTarget] = useState<ApplyTarget>({ key: "content", label: "Content" });
+  const copilotSession = useRef(`copilot-prompt-module-${worldId}-${module?.id ?? "new"}`);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -81,7 +86,7 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
         onClick={onClose}
       />
       {/* Panel */}
-      <div className="fixed right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl z-50 flex flex-col">
+      <div className="fixed right-0 top-0 h-full w-full max-w-5xl bg-white shadow-2xl z-50 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <div className="flex items-center gap-2">
@@ -90,13 +95,24 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
               {module ? "Edit Prompt Module" : "New Prompt Module"}
             </span>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
-            <X className="w-4 h-4 text-gray-500" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCopilotOpen(open => !open)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border"
+              style={copilotOpen ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" } : { color: "#4B5563", borderColor: "#E5E7EB" }}
+            >
+              <Sparkles className="w-3.5 h-3.5" style={{ color: copilotOpen ? "#C87560" : undefined }} />
+              Co-write
+            </button>
+            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+              <X className="w-4 h-4 text-gray-500" />
+            </button>
+          </div>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        {/* Body + contextual co-write rail */}
+        <div className="flex flex-1 min-h-0 relative">
+        <div className="flex-1 overflow-y-auto p-6 space-y-5 min-w-0">
           {/* Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -106,6 +122,7 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
+              onFocus={() => setActiveTarget({ key: "name", label: "Module Name" })}
               placeholder="e.g. Atmospheric Grounding Module"
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C87560]/30 focus:border-[#C87560]"
             />
@@ -122,6 +139,7 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
             <textarea
               value={content}
               onChange={e => setContent(e.target.value)}
+              onFocus={() => setActiveTarget({ key: "content", label: "Content" })}
               placeholder="Write the reusable prompt fragment here. This content is injected verbatim into the compiled prompt during generation…"
               rows={20}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C87560]/30 focus:border-[#C87560] resize-y font-mono leading-relaxed"
@@ -130,6 +148,24 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
               Plain text accepted. This content is passed verbatim to the compiler during generation.
             </p>
           </div>
+        </div>
+        <EditorialCopilot
+          isOpen={copilotOpen}
+          onClose={() => setCopilotOpen(false)}
+          surface="prompt_module"
+          worldId={worldId}
+          storageKey={copilotSession.current}
+          title="Prompt Module Copilot"
+          greeting={`I can help refine ${name ? `"${name}"` : "this prompt module"} — clarify its content, targeting, quality indicators, and interactions.`}
+          activeTarget={activeTarget}
+          context={{ draft: { name, content }, assetId: module?.id ?? null }}
+          onApply={(text, key) => {
+            if (key === "name") setName(text.trim());
+            else setContent(text.trim());
+          }}
+          className="max-xl:!absolute max-xl:!right-3 max-xl:!top-3 max-xl:z-30"
+          panelStyle={{ maxHeight: "calc(100% - 1.5rem)", minHeight: "min(420px, calc(100% - 1.5rem))" }}
+        />
         </div>
 
         {/* Footer */}

@@ -13,7 +13,8 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
-import { CopilotPanel } from "@/components/CopilotPanel";
+import { EditorialCopilot } from "@/components/EditorialCopilot";
+import type { ApplyTarget } from "@/components/CopilotPanel";
 
 // ── Form state ────────────────────────────────────────────────────────────────
 
@@ -390,6 +391,7 @@ function IdentitySection({ f, set, onFocus }: {
         <input
           value={f.name}
           onChange={e => set("name", e.target.value)}
+          onFocus={() => onFocus?.("name", "Style Guide Name")}
           className={inputCls}
           placeholder="e.g. Volume I — Victorian Garden Journal Visual Language"
         />
@@ -588,13 +590,8 @@ export default function NewStyleGuideFlow() {
   const [form, setForm] = useState<FormState>({ ...EMPTY });
   const [activeSection, setActiveSection] = useState(0);
   const [copilotOpen, setCopilotOpen] = useState(false);
-  const [activeCoField, setActiveCoField] = useState<{ field: keyof FormState; label: string }>({ field: "scopeDescription", label: "Scope Description" });
-  // Ref so the onSend closure always reads the latest form + field without re-creating the callback
-  const formRef = useRef(form);
-  const activeCoFieldRef = useRef(activeCoField);
-  formRef.current = form;
-  activeCoFieldRef.current = activeCoField;
-
+  const [activeCoField, setActiveCoField] = useState<ApplyTarget>({ key: "scopeDescription", label: "Scope Description" });
+  const copilotSession = useRef(`copilot-style-guide-new-${selectedWorldId ?? "unselected"}-${Math.random().toString(36).slice(2)}`);
   // Offer to restore draft on mount (if one exists)
   useEffect(() => {
     if (savedDraft && draftBanner === "idle") {
@@ -659,7 +656,7 @@ export default function NewStyleGuideFlow() {
     },
   });
 
-  const handleCoFieldFocus: OnFieldFocus = (field, label) => setActiveCoField({ field, label });
+  const handleCoFieldFocus: OnFieldFocus = (field, label) => setActiveCoField({ key: field, label });
 
   const sectionComponents = [
     <IdentitySection f={form} set={set} onFocus={handleCoFieldFocus} />,
@@ -803,34 +800,20 @@ export default function NewStyleGuideFlow() {
               {sectionComponents[activeSection]}
             </div>
           </div>
-          <CopilotPanel
+          <EditorialCopilot
             isOpen={copilotOpen}
             onClose={() => setCopilotOpen(false)}
+            surface="style_guide"
+            worldId={selectedWorldId}
+            storageKey={copilotSession.current}
             title="Style Guide Copilot"
-            activeFieldLabel={activeCoField.label}
             greeting={`I'm here to help you write ${form.name ? `"${form.name}"` : "your style guide"}${form.guideType ? ` (${form.guideType})` : ""}. Click into any field and tell me what you'd like to develop, or just describe the world and I'll help shape the voice.`}
-            onSend={async (message, history) =>
-              apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
-                method: "POST",
-                body: JSON.stringify({
-                  surface: "style_guide",
-                  worldId: selectedWorldId,
-                  field: activeCoFieldRef.current.field,
-                  fieldLabel: activeCoFieldRef.current.label,
-                  message,
-                  history,
-                  context: {
-                    guideName: formRef.current.name,
-                    guideType: formRef.current.guideType,
-                    draft: { ...formRef.current },
-                  },
-                }),
-              })
-            }
-            onCaptureTarget={() => ({
-              key: activeCoFieldRef.current.field as string,
-              label: activeCoFieldRef.current.label,
-            })}
+            activeTarget={activeCoField}
+            context={{
+              guideName: form.name,
+              guideType: form.guideType,
+              draft: form,
+            }}
             onApply={(text, key) => set(key as keyof FormState, text.trim())}
           />
         </div>

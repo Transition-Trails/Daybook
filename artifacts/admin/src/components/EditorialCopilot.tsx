@@ -85,6 +85,21 @@ export function EditorialCopilot({
           }),
         })
       }
+      onSummarize={(history) =>
+        apiFetch<{ reply: string }>("/v1/worldsmith/copilot", {
+          method: "POST",
+          body: JSON.stringify({
+            surface,
+            worldId,
+            field: targetRef.current.key,
+            fieldLabel: targetRef.current.label,
+            message: "Create concise working notes from this conversation for the editor to review later.",
+            history,
+            context: contextRef.current,
+            summary: true,
+          }),
+        }).then(result => ({ summary: result.reply }))
+      }
       onApply={onApply}
     />
   );

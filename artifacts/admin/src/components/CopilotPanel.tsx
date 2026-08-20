@@ -14,7 +14,7 @@
  * while a request is in-flight.
  */
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Sparkles, X, ArrowRight, Loader2, Paperclip } from "lucide-react";
+import { Sparkles, X, ArrowRight, Loader2, Paperclip, FileText, Copy, Check, RefreshCw } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 
 // ── WorldSmith editorial palette ──────────────────────────────────────────────
@@ -59,6 +59,15 @@ export interface CopilotMsg {
    * messages that were sent with an attachment.
    */
   attachment?: PendingAttachment;
+}
+
+interface CopilotSummary {
+  content: string;
+  sourceTurnCount: number;
+  chatTurnCount: number;
+  sourceWasLimited: boolean;
+  createdAt: number;
+  contextLabel: string;
 }
 
 /** A pending attachment the user has selected but not yet sent. */
@@ -106,6 +115,13 @@ export interface CopilotPanelProps {
     history: { role: "user" | "assistant"; content: string }[],
     attachment?: PendingAttachment,
   ) => Promise<{ reply: string; suggestions?: RecordSuggestion[] }>;
+  /**
+   * Called when the editor asks to turn the current conversation into reusable
+   * notes. The panel persists the resulting summary with its conversation key.
+   */
+  onSummarize?: (
+    history: { role: "user" | "assistant"; content: string }[],
+  ) => Promise<{ summary: string }>;
   /**
    * Called when the user clicks "Create record" on an AI-suggested canon record.
    * Only meaningful when connected to the editorial surface.
@@ -228,6 +244,43 @@ function saveThread(key: string, msgs: CopilotMsg[]) {
   } catch { /* storage full */ }
 }
 
+function summaryStorageKey(key: string) {
+  return `${key}:summary`;
+}
+
+function loadSummary(key: string): CopilotSummary | null {
+  try {
+    const raw = sessionStorage.getItem(summaryStorageKey(key));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<CopilotSummary>;
+    if (
+      typeof parsed.content !== "string" ||
+      typeof parsed.sourceTurnCount !== "number" ||
+      typeof parsed.createdAt !== "number" ||
+      typeof parsed.contextLabel !== "string"
+    ) return null;
+    return {
+      ...parsed,
+      // Summaries created before bounded provenance was added retain the
+      // previous count as their best available staleness baseline.
+      chatTurnCount: typeof parsed.chatTurnCount === "number"
+        ? parsed.chatTurnCount
+        : parsed.sourceTurnCount,
+      sourceWasLimited: parsed.sourceWasLimited === true,
+    } as CopilotSummary;
+  } catch {
+    return null;
+  }
+}
+
+function saveSummary(key: string, summary: CopilotSummary | null) {
+  try {
+    const storageKey = summaryStorageKey(key);
+    if (!summary) sessionStorage.removeItem(storageKey);
+    else sessionStorage.setItem(storageKey, JSON.stringify(summary));
+  } catch { /* storage full / private mode */ }
+}
+
 // ── Suggestion card ───────────────────────────────────────────────────────────
 const TYPE_LABELS: Record<string, string> = {
   character: "Character",
@@ -339,6 +392,7 @@ function CopilotPanelSession({
   footerCta,
   storageKey,
   allowAttachments = false,
+  onSummarize,
 }: CopilotPanelProps) {
   // Seed chat from sessionStorage if a key is provided, so the thread
   // survives navigation away and back.
@@ -349,6 +403,12 @@ function CopilotPanelSession({
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
   const [attachmentProcessing, setAttachmentProcessing] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<CopilotSummary | null>(() =>
+    storageKey ? loadSummary(storageKey) : null,
+  );
+  const [showSummary, setShowSummary] = useState(false);
+  const [copiedSummary, setCopiedSummary] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Seed msgIdRef above any restored messages so IDs don't collide.
@@ -359,6 +419,10 @@ function CopilotPanelSession({
   useEffect(() => {
     if (storageKey) saveThread(storageKey, chat);
   }, [storageKey, chat]);
+
+  useEffect(() => {
+    if (storageKey) saveSummary(storageKey, summary);
+  }, [storageKey, summary]);
 
   // Show greeting on first open (while chat is still empty).
   // The greeting is flagged `synthetic: true` so it is NEVER included in the
@@ -508,6 +572,36 @@ function CopilotPanelSession({
     },
   });
 
+  const usableHistory = chat
+    .filter(m => !m.failed && !m.synthetic)
+    .map(({ role, content }) => ({ role, content }));
+  const hasUsefulConversation =
+    usableHistory.some(m => m.role === "user") &&
+    usableHistory.some(m => m.role === "assistant");
+  const summaryIsStale = !!summary && usableHistory.length > summary.chatTurnCount;
+
+  const summaryMutation = useMutation({
+    mutationFn: async (history: { role: "user" | "assistant"; content: string }[]) => {
+      if (!onSummarize) throw new Error("Conversation summaries are unavailable.");
+      const result = await onSummarize(history);
+      if (!result.summary.trim()) throw new Error("The summary was empty. Try again.");
+      return result;
+    },
+    onSuccess: (data, history) => {
+      setSummary({
+        content: data.summary.trim(),
+        sourceTurnCount: history.length,
+        chatTurnCount: usableHistory.length,
+        sourceWasLimited: usableHistory.length > history.length,
+        createdAt: Date.now(),
+        contextLabel: activeFieldLabel,
+      });
+      setShowSummary(true);
+      setCopiedSummary(false);
+      setCopyError(null);
+    },
+  });
+
   // Scroll to bottom after new messages or while thinking
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
@@ -560,6 +654,38 @@ function CopilotPanelSession({
     sendMutation.mutate({ turnId, message: content, history, capturedTarget, attachment: msg.attachment ?? null });
   };
 
+  const createSummary = () => {
+    if (!hasUsefulConversation || summaryMutation.isPending) return;
+    // Match the server's summary bound exactly so the notes provenance and
+    // freshness state describe the same conversation window the model sees.
+    summaryMutation.mutate(usableHistory.slice(-20));
+  };
+
+  const copySummary = async () => {
+    if (!summary) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(summary.content);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = summary.content;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand("copy");
+        textarea.remove();
+        if (!copied) throw new Error("Copy failed");
+      }
+      setCopiedSummary(true);
+      setCopyError(null);
+      window.setTimeout(() => setCopiedSummary(false), 1800);
+    } catch {
+      setCopiedSummary(false);
+      setCopyError("Couldn’t copy notes. Try again or select the text to copy it manually.");
+    }
+  };
+
   if (!isOpen) return null;
 
   const sendDisabled = !chatInput.trim() || sendMutation.isPending || attachmentProcessing;
@@ -597,13 +723,112 @@ function CopilotPanelSession({
         </button>
       </div>
 
+      {onSummarize && (
+        <div
+          className="px-3 py-2 flex items-center gap-2 shrink-0"
+          style={{ background: "#F7F1E9", borderBottom: `1px solid ${WARM_BORDER}` }}
+        >
+          <button
+            type="button"
+            onClick={createSummary}
+            disabled={!hasUsefulConversation || summaryMutation.isPending}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11.5px] font-semibold disabled:opacity-45 transition-opacity"
+            style={{ color: INK, border: `1px solid ${WARM_BORDER}`, background: "white" }}
+          >
+            {summaryMutation.isPending
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: CLAY }} />
+              : summaryIsStale
+                ? <RefreshCw className="w-3.5 h-3.5" style={{ color: CLAY }} />
+                : <FileText className="w-3.5 h-3.5" style={{ color: CLAY }} />}
+            {summary ? (summaryIsStale ? "Update summary" : "Refresh summary") : "Create summary"}
+          </button>
+          {summary && !showSummary && (
+            <button
+              type="button"
+              onClick={() => setShowSummary(true)}
+              className="text-[11.5px] font-semibold hover:underline"
+              style={{ color: CLAY }}
+            >
+              Review notes
+            </button>
+          )}
+          {!hasUsefulConversation && (
+            <span className="text-[10.5px] leading-tight" style={{ color: "#8A7B6A" }}>
+              Add a question and reply to make notes.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Thread */}
       <div
         ref={threadRef}
         className="flex-1 overflow-y-auto px-3 py-3 space-y-3"
         style={{ background: WARM_WHITE }}
       >
-        {chat.map((m, i) =>
+        {showSummary && summary ? (
+          <div className="space-y-3">
+            <div
+              className="rounded-xl p-3.5"
+              style={{ background: "#F0E9DF", border: `1px solid ${WARM_BORDER}` }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[10.5px] uppercase tracking-widest font-semibold" style={{ color: CLAY }}>
+                    Co-write notes
+                  </p>
+                  <p className="text-[12px] mt-1 font-medium" style={{ color: INK }}>
+                    {summary.contextLabel}
+                  </p>
+                </div>
+                <FileText className="w-4 h-4 shrink-0" style={{ color: CLAY }} />
+              </div>
+              <p className="text-[10.5px] mt-2" style={{ color: "#8A7B6A" }}>
+                {summary.sourceWasLimited
+                  ? `Based on the latest ${summary.sourceTurnCount} conversation turns`
+                  : `Based on ${summary.sourceTurnCount} conversation turns`}
+              </p>
+            </div>
+
+            {summaryIsStale && (
+              <div className="rounded-xl px-3 py-2 text-[11.5px] leading-relaxed" style={{ background: "#FFF3E8", color: "#7D4E28", border: "1px solid #E8C9A7" }}>
+                New messages have been added since these notes were created. Update the summary when you are ready.
+              </div>
+            )}
+
+            <div
+              className="rounded-xl px-3.5 py-3.5 text-[13px] leading-relaxed whitespace-pre-wrap"
+              style={{ background: "white", color: INK, border: `1px solid ${WARM_BORDER}` }}
+            >
+              {summary.content}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSummary(false)}
+                className="rounded-lg px-2.5 py-1.5 text-[11.5px] font-semibold"
+                style={{ color: INK, border: `1px solid ${WARM_BORDER}`, background: "white" }}
+              >
+                Back to chat
+              </button>
+              <button
+                type="button"
+                onClick={() => void copySummary()}
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11.5px] font-semibold"
+                style={{ color: INK, border: `1px solid ${WARM_BORDER}`, background: "white" }}
+              >
+                {copiedSummary ? <Check className="w-3.5 h-3.5" style={{ color: "#3F6B4C" }} /> : <Copy className="w-3.5 h-3.5" style={{ color: CLAY }} />}
+                {copiedSummary ? "Copied" : "Copy notes"}
+              </button>
+            </div>
+            {copyError && (
+              <p role="alert" className="rounded-xl px-3 py-2 text-[11.5px] leading-relaxed" style={{ background: "#FDF0F0", color: "#B23B3B", border: "1px solid #EABABA" }}>
+                {copyError}
+              </p>
+            )}
+          </div>
+        ) : chat.map((m, i) =>
           m.role === "user" ? (
             <div key={m.id} className="flex justify-end">
               <div className="max-w-[85%]">
@@ -665,6 +890,14 @@ function CopilotPanelSession({
               <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: CLAY }} />
               thinking…
             </div>
+          </div>
+        )}
+        {summaryMutation.isError && (
+          <div role="alert" className="rounded-xl px-3 py-2.5 text-[11.5px] leading-relaxed" style={{ background: "#FDF0F0", color: "#B23B3B", border: "1px solid #EABABA" }}>
+            Couldn&apos;t {summary ? "update" : "create"} notes.{" "}
+            <button type="button" className="underline font-semibold" onClick={createSummary}>
+              Try again
+            </button>
           </div>
         )}
       </div>

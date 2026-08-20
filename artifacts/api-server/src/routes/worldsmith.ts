@@ -862,6 +862,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     message?: string;
     history?: { role: string; content: string }[];
     context?: Record<string, unknown>;
+    summary?: boolean;
     attachmentDataUrl?: string;
     attachmentMediaType?: string;
     attachmentKind?: "image" | "document";
@@ -876,6 +877,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     message,
     history,
     context,
+    summary,
     attachmentDataUrl,
     attachmentMediaType,
     attachmentKind,
@@ -1215,12 +1217,25 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
       ].filter(Boolean).join("\n");
     }
 
+    const summaryMode = summary === true;
+    if (summaryMode) {
+      systemPrompt = [
+        systemPrompt,
+        `\n## Conversation summary task`,
+        "Turn the conversation below into concise working notes for an editor returning after changing editorial actions.",
+        "- Use short headings for: Key ideas, Confirmed decisions, Open questions, and Next steps.",
+        "- Keep facts tied to the supplied world and conversation; do not invent decisions or canon.",
+        "- Include only a heading when it has useful content, and keep the result easy to copy into working notes.",
+        "- Do not add record-suggestion markup or speak directly to the editor outside the notes.",
+      ].join("\n");
+    }
+
     const safeHistory = (Array.isArray(history) ? history : [])
       .filter((m): m is { role: "user" | "assistant"; content: string } =>
         (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string")
-      .map(m => ({ ...m, content: m.content.trim().slice(0, 1500) }))
+      .map(m => ({ ...m, content: m.content.trim().slice(0, summaryMode ? 2000 : 1500) }))
       .filter(m => m.content.length > 0)
-      .slice(-10);
+      .slice(summaryMode ? -20 : -10);
 
     // Normalize: Anthropic requires conversations to start with a user message.
     // Drop all leading assistant messages (e.g. synthetic greeting from client state).
@@ -1279,7 +1294,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
     // Parse record suggestions embedded by the model for the "editorial" surface.
     let replyText = result.content;
     let suggestions: { name: string; canonType: string; narrative?: string }[] | undefined;
-    if (surface === "editorial") {
+    if (surface === "editorial" && !summaryMode) {
       const suggestMatch = replyText.match(/\[RECORD_SUGGESTIONS\]\s*([\s\S]*?)\s*\[\/RECORD_SUGGESTIONS\]/);
       if (suggestMatch) {
         try {

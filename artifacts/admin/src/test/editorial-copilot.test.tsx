@@ -109,4 +109,32 @@ describe("EditorialCopilot", () => {
     expect(composer).toHaveAttribute("rows", "4");
     expect(composer).toHaveStyle({ minHeight: "96px", maxHeight: "220px" });
   });
+
+  it("summarizes the world-scoped conversation with the same editorial context", async () => {
+    sessionStorage.setItem("editorial-copilot-summary:world:world-1", JSON.stringify([
+      { id: 1, role: "user", content: "The record needs a stronger memory motif." },
+      { id: 2, role: "assistant", content: "Anchor the motif in the village archive's pressed flowers." },
+    ]));
+    apiFetchMock.mockResolvedValue({ reply: "Key ideas\n- Use pressed flowers as the memory motif." });
+
+    renderCopilot({ storageKey: "editorial-copilot-summary" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create summary" }));
+
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1));
+    const request = JSON.parse(apiFetchMock.mock.calls[0]![1].body);
+    expect(request).toMatchObject({
+      surface: "spec",
+      worldId: "world-1",
+      field: "designIntent",
+      fieldLabel: "Design Intent",
+      summary: true,
+      context: {
+        draft: { designIntent: "Current intent" },
+        section: "Creative Direction",
+      },
+    });
+    expect(request.history).toHaveLength(2);
+    expect(await screen.findByText("Co-write notes")).toBeInTheDocument();
+  });
 });

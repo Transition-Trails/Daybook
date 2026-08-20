@@ -233,6 +233,41 @@ describe("POST /api/v1/worldsmith/copilot — history normalisation", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0]).toEqual({ role: "user", content: "Who is Lady Mireth?" });
   });
+
+  it("uses a bounded extended history and summary instructions for saved notes", async () => {
+    const history = Array.from({ length: 24 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `turn-${index}`,
+    }));
+
+    const res = await request(app)
+      .post("/api/v1/worldsmith/copilot")
+      .send({
+        surface: "story",
+        worldId: WORLD_ROW.id,
+        field: "summary",
+        fieldLabel: "Summary",
+        message: "Create concise working notes from this conversation for the editor to review later.",
+        history,
+        summary: true,
+        context: { storyTitle: "The Amber Archive", storyActs: [] },
+      });
+
+    expect(res.status).toBe(200);
+    const [messages, _provider, systemPrompt] = mockCallAi.mock.calls[0] as [
+      { role: string; content: string }[],
+      string,
+      string,
+    ];
+    expect(messages).toHaveLength(21);
+    expect(messages[0]).toMatchObject({ role: "user", content: "turn-4" });
+    expect(messages[messages.length - 1]).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("Create concise working notes"),
+    });
+    expect(systemPrompt).toContain("Conversation summary task");
+    expect(systemPrompt).toContain("Confirmed decisions");
+  });
 });
 
 // ── /v1/worldsmith/worlds/:id/bible-copilot ───────────────────────────────────

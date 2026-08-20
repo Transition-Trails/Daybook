@@ -9,7 +9,7 @@
  */
 import { Router } from "express";
 import { requireAuth } from "../lib/auth-middleware";
-import { requireSuperAdmin } from "../middleware/requireRole";
+import { requireStoreAccess, requireSuperAdmin } from "../middleware/requireRole";
 import { runCompilation } from "../lib/worldsmith/orchestrator";
 import { runSpecPreview, retrySpecPreviewStatus, SpecPreviewError } from "../lib/worldsmith/spec-preview-service";
 import { getRun, getRunsBySpec, failStaleRunsForSpec, updateRun } from "../lib/worldsmith/run-repository";
@@ -17,7 +17,7 @@ import { getAsset, getAssetBySpec } from "../lib/worldsmith/daybook-adapter";
 import { normalizeNotionId } from "../lib/worldsmith/normalize-id";
 import { db } from "@workspace/db";
 import {
-  worldsmithAssetsTable, worldsmithRunsTable, worldsmithWorldsTable,
+  storeFlagsTable, worldsmithAssetsTable, worldsmithRunsTable, worldsmithWorldsTable,
   wsCanonRecordsTable, wsComponentSpecsTable, wsPromptModulesTable, wsStyleGuidesTable,
 } from "@workspace/db";
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
@@ -50,10 +50,43 @@ import { sanitizeWorldBibleRichText, worldBibleRichTextToPlainText } from "../li
 
 const router = Router();
 
+function scopedStoreId(req: Request): string | null {
+  return req.actor?.storeId ?? null;
+}
+
+/**
+ * Store-scoped WorldSmith routes always receive an authenticated store context.
+ * A super admin without a store context is using the platform oversight console
+ * and remains able to view the complete portfolio.
+ */
+async function requireWorldsmithEnabled(
+  req: Request,
+  res: Response,
+  next: import("express").NextFunction,
+): Promise<void> {
+  const storeId = scopedStoreId(req);
+  if (!storeId) {
+    next();
+    return;
+  }
+
+  const [flags] = await db
+    .select({ worldsmithEnabled: storeFlagsTable.worldsmithEnabled })
+    .from(storeFlagsTable)
+    .where(eq(storeFlagsTable.storeId, storeId))
+    .limit(1);
+
+  if (!flags?.worldsmithEnabled) {
+    res.status(403).json({ error: "WorldSmith is not enabled for this store", code: "WORLDSMITH_DISABLED" });
+    return;
+  }
+  next();
+}
+
 // ── POST /api/v1/prompt-compilations ─────────────────────────────────────────
 // validate_and_compile or preview
 
-router.post("/v1/prompt-compilations", requireAuth, async (req: Request, res: Response) => {
+router.post("/v1/prompt-compilations", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
   const body = req.body as {
     notion_production_spec_id?: string;
     operation?: string;
@@ -123,7 +156,7 @@ router.post("/v1/prompt-compilations", requireAuth, async (req: Request, res: Re
 // ── POST /api/v1/production-packages ─────────────────────────────────────────
 // compile_and_generate — Phase 2 stub
 
-router.post("/v1/production-packages", requireAuth, async (_req: Request, res: Response) => {
+router.post("/v1/production-packages", requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
   res.status(501).json({
     error: "compile_and_generate (image generation) is not yet implemented. Use validate_and_compile first.",
     code: "NOT_IMPLEMENTED",
@@ -133,7 +166,7 @@ router.post("/v1/production-packages", requireAuth, async (_req: Request, res: R
 
 // ── GET /api/v1/runs/:run_id ──────────────────────────────────────────────────
 
-router.get("/v1/runs/:run_id", requireAuth, async (req: Request, res: Response) => {
+router.get("/v1/runs/:run_id", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
   const run_id = req.params.run_id as string;
 
   try {
@@ -179,7 +212,7 @@ router.get("/v1/runs/:run_id", requireAuth, async (req: Request, res: Response) 
 // world_id filters to runs whose asset_id starts with WS-{WORLD_CODE}-
 // (falling back to a join through worldsmith_assets.production_spec_notion_id).
 
-router.get("/v1/worldsmith/runs", requireAuth, async (req: Request, res: Response) => {
+router.get("/v1/worldsmith/runs", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
   const specId = req.query.spec_id as string | undefined;
   const statusFilter = req.query.status as string | undefined;
   const worldId = req.query.world_id as string | undefined;
@@ -296,7 +329,7 @@ router.get("/v1/worldsmith/runs", requireAuth, async (req: Request, res: Respons
 // Lightweight: fetch the Production Spec page only (no full inheritance chain),
 // return the summary fields needed to populate the preflight card in the UI.
 
-router.get("/v1/worldsmith/preflight", requireAuth, async (req: Request, res: Response) => {
+router.get("/v1/worldsmith/preflight", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
   const rawId = req.query.spec_id as string | undefined;
   if (!rawId) {
     res.status(400).json({ error: "spec_id is required", code: "MISSING_SPEC_ID" });
@@ -550,11 +583,13 @@ export function buildEnrichedWorld(
 // ── GET /v1/worldsmith/worlds ─────────────────────────────────────────────────
 // List all worlds, with computed run/asset stats aggregated.
 
-router.get("/v1/worldsmith/worlds", requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
+router.get("/v1/worldsmith/worlds", requireStoreAccess("store_staff"), requireWorldsmithEnabled, async (req: Request, res: Response) => {
   try {
+    const storeId = scopedStoreId(req);
     const worlds = await db
       .select()
       .from(worldsmithWorldsTable)
+      .where(storeId ? eq(worldsmithWorldsTable.storeId, storeId) : undefined)
       .orderBy(desc(worldsmithWorldsTable.updatedAt));
 
     // Attach lightweight stats: run counts + asset counts per world code
@@ -577,7 +612,9 @@ router.get("/v1/worldsmith/worlds", requireAuth, requireSuperAdmin, async (_req:
     const totalRuns = runCounts[0]?.total ?? 0;
     const failedRuns = runCounts[0]?.failed ?? 0;
 
-    const enriched = worlds.map(w => buildEnrichedWorld(w, assetCounts));
+    // Store-scoped clients never receive asset totals derived from the shared
+    // asset registry. The platform console retains those portfolio metrics.
+    const enriched = worlds.map(w => buildEnrichedWorld(w, storeId ? [] : assetCounts));
 
     res.json({ worlds: enriched });
   } catch (err) {
@@ -589,7 +626,7 @@ router.get("/v1/worldsmith/worlds", requireAuth, requireSuperAdmin, async (_req:
 // ── POST /v1/worldsmith/worlds ────────────────────────────────────────────────
 // Create a new world record.
 
-router.post("/v1/worldsmith/worlds", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+router.post("/v1/worldsmith/worlds", requireStoreAccess("store_staff"), requireWorldsmithEnabled, async (req: Request, res: Response) => {
   const body = req.body as {
     id?: string;
     name?: string;
@@ -614,7 +651,11 @@ router.post("/v1/worldsmith/worlds", requireAuth, requireSuperAdmin, async (req:
     return;
   }
 
-  const id = (body.id ?? body.code.toLowerCase().replace(/[^a-z0-9-]/g, "-")).slice(0, 64);
+  const requestedId = (body.id ?? body.code.toLowerCase().replace(/[^a-z0-9-]/g, "-")).slice(0, 64);
+  const storeId = scopedStoreId(req);
+  // Store teams may use the same human-facing code as another store. The
+  // database id remains globally unique while `code` stays readable in the UI.
+  const id = storeId ? `${storeId}--${requestedId}` : requestedId;
   const user = req.user as User;
 
   try {
@@ -622,6 +663,7 @@ router.post("/v1/worldsmith/worlds", requireAuth, requireSuperAdmin, async (req:
       .insert(worldsmithWorldsTable)
       .values({
         id,
+        storeId,
         name: body.name.trim(),
         code: body.code.trim().toUpperCase().slice(0, 8),
         description: body.description?.trim() ?? "",
@@ -1269,7 +1311,7 @@ const BIBLE_COPILOT_FIELDS: Record<string, string> = {
   materialWorld: "Material World (tactile qualities and sensory anchors)",
 };
 
-router.post("/v1/worldsmith/worlds/:id/bible-copilot", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+router.post("/v1/worldsmith/worlds/:id/bible-copilot", requireStoreAccess("store_staff"), requireWorldsmithEnabled, async (req: Request, res: Response) => {
   const worldId = req.params.id as string;
   const body = req.body as {
     field?: string;
@@ -1365,7 +1407,9 @@ router.post("/v1/worldsmith/worlds/:id/bible-copilot", requireAuth, requireSuper
     const [world] = await db
       .select()
       .from(worldsmithWorldsTable)
-      .where(eq(worldsmithWorldsTable.id, worldId))
+      .where(scopedStoreId(req)
+        ? and(eq(worldsmithWorldsTable.id, worldId), eq(worldsmithWorldsTable.storeId, scopedStoreId(req)!))
+        : eq(worldsmithWorldsTable.id, worldId))
       .limit(1);
 
     if (!world) {
@@ -1460,7 +1504,7 @@ router.post("/v1/worldsmith/worlds/:id/bible-copilot", requireAuth, requireSuper
 // Update mutable world settings in-place (no delete + recreate needed).
 // Accepts a partial set of fields; only supplied keys are updated.
 
-router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+router.patch("/v1/worldsmith/worlds/:id", requireStoreAccess("store_staff"), requireWorldsmithEnabled, async (req: Request, res: Response) => {
   const worldId = req.params.id as string;
 
   const body = req.body as {
@@ -1547,7 +1591,9 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
     const [updated] = await db
       .update(worldsmithWorldsTable)
       .set(patch)
-      .where(eq(worldsmithWorldsTable.id, worldId))
+      .where(scopedStoreId(req)
+        ? and(eq(worldsmithWorldsTable.id, worldId), eq(worldsmithWorldsTable.storeId, scopedStoreId(req)!))
+        : eq(worldsmithWorldsTable.id, worldId))
       .returning();
 
     if (!updated) {
@@ -1998,7 +2044,7 @@ router.post("/v1/worldsmith/batch-save-payload", requireAuth, requireSuperAdmin,
 
 // ── GET /api/v1/worldsmith/assets ─────────────────────────────────────────────
 
-router.get("/v1/worldsmith/assets", requireAuth, async (_req: Request, res: Response) => {
+router.get("/v1/worldsmith/assets", requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
   try {
     const assets = await db
       .select()
@@ -2014,7 +2060,7 @@ router.get("/v1/worldsmith/assets", requireAuth, async (_req: Request, res: Resp
 
 // ── GET /api/v1/worldsmith/assets/:assetId ────────────────────────────────────
 
-router.get("/v1/worldsmith/assets/:assetId", requireAuth, async (req: Request, res: Response) => {
+router.get("/v1/worldsmith/assets/:assetId", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
   const assetId = req.params.assetId as string;
   try {
     const asset = await getAsset(assetId);

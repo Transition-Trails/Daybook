@@ -32,6 +32,7 @@
     "migrate-worldsmith-worlds": "tsx ./src/migrate-worldsmith-worlds.ts",
     "migrate-worldsmith-worlds-v2": "tsx ./src/migrate-worldsmith-worlds-v2.ts",
     "migrate-worldsmith-worlds-v3": "tsx ./src/migrate-worldsmith-worlds-v3.ts",
+    "migrate-worldsmith-store-scope": "tsx ./src/migrate-worldsmith-store-scope.ts",
     "seed-worldsmith-wychcombe": "tsx ./src/seed-worldsmith-wychcombe.ts",
     "migrate-spec-preview": "tsx ./src/migrate-spec-preview.ts",
     "migrate-worldsmith-editorial": "tsx ./src/migrate-worldsmith-editorial.ts",

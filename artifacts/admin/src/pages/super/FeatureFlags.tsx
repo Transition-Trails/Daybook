@@ -39,7 +39,7 @@ export default function SuperFeatureFlags() {
       stores.map((store) => ({
         store,
         flags: flagMap.get(store.id) ?? {
-          storeId: store.id, aiEnabled: false, customDomain: false, editionsCap: 5, storageQuota: 1024, inkEnabled: false,
+          storeId: store.id, aiEnabled: false, customDomain: false, editionsCap: 5, storageQuota: 1024, inkEnabled: false, worldsmithEnabled: false,
         },
         dirty: false,
       })),
@@ -94,6 +94,7 @@ export default function SuperFeatureFlags() {
                 <th className="px-5 py-3 font-medium">Store</th>
                 <th className="px-4 py-3 font-medium text-center">AI enabled</th>
                 <th className="px-4 py-3 font-medium text-center">Ink</th>
+                <th className="px-4 py-3 font-medium text-center">WorldSmith</th>
                 <th className="px-4 py-3 font-medium text-center">Custom domain</th>
                 <th className="px-4 py-3 font-medium text-center">Editions cap</th>
                 <th className="px-4 py-3 font-medium text-center">Storage (MB)</th>
@@ -117,6 +118,12 @@ export default function SuperFeatureFlags() {
                     <Switch
                       checked={row.flags.inkEnabled}
                       onCheckedChange={(v) => updateFlag(row.store.id, "inkEnabled", v)}
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <Switch
+                      checked={row.flags.worldsmithEnabled}
+                      onCheckedChange={(v) => updateFlag(row.store.id, "worldsmithEnabled", v)}
                     />
                   </td>
                   <td className="px-4 py-3 text-center">

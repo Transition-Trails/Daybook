@@ -1,4 +1,5 @@
 import { pgTable, text, boolean, integer, real, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { storesTable } from "./stores";
 
 // ── WorldSmith Run Repository ─────────────────────────────────────────────────
 // Persists every compilation and generation run for audit and recovery.
@@ -148,6 +149,9 @@ export type InsertWorldsmithSpecPreview = typeof worldsmithSpecPreviewsTable.$in
 
 export const worldsmithWorldsTable = pgTable("worldsmith_worlds", {
   id: text("id").primaryKey(),              // slug, e.g. "wychcombe"
+  // Every world belongs to one store. Platform admins may oversee all stores,
+  // while store teams can only query their own worlds.
+  storeId: text("store_id").references(() => storesTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code").notNull(),             // 3-letter code, e.g. "WYC"
   description: text("description").notNull().default(""),

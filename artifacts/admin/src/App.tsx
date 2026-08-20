@@ -357,6 +357,19 @@ function RootRouter() {
         )}
       </Route>
 
+      {/* ── Store-scoped WorldSmith ─────────────────────────────── */}
+      <Route path="/store/:storeId/worldsmith">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <WorldSmithHome storeId={p.storeId!} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
       {/* ── Store Admin console ────────────────────────────────── */}
       <Route path="/store/:storeId">
         {(p) => (

@@ -24,6 +24,7 @@ type WorldRow = Parameters<typeof buildEnrichedWorld>[0];
 function makeWorldRow(overrides: Partial<WorldRow> = {}): WorldRow {
   return {
     id: "world-001",
+    storeId: null,
     name: "Thornvale",
     code: "THV",
     description: "A world of mist and memory",

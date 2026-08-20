@@ -252,12 +252,19 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
           style={{ borderColor: "#F3F4F6" }}
         >
           <div className={`flex items-center ${drawerCollapsed ? "justify-center" : "justify-between mb-1"}`}>
-            <Link href="/super/worldsmith" aria-label="Back to WorldSmith" title="Back to WorldSmith">
-              <span className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 cursor-pointer text-xs">
-                <ArrowLeft className="w-3 h-3" />
-                <span className={drawerCollapsed ? "sr-only" : undefined}>WorldSmith</span>
-              </span>
-            </Link>
+            <div className={drawerCollapsed ? undefined : "flex items-center gap-3"}>
+              <Link href="/super/worldsmith" aria-label="Back to WorldSmith" title="Back to WorldSmith">
+                <span className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 cursor-pointer text-xs">
+                  <ArrowLeft className="w-3 h-3" />
+                  <span className={drawerCollapsed ? "sr-only" : undefined}>WorldSmith</span>
+                </span>
+              </Link>
+              <Link href="/super" aria-label="Back to Daybook" title="Back to Daybook">
+                <span className={drawerCollapsed ? "sr-only" : "text-gray-400 hover:text-gray-600 cursor-pointer text-xs"}>
+                  Daybook
+                </span>
+              </Link>
+            </div>
             <div className="flex items-center gap-1">
               <button
                 type="button"

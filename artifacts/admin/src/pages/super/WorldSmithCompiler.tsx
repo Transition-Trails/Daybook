@@ -6,6 +6,7 @@
  */
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import {
   Loader2, Sparkles, CheckCircle2, XCircle, AlertTriangle,
   ChevronDown, ChevronUp, Copy, RefreshCw, FileText, Clock,
@@ -509,6 +510,14 @@ export default function WorldSmithCompiler() {
         <div>
           <h1 className="text-lg font-semibold">WorldSmith Publishing Engine</h1>
           <p className="text-xs text-muted-foreground">Governed publishing workflow — Resolve · Compile · Inspect · Specify · Review · Publish</p>
+        </div>
+        <div className="ml-auto">
+          <Link href="/super">
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer">
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Back to Daybook
+            </span>
+          </Link>
         </div>
       </div>
 

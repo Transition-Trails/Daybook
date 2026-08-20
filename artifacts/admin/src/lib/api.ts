@@ -101,6 +101,7 @@ export interface StoreFlags {
   editionsCap: number;
   storageQuota: number;
   inkEnabled: boolean;
+  worldsmithEnabled: boolean;
 }
 
 export interface StoreCatalogEntry {

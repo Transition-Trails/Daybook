@@ -47,6 +47,7 @@
 - [Vitest vi.mock hoisting](vitest-mock-hoisting.md) — variables inside vi.mock factory MUST come from vi.hoisted(); regular const/let throws ReferenceError
 - [Spec board V3 sections](spec-board-v3-sections.md) — "Illustrated Narrative"→"Narrative Role", "Canon Lock"→"Companion Assets", subtitle fallback→"WORLDSMITH LIVING ARCHIVE"
 - [WorldSmith Story schema](worldsmith-story-schema.md) — 5 new tables: ws_stories, ws_story_acts, ws_encounters, ws_journal_prompts, ws_canon_record_story_links; migration via migrate-worldsmith-stories script
+- [WorldSmith store access](worldsmith-store-access.md) — enabled store teams manage only their own worlds; compiler, runs, assets, and Editorial remain platform-admin-only
 - [WorldSmith Synthesis canon UI](worldsmith-synthesis-ui.md) — WorldsmithCanon.tsx replaced with Synthesis design: name+prose+3-tab center, name-only left rail, right panel with Objects/Story Arc/Canon Gaps/Record Details accordion; all existing mutations preserved
 - [WorldSmith Stories + Bible tabs](worldsmith-stories-bible-tabs.md) — WorldSmithHome FocusedWorldView now has Stories + World Bible tabs; StoriesSection fetches ws_stories; WorldBibleSection edits prose-first Bible fields
 - [Editorial browser verification](editorial-browser-verification.md) — use the test-only CI super-admin with a local Playwright server; browser-agent sandboxes cannot reach ephemeral shell ports

@@ -91,6 +91,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     flagsQueryOptions(storeId),
   );
   const aiEnabled = flags?.aiEnabled ?? false;
+  const worldsmithEnabled = flags?.worldsmithEnabled ?? false;
 
   // 4-second soft deadline: show "unavailable" banner if flags haven't arrived
   // yet.  Does NOT block the studio page — aiEnabled just stays false.
@@ -121,6 +122,9 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     { label: "Staff & roles",   icon: UserCog,         href: `${base}/staff` },
     { label: "Help",            icon: HelpCircle,      href: `${base}/help` },
   ];
+  if (worldsmithEnabled) {
+    NAV.splice(6, 0, { label: "WorldSmith", icon: Sparkles, href: `${base}/worldsmith` });
+  }
 
   const STUDIO_NAV = [
     { label: "Theme Studio",      icon: Palette,       href: `${base}/studios/theme` },

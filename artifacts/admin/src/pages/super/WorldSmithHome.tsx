@@ -7,13 +7,13 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
-  Sparkles, Plus, LayoutGrid, List, Search, X, ChevronLeft,
+  Sparkles, Plus, LayoutGrid, List, Search, X, ChevronLeft, ArrowLeft,
   ArrowRight, BookOpen, Loader2, CheckCircle2, XCircle,
   AlertCircle, ExternalLink, Clock, Wrench, Pencil, Save, ImageUp, Trash2,
   ChevronDown, Bold, Italic, Underline, List as ListIcon, ListOrdered,
   Quote, RemoveFormatting,
 } from "lucide-react";
-import { apiFetch, storageApi } from "@/lib/api";
+import { apiFetch, storageApi, storesApi } from "@/lib/api";
 import { bibleRichTextToPlainText, sanitizeBibleRichText } from "@/lib/world-bible-rich-text";
 import { useToast } from "@/hooks/use-toast";
 import { CopilotPanel } from "@/components/CopilotPanel";
@@ -90,17 +90,26 @@ interface HealthStatus {
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
-const wsApi = {
-  worlds: () => apiFetch<{ worlds: WsWorld[] }>("/v1/worldsmith/worlds"),
+function worldsmithFetch<T>(path: string, storeId?: string, init: RequestInit = {}) {
+  return apiFetch<T>(path, {
+    ...init,
+    headers: storeId ? { ...init.headers, "x-store-id": storeId } : init.headers,
+  });
+}
+
+function createWsApi(storeId?: string) {
+  return {
+  worlds: () => worldsmithFetch<{ worlds: WsWorld[] }>("/v1/worldsmith/worlds", storeId),
   createWorld: (body: Partial<WsWorld>) =>
-    apiFetch<WsWorld>("/v1/worldsmith/worlds", { method: "POST", body: JSON.stringify(body) }),
+    worldsmithFetch<WsWorld>("/v1/worldsmith/worlds", storeId, { method: "POST", body: JSON.stringify(body) }),
   updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume" | "worldRules" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "coverImageUrl">>) =>
-    apiFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+    worldsmithFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(id)}`, storeId, { method: "PATCH", body: JSON.stringify(body) }),
   runs: (worldId?: string) =>
-    apiFetch<{ runs: WsRun[] }>(`/v1/worldsmith/runs${worldId ? `?world_id=${encodeURIComponent(worldId)}` : ""}`),
-  assets: () => apiFetch<{ assets: WsAsset[] }>("/v1/worldsmith/assets"),
-  health: () => apiFetch<{ integrations: HealthStatus[] }>("/v1/worldsmith/health"),
-};
+    worldsmithFetch<{ runs: WsRun[] }>(`/v1/worldsmith/runs${worldId ? `?world_id=${encodeURIComponent(worldId)}` : ""}`, storeId),
+  assets: () => worldsmithFetch<{ assets: WsAsset[] }>("/v1/worldsmith/assets", storeId),
+  health: () => worldsmithFetch<{ integrations: HealthStatus[] }>("/v1/worldsmith/health", storeId),
+  };
+}
 
 // ── Sort key ──────────────────────────────────────────────────────────────────
 
@@ -108,7 +117,7 @@ type SortKey = "activity" | "status" | "name";
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function WorldSmithHome() {
+export default function WorldSmithHome({ storeId }: { storeId?: string }) {
   const [focusedWorldId, setFocusedWorldId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"gallery" | "list">("gallery");
   const [sortBy, setSortBy] = useState<SortKey>("activity");
@@ -116,26 +125,65 @@ export default function WorldSmithHome() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [wizardOpen, setWizardOpen] = useState(false);
   const qc = useQueryClient();
+  const wsApi = createWsApi(storeId);
+  const { data: storeFlags, isLoading: flagsLoading } = useQuery({
+    queryKey: ["store-flags", storeId],
+    queryFn: () => storesApi.flags.get(storeId!),
+    enabled: Boolean(storeId),
+    staleTime: 30_000,
+  });
 
   const { data: worldsData, isLoading: worldsLoading, error: worldsError } = useQuery({
-    queryKey: ["worldsmith/worlds"],
+    queryKey: storeId ? ["worldsmith/worlds", storeId] : ["worldsmith/worlds"],
     queryFn: wsApi.worlds,
+    enabled: !storeId || storeFlags?.worldsmithEnabled === true,
     staleTime: 30_000,
   });
   const { data: assetsData } = useQuery({
-    queryKey: ["worldsmith/assets"],
+    queryKey: storeId ? ["worldsmith/assets", storeId] : ["worldsmith/assets"],
     queryFn: wsApi.assets,
+    enabled: !storeId,
     staleTime: 30_000,
   });
   const { data: healthData } = useQuery({
-    queryKey: ["worldsmith/health"],
+    queryKey: storeId ? ["worldsmith/health", storeId] : ["worldsmith/health"],
     queryFn: wsApi.health,
+    enabled: !storeId,
     staleTime: 60_000,
   });
 
   const worlds = worldsData?.worlds ?? [];
   const assets = assetsData?.assets ?? [];
   const integrations = healthData?.integrations ?? [];
+  const worldsmithDisabled = Boolean(storeId && !flagsLoading && !storeFlags?.worldsmithEnabled);
+
+  if (worldsmithDisabled) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6" style={{ background: "hsl(35 52% 94%)" }}>
+        <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center shadow-sm">
+          <Sparkles className="w-8 h-8 mx-auto mb-4 text-[#C87560]" />
+          <h1 className="font-display text-xl font-semibold text-foreground">WorldSmith isn’t enabled</h1>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            Your platform administrator can enable WorldSmith for this store from Feature flags.
+          </p>
+          <Link href={`/store/${storeId}`}>
+            <span className="mt-6 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer">
+              <ArrowLeft className="w-4 h-4" />
+              Back to Daybook
+            </span>
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (storeId && flagsLoading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center" style={{ background: "hsl(35 52% 94%)" }}>
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" aria-label="Loading WorldSmith access" />
+      </main>
+    );
+  }
 
   const focusedWorld = focusedWorldId ? worlds.find(w => w.id === focusedWorldId) ?? null : null;
 
@@ -160,6 +208,7 @@ export default function WorldSmithHome() {
     <div className="min-h-screen" style={{ background: "hsl(35 52% 94%)" }}>
       {wizardOpen && (
         <CreateWorldModal
+          storeId={storeId}
           onClose={() => setWizardOpen(false)}
           onCreated={() => {
             qc.invalidateQueries({ queryKey: ["worldsmith/worlds"] });
@@ -177,20 +226,30 @@ export default function WorldSmithHome() {
             </div>
             <p className="font-display font-semibold text-sm text-foreground">WorldSmith</p>
           </div>
+          <Link href={storeId ? `/store/${storeId}` : "/super"}>
+            <span className="flex items-center gap-1 px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground cursor-pointer">
+              <ArrowLeft className="w-3 h-3" />
+              <span className="hidden sm:inline">Back to Daybook</span>
+            </span>
+          </Link>
           <div className="flex-1" />
-          <Link href="/super/worldsmith/editorial">
-            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-              <BookOpen className="w-3 h-3" />
-              <span className="hidden sm:inline">Editorial</span>
-            </span>
-          </Link>
-          <Link href="/super/worldsmith/compiler">
-            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
-              <Sparkles className="w-3 h-3 text-[#C87560]" />
-              <span className="hidden sm:inline">Compiler</span>
-            </span>
-          </Link>
-          <div className="w-px h-4 bg-border" />
+          {!storeId && (
+            <>
+              <Link href="/super/worldsmith/editorial">
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                  <BookOpen className="w-3 h-3" />
+                  <span className="hidden sm:inline">Editorial</span>
+                </span>
+              </Link>
+              <Link href="/super/worldsmith/compiler">
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
+                  <Sparkles className="w-3 h-3 text-[#C87560]" />
+                  <span className="hidden sm:inline">Compiler</span>
+                </span>
+              </Link>
+              <div className="w-px h-4 bg-border" />
+            </>
+          )}
           <button
             onClick={() => setWizardOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
@@ -208,6 +267,7 @@ export default function WorldSmithHome() {
             world={focusedWorld}
             assets={assets}
             integrations={integrations}
+            storeId={storeId}
             onBack={() => setFocusedWorldId(null)}
           />
         ) : (
@@ -329,14 +389,16 @@ export default function WorldSmithHome() {
         )}
 
         {/* Footer */}
-        <div className="mt-8 flex items-center justify-between pt-4 border-t border-border">
-          <p className="text-[11px] text-muted-foreground">WorldSmith · Production</p>
-          <Link href="/super/worldsmith/compiler">
-            <span className="text-[12px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 cursor-pointer">
-              Open Compiler <ArrowRight className="w-3.5 h-3.5" />
-            </span>
-          </Link>
-        </div>
+        {!storeId && (
+          <div className="mt-8 flex items-center justify-between pt-4 border-t border-border">
+            <p className="text-[11px] text-muted-foreground">WorldSmith · Production</p>
+            <Link href="/super/worldsmith/compiler">
+              <span className="text-[12px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 cursor-pointer">
+                Open Compiler <ArrowRight className="w-3.5 h-3.5" />
+              </span>
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -490,23 +552,30 @@ function FocusedWorldView({
   world,
   assets,
   integrations,
+  storeId,
   onBack,
 }: {
   world: WsWorld;
   assets: WsAsset[];
   integrations: HealthStatus[];
+  storeId?: string;
   onBack: () => void;
 }) {
   const [activeSection, setActiveSection] = useState<"overview" | "production" | "review" | "integrations" | "bible">("overview");
   const [, navigate] = useLocation();
 
   const goToBible = () => {
+    if (storeId) {
+      setActiveSection("bible");
+      return;
+    }
     openWorldBibleEditor(world.id, navigate);
   };
 
   const { data: runsData, isLoading: runsLoading } = useQuery({
-    queryKey: ["worldsmith/runs", world.id],
-    queryFn: () => wsApi.runs(world.id),
+    queryKey: ["worldsmith/runs", world.id, storeId ?? "platform"],
+    queryFn: () => createWsApi(storeId).runs(world.id),
+    enabled: !storeId,
     staleTime: 15_000,
   });
 
@@ -521,8 +590,10 @@ function FocusedWorldView({
   const SECTIONS = [
     { id: "overview",     label: "Overview" },
     { id: "bible",        label: "World Bible" },
-    { id: "production",   label: `Runs (${runs.length})` },
-    { id: "review",       label: `Review (${reviewQueue.length})` },
+    ...(!storeId ? [
+      { id: "production", label: `Runs (${runs.length})` },
+      { id: "review", label: `Review (${reviewQueue.length})` },
+    ] : []),
     { id: "integrations", label: "Settings" },
   ];
 
@@ -551,7 +622,7 @@ function FocusedWorldView({
         storageApi.deleteObject(world.coverImageUrl).catch(() => {});
       }
       // Save the new object path to the world
-      await apiFetch(`/v1/worldsmith/worlds/${world.id}`, {
+      await worldsmithFetch(`/v1/worldsmith/worlds/${world.id}`, storeId, {
         method: "PATCH",
         body: JSON.stringify({ coverImageUrl: objectPath }),
       });
@@ -568,7 +639,7 @@ function FocusedWorldView({
     setCoverUploading(true);
     try {
       // Clear the cover URL on the world first so the UI reverts immediately
-      await apiFetch(`/v1/worldsmith/worlds/${world.id}`, {
+      await worldsmithFetch(`/v1/worldsmith/worlds/${world.id}`, storeId, {
         method: "PATCH",
         body: JSON.stringify({ coverImageUrl: null }),
       });
@@ -763,7 +834,7 @@ function FocusedWorldView({
       </div>
 
       <div style={{ display: activeSection === "bible" ? undefined : "none" }}>
-        <WorldBibleSection world={world} />
+        <WorldBibleSection world={world} storeId={storeId} />
       </div>
 
       {/* IntegrationsSection must stay mounted so its form state survives tab switches.
@@ -773,6 +844,7 @@ function FocusedWorldView({
         <IntegrationsSection
           world={world}
           integrations={integrations}
+          storeId={storeId}
         />
       </div>
     </div>
@@ -1536,10 +1608,12 @@ export function WorldBibleSection({
   world,
   showCopilot = true,
   onSaved,
+  storeId,
 }: {
   world: Pick<WsWorld, "id" | "name" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "worldRules">;
   showCopilot?: boolean;
   onSaved?: (updatedWorld: WsWorld) => void;
+  storeId?: string;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -1580,7 +1654,7 @@ export function WorldBibleSection({
       name: string;
     },
   ) => {
-    return apiFetch<{ reply: string }>(`/v1/worldsmith/worlds/${encodeURIComponent(world.id)}/bible-copilot`, {
+    return worldsmithFetch<{ reply: string }>(`/v1/worldsmith/worlds/${encodeURIComponent(world.id)}/bible-copilot`, storeId, {
       method: "POST",
       body: JSON.stringify({
         field: activeFieldRef.current,
@@ -1600,7 +1674,7 @@ export function WorldBibleSection({
         },
       }),
     });
-  }, [world.id]);
+  }, [world.id, storeId]);
 
   const bibleGreeting = (() => {
     const bibleEmpty = !form.visualPalette.trim() && !form.proseVoice.trim()
@@ -1630,7 +1704,7 @@ export function WorldBibleSection({
 
   const saveMutation = useMutation({
     mutationFn: () =>
-      apiFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(world.id)}`, {
+      worldsmithFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(world.id)}`, storeId, {
         method: "PATCH",
         body: JSON.stringify({
           visualPalette: sanitizeBibleRichText(form.visualPalette).trim() || null,
@@ -1878,11 +1952,13 @@ function AssetReviewRow({ asset }: { asset: WsAsset }) {
 function IntegrationsSection({
   world,
   integrations,
+  storeId,
   defaultEditing = false,
   onDefaultEditingConsumed,
 }: {
   world: WsWorld;
   integrations: HealthStatus[];
+  storeId?: string;
   defaultEditing?: boolean;
   onDefaultEditingConsumed?: () => void;
 }) {
@@ -1916,7 +1992,7 @@ function IntegrationsSection({
 
   const saveMutation = useMutation({
     mutationFn: () =>
-      wsApi.updateWorld(world.id, {
+      createWsApi(storeId).updateWorld(world.id, {
         notionProductionDbId: form.notionProductionDbId.trim() || null,
         notionCanonDbId: form.notionCanonDbId.trim() || null,
         driveFolderId: form.driveFolderId.trim() || null,
@@ -2363,7 +2439,7 @@ const COVER_PRESETS = [
   { label: "Sand",    color: "linear-gradient(135deg, #4A3A2A 0%, #6A5A4A 50%, #9A8A7A 100%)", accent: "#D4B896" },
 ];
 
-function CreateWorldModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateWorldModal({ storeId, onClose, onCreated }: { storeId?: string; onClose: () => void; onCreated: () => void }) {
   const { toast } = useToast();
   const [form, setForm] = useState({
     name: "", code: "", description: "", owner: "",
@@ -2373,7 +2449,7 @@ function CreateWorldModal({ onClose, onCreated }: { onClose: () => void; onCreat
   });
 
   const mutation = useMutation({
-    mutationFn: () => wsApi.createWorld({
+    mutationFn: () => createWsApi(storeId).createWorld({
       id: form.code.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
       name: form.name.trim(),
       code: form.code.trim().toUpperCase(),

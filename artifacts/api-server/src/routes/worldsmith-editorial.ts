@@ -54,7 +54,7 @@ import { randomUUID } from "crypto";
 import { and, eq, inArray, like, desc, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
-import { callAi } from "../lib/ai-proxy";
+import { callAi, callDallE } from "../lib/ai-proxy";
 import {
   updatePage,
   createPage,
@@ -1045,6 +1045,88 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
   } catch (err) {
     logger.error({ err }, "editorial: update canon record");
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * Create a reusable visual reference for a canon item.
+ *
+ * The resulting image is intentionally not written to the database here. The
+ * editor uploads the returned PNG to App Storage and saves its object path as
+ * the record's portraitUrl, so generated art and hand-uploaded art follow the
+ * same durable asset lifecycle.
+ */
+router.post("/v1/editorial/canon-records/generate-image", async (req: Request, res: Response) => {
+  const {
+    world_id,
+    name,
+    canon_type,
+    narrative_details,
+    historical_context,
+    visual_notes,
+  } = req.body as {
+    world_id?: string;
+    name?: string;
+    canon_type?: string;
+    narrative_details?: string;
+    historical_context?: string;
+    visual_notes?: string;
+  };
+
+  if (!name?.trim()) {
+    res.status(400).json({ error: "Give the canon record a name before generating an image." });
+    return;
+  }
+
+  try {
+    const [world] = world_id
+      ? await db
+          .select({
+            name: worldsmithWorldsTable.name,
+            visualPalette: worldsmithWorldsTable.visualPalette,
+            atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
+            materialWorld: worldsmithWorldsTable.materialWorld,
+          })
+          .from(worldsmithWorldsTable)
+          .where(eq(worldsmithWorldsTable.id, world_id))
+          .limit(1)
+      : [];
+
+    const visualDirection = [
+      editorialRichTextToPlainText(visual_notes).trim(),
+      editorialRichTextToPlainText(narrative_details).trim(),
+      editorialRichTextToPlainText(historical_context).trim(),
+    ].filter(Boolean).join("\n");
+
+    const worldDirection = world
+      ? [
+          `World: ${world.name}`,
+          world.visualPalette ? `Visual palette: ${editorialRichTextToPlainText(world.visualPalette)}` : "",
+          world.materialWorld ? `Material world: ${editorialRichTextToPlainText(world.materialWorld)}` : "",
+          world.atmosphericNotes ? `Atmosphere: ${editorialRichTextToPlainText(world.atmosphericNotes)}` : "",
+        ].filter(Boolean).join("\n")
+      : "";
+
+    const subjectGuidance = canon_type === "object"
+      ? "Depict the individual object itself as the hero subject, not a scene. Keep it fully visible, isolated, and easy to reuse in future ephemera, paper, or product compositions."
+      : "Depict one clear, recognisable visual reference for this canon subject. Keep the main subject fully visible with clean space around it for reuse in future production work.";
+
+    const prompt = [
+      "Create a square, production-ready canon reference illustration.",
+      `Canon type: ${canon_type || "canon item"}.`,
+      `Canon name: ${name.trim()}.`,
+      subjectGuidance,
+      "Use the supplied canon and world direction as fixed design constraints so later related images can repeat the same materials, motifs, palette, age, and visual language.",
+      "No words, lettering, labels, signatures, logos, watermarks, frames, or mockup presentation. Do not add unrelated objects.",
+      worldDirection && `World direction:\n${worldDirection}`,
+      visualDirection && `Canon direction:\n${visualDirection}`,
+    ].filter(Boolean).join("\n\n");
+
+    const imageDataUrl = await callDallE(prompt, { size: "1024x1024", quality: "hd", style: "natural" });
+    res.json({ image_data_url: imageDataUrl });
+  } catch (err) {
+    logger.error({ err, canonName: name }, "editorial: generate canon image");
+    res.status(502).json({ error: "Image generation could not be completed. Please try again." });
   }
 });
 

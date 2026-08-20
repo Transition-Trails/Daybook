@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   AlertCircle, ArrowLeft, BookOpen, CheckCircle2, ChevronRight,
-  FileText, ImageIcon, Loader2, Trash2, Upload, X,
+  FileText, ImageIcon, Loader2, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { apiFetch, storageApi } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -98,12 +98,16 @@ function createEmptyForm(search: string): FormState {
 function ImageField({
   portraitUrl,
   uploading,
+  generating,
   onUpload,
+  onGenerate,
   onRemove,
 }: {
   portraitUrl: string | null;
   uploading: boolean;
-  onUpload: (file: File) => void;
+  generating: boolean;
+  onUpload: (file: File) => Promise<boolean>;
+  onGenerate: () => void;
   onRemove: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -118,7 +122,7 @@ function ImageField({
           </p>
         </div>
         {portraitUrl && (
-          <button type="button" onClick={onRemove} className="text-xs font-semibold hover:underline" style={{ color: "#B42318" }}>
+          <button type="button" onClick={onRemove} disabled={uploading || generating} className="text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: "#B42318" }}>
             Remove
           </button>
         )}
@@ -126,7 +130,7 @@ function ImageField({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        disabled={uploading}
+        disabled={uploading || generating}
         className="group flex w-full min-h-48 overflow-hidden rounded-xl border border-dashed transition-colors disabled:cursor-wait"
         style={{ borderColor: portraitUrl ? "#D7CDC0" : "#CDBEAF", background: "#FAF8F3" }}
       >
@@ -134,8 +138,8 @@ function ImageField({
           <img src={imageUrl} alt="Canon record reference" className="h-48 w-full object-cover" />
         ) : (
           <span className="flex w-full flex-col items-center justify-center gap-2 px-5 py-7">
-            {uploading ? <Loader2 className="h-6 w-6 animate-spin" style={{ color: CLAY }} /> : <ImageIcon className="h-6 w-6" style={{ color: "#A49687" }} />}
-            <span className="text-xs font-semibold" style={{ color: INK }}>{uploading ? "Uploading image…" : "Add an image"}</span>
+            {uploading || generating ? <Loader2 className="h-6 w-6 animate-spin" style={{ color: CLAY }} /> : <ImageIcon className="h-6 w-6" style={{ color: "#A49687" }} />}
+            <span className="text-xs font-semibold" style={{ color: INK }}>{generating ? "Generating reference…" : uploading ? "Uploading image…" : "Add an image"}</span>
             <span className="text-[11px]" style={{ color: "#7C6F62" }}>JPEG, PNG, WebP, GIF, or AVIF · up to 8 MB</span>
           </span>
         )}
@@ -144,10 +148,25 @@ function ImageField({
         )}
       </button>
       {imageUrl && (
-        <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading} className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold hover:underline" style={{ color: CLAY }}>
-          <Upload className="h-3.5 w-3.5" /> Replace image
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+          <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading || generating} className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: CLAY }}>
+            <Upload className="h-3.5 w-3.5" /> Replace image
+          </button>
+          <button type="button" onClick={onGenerate} disabled={uploading || generating} className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: INK }}>
+            {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {generating ? "Generating…" : "Generate a new reference"}
+          </button>
+        </div>
+      )}
+      {!imageUrl && (
+        <button type="button" onClick={onGenerate} disabled={uploading || generating} className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ background: INK }}>
+          {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {generating ? "Generating reference…" : "Generate from canon details"}
         </button>
       )}
+      <p className="mt-2 text-[10px] leading-relaxed" style={{ color: "#7C6F62" }}>
+        Generation uses this record’s name, type, narrative, visual notes, and world visual direction. You can still upload your own artwork.
+      </p>
       <input
         ref={inputRef}
         type="file"
@@ -155,7 +174,7 @@ function ImageField({
         accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
         onChange={event => {
           const file = event.target.files?.[0];
-          if (file) onUpload(file);
+          if (file) void onUpload(file);
           event.target.value = "";
         }}
       />
@@ -172,6 +191,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(() => createEmptyForm(search));
   const [imageUploading, setImageUploading] = useState(false);
+  const [imageGenerating, setImageGenerating] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [openedSections, setOpenedSections] = useState({ narrative: true, historical: false, visual: false, notes: false });
   const initialPortraitRef = useRef<string | null>(null);
@@ -187,6 +207,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const record = recordData?.canon_record;
   const recordWorld = record ? worlds.find(world => world.id === record.worldId) : selectedWorld;
   const worldId = record?.worldId ?? selectedWorld?.id;
+  const isImageProcessing = imageUploading || imageGenerating;
 
   useEffect(() => {
     if (record && initializedRecordRef.current !== record.id) {
@@ -290,14 +311,14 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     setForm(current => ({ ...current, [key]: value }));
   };
 
-  const handleImageUpload = useCallback(async (file: File) => {
+  const handleImageUpload = useCallback(async (file: File): Promise<boolean> => {
     if (!IMAGE_TYPES.has(file.type)) {
       toast({ title: "Use an image file", description: "Choose a JPEG, PNG, WebP, GIF, or AVIF image.", variant: "destructive" });
-      return;
+      return false;
     }
     if (file.size > MAX_IMAGE_BYTES) {
       toast({ title: "Image is too large", description: "Choose an image smaller than 8 MB.", variant: "destructive" });
-      return;
+      return false;
     }
     setImageUploading(true);
     try {
@@ -311,20 +332,65 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       }
       provisionalPortraitsRef.current.add(objectPath);
       setForm(current => ({ ...current, portraitUrl: objectPath }));
+      return true;
     } catch (error) {
       toast({ title: "Image upload failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+      return false;
     } finally {
       setImageUploading(false);
     }
-  }, [toast]);
+  }, [form.portraitUrl, toast]);
+
+  const generateImage = useCallback(async () => {
+    if (!form.name.trim()) {
+      toast({ title: "Name this canon record first", description: "The record name anchors the generated reference.", variant: "destructive" });
+      return;
+    }
+
+    setImageGenerating(true);
+    try {
+      const result = await apiFetch<{ image_data_url: string }>("/v1/editorial/canon-records/generate-image", {
+        method: "POST",
+        body: JSON.stringify({
+          world_id: worldId,
+          name: form.name,
+          canon_type: form.canonType,
+          narrative_details: form.narrativeDetails,
+          historical_context: form.historicalContext,
+          visual_notes: form.visualNotes,
+        }),
+      });
+      const generatedResponse = await fetch(result.image_data_url);
+      if (!generatedResponse.ok) throw new Error("The generated image could not be prepared for saving");
+      const blob = await generatedResponse.blob();
+      const generatedFile = new File(
+        [blob],
+        `${form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "canon-reference"}.png`,
+        { type: blob.type || "image/png" },
+      );
+      const uploaded = await handleImageUpload(generatedFile);
+      if (!uploaded) return;
+      toast({ title: "Reference image generated", description: "It is ready to save with this canon record." });
+    } catch (error) {
+      toast({
+        title: "Image generation failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setImageGenerating(false);
+    }
+  }, [form, handleImageUpload, toast, worldId]);
 
   const cancel = async () => {
+    if (isImageProcessing) return;
     await Promise.all([...provisionalPortraitsRef.current].map(path => storageApi.deleteObject(path).catch(() => undefined)));
     provisionalPortraitsRef.current.clear();
     navigate("/super/worldsmith/editorial/canon");
   };
 
   const removePortrait = async () => {
+    if (isImageProcessing) return;
     const currentPortrait = form.portraitUrl;
     if (currentPortrait && currentPortrait !== initialPortraitRef.current) {
       provisionalPortraitsRef.current.delete(currentPortrait);
@@ -370,7 +436,16 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         <span className="text-[11px]" style={{ color: "#C9BFB2" }}>/</span>
         <span className="text-[11px]" style={{ color: "#667085" }}>{recordWorld?.name ?? "World"}</span>
         <span className="text-[11px]" style={{ color: "#C9BFB2" }}>/</span>
-        <Link href="/super/worldsmith/editorial/canon"><span className="cursor-pointer text-[11px]" style={{ color: "#667085" }}>Canon Library</span></Link>
+        <Link
+          href="/super/worldsmith/editorial/canon"
+          onClick={event => {
+            if (isImageProcessing) event.preventDefault();
+          }}
+          aria-disabled={isImageProcessing}
+          className={isImageProcessing ? "pointer-events-none opacity-50" : ""}
+        >
+          <span className="cursor-pointer text-[11px]" style={{ color: "#667085" }}>Canon Library</span>
+        </Link>
         <span className="text-[11px]" style={{ color: "#C9BFB2" }}>/</span>
         <span className="text-[11px] font-semibold" style={{ color: INK }}>{isNew ? "New record" : record?.name}</span>
       </header>
@@ -391,7 +466,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                 : "Refine the details that stories, visual assets, and production work use as their canonical source."}
             </p>
           </div>
-          <button onClick={cancel} disabled={imageUploading} className="inline-flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50" style={{ color: CLAY }}>
+          <button onClick={cancel} disabled={isImageProcessing} className="inline-flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50" style={{ color: CLAY }}>
             <ArrowLeft className="h-3.5 w-3.5" /> Back to library
           </button>
         </div>
@@ -399,6 +474,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         <form
           onSubmit={event => {
             event.preventDefault();
+            if (isImageProcessing) return;
             if (!form.name.trim()) {
               toast({ title: "A record name is required", variant: "destructive" });
               return;
@@ -450,7 +526,14 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           </div>
 
           <aside className="space-y-5">
-            <ImageField portraitUrl={form.portraitUrl} uploading={imageUploading} onUpload={handleImageUpload} onRemove={removePortrait} />
+            <ImageField
+              portraitUrl={form.portraitUrl}
+              uploading={imageUploading}
+              generating={imageGenerating}
+              onUpload={handleImageUpload}
+              onGenerate={generateImage}
+              onRemove={removePortrait}
+            />
 
             {!isNew && record && (
               <>
@@ -507,8 +590,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           <div className="xl:col-span-2 flex items-center justify-between gap-3 rounded-2xl border px-5 py-4" style={{ background: "white", borderColor: BORDER }}>
             <p className="text-xs" style={{ color: "#786D60" }}>{isNew ? "The record will be saved as Proposed." : "Save your changes before leaving this record."}</p>
             <div className="flex items-center gap-2">
-              <button type="button" onClick={cancel} disabled={saveMutation.isPending || imageUploading} className="rounded-lg border px-3.5 py-2 text-xs font-semibold disabled:opacity-50" style={{ borderColor: "#DDD4C4", color: "#667085" }}>Cancel</button>
-              <button type="submit" disabled={saveMutation.isPending || imageUploading} className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ background: INK }}>
+              <button type="button" onClick={cancel} disabled={saveMutation.isPending || isImageProcessing} className="rounded-lg border px-3.5 py-2 text-xs font-semibold disabled:opacity-50" style={{ borderColor: "#DDD4C4", color: "#667085" }}>Cancel</button>
+              <button type="submit" disabled={saveMutation.isPending || isImageProcessing} className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ background: INK }}>
                 {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                 {isNew ? "Create record" : "Save"}
               </button>

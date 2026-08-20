@@ -6,7 +6,7 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  LayoutDashboard, FileText, BookOpen, Puzzle, Layers,
+  LayoutDashboard, FileText, BookOpen, Puzzle, Layers, GitBranch, ScrollText,
   ChevronDown, Globe, Plus, ArrowLeft, CheckCircle2,
   Loader2, RefreshCw, Sparkles, Network, PanelLeftClose, PanelLeftOpen, SlidersHorizontal,
 } from "lucide-react";
@@ -661,8 +661,8 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
           {navItem("Readiness Board", LayoutDashboard, "/super/worldsmith/editorial/board", "board")}
           {navItem("World Bible", BookOpen, "/super/worldsmith/editorial/bible", "bible")}
           {navItem("Story Map", Network, "/super/worldsmith/editorial/connections", "connections")}
-          {navItem("Storylines", BookOpen, "/super/worldsmith/editorial/stories", "stories")}
-          {navItem("Canon Records", BookOpen, "/super/worldsmith/editorial/canon", "canon")}
+          {navItem("Storylines", GitBranch, "/super/worldsmith/editorial/stories", "stories")}
+          {navItem("Canon Records", ScrollText, "/super/worldsmith/editorial/canon", "canon")}
 
           {!drawerCollapsed && (
             <p className="text-[10px] uppercase tracking-widest text-gray-400 px-2 pt-5 mb-2 font-medium">

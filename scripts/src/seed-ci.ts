@@ -13,8 +13,8 @@
  * Persona summary:
  *   super@ci.test       — platform super_admin
  *   owner.a@ci.test     — owner of ci_store_a
- *   staff.a@ci.test     — staff of ci_store_a
- *   owner.b@ci.test     — owner of ci_store_b  (cross-store isolation tests)
+ *   staff.a@ci.test     — staff of ci_store_a (WorldSmith enabled)
+ *   owner.b@ci.test     — owner of ci_store_b  (WorldSmith disabled)
  *   buyer@ci.test       — no store membership   (buyer persona)
  *
  * Good fixtures (ci_store_a owns all of these):
@@ -140,6 +140,7 @@ async function main() {
       code: "CIE",
       description: "Deterministic WorldSmith fixtures for authenticated Editorial Studio tests.",
       status: "active",
+      storeId: CI_IDS.storeA,
       owner: "CI",
       visualPalette: "<p>Ink blue and clay red.</p>",
       proseVoice: "<p><em>Measured editorial prose.</em></p>",
@@ -148,7 +149,10 @@ async function main() {
       worldRules: ["Keep all test content explicitly labelled as CI data."],
       createdBy: CI_IDS.superAdmin,
     })
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: worldsmithWorldsTable.id,
+      set: { storeId: CI_IDS.storeA },
+    });
 
   await db
     .insert(wsCanonRecordsTable)
@@ -214,11 +218,14 @@ async function main() {
   console.log("  ✓ WorldSmith Editorial Studio fixtures");
 
   // ── Store flags (storeFlagsTable uses boolean columns, one row per store) ──
-  // storeA: ai studios + marketing enabled
+  // storeA: ai studios, marketing, and WorldSmith enabled
   await db
     .insert(storeFlagsTable)
-    .values({ storeId: CI_IDS.storeA, aiEnabled: true })
-    .onConflictDoNothing();
+    .values({ storeId: CI_IDS.storeA, aiEnabled: true, worldsmithEnabled: true })
+    .onConflictDoUpdate({
+      target: storeFlagsTable.storeId,
+      set: { aiEnabled: true, worldsmithEnabled: true },
+    });
   // storeB: no special flags (clean isolation baseline)
   await db
     .insert(storeFlagsTable)

@@ -54,6 +54,7 @@ async function main() {
         family_name         TEXT        NOT NULL,
         variants            JSONB       NOT NULL DEFAULT '[]',
         sample_url          TEXT,
+        notes               TEXT,
         curated_pairings    JSONB       NOT NULL DEFAULT '[]',
         status              TEXT        NOT NULL DEFAULT 'draft',
         global_available    BOOLEAN     NOT NULL DEFAULT TRUE,

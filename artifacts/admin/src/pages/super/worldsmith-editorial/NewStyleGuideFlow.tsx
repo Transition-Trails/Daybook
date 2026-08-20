@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { EditorialCopilot } from "@/components/EditorialCopilot";
 import type { ApplyTarget } from "@/components/CopilotPanel";
 import { PaletteLibraryPicker, paletteReferenceText } from "@/components/PaletteLibraryPicker";
+import { FontLibraryPicker, appendFontReference } from "@/components/FontLibraryPicker";
 
 // ── Form state ────────────────────────────────────────────────────────────────
 
@@ -487,6 +488,10 @@ function TypographySection({ f, set, onFocus }: {
         hint="Named families, weights, and usage context for each."
         action={hasSuggestions ? <SuggestChip onClick={() => set("typefaceDirection", suggest.typefaceDirection)} /> : undefined}
       >
+        <FontLibraryPicker
+          value={f.typefaceDirection}
+          onApply={font => set("typefaceDirection", appendFontReference(f.typefaceDirection, font))}
+        />
         <textarea value={f.typefaceDirection} onChange={e => set("typefaceDirection", e.target.value)} onFocus={() => onFocus?.("typefaceDirection", "Typeface Direction")} className={textareaCls} rows={4} placeholder="Primary, secondary, display typefaces and their contexts…" />
       </Field>
       <Field

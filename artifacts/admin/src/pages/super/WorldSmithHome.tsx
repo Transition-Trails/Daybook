@@ -18,6 +18,7 @@ import { bibleRichTextToPlainText, sanitizeBibleRichText } from "@/lib/world-bib
 import { useToast } from "@/hooks/use-toast";
 import { CopilotPanel } from "@/components/CopilotPanel";
 import { PaletteLibraryPicker, paletteReferenceText } from "@/components/PaletteLibraryPicker";
+import { FontLibraryPicker, appendFontReference } from "@/components/FontLibraryPicker";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1776,11 +1777,17 @@ export function WorldBibleSection({
               preview={bibleRichTextToPlainText(form[field])}
             >
               {field === "visualPalette" && (
-                <PaletteLibraryPicker
-                  value={form.visualPalette}
-                  onApply={palette => set("visualPalette", paletteReferenceText(palette))}
-                  worldId={world.id}
-                />
+                <>
+                  <PaletteLibraryPicker
+                    value={form.visualPalette}
+                    onApply={palette => set("visualPalette", paletteReferenceText(palette))}
+                    worldId={world.id}
+                  />
+                  <FontLibraryPicker
+                    value={form.visualPalette}
+                    onApply={font => set("visualPalette", appendFontReference(form.visualPalette, font))}
+                  />
+                </>
               )}
               <BibleRichTextField
                 value={form[field]}

@@ -554,6 +554,7 @@ export const fontsTable = pgTable("fonts", {
   familyName: text("family_name").notNull(),
   variants: jsonb("variants").notNull().default([]).$type<FontVariant[]>(),
   sampleUrl: text("sample_url"),
+  notes: text("notes"),
   curatedPairings: jsonb("curated_pairings").notNull().default([]).$type<CuratedFontPairing[]>(),
   status: text("status").notNull().default("draft"),
   globalAvailable: boolean("global_available").notNull().default(true),

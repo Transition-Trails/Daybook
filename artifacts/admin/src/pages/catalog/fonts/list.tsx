@@ -28,6 +28,7 @@ interface FontItem {
   familyName: string;
   variants: FontVariant[];
   sampleUrl: string | null;
+  notes: string | null;
   curatedPairings: CuratedPairing[];
   status: "draft" | "live";
   origin: string;
@@ -86,6 +87,7 @@ function FontForm({
 }) {
   const [familyName, setFamilyName] = useState(initial?.familyName ?? "");
   const [sampleUrl,  setSampleUrl]  = useState(initial?.sampleUrl  ?? "");
+  const [notes, setNotes] = useState(initial?.notes ?? "");
   const [roles, setRoles] = useState<string[]>(
     (initial?.curatedPairings ?? []).map(p => p.role)
   );
@@ -110,6 +112,17 @@ function FontForm({
       <div className="space-y-1">
         <Label>Google Fonts URL (optional)</Label>
         <Input value={sampleUrl} onChange={e => setSampleUrl(e.target.value)} placeholder="https://fonts.google.com/specimen/…" />
+      </div>
+      <div className="space-y-1">
+        <Label>Source notes (optional)</Label>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Record provenance, licensing notes, or usage guidance…"
+          rows={3}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-[#C87560] focus:ring-1 focus:ring-[#C87560]/30"
+        />
+        <p className="text-[11px] text-muted-foreground">Shown to editors when this font is pulled into WorldSmith.</p>
       </div>
       <div className="space-y-2">
         <Label>Curated roles</Label>
@@ -153,7 +166,7 @@ function FontForm({
       </div>
       <div className="flex gap-2 pt-2">
         <Button
-          onClick={() => onSave({ familyName, sampleUrl: sampleUrl || null, curatedPairings: buildPairings(), status, origin })}
+          onClick={() => onSave({ familyName, sampleUrl: sampleUrl || null, notes: notes.trim() || null, curatedPairings: buildPairings(), status, origin })}
           disabled={!familyName.trim()}
         >
           Save font
@@ -220,6 +233,11 @@ function FontCard({ item, onEdit, onDelete }: {
               <RoleBadge key={i} role={p.role} />
             ))}
           </div>
+        )}
+        {item.notes && (
+          <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground" title={item.notes}>
+            {item.notes}
+          </p>
         )}
 
         <div className="flex items-center gap-1.5 flex-wrap">

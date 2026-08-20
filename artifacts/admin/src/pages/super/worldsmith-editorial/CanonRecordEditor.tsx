@@ -13,6 +13,7 @@ import {
   EditorialSection,
   editorialRichTextToPlainText,
 } from "@/components/EditorialRichText";
+import { FontLibraryPicker, appendFontReference } from "@/components/FontLibraryPicker";
 
 const INK = "#1B2A4A";
 const CLAY = "#C87560";
@@ -425,6 +426,12 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       onToggle={() => setOpenedSections(current => ({ ...current, [key]: !current[key] }))}
       preview={editorialRichTextToPlainText(value).slice(0, 140)}
     >
+      {key === "visual" && (
+        <FontLibraryPicker
+          value={value}
+          onApply={font => setField("visualNotes", appendFontReference(value, font))}
+        />
+      )}
       <EditorialRichTextField value={value} placeholder={placeholder} minHeight={minHeight} onChange={next => setField(key === "narrative" ? "narrativeDetails" : key === "historical" ? "historicalContext" : key === "visual" ? "visualNotes" : "notes", next)} />
     </EditorialSection>
   );

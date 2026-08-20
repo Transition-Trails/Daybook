@@ -19,6 +19,7 @@
     "migrate-themes": "tsx ./src/migrate-themes.ts",
     "migrate-notebooks": "tsx ./src/migrate-notebooks.ts",
     "migrate-theme-studio": "tsx ./src/migrate-theme-studio.ts",
+    "migrate-font-notes": "tsx ./src/migrate-font-notes.ts",
     "seed-theme-assets": "tsx ./src/seed-theme-assets.ts",
     "migrate-sticker-set-id": "tsx ./src/migrate-sticker-set-id.ts",
     "migrate-related-products": "tsx ./src/migrate-related-products.ts",

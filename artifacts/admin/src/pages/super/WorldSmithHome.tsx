@@ -17,6 +17,7 @@ import { apiFetch, storageApi, storesApi } from "@/lib/api";
 import { bibleRichTextToPlainText, sanitizeBibleRichText } from "@/lib/world-bible-rich-text";
 import { useToast } from "@/hooks/use-toast";
 import { CopilotPanel } from "@/components/CopilotPanel";
+import { PaletteLibraryPicker, paletteReferenceText } from "@/components/PaletteLibraryPicker";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1774,6 +1775,13 @@ export function WorldBibleSection({
               onToggle={() => setOpenSections(current => ({ ...current, [field]: !current[field] }))}
               preview={bibleRichTextToPlainText(form[field])}
             >
+              {field === "visualPalette" && (
+                <PaletteLibraryPicker
+                  value={form.visualPalette}
+                  onApply={palette => set("visualPalette", paletteReferenceText(palette))}
+                  worldId={world.id}
+                />
+              )}
               <BibleRichTextField
                 value={form[field]}
                 placeholder={`${label}…`}

@@ -15,6 +15,7 @@ import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
 import { EditorialCopilot } from "@/components/EditorialCopilot";
 import type { ApplyTarget } from "@/components/CopilotPanel";
+import { PaletteLibraryPicker, paletteReferenceText } from "@/components/PaletteLibraryPicker";
 
 // ── Form state ────────────────────────────────────────────────────────────────
 
@@ -427,10 +428,11 @@ function IdentitySection({ f, set, onFocus }: {
   );
 }
 
-function VisualSection({ f, set, onFocus }: {
+function VisualSection({ f, set, onFocus, worldId }: {
   f: FormState;
   set: (k: keyof FormState, v: string) => void;
   onFocus?: OnFieldFocus;
+  worldId?: string | null;
 }) {
   const suggest = GUIDE_SUGGESTIONS[f.guideType] ?? DEFAULT_GUIDE_SUGGESTIONS;
   const hasSuggestions = !!f.guideType;
@@ -443,6 +445,11 @@ function VisualSection({ f, set, onFocus }: {
         hint="Named colours, CMYK values, hex codes, and the atmosphere they create."
         action={hasSuggestions ? <SuggestChip onClick={() => set("colourPalette", suggest.colourPalette)} /> : undefined}
       >
+        <PaletteLibraryPicker
+          value={f.colourPalette}
+          onApply={palette => set("colourPalette", paletteReferenceText(palette))}
+          worldId={worldId}
+        />
         <textarea value={f.colourPalette} onChange={e => set("colourPalette", e.target.value)} onFocus={() => onFocus?.("colourPalette", "Colour Palette")} className={textareaCls} rows={5} placeholder="Dominant, accent, neutral, and background colours with print and digital references…" />
       </Field>
       <Field
@@ -660,7 +667,7 @@ export default function NewStyleGuideFlow() {
 
   const sectionComponents = [
     <IdentitySection f={form} set={set} onFocus={handleCoFieldFocus} />,
-    <VisualSection f={form} set={set} onFocus={handleCoFieldFocus} />,
+    <VisualSection f={form} set={set} onFocus={handleCoFieldFocus} worldId={selectedWorldId} />,
     <TypographySection f={form} set={set} onFocus={handleCoFieldFocus} />,
     <ConstraintsSection f={form} set={set} onFocus={handleCoFieldFocus} />,
   ];

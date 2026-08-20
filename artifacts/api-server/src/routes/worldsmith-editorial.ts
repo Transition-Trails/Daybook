@@ -42,6 +42,7 @@ import {
   wsProductionSpecsTable,
   wsPromptPayloadsTable,
   worldsmithWorldsTable,
+  palettesTable,
   wsStoriesTable,
   wsStoryActsTable,
   wsEncountersTable,
@@ -51,7 +52,7 @@ import {
   type InsertWsCanonRecord,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
-import { and, eq, inArray, like, desc, or, sql } from "drizzle-orm";
+import { and, eq, inArray, like, desc, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
 import { callAi, callDallE } from "../lib/ai-proxy";
@@ -157,6 +158,47 @@ router.get("/v1/editorial/worlds", async (_req: Request, res: Response) => {
     res.json({ worlds });
   } catch (err) {
     logger.error({ err }, "editorial: list worlds error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Daybook palette library ──────────────────────────────────────────────────
+// Resolve this server-side so WorldSmith always reads the same owned palette
+// library the selected world's Daybook store sees. Older platform-only worlds
+// use the central catalog as a practical fallback.
+router.get("/v1/editorial/worlds/:worldId/palette-library", async (req: Request, res: Response) => {
+  try {
+    const [world] = await db
+      .select({ storeId: worldsmithWorldsTable.storeId })
+      .from(worldsmithWorldsTable)
+      .where(eq(worldsmithWorldsTable.id, req.params.worldId as string))
+      .limit(1);
+
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const palettes = await db
+      .select({
+        id: palettesTable.id,
+        name: palettesTable.name,
+        colors: palettesTable.colors,
+        status: palettesTable.status,
+      })
+      .from(palettesTable)
+      .where(world.storeId
+        ? and(
+            eq(palettesTable.origin, "owned"),
+            eq(palettesTable.authoredByStoreId, world.storeId),
+            ne(palettesTable.status, "deleted"),
+          )
+        : ne(palettesTable.status, "deleted"))
+      .orderBy(desc(palettesTable.updatedAt));
+
+    res.json({ source: world.storeId ? "store" : "platform", palettes });
+  } catch (err) {
+    logger.error({ err, worldId: req.params.worldId }, "editorial: list palette library error");
     res.status(500).json({ error: "Internal server error" });
   }
 });

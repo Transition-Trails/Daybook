@@ -3,12 +3,12 @@
  * Provides world selector, record-type tree navigation, sync status, and a
  * persistent holistic co-write right drawer.
  */
-import { type ReactNode, useState, useEffect, useRef } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, FileText, BookOpen, Puzzle, Layers,
   ChevronDown, Globe, Plus, ArrowLeft, CheckCircle2,
-  Loader2, RefreshCw, Sparkles, Network, PanelLeftClose, PanelLeftOpen,
+  Loader2, RefreshCw, Sparkles, Network, PanelLeftClose, PanelLeftOpen, SlidersHorizontal,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { EditorialProvider, useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
@@ -18,6 +18,34 @@ import { apiFetch } from "@/lib/api";
 interface EditorialShellProps {
   children: ReactNode;
   activePage?: "board" | "bible" | "stories" | "connections" | "specs" | "canon" | "style-guides" | "modules";
+}
+
+export interface EditorialPageFilters {
+  label: string;
+  activeCount: number;
+  content: ReactNode;
+  onClear?: () => void;
+}
+
+interface EditorialPageFilterContextValue {
+  setPageFilters: (filters: EditorialPageFilters | null) => void;
+}
+
+const EditorialPageFilterContext = createContext<EditorialPageFilterContextValue | null>(null);
+
+/**
+ * Pages own their filter values and register only their controls with the
+ * persistent shell. The registration is intentionally a bridge rather than a
+ * global filter store so each page keeps its existing filtering semantics.
+ */
+export function useEditorialPageFilters(filters: EditorialPageFilters | null) {
+  const context = useContext(EditorialPageFilterContext);
+
+  useEffect(() => {
+    if (!context) return;
+    context.setPageFilters(filters);
+    return () => context.setPageFilters(null);
+  }, [context, filters]);
 }
 
 // ── Holistic editorial copilot ────────────────────────────────────────────────
@@ -179,6 +207,8 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
   } = useEditorial();
   const [worldDropOpen, setWorldDropOpen] = useState(false);
   const [collDropOpen, setCollDropOpen] = useState(false);
+  const [pageFilters, setPageFilters] = useState<EditorialPageFilters | null>(null);
+  const [collapsedFiltersOpen, setCollapsedFiltersOpen] = useState(false);
   const worldSelectorRef = useRef<HTMLButtonElement>(null);
   const collectionSelectorRef = useRef<HTMLButtonElement>(null);
   const worldMenuRef = useRef<HTMLDivElement>(null);
@@ -212,6 +242,18 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
   useEffect(() => {
     try { localStorage.setItem("ws:editorial:copilot", copilotOpen ? "true" : "false"); } catch { /* ok */ }
   }, [copilotOpen]);
+
+  useEffect(() => {
+    setCollapsedFiltersOpen(false);
+  }, [activePage]);
+
+  const registerPageFilters = useCallback((filters: EditorialPageFilters | null) => {
+    setPageFilters(filters);
+  }, []);
+  const filterContextValue = useMemo(
+    () => ({ setPageFilters: registerPageFilters }),
+    [registerPageFilters],
+  );
 
   const navItem = (
     label: string,
@@ -262,7 +304,8 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
   const collectionLabel = selectedCollection?.name ?? "All collections";
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: "#FAF8F3" }}>
+    <EditorialPageFilterContext.Provider value={filterContextValue}>
+      <div className="flex h-screen overflow-hidden" style={{ background: "#FAF8F3" }}>
       {/* ── Left sidebar ─────────────────────────────────────────────────────── */}
       <aside
         data-testid="editorial-drawer"
@@ -524,6 +567,88 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
               )}
             </div>
           )}
+
+          {pageFilters && (
+            drawerCollapsed ? (
+              <div className="relative mt-3 flex justify-center">
+                <button
+                  type="button"
+                  aria-label={`Open ${pageFilters.label}`}
+                  aria-haspopup="dialog"
+                  aria-expanded={collapsedFiltersOpen}
+                  onClick={() => setCollapsedFiltersOpen(open => !open)}
+                  title={`${pageFilters.label}${pageFilters.activeCount ? ` · ${pageFilters.activeCount} active` : ""}`}
+                  className="relative flex h-10 w-10 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C87560] focus-visible:ring-offset-1"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  {pageFilters.activeCount > 0 && (
+                    <span
+                      aria-label={`${pageFilters.activeCount} active filter${pageFilters.activeCount === 1 ? "" : "s"}`}
+                      className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-white"
+                      style={{ background: "#C87560" }}
+                    >
+                      {pageFilters.activeCount}
+                    </span>
+                  )}
+                </button>
+                {collapsedFiltersOpen && (
+                  <div
+                    role="dialog"
+                    aria-label={pageFilters.label}
+                    className="absolute left-full top-0 z-50 ml-2 w-72 rounded-xl border bg-white p-3 shadow-xl"
+                    style={{ borderColor: "#E5E7EB" }}
+                  >
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h2 className="text-xs font-semibold text-[#1B2A4A]">{pageFilters.label}</h2>
+                      {pageFilters.activeCount > 0 && pageFilters.onClear && (
+                        <button
+                          type="button"
+                          onClick={pageFilters.onClear}
+                          className="text-[10px] font-semibold text-[#C87560] hover:underline"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-[65vh] overflow-y-auto pr-1">
+                      {pageFilters.content}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <section
+                data-testid="editorial-page-filters"
+                aria-label={pageFilters.label}
+                className="mx-3 mt-3 shrink-0 overflow-hidden rounded-xl border"
+                style={{ borderColor: "#E5E7EB", background: "#FAFAF9" }}
+              >
+                <div className="flex items-center justify-between gap-2 border-b px-3 py-2" style={{ borderColor: "#E5E7EB" }}>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-[#C87560]" />
+                    <h2 className="truncate text-[11px] font-semibold text-[#1B2A4A]">{pageFilters.label}</h2>
+                    {pageFilters.activeCount > 0 && (
+                      <span className="rounded-full bg-[#C87560] px-1.5 py-0.5 text-[9px] font-bold text-white">
+                        {pageFilters.activeCount}
+                      </span>
+                    )}
+                  </div>
+                  {pageFilters.activeCount > 0 && pageFilters.onClear && (
+                    <button
+                      type="button"
+                      onClick={pageFilters.onClear}
+                      className="shrink-0 text-[10px] font-semibold text-[#C87560] hover:underline"
+                    >
+                      Clear all
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-[34vh] overflow-y-auto px-3 py-3">
+                  {pageFilters.content}
+                </div>
+              </section>
+            )
+          )}
         </div>
 
         {/* Navigation */}
@@ -586,16 +711,17 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
         {children}
       </main>
 
-      {/* ── Persistent holistic co-write drawer ──────────────────────────────── */}
-      {copilotOpen && selectedWorldId && selectedWorld && (
-        <EditorialCopilot
-          worldId={selectedWorldId}
-          world={selectedWorld}
-          activePage={activePage}
-          onClose={() => setCopilotOpen(false)}
-        />
-      )}
-    </div>
+        {/* ── Persistent holistic co-write drawer ──────────────────────────────── */}
+        {copilotOpen && selectedWorldId && selectedWorld && (
+          <EditorialCopilot
+            worldId={selectedWorldId}
+            world={selectedWorld}
+            activePage={activePage}
+            onClose={() => setCopilotOpen(false)}
+          />
+        )}
+      </div>
+    </EditorialPageFilterContext.Provider>
   );
 }
 

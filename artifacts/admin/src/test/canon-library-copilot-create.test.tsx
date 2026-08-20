@@ -6,7 +6,7 @@
  * because Wouter's useLocation intentionally excludes location.search.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { vi, describe, expect, it, beforeEach } from "vitest";
 
 const { apiFetch, navigate } = vi.hoisted(() => ({
@@ -16,9 +16,17 @@ const { apiFetch, navigate } = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({ apiFetch }));
 vi.mock("@/contexts/EditorialContext", () => ({
+  EditorialProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useEditorial: () => ({
     selectedWorldId: "world-wychcombe",
     selectedWorld: { id: "world-wychcombe", name: "Wychcombe" },
+    worlds: [{ id: "world-wychcombe", name: "Wychcombe", code: "wychcombe", status: "active" }],
+    worldsLoading: false,
+    setSelectedWorldId: vi.fn(),
+    collections: [],
+    collectionsLoading: false,
+    selectedCollectionId: null,
+    setSelectedCollectionId: vi.fn(),
   }),
 }));
 vi.mock("@/hooks/use-toast", () => ({
@@ -26,9 +34,11 @@ vi.mock("@/hooks/use-toast", () => ({
 }));
 vi.mock("wouter", () => ({
   useLocation: () => ["/super/worldsmith/editorial/canon", navigate],
+  Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 import CanonLibrary from "@/pages/super/worldsmith-editorial/CanonLibrary";
+import EditorialShell from "@/pages/super/worldsmith-editorial/EditorialShell";
 
 describe("CanonLibrary suggested-record handoff", () => {
   beforeEach(() => {
@@ -146,14 +156,17 @@ describe("CanonLibrary suggested-record handoff", () => {
 
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <CanonLibrary />
+        <EditorialShell activePage="canon">
+          <CanonLibrary />
+        </EditorialShell>
       </QueryClientProvider>,
     );
 
     await waitFor(() => expect(screen.getByText("The Thorn Keeper")).toBeInTheDocument());
     expect(suggestionBodies[0]).toEqual({ world_id: "world-wychcombe" });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Object/ }));
+    const drawerFilters = await screen.findByTestId("editorial-page-filters");
+    fireEvent.change(within(drawerFilters).getByLabelText("Record type"), { target: { value: "object" } });
 
     await waitFor(() => expect(screen.getByText("The Thorn Reliquary")).toBeInTheDocument());
     expect(suggestionBodies.at(-1)).toEqual({

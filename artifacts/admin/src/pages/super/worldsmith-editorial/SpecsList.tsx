@@ -2,7 +2,7 @@
  * SpecsList — sortable, filterable list of all Production Specs.
  * Replaces the previous redirect from /editorial/specs → board.
  */
-import { useState, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
+import { useEditorialPageFilters } from "./EditorialShell";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,73 @@ function SortHeader({
   );
 }
 
+function SpecFilterControls({
+  query,
+  statusFilter,
+  componentFilter,
+  componentTypes,
+  onQueryChange,
+  onStatusChange,
+  onComponentChange,
+}: {
+  query: string;
+  statusFilter: string;
+  componentFilter: string;
+  componentTypes: string[];
+  onQueryChange: (value: string) => void;
+  onStatusChange: (value: string) => void;
+  onComponentChange: (value: string) => void;
+}) {
+  const selectClass = "w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-gray-700 outline-none focus:border-[#C87560]";
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label htmlFor="spec-filter-search" className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          Search
+        </label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+          <input
+            id="spec-filter-search"
+            value={query}
+            onChange={event => onQueryChange(event.target.value)}
+            placeholder="Name or spec ID…"
+            className="w-full rounded-lg border py-1.5 pl-8 pr-8 text-xs outline-none focus:border-[#C87560]"
+            style={{ borderColor: "#E5E7EB" }}
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => onQueryChange("")}
+              aria-label="Clear spec search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <label htmlFor="spec-filter-status" className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Status</label>
+        <select id="spec-filter-status" value={statusFilter} onChange={event => onStatusChange(event.target.value)} className={selectClass} style={{ borderColor: "#E5E7EB" }}>
+          <option value="">All statuses</option>
+          {ALL_STATUSES.map(status => <option key={status} value={status}>{statusLabel(status)}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <label htmlFor="spec-filter-component" className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Component type</label>
+        <select id="spec-filter-component" value={componentFilter} onChange={event => onComponentChange(event.target.value)} className={selectClass} style={{ borderColor: "#E5E7EB" }}>
+          <option value="">All types</option>
+          {componentTypes.map(type => <option key={type} value={type}>{type}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function SpecsList() {
@@ -174,11 +242,31 @@ export default function SpecsList() {
 
   const hasFilters = !!q || !!statusFilter || !!componentFilter;
 
-  function clearFilters() {
+  const clearFilters = useCallback(() => {
     setQ("");
     setStatusFilter("");
     setComponentFilter("");
-  }
+  }, []);
+  const activeFilterCount = (q.trim() ? 1 : 0) + (statusFilter ? 1 : 0) + (componentFilter ? 1 : 0);
+  const filterContent = useMemo(() => (
+    <SpecFilterControls
+      query={q}
+      statusFilter={statusFilter}
+      componentFilter={componentFilter}
+      componentTypes={componentTypes}
+      onQueryChange={setQ}
+      onStatusChange={setStatusFilter}
+      onComponentChange={setComponentFilter}
+    />
+  ), [componentFilter, componentTypes, q, statusFilter]);
+  const pageFilters = useMemo(() => ({
+    label: "Production Spec filters",
+    activeCount: activeFilterCount,
+    content: filterContent,
+    onClear: clearFilters,
+  }), [activeFilterCount, clearFilters, filterContent]);
+
+  useEditorialPageFilters(pageFilters);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -217,71 +305,6 @@ export default function SpecsList() {
             <Plus className="w-4 h-4" />
             New Spec
           </button>
-        </div>
-      </div>
-
-      {/* ── Filter bar ──────────────────────────────────────────────────── */}
-      <div
-        className="px-6 py-3 border-b flex flex-col gap-2"
-        style={{ borderColor: "#E5E7EB", background: "#FAFAF9" }}
-      >
-        {/* Search input */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-            <input
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              placeholder="Search by name or spec ID…"
-              className="w-full pl-8 pr-8 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-1"
-              style={{ borderColor: "#E5E7EB" }}
-            />
-            {q && (
-              <button
-                onClick={() => setQ("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Status filter */}
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="text-sm border rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1"
-            style={{ borderColor: "#E5E7EB" }}
-          >
-            <option value="">All statuses</option>
-            {ALL_STATUSES.map(s => (
-              <option key={s} value={s}>{statusLabel(s)}</option>
-            ))}
-          </select>
-
-          {/* Component type filter */}
-          {componentTypes.length > 0 && (
-            <select
-              value={componentFilter}
-              onChange={e => setComponentFilter(e.target.value)}
-              className="text-sm border rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1"
-              style={{ borderColor: "#E5E7EB" }}
-            >
-              <option value="">All types</option>
-              {componentTypes.map(ct => (
-                <option key={ct} value={ct}>{ct}</option>
-              ))}
-            </select>
-          )}
-
-          {hasFilters && (
-            <button
-              onClick={clearFilters}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 transition-colors"
-            >
-              <X className="w-3 h-3" /> Clear
-            </button>
-          )}
         </div>
       </div>
 

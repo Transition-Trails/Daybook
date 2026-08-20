@@ -9,7 +9,7 @@
  *
  * Clicking any record navigates to /super/worldsmith/editorial/canon/:id.
  */
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
@@ -22,6 +22,7 @@ import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
 import { REGISTERS } from "./canon-registers";
+import { useEditorialPageFilters } from "./EditorialShell";
 
 // ── Type configuration ────────────────────────────────────────────────────────
 
@@ -987,6 +988,104 @@ function saveLibraryFilters(worldId: string, filters: LibraryFilters) {
   } catch { /* storage full or unavailable — silently skip */ }
 }
 
+function CanonFilterControls({
+  search,
+  activeType,
+  activeStatus,
+  activeVisibility,
+  activeStability,
+  activeEmotionalRegister,
+  onSearchChange,
+  onTypeChange,
+  onStatusChange,
+  onVisibilityChange,
+  onStabilityChange,
+  onEmotionalRegisterChange,
+}: {
+  search: string;
+  activeType: string;
+  activeStatus: string;
+  activeVisibility: string;
+  activeStability: string;
+  activeEmotionalRegister: string;
+  onSearchChange: (value: string) => void;
+  onTypeChange: (value: string) => void;
+  onStatusChange: (value: string) => void;
+  onVisibilityChange: (value: string) => void;
+  onStabilityChange: (value: string) => void;
+  onEmotionalRegisterChange: (value: string) => void;
+}) {
+  const selectClass = "w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-gray-700 outline-none focus:border-[#C87560]";
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label htmlFor="canon-filter-search" className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          Search
+        </label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+          <input
+            id="canon-filter-search"
+            value={search}
+            onChange={event => onSearchChange(event.target.value)}
+            className="w-full rounded-lg border py-1.5 pl-8 pr-8 text-xs outline-none focus:border-[#C87560]"
+            style={{ borderColor: "#E5E7EB" }}
+            placeholder="Name, narrative, notes…"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => onSearchChange("")}
+              aria-label="Clear canon search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <label htmlFor="canon-filter-type" className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Record type</label>
+        <select id="canon-filter-type" value={activeType} onChange={event => onTypeChange(event.target.value)} className={selectClass} style={{ borderColor: "#E5E7EB" }}>
+          <option value="all">All types</option>
+          {CANON_TYPES.map(type => <option key={type.key} value={type.key}>{type.label}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <label htmlFor="canon-filter-status" className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Status</label>
+        <select id="canon-filter-status" value={activeStatus} onChange={event => onStatusChange(event.target.value)} className={selectClass} style={{ borderColor: "#E5E7EB" }}>
+          {STATUS_OPTIONS.map(status => <option key={status.key} value={status.key}>{status.key === "all" ? "All statuses" : status.label}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <label htmlFor="canon-filter-visibility" className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Visibility</label>
+        <select id="canon-filter-visibility" value={activeVisibility} onChange={event => onVisibilityChange(event.target.value)} className={selectClass} style={{ borderColor: "#E5E7EB" }}>
+          {VISIBILITY_OPTIONS.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <label htmlFor="canon-filter-stability" className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Stability</label>
+        <select id="canon-filter-stability" value={activeStability} onChange={event => onStabilityChange(event.target.value)} className={selectClass} style={{ borderColor: "#E5E7EB" }}>
+          {STABILITY_OPTIONS.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <label htmlFor="canon-filter-register" className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">Emotional register</label>
+        <select id="canon-filter-register" value={activeEmotionalRegister} onChange={event => onEmotionalRegisterChange(event.target.value)} className={selectClass} style={{ borderColor: "#E5E7EB" }}>
+          <option value="all">All registers</option>
+          {REGISTERS.map(register => <option key={register.key} value={register.key}>{register.key}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 // ── Main CanonLibrary ────────────────────────────────────────────────────────
 
 export default function CanonLibrary() {
@@ -1113,7 +1212,6 @@ export default function CanonLibrary() {
 
   const allRecords = data?.canon_records ?? [];
   const total = data?.total ?? 0;
-  const byType = data?.by_type ?? {};
 
   const inlineSuggestions = useQuery<{ suggestions: CanonSuggestion[] }>({
     queryKey: ["editorial-canon-suggestions", selectedWorldId, activeType],
@@ -1156,6 +1254,48 @@ export default function CanonLibrary() {
     activeVisibility !== "all" ||
     activeStability !== "all" ||
     activeEmotionalRegister !== "all";
+  const activeFilterCount =
+    (search.trim() ? 1 : 0) +
+    (activeType !== "all" ? 1 : 0) +
+    (activeStatus !== "all" ? 1 : 0) +
+    (activeVisibility !== "all" ? 1 : 0) +
+    (activeStability !== "all" ? 1 : 0) +
+    (activeEmotionalRegister !== "all" ? 1 : 0);
+
+  const clearFilters = useCallback(() => {
+    setSearch("");
+    setActiveType("all");
+    setActiveStatus("all");
+    setActiveVisibility("all");
+    setActiveStability("all");
+    setActiveEmotionalRegister("all");
+  }, []);
+
+  const filterContent = useMemo(() => (
+    <CanonFilterControls
+      search={search}
+      activeType={activeType}
+      activeStatus={activeStatus}
+      activeVisibility={activeVisibility}
+      activeStability={activeStability}
+      activeEmotionalRegister={activeEmotionalRegister}
+      onSearchChange={setSearch}
+      onTypeChange={setActiveType}
+      onStatusChange={setActiveStatus}
+      onVisibilityChange={setActiveVisibility}
+      onStabilityChange={setActiveStability}
+      onEmotionalRegisterChange={setActiveEmotionalRegister}
+    />
+  ), [activeEmotionalRegister, activeStability, activeStatus, activeType, activeVisibility, search]);
+
+  const pageFilters = useMemo(() => ({
+    label: "Canon filters",
+    activeCount: activeFilterCount,
+    content: filterContent,
+    onClear: clearFilters,
+  }), [activeFilterCount, clearFilters, filterContent]);
+
+  useEditorialPageFilters(pageFilters);
 
   // Quick-start is onboarding only — once any record exists, always show the
   // full library so deleting a record never flips the UI back to the launcher.
@@ -1359,62 +1499,9 @@ export default function CanonLibrary() {
         /* ── Full library ─────────────────────────────────────────────────── */
         <div className="flex flex-col flex-1 overflow-hidden">
           {/* Toolbar */}
-          <div className="px-6 py-3 border-b bg-white flex flex-wrap items-center gap-3 shrink-0" style={{ borderColor: "#F3F4F6" }}>
-            {/* Search */}
-            <div className="relative flex-1 min-w-48 max-w-xs">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="w-full pl-8 pr-8 py-1.5 text-sm border rounded-lg focus:outline-none focus:border-[#C87560]"
-                style={{ borderColor: "#E5E7EB" }}
-                placeholder="Search name, narrative, notes…"
-              />
-              {search && (
-                <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-
-            {/* Active filter indicator */}
-            {(() => {
-              const activeCount =
-                (search.trim() ? 1 : 0) +
-                (activeType !== "all" ? 1 : 0) +
-                (activeStatus !== "all" ? 1 : 0) +
-                (activeVisibility !== "all" ? 1 : 0) +
-                (activeStability !== "all" ? 1 : 0) +
-                (activeEmotionalRegister !== "all" ? 1 : 0);
-              if (activeCount === 0) return null;
-              return (
-                <button
-                  onClick={() => {
-                    setSearch("");
-                    setActiveType("all");
-                    setActiveStatus("all");
-                    setActiveVisibility("all");
-                    setActiveStability("all");
-                    setActiveEmotionalRegister("all");
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all shrink-0"
-                  style={{ background: "#FEF3C7", borderColor: "#F59E0B", color: "#92400E" }}
-                  title="Clear all active filters"
-                >
-                  <span
-                    className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
-                    style={{ background: "#F59E0B", color: "white" }}
-                  >
-                    {activeCount}
-                  </span>
-                  Clear filters
-                  <X className="w-3 h-3 opacity-70" />
-                </button>
-              );
-            })()}
-
+          <div className="px-6 py-3 border-b bg-white flex items-center justify-end gap-3 shrink-0" style={{ borderColor: "#F3F4F6" }}>
             {/* View toggle */}
-            <div className="flex items-center rounded-lg border overflow-hidden shrink-0 ml-auto" style={{ borderColor: "#E5E7EB" }}>
+            <div className="flex items-center rounded-lg border overflow-hidden shrink-0" style={{ borderColor: "#E5E7EB" }}>
               <button
                 onClick={() => setViewMode("cards")}
                 aria-label="Show card view"
@@ -1432,118 +1519,6 @@ export default function CanonLibrary() {
                 <Table2 className="w-3.5 h-3.5" />
               </button>
             </div>
-          </div>
-
-          {/* Type tabs */}
-          <div
-            className="px-6 border-b flex items-center gap-1 overflow-x-auto shrink-0"
-            style={{ borderColor: "#F3F4F6", background: "#FAFAFA" }}
-          >
-            {[{ key: "all", label: "All", color: "#6B7280" }, ...CANON_TYPES].map(t => {
-              const count = t.key === "all" ? total : (byType[t.key] ?? 0);
-              const active = activeType === t.key;
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => setActiveType(t.key)}
-                  className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors"
-                  style={{
-                    borderBottomColor: active ? ("color" in t ? t.color : "#C87560") : "transparent",
-                    color: active ? ("color" in t ? t.color : "#C87560") : "#6B7280",
-                  }}
-                >
-                  {"Icon" in t && <t.Icon className="w-3 h-3" />}
-                  {t.label}
-                  {count > 0 && (
-                    <span
-                      className="rounded-full px-1.5 py-0.5 text-[10px]"
-                      style={{
-                        background: active ? `${"color" in t ? t.color : "#C87560"}18` : "#E5E7EB",
-                        color: active ? ("color" in t ? t.color : "#C87560") : "#9CA3AF",
-                      }}
-                    >
-                      {count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Status chips + Visibility / Stability dropdowns */}
-          <div className="px-6 py-2 border-b flex items-center gap-2 overflow-x-auto shrink-0" style={{ borderColor: "#F3F4F6" }}>
-            {STATUS_OPTIONS.map(s => (
-              <button
-                key={s.key}
-                onClick={() => setActiveStatus(s.key)}
-                className="text-xs font-medium px-2.5 py-1 rounded-full border transition-all whitespace-nowrap"
-                style={
-                  activeStatus === s.key
-                    ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
-                    : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
-                }
-              >
-                {s.label}
-              </button>
-            ))}
-
-            {/* Divider */}
-            <div className="w-px h-4 bg-gray-200 shrink-0 mx-1" />
-
-            {/* Visibility dropdown */}
-            <select
-              value={activeVisibility}
-              onChange={e => setActiveVisibility(e.target.value)}
-              className="text-xs font-medium border rounded-full px-2.5 py-1 focus:outline-none cursor-pointer transition-colors"
-              style={
-                activeVisibility !== "all"
-                  ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
-                  : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
-              }
-            >
-              {VISIBILITY_OPTIONS.map(v => (
-                <option key={v.key} value={v.key}>{v.label}</option>
-              ))}
-            </select>
-
-            {/* Stability dropdown */}
-            <select
-              value={activeStability}
-              onChange={e => setActiveStability(e.target.value)}
-              className="text-xs font-medium border rounded-full px-2.5 py-1 focus:outline-none cursor-pointer transition-colors"
-              style={
-                activeStability !== "all"
-                  ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
-                  : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
-              }
-            >
-              {STABILITY_OPTIONS.map(s => (
-                <option key={s.key} value={s.key}>{s.label}</option>
-              ))}
-            </select>
-
-            {/* Emotional register dropdown */}
-            <select
-              value={activeEmotionalRegister}
-              onChange={e => setActiveEmotionalRegister(e.target.value)}
-              className="text-xs font-medium border rounded-full px-2.5 py-1 focus:outline-none cursor-pointer transition-colors"
-              style={
-                activeEmotionalRegister !== "all"
-                  ? { background: "#1B2A4A", color: "white", borderColor: "#1B2A4A" }
-                  : { color: "#6B7280", borderColor: "#E5E7EB", background: "white" }
-              }
-            >
-              <option value="all">All Registers</option>
-              {REGISTERS.map(r => (
-                <option key={r.key} value={r.key}>{r.key}</option>
-              ))}
-            </select>
-
-            {hasActiveFilter && (
-              <span className="text-xs text-gray-400 ml-1 whitespace-nowrap">
-                {filtered.length} result{filtered.length !== 1 ? "s" : ""}
-              </span>
-            )}
           </div>
 
           {/* Records */}

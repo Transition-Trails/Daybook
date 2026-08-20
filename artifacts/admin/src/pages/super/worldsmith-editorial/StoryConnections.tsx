@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, CircleDot, Loader2, MapPinned, Network, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, CircleDot, Loader2, MapPinned, Sparkles } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
+import { useEditorialPageFilters } from "./EditorialShell";
 
 interface StoryAct {
   id: string;
@@ -59,6 +60,34 @@ const TYPE_COLORS: Record<string, string> = {
   motif: "#B7873B",
 };
 
+function StoryMapFilterControls({
+  stories,
+  selectedStoryId,
+  onStoryChange,
+}: {
+  stories: Story[];
+  selectedStoryId: string | "all";
+  onStoryChange: (storyId: string | "all") => void;
+}) {
+  return (
+    <div>
+      <label htmlFor="story-map-filter-story" className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        Focus storyline
+      </label>
+      <select
+        id="story-map-filter-story"
+        value={selectedStoryId}
+        onChange={event => onStoryChange(event.target.value)}
+        className="w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-gray-700 outline-none focus:border-[#C87560]"
+        style={{ borderColor: "#E5E7EB" }}
+      >
+        <option value="all">All storylines</option>
+        {stories.map(story => <option key={story.id} value={story.id}>{story.title}</option>)}
+      </select>
+    </div>
+  );
+}
+
 function Node({ link, onUnlink }: { link: StoryLink; onUnlink?: () => void }) {
   const color = TYPE_COLORS[link.canonType ?? ""] ?? "#7D8797";
   return (
@@ -111,8 +140,13 @@ export default function StoryConnections() {
   const totalLinks = data?.totalLinks ?? 0;
 
   useEffect(() => {
-    if (selectedStoryId !== "all" && !stories.some(story => story.id === selectedStoryId)) setSelectedStoryId("all");
-  }, [stories, selectedStoryId]);
+    // Keep the current focus while its scoped query is loading. Resetting from
+    // the temporary empty query result made a newly selected storyline snap
+    // back to "all" before its request completed.
+    if (data && selectedStoryId !== "all" && !stories.some(story => story.id === selectedStoryId)) {
+      setSelectedStoryId("all");
+    }
+  }, [data, stories, selectedStoryId]);
 
   const visibleLinks = useMemo(
     () => selectedStoryId === "all" ? links : links.filter(link => link.storyId === selectedStoryId),
@@ -126,6 +160,22 @@ export default function StoryConnections() {
   useEffect(() => {
     setSelectedActId("");
   }, [selectedStoryId]);
+
+  const storyFilterContent = useMemo(() => (
+    <StoryMapFilterControls
+      stories={stories}
+      selectedStoryId={selectedStoryId}
+      onStoryChange={setSelectedStoryId}
+    />
+  ), [selectedStoryId, stories]);
+  const storyPageFilters = useMemo(() => ({
+    label: "Story Map filters",
+    activeCount: selectedStoryId === "all" ? 0 : 1,
+    content: storyFilterContent,
+    onClear: () => setSelectedStoryId("all"),
+  }), [selectedStoryId, storyFilterContent]);
+
+  useEditorialPageFilters(storyPageFilters);
 
   const linkRecord = useMutation({
     mutationFn: (recordId: string) => apiFetch(`/v1/editorial/canon-records/${recordId}/story-links`, {
@@ -191,27 +241,6 @@ export default function StoryConnections() {
           </section>
         ) : (
           <>
-            <section className="rounded-2xl p-4 mb-6 flex flex-wrap items-center gap-3" style={{ background: "white", border: "1px solid #E7E0D7" }}>
-              <Network className="w-4 h-4 shrink-0" style={{ color: "#C87560" }} />
-              <p className="text-xs mr-1" style={{ color: "#667085" }}>Focus on</p>
-              <button
-                onClick={() => setSelectedStoryId("all")}
-                className="rounded-full px-3 py-1.5 text-xs font-semibold"
-                style={selectedStoryId === "all" ? { background: "#1B2A4A", color: "white" } : { background: "#F3F0EA", color: "#475467" }}
-              >
-                All storylines
-              </button>
-              {stories.map(story => (
-                <button
-                  key={story.id}
-                  onClick={() => setSelectedStoryId(story.id)}
-                  className="rounded-full px-3 py-1.5 text-xs font-semibold max-w-[200px] truncate"
-                  style={selectedStoryId === story.id ? { background: "#1B2A4A", color: "white" } : { background: "#F3F0EA", color: "#475467" }}
-                >
-                  {story.title}
-                </button>
-              ))}
-            </section>
             {selectedStory && (
               <section className="rounded-xl px-4 py-3 mb-5 flex flex-wrap items-center gap-3" style={{ background: "#F0E9DF", border: "1px solid #DDD4C4" }}>
                 <p className="text-xs font-semibold" style={{ color: "#1B2A4A" }}>Connect canon to {selectedStory.title}</p>

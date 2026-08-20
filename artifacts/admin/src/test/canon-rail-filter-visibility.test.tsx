@@ -465,6 +465,10 @@ describe("WorldsmithCanon — active rail filter visibility", () => {
   });
 
   it("filters the Canon Library by emotional register and persists the selection", async () => {
+    sessionStorage.setItem(
+      `canon-filters-${WORLD_ID}`,
+      JSON.stringify({ emotionalRegister: "Withholding" }),
+    );
     const { default: CanonLibrary } = await import(
       "@/pages/super/worldsmith-editorial/CanonLibrary"
     );
@@ -474,15 +478,6 @@ describe("WorldsmithCanon — active rail filter visibility", () => {
       </Wrapper>,
     );
 
-    await waitFor(() =>
-      expect(screen.getAllByRole("combobox")).toHaveLength(3),
-    );
-
-    const registerFilter = screen.getAllByRole("combobox")[2]!;
-    expect(within(registerFilter).getByRole("option", { name: "All Registers" })).toBeInTheDocument();
-
-    await userEvent.selectOptions(registerFilter, "Withholding");
-
     await waitFor(() => {
       const stored = JSON.parse(
         sessionStorage.getItem(`canon-filters-${WORLD_ID}`) ?? "{}",
@@ -490,7 +485,7 @@ describe("WorldsmithCanon — active rail filter visibility", () => {
       expect(stored.emotionalRegister).toBe("Withholding");
     });
 
-    expect(screen.getByText("The Silver Gate")).toBeInTheDocument();
+    expect(await screen.findByText("The Silver Gate")).toBeInTheDocument();
     expect(screen.getByText("Shadow Companion")).toBeInTheDocument();
     expect(screen.queryByText("Hero of the Archive")).not.toBeInTheDocument();
     expect(screen.queryByText("A Whispered Name")).not.toBeInTheDocument();

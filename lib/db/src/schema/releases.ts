@@ -2,8 +2,7 @@ import { pgTable, serial, text, boolean, integer, timestamp } from "drizzle-orm/
 
 /**
  * Platform release tracking — one row per semver release.
- * Draft releases have is_published = false and release_date = null.
- * Publishing sets release_date = NOW() and is_published = true (immutable after).
+ * Draft releases move through a GitHub review before becoming published.
  */
 export const releasesTable = pgTable("releases", {
   id:          serial("id").primaryKey(),
@@ -13,6 +12,15 @@ export const releasesTable = pgTable("releases", {
   releaseDate: timestamp("release_date"),             // null until published
   githubSha:   text("github_sha"),                   // branch/ref returned by gitPush
   isPublished: boolean("is_published").notNull().default(false),
+  reviewStatus: text("review_status").notNull().default("draft"),
+  reviewBranch: text("review_branch"),
+  pullRequestUrl: text("pull_request_url"),
+  pullRequestNumber: integer("pull_request_number"),
+  reviewCommitSha: text("review_commit_sha"),
+  reviewAttempt: integer("review_attempt").notNull().default(0),
+  reviewError: text("review_error"),
+  reviewRequestedAt: timestamp("review_requested_at"),
+  mergedAt: timestamp("merged_at"),
   createdAt:   timestamp("created_at").defaultNow().notNull(),
   updatedAt:   timestamp("updated_at").defaultNow().notNull(),
 });

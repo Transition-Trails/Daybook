@@ -2,13 +2,13 @@
  * Releases — Super Admin page.
  *
  * Timeline of all platform releases, grouped by date.
- * Super admins can create draft releases, edit them, and publish
- * (which records the current timestamp and pushes to GitHub).
+ * Super admins can create draft releases, prepare an approved GitHub review,
+ * and record publication only after the pull request is merged.
  */
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Tag, CheckCircle2, Loader2, X, Trash2 } from "lucide-react";
-import { releasesApi, type ReleaseWithNotes } from "@/lib/api";
+import { Plus, Pencil, Tag, CheckCircle2, Loader2, X, Trash2, GitPullRequest, ShieldCheck, AlertTriangle, RefreshCw, ExternalLink } from "lucide-react";
+import { releasesApi, type ReleaseGitHealth, type ReleaseWithNotes } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -57,12 +57,16 @@ function latestVersion(releases: ReleaseWithNotes[]): string {
 function ReleaseCard({
   release,
   onEdit,
-  onPublish,
+  onReview,
+  onConfirmMerge,
 }: {
   release: ReleaseWithNotes;
   onEdit: (r: ReleaseWithNotes) => void;
-  onPublish: (r: ReleaseWithNotes) => void;
+  onReview: (r: ReleaseWithNotes) => void;
+  onConfirmMerge: (r: ReleaseWithNotes) => void;
 }) {
+  const isReviewReady = release.reviewStatus === "review_requested";
+
   return (
     <div
       className="rounded-xl border px-5 py-4 space-y-3"
@@ -101,6 +105,32 @@ function ReleaseCard({
             >
               <CheckCircle2 className="w-3 h-3" /> Published
             </span>
+          ) : isReviewReady ? (
+            <>
+              {release.pullRequestUrl && (
+                <a
+                  href={release.pullRequestUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs font-medium"
+                  style={{ borderColor: BORDER, color: INK }}
+                >
+                  <GitPullRequest className="w-3 h-3" /> Review #{release.pullRequestNumber}
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+              <button
+                onClick={() => onConfirmMerge(release)}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold text-white"
+                style={{ background: INK }}
+              >
+                <RefreshCw className="w-3 h-3" /> Check merge
+              </button>
+            </>
+          ) : release.reviewStatus === "preparing" ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide" style={{ background: "hsl(38 80% 91%)", color: CLAY }}>
+              <Loader2 className="w-3 h-3 animate-spin" /> Preparing review
+            </span>
           ) : (
             <>
               <button
@@ -111,11 +141,12 @@ function ReleaseCard({
                 <Pencil className="w-3 h-3" /> Edit
               </button>
               <button
-                onClick={() => onPublish(release)}
+                onClick={() => onReview(release)}
                 className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold text-white"
                 style={{ background: INK }}
               >
-                Publish
+                <GitPullRequest className="w-3 h-3" />
+                {release.reviewStatus === "failed" ? "Retry review" : "Request review"}
               </button>
             </>
           )}
@@ -133,6 +164,13 @@ function ReleaseCard({
           ))}
         </ul>
       )}
+
+      {release.reviewError && !release.isPublished && (
+        <div className="flex items-start gap-2 rounded-lg px-3 py-2 text-xs" style={{ background: "hsl(0 70% 96%)", color: "hsl(0 55% 40%)" }}>
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>{release.reviewError}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -141,11 +179,13 @@ function ReleaseCard({
 function ReleaseDrawer({
   release,
   suggestedVersion,
+  gitHealth,
   onClose,
   onSaved,
 }: {
   release: ReleaseWithNotes | null;
   suggestedVersion: string;
+  gitHealth?: ReleaseGitHealth;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -161,7 +201,8 @@ function ReleaseDrawer({
   const [notes,  setNotes]  = useState<string[]>(
     release?.notes.map(n => n.note) ?? [""]
   );
-  const [publishing, setPublishing] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [approvalConfirmed, setApprovalConfirmed] = useState(false);
   const [saving,     setSaving]     = useState(false);
   const [deleting,   setDeleting]   = useState(false);
 
@@ -197,19 +238,39 @@ function ReleaseDrawer({
     }
   };
 
-  const handlePublish = async () => {
+  const handleRequestReview = async () => {
     if (!release) return;
-    if (!confirm(`Publish v${release.version}? This will push to GitHub and cannot be undone.`)) return;
-    setPublishing(true);
+    if (!approvalConfirmed) {
+      toast({ title: "Approval required", description: "Confirm the release contents before requesting GitHub review.", variant: "destructive" });
+      return;
+    }
+    setReviewing(true);
     try {
-      await releasesApi.publish(release.id);
+      await releasesApi.requestReview(release.id);
       qc.invalidateQueries({ queryKey: ["releases"] });
-      toast({ title: `v${release.version} published!` });
+      qc.invalidateQueries({ queryKey: ["release-git-health"] });
+      toast({ title: "GitHub review requested" });
       onSaved();
     } catch (e: any) {
-      toast({ title: "Publish failed", description: e.message, variant: "destructive" });
+      qc.invalidateQueries({ queryKey: ["releases"] });
+      toast({ title: "Review request failed", description: e.message, variant: "destructive" });
     } finally {
-      setPublishing(false);
+      setReviewing(false);
+    }
+  };
+
+  const handleConfirmMerge = async () => {
+    if (!release) return;
+    setReviewing(true);
+    try {
+      await releasesApi.confirmMerge(release.id);
+      qc.invalidateQueries({ queryKey: ["releases"] });
+      toast({ title: `v${release.version} is now published` });
+      onSaved();
+    } catch (e: any) {
+      toast({ title: "Merge has not been confirmed", description: e.message, variant: "destructive" });
+    } finally {
+      setReviewing(false);
     }
   };
 
@@ -233,7 +294,10 @@ function ReleaseDrawer({
   const inputStyle = { borderColor: BORDER, background: "white" };
   const labelCls = `${EYEBROW} block mb-1.5`;
 
-  const busy = saving || publishing || deleting;
+  const busy = saving || reviewing || deleting;
+  const hasReviewableDraft = Boolean(release && !release.isPublished && ["draft", "failed"].includes(release.reviewStatus));
+  const canRequestReview = hasReviewableDraft && Boolean(gitHealth?.safeToRequestReview);
+  const canConfirmMerge = Boolean(release && !release.isPublished && release.reviewStatus === "review_requested");
 
   return (
     <div
@@ -341,6 +405,56 @@ function ReleaseDrawer({
               <Plus className="w-3 h-3" /> Add note
             </button>
           </div>
+
+          {release && !release.isPublished && (
+            <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: BORDER, background: "white" }}>
+              <div className="flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0" style={{ color: INK }} />
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: INK }}>GitHub review</p>
+                  <p className="text-xs mt-0.5" style={{ color: MUTED }}>
+                    A review branch will include the current committed work and a versioned changelog entry. It will never push directly to main.
+                  </p>
+                </div>
+              </div>
+
+              {canRequestReview && (
+                <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: INK }}>
+                  <input
+                    type="checkbox"
+                    checked={approvalConfirmed}
+                    onChange={e => setApprovalConfirmed(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>I have reviewed these notes and approve creating a GitHub pull request for v{release.version}.</span>
+                </label>
+              )}
+
+              {hasReviewableDraft && !gitHealth?.safeToRequestReview && (
+                <p className="text-xs rounded-lg px-3 py-2" style={{ background: "hsl(38 80% 94%)", color: MUTED }}>
+                  Review is unavailable until the Git health blockers above are resolved.
+                </p>
+              )}
+
+              {release.reviewStatus === "failed" && release.reviewError && (
+                <p className="text-xs rounded-lg px-3 py-2" style={{ background: "hsl(0 70% 96%)", color: "hsl(0 55% 40%)" }}>
+                  {release.reviewError}
+                </p>
+              )}
+
+              {canConfirmMerge && release.pullRequestUrl && (
+                <a
+                  href={release.pullRequestUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-semibold"
+                  style={{ color: CLAY }}
+                >
+                  Open pull request #{release.pullRequestNumber} <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -356,15 +470,27 @@ function ReleaseDrawer({
               {saving ? "Saving…" : isNew ? "Save draft" : "Save changes"}
             </button>
 
-            {!isNew && !release.isPublished && (
+            {canRequestReview && (
               <button
-                onClick={handlePublish}
+                onClick={handleRequestReview}
+                disabled={busy || !approvalConfirmed}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 flex items-center gap-1.5"
+                style={{ background: CLAY }}
+              >
+                {reviewing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {reviewing ? "Preparing…" : "Request GitHub review"}
+              </button>
+            )}
+
+            {canConfirmMerge && (
+              <button
+                onClick={handleConfirmMerge}
                 disabled={busy}
                 className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 flex items-center gap-1.5"
                 style={{ background: CLAY }}
               >
-                {publishing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                {publishing ? "Publishing…" : "Publish & Push to GitHub"}
+                {reviewing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {reviewing ? "Checking…" : "Confirm merge"}
               </button>
             )}
           </div>
@@ -409,11 +535,16 @@ export default function ReleasesPage() {
   const qc = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ReleaseWithNotes | null>(null);
-  const [publishTarget, setPublishTarget] = useState<ReleaseWithNotes | null>(null);
 
   const { data: releases = [], isLoading } = useQuery<ReleaseWithNotes[]>({
     queryKey: ["releases"],
     queryFn: () => releasesApi.list(),
+  });
+  const { data: gitHealth, isLoading: isGitHealthLoading } = useQuery<ReleaseGitHealth>({
+    queryKey: ["release-git-health"],
+    queryFn: () => releasesApi.gitHealth(),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   });
 
   const latest = latestVersion(releases);
@@ -438,15 +569,13 @@ export default function ReleasesPage() {
     setEditTarget(r);
     setDrawerOpen(true);
   };
-  const openPublish = (r: ReleaseWithNotes) => {
+  const openReview = (r: ReleaseWithNotes) => {
     setEditTarget(r);
-    setPublishTarget(r);
     setDrawerOpen(true);
   };
   const closeDrawer = () => {
     setDrawerOpen(false);
     setEditTarget(null);
-    setPublishTarget(null);
   };
 
   // Suggested next version defaults to minor bump of latest
@@ -471,6 +600,51 @@ export default function ReleasesPage() {
           <Plus className="w-4 h-4" /> New Release
         </button>
       </div>
+
+      <section className="rounded-xl border px-5 py-4" style={{ borderColor: gitHealth?.safeToRequestReview ? "hsl(142 40% 82%)" : BORDER, background: "white" }}>
+        <div className="flex items-start gap-3">
+          {gitHealth?.safeToRequestReview ? (
+            <ShieldCheck className="w-5 h-5 mt-0.5 shrink-0" style={{ color: SAGE }} />
+          ) : (
+            <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" style={{ color: CLAY }} />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className={`${EYEBROW} text-[10px]`} style={{ color: MUTED }}>GitHub release safety</p>
+                <p className="text-sm font-semibold mt-0.5" style={{ color: INK }}>
+                  {isGitHealthLoading ? "Checking repository status…" : gitHealth?.safeToRequestReview ? "Ready to create a review branch" : "Review requests are blocked until Git is safe"}
+                </p>
+              </div>
+              {gitHealth?.branch && (
+                <span className="text-xs font-mono rounded-full px-2.5 py-1" style={{ background: PAPER, color: INK }}>
+                  {gitHealth.branch} · +{gitHealth.ahead} / -{gitHealth.behind}
+                </span>
+              )}
+            </div>
+            {gitHealth?.blockers.length ? (
+              <ul className="mt-3 space-y-1 text-xs" style={{ color: MUTED }}>
+                {gitHealth.blockers.map(blocker => <li key={blocker}>• {blocker}</li>)}
+              </ul>
+            ) : gitHealth && (
+              <p className="text-xs mt-2" style={{ color: MUTED }}>
+                {gitHealth.ahead > 0
+                  ? `${gitHealth.ahead} local commit${gitHealth.ahead === 1 ? "" : "s"} will be included in the review branch.`
+                  : "The review branch will contain the release changelog commit."}
+              </p>
+            )}
+            {gitHealth?.recentCommits.length ? (
+              <div className="mt-3 grid gap-1">
+                {gitHealth.recentCommits.slice(0, 3).map(commit => (
+                  <p key={commit.sha} className="text-[11px] truncate" style={{ color: MUTED }}>
+                    <span className="font-mono">{commit.sha}</span> · {commit.subject}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
 
       {/* Timeline */}
       {isLoading ? (
@@ -507,7 +681,8 @@ export default function ReleasesPage() {
                     key={r.id}
                     release={r}
                     onEdit={openEdit}
-                    onPublish={openPublish}
+                    onReview={openReview}
+                    onConfirmMerge={openReview}
                   />
                 ))}
               </div>
@@ -521,6 +696,7 @@ export default function ReleasesPage() {
         <ReleaseDrawer
           release={editTarget}
           suggestedVersion={suggestedVersion}
+          gitHealth={gitHealth}
           onClose={closeDrawer}
           onSaved={closeDrawer}
         />

@@ -1915,9 +1915,35 @@ export interface ReleaseWithNotes {
   releaseDate: string | null;
   githubSha: string | null;
   isPublished: boolean;
+  reviewStatus: "draft" | "preparing" | "review_requested" | "failed" | "merged";
+  reviewBranch: string | null;
+  pullRequestUrl: string | null;
+  pullRequestNumber: number | null;
+  reviewCommitSha: string | null;
+  reviewAttempt: number;
+  reviewError: string | null;
+  reviewRequestedAt: string | null;
+  mergedAt: string | null;
   createdAt: string;
   updatedAt: string;
   notes: ReleaseNote[];
+}
+
+export interface ReleaseGitHealth {
+  safeToRequestReview: boolean;
+  branch: string | null;
+  head: string | null;
+  origin: string | null;
+  ahead: number;
+  behind: number;
+  dirtyFiles: string[];
+  conflicts: string[];
+  isDetached: boolean;
+  isRebasing: boolean;
+  remoteSyncVerified: boolean;
+  githubConfigured: boolean;
+  blockers: string[];
+  recentCommits: Array<{ sha: string; subject: string }>;
 }
 
 export const releasesApi = {
@@ -1949,8 +1975,19 @@ export const releasesApi = {
   delete: (id: number) =>
     apiFetch<{ ok: boolean }>(`/platform/releases/${id}`, { method: "DELETE" }),
 
-  publish: (id: number) =>
-    apiFetch<ReleaseWithNotes>(`/platform/releases/${id}/publish`, { method: "POST" }),
+  gitHealth: () =>
+    apiFetch<ReleaseGitHealth>("/platform/releases/git-health"),
+
+  requestReview: (id: number) =>
+    apiFetch<ReleaseWithNotes>(`/platform/releases/${id}/request-review`, {
+      method: "POST",
+      body: JSON.stringify({ approved: true }),
+    }),
+
+  confirmMerge: (id: number) =>
+    apiFetch<ReleaseWithNotes>(`/platform/releases/${id}/confirm-merge`, {
+      method: "POST",
+    }),
 };
 
 // ── House store constant (mirrors api-server) ─────────────────────────────────

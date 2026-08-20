@@ -74,6 +74,7 @@ import SuperAudit from "@/pages/super/AuditLog";
 import SuperRecipes from "@/pages/super/ProductRecipes";
 import NewRecipe from "@/pages/super/NewRecipe";
 import SuperSupportInbox from "@/pages/super/SupportInbox";
+import ReleasesPage from "@/pages/super/Releases";
 import StoreSupportInbox from "@/pages/store/SupportInbox";
 const ShopSupportPage = lazy(() => import("@/pages/shop/SupportPage"));
 
@@ -182,6 +183,15 @@ function RootRouter() {
           <SuperAdminShell>
             <SuperDashboard />
           </SuperAdminShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/releases">
+        <RequireSuperAdmin state={state}>
+          <SidebarProvider>
+            <Shell>
+              <ReleasesPage />
+            </Shell>
+          </SidebarProvider>
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/stores">

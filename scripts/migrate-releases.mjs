@@ -30,6 +30,15 @@ async function run() {
         release_date  TIMESTAMPTZ,
         github_sha    TEXT,
         is_published  BOOLEAN NOT NULL DEFAULT FALSE,
+        review_status TEXT NOT NULL DEFAULT 'draft',
+        review_branch TEXT,
+        pull_request_url TEXT,
+        pull_request_number INTEGER,
+        review_commit_sha TEXT,
+        review_attempt INTEGER NOT NULL DEFAULT 0,
+        review_error TEXT,
+        review_requested_at TIMESTAMPTZ,
+        merged_at TIMESTAMPTZ,
         created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );

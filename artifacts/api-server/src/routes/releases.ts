@@ -5,14 +5,18 @@
  * POST   /platform/releases            — create a draft release
  * PUT    /platform/releases/:id        — update draft (title/version/type/notes)
  * DELETE /platform/releases/:id        — delete draft (published releases are protected)
- * POST   /platform/releases/:id/publish — publish: stamp date, git push, mark published
+ * GET    /platform/releases/git-health  — report whether Git is safe for review
+ * POST   /platform/releases/:id/request-review — create guarded review branch + GitHub PR
+ * POST   /platform/releases/:id/confirm-merge  — mark a merged PR as published
  */
 
 import { Router, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { releasesTable, releaseNotesTable } from "@workspace/db";
-import { eq, desc, asc, inArray } from "drizzle-orm";
+import { and, eq, desc, asc, inArray } from "drizzle-orm";
 import { requireSuperAdmin } from "../middleware/requireRole";
+import { ReleaseGitError, ReleaseGitService, type ReleaseNoteInput } from "../lib/release-git";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -41,7 +45,39 @@ function isValidSemver(v: string): boolean {
   return /^\d+\.\d+\.\d+$/.test(v.trim());
 }
 
+function releaseForGitHub(
+  release: { id: number; version: string; versionType: string; title: string },
+  notes: Array<{ note: string }>,
+): ReleaseNoteInput {
+  return {
+    id: release.id,
+    version: release.version,
+    versionType: release.versionType,
+    title: release.title,
+    notes,
+  };
+}
+
+function releaseErrorMessage(error: unknown): string {
+  if (error instanceof ReleaseGitError) return error.message;
+  return "Could not prepare the GitHub review. Please retry after checking the Git health panel.";
+}
+
 // ── GET /platform/releases ───────────────────────────────────────────────────
+
+router.get(
+  "/platform/releases/git-health",
+  requireSuperAdmin,
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const health = await new ReleaseGitService().getHealth();
+      res.json(health);
+    } catch (error) {
+      logger.warn({ err: error }, "release Git health check failed");
+      res.status(503).json({ error: "Git health could not be read right now." });
+    }
+  },
+);
 
 router.get(
   "/platform/releases",
@@ -156,8 +192,8 @@ router.put(
       .from(releasesTable)
       .where(eq(releasesTable.id, id));
     if (!existing) { res.status(404).json({ error: "Release not found" }); return; }
-    if (existing.isPublished) {
-      res.status(409).json({ error: "Published releases are immutable" });
+    if (existing.isPublished || existing.reviewStatus !== "draft") {
+      res.status(409).json({ error: "Release content is immutable once GitHub review preparation starts." });
       return;
     }
 
@@ -190,32 +226,43 @@ router.put(
       return;
     }
 
-    await db
-      .update(releasesTable)
-      .set({
-        ...(body.version     ? { version:     body.version.trim() }     : {}),
-        ...(body.versionType ? { versionType: body.versionType }         : {}),
-        ...(body.title       ? { title:       body.title.trim() }        : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(releasesTable.id, id));
+    const didUpdate = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(releasesTable)
+        .set({
+          ...(body.version     ? { version:     body.version.trim() }     : {}),
+          ...(body.versionType ? { versionType: body.versionType }         : {}),
+          ...(body.title       ? { title:       body.title.trim() }        : {}),
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(releasesTable.id, id),
+          eq(releasesTable.reviewStatus, "draft"),
+        ))
+        .returning({ id: releasesTable.id });
+      if (!updated) return false;
 
-    // Replace notes if provided
-    if (Array.isArray(body.notes)) {
-      await db
-        .delete(releaseNotesTable)
-        .where(eq(releaseNotesTable.releaseId, id));
+      if (Array.isArray(body.notes)) {
+        await tx
+          .delete(releaseNotesTable)
+          .where(eq(releaseNotesTable.releaseId, id));
 
-      const noteTexts = body.notes.filter(n => n?.trim());
-      if (noteTexts.length) {
-        await db.insert(releaseNotesTable).values(
-          noteTexts.map((note, i) => ({
-            releaseId: id,
-            sortOrder: i,
-            note:      note.trim(),
-          })),
-        );
+        const noteTexts = body.notes.filter(n => n?.trim());
+        if (noteTexts.length) {
+          await tx.insert(releaseNotesTable).values(
+            noteTexts.map((note, i) => ({
+              releaseId: id,
+              sortOrder: i,
+              note:      note.trim(),
+            })),
+          );
+        }
       }
+      return true;
+    });
+    if (!didUpdate) {
+      res.status(409).json({ error: "Release content is immutable once GitHub review preparation starts." });
+      return;
     }
 
     const result = await getReleaseWithNotes(id);
@@ -236,23 +283,37 @@ router.delete(
       .from(releasesTable)
       .where(eq(releasesTable.id, id));
     if (!existing) { res.status(404).json({ error: "Release not found" }); return; }
-    if (existing.isPublished) {
-      res.status(409).json({ error: "Published releases cannot be deleted" });
+    if (existing.isPublished || existing.reviewStatus !== "draft") {
+      res.status(409).json({ error: "A release cannot be deleted once GitHub review preparation starts." });
       return;
     }
 
-    await db.delete(releasesTable).where(eq(releasesTable.id, id));
+    const [deleted] = await db
+      .delete(releasesTable)
+      .where(and(
+        eq(releasesTable.id, id),
+        eq(releasesTable.reviewStatus, "draft"),
+      ))
+      .returning({ id: releasesTable.id });
+    if (!deleted) {
+      res.status(409).json({ error: "A release cannot be deleted once GitHub review preparation starts." });
+      return;
+    }
     res.json({ ok: true });
   },
 );
 
-// ── POST /platform/releases/:id/publish ──────────────────────────────────────
+// ── POST /platform/releases/:id/request-review ───────────────────────────────
 
 router.post(
-  "/platform/releases/:id/publish",
+  "/platform/releases/:id/request-review",
   requireSuperAdmin,
   async (req: Request, res: Response): Promise<void> => {
     const id = Number(req.params.id);
+    if (req.body?.approved !== true) {
+      res.status(400).json({ error: "Explicit approval is required before a GitHub review can be created." });
+      return;
+    }
 
     const [existing] = await db
       .select()
@@ -260,37 +321,192 @@ router.post(
       .where(eq(releasesTable.id, id));
     if (!existing) { res.status(404).json({ error: "Release not found" }); return; }
     if (existing.isPublished) {
-      res.status(409).json({ error: "Release is already published" });
+      res.status(409).json({ error: "This release is already published." });
+      return;
+    }
+    if (existing.reviewStatus === "review_requested") {
+      const result = await getReleaseWithNotes(id);
+      res.json(result);
+      return;
+    }
+    if (existing.reviewStatus === "preparing") {
+      res.status(409).json({ error: "A GitHub review is already being prepared for this release." });
       return;
     }
 
-    // Git push via Replit git-remote callback
-    let githubSha: string | null = null;
+    const gitService = new ReleaseGitService();
+    const health = await gitService.getHealth();
+    if (!health.safeToRequestReview) {
+      res.status(409).json({
+        error: health.blockers[0] ?? "Git is not ready for a review request.",
+        blockers: health.blockers,
+      });
+      return;
+    }
+    const attempt = existing.reviewStatus === "failed" && existing.reviewBranch
+      ? existing.reviewAttempt
+      : existing.reviewAttempt + 1;
+    const reviewBranch = existing.reviewBranch ?? `release/v${existing.version}-r${existing.id}-a${attempt}`;
+    const [transitioned] = await db
+      .update(releasesTable)
+      .set({
+        reviewStatus: "preparing",
+        reviewAttempt: attempt,
+        reviewBranch,
+        reviewError: null,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(releasesTable.id, id),
+        inArray(releasesTable.reviewStatus, ["draft", "failed"]),
+      ))
+      .returning();
+    if (!transitioned) {
+      res.status(409).json({ error: "This release changed while review was being prepared. Refresh and retry." });
+      return;
+    }
+    const notes = await db
+      .select()
+      .from(releaseNotesTable)
+      .where(eq(releaseNotesTable.releaseId, id))
+      .orderBy(asc(releaseNotesTable.sortOrder));
+
     try {
-      // gitPush is available as a CodeExecution callback; at runtime in Express we
-      // call it via the child_process git CLI (same as the skill does under the hood).
-      const { execSync } = await import("child_process");
-      const sha = execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
-      execSync("git push origin HEAD", { encoding: "utf8", stdio: "pipe" });
-      githubSha = sha;
-    } catch (pushErr) {
-      // Non-fatal — record the error in sha so it's visible, but still publish.
-      githubSha = `push-failed: ${(pushErr as Error).message.slice(0, 120)}`;
+      const prepared = await gitService.prepareReview(
+        releaseForGitHub(transitioned, notes),
+        attempt,
+      );
+      const [saved] = await db
+        .update(releasesTable)
+        .set({
+          reviewStatus: "review_requested",
+          reviewBranch: prepared.branch,
+          pullRequestUrl: prepared.pullRequest.url,
+          pullRequestNumber: prepared.pullRequest.number,
+          reviewCommitSha: prepared.commitSha,
+          reviewRequestedAt: new Date(),
+          reviewError: null,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(releasesTable.id, id),
+          eq(releasesTable.reviewStatus, "preparing"),
+          eq(releasesTable.reviewAttempt, attempt),
+        ))
+        .returning();
+      if (!saved) {
+        throw new ReleaseGitError("The GitHub review was created, but this release changed before it could be recorded. Refresh before retrying.", 409);
+      }
+      const result = await getReleaseWithNotes(id);
+      res.json(result);
+    } catch (error) {
+      const message = releaseErrorMessage(error);
+      const closedReview = error instanceof ReleaseGitError && error.code === "CLOSED_REVIEW";
+      logger.warn({ releaseId: id, message }, "release GitHub review preparation failed");
+      await db
+        .update(releasesTable)
+        .set({
+          reviewStatus: closedReview ? "draft" : "failed",
+          ...(closedReview ? {
+            reviewBranch: null,
+            pullRequestUrl: null,
+            pullRequestNumber: null,
+            reviewCommitSha: null,
+            reviewRequestedAt: null,
+          } : {}),
+          reviewError: message,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(releasesTable.id, id),
+          eq(releasesTable.reviewStatus, "preparing"),
+          eq(releasesTable.reviewAttempt, attempt),
+        ));
+      res.status(error instanceof ReleaseGitError ? error.statusCode : 502).json({ error: message });
+    }
+  },
+);
+
+// ── POST /platform/releases/:id/confirm-merge ────────────────────────────────
+
+router.post(
+  "/platform/releases/:id/confirm-merge",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = Number(req.params.id);
+    const [existing] = await db
+      .select()
+      .from(releasesTable)
+      .where(eq(releasesTable.id, id));
+    if (!existing) { res.status(404).json({ error: "Release not found" }); return; }
+    if (existing.isPublished) {
+      const result = await getReleaseWithNotes(id);
+      res.json(result);
+      return;
+    }
+    if (
+      existing.reviewStatus !== "review_requested"
+      || !existing.reviewBranch
+      || !existing.pullRequestNumber
+    ) {
+      res.status(409).json({ error: "Request GitHub review before confirming a merge." });
+      return;
     }
 
-    const [updated] = await db
+    try {
+      const pullRequest = await new ReleaseGitService().getPullRequest(
+        existing.reviewBranch,
+        existing.pullRequestNumber,
+      );
+      if (!pullRequest.merged) {
+        res.status(409).json({
+          error: "The GitHub pull request has not been merged yet.",
+          pullRequestUrl: pullRequest.url,
+        });
+        return;
+      }
+      if (
+        pullRequest.headRef !== existing.reviewBranch
+        || pullRequest.baseRef !== "main"
+        || (existing.reviewCommitSha && pullRequest.headSha !== existing.reviewCommitSha)
+      ) {
+        res.status(409).json({
+          error: "The merged pull request no longer matches this release’s approved review branch and commit.",
+          pullRequestUrl: pullRequest.url,
+        });
+        return;
+      }
+
+      await db
       .update(releasesTable)
       .set({
         isPublished: true,
         releaseDate: new Date(),
-        githubSha,
-        updatedAt:  new Date(),
+        githubSha: pullRequest.mergeSha,
+        reviewStatus: "merged",
+        mergedAt: new Date(),
+        reviewError: null,
+        updatedAt: new Date(),
       })
       .where(eq(releasesTable.id, id))
-      .returning();
+      const result = await getReleaseWithNotes(id);
+      res.json(result);
+    } catch (error) {
+      const message = releaseErrorMessage(error);
+      logger.warn({ releaseId: id, message }, "release GitHub merge confirmation failed");
+      res.status(error instanceof ReleaseGitError ? error.statusCode : 502).json({ error: message });
+    }
+  },
+);
 
-    const result = await getReleaseWithNotes(updated.id);
-    res.json(result);
+// Kept as a clear, non-mutating migration path for older clients.
+router.post(
+  "/platform/releases/:id/publish",
+  requireSuperAdmin,
+  async (_req: Request, res: Response): Promise<void> => {
+    res.status(410).json({
+      error: "Direct publishing is disabled. Request GitHub review, merge the pull request, then confirm the merge.",
+    });
   },
 );
 

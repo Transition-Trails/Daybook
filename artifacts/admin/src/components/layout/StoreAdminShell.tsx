@@ -116,6 +116,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     { label: "Shop catalog",    icon: ShoppingBag,     href: `${base}/catalog` },
     { label: "Planner builds",  icon: BookCopy,        href: `${base}/builds` },
     { label: "My content",      icon: LibraryBig,      href: `${base}/my-content` },
+    { label: "Palette library", icon: Palette,         href: `${base}/my-content?focus=palettes` },
     { label: "Sticker library", icon: Sticker,         href: `${base}/stickers` },
     { label: "Widgets",         icon: Shapes,          href: `${base}/widgets` },
     { label: "Customers",       icon: Users,           href: `${base}/customers` },
@@ -139,8 +140,16 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     { label: "Store Profile & Voice", icon: UserCircle2, href: `${base}/settings/profile` },
   ];
 
-  const isActive = (href: string) =>
-    href === base ? location === base : location.startsWith(href);
+  const isActive = (href: string) => {
+    const [targetPath, targetQuery] = href.split("?");
+    const currentPath = location.split("?")[0];
+    if (targetQuery) return location === href || location.startsWith(`${href}&`);
+    // Keep the focused Palette Library destination distinct from its parent.
+    if (currentPath === `${base}/my-content` && location.includes("focus=palettes")) {
+      return false;
+    }
+    return href === base ? currentPath === base : currentPath.startsWith(targetPath);
+  };
 
   const handleLogout = () => {
     logout.mutate(undefined, {

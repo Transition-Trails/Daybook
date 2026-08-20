@@ -47,6 +47,11 @@ import {
   productRecipesTable,
   palettesTable,
   backgroundsTable,
+  worldsmithWorldsTable,
+  wsCanonRecordsTable,
+  wsStyleGuidesTable,
+  wsPromptModulesTable,
+  wsProductionSpecsTable,
 } from "@workspace/db";
 
 // ── Deterministic IDs (never change — tests reference them by name) ───────────
@@ -74,6 +79,12 @@ export const CI_IDS = {
   badEdition:    "ci_bad_edition",
   badRecipe:     "ci_bad_recipe",
   badPlannerCfg: "ci_bad_planner_cfg",
+  // WorldSmith Editorial Studio browser fixtures
+  editorialWorld:        "ci_editorial_world",
+  editorialCanonRecord:  "ci_editorial_canon_record",
+  editorialStyleGuide:   "ci_editorial_style_guide",
+  editorialPromptModule: "ci_editorial_prompt_module",
+  editorialSpec:         "ci_editorial_spec",
 } as const;
 
 // ── Ghost drive-file ID used by the bad edition ───────────────────────────────
@@ -116,6 +127,91 @@ async function main() {
     ])
     .onConflictDoNothing();
   console.log("  ✓ memberships");
+
+  // ── WorldSmith Editorial Studio fixtures ────────────────────────────────────
+  // These records support authenticated browser coverage without touching the
+  // real Wychcombe editorial data. The rich-text test restores its temporary
+  // Style Guide edit before it finishes.
+  await db
+    .insert(worldsmithWorldsTable)
+    .values({
+      id: CI_IDS.editorialWorld,
+      name: "CI Editorial World",
+      code: "CIE",
+      description: "Deterministic WorldSmith fixtures for authenticated Editorial Studio tests.",
+      status: "active",
+      owner: "CI",
+      visualPalette: "<p>Ink blue and clay red.</p>",
+      proseVoice: "<p><em>Measured editorial prose.</em></p>",
+      atmosphericNotes: "<p>Quiet workshop light.</p>",
+      materialWorld: "<p>Laid paper and brass.</p>",
+      worldRules: ["Keep all test content explicitly labelled as CI data."],
+      createdBy: CI_IDS.superAdmin,
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(wsCanonRecordsTable)
+    .values({
+      id: CI_IDS.editorialCanonRecord,
+      worldId: CI_IDS.editorialWorld,
+      name: "CI Editorial Canon Record",
+      status: "accepted",
+      canonType: "lore",
+      narrativeDetails: "<p><strong>CI narrative.</strong> A controlled prose fixture.</p>",
+      historicalContext: "<p>Created only for browser verification.</p>",
+      visualNotes: "<p>Ink, brass, and laid paper.</p>",
+      notes: "<p>Safe to inspect; not for production use.</p>",
+      createdBy: CI_IDS.superAdmin,
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(wsStyleGuidesTable)
+    .values({
+      id: CI_IDS.editorialStyleGuide,
+      worldId: CI_IDS.editorialWorld,
+      name: "CI Editorial Style Guide",
+      content: "<p>Original CI style guidance.</p>",
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(wsPromptModulesTable)
+    .values({
+      id: CI_IDS.editorialPromptModule,
+      worldId: CI_IDS.editorialWorld,
+      name: "CI Editorial Prompt Module",
+      content: "<p>Original CI prompt module.</p>",
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(wsProductionSpecsTable)
+    .values({
+      id: CI_IDS.editorialSpec,
+      worldId: CI_IDS.editorialWorld,
+      productionItem: "CI Editorial Production Spec",
+      specId: "CIE-HRP-001",
+      componentType: "Hero Paper",
+      designIntent: "<p>Controlled <strong>creative direction</strong>.</p>",
+      narrativePurpose: "<p>Confirm the rich-text surface is stable.</p>",
+      requiredContent: "<p>Use CI-only text.</p>",
+      reviewCriteria: "<p>Formatting survives save and reload.</p>",
+      orientation: "portrait",
+      frontBackStyle: "single-sided",
+      canonDependency: "Canon Reference",
+      canonRecordIds: [CI_IDS.editorialCanonRecord],
+      payloadVersion: "PP-2.0",
+      promptPayload: "shared_prompt: Controlled CI editorial prompt for browser verification.",
+      styleGuideId: CI_IDS.editorialStyleGuide,
+      promptModuleIds: [CI_IDS.editorialPromptModule],
+      status: "canon_clear",
+      readinessScore: 100,
+      createdBy: CI_IDS.superAdmin,
+    })
+    .onConflictDoNothing();
+  console.log("  ✓ WorldSmith Editorial Studio fixtures");
 
   // ── Store flags (storeFlagsTable uses boolean columns, one row per store) ──
   // storeA: ai studios + marketing enabled

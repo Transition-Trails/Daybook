@@ -49,3 +49,4 @@
 - [WorldSmith Story schema](worldsmith-story-schema.md) — 5 new tables: ws_stories, ws_story_acts, ws_encounters, ws_journal_prompts, ws_canon_record_story_links; migration via migrate-worldsmith-stories script
 - [WorldSmith Synthesis canon UI](worldsmith-synthesis-ui.md) — WorldsmithCanon.tsx replaced with Synthesis design: name+prose+3-tab center, name-only left rail, right panel with Objects/Story Arc/Canon Gaps/Record Details accordion; all existing mutations preserved
 - [WorldSmith Stories + Bible tabs](worldsmith-stories-bible-tabs.md) — WorldSmithHome FocusedWorldView now has Stories + World Bible tabs; StoriesSection fetches ws_stories; WorldBibleSection edits prose-first Bible fields
+- [Editorial browser verification](editorial-browser-verification.md) — use the test-only CI super-admin with a local Playwright server; browser-agent sandboxes cannot reach ephemeral shell ports

@@ -168,8 +168,8 @@ test.describe("UI: no developer references in buyer/seller-facing pages", () => 
     { pattern: /plannerConfigsTable|stickerPacksTable|editionsTable/, description: "table variable name" },
   ];
 
-  for (const { path, persona } of USER_PAGES) {
-    test(`no developer references on ${path}`, async ({ [persona]: page }) => {
+  for (const { path } of USER_PAGES) {
+    test(`no developer references on ${path}`, async ({ asOwnerA: page }) => {
       await page.goto(path);
       await page.waitForLoadState("networkidle");
 

@@ -46,6 +46,7 @@ import {
 } from "../lib/worldsmith/payload-generator";
 import { resolveInheritanceChain, InheritanceError } from "../lib/worldsmith/inheritance-resolver";
 import { normalizeNotionId as normalizeId } from "../lib/worldsmith/normalize-id";
+import { sanitizeWorldBibleRichText, worldBibleRichTextToPlainText } from "../lib/worldsmith/world-bible-rich-text";
 
 const router = Router();
 
@@ -925,10 +926,10 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
       if (world) {
         worldBibleLines = [
           `World: ${world.name}${world.description ? ` — ${world.description.slice(0, 1200)}` : ""}`,
-          `Visual Palette: ${world.visualPalette?.trim().slice(0, 700) || "(not set)"}`,
-          `Prose Voice: ${world.proseVoice?.trim().slice(0, 700) || "(not set)"}`,
-          `Atmospheric Notes: ${world.atmosphericNotes?.trim().slice(0, 700) || "(not set)"}`,
-          `Material World: ${world.materialWorld?.trim().slice(0, 700) || "(not set)"}`,
+          `Visual Palette: ${worldBibleRichTextToPlainText(world.visualPalette).slice(0, 700) || "(not set)"}`,
+          `Prose Voice: ${worldBibleRichTextToPlainText(world.proseVoice).slice(0, 700) || "(not set)"}`,
+          `Atmospheric Notes: ${worldBibleRichTextToPlainText(world.atmosphericNotes).slice(0, 700) || "(not set)"}`,
+          `Material World: ${worldBibleRichTextToPlainText(world.materialWorld).slice(0, 700) || "(not set)"}`,
           Array.isArray(world.worldRules) && world.worldRules.length > 0
             ? `World Rules:\n${(world.worldRules as unknown[]).filter((rule): rule is string => typeof rule === "string").slice(0, 10).map(rule => `  - ${rule.trim().slice(0, 400)}`).join("\n")}`
             : "",
@@ -1014,10 +1015,10 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
 
       const bibleLines: string[] = [];
       if (worldBible?.description)      bibleLines.push(`Description: ${worldBible.description.slice(0, 800)}`);
-      if (worldBible?.visualPalette)    bibleLines.push(`Visual Palette: ${worldBible.visualPalette.slice(0, 400)}`);
-      if (worldBible?.proseVoice)       bibleLines.push(`Prose Voice: ${worldBible.proseVoice.slice(0, 400)}`);
-      if (worldBible?.atmosphericNotes) bibleLines.push(`Atmospheric Notes: ${worldBible.atmosphericNotes.slice(0, 400)}`);
-      if (worldBible?.materialWorld)    bibleLines.push(`Material World: ${worldBible.materialWorld.slice(0, 400)}`);
+      if (worldBible?.visualPalette)    bibleLines.push(`Visual Palette: ${worldBibleRichTextToPlainText(worldBible.visualPalette).slice(0, 400)}`);
+      if (worldBible?.proseVoice)       bibleLines.push(`Prose Voice: ${worldBibleRichTextToPlainText(worldBible.proseVoice).slice(0, 400)}`);
+      if (worldBible?.atmosphericNotes) bibleLines.push(`Atmospheric Notes: ${worldBibleRichTextToPlainText(worldBible.atmosphericNotes).slice(0, 400)}`);
+      if (worldBible?.materialWorld)    bibleLines.push(`Material World: ${worldBibleRichTextToPlainText(worldBible.materialWorld).slice(0, 400)}`);
       if (worldBible?.worldRules?.length) {
         bibleLines.push(`World Rules:\n${worldBible.worldRules.slice(0, 10).map(r => `  - ${r}`).join("\n")}`);
       }
@@ -1376,7 +1377,7 @@ router.post("/v1/worldsmith/worlds/:id/bible-copilot", requireAuth, requireSuper
     // reflect what's currently on screen. Bounded to keep the prompt sane.
     const pick = (key: "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld"): string => {
       const d = draft && typeof draft[key] === "string" ? (draft[key] as string) : undefined;
-      const v = (d !== undefined ? d : (world[key] as string | null) ?? "").trim();
+      const v = worldBibleRichTextToPlainText(d !== undefined ? d : (world[key] as string | null) ?? "");
       return v ? v.slice(0, 4000) : "(not yet written)";
     };
 
@@ -1481,31 +1482,35 @@ router.patch("/v1/worldsmith/worlds/:id", requireAuth, requireSuperAdmin, async 
 
   // Build a patch object with only the keys the caller supplied
   const patch: Record<string, unknown> = {};
-  const addNullableText = (requestKey: string, dbKey: string) => {
+  const addNullableText = (requestKey: string, dbKey: string, richText = false) => {
     if (!(requestKey in body)) return true;
     const value = body[requestKey as keyof typeof body];
     if (value !== null && typeof value !== "string") {
       res.status(400).json({ error: `${requestKey} must be a string or null`, code: "INVALID_FIELD" });
       return false;
     }
-    patch[dbKey] = typeof value === "string" ? value.trim() || null : null;
+    const normalized = typeof value === "string"
+      ? (richText ? sanitizeWorldBibleRichText(value) : value.trim())
+      : null;
+    patch[dbKey] = normalized || null;
     return true;
   };
 
-  for (const [requestKey, dbKey] of [
+  const nullableTextFields: Array<[string, string, boolean?]> = [
     ["notionProductionDbId", "notionProductionDbId"],
     ["notionCanonDbId", "notionCanonDbId"],
     ["driveFolderId", "driveFolderId"],
     ["imageProvider", "imageProvider"],
     ["currentCollection", "currentCollection"],
     ["currentVolume", "currentVolume"],
-    ["visualPalette", "visualPalette"],
-    ["proseVoice", "proseVoice"],
-    ["atmosphericNotes", "atmosphericNotes"],
-    ["materialWorld", "materialWorld"],
+    ["visualPalette", "visualPalette", true],
+    ["proseVoice", "proseVoice", true],
+    ["atmosphericNotes", "atmosphericNotes", true],
+    ["materialWorld", "materialWorld", true],
     ["coverImageUrl", "coverImageUrl"],
-  ] as const) {
-    if (!addNullableText(requestKey, dbKey)) return;
+  ];
+  for (const [requestKey, dbKey, richText] of nullableTextFields) {
+    if (!addNullableText(requestKey, dbKey, richText)) return;
   }
 
   if ("status" in body) {

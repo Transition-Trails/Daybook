@@ -24,7 +24,7 @@ export default function WorldBibleStudio() {
         <span className="text-[11px] font-semibold" style={{ color: "#1B2A4A" }}>World Bible</span>
       </header>
 
-      <div className="max-w-5xl mx-auto px-8 py-8">
+      <div className="w-full px-8 py-8">
         <div className="flex items-start justify-between gap-5 mb-7">
           <div>
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] font-bold" style={{ color: "#C87560" }}>

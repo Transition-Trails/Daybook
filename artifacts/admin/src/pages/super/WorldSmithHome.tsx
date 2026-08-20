@@ -10,8 +10,11 @@ import {
   Sparkles, Plus, LayoutGrid, List, Search, X, ChevronLeft,
   ArrowRight, BookOpen, Loader2, CheckCircle2, XCircle,
   AlertCircle, ExternalLink, Clock, Wrench, Pencil, Save, ImageUp, Trash2,
+  ChevronDown, Bold, Italic, Underline, List as ListIcon, ListOrdered,
+  Quote, RemoveFormatting,
 } from "lucide-react";
 import { apiFetch, storageApi } from "@/lib/api";
+import { bibleRichTextToPlainText, sanitizeBibleRichText } from "@/lib/world-bible-rich-text";
 import { useToast } from "@/hooks/use-toast";
 import { CopilotPanel } from "@/components/CopilotPanel";
 
@@ -915,25 +918,25 @@ function OverviewSection({
             {world.visualPalette && (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Visual Palette</p>
-                <p className="text-[13px] text-foreground leading-relaxed">{world.visualPalette}</p>
+                <BibleRichTextPreview value={world.visualPalette} />
               </div>
             )}
             {world.proseVoice && (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Prose Voice</p>
-                <p className="text-[13px] text-foreground leading-relaxed">{world.proseVoice}</p>
+                <BibleRichTextPreview value={world.proseVoice} />
               </div>
             )}
             {world.atmosphericNotes && (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Atmospheric Notes</p>
-                <p className="text-[13px] text-foreground leading-relaxed">{world.atmosphericNotes}</p>
+                <BibleRichTextPreview value={world.atmosphericNotes} />
               </div>
             )}
             {world.materialWorld && (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Material World</p>
-                <p className="text-[13px] text-foreground leading-relaxed">{world.materialWorld}</p>
+                <BibleRichTextPreview value={world.materialWorld} />
               </div>
             )}
             {world.worldRules && world.worldRules.length > 0 && (
@@ -1377,6 +1380,161 @@ const BIBLE_FIELD_LABELS: Record<BibleTextField, string> = {
   materialWorld: "Material World",
 };
 
+function editorValueToHtml(value: string): string {
+  return sanitizeBibleRichText(value);
+}
+
+function RichTextToolbar({
+  editorRef,
+  onChange,
+}: {
+  editorRef: React.RefObject<HTMLDivElement | null>;
+  onChange: (value: string) => void;
+}) {
+  const run = (command: string, value?: string) => {
+    editorRef.current?.focus();
+    document.execCommand(command, false, value);
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  };
+
+  const button = (
+    label: string,
+    icon: React.ReactNode,
+    command: string,
+    value?: string,
+  ) => (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onMouseDown={event => {
+        event.preventDefault();
+        run(command, value);
+      }}
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+    >
+      {icon}
+    </button>
+  );
+
+  return (
+    <div className="flex items-center gap-0.5 border-b border-border bg-muted/20 px-2 py-1">
+      {button("Bold", <Bold className="h-3.5 w-3.5" />, "bold")}
+      {button("Italic", <Italic className="h-3.5 w-3.5" />, "italic")}
+      {button("Underline", <Underline className="h-3.5 w-3.5" />, "underline")}
+      <span className="mx-1 h-4 w-px bg-border" />
+      {button("Heading", <span className="text-xs font-bold">H</span>, "formatBlock", "h3")}
+      {button("Small heading", <span className="text-[10px] font-bold">H₂</span>, "formatBlock", "h4")}
+      <span className="mx-1 h-4 w-px bg-border" />
+      {button("Bulleted list", <ListIcon className="h-3.5 w-3.5" />, "insertUnorderedList")}
+      {button("Numbered list", <ListOrdered className="h-3.5 w-3.5" />, "insertOrderedList")}
+      {button("Quote", <Quote className="h-3.5 w-3.5" />, "formatBlock", "blockquote")}
+      {button("Clear formatting", <RemoveFormatting className="h-3.5 w-3.5" />, "removeFormat")}
+    </div>
+  );
+}
+
+export function BibleRichTextField({
+  value,
+  placeholder,
+  active,
+  onFocus,
+  onChange,
+}: {
+  value: string;
+  placeholder: string;
+  active: boolean;
+  onFocus: () => void;
+  onChange: (value: string) => void;
+}) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusedRef.current && editorRef.current) {
+      const next = editorValueToHtml(value);
+      if (editorRef.current.innerHTML !== next) editorRef.current.innerHTML = next;
+    }
+  }, [value]);
+
+  return (
+    <div
+      className={`overflow-hidden rounded-xl border bg-background transition-colors ${
+        active ? "border-[#1B2A4A]/40 ring-1 ring-[#1B2A4A]/10" : "border-border"
+      }`}
+    >
+      <RichTextToolbar editorRef={editorRef} onChange={onChange} />
+      <div
+        ref={editorRef}
+        role="textbox"
+        aria-multiline="true"
+        contentEditable
+        suppressContentEditableWarning
+        onFocus={() => {
+          focusedRef.current = true;
+          onFocus();
+        }}
+        onBlur={() => {
+          focusedRef.current = false;
+          if (editorRef.current) onChange(sanitizeBibleRichText(editorRef.current.innerHTML));
+        }}
+        onInput={event => onChange((event.currentTarget as HTMLDivElement).innerHTML)}
+        data-placeholder={placeholder}
+        className="min-h-[150px] px-4 py-3 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
+        style={{ fontFamily: "'Spectral', Georgia, serif" }}
+      />
+    </div>
+  );
+}
+
+export function BibleSection({
+  title,
+  question,
+  hint,
+  open,
+  onToggle,
+  children,
+  preview,
+}: {
+  title: string;
+  question: string;
+  hint: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+  preview?: string;
+}) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-border bg-card">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-start justify-between gap-4 px-5 py-4 text-left hover:bg-muted/20"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-foreground">{question}</span>
+          <span className="mt-1 block text-[11.5px] text-muted-foreground">{hint}</span>
+          {!open && preview && (
+            <span className="mt-2 block truncate text-xs text-muted-foreground/80">{preview}</span>
+          )}
+        </span>
+        <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && <div className="border-t border-border px-5 pb-5 pt-4">{children}</div>}
+    </section>
+  );
+}
+
+function BibleRichTextPreview({ value }: { value: string }) {
+  return (
+    <div
+      className="text-[13px] leading-relaxed text-foreground [&_p]:mb-2 [&_p:last-child]:mb-0 [&_h3]:mb-1 [&_h3]:font-semibold [&_h4]:mb-1 [&_h4]:font-medium [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-[#C87560]/40 [&_blockquote]:pl-3 [&_blockquote]:italic"
+      dangerouslySetInnerHTML={{ __html: sanitizeBibleRichText(value) }}
+    />
+  );
+}
+
 export function WorldBibleSection({
   world,
   showCopilot = true,
@@ -1397,6 +1555,13 @@ export function WorldBibleSection({
   });
   const [newRule, setNewRule] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    visualPalette: true,
+    proseVoice: true,
+    atmosphericNotes: true,
+    materialWorld: true,
+    worldRules: true,
+  });
 
   // ── Copilot ────────────────────────────────────────────────────────────────
   const [copilotOpen, setCopilotOpen] = useState(false);
@@ -1431,10 +1596,10 @@ export function WorldBibleSection({
           attachmentName: attachment.name,
         } : {}),
         draft: {
-          visualPalette: formRef.current.visualPalette,
-          proseVoice: formRef.current.proseVoice,
-          atmosphericNotes: formRef.current.atmosphericNotes,
-          materialWorld: formRef.current.materialWorld,
+          visualPalette: bibleRichTextToPlainText(formRef.current.visualPalette),
+          proseVoice: bibleRichTextToPlainText(formRef.current.proseVoice),
+          atmosphericNotes: bibleRichTextToPlainText(formRef.current.atmosphericNotes),
+          materialWorld: bibleRichTextToPlainText(formRef.current.materialWorld),
         },
       }),
     });
@@ -1471,10 +1636,10 @@ export function WorldBibleSection({
       apiFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(world.id)}`, {
         method: "PATCH",
         body: JSON.stringify({
-          visualPalette: form.visualPalette.trim() || null,
-          proseVoice: form.proseVoice.trim() || null,
-          atmosphericNotes: form.atmosphericNotes.trim() || null,
-          materialWorld: form.materialWorld.trim() || null,
+          visualPalette: sanitizeBibleRichText(form.visualPalette).trim() || null,
+          proseVoice: sanitizeBibleRichText(form.proseVoice).trim() || null,
+          atmosphericNotes: sanitizeBibleRichText(form.atmosphericNotes).trim() || null,
+          materialWorld: sanitizeBibleRichText(form.materialWorld).trim() || null,
           worldRules: form.worldRules,
         }),
       }),
@@ -1488,13 +1653,13 @@ export function WorldBibleSection({
     onError: () => toast({ title: "Failed to save", variant: "destructive" }),
   });
 
-  const set = (field: keyof typeof form, value: string) => {
+  const set = (field: BibleTextField, value: string) => {
     setForm(f => ({ ...f, [field]: value })); setDirty(true);
     // A manual edit invalidates any pending undo for that field
     setUndoBuffer(u => (u && u.field === field ? null : u));
   };
 
-  const QUESTIONS: { field: keyof typeof form; label: string; q: string; hint: string }[] = [
+  const QUESTIONS: { field: BibleTextField; label: string; q: string; hint: string }[] = [
     { field: "visualPalette",   label: "Visual Palette",    q: "What does this world look like?",            hint: "Colours, lighting, textures…" },
     { field: "proseVoice",      label: "Prose Voice",       q: "How does this world speak?",                 hint: "Register, rhythm, vocabulary…" },
     { field: "atmosphericNotes", label: "Atmospheric Notes", q: "What does this world feel like?",            hint: "Temperature, sound, smell, mood…" },
@@ -1502,116 +1667,142 @@ export function WorldBibleSection({
   ];
 
   return (
-    <div className="flex gap-6 items-start">
-    <div className="max-w-2xl flex-1 space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="font-display font-semibold text-lg text-foreground mb-1">{world.name} — World Bible</h2>
-          <p className="text-[12.5px] text-muted-foreground">
-            These fields are injected into every generation prompt for {world.name}.
-            Write freely — this is the voice of your world, not a form to fill.
-          </p>
-        </div>
-        {showCopilot && (
-          <button
-            onClick={() => setCopilotOpen(o => !o)}
-            className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors ${
-              copilotOpen
-                ? "text-white border-transparent"
-                : "text-foreground border-border hover:border-foreground/30"
-            }`}
-            style={copilotOpen ? { background: "#1B2A4A" } : undefined}
-          >
-            <Sparkles className="w-3.5 h-3.5" /> Co-write
-          </button>
-        )}
-      </div>
-
-      <div className="space-y-5">
-        {QUESTIONS.map(({ field, label, q, hint }) => (
-          <div key={field}>
-            <label className="block text-sm font-semibold text-foreground mb-0.5">{q}</label>
-            <p className="text-[11.5px] text-muted-foreground mb-2">{hint}</p>
-            <textarea
-              value={form[field] as string}
-              onChange={e => set(field, e.target.value)}
-              onFocus={() => setActiveField(field as BibleTextField)}
-              rows={3}
-              placeholder={`${label}…`}
-              className={`w-full min-h-[84px] rounded-xl border px-4 py-3 text-sm leading-relaxed resize-y outline-none focus:border-foreground/30 ${
-                copilotOpen && activeField === field ? "border-[#1B2A4A]/40" : "border-border"
+    <div className="flex w-full min-w-0 flex-col gap-6 lg:flex-row lg:items-start">
+      <div className="min-w-0 flex-1 space-y-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-display font-semibold text-lg text-foreground mb-1">{world.name} — World Bible</h2>
+            <p className="text-[12.5px] text-muted-foreground">
+              These fields are injected into every generation prompt for {world.name}.
+              Write freely — this is the voice of your world, not a form to fill.
+            </p>
+          </div>
+          {showCopilot && (
+            <button
+              onClick={() => setCopilotOpen(o => !o)}
+              className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[13px] font-semibold border transition-colors ${
+                copilotOpen
+                  ? "text-white border-transparent"
+                  : "text-foreground border-border hover:border-foreground/30"
               }`}
-              style={{ fontFamily: "'Spectral', Georgia, serif" }}
-            />
-          </div>
-        ))}
-
-        {/* World Rules */}
-        <div>
-          <label className="block text-sm font-semibold text-foreground mb-0.5">What rules does this world follow?</label>
-          <p className="text-[11.5px] text-muted-foreground mb-2">Rules that constrain or define what's possible — never break these in any output</p>
-          <div className="space-y-2 mb-2">
-            {form.worldRules.map((rule, i) => (
-              <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-card text-sm">
-                <span className="flex-1 text-foreground">{rule}</span>
-                <button onClick={() => { setForm(f => ({ ...f, worldRules: f.worldRules.filter((_, j) => j !== i) })); setDirty(true); }}
-                  className="text-muted-foreground hover:text-foreground">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <input value={newRule} onChange={e => setNewRule(e.target.value)}
-              placeholder="Add a rule…"
-              className="flex-1 rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-foreground/30"
-              onKeyDown={e => {
-                if (e.key === "Enter" && newRule.trim()) {
-                  setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
-                  setNewRule(""); setDirty(true);
-                }
-              }} />
-            <button onClick={() => { if (!newRule.trim()) return; setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] })); setNewRule(""); setDirty(true); }}
-              className="px-3 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground">
-              Add
+              style={copilotOpen ? { background: "#1B2A4A" } : undefined}
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Co-write
             </button>
-          </div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          {QUESTIONS.map(({ field, label, q, hint }) => (
+            <BibleSection
+              key={field}
+              title={label}
+              question={q}
+              hint={hint}
+              open={openSections[field]}
+              onToggle={() => setOpenSections(current => ({ ...current, [field]: !current[field] }))}
+              preview={bibleRichTextToPlainText(form[field])}
+            >
+              <BibleRichTextField
+                value={form[field]}
+                placeholder={`${label}…`}
+                active={copilotOpen && activeField === field}
+                onFocus={() => setActiveField(field)}
+                onChange={value => set(field, value)}
+              />
+            </BibleSection>
+          ))}
+
+          <BibleSection
+            title="World Rules"
+            question="What rules does this world follow?"
+            hint="Rules that constrain or define what's possible — never break these in any output"
+            open={openSections.worldRules}
+            onToggle={() => setOpenSections(current => ({ ...current, worldRules: !current.worldRules }))}
+            preview={form.worldRules.join(" · ")}
+          >
+            <div className="space-y-2 mb-2">
+              {form.worldRules.map((rule, i) => (
+                <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-card text-sm">
+                  <span className="flex-1 text-foreground">{rule}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove rule ${i + 1}`}
+                    onClick={() => {
+                      setForm(f => ({ ...f, worldRules: f.worldRules.filter((_, j) => j !== i) }));
+                      setDirty(true);
+                    }}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={newRule}
+                onChange={e => setNewRule(e.target.value)}
+                placeholder="Add a rule…"
+                className="flex-1 rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-foreground/30"
+                onKeyDown={e => {
+                  if (e.key === "Enter" && newRule.trim()) {
+                    e.preventDefault();
+                    setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
+                    setNewRule("");
+                    setDirty(true);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!newRule.trim()) return;
+                  setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
+                  setNewRule("");
+                  setDirty(true);
+                }}
+                className="px-3 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground"
+              >
+                Add
+              </button>
+            </div>
+          </BibleSection>
+        </div>
+
+        <div className="pt-2 flex items-center gap-3">
+          <button onClick={() => saveMutation.mutate()} disabled={!dirty || saveMutation.isPending}
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
+            style={{ background: "#1B2A4A" }}>
+            {saveMutation.isPending ? "Saving…" : dirty ? "Save World Bible" : "Saved"}
+          </button>
+          {!dirty && !saveMutation.isPending && (
+            <span className="text-[12px] text-green-600 flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Saved
+            </span>
+          )}
+          {undoBuffer && (
+            <button onClick={undoApply} className="text-[12px] text-muted-foreground underline hover:text-foreground">
+              Undo apply to {BIBLE_FIELD_LABELS[undoBuffer.field]}
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="pt-2 flex items-center gap-3">
-        <button onClick={() => saveMutation.mutate()} disabled={!dirty || saveMutation.isPending}
-          className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
-          style={{ background: "#1B2A4A" }}>
-          {saveMutation.isPending ? "Saving…" : dirty ? "Save World Bible" : "Saved"}
-        </button>
-        {!dirty && !saveMutation.isPending && (
-          <span className="text-[12px] text-green-600 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Saved
-          </span>
-        )}
-        {undoBuffer && (
-          <button onClick={undoApply} className="text-[12px] text-muted-foreground underline hover:text-foreground">
-            Undo apply to {BIBLE_FIELD_LABELS[undoBuffer.field]}
-          </button>
-        )}
-      </div>
-    </div>
-
-    {showCopilot && (
-      <CopilotPanel
-        isOpen={copilotOpen}
-        onClose={() => setCopilotOpen(false)}
-        storageKey={`copilot-bible-${world.id}`}
-        title="Bible Copilot"
-        activeFieldLabel={BIBLE_FIELD_LABELS[activeField]}
-        allowAttachments
-        onSend={handleCopilotSend}
-        onCaptureTarget={() => ({ key: activeFieldRef.current, label: BIBLE_FIELD_LABELS[activeFieldRef.current] })}
-        onApply={(text, key) => applyToField(text, key)}
-        greeting={bibleGreeting}
-      />
-    )}
+      {showCopilot && (
+        <CopilotPanel
+          isOpen={copilotOpen}
+          onClose={() => setCopilotOpen(false)}
+          storageKey={`copilot-bible-${world.id}`}
+          title="Bible Copilot"
+          activeFieldLabel={BIBLE_FIELD_LABELS[activeField]}
+          allowAttachments
+          onSend={handleCopilotSend}
+          onCaptureTarget={() => ({ key: activeFieldRef.current, label: BIBLE_FIELD_LABELS[activeFieldRef.current] })}
+          onApply={(text, key) => applyToField(text, key)}
+          greeting={bibleGreeting}
+        />
+      )}
     </div>
   );
 }

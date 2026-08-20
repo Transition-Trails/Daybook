@@ -14,6 +14,7 @@ import type {
   CompiledPromptSections,
   CompiledSectionRecord,
 } from "./types";
+import { worldBibleRichTextToPlainText } from "./world-bible-rich-text";
 import { PROMPT_SECTION_ORDER } from "./types";
 
 const SECTION_DIVIDER = "\n\n";
@@ -76,16 +77,16 @@ function compileNewFormat(
   const bible = chain.worldBible;
   if (bible) {
     if (bible.visualPalette?.trim()) {
-      pushSection("visual_palette", "VISUAL PALETTE", bible.visualPalette, "World Bible", parts, sectionRecords);
+      pushSection("visual_palette", "VISUAL PALETTE", worldBibleRichTextToPlainText(bible.visualPalette), "World Bible", parts, sectionRecords);
     }
     if (bible.proseVoice?.trim()) {
-      pushSection("prose_voice", "PROSE VOICE", bible.proseVoice, "World Bible", parts, sectionRecords);
+      pushSection("prose_voice", "PROSE VOICE", worldBibleRichTextToPlainText(bible.proseVoice), "World Bible", parts, sectionRecords);
     }
     if (bible.atmosphericNotes?.trim()) {
-      pushSection("atmospheric_notes", "ATMOSPHERIC NOTES", bible.atmosphericNotes, "World Bible", parts, sectionRecords);
+      pushSection("atmospheric_notes", "ATMOSPHERIC NOTES", worldBibleRichTextToPlainText(bible.atmosphericNotes), "World Bible", parts, sectionRecords);
     }
     if (bible.materialWorld?.trim()) {
-      pushSection("material_world", "MATERIAL WORLD", bible.materialWorld, "World Bible", parts, sectionRecords);
+      pushSection("material_world", "MATERIAL WORLD", worldBibleRichTextToPlainText(bible.materialWorld), "World Bible", parts, sectionRecords);
     }
   }
 
@@ -346,10 +347,10 @@ function compileLegacyFormat(
     if (key === "world_and_collection_context") {
       const bible = chain.worldBible;
       if (bible) {
-        if (bible.visualPalette?.trim())    parts.push(section("VISUAL PALETTE",    bible.visualPalette));
-        if (bible.proseVoice?.trim())       parts.push(section("PROSE VOICE",       bible.proseVoice));
-        if (bible.atmosphericNotes?.trim()) parts.push(section("ATMOSPHERIC NOTES", bible.atmosphericNotes));
-        if (bible.materialWorld?.trim())    parts.push(section("MATERIAL WORLD",    bible.materialWorld));
+        if (bible.visualPalette?.trim())    parts.push(section("VISUAL PALETTE",    worldBibleRichTextToPlainText(bible.visualPalette)));
+        if (bible.proseVoice?.trim())       parts.push(section("PROSE VOICE",       worldBibleRichTextToPlainText(bible.proseVoice)));
+        if (bible.atmosphericNotes?.trim()) parts.push(section("ATMOSPHERIC NOTES", worldBibleRichTextToPlainText(bible.atmosphericNotes)));
+        if (bible.materialWorld?.trim())    parts.push(section("MATERIAL WORLD",    worldBibleRichTextToPlainText(bible.materialWorld)));
       }
     }
   }
@@ -379,10 +380,10 @@ function compileLegacyFormat(
   // Append World Bible sectionRecords for the viewer
   const bible = chain.worldBible;
   if (bible) {
-    if (bible.visualPalette?.trim())    sectionRecords.push(rec("visual_palette",    "Visual Palette",    bible.visualPalette,    "World Bible"));
-    if (bible.proseVoice?.trim())       sectionRecords.push(rec("prose_voice",       "Prose Voice",       bible.proseVoice,       "World Bible"));
-    if (bible.atmosphericNotes?.trim()) sectionRecords.push(rec("atmospheric_notes", "Atmospheric Notes", bible.atmosphericNotes, "World Bible"));
-    if (bible.materialWorld?.trim())    sectionRecords.push(rec("material_world",    "Material World",    bible.materialWorld,    "World Bible"));
+    if (bible.visualPalette?.trim())    sectionRecords.push(rec("visual_palette",    "Visual Palette",    worldBibleRichTextToPlainText(bible.visualPalette),    "World Bible"));
+    if (bible.proseVoice?.trim())       sectionRecords.push(rec("prose_voice",       "Prose Voice",       worldBibleRichTextToPlainText(bible.proseVoice),       "World Bible"));
+    if (bible.atmosphericNotes?.trim()) sectionRecords.push(rec("atmospheric_notes", "Atmospheric Notes", worldBibleRichTextToPlainText(bible.atmosphericNotes), "World Bible"));
+    if (bible.materialWorld?.trim())    sectionRecords.push(rec("material_world",    "Material World",    worldBibleRichTextToPlainText(bible.materialWorld),    "World Bible"));
     if (worldRules.length > 0)          sectionRecords.push(rec("world_rules",       "World Rules",       worldRules.join("\n"),  "World Bible"));
   }
 

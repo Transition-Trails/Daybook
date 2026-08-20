@@ -131,6 +131,7 @@ import {
   EditorialDocumentEditor,
   PromptModules,
   StoriesStudio,
+  StorylineEditor,
   StoryConnections,
   WorldBibleStudio,
 } from "@/pages/super/worldsmith-editorial";
@@ -238,6 +239,18 @@ function RootRouter() {
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="stories"><StoriesStudio /></EditorialShell>
         </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/stories/new">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="stories"><StorylineEditor /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/stories/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="stories"><StorylineEditor storyId={p.id!} /></EditorialShell>
+          </RequireSuperAdmin>
+        )}
       </Route>
       <Route path="/super/worldsmith/editorial/connections">
         <RequireSuperAdmin state={state}>

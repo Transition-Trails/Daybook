@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
+const { apiFetch, navigate } = vi.hoisted(() => ({ apiFetch: vi.fn(), navigate: vi.fn() }));
 
 vi.mock("@/lib/api", () => ({ apiFetch }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
@@ -14,6 +14,7 @@ vi.mock("@/contexts/EditorialContext", () => ({
 }));
 vi.mock("wouter", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useLocation: () => ["/super/worldsmith/editorial/stories", navigate],
 }));
 
 import StoriesStudio from "@/pages/super/worldsmith-editorial/StoriesStudio";
@@ -21,14 +22,27 @@ import StoriesStudio from "@/pages/super/worldsmith-editorial/StoriesStudio";
 describe("StoriesStudio editor", () => {
   beforeEach(() => {
     apiFetch.mockReset();
-    apiFetch.mockResolvedValue({
-      stories: [{
-        id: "story-1",
-        title: "The Wychcombe Origin Story",
-        summary: "<p>A promise <em>worth keeping</em>.</p>",
-        status: "draft",
-        acts: [],
-      }],
+    navigate.mockReset();
+    apiFetch.mockImplementation((path: string) => {
+      if (path === "/v1/editorial/stories/suggest") {
+        return Promise.resolve({
+          suggestions: [{
+            title: "The Ashcroft Lantern",
+            rationale: "A lost light exposes a hidden path through Wychcombe.",
+            narrativePromise: "A reluctant keeper must carry a dangerous lantern before the town’s oldest secret consumes it.",
+            recommendedStatus: "planned",
+          }],
+        });
+      }
+      return Promise.resolve({
+        stories: [{
+          id: "story-1",
+          title: "The Wychcombe Origin Story",
+          summary: "<p>A promise <em>worth keeping</em>.</p>",
+          status: "draft",
+          acts: [],
+        }],
+      });
     });
   });
 
@@ -67,5 +81,20 @@ describe("StoriesStudio editor", () => {
         }),
       );
     });
+  });
+
+  it("opens a prefilled full-page editor from a suggested storyline card", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StoriesStudio />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Suggested storylines" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Create record/ }));
+
+    expect(navigate).toHaveBeenCalledWith(
+      "/super/worldsmith/editorial/stories/new?title=The%20Ashcroft%20Lantern&summary=A%20reluctant%20keeper%20must%20carry%20a%20dangerous%20lantern%20before%20the%20town%E2%80%99s%20oldest%20secret%20consumes%20it.&status=planned",
+    );
   });
 });

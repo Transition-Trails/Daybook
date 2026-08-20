@@ -2178,6 +2178,136 @@ router.post("/v1/editorial/specs/:id/publish", async (req: Request, res: Respons
 
 // ── Stories CRUD ──────────────────────────────────────────────────────────────
 
+const STORY_STATUSES = ["draft", "planned", "active", "archived"] as const;
+const STORY_SUGGESTION_STATUSES = ["draft", "planned", "active"] as const;
+const isStoryStatus = (value: unknown): value is typeof STORY_STATUSES[number] =>
+  typeof value === "string" && (STORY_STATUSES as readonly string[]).includes(value);
+
+// Suggest world-aware storylines without treating existing rich editorial content
+// as prompt markup. Story summaries, canon, and World Bible prose are reduced to
+// plain text before they enter the model context.
+router.post("/v1/editorial/stories/suggest", async (req: Request, res: Response) => {
+  const { world_id } = req.body as { world_id?: string };
+  if (!world_id) {
+    res.status(400).json({ error: "world_id is required" });
+    return;
+  }
+
+  try {
+    const [world] = await db
+      .select()
+      .from(worldsmithWorldsTable)
+      .where(eq(worldsmithWorldsTable.id, world_id))
+      .limit(1);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const [canonRecords, existingStories] = await Promise.all([
+      db.select({
+        name: wsCanonRecordsTable.name,
+        canonType: wsCanonRecordsTable.canonType,
+        narrativeDetails: wsCanonRecordsTable.narrativeDetails,
+        status: wsCanonRecordsTable.status,
+      })
+        .from(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.worldId, world_id))
+        .orderBy(wsCanonRecordsTable.name)
+        .limit(80),
+      db.select({
+        title: wsStoriesTable.title,
+        summary: wsStoriesTable.summary,
+        status: wsStoriesTable.status,
+      })
+        .from(wsStoriesTable)
+        .where(eq(wsStoriesTable.worldId, world_id))
+        .orderBy(wsStoriesTable.sortOrder, wsStoriesTable.createdAt)
+        .limit(30),
+    ]);
+
+    const worldBible = [
+      world.visualPalette ? `Visual Palette: ${editorialRichTextToPlainText(world.visualPalette)}` : "",
+      world.proseVoice ? `Prose Voice: ${editorialRichTextToPlainText(world.proseVoice)}` : "",
+      world.atmosphericNotes ? `Atmospheric Notes: ${editorialRichTextToPlainText(world.atmosphericNotes)}` : "",
+      world.materialWorld ? `Material World: ${editorialRichTextToPlainText(world.materialWorld)}` : "",
+      Array.isArray(world.worldRules) && world.worldRules.length > 0
+        ? `World Rules:\n${(world.worldRules as string[]).map(rule => `  - ${editorialRichTextToPlainText(rule)}`).join("\n")}`
+        : "",
+    ].filter(Boolean).join("\n");
+
+    const canonLines = canonRecords.length > 0
+      ? canonRecords.map(record => {
+        const detail = editorialRichTextToPlainText(record.narrativeDetails).slice(0, 280);
+        return `- ${record.name} [${record.canonType ?? "canon"}; ${record.status}]${detail ? ` — ${detail}` : ""}`;
+      }).join("\n")
+      : "(no canon records yet)";
+    const storyLines = existingStories.length > 0
+      ? existingStories.map(story => {
+        const summary = editorialRichTextToPlainText(story.summary).slice(0, 420);
+        return `- ${story.title} [${story.status}]${summary ? ` — ${summary}` : ""}`;
+      }).join("\n")
+      : "(no storylines yet)";
+
+    const systemPrompt = "You are a WorldSmith story editor. You identify compelling missing adventures that emerge from a world's canon, atmosphere, and physical storytelling possibilities. Your suggestions are specific, emotionally grounded, and distinct from existing storylines.";
+    const userMessage = `World: ${world.name}${world.description ? ` — ${editorialRichTextToPlainText(world.description)}` : ""}
+
+## World Bible
+${worldBible || "(not yet written)"}
+
+## Existing Canon
+${canonLines}
+
+## Existing Storylines
+${storyLines}
+
+## Task
+Suggest exactly 4 distinct new storylines this world is ready to tell. Each should use concrete canon or a meaningful gap in the World Bible, while leaving room for future physical keepsakes, clues, letters, maps, or journals. Do not repeat an existing storyline's premise or title.
+
+Return ONLY a JSON array (no markdown fences or preamble). Every item must have:
+- "title": a specific, evocative storyline title
+- "rationale": 1–2 sentences explaining the opportunity this storyline creates for the world
+- "narrativePromise": 2–4 sentences describing who wants what, what complicates it, and what a reader will carry forward
+- "recommendedStatus": one of draft, planned, active`;
+
+    const result = await callAi(
+      [{ role: "user", content: userMessage }],
+      process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
+      systemPrompt,
+    );
+
+    let suggestions: unknown[] = [];
+    try {
+      const clean = result.content.trim().replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(parsed)) suggestions = parsed.slice(0, 4);
+    } catch {
+      const match = result.content.match(/\[[\s\S]*\]/);
+      if (match) {
+        try { suggestions = JSON.parse(match[0]); } catch { /* give up */ }
+      }
+    }
+
+    const validStatuses = new Set<string>(STORY_SUGGESTION_STATUSES);
+    const sanitised = suggestions
+      .filter((suggestion): suggestion is Record<string, unknown> => typeof suggestion === "object" && suggestion !== null)
+      .map(suggestion => ({
+        title: typeof suggestion.title === "string" ? suggestion.title.trim().slice(0, 120) : "Untitled storyline",
+        rationale: typeof suggestion.rationale === "string" ? suggestion.rationale.trim().slice(0, 450) : "",
+        narrativePromise: typeof suggestion.narrativePromise === "string" ? suggestion.narrativePromise.trim().slice(0, 1_200) : "",
+        recommendedStatus: typeof suggestion.recommendedStatus === "string" && validStatuses.has(suggestion.recommendedStatus)
+          ? suggestion.recommendedStatus
+          : "draft",
+      }))
+      .filter(suggestion => suggestion.title.length > 0);
+
+    res.json({ suggestions: sanitised, world: { name: world.name, code: world.code } });
+  } catch (err) {
+    logger.error({ err }, "editorial: suggest storylines");
+    res.status(502).json({ error: "Could not generate storylines. Try again.", code: "AI_ERROR" });
+  }
+});
+
 // List stories for a world
 router.get("/v1/editorial/stories", async (req: Request, res: Response) => {
   try {
@@ -2202,6 +2332,30 @@ router.get("/v1/editorial/stories", async (req: Request, res: Response) => {
     res.json({ stories: stories.map(s => ({ ...s, acts: actsById[s.id] ?? [] })) });
   } catch (err) {
     logger.error({ err }, "editorial: list stories");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Fetch one storyline with its movements for the full-page editor.
+router.get("/v1/editorial/stories/:id", async (req: Request, res: Response) => {
+  try {
+    const [story] = await db
+      .select()
+      .from(wsStoriesTable)
+      .where(eq(wsStoriesTable.id, req.params.id as string))
+      .limit(1);
+    if (!story) {
+      res.status(404).json({ error: "Story not found" });
+      return;
+    }
+    const acts = await db
+      .select()
+      .from(wsStoryActsTable)
+      .where(eq(wsStoryActsTable.storyId, story.id))
+      .orderBy(wsStoryActsTable.actNumber);
+    res.json({ story: { ...story, acts } });
+  } catch (err) {
+    logger.error({ err }, "editorial: get story");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -2311,11 +2465,22 @@ router.get("/v1/editorial/story-connections", async (req: Request, res: Response
 router.post("/v1/editorial/stories", async (req: Request, res: Response) => {
   try {
     const { world_id, title, summary, status } = req.body;
-    if (!world_id || !title) { res.status(400).json({ error: "world_id and title required" }); return; }
+    if (!world_id || typeof title !== "string" || !title.trim()) {
+      res.status(400).json({ error: "world_id and title required" });
+      return;
+    }
+    if (status !== undefined && !isStoryStatus(status)) {
+      res.status(400).json({ error: "status is not supported" });
+      return;
+    }
+    if (summary !== undefined && typeof summary !== "string") {
+      res.status(400).json({ error: "summary must be a string" });
+      return;
+    }
     const [story] = await db.insert(wsStoriesTable).values({
       id: randomUUID(),
       worldId: world_id,
-      title,
+      title: title.trim(),
       summary: sanitizeEditorialRichText(summary ?? ""),
       status: status ?? "draft",
     }).returning();
@@ -2331,6 +2496,18 @@ router.patch("/v1/editorial/stories/:id", async (req: Request, res: Response) =>
   try {
     const { id } = req.params;
     const { title, summary, status, sort_order } = req.body;
+    if (title !== undefined && (typeof title !== "string" || !title.trim())) {
+      res.status(400).json({ error: "title must be a non-empty string" });
+      return;
+    }
+    if (status !== undefined && !isStoryStatus(status)) {
+      res.status(400).json({ error: "status is not supported" });
+      return;
+    }
+    if (summary !== undefined && typeof summary !== "string") {
+      res.status(400).json({ error: "summary must be a string" });
+      return;
+    }
     const update: Record<string, unknown> = {};
     if (title !== undefined) update.title = typeof title === "string" ? title.trim() : title;
     if (summary !== undefined) update.summary = sanitizeEditorialRichText(summary ?? "");

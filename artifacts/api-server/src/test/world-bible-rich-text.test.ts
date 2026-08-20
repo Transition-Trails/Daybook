@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compilePrompt } from "../lib/worldsmith/prompt-compiler.js";
 import { sanitizeWorldBibleRichText, worldBibleRichTextToPlainText } from "../lib/worldsmith/world-bible-rich-text.js";
+import { editorialRichTextToPlainText } from "../lib/worldsmith/editorial-rich-text.js";
 import { computeReadinessScore } from "../routes/worldsmith-editorial.js";
 import type { InheritanceChain, ParsedPayload } from "../lib/worldsmith/types.js";
 
@@ -82,5 +83,15 @@ describe("World Bible rich text", () => {
 
     expect(computeReadinessScore({ ...baseline, designIntent: "<div><br></div>" } as any))
       .toBe(computeReadinessScore(baseline as any));
+  });
+
+  it("derives prompt-safe plain text from a rich storyline promise", () => {
+    const promise = `<p>A keeper follows the <strong>Ashcroft Lantern</strong>.</p><ul><li>Its light reveals old paths.</li></ul>`;
+
+    expect(editorialRichTextToPlainText(promise)).toBe(
+      "A keeper follows the Ashcroft Lantern.\n\nIts light reveals old paths.",
+    );
+    expect(editorialRichTextToPlainText(promise)).not.toContain("<strong>");
+    expect(editorialRichTextToPlainText(promise)).not.toContain("<ul>");
   });
 });

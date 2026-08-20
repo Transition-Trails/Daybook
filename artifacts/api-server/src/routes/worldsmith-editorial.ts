@@ -16,7 +16,7 @@
  *
  * Production Specs:
  * GET/POST   /v1/editorial/specs
- * GET/PATCH/DELETE /v1/editorial/specs/:id
+ * GET/DELETE /v1/editorial/specs/:id (immutable after creation)
  * POST       /v1/editorial/specs/:id/publish
  *
  * Style Guides, Component Specs, Prompt Modules (CRUD pattern):
@@ -2100,81 +2100,11 @@ router.get("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
   }
 });
 
-router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
-  const specId = req.params.id as string;
-  const {
-    production_item, spec_id, component_type, component_set, collection_id, volume_id,
-    design_intent, narrative_purpose, required_content, review_criteria,
-    writing_space_percent, orientation, front_back_style,
-    canon_dependency, canon_record_ids,
-    payload_version, prompt_payload,
-    style_guide_id, component_spec_id, prompt_module_ids,
-    status: explicitStatus,
-  } = req.body;
-
-  try {
-    const [existing] = await db
-      .select()
-      .from(wsProductionSpecsTable)
-      .where(eq(wsProductionSpecsTable.id, specId))
-      .limit(1);
-
-    if (!existing) { res.status(404).json({ error: "Spec not found" }); return; }
-
-    const merged: Partial<InsertWsProductionSpec> = {
-      worldId: existing.worldId,
-      collectionId: collection_id !== undefined ? collection_id : existing.collectionId,
-      volumeId: volume_id !== undefined ? volume_id : existing.volumeId,
-      productionItem: production_item !== undefined ? production_item.trim() : existing.productionItem,
-      specId: spec_id !== undefined ? spec_id : existing.specId,
-      componentType: component_type !== undefined ? component_type.trim() : existing.componentType,
-      componentSet: component_set !== undefined ? component_set : existing.componentSet,
-      designIntent: design_intent !== undefined ? sanitizeEditorialRichText(design_intent) : existing.designIntent,
-      narrativePurpose: narrative_purpose !== undefined ? sanitizeEditorialRichText(narrative_purpose) : existing.narrativePurpose,
-      requiredContent: required_content !== undefined ? sanitizeEditorialRichText(required_content) : existing.requiredContent,
-      reviewCriteria: review_criteria !== undefined ? sanitizeEditorialRichText(review_criteria) : existing.reviewCriteria,
-      writingSpacePercent: writing_space_percent !== undefined ? writing_space_percent : existing.writingSpacePercent,
-      orientation: orientation !== undefined ? orientation : existing.orientation,
-      frontBackStyle: front_back_style !== undefined ? front_back_style : existing.frontBackStyle,
-      canonDependency: canon_dependency !== undefined ? canon_dependency : existing.canonDependency,
-      canonRecordIds: canon_record_ids !== undefined ? canon_record_ids : existing.canonRecordIds,
-      payloadVersion: payload_version !== undefined ? payload_version : existing.payloadVersion,
-      promptPayload: prompt_payload !== undefined ? prompt_payload : existing.promptPayload,
-      styleGuideId: style_guide_id !== undefined ? style_guide_id : existing.styleGuideId,
-      componentSpecId: component_spec_id !== undefined ? component_spec_id : existing.componentSpecId,
-      promptModuleIds: prompt_module_ids !== undefined ? prompt_module_ids : existing.promptModuleIds,
-      // Always carry forward the compile/publish state so that editing content
-      // fields does NOT silently downgrade a compiled or published spec.
-      compiledPromptStatus: existing.compiledPromptStatus,
-      notionPageId: existing.notionPageId,
-      syncedAt: existing.syncedAt,
-    };
-
-    const readinessScore = computeReadinessScore(merged);
-
-    // Only recompute pipeline status when no explicit override is supplied AND
-    // the spec is not already in a terminal state (compiled / published).
-    // This prevents a content-field edit from wiping out publish/compile state.
-    const terminalStatus = existing.status === "compiled" || existing.status === "published";
-    const derivedStatus = terminalStatus
-      ? existing.status
-      : derivePipelineStatus(merged, readinessScore);
-
-    const [updated] = await db
-      .update(wsProductionSpecsTable)
-      .set({
-        ...merged,
-        readinessScore,
-        status: explicitStatus ?? derivedStatus,
-      })
-      .where(eq(wsProductionSpecsTable.id, specId))
-      .returning();
-
-    res.json({ spec: updated });
-  } catch (err) {
-    logger.error({ err }, "editorial: update spec");
-    res.status(500).json({ error: "Internal server error" });
-  }
+router.patch("/v1/editorial/specs/:id", async (_req: Request, res: Response) => {
+  res.status(405).json({
+    error: "Production Specs are immutable after creation. Create a new spec to change the direction.",
+    code: "PRODUCTION_SPEC_IMMUTABLE",
+  });
 });
 
 router.delete("/v1/editorial/specs/:id", async (req: Request, res: Response) => {

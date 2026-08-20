@@ -133,6 +133,7 @@ export function EditorialSection({
   onToggle,
   children,
   preview,
+  contentReadOnly = false,
 }: {
   title: string;
   hint?: string;
@@ -140,6 +141,7 @@ export function EditorialSection({
   onToggle: () => void;
   children: React.ReactNode;
   preview?: string;
+  contentReadOnly?: boolean;
 }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -158,7 +160,15 @@ export function EditorialSection({
         </span>
         <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
-      {open && <div className="border-t border-border px-5 pb-5 pt-4">{children}</div>}
+      {open && (
+        <div
+          className={`border-t border-border px-5 pb-5 pt-4 ${contentReadOnly ? "bg-muted/20" : ""}`}
+          inert={contentReadOnly || undefined}
+          aria-readonly={contentReadOnly || undefined}
+        >
+          {children}
+        </div>
+      )}
     </section>
   );
 }

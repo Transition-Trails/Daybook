@@ -12,6 +12,7 @@ import {
   EditorialSection,
   editorialRichTextToPlainText,
 } from "@/components/EditorialRichText";
+import { FontLibraryPicker, appendFontReference } from "@/components/FontLibraryPicker";
 
 type DocumentKind = "style-guide" | "prompt-module";
 type EditorialDocument = { id: string; worldId: string; name: string; content: string; dependencyIds?: string[] | null };
@@ -141,6 +142,12 @@ export default function EditorialDocumentEditor({ kind, documentId }: { kind: Do
                 <p className="text-xs text-muted-foreground">Safe formatting is retained for editorial work; generation always uses plain text.</p>
                 <span className="shrink-0 text-xs text-muted-foreground">{wordCount.toLocaleString()} words</span>
               </div>
+              {kind === "style-guide" && (
+                <FontLibraryPicker
+                  value={content}
+                  onApply={font => setContent(current => appendFontReference(current, font))}
+                />
+              )}
               <EditorialRichTextField
                 value={content}
                 onFocus={() => setActiveTarget({ key: "content", label: "Document content" })}

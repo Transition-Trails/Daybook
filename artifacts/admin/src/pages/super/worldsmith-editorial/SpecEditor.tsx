@@ -1,13 +1,13 @@
 /**
- * SpecEditor — three-panel tabbed record editor for a Production Spec.
- * Left: form editor (Identity, Creative, Canon, Payload tabs)
+ * SpecEditor — three-panel read-only record viewer for a Production Spec.
+ * Left: immutable creation record (Identity, Creative, Canon, Payload tabs)
  * Right: Completion sidebar with dependency health graph and relationships panel
  */
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Loader2, Save, ChevronRight, ArrowLeft, CheckCircle2, AlertTriangle,
+  Loader2, Lock, ChevronRight, ArrowLeft, CheckCircle2, AlertTriangle,
   Send, Trash2, X, ExternalLink, RefreshCw, Clock, BookOpen,
   FileText, Zap, GitBranch, Circle,
 } from "lucide-react";
@@ -324,7 +324,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 type OnSpecFieldFocus = (field: keyof Spec, label: string) => void;
 
-function IdentityTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch: Partial<Spec>) => void; onFocus?: OnSpecFieldFocus }) {
+function IdentityTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec; onChange: (patch: Partial<Spec>) => void; onFocus?: OnSpecFieldFocus; readOnly?: boolean }) {
   const [openSection, setOpenSection] = useState<string | null>("naming");
 
   const { data: setsData } = useQuery({
@@ -333,12 +333,13 @@ function IdentityTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch
     staleTime: 60_000,
   });
   const existingSets = setsData?.component_sets ?? [];
+  const sectionProps = { contentReadOnly: readOnly };
 
   const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
 
   return (
     <div className="space-y-3">
-      <EditorialSection
+      <EditorialSection {...sectionProps}
         title="Naming & Identity"
         hint="Production item name, spec ID, and version."
         open={openSection === "naming"}
@@ -360,7 +361,7 @@ function IdentityTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch
         </div>
       </EditorialSection>
 
-      <EditorialSection
+      <EditorialSection {...sectionProps}
         title="Component & Format"
         hint="Type, set membership, orientation, and print style."
         open={openSection === "component"}
@@ -430,13 +431,14 @@ function IdentityTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch
   );
 }
 
-function CreativeTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch: Partial<Spec>) => void; onFocus?: OnSpecFieldFocus }) {
+function CreativeTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec; onChange: (patch: Partial<Spec>) => void; onFocus?: OnSpecFieldFocus; readOnly?: boolean }) {
   const [openSection, setOpenSection] = useState<string | null>("design");
+  const sectionProps = { contentReadOnly: readOnly };
   const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
 
   return (
     <div className="space-y-3">
-      <EditorialSection
+      <EditorialSection {...sectionProps}
         title="Design Intent"
         hint="The visual experience this component should create."
         open={openSection === "design"}
@@ -452,7 +454,7 @@ function CreativeTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch
         />
       </EditorialSection>
 
-      <EditorialSection
+      <EditorialSection {...sectionProps}
         title="Narrative Purpose"
         hint="How this connects to the world's story."
         open={openSection === "narrative"}
@@ -468,7 +470,7 @@ function CreativeTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch
         />
       </EditorialSection>
 
-      <EditorialSection
+      <EditorialSection {...sectionProps}
         title="Required Content"
         hint="Specific visual elements, motifs, or text areas that must appear."
         open={openSection === "required"}
@@ -484,7 +486,7 @@ function CreativeTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch
         />
       </EditorialSection>
 
-      <EditorialSection
+      <EditorialSection {...sectionProps}
         title="Review Criteria"
         hint="How you'll evaluate generated images against this spec."
         open={openSection === "review"}
@@ -507,12 +509,15 @@ function CanonTab({
   spec,
   onChange,
   onFocus,
+  readOnly = false,
 }: {
   spec: Spec;
   onChange: (patch: Partial<Spec>) => void;
   onFocus?: OnSpecFieldFocus;
+  readOnly?: boolean;
 }) {
   const [openSection, setOpenSection] = useState<string | null>("links");
+  const sectionProps = { contentReadOnly: readOnly };
   const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
 
   const { data: sgData } = useQuery({
@@ -536,7 +541,7 @@ function CanonTab({
 
   return (
     <div className="space-y-3">
-      <EditorialSection
+      <EditorialSection {...sectionProps}
         title="Governance & Links"
         hint="Canon dependency level, style guide, and component spec."
         open={openSection === "links"}
@@ -567,7 +572,7 @@ function CanonTab({
         </div>
       </EditorialSection>
 
-      <EditorialSection
+      <EditorialSection {...sectionProps}
         title="Canon Records"
         hint="Select the canon records this spec references."
         open={openSection === "canon"}
@@ -604,12 +609,15 @@ function PayloadTab({
   spec,
   onChange,
   onFocus,
+  readOnly = false,
 }: {
   spec: Spec;
   onChange: (patch: Partial<Spec>) => void;
   onFocus?: OnSpecFieldFocus;
+  readOnly?: boolean;
 }) {
   const [openSection, setOpenSection] = useState<string | null>("payload");
+  const sectionProps = { contentReadOnly: readOnly };
   const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
 
   const { data: pmData } = useQuery({
@@ -625,7 +633,7 @@ function PayloadTab({
 
   return (
     <div className="space-y-3">
-      <EditorialSection
+      <EditorialSection {...sectionProps}
         title="Prompt Payload"
         hint="Structured plain-text payload sent to the AI compiler."
         open={openSection === "payload"}
@@ -653,7 +661,7 @@ function PayloadTab({
       </EditorialSection>
 
       {(pmData?.prompt_modules ?? []).length > 0 && (
-        <EditorialSection
+        <EditorialSection {...sectionProps}
           title="Prompt Modules"
           hint="Reusable modules injected into the compiled prompt."
           open={openSection === "modules"}
@@ -697,7 +705,6 @@ export default function SpecEditor({ specId }: { specId: string }) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabId>("identity");
   const [localSpec, setLocalSpec] = useState<Spec | null>(null);
-  const [dirty, setDirty] = useState(false);
 
   const { data, isLoading, error } = useQuery<SpecResponse>({
     queryKey: ["editorial-spec", specId],
@@ -705,54 +712,13 @@ export default function SpecEditor({ specId }: { specId: string }) {
     staleTime: 30_000,
   });
 
-  // Sync local state when data loads
   useEffect(() => {
-    if (data?.spec && !dirty) setLocalSpec(data.spec);
-    else if (data?.spec && !localSpec) setLocalSpec(data.spec);
+    if (data?.spec) setLocalSpec(data.spec);
   }, [data?.spec]);
 
-  const onChange = (patch: Partial<Spec>) => {
-    setLocalSpec(prev => prev ? { ...prev, ...patch } : null);
-    setDirty(true);
-  };
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      if (!localSpec) throw new Error("No spec");
-      return apiFetch<{ spec: Spec }>(`/v1/editorial/specs/${specId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          production_item: localSpec.productionItem,
-          spec_id: localSpec.specId || undefined,
-          component_type: localSpec.componentType,
-          component_set: localSpec.componentSet || undefined,
-          current_version: localSpec.currentVersion,
-          design_intent: localSpec.designIntent,
-          narrative_purpose: localSpec.narrativePurpose,
-          required_content: localSpec.requiredContent,
-          review_criteria: localSpec.reviewCriteria,
-          writing_space_percent: localSpec.writingSpacePercent,
-          orientation: localSpec.orientation || undefined,
-          front_back_style: localSpec.frontBackStyle || undefined,
-          canon_dependency: localSpec.canonDependency,
-          canon_record_ids: localSpec.canonRecordIds,
-          payload_version: localSpec.payloadVersion,
-          prompt_payload: localSpec.promptPayload,
-          style_guide_id: localSpec.styleGuideId || undefined,
-          component_spec_id: localSpec.componentSpecId || undefined,
-          prompt_module_ids: localSpec.promptModuleIds,
-        }),
-      });
-    },
-    onSuccess: (data) => {
-      setLocalSpec(data.spec);
-      setDirty(false);
-      qc.invalidateQueries({ queryKey: ["editorial-spec", specId] });
-      qc.invalidateQueries({ queryKey: ["editorial-board"] });
-      toast({ title: "Saved" });
-    },
-    onError: () => toast({ title: "Save failed", variant: "destructive" }),
-  });
+  // Tab components also power the original record layout; their form controls
+  // are inert in this viewer, so changes are intentionally ignored.
+  const onChange = (_patch: Partial<Spec>) => undefined;
 
   const publishMutation = useMutation({
     mutationFn: () => apiFetch(`/v1/editorial/specs/${specId}/publish`, { method: "POST", body: JSON.stringify({}) }),
@@ -809,7 +775,6 @@ export default function SpecEditor({ specId }: { specId: string }) {
               {spec.specId && <span>{spec.specId}</span>}
               <span>·</span>
               <span>{spec.componentType}</span>
-              {dirty && <span className="text-amber-500">· unsaved changes</span>}
             </div>
           </div>
         </div>
@@ -821,15 +786,9 @@ export default function SpecEditor({ specId }: { specId: string }) {
           >
             <Trash2 className="w-4 h-4" />
           </button>
-          <button
-            onClick={() => saveMutation.mutate()}
-            disabled={!dirty || saveMutation.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
-            style={{ background: dirty ? "#C87560" : "#E5E7EB" }}
-          >
-            {saveMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            Save
-          </button>
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#E7E0D7] bg-[#FAF8F3] px-3 py-1.5 text-xs font-semibold text-[#786D60]">
+            <Lock className="h-3.5 w-3.5" /> Locked after creation
+          </span>
         </div>
       </div>
 
@@ -858,10 +817,14 @@ export default function SpecEditor({ specId }: { specId: string }) {
 
           {/* Tab content — fills available width, no maxWidth cap */}
           <div className="flex-1 overflow-y-auto p-6">
-            {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} />}
-            {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} />}
-            {activeTab === "canon" && <CanonTab spec={spec} onChange={onChange} />}
-            {activeTab === "payload" && <PayloadTab spec={spec} onChange={onChange} />}
+            <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[#E7E0D7] bg-[#FFFCF8] px-4 py-3 text-xs leading-relaxed text-[#786D60]">
+              <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#C87560]" />
+              <span>Production Specs are an immutable creation record. Review and use this specification as created; start a new Production Spec when the direction needs to change.</span>
+            </div>
+            {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} readOnly />}
+            {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} readOnly />}
+            {activeTab === "canon" && <CanonTab spec={spec} onChange={onChange} readOnly />}
+            {activeTab === "payload" && <PayloadTab spec={spec} onChange={onChange} readOnly />}
           </div>
         </div>
 

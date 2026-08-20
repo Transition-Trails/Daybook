@@ -27,6 +27,14 @@ export function fontReferenceText(font: DaybookFont): string {
 export function appendFontReference(current: string, font: DaybookFont): string {
   const reference = fontReferenceText(font);
   if (current.includes(`Daybook Font: ${font.familyName}`)) return current;
+  if (/<[a-z][\s\S]*>/i.test(current)) {
+    const safeReference = reference
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\n/g, "<br>");
+    return `${current}<p>${safeReference}</p>`;
+  }
   return current.trim() ? `${current.trim()}\n\n${reference}` : reference;
 }
 

@@ -106,7 +106,12 @@ export function EditorialRichTextField({
         onInput={event => onChange((event.currentTarget as HTMLDivElement).innerHTML)}
         data-placeholder={placeholder}
         className="px-4 py-3 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
-        style={{ minHeight, fontFamily: "'Spectral', Georgia, serif" }}
+        style={{
+          minHeight,
+          resize: "vertical",
+          overflowY: "auto",
+          fontFamily: "'Spectral', Georgia, serif",
+        }}
       />
     </div>
   );

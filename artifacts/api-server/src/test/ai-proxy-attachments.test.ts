@@ -37,7 +37,7 @@ describe("callAi attachment provider translation", () => {
   it("sends document text and an image_url block to ChatGPT", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       choices: [{ message: { content: "Done." } }],
-      model: "gpt-4o",
+      model: "gpt-5",
       usage: {},
     }));
     vi.stubGlobal("fetch", fetchMock);
@@ -45,6 +45,9 @@ describe("callAi attachment provider translation", () => {
     await callAi(messages, "chatgpt", undefined, options);
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    expect(requestBody.model).toBe("gpt-5");
+    expect(requestBody.max_completion_tokens).toBe(2048);
+    expect(requestBody).not.toHaveProperty("max_tokens");
     const content = requestBody.messages[0].content;
     expect(content).toContainEqual({
       type: "text",

@@ -16,7 +16,7 @@ import {
   Plus, Search, RefreshCw, Loader2, X, LayoutGrid, Table2,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
   BookOpen, ChevronRight, Clock, Sparkles, CheckCircle2, Download,
-  GitBranch, Repeat2, Wand2, RotateCcw, ArrowRight,
+  GitBranch, Repeat2, Wand2, RotateCcw, ArrowRight, ChevronDown,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -593,6 +593,8 @@ function InlineSuggestionsSection({
   onRefresh: () => void;
   onCreate: (suggestion: CanonSuggestion) => void;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
     <section
       className="mx-5 mb-7 mt-3 rounded-2xl p-5"
@@ -600,7 +602,13 @@ function InlineSuggestionsSection({
       aria-labelledby="canon-suggestions-heading"
     >
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-        <div className="flex items-start gap-3">
+        <button
+          type="button"
+          onClick={() => setCollapsed(value => !value)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand suggestions" : "Collapse suggestions"}
+          className="flex min-w-0 flex-1 items-start gap-3 text-left"
+        >
           <span
             className="mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
             style={{ background: "rgba(200,117,96,0.12)" }}
@@ -618,7 +626,11 @@ function InlineSuggestionsSection({
               These record ideas are grounded in your World Bible, existing canon, and storylines. Open any one to shape it before saving.
             </p>
           </div>
-        </div>
+          <ChevronDown
+            className={`mt-1.5 h-4 w-4 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+            style={{ color: "#9D5B49" }}
+          />
+        </button>
         <button
           onClick={onRefresh}
           disabled={loading}
@@ -630,7 +642,7 @@ function InlineSuggestionsSection({
         </button>
       </div>
 
-      {loading ? (
+      {!collapsed && (loading ? (
         <div className="flex items-center justify-center gap-2 py-8 text-sm" style={{ color: "#786D60" }}>
           <Loader2 className="w-4 h-4 animate-spin" style={{ color: "#C87560" }} />
           Reading your world and storylines…
@@ -686,7 +698,7 @@ function InlineSuggestionsSection({
             );
           })}
         </div>
-      )}
+      ))}
     </section>
   );
 }
@@ -1528,6 +1540,13 @@ export default function CanonLibrary() {
 
           {/* Records */}
           <div className="flex-1 overflow-y-auto">
+             <InlineSuggestionsSection
+               suggestions={inlineSuggestions.data?.suggestions ?? []}
+               loading={inlineSuggestions.isLoading || inlineSuggestions.isFetching}
+               error={inlineSuggestions.isError}
+               onRefresh={() => void inlineSuggestions.refetch()}
+               onCreate={openSuggestedCreate}
+             />
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 py-16">
                 <BookOpen className="w-8 h-8 mb-3 opacity-30" />
@@ -1587,13 +1606,6 @@ export default function CanonLibrary() {
                 </table>
               </div>
             )}
-            <InlineSuggestionsSection
-              suggestions={inlineSuggestions.data?.suggestions ?? []}
-              loading={inlineSuggestions.isLoading || inlineSuggestions.isFetching}
-              error={inlineSuggestions.isError}
-              onRefresh={() => void inlineSuggestions.refetch()}
-              onCreate={openSuggestedCreate}
-            />
           </div>
         </div>
       )}

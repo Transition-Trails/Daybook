@@ -205,9 +205,9 @@ async function callOpenAI(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o",
+      model: "gpt-5",
       messages: builtMessages,
-      max_tokens: 2048,
+      max_completion_tokens: 2048,
     }),
   });
 

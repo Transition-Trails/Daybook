@@ -54,7 +54,7 @@ describe("CanonLibrary suggested-record handoff", () => {
     expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/canon/new?type=location");
   });
 
-  it("shows world-aware suggestions below canon cards and opens their prefilled record form", async () => {
+  it("shows world-aware suggestions above canon cards and lets editors collapse them", async () => {
     apiFetch.mockImplementation((path: string) => {
       if (path === "/v1/editorial/canon-records/suggest") {
         return Promise.resolve({
@@ -92,6 +92,17 @@ describe("CanonLibrary suggested-record handoff", () => {
 
     await waitFor(() => expect(screen.getByText("Missing pieces for your canon")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("The Thorn Keeper")).toBeInTheDocument());
+
+    const suggestionsHeading = screen.getByRole("heading", { name: "Missing pieces for your canon" });
+    const record = screen.getByText("Wychcombe Village");
+    expect(
+      suggestionsHeading.compareDocumentPosition(record) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse suggestions" }));
+    expect(screen.queryByText("The Thorn Keeper")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Expand suggestions" }));
+    expect(screen.getByText("The Thorn Keeper")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Create record" }));
     expect(navigate).toHaveBeenCalledWith(

@@ -723,14 +723,16 @@ function CopilotPanelSession({
               }
             }}
             onPaste={allowAttachments ? handlePaste : undefined}
-            rows={2}
+            rows={4}
             placeholder={`Ask about ${activeFieldLabel.toLowerCase()}…`}
             className="flex-1 rounded-xl px-3 py-2 text-[13px] leading-relaxed resize-none outline-none"
-            style={{
-              border: `1px solid ${WARM_BORDER}`,
-              background: "white",
-              color: INK,
-            }}
+              style={{
+                border: `1px solid ${WARM_BORDER}`,
+                background: "white",
+                color: INK,
+                minHeight: 96,
+                maxHeight: 220,
+              }}
           />
           <button
             onClick={() => sendChat(chatInput)}

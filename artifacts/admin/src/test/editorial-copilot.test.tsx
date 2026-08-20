@@ -101,4 +101,12 @@ describe("EditorialCopilot", () => {
     expect(request.surface).toBe(surface);
     expect(request.context).toEqual(context);
   });
+
+  it("provides a spacious four-row message composer", () => {
+    renderCopilot();
+
+    const composer = screen.getByPlaceholderText("Ask about design intent…");
+    expect(composer).toHaveAttribute("rows", "4");
+    expect(composer).toHaveStyle({ minHeight: "96px", maxHeight: "220px" });
+  });
 });

@@ -66,7 +66,7 @@ function EditorialCopilot({
   return (
     <div
       className="flex flex-col h-full shrink-0"
-      style={{ width: 380, borderLeft: "1px solid #DDD4C4", background: "#FDFAF7" }}
+      style={{ width: 480, borderLeft: "1px solid #DDD4C4", background: "#FDFAF7" }}
     >
       <CopilotPanel
         isOpen

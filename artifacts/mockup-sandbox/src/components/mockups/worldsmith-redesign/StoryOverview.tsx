@@ -78,7 +78,23 @@ const PRODUCTS = [
   },
 ];
 
-const ACTS_BY_STORY: Record<string, typeof ACTS_DATA> = {
+type StoryAct = {
+  id: string;
+  number: string;
+  title: string;
+  tagline: string;
+  pct: number;
+  color: string;
+  lightBg: string;
+  locations: string[];
+  characters: string[];
+  objects: Array<{ name: string; mystery: string }>;
+  encounters: number;
+  gaps: string[];
+  journalPrompts: number;
+};
+
+const ACTS_BY_STORY: Record<string, StoryAct[]> = {
   s1: [
     {
       id: "act1", number: "Act I", title: "The Arrival",
@@ -110,7 +126,7 @@ const ACTS_BY_STORY: Record<string, typeof ACTS_DATA> = {
   s3: [],
 };
 
-const ACTS_DATA = ACTS_BY_STORY["s1"];
+const ACTS_DATA: StoryAct[] = ACTS_BY_STORY["s1"];
 
 const MYSTERY_THREADS = [
   { name: "What the mirrors remember", from: "The Obsidian Mirror", chain: ["The Glasshouse", "Lady Ashmore", "The Reckoning?"] },

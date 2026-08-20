@@ -67,7 +67,11 @@ export class ReleaseGitError extends Error {
   }
 }
 
-type RunGit = (args: string[], cwd?: string) => Promise<string>;
+type RunGitOptions = {
+  env?: NodeJS.ProcessEnv;
+};
+
+type RunGit = (args: string[], cwd?: string, options?: RunGitOptions) => Promise<string>;
 type FetchLike = typeof fetch;
 
 function repositoryRoot(start = process.cwd()): string {
@@ -171,10 +175,11 @@ export class ReleaseGitService {
   constructor(options?: { root?: string; runGit?: RunGit; fetchImpl?: FetchLike }) {
     this.root = options?.root ?? repositoryRoot();
     this.fetchImpl = options?.fetchImpl ?? fetch;
-    this.run = options?.runGit ?? (async (args, cwd = this.root) => {
+    this.run = options?.runGit ?? (async (args, cwd = this.root, runOptions) => {
       try {
         const { stdout } = await execFileAsync("git", args, {
           cwd,
+          env: { ...process.env, ...runOptions?.env },
           timeout: 20_000,
           maxBuffer: 1024 * 1024,
           windowsHide: true,
@@ -388,7 +393,37 @@ export class ReleaseGitService {
       await this.run(["-C", worktree, "add", "--", "CHANGELOG.md"]);
       await this.run(["-C", worktree, "commit", "-m", `chore(release): v${release.version}`]);
       const commitSha = await this.run(["-C", worktree, "rev-parse", "HEAD"]);
-      await this.run(["-C", worktree, "push", "origin", `${branch}:${branch}`]);
+      const pushAuthDir = await mkdtemp(join(tmpdir(), "daybook-release-askpass-"));
+      try {
+        const askPassPath = join(pushAuthDir, "askpass.sh");
+        await writeFile(
+          askPassPath,
+          [
+            "#!/bin/sh",
+            'case "$1" in',
+            '  *Username*) printf "%s\\n" "x-access-token" ;;',
+            '  *) printf "%s\\n" "${GITHUB_TOKEN:?GitHub credentials are not configured}" ;;',
+            "esac",
+            "",
+          ].join("\n"),
+          { encoding: "utf8", mode: 0o700 },
+        );
+        await this.run(
+          ["-C", worktree, "push", "origin", `${branch}:${branch}`],
+          undefined,
+          {
+            env: {
+              GIT_ASKPASS: askPassPath,
+              GIT_TERMINAL_PROMPT: "0",
+              GIT_CONFIG_COUNT: "1",
+              GIT_CONFIG_KEY_0: "credential.helper",
+              GIT_CONFIG_VALUE_0: "",
+            },
+          },
+        );
+      } finally {
+        await rm(pushAuthDir, { recursive: true, force: true }).catch(() => undefined);
+      }
       const pullRequest = await this.ensureReviewPullRequest(repo, branch, release);
       return { branch, commitSha, pullRequest };
     } catch (error) {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
 import {
   evaluateGitHealth,
   makeReviewBranch,
@@ -141,6 +142,82 @@ describe("release Git safety", () => {
       notes: [{ note: "Safe release work" }],
     }, 1)).rejects.toMatchObject({ code: "CLOSED_REVIEW" });
     expect(runGit.mock.calls.some(([args]) => args[0] === "worktree")).toBe(false);
+  });
+
+  it("uses a temporary askpass credential for the review branch without ever pushing main", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "test-token");
+    const runGit = vi.fn(async (
+      args: string[],
+      _cwd?: string,
+      options?: { env?: NodeJS.ProcessEnv },
+    ) => {
+      const command = args.join(" ");
+      if (command === "fetch --quiet origin") return "";
+      if (command === "symbolic-ref --short HEAD") return "main";
+      if (command === "rev-parse HEAD") return "f".repeat(40);
+      if (command === "remote get-url origin") return "https://github.com/Transition-Trails/Daybook.git";
+      if (command === "status --porcelain=v1") return "";
+      if (command === "diff --name-only --diff-filter=U") return "";
+      if (command === "rev-parse -q --verify REBASE_HEAD") throw new Error("not rebasing");
+      if (command === "rev-list --left-right --count origin/main...HEAD") return "0 0";
+      if (command.includes("log -8")) return "";
+      if (command.startsWith("ls-remote --heads origin")) return "";
+      if (args[0] === "worktree" && args[1] === "add") return "";
+      if (args[0] === "-C" && args[2] === "switch") return "";
+      if (args[0] === "-C" && args[2] === "add") return "";
+      if (args[0] === "-C" && args[2] === "commit") return "";
+      if (args[0] === "-C" && args[2] === "rev-parse") return "b".repeat(40);
+      if (args[0] === "-C" && args[2] === "push") {
+        const askPassPath = options?.env?.GIT_ASKPASS;
+        expect(askPassPath).toEqual(expect.any(String));
+        expect(options?.env).toMatchObject({
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "credential.helper",
+          GIT_CONFIG_VALUE_0: "",
+        });
+        expect(args).toEqual([
+          "-C",
+          expect.any(String),
+          "push",
+          "origin",
+          "release/v1.2.3-r5-a1:release/v1.2.3-r5-a1",
+        ]);
+        expect(args).not.toContain("main");
+        expect(JSON.stringify(args)).not.toContain("test-token");
+        expect(await readFile(askPassPath!, "utf8")).not.toContain("test-token");
+        return "";
+      }
+      if (args[0] === "worktree" && args[1] === "remove") return "";
+      throw new Error(`Unexpected git command: ${command}`);
+    });
+    const fetchImpl = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({
+          number: 42,
+          html_url: "https://github.com/Transition-Trails/Daybook/pull/42",
+          merged: false,
+          merge_commit_sha: null,
+          state: "open",
+          head: { ref: "release/v1.2.3-r5-a1", sha: "b".repeat(40) },
+          base: { ref: "main" },
+        }), { status: 201 });
+      }
+      return new Response("[]", { status: 200 });
+    });
+    const service = new ReleaseGitService({ root: "/tmp", runGit, fetchImpl: fetchImpl as typeof fetch });
+
+    const result = await service.prepareReview({
+      id: 5,
+      version: "1.2.3",
+      versionType: "minor",
+      title: "Release review",
+      notes: [{ note: "Safe release work" }],
+    }, 1);
+
+    expect(result.branch).toBe("release/v1.2.3-r5-a1");
+    expect(result.pullRequest.baseRef).toBe("main");
+    expect(runGit.mock.calls.some(([args]) => args[0] === "-C" && args[2] === "push" && args.includes("main"))).toBe(false);
   });
 });
 

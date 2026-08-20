@@ -36,7 +36,7 @@ const CANON_TRANSITIONS: Record<string, string[]> = {
   proposed:     ["under_review", "rejected"],
   under_review: ["accepted", "superseded", "rejected", "proposed"],
   accepted:     ["superseded"],
-  superseded:   [],
+  superseded:   ["proposed"],
   rejected:     ["proposed"],
 };
 

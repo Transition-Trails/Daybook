@@ -801,12 +801,12 @@ function RightPanel({ record, recordId, relations, allRecords, patchMutation, tr
     proposed:     ["under_review", "rejected"],
     under_review: ["accepted", "superseded", "rejected", "proposed"],
     accepted:     ["superseded"],
-    superseded:   [],
+    superseded:   ["proposed"],
     rejected:     ["proposed"],
   };
   const TRANSITION_LABELS: Record<string, string> = {
     under_review: "Send for Review", accepted: "Accept", superseded: "Supersede",
-    rejected: "Reject", proposed: "Reopen",
+    rejected: "Reject", proposed: "Reopen as Proposed",
   };
   const transitions = ALLOWED_TRANSITIONS[record.status ?? "proposed"] ?? [];
 

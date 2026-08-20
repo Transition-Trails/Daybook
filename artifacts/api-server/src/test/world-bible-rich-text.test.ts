@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compilePrompt } from "../lib/worldsmith/prompt-compiler.js";
 import { sanitizeWorldBibleRichText, worldBibleRichTextToPlainText } from "../lib/worldsmith/world-bible-rich-text.js";
+import { computeReadinessScore } from "../routes/worldsmith-editorial.js";
 import type { InheritanceChain, ParsedPayload } from "../lib/worldsmith/types.js";
 
 function chainWithBible(visualPalette: string): InheritanceChain {
@@ -57,5 +58,29 @@ describe("World Bible rich text", () => {
     expect(result.fullPrompt).not.toContain("<ul>");
     expect(result.sectionRecords.find(section => section.key === "visual_palette")?.content)
       .toBe("Moss green, umber, and pale gold.\n\nWarm candlelight");
+  });
+
+  it("does not count a formatting-only editorial field as production-spec readiness", () => {
+    const baseline = {
+      productionItem: "Editorial readiness",
+      componentType: "Hero Paper",
+      worldId: "world-a",
+      collectionId: "collection-a",
+      designIntent: "",
+      narrativePurpose: "Meaningful prose",
+      requiredContent: "A fern",
+      orientation: "portrait",
+      payloadVersion: "PP-2.0",
+      promptPayload: "shared_prompt: " + "x".repeat(40),
+      canonDependency: "None",
+      styleGuideId: "guide-a",
+      componentSpecId: "component-a",
+      promptModuleIds: ["module-a"],
+      reviewCriteria: "Check margins",
+      specId: "SPEC-1",
+    };
+
+    expect(computeReadinessScore({ ...baseline, designIntent: "<div><br></div>" } as any))
+      .toBe(computeReadinessScore(baseline as any));
   });
 });

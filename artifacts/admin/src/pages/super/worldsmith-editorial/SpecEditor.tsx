@@ -14,6 +14,11 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
+import {
+  EditorialRichTextField,
+  EditorialSection,
+  editorialRichTextToPlainText,
+} from "@/components/EditorialRichText";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -69,14 +74,20 @@ function getChecks(s: Spec): CheckEntry[] {
   const moduleIds = (s.promptModuleIds ?? []) as string[];
   const payload = s.promptPayload ?? "";
 
+  // For rich-text fields, strip to plain text before checking emptiness
+  const diText = editorialRichTextToPlainText(s.designIntent ?? "");
+  const npText = editorialRichTextToPlainText(s.narrativePurpose ?? "");
+  const rcText = editorialRichTextToPlainText(s.requiredContent ?? "");
+  const revText = editorialRichTextToPlainText(s.reviewCriteria ?? "");
+
   return [
     { label: "Production item name", done: !!s.productionItem?.trim(), section: "identity" },
     { label: "Component type", done: !!s.componentType?.trim(), section: "identity" },
     { label: "Spec ID", done: !!s.specId?.trim(), section: "identity" },
     { label: "Collection linked", done: !!(s.collectionId?.trim()), section: "identity" },
-    { label: "Design intent", done: !!s.designIntent?.trim(), section: "creative" },
-    { label: "Narrative purpose", done: !!s.narrativePurpose?.trim(), section: "creative" },
-    { label: "Required content", done: !!s.requiredContent?.trim(), section: "creative" },
+    { label: "Design intent", done: !!diText, section: "creative" },
+    { label: "Narrative purpose", done: !!npText, section: "creative" },
+    { label: "Required content", done: !!rcText, section: "creative" },
     { label: "Orientation", done: !!s.orientation?.trim(), section: "creative" },
     { label: "Front/back style", done: !!s.frontBackStyle?.trim(), section: "creative" },
     { label: "Payload version", done: !!s.payloadVersion?.trim(), section: "payload" },
@@ -87,7 +98,7 @@ function getChecks(s: Spec): CheckEntry[] {
     { label: "Component spec linked", done: !!s.componentSpecId?.trim(), section: "canon" },
     { label: "Canon records (if required)", done: dep === "None" || canonIds.length > 0, section: "canon" },
     { label: "Prompt modules", done: moduleIds.length > 0, section: "payload" },
-    { label: "Review criteria", done: !!s.reviewCriteria?.trim(), section: "review" },
+    { label: "Review criteria", done: !!revText, section: "review" },
   ];
 }
 
@@ -314,6 +325,8 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 type OnSpecFieldFocus = (field: keyof Spec, label: string) => void;
 
 function IdentityTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch: Partial<Spec>) => void; onFocus?: OnSpecFieldFocus }) {
+  const [openSection, setOpenSection] = useState<string | null>("naming");
+
   const { data: setsData } = useQuery({
     queryKey: ["editorial-component-sets", spec.worldId],
     queryFn: () => apiFetch<{ component_sets: string[] }>(`/v1/editorial/component-sets?world_id=${spec.worldId}`),
@@ -321,94 +334,171 @@ function IdentityTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch
   });
   const existingSets = setsData?.component_sets ?? [];
 
+  const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
+
   return (
-    <div className="space-y-4">
-      <Field label="Production Item Name">
-        <input value={spec.productionItem} onChange={e => onChange({ productionItem: e.target.value })} onFocus={() => onFocus?.("productionItem", "Production Item Name")} className={inputCls} />
-      </Field>
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Spec ID" hint="Auto-generated on creation — override here if needed.">
-          <input value={spec.specId ?? ""} onChange={e => onChange({ specId: e.target.value })} onFocus={() => onFocus?.("specId", "Spec ID")} className={inputCls} placeholder="e.g. WYC-HRP-001" />
-        </Field>
-        <Field label="Current Version">
-          <input value={spec.currentVersion} onChange={e => onChange({ currentVersion: e.target.value })} className={inputCls} />
-        </Field>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Component Type">
-          <select value={spec.componentType} onChange={e => onChange({ componentType: e.target.value })} className={selectCls}>
-            <option>Hero Paper</option>
-            <option>Decorative Paper</option>
-            <option>Journal Card</option>
-            <option>Coordinating Paper</option>
-            <option>Ephemera Sheet</option>
-            <option>Notepaper</option>
-            <option>Endpaper</option>
-            <option>Washi Tape</option>
-          </select>
-        </Field>
-        <Field label="Component Set" hint="Pick an existing set or type a new name.">
-          <input
-            value={spec.componentSet ?? ""}
-            onChange={e => onChange({ componentSet: e.target.value })}
-            className={inputCls}
-            placeholder="e.g. The Herbalist's Collection"
-            list="editor-component-set-list"
-            autoComplete="off"
-          />
-          {existingSets.length > 0 && (
-            <datalist id="editor-component-set-list">
-              {existingSets.map(s => <option key={s} value={s} />)}
-            </datalist>
-          )}
-        </Field>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Orientation">
-          <select value={spec.orientation ?? ""} onChange={e => onChange({ orientation: e.target.value })} className={selectCls}>
-            <option value="">Not set</option>
-            <option value="portrait">Portrait</option>
-            <option value="landscape">Landscape</option>
-            <option value="square">Square</option>
-          </select>
-        </Field>
-        <Field label="Front/Back Style">
-          <select value={spec.frontBackStyle ?? ""} onChange={e => onChange({ frontBackStyle: e.target.value })} className={selectCls}>
-            <option value="">Not set</option>
-            <option value="single-sided">Single Sided</option>
-            <option value="double-sided-matched">Double Sided — Matched</option>
-            <option value="double-sided-complementary">Double Sided — Complementary</option>
-            <option value="double-sided-independent">Double Sided — Independent</option>
-          </select>
-        </Field>
-      </div>
-      <Field label="Writing Space %" hint="0 = decorative only, 100 = blank/lined paper.">
-        <input
-          type="number" min={0} max={100} step={5}
-          value={spec.writingSpacePercent ?? ""}
-          onChange={e => onChange({ writingSpacePercent: e.target.value ? parseFloat(e.target.value) : null })}
-          className={inputCls}
-        />
-      </Field>
+    <div className="space-y-3">
+      <EditorialSection
+        title="Naming & Identity"
+        hint="Production item name, spec ID, and version."
+        open={openSection === "naming"}
+        onToggle={() => toggle("naming")}
+        preview={spec.productionItem || undefined}
+      >
+        <div className="space-y-4">
+          <Field label="Production Item Name">
+            <input value={spec.productionItem} onChange={e => onChange({ productionItem: e.target.value })} onFocus={() => onFocus?.("productionItem", "Production Item Name")} className={inputCls} />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Spec ID" hint="Auto-generated on creation — override here if needed.">
+              <input value={spec.specId ?? ""} onChange={e => onChange({ specId: e.target.value })} onFocus={() => onFocus?.("specId", "Spec ID")} className={inputCls} placeholder="e.g. WYC-HRP-001" />
+            </Field>
+            <Field label="Current Version">
+              <input value={spec.currentVersion} onChange={e => onChange({ currentVersion: e.target.value })} className={inputCls} />
+            </Field>
+          </div>
+        </div>
+      </EditorialSection>
+
+      <EditorialSection
+        title="Component & Format"
+        hint="Type, set membership, orientation, and print style."
+        open={openSection === "component"}
+        onToggle={() => toggle("component")}
+        preview={[spec.componentType, spec.componentSet].filter(Boolean).join(" · ") || undefined}
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Component Type">
+              <select value={spec.componentType} onChange={e => onChange({ componentType: e.target.value })} className={selectCls}>
+                <option>Hero Paper</option>
+                <option>Decorative Paper</option>
+                <option>Journal Card</option>
+                <option>Coordinating Paper</option>
+                <option>Ephemera Sheet</option>
+                <option>Notepaper</option>
+                <option>Endpaper</option>
+                <option>Washi Tape</option>
+              </select>
+            </Field>
+            <Field label="Component Set" hint="Pick an existing set or type a new name.">
+              <input
+                value={spec.componentSet ?? ""}
+                onChange={e => onChange({ componentSet: e.target.value })}
+                className={inputCls}
+                placeholder="e.g. The Herbalist's Collection"
+                list="editor-component-set-list"
+                autoComplete="off"
+              />
+              {existingSets.length > 0 && (
+                <datalist id="editor-component-set-list">
+                  {existingSets.map(s => <option key={s} value={s} />)}
+                </datalist>
+              )}
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Orientation">
+              <select value={spec.orientation ?? ""} onChange={e => onChange({ orientation: e.target.value })} className={selectCls}>
+                <option value="">Not set</option>
+                <option value="portrait">Portrait</option>
+                <option value="landscape">Landscape</option>
+                <option value="square">Square</option>
+              </select>
+            </Field>
+            <Field label="Front/Back Style">
+              <select value={spec.frontBackStyle ?? ""} onChange={e => onChange({ frontBackStyle: e.target.value })} className={selectCls}>
+                <option value="">Not set</option>
+                <option value="single-sided">Single Sided</option>
+                <option value="double-sided-matched">Double Sided — Matched</option>
+                <option value="double-sided-complementary">Double Sided — Complementary</option>
+                <option value="double-sided-independent">Double Sided — Independent</option>
+              </select>
+            </Field>
+          </div>
+          <Field label="Writing Space %" hint="0 = decorative only, 100 = blank/lined paper.">
+            <input
+              type="number" min={0} max={100} step={5}
+              value={spec.writingSpacePercent ?? ""}
+              onChange={e => onChange({ writingSpacePercent: e.target.value ? parseFloat(e.target.value) : null })}
+              className={inputCls}
+            />
+          </Field>
+        </div>
+      </EditorialSection>
     </div>
   );
 }
 
 function CreativeTab({ spec, onChange, onFocus }: { spec: Spec; onChange: (patch: Partial<Spec>) => void; onFocus?: OnSpecFieldFocus }) {
+  const [openSection, setOpenSection] = useState<string | null>("design");
+  const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
+
   return (
-    <div className="space-y-4">
-      <Field label="Design Intent" hint="The visual experience this component should create.">
-        <textarea value={spec.designIntent} onChange={e => onChange({ designIntent: e.target.value })} onFocus={() => onFocus?.("designIntent", "Design Intent")} className={textareaCls} rows={4} />
-      </Field>
-      <Field label="Narrative Purpose" hint="How this connects to the world's story.">
-        <textarea value={spec.narrativePurpose} onChange={e => onChange({ narrativePurpose: e.target.value })} onFocus={() => onFocus?.("narrativePurpose", "Narrative Purpose")} className={textareaCls} rows={4} />
-      </Field>
-      <Field label="Required Content" hint="Specific visual elements, motifs, or text areas that must appear.">
-        <textarea value={spec.requiredContent} onChange={e => onChange({ requiredContent: e.target.value })} onFocus={() => onFocus?.("requiredContent", "Required Content")} className={textareaCls} rows={4} />
-      </Field>
-      <Field label="Review Criteria" hint="How you'll evaluate generated images against this spec.">
-        <textarea value={spec.reviewCriteria} onChange={e => onChange({ reviewCriteria: e.target.value })} onFocus={() => onFocus?.("reviewCriteria", "Review Criteria")} className={textareaCls} rows={4} />
-      </Field>
+    <div className="space-y-3">
+      <EditorialSection
+        title="Design Intent"
+        hint="The visual experience this component should create."
+        open={openSection === "design"}
+        onToggle={() => toggle("design")}
+        preview={editorialRichTextToPlainText(spec.designIntent).slice(0, 120) || undefined}
+      >
+        <EditorialRichTextField
+          value={spec.designIntent}
+          placeholder="Describe the visual experience this component should create…"
+          onFocus={() => onFocus?.("designIntent", "Design Intent")}
+          onChange={val => onChange({ designIntent: val })}
+          minHeight={160}
+        />
+      </EditorialSection>
+
+      <EditorialSection
+        title="Narrative Purpose"
+        hint="How this connects to the world's story."
+        open={openSection === "narrative"}
+        onToggle={() => toggle("narrative")}
+        preview={editorialRichTextToPlainText(spec.narrativePurpose).slice(0, 120) || undefined}
+      >
+        <EditorialRichTextField
+          value={spec.narrativePurpose}
+          placeholder="How does this component connect to the world's story…"
+          onFocus={() => onFocus?.("narrativePurpose", "Narrative Purpose")}
+          onChange={val => onChange({ narrativePurpose: val })}
+          minHeight={160}
+        />
+      </EditorialSection>
+
+      <EditorialSection
+        title="Required Content"
+        hint="Specific visual elements, motifs, or text areas that must appear."
+        open={openSection === "required"}
+        onToggle={() => toggle("required")}
+        preview={editorialRichTextToPlainText(spec.requiredContent).slice(0, 120) || undefined}
+      >
+        <EditorialRichTextField
+          value={spec.requiredContent}
+          placeholder="List specific visual elements, motifs, or text areas that must appear…"
+          onFocus={() => onFocus?.("requiredContent", "Required Content")}
+          onChange={val => onChange({ requiredContent: val })}
+          minHeight={160}
+        />
+      </EditorialSection>
+
+      <EditorialSection
+        title="Review Criteria"
+        hint="How you'll evaluate generated images against this spec."
+        open={openSection === "review"}
+        onToggle={() => toggle("review")}
+        preview={editorialRichTextToPlainText(spec.reviewCriteria).slice(0, 120) || undefined}
+      >
+        <EditorialRichTextField
+          value={spec.reviewCriteria}
+          placeholder="Describe how you'll evaluate generated images against this spec…"
+          onFocus={() => onFocus?.("reviewCriteria", "Review Criteria")}
+          onChange={val => onChange({ reviewCriteria: val })}
+          minHeight={160}
+        />
+      </EditorialSection>
     </div>
   );
 }
@@ -422,6 +512,9 @@ function CanonTab({
   onChange: (patch: Partial<Spec>) => void;
   onFocus?: OnSpecFieldFocus;
 }) {
+  const [openSection, setOpenSection] = useState<string | null>("links");
+  const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
+
   const { data: sgData } = useQuery({
     queryKey: ["editorial-style-guides", spec.worldId],
     queryFn: () => apiFetch<{ style_guides: { id: string; name: string }[] }>(`/v1/editorial/style-guides?world_id=${spec.worldId}`),
@@ -442,29 +535,46 @@ function CanonTab({
   };
 
   return (
-    <div className="space-y-4">
-      <Field label="Canon Dependency">
-        <select value={spec.canonDependency} onChange={e => onChange({ canonDependency: e.target.value })} onFocus={() => onFocus?.("requiredContent", "Canon Constraints")} className={selectCls}>
-          <option value="None">None</option>
-          <option value="Supports Canon">Supports Canon</option>
-          <option value="Canon Reference">Canon Reference</option>
-          <option value="Canon Defining">Canon Defining</option>
-        </select>
-      </Field>
-      <Field label="Style Guide">
-        <select value={spec.styleGuideId ?? ""} onChange={e => onChange({ styleGuideId: e.target.value || null })} className={selectCls}>
-          <option value="">None</option>
-          {(sgData?.style_guides ?? []).map(sg => <option key={sg.id} value={sg.id}>{sg.name}</option>)}
-        </select>
-      </Field>
-      <Field label="Component Spec">
-        <select value={spec.componentSpecId ?? ""} onChange={e => onChange({ componentSpecId: e.target.value || null })} className={selectCls}>
-          <option value="">None</option>
-          {(csData?.component_specs ?? []).map(cs => <option key={cs.id} value={cs.id}>{cs.name}</option>)}
-        </select>
-      </Field>
-      <Field label="Canon Records" hint="Select the canon records this spec references.">
-        <div className="border border-gray-200 rounded-lg max-h-52 overflow-y-auto divide-y divide-gray-100">
+    <div className="space-y-3">
+      <EditorialSection
+        title="Governance & Links"
+        hint="Canon dependency level, style guide, and component spec."
+        open={openSection === "links"}
+        onToggle={() => toggle("links")}
+        preview={spec.canonDependency !== "None" ? spec.canonDependency : undefined}
+      >
+        <div className="space-y-4">
+          <Field label="Canon Dependency">
+            <select value={spec.canonDependency} onChange={e => onChange({ canonDependency: e.target.value })} onFocus={() => onFocus?.("requiredContent", "Canon Constraints")} className={selectCls}>
+              <option value="None">None</option>
+              <option value="Supports Canon">Supports Canon</option>
+              <option value="Canon Reference">Canon Reference</option>
+              <option value="Canon Defining">Canon Defining</option>
+            </select>
+          </Field>
+          <Field label="Style Guide">
+            <select value={spec.styleGuideId ?? ""} onChange={e => onChange({ styleGuideId: e.target.value || null })} className={selectCls}>
+              <option value="">None</option>
+              {(sgData?.style_guides ?? []).map(sg => <option key={sg.id} value={sg.id}>{sg.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Component Spec">
+            <select value={spec.componentSpecId ?? ""} onChange={e => onChange({ componentSpecId: e.target.value || null })} className={selectCls}>
+              <option value="">None</option>
+              {(csData?.component_specs ?? []).map(cs => <option key={cs.id} value={cs.id}>{cs.name}</option>)}
+            </select>
+          </Field>
+        </div>
+      </EditorialSection>
+
+      <EditorialSection
+        title="Canon Records"
+        hint="Select the canon records this spec references."
+        open={openSection === "canon"}
+        onToggle={() => toggle("canon")}
+        preview={canonIds.length > 0 ? `${canonIds.length} record${canonIds.length === 1 ? "" : "s"} linked` : undefined}
+      >
+        <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto divide-y divide-gray-100">
           {(crData?.canon_records ?? []).length === 0 ? (
             <p className="text-xs text-gray-400 p-3">No canon records in this world yet.</p>
           ) : (
@@ -485,7 +595,7 @@ function CanonTab({
             ))
           )}
         </div>
-      </Field>
+      </EditorialSection>
     </div>
   );
 }
@@ -499,6 +609,9 @@ function PayloadTab({
   onChange: (patch: Partial<Spec>) => void;
   onFocus?: OnSpecFieldFocus;
 }) {
+  const [openSection, setOpenSection] = useState<string | null>("payload");
+  const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
+
   const { data: pmData } = useQuery({
     queryKey: ["editorial-prompt-modules", spec.worldId],
     queryFn: () => apiFetch<{ prompt_modules: { id: string; name: string }[] }>(`/v1/editorial/prompt-modules?world_id=${spec.worldId}`),
@@ -511,25 +624,42 @@ function PayloadTab({
   };
 
   return (
-    <div className="space-y-4">
-      <Field label="Payload Version">
-        <select value={spec.payloadVersion ?? "PP-2.0"} onChange={e => onChange({ payloadVersion: e.target.value })} className={selectCls}>
-          <option value="PP-2.0">PP-2.0 (Section-based)</option>
-          <option value="PP-1.0">PP-1.0 (Legacy flat)</option>
-        </select>
-      </Field>
-      <Field label="Prompt Payload">
-        <textarea
-          value={spec.promptPayload}
-          onChange={e => onChange({ promptPayload: e.target.value })}
-          onFocus={() => onFocus?.("promptPayload", "Prompt Payload")}
-          className={textareaCls}
-          rows={14}
-          style={{ fontFamily: "ui-monospace, 'Fira Mono', monospace", fontSize: 12 }}
-        />
-      </Field>
+    <div className="space-y-3">
+      <EditorialSection
+        title="Prompt Payload"
+        hint="Structured plain-text payload sent to the AI compiler."
+        open={openSection === "payload"}
+        onToggle={() => toggle("payload")}
+        preview={spec.promptPayload ? `${spec.promptPayload.trim().slice(0, 80)}…` : undefined}
+      >
+        <div className="space-y-4">
+          <Field label="Payload Version">
+            <select value={spec.payloadVersion ?? "PP-2.0"} onChange={e => onChange({ payloadVersion: e.target.value })} className={selectCls}>
+              <option value="PP-2.0">PP-2.0 (Section-based)</option>
+              <option value="PP-1.0">PP-1.0 (Legacy flat)</option>
+            </select>
+          </Field>
+          <Field label="Prompt Payload">
+            <textarea
+              value={spec.promptPayload}
+              onChange={e => onChange({ promptPayload: e.target.value })}
+              onFocus={() => onFocus?.("promptPayload", "Prompt Payload")}
+              className={textareaCls}
+              rows={16}
+              style={{ fontFamily: "ui-monospace, 'Fira Mono', monospace", fontSize: 12 }}
+            />
+          </Field>
+        </div>
+      </EditorialSection>
+
       {(pmData?.prompt_modules ?? []).length > 0 && (
-        <Field label="Prompt Modules">
+        <EditorialSection
+          title="Prompt Modules"
+          hint="Reusable modules injected into the compiled prompt."
+          open={openSection === "modules"}
+          onToggle={() => toggle("modules")}
+          preview={moduleIds.length > 0 ? `${moduleIds.length} module${moduleIds.length === 1 ? "" : "s"} active` : undefined}
+        >
           <div className="flex flex-wrap gap-2">
             {(pmData?.prompt_modules ?? []).map(pm => {
               const active = moduleIds.includes(pm.id);
@@ -544,7 +674,7 @@ function PayloadTab({
               );
             })}
           </div>
-        </Field>
+        </EditorialSection>
       )}
     </div>
   );
@@ -726,14 +856,12 @@ export default function SpecEditor({ specId }: { specId: string }) {
             })}
           </div>
 
-          {/* Tab content */}
+          {/* Tab content — fills available width, no maxWidth cap */}
           <div className="flex-1 overflow-y-auto p-6">
-            <div style={{ maxWidth: 640 }}>
             {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} />}
             {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} />}
             {activeTab === "canon" && <CanonTab spec={spec} onChange={onChange} />}
             {activeTab === "payload" && <PayloadTab spec={spec} onChange={onChange} />}
-            </div>
           </div>
         </div>
 

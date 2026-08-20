@@ -11,6 +11,7 @@ import {
   Plus, Puzzle, FileText, ChevronRight, Loader2, X, Save, Pencil, Sparkles,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { editorialRichTextToPlainText } from "@/lib/editorial-rich-text";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
 import { EditorialCopilot } from "@/components/EditorialCopilot";
@@ -33,8 +34,10 @@ interface PromptModule {
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-const wordCount = (text: string) =>
-  text.trim() ? text.trim().split(/\s+/).length : 0;
+const wordCount = (text: string) => {
+  const plainText = editorialRichTextToPlainText(text);
+  return plainText ? plainText.split(/\s+/).length : 0;
+};
 
 // ── Drawer ────────────────────────────────────────────────────────────────────
 
@@ -196,7 +199,8 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
 
 function ModuleCard({ module, onEdit }: { module: PromptModule; onEdit: () => void }) {
   const wc = wordCount(module.content);
-  const preview = module.content.slice(0, 160).trim();
+  const plainContent = editorialRichTextToPlainText(module.content);
+  const preview = plainContent.slice(0, 160).trim();
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md hover:border-gray-300 transition-all group">
@@ -228,7 +232,7 @@ function ModuleCard({ module, onEdit }: { module: PromptModule; onEdit: () => vo
 
       {preview && (
         <p className="mt-3 text-sm text-gray-500 leading-relaxed line-clamp-3 pl-11">
-          {preview}{module.content.length > 160 ? "…" : ""}
+          {preview}{plainContent.length > 160 ? "…" : ""}
         </p>
       )}
     </div>
@@ -264,8 +268,6 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 export default function PromptModules() {
   const { selectedWorldId, selectedWorld } = useEditorial();
   const [, navigate] = useLocation();
-  const [drawerModule, setDrawerModule] = useState<PromptModule | null | "new">(undefined as any);
-  const drawerOpen = drawerModule !== undefined && drawerModule !== (undefined as any);
 
   const { data, isLoading } = useQuery({
     queryKey: ["editorial-prompt-modules", selectedWorldId],
@@ -279,8 +281,7 @@ export default function PromptModules() {
   const modules = data?.prompt_modules ?? [];
 
   const openNew = () => navigate("/super/worldsmith/editorial/modules/new");
-  const openEdit = (m: PromptModule) => setDrawerModule(m);
-  const closeDrawer = () => setDrawerModule(undefined as any);
+  const openEdit = (m: PromptModule) => navigate(`/super/worldsmith/editorial/modules/${m.id}`);
 
   return (
     <div className="flex flex-col h-full">
@@ -327,14 +328,6 @@ export default function PromptModules() {
         )}
       </div>
 
-      {/* Drawer */}
-      {drawerOpen && (
-        <PromptModuleDrawer
-          worldId={selectedWorldId ?? ""}
-          module={drawerModule === "new" ? null : drawerModule as PromptModule}
-          onClose={closeDrawer}
-        />
-      )}
     </div>
   );
 }

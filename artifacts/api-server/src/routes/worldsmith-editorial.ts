@@ -24,6 +24,10 @@
  * GET/PATCH  /v1/editorial/{resource}/:id
  */
 import { Router } from "express";
+import {
+  editorialRichTextToPlainText,
+  sanitizeEditorialRichText,
+} from "../lib/worldsmith/editorial-rich-text";
 import { requireAuth } from "../lib/auth-middleware";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { db } from "@workspace/db";
@@ -84,9 +88,9 @@ export function computeReadinessScore(spec: Partial<InsertWsProductionSpec>): nu
     !!spec.worldId?.trim(),
     !!(spec.collectionId?.trim() || spec.volumeId?.trim()),
     // Creative direction (4)
-    !!spec.designIntent?.trim(),
-    !!spec.narrativePurpose?.trim(),
-    !!spec.requiredContent?.trim(),
+    !!editorialRichTextToPlainText(spec.designIntent),
+    !!editorialRichTextToPlainText(spec.narrativePurpose),
+    !!editorialRichTextToPlainText(spec.requiredContent),
     !!spec.orientation?.trim(),
     // Payload (3)
     !!spec.payloadVersion?.trim(),
@@ -99,7 +103,7 @@ export function computeReadinessScore(spec: Partial<InsertWsProductionSpec>): nu
     // Related records (4)
     !!spec.componentSpecId?.trim(),
     moduleIds.length > 0,
-    !!spec.reviewCriteria?.trim(),
+    !!editorialRichTextToPlainText(spec.reviewCriteria),
     !!(spec.specId?.trim()),
   ];
 
@@ -380,9 +384,9 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
         worldId: world_id,
         name: name.trim(),
         canonType: canon_type,
-        narrativeDetails: narrative_details ?? "",
-        historicalContext: historical_context ?? "",
-        visualNotes: visual_notes ?? "",
+        narrativeDetails: sanitizeEditorialRichText(narrative_details ?? ""),
+        historicalContext: sanitizeEditorialRichText(historical_context ?? ""),
+        visualNotes: sanitizeEditorialRichText(visual_notes ?? ""),
         createdBy: (req.user as any)?.id,
       })
       .returning();
@@ -926,9 +930,9 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
       .set({
         ...(name !== undefined ? { name } : {}),
         ...(canon_type !== undefined ? { canonType: canon_type } : {}),
-        ...(narrative_details !== undefined ? { narrativeDetails: narrative_details } : {}),
-        ...(historical_context !== undefined ? { historicalContext: historical_context } : {}),
-        ...(visual_notes !== undefined ? { visualNotes: visual_notes } : {}),
+        ...(narrative_details !== undefined ? { narrativeDetails: sanitizeEditorialRichText(narrative_details) } : {}),
+        ...(historical_context !== undefined ? { historicalContext: sanitizeEditorialRichText(historical_context) } : {}),
+        ...(visual_notes !== undefined ? { visualNotes: sanitizeEditorialRichText(visual_notes) } : {}),
         ...(emotional_register !== undefined ? { emotionalRegister: emotional_register } : {}),
         ...(sensory_clauses !== undefined ? { sensoryClauses: sensory_clauses } : {}),
         ...(register_locked !== undefined ? { registerLocked: register_locked } : {}),
@@ -939,7 +943,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(to_entity_id !== undefined ? { toEntityId: to_entity_id } : {}),
         ...(emotional_valence !== undefined ? { emotionalValence: emotional_valence } : {}),
         ...(portrait_url !== undefined ? { portraitUrl: portrait_url } : {}),
-        ...(notes !== undefined ? { notes } : {}),
+        ...(notes !== undefined ? { notes: sanitizeEditorialRichText(notes) } : {}),
       })
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .returning();
@@ -1452,7 +1456,7 @@ router.post("/v1/editorial/style-guides", async (req: Request, res: Response) =>
   try {
     const [row] = await db
       .insert(wsStyleGuidesTable)
-      .values({ id: crypto.randomUUID(), worldId: world_id, name: name.trim(), content: content ?? "" })
+      .values({ id: crypto.randomUUID(), worldId: world_id, name: name.trim(), content: sanitizeEditorialRichText(content ?? "") })
       .returning();
     res.status(201).json({ style_guide: row });
   } catch (err) {
@@ -1597,7 +1601,7 @@ router.patch("/v1/editorial/style-guides/:id", async (req: Request, res: Respons
   const { name, content } = req.body;
   try {
     const [row] = await db.update(wsStyleGuidesTable)
-      .set({ ...(name !== undefined ? { name } : {}), ...(content !== undefined ? { content } : {}) })
+      .set({ ...(name !== undefined ? { name } : {}), ...(content !== undefined ? { content: sanitizeEditorialRichText(content) } : {}) })
       .where(eq(wsStyleGuidesTable.id, req.params.id as string))
       .returning();
     if (!row) { res.status(404).json({ error: "Style guide not found" }); return; }
@@ -1693,7 +1697,7 @@ router.post("/v1/editorial/prompt-modules", async (req: Request, res: Response) 
   }
   try {
     const [row] = await db.insert(wsPromptModulesTable)
-      .values({ id: crypto.randomUUID(), worldId: world_id, name: name.trim(), content: content ?? "" })
+      .values({ id: crypto.randomUUID(), worldId: world_id, name: name.trim(), content: sanitizeEditorialRichText(content ?? "") })
       .returning();
     res.status(201).json({ prompt_module: row });
   } catch (err) {
@@ -1720,7 +1724,7 @@ router.patch("/v1/editorial/prompt-modules/:id", async (req: Request, res: Respo
     const [row] = await db.update(wsPromptModulesTable)
       .set({
         ...(name !== undefined ? { name } : {}),
-        ...(content !== undefined ? { content } : {}),
+        ...(content !== undefined ? { content: sanitizeEditorialRichText(content) } : {}),
         ...(dependency_ids !== undefined ? { dependencyIds: dependency_ids } : {}),
       })
       .where(eq(wsPromptModulesTable.id, req.params.id as string)).returning();
@@ -1834,10 +1838,10 @@ router.post("/v1/editorial/specs", async (req: Request, res: Response) => {
       specId: resolvedSpecId,
       componentType: component_type.trim(),
       componentSet: component_set,
-      designIntent: design_intent ?? "",
-      narrativePurpose: narrative_purpose ?? "",
-      requiredContent: required_content ?? "",
-      reviewCriteria: review_criteria ?? "",
+      designIntent: sanitizeEditorialRichText(design_intent ?? ""),
+      narrativePurpose: sanitizeEditorialRichText(narrative_purpose ?? ""),
+      requiredContent: sanitizeEditorialRichText(required_content ?? ""),
+      reviewCriteria: sanitizeEditorialRichText(review_criteria ?? ""),
       writingSpacePercent: writing_space_percent,
       orientation,
       frontBackStyle: front_back_style,
@@ -1947,10 +1951,10 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
       specId: spec_id !== undefined ? spec_id : existing.specId,
       componentType: component_type !== undefined ? component_type.trim() : existing.componentType,
       componentSet: component_set !== undefined ? component_set : existing.componentSet,
-      designIntent: design_intent !== undefined ? design_intent : existing.designIntent,
-      narrativePurpose: narrative_purpose !== undefined ? narrative_purpose : existing.narrativePurpose,
-      requiredContent: required_content !== undefined ? required_content : existing.requiredContent,
-      reviewCriteria: review_criteria !== undefined ? review_criteria : existing.reviewCriteria,
+      designIntent: design_intent !== undefined ? sanitizeEditorialRichText(design_intent) : existing.designIntent,
+      narrativePurpose: narrative_purpose !== undefined ? sanitizeEditorialRichText(narrative_purpose) : existing.narrativePurpose,
+      requiredContent: required_content !== undefined ? sanitizeEditorialRichText(required_content) : existing.requiredContent,
+      reviewCriteria: review_criteria !== undefined ? sanitizeEditorialRichText(review_criteria) : existing.reviewCriteria,
       writingSpacePercent: writing_space_percent !== undefined ? writing_space_percent : existing.writingSpacePercent,
       orientation: orientation !== undefined ? orientation : existing.orientation,
       frontBackStyle: front_back_style !== undefined ? front_back_style : existing.frontBackStyle,
@@ -2036,9 +2040,9 @@ router.post("/v1/editorial/specs/:id/publish", async (req: Request, res: Respons
     const diffPreview = {
       "Production Item": spec.productionItem,
       "Component Type": spec.componentType,
-      "Design Intent": spec.designIntent || "(empty)",
-      "Narrative Purpose": spec.narrativePurpose || "(empty)",
-      "Required Content": spec.requiredContent || "(empty)",
+      "Design Intent": editorialRichTextToPlainText(spec.designIntent) || "(empty)",
+      "Narrative Purpose": editorialRichTextToPlainText(spec.narrativePurpose) || "(empty)",
+      "Required Content": editorialRichTextToPlainText(spec.requiredContent) || "(empty)",
       "Canon Dependency": spec.canonDependency,
       "Payload Version": spec.payloadVersion || "(not set)",
       "Prompt Payload": spec.promptPayload ? `${spec.promptPayload.slice(0, 100)}…` : "(empty)",
@@ -2072,9 +2076,12 @@ router.post("/v1/editorial/specs/:id/publish", async (req: Request, res: Respons
       "World": richTextProp(spec.worldId),
       "Canon Dependency": selectProp(spec.canonDependency),
     };
-    if (spec.designIntent) props["Design Intent"] = richTextProp(spec.designIntent);
-    if (spec.narrativePurpose) props["Narrative Purpose"] = richTextProp(spec.narrativePurpose);
-    if (spec.requiredContent) props["Required Content"] = richTextProp(spec.requiredContent);
+    const designIntent = editorialRichTextToPlainText(spec.designIntent);
+    const narrativePurpose = editorialRichTextToPlainText(spec.narrativePurpose);
+    const requiredContent = editorialRichTextToPlainText(spec.requiredContent);
+    if (designIntent) props["Design Intent"] = richTextProp(designIntent);
+    if (narrativePurpose) props["Narrative Purpose"] = richTextProp(narrativePurpose);
+    if (requiredContent) props["Required Content"] = richTextProp(requiredContent);
     if (spec.payloadVersion) props["Payload Version"] = selectProp(spec.payloadVersion);
     if (spec.promptPayload) props["Prompt Payload"] = richTextProp(spec.promptPayload.slice(0, 2000));
     if (spec.orientation) props["Orientation"] = selectProp(spec.orientation);

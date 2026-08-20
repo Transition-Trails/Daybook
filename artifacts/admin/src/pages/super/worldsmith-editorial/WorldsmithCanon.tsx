@@ -18,13 +18,17 @@ import {
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
   ChevronRight, Trash2, X, ArrowLeft, Eye, EyeOff,
   GitBranch, Repeat2, Plus, Link2, ChevronDown, ChevronUp,
-  Sparkles, BookOpen, Zap, FileText, Upload, ImageIcon, StickyNote,
-  Pencil, Save,
+  Sparkles, BookOpen, Zap, FileText, Upload, ImageIcon,
 } from "lucide-react";
 import { apiFetch, storageApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
+import { useEditorial } from "@/contexts/EditorialContext";
 import { REGISTERS } from "./canon-registers";
+import {
+  EditorialRichTextField,
+  EditorialSection,
+  editorialRichTextToPlainText,
+} from "@/components/EditorialRichText";
 
 export { REGISTERS } from "./canon-registers";
 
@@ -116,7 +120,7 @@ function displayId(worldCode: string, _id: string, index: number, canonType?: st
   return `${prefix}-${String(index + 1).padStart(3, "0")}`;
 }
 
-// ── AutoSave textarea ──────────────────────────────────────────────────────────
+// ── AutoSave textarea (short non-prose fields only) ────────────────────────────
 function AutoField({ label, field, value, placeholder, mono = false, onSave, rows = 4 }:
   { label: string; field: string; value: string; placeholder: string; mono?: boolean; onSave: (f: string, v: string) => void; rows?: number }) {
   const [local, setLocal] = useState(value);
@@ -136,7 +140,29 @@ function AutoField({ label, field, value, placeholder, mono = false, onSave, row
     </div>
   );
 }
-
+// ── Rich text field with auto-save-on-blur ─────────────────────────────────────
+function RichAutoField({ field, value, placeholder, onSave, minHeight = 180 }:
+  { field: string; value: string; placeholder: string; onSave: (f: string, v: string) => void; minHeight?: number }) {
+  const [local, setLocal] = useState(value);
+  const dirty = useRef(false);
+  const prev = useRef(value);
+  useEffect(() => {
+    if (!dirty.current && prev.current !== value) { setLocal(value); prev.current = value; }
+  }, [value]);
+  return (
+    <EditorialRichTextField
+      value={local}
+      placeholder={placeholder}
+      minHeight={minHeight}
+      onChange={v => { setLocal(v); dirty.current = true; }}
+      onBlur={() => {
+        if (dirty.current && local !== prev.current) { onSave(field, local); prev.current = local; }
+        dirty.current = false;
+      }}
+    />
+  );
+}
+// Canon editor end.
 // ── Portrait well ──────────────────────────────────────────────────────────────
 function PortraitWell({ portraitUrl, onUpload, isUploading }:
   { portraitUrl?: string | null; onUpload: (file: File) => void; isUploading: boolean }) {
@@ -168,177 +194,6 @@ function PortraitWell({ portraitUrl, onUpload, isUploading }:
   );
 }
 
-// ── Inline markdown render ─────────────────────────────────────────────────────
-function applyInlineMarkdown(text: string): string {
-  return text
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`(.+?)`/g, `<code style="background:#F3F4F6;padding:1px 4px;border-radius:3px;font-size:11px;font-family:monospace">$1</code>`);
-}
-function renderSimpleMarkdown(md: string): string {
-  return md.split("\n").map(line => {
-    if (/^### /.test(line)) return `<h4 style="font-size:12px;font-weight:700;margin:8px 0 2px;color:#1B2A4A">${applyInlineMarkdown(line.slice(4))}</h4>`;
-    if (/^## /.test(line))  return `<h3 style="font-size:14px;font-weight:700;margin:10px 0 2px;color:#1B2A4A">${applyInlineMarkdown(line.slice(3))}</h3>`;
-    if (/^# /.test(line))   return `<h2 style="font-size:16px;font-weight:700;margin:12px 0 4px;color:#1B2A4A">${applyInlineMarkdown(line.slice(2))}</h2>`;
-    if (/^[-*] /.test(line)) return `<li style="margin-left:16px;list-style-type:disc;padding-left:2px">${applyInlineMarkdown(line.slice(2))}</li>`;
-    if (line.trim() === "") return `<div style="height:6px"></div>`;
-    return `<p style="margin:0 0 3px">${applyInlineMarkdown(line)}</p>`;
-  }).join("");
-}
-
-// ── Notes field ────────────────────────────────────────────────────────────────
-function NotesField({ value, onSave }: { value: string; onSave: (v: string) => void }) {
-  const [local, setLocal] = useState(value);
-  const [mode, setMode]   = useState<"write" | "preview">("write");
-  const [dirty, setDirty] = useState(false);
-  const prev    = useRef(value);
-  const taRef   = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (prev.current !== value && !dirty) { setLocal(value); prev.current = value; }
-  }, [value, dirty]);
-
-  const commit = () => {
-    if (dirty && local !== prev.current) { onSave(local); prev.current = local; }
-    setDirty(false);
-  };
-  const switchToPreview = () => { commit(); setMode("preview"); };
-
-  /** Insert or wrap selection with a markdown token. */
-  const fmt = (type: "bold" | "italic" | "heading" | "bullet" | "hr") => {
-    const ta = taRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end   = ta.selectionEnd;
-    const sel   = local.slice(start, end);
-    let next = local;
-    let cursorOffset = 0;
-
-    if (type === "bold") {
-      const wrapped = `**${sel || "bold text"}**`;
-      next = local.slice(0, start) + wrapped + local.slice(end);
-      cursorOffset = sel ? wrapped.length : 2; // move inside ** if no sel
-    } else if (type === "italic") {
-      const wrapped = `*${sel || "italic text"}*`;
-      next = local.slice(0, start) + wrapped + local.slice(end);
-      cursorOffset = sel ? wrapped.length : 1;
-    } else if (type === "heading") {
-      // Insert at start of line
-      const lineStart = local.lastIndexOf("\n", start - 1) + 1;
-      const prefix = "## ";
-      next = local.slice(0, lineStart) + prefix + local.slice(lineStart);
-      cursorOffset = prefix.length + (start - lineStart);
-    } else if (type === "bullet") {
-      const lineStart = local.lastIndexOf("\n", start - 1) + 1;
-      const prefix = "- ";
-      next = local.slice(0, lineStart) + prefix + local.slice(lineStart);
-      cursorOffset = prefix.length + (start - lineStart);
-    } else if (type === "hr") {
-      const hr = "\n\n---\n\n";
-      next = local.slice(0, start) + hr + local.slice(end);
-      cursorOffset = hr.length;
-    }
-
-    setLocal(next);
-    setDirty(true);
-    // Restore focus + cursor after React re-render
-    requestAnimationFrame(() => {
-      ta.focus();
-      if (type === "bold" && !sel) {
-        ta.setSelectionRange(start + 2, start + 2 + "bold text".length);
-      } else if (type === "italic" && !sel) {
-        ta.setSelectionRange(start + 1, start + 1 + "italic text".length);
-      } else {
-        const pos = start + cursorOffset;
-        ta.setSelectionRange(pos, pos);
-      }
-    });
-  };
-
-  const FMT_BUTTONS: { id: "bold"|"italic"|"heading"|"bullet"|"hr"; label: string; title: string }[] = [
-    { id: "bold",    label: "B",  title: "Bold (**text**)" },
-    { id: "italic",  label: "I",  title: "Italic (*text*)" },
-    { id: "heading", label: "H",  title: "Heading (## ...)" },
-    { id: "bullet",  label: "•",  title: "Bullet list (- ...)" },
-    { id: "hr",      label: "—",  title: "Horizontal rule (---)" },
-  ];
-
-  return (
-    <div className="mb-8">
-      {/* Label row */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5">
-          <StickyNote className="w-3 h-3" style={{ color: "#9CA3AF" }} />
-          <label className="text-[10px] font-semibold tracking-widest uppercase" style={{ color: "#9CA3AF" }}>Notes</label>
-        </div>
-        <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: WARM_BORDER }}>
-          {(["write", "preview"] as const).map(m => (
-            <button key={m}
-              onClick={() => m === "write" ? setMode("write") : switchToPreview()}
-              className="px-2.5 py-0.5 text-[10px] font-semibold capitalize"
-              style={{ background: mode === m ? INK : "transparent", color: mode === m ? "white" : "#9CA3AF" }}>
-              {m}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {mode === "write" ? (
-        <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${WARM_BORDER}` }}>
-          {/* Formatting toolbar */}
-          <div
-            className="flex items-center gap-0.5 px-2 py-1.5 border-b"
-            style={{ borderColor: WARM_BORDER, background: "#F5F0E8" }}
-          >
-            {FMT_BUTTONS.map(btn => (
-              <button
-                key={btn.id}
-                onMouseDown={e => { e.preventDefault(); fmt(btn.id); }}
-                title={btn.title}
-                className="w-6 h-6 flex items-center justify-center rounded text-[11px] font-bold transition-colors hover:bg-black/8"
-                style={{
-                  color: INK,
-                  fontStyle: btn.id === "italic" ? "italic" : "normal",
-                  fontFamily: btn.id === "bold" || btn.id === "italic" ? "Georgia, serif" : "inherit",
-                  letterSpacing: btn.id === "hr" ? "0" : undefined,
-                }}
-              >
-                {btn.label}
-              </button>
-            ))}
-          </div>
-          {/* Textarea — resizable */}
-          <textarea
-            ref={taRef}
-            value={local}
-            rows={6}
-            onChange={e => { setLocal(e.target.value); setDirty(true); }}
-            onBlur={commit}
-            placeholder={"Write editorial notes here — observations, flags, cross-references, open questions…"}
-            className="w-full px-3 py-2.5 leading-relaxed resize-y focus:outline-none"
-            style={{
-              background: WARM_WHITE,
-              color: INK,
-              fontFamily: "'Spectral', Georgia, serif",
-              fontSize: 13,
-              minHeight: 112,
-              border: "none",
-            }}
-          />
-        </div>
-      ) : (
-        <div
-          className="w-full rounded-lg px-3 py-2.5 leading-relaxed min-h-[112px]"
-          style={{ border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE, color: INK,
-            fontFamily: "'Spectral', Georgia, serif", fontSize: 13 }}
-          dangerouslySetInnerHTML={{ __html: local.trim()
-            ? renderSimpleMarkdown(local)
-            : `<span style="color:#C9BFB0;font-style:italic">Nothing written yet.</span>` }}
-        />
-      )}
-    </div>
-  );
-}
 
 // ── Register picker ────────────────────────────────────────────────────────────
 function RegisterPicker({ value, locked, onSelect, onToggleLock }:
@@ -460,7 +315,6 @@ function generateImageIdeas(record: CanonRecord, world: { visualPalette?: string
   return base.slice(0, 4);
 }
 
-type WorldBibleTextField = "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld";
 const VISIBILITY_OPTIONS = [
   { key: "explicit",   label: "Explicit"   },
   { key: "background", label: "Background" },
@@ -1160,16 +1014,6 @@ function RightPanel({ record, recordId, relations, allRecords, patchMutation, tr
               </div>
             </div>
 
-            {/* Historical Context */}
-            <AutoField label="Historical Context" field="historicalContext"
-              value={record.historicalContext ?? ""} placeholder="Historical or temporal grounding…"
-              onSave={(f, v) => patchMutation.mutate({ historical_context: v })} rows={3} />
-
-            {/* Visual Notes */}
-            <AutoField label="Visual Notes" field="visualNotes"
-              value={record.visualNotes ?? ""} placeholder="What this looks like…"
-              onSave={(f, v) => patchMutation.mutate({ visual_notes: v })} rows={3} />
-
             {/* Relations */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -1248,13 +1092,18 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { worlds, selectedWorldId, setSelectedWorldId, updateWorld } = useEditorial();
+  const { worlds, selectedWorldId, setSelectedWorldId } = useEditorial();
   const [activeTab, setActiveTab] = useState<"ideas" | "scene" | "daybook">("ideas");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [filterVisibility, setFilterVisibility] = useState<string | null>(null);
   const [filterStability, setFilterStability] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string | null>(null);
   const [hydratedWorldId, setHydratedWorldId] = useState<string | null>(null);
+  // Collapsible prose sections
+  const [openNarrative, setOpenNarrative] = useState(true);
+  const [openHistory, setOpenHistory] = useState(false);
+  const [openVisual, setOpenVisual] = useState(false);
+  const [openNotes, setOpenNotes] = useState(true);
 
   const world = worlds.find(w => w.id === selectedWorldId) ?? worlds[0] ?? null;
 
@@ -1388,25 +1237,6 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
     onError: () => toast({ title: "Cascade failed", variant: "destructive" }),
   });
 
-  const worldBibleMutation = useMutation({
-    mutationFn: (fields: {
-      visualPalette: string | null;
-      proseVoice: string | null;
-      atmosphericNotes: string | null;
-      materialWorld: string | null;
-      worldRules: string[];
-    }) =>
-      apiFetch<WorldRecord>(`/v1/worldsmith/worlds/${encodeURIComponent(worldId)}`, {
-        method: "PATCH",
-        body: JSON.stringify(fields),
-      }),
-    onSuccess: (updatedWorld) => {
-      updateWorld(updatedWorld);
-      toast({ title: "World Bible saved" });
-    },
-    onError: () => toast({ title: "Failed to save World Bible", variant: "destructive" }),
-  });
-
   // ── Field handler ───────────────────────────────────────────────────────────
   const handleField = useCallback((field: string, value: string) => {
     const map: Record<string, string> = {
@@ -1516,75 +1346,137 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
 
         {/* MAIN */}
         <main className="flex-1 overflow-y-auto px-10 py-8" style={{ background: WARM_WHITE }}>
-          <div style={{ maxWidth: 680 }}>
-            {/* Portrait + name row */}
-            <div className="flex items-start gap-5 mb-8">
-              <PortraitWell
-                portraitUrl={record.portraitUrl}
-                onUpload={handlePortraitUpload}
-                isUploading={portraitUploading}
-              />
-              <div className="flex-1 min-w-0">
-                <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 36, color: INK, fontWeight: 600, marginBottom: 8, lineHeight: 1.15 }}>
-                  {record.name}
-                </h1>
-                {/* Badges row */}
-                <div className="flex items-center flex-wrap gap-3">
-                  {typeMeta && (
-                    <span className="rounded-full text-xs px-2.5 py-0.5 font-medium"
-                      style={{ background: `${typeMeta.color}20`, color: typeMeta.color }}>
-                      {typeMeta.label}
-                    </span>
-                  )}
-                  <span style={{ fontSize: 11, color: "#9CA3AF", fontFamily: "'Space Mono', monospace" }}>{idStamp}</span>
-                  <span className="rounded-full text-[10px] font-semibold px-2 py-0.5"
-                    style={{ background: statusMeta.bg, color: statusMeta.color }}>
-                    {statusMeta.label}
+          {/* Portrait + name row */}
+          <div className="flex items-start gap-5 mb-8">
+            <PortraitWell
+              portraitUrl={record.portraitUrl}
+              onUpload={handlePortraitUpload}
+              isUploading={portraitUploading}
+            />
+            <div className="flex-1 min-w-0">
+              <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 36, color: INK, fontWeight: 600, marginBottom: 8, lineHeight: 1.15 }}>
+                {record.name}
+              </h1>
+              {/* Badges row */}
+              <div className="flex items-center flex-wrap gap-3">
+                {typeMeta && (
+                  <span className="rounded-full text-xs px-2.5 py-0.5 font-medium"
+                    style={{ background: `${typeMeta.color}20`, color: typeMeta.color }}>
+                    {typeMeta.label}
                   </span>
-                </div>
+                )}
+                <span style={{ fontSize: 11, color: "#9CA3AF", fontFamily: "'Space Mono', monospace" }}>{idStamp}</span>
+                <span className="rounded-full text-[10px] font-semibold px-2 py-0.5"
+                  style={{ background: statusMeta.bg, color: statusMeta.color }}>
+                  {statusMeta.label}
+                </span>
               </div>
             </div>
-
-            {recordWorld && (
-              <WorldBibleStrip
-                world={recordWorld}
-                onSave={fields => worldBibleMutation.mutateAsync(fields)}
-                isSaving={worldBibleMutation.isPending}
-              />
-            )}
-
-            {/* Prose textarea */}
-            <div className="relative group mb-8">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>Narrative</p>
-              </div>
-              <AutoField label="" field="narrativeDetails" value={record.narrativeDetails}
-                placeholder="Write this record's story here — how it exists in your world, what it feels like, what it carries…"
-                onSave={handleField} rows={5} />
-            </div>
-
-            {/* Notes */}
-            <NotesField value={record.notes ?? ""} onSave={v => handleField("notes", v)} />
-
-            {/* Tabs */}
-            <div className="flex mb-6" style={{ borderBottom: `1px solid ${WARM_BORDER}` }}>
-              {tabs.map(tab => (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                  className="pb-2.5 mr-7 text-sm font-medium"
-                  style={{
-                    borderBottom: activeTab === tab.id ? `2px solid ${CLAY}` : "2px solid transparent",
-                    color: activeTab === tab.id ? CLAY : "#9CA3AF",
-                    marginBottom: -1,
-                  }}>
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {activeTab === "ideas" && <ImageIdeasTab ideas={imageIdeas} />}
-            {activeTab === "scene" && <SceneBuilderTab record={record} relations={relations} />}
-            {activeTab === "daybook" && <DaybookGameTab record={record} recordId={recordId} />}
           </div>
+
+          {/* World Bible link */}
+          {recordWorld && (
+            <div className="mb-6 rounded-xl px-4 py-3 flex items-center justify-between"
+              style={{ background: PARCHMENT, border: `1px solid ${WARM_BORDER}` }}>
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-3.5 h-3.5" style={{ color: CLAY }} />
+                <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: INK }}>World Bible</span>
+                <span className="text-[11px]" style={{ color: "#9CA3AF" }}>— aesthetic context for {recordWorld.name}</span>
+              </div>
+              <Link href="/super/worldsmith/editorial/bible">
+                <span className="flex items-center gap-1 text-[11px] font-semibold cursor-pointer rounded-lg px-2.5 py-1"
+                  style={{ color: INK, border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE }}>
+                  <ExternalLink className="w-3 h-3" /> Open World Bible
+                </span>
+              </Link>
+            </div>
+          )}
+
+          {/* Prose sections */}
+          <div className="flex flex-col gap-4 mb-8">
+            <EditorialSection
+              title="Narrative"
+              hint="How this record exists in your world — its story, feeling, and presence."
+              open={openNarrative}
+              onToggle={() => setOpenNarrative(o => !o)}
+              preview={editorialRichTextToPlainText(record.narrativeDetails).slice(0, 120)}
+            >
+              <RichAutoField
+                field="narrativeDetails"
+                value={record.narrativeDetails}
+                placeholder="Write this record's story here — how it exists in your world, what it feels like, what it carries…"
+                onSave={handleField}
+                minHeight={200}
+              />
+            </EditorialSection>
+
+            <EditorialSection
+              title="Historical Context"
+              hint="Historical or temporal grounding — origins, era, and world-context."
+              open={openHistory}
+              onToggle={() => setOpenHistory(o => !o)}
+              preview={editorialRichTextToPlainText(record.historicalContext ?? "").slice(0, 120)}
+            >
+              <RichAutoField
+                field="historicalContext"
+                value={record.historicalContext ?? ""}
+                placeholder="Historical or temporal grounding — when this came to be, what shaped it…"
+                onSave={handleField}
+                minHeight={160}
+              />
+            </EditorialSection>
+
+            <EditorialSection
+              title="Visual Notes"
+              hint="What this looks like — colours, light, texture, physical presence."
+              open={openVisual}
+              onToggle={() => setOpenVisual(o => !o)}
+              preview={editorialRichTextToPlainText(record.visualNotes ?? "").slice(0, 120)}
+            >
+              <RichAutoField
+                field="visualNotes"
+                value={record.visualNotes ?? ""}
+                placeholder="What this looks like — colours, light, texture, surfaces…"
+                onSave={handleField}
+                minHeight={160}
+              />
+            </EditorialSection>
+
+            <EditorialSection
+              title="Notes"
+              hint="Editorial observations, flags, cross-references, open questions."
+              open={openNotes}
+              onToggle={() => setOpenNotes(o => !o)}
+              preview={editorialRichTextToPlainText(record.notes ?? "").slice(0, 120)}
+            >
+              <RichAutoField
+                field="notes"
+                value={record.notes ?? ""}
+                placeholder="Write editorial notes here — observations, flags, cross-references, open questions…"
+                onSave={handleField}
+                minHeight={160}
+              />
+            </EditorialSection>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex mb-6" style={{ borderBottom: `1px solid ${WARM_BORDER}` }}>
+            {tabs.map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className="pb-2.5 mr-7 text-sm font-medium"
+                style={{
+                  borderBottom: activeTab === tab.id ? `2px solid ${CLAY}` : "2px solid transparent",
+                  color: activeTab === tab.id ? CLAY : "#9CA3AF",
+                  marginBottom: -1,
+                }}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === "ideas" && <ImageIdeasTab ideas={imageIdeas} />}
+          {activeTab === "scene" && <SceneBuilderTab record={record} relations={relations} />}
+          {activeTab === "daybook" && <DaybookGameTab record={record} recordId={recordId} />}
         </main>
 
         <RightPanel
@@ -1618,180 +1510,4 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
       )}
     </div>
   );
-}
-
-function WorldBibleStrip({
-  world,
-  onSave,
-  isSaving,
-}: {
-  world: {
-    id: string;
-    name: string;
-    visualPalette?: string | null;
-    proseVoice?: string | null;
-    atmosphericNotes?: string | null;
-    materialWorld?: string | null;
-    worldRules?: string[] | null;
-  };
-  onSave: (fields: {
-    visualPalette: string | null;
-    proseVoice: string | null;
-    atmosphericNotes: string | null;
-    materialWorld: string | null;
-    worldRules: string[];
-  }) => Promise<unknown>;
-  isSaving: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState(() => ({
-    visualPalette: world.visualPalette ?? "",
-    proseVoice: world.proseVoice ?? "",
-    atmosphericNotes: world.atmosphericNotes ?? "",
-    materialWorld: world.materialWorld ?? "",
-    worldRules: (world.worldRules ?? []).join("\n"),
-  }));
-
-  useEffect(() => {
-    if (!editing) {
-      setForm({
-        visualPalette: world.visualPalette ?? "",
-        proseVoice: world.proseVoice ?? "",
-        atmosphericNotes: world.atmosphericNotes ?? "",
-        materialWorld: world.materialWorld ?? "",
-        worldRules: (world.worldRules ?? []).join("\n"),
-      });
-    }
-  }, [
-    editing,
-    world.id,
-    world.visualPalette,
-    world.proseVoice,
-    world.atmosphericNotes,
-    world.materialWorld,
-    world.worldRules,
-  ]);
-
-  const startEditing = () => {
-    setForm({
-      visualPalette: world.visualPalette ?? "",
-      proseVoice: world.proseVoice ?? "",
-      atmosphericNotes: world.atmosphericNotes ?? "",
-      materialWorld: world.materialWorld ?? "",
-      worldRules: (world.worldRules ?? []).join("\n"),
-    });
-    setEditing(true);
-  };
-
-  const save = () => {
-    void onSave({
-      visualPalette: form.visualPalette.trim() || null,
-      proseVoice: form.proseVoice.trim() || null,
-      atmosphericNotes: form.atmosphericNotes.trim() || null,
-      materialWorld: form.materialWorld.trim() || null,
-      worldRules: form.worldRules.split("\n").map(rule => rule.trim()).filter(Boolean),
-    }).then(() => setEditing(false)).catch(() => {});
-  };
-
-  const hasBibleContent = WORLD_BIBLE_FIELDS.some(({ key }) => !!world[key]?.trim())
-    || (world.worldRules?.length ?? 0) > 0;
-
-  return (
-    <section className="group rounded-xl p-4 mb-8" style={{ background: PARCHMENT, border: `1px solid ${WARM_BORDER}` }}>
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-3.5 h-3.5" style={{ color: CLAY }} />
-            <h2 className="text-[11px] font-bold uppercase tracking-widest" style={{ color: INK }}>World Bible</h2>
-          </div>
-          <p className="text-[11px] mt-1" style={{ color: "#9CA3AF" }}>
-            Aesthetic context for {world.name}
-          </p>
-        </div>
-        {!editing && (
-          <button
-            onClick={startEditing}
-            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold opacity-75 hover:opacity-100"
-            style={{ color: INK, border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE }}
-          >
-            <Pencil className="w-3 h-3" /> Edit
-          </button>
-        )}
-      </div>
-
-      {editing ? (
-        <div className="flex flex-col gap-3">
-          {WORLD_BIBLE_FIELDS.map(({ key, label, placeholder }) => (
-            <label key={key} className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>{label}</span>
-              <textarea
-                value={form[key]}
-                onChange={event => setForm(current => ({ ...current, [key]: event.target.value }))}
-                rows={2}
-                placeholder={placeholder}
-                className="w-full rounded-lg px-3 py-2 text-sm leading-relaxed resize-y focus:outline-none"
-                style={{ border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE, color: INK, fontFamily: "'Spectral', Georgia, serif" }}
-              />
-            </label>
-          ))}
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#9CA3AF" }}>World Rules</span>
-            <span className="text-[11px]" style={{ color: "#9CA3AF" }}>One rule per line. These constrain every generated output.</span>
-            <textarea
-              value={form.worldRules}
-              onChange={event => setForm(current => ({ ...current, worldRules: event.target.value }))}
-              rows={4}
-              placeholder="No magic north of the Ridgeline…"
-              className="w-full rounded-lg px-3 py-2 text-sm leading-relaxed resize-y focus:outline-none"
-              style={{ border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE, color: INK, fontFamily: "'Spectral', Georgia, serif" }}
-            />
-          </label>
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              onClick={() => setEditing(false)}
-              disabled={isSaving}
-              className="rounded-lg px-3 py-1.5 text-xs font-medium"
-              style={{ color: "#6B7280", border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={save}
-              disabled={isSaving}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
-              style={{ background: INK }}
-            >
-              <Save className="w-3 h-3" /> {isSaving ? "Saving…" : "Save World Bible"}
-            </button>
-          </div>
-        </div>
-      ) : hasBibleContent ? (
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          {WORLD_BIBLE_FIELDS.map(({ key, label }) => (
-            <div key={key}>
-              <p className="text-[9px] font-bold uppercase tracking-widest mb-1" style={{ color: "#9CA3AF" }}>{label}</p>
-              <p className="text-xs leading-relaxed" style={{ color: INK }}>{world[key] || "—"}</p>
-            </div>
-          ))}
-          {(world.worldRules?.length ?? 0) > 0 && (
-            <div className="col-span-2">
-              <p className="text-[9px] font-bold uppercase tracking-widest mb-1" style={{ color: "#9CA3AF" }}>World Rules</p>
-              <ul className="list-disc pl-4 space-y-0.5">
-                {world.worldRules?.map((rule, index) => <li key={`${rule}-${index}`} className="text-xs leading-relaxed" style={{ color: INK }}>{rule}</li>)}
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : (
-        <p className="text-xs italic" style={{ color: "#9CA3AF" }}>No World Bible fields set yet. Click Edit to add the world's visual and tonal rules.</p>
-      )}
-    </section>
-  );
-}
-
-const WORLD_BIBLE_FIELDS: { key: WorldBibleTextField; label: string; placeholder: string }[] = [
-  { key: "visualPalette", label: "Visual Palette", placeholder: "Colours, lighting, textures…" },
-  { key: "proseVoice", label: "Prose Voice", placeholder: "Register, rhythm, vocabulary…" },
-  { key: "atmosphericNotes", label: "Atmospheric Notes", placeholder: "Temperature, sound, smell, mood…" },
-  { key: "materialWorld", label: "Material World", placeholder: "Textures, surfaces, physical substances…" },
-];
+} // End WorldsmithCanon

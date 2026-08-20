@@ -11,6 +11,7 @@ import {
   Plus, Layers, FileText, ChevronRight, Loader2, X, Save, Pencil, RefreshCw,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { editorialRichTextToPlainText } from "@/lib/editorial-rich-text";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
 
@@ -30,8 +31,10 @@ interface StyleGuide {
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-const wordCount = (text: string) =>
-  text.trim() ? text.trim().split(/\s+/).length : 0;
+const wordCount = (text: string) => {
+  const plainText = editorialRichTextToPlainText(text);
+  return plainText ? plainText.split(/\s+/).length : 0;
+};
 
 // ── Drawer ────────────────────────────────────────────────────────────────────
 
@@ -163,7 +166,8 @@ function StyleGuideDrawer({ worldId, guide, onClose }: DrawerProps) {
 
 function GuideCard({ guide, onEdit }: { guide: StyleGuide; onEdit: () => void }) {
   const wc = wordCount(guide.content);
-  const preview = guide.content.slice(0, 160).trim();
+  const plainContent = editorialRichTextToPlainText(guide.content);
+  const preview = plainContent.slice(0, 160).trim();
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md hover:border-gray-300 transition-all group">
@@ -195,7 +199,7 @@ function GuideCard({ guide, onEdit }: { guide: StyleGuide; onEdit: () => void })
 
       {preview && (
         <p className="mt-3 text-sm text-gray-500 leading-relaxed line-clamp-3 pl-11">
-          {preview}{guide.content.length > 160 ? "…" : ""}
+          {preview}{plainContent.length > 160 ? "…" : ""}
         </p>
       )}
     </div>
@@ -233,8 +237,6 @@ export default function StyleGuides() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [, navigate] = useLocation();
-  const [drawerGuide, setDrawerGuide] = useState<StyleGuide | null | "new">(undefined as any);
-  const drawerOpen = drawerGuide !== undefined && drawerGuide !== (undefined as any);
 
   const { data, isLoading } = useQuery({
     queryKey: ["editorial-style-guides", selectedWorldId],
@@ -266,9 +268,8 @@ export default function StyleGuides() {
     },
   });
 
-  const openNew = () => setDrawerGuide("new");
-  const openEdit = (g: StyleGuide) => setDrawerGuide(g);
-  const closeDrawer = () => setDrawerGuide(undefined as any);
+  const openNew = () => navigate("/super/worldsmith/editorial/style-guides/new");
+  const openEdit = (g: StyleGuide) => navigate(`/super/worldsmith/editorial/style-guides/${g.id}`);
 
   return (
     <div className="flex flex-col h-full">
@@ -328,14 +329,6 @@ export default function StyleGuides() {
         )}
       </div>
 
-      {/* Drawer */}
-      {drawerOpen && (
-        <StyleGuideDrawer
-          worldId={selectedWorldId ?? ""}
-          guide={drawerGuide === "new" ? null : drawerGuide as StyleGuide}
-          onClose={closeDrawer}
-        />
-      )}
     </div>
   );
 }

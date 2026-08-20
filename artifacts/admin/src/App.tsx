@@ -127,6 +127,7 @@ import {
   StyleGuides,
   NewStyleGuideFlow,
   NewPromptModuleFlow,
+  EditorialDocumentEditor,
   PromptModules,
   StoriesStudio,
   StoryConnections,
@@ -282,6 +283,13 @@ function RootRouter() {
           </RequireSuperAdmin>
         )}
       </Route>
+      <Route path="/super/worldsmith/editorial/style-guides/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="style-guides"><EditorialDocumentEditor kind="style-guide" documentId={p.id!} /></EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
       <Route path="/super/worldsmith/editorial/style-guides">
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="style-guides"><StyleGuides /></EditorialShell>
@@ -291,6 +299,13 @@ function RootRouter() {
         {() => (
           <RequireSuperAdmin state={state}>
             <EditorialShell activePage="modules"><NewPromptModuleFlow /></EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      <Route path="/super/worldsmith/editorial/modules/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="modules"><EditorialDocumentEditor kind="prompt-module" documentId={p.id!} /></EditorialShell>
           </RequireSuperAdmin>
         )}
       </Route>

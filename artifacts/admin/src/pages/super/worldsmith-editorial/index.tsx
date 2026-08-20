@@ -13,6 +13,7 @@ export { default as StyleGuides } from "./StyleGuides";
 export { default as NewStyleGuideFlow } from "./NewStyleGuideFlow";
 export { default as PromptModules } from "./PromptModules";
 export { default as NewPromptModuleFlow } from "./NewPromptModuleFlow";
+export { default as EditorialDocumentEditor } from "./EditorialDocumentEditor";
 export { default as WorldsmithCanon } from "./WorldsmithCanon";
 export { default as SpecsList } from "./SpecsList";
 export { default as StoriesStudio } from "./StoriesStudio";

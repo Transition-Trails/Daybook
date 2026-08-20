@@ -17,6 +17,7 @@ import {
   extractRichText,
 } from "../notion-client";
 import { logger } from "../logger";
+import { editorialRichTextToPlainText } from "./editorial-rich-text";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -259,10 +260,10 @@ export function buildSourceObject(chain: InheritanceChain): PayloadSource {
     specId: spec.notionPageId,
     productionItem: spec.productionItem,
     componentType: spec.componentType,
-    designIntent: spec.designIntent,
-    narrativePurpose: spec.narrativePurpose,
-    requiredContent: spec.requiredContent,
-    reviewCriteria: spec.reviewCriteria,
+    designIntent: editorialRichTextToPlainText(spec.designIntent),
+    narrativePurpose: editorialRichTextToPlainText(spec.narrativePurpose),
+    requiredContent: editorialRichTextToPlainText(spec.requiredContent),
+    reviewCriteria: editorialRichTextToPlainText(spec.reviewCriteria),
     canonDependency: spec.canonDependency ?? "None",
     orientation: spec.orientation,
     frontBackStyle: spec.frontBackStyle,
@@ -272,12 +273,12 @@ export function buildSourceObject(chain: InheritanceChain): PayloadSource {
     volume: spec.volume,
     collection: spec.collection,
     styleGuideName: chain.styleGuide?.name,
-    styleGuideContent: chain.styleGuide?.content,
+    styleGuideContent: editorialRichTextToPlainText(chain.styleGuide?.content),
     componentSpecName: chain.componentSpec?.name,
-    componentSpecContent: chain.componentSpec?.content,
+    componentSpecContent: editorialRichTextToPlainText(chain.componentSpec?.content),
     promptModuleNames: chain.promptModules.map((m) => m.name),
     promptModuleContent: chain.promptModules
-      .map((m) => m.content)
+      .map((m) => editorialRichTextToPlainText(m.content))
       .filter(Boolean)
       .join("\n\n---\n\n"),
     canonRecordNames: chain.canonRecords.map((r) => r.name),

@@ -55,6 +55,8 @@ describe("StoriesStudio editor", () => {
 
     const title = await screen.findByRole("textbox", { name: "Story title" });
     expect(container.querySelector(".w-full.px-7.py-7")).toBeInTheDocument();
+    expect(title).toHaveClass("w-full");
+    expect(screen.getByText("The Wychcombe Origin Story")).toHaveClass("break-words");
 
     fireEvent.change(title, { target: { value: "The Wychcombe Inheritance" } });
     fireEvent.blur(title);

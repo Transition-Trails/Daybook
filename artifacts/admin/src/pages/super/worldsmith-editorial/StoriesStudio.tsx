@@ -299,7 +299,7 @@ export default function StoriesStudio() {
             </button>
           </section>
         ) : (
-          <div className="grid lg:grid-cols-[250px_minmax(0,1fr)] gap-6 items-start">
+          <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
             <aside className="rounded-2xl p-2.5" style={{ background: "white", border: "1px solid #E7E0D7" }}>
               <p className="px-2.5 pt-1 pb-2 text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#98A2B3" }}>
                 In this world
@@ -317,7 +317,7 @@ export default function StoriesStudio() {
                     <div className="flex items-start gap-2">
                       <BookOpen className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: story.id === selectedStory?.id ? "#DCA28F" : "#C87560" }} />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold truncate">{story.title}</span>
+                        <span className="block text-sm font-semibold leading-snug break-words">{story.title}</span>
                         <span className="mt-1 flex items-center justify-between">
                           <span className="text-[10.5px]" style={{ color: story.id === selectedStory?.id ? "rgba(255,255,255,.65)" : "#98A2B3" }}>
                             {story.acts.length} movement{story.acts.length === 1 ? "" : "s"}
@@ -334,7 +334,7 @@ export default function StoriesStudio() {
             {selectedStory && (
               <section className="rounded-2xl p-6" style={{ background: "white", border: "1px solid #E7E0D7" }}>
                 <div className="flex flex-wrap gap-3 items-start justify-between mb-5">
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <StoryStatus status={selectedStory.status} />
                       <span className="text-[11px]" style={{ color: "#98A2B3" }}>Storyline</span>
@@ -348,16 +348,18 @@ export default function StoriesStudio() {
                       style={{ color: "#1B2A4A", borderColor: "#E7E0D7", fontFamily: "'Playfair Display', Georgia, serif" }}
                     />
                   </div>
-                  <Link href="/super/worldsmith/editorial/connections">
-                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold cursor-pointer" style={{ color: "#C87560" }}>
-                      See its story map <ArrowRight className="w-3.5 h-3.5" />
-                    </span>
-                  </Link>
-                  <Link href={`/super/worldsmith/editorial/stories/${selectedStory.id}`}>
-                    <span className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold" style={{ color: "#1B2A4A" }}>
-                      Open full editor <ChevronRight className="h-3.5 w-3.5" />
-                    </span>
-                  </Link>
+                  <div className="flex shrink-0 flex-wrap items-center gap-3 pt-5">
+                    <Link href="/super/worldsmith/editorial/connections">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold cursor-pointer" style={{ color: "#C87560" }}>
+                        See its story map <ArrowRight className="w-3.5 h-3.5" />
+                      </span>
+                    </Link>
+                    <Link href={`/super/worldsmith/editorial/stories/${selectedStory.id}`}>
+                      <span className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold" style={{ color: "#1B2A4A" }}>
+                        Open full editor <ChevronRight className="h-3.5 w-3.5" />
+                      </span>
+                    </Link>
+                  </div>
                 </div>
                 <label className="block text-[10px] uppercase tracking-[0.14em] font-bold mb-2" style={{ color: "#98A2B3" }}>
                   The narrative promise

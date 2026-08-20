@@ -335,6 +335,8 @@ export interface EditionInput {
     packs?: string[];
     inserts?: string[];
     products?: string[];
+    /** WorldSmith world code (e.g. "VGJ"). Stored uppercase. */
+    world?: string | null;
     }
 
 export type EditionUpdateTier = typeof EditionUpdateTier[keyof typeof EditionUpdateTier];
@@ -359,6 +361,10 @@ export interface EditionUpdate {
     inserts?: string[];
     products?: string[];
     status?: CatalogStatus;
+    /** WorldSmith world code (e.g. "VGJ"). Stored uppercase. Null to unlink. */
+    world?: string | null;
+    /** Product type — drives studio section menu and generator page set. */
+    productType?: string;
     }
 
 export interface ArtFile {

@@ -39,7 +39,7 @@ import {
   accessoriesTable,
   fontsTable,
 } from "@workspace/db";
-import { eq, ne, and, inArray, asc } from "drizzle-orm";
+import { eq, ne, and, inArray, asc, sql } from "drizzle-orm";
 import { requireSuperAdmin, requireStoreAccess } from "../middleware/requireRole";
 import { isSuperAdmin, type ActorContext } from "../lib/roles";
 import { writeAudit } from "../lib/audit";
@@ -832,23 +832,24 @@ router.patch(
 
 router.get("/editions", async (req: Request, res: Response): Promise<void> => {
   const productType = req.query.productType as string | undefined;
+  const worldCode   = req.query.world as string | undefined;
   const allowedTypes = ["planner", "notebook", "journal", "memory-keeping"];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let rows: any[];
   if (isPublicCaller(req)) {
-    const baseFilter = eq(editionsTable.status, "live");
-    const filter =
-      productType && allowedTypes.includes(productType)
-        ? and(baseFilter, eq(editionsTable.productType, productType as "planner" | "notebook" | "journal" | "memory-keeping"))
-        : baseFilter;
+    let filter = eq(editionsTable.status, "live") as ReturnType<typeof and>;
+    if (productType && allowedTypes.includes(productType))
+      filter = and(filter, eq(editionsTable.productType, productType as "planner" | "notebook" | "journal" | "memory-keeping"))!;
+    if (worldCode)
+      filter = and(filter, sql`UPPER(${editionsTable.world}) = ${worldCode.toUpperCase()}`)!;
     rows = await db.select().from(editionsTable).where(filter).orderBy(editionsTable.createdAt);
   } else {
-    const baseFilter = ne(editionsTable.status, "deleted");
-    const filter =
-      productType && allowedTypes.includes(productType)
-        ? and(baseFilter, eq(editionsTable.productType, productType as "planner" | "notebook" | "journal" | "memory-keeping"))
-        : baseFilter;
+    let filter = ne(editionsTable.status, "deleted") as ReturnType<typeof and>;
+    if (productType && allowedTypes.includes(productType))
+      filter = and(filter, eq(editionsTable.productType, productType as "planner" | "notebook" | "journal" | "memory-keeping"))!;
+    if (worldCode)
+      filter = and(filter, sql`UPPER(${editionsTable.world}) = ${worldCode.toUpperCase()}`)!;
     rows = await db.select().from(editionsTable).where(filter).orderBy(editionsTable.createdAt);
   }
   res.json(rows);

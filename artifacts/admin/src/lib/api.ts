@@ -101,6 +101,7 @@ export interface StoreFlags {
   editionsCap: number;
   storageQuota: number;
   inkEnabled: boolean;
+  worldsmithEnabled: boolean;
 }
 
 export interface StoreCatalogEntry {
@@ -1672,6 +1673,12 @@ export const storageApi = {
       method: "POST",
       body: JSON.stringify({ name, size, contentType }),
     }),
+  /** Delete a private object entity by its /objects/… path. Resolves on success or if already gone. */
+  deleteObject: (objectPath: string) =>
+    apiFetch<void>(
+      `/storage/objects/${objectPath.replace(/^\/objects\//, "")}`,
+      { method: "DELETE" },
+    ),
 };
 
 // ─── SUPPORT ──────────────────────────────────────────────────────────────────
@@ -1889,6 +1896,98 @@ export const supportApi = {
     const qs = q.toString();
     return apiFetch<CloseReasonPatternsResult>(`/support/close-reason-patterns${qs ? `?${qs}` : ""}`);
   },
+};
+
+// ── Releases ───────────────────────────────────────────────────────────────────
+
+export interface ReleaseNote {
+  id: number;
+  releaseId: number;
+  sortOrder: number;
+  note: string;
+}
+
+export interface ReleaseWithNotes {
+  id: number;
+  version: string;
+  versionType: string;
+  title: string;
+  releaseDate: string | null;
+  githubSha: string | null;
+  isPublished: boolean;
+  reviewStatus: "draft" | "preparing" | "review_requested" | "failed" | "merged";
+  reviewBranch: string | null;
+  pullRequestUrl: string | null;
+  pullRequestNumber: number | null;
+  reviewCommitSha: string | null;
+  reviewAttempt: number;
+  reviewError: string | null;
+  reviewRequestedAt: string | null;
+  mergedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  notes: ReleaseNote[];
+}
+
+export interface ReleaseGitHealth {
+  safeToRequestReview: boolean;
+  branch: string | null;
+  head: string | null;
+  origin: string | null;
+  ahead: number;
+  behind: number;
+  dirtyFiles: string[];
+  conflicts: string[];
+  isDetached: boolean;
+  isRebasing: boolean;
+  remoteSyncVerified: boolean;
+  githubConfigured: boolean;
+  blockers: string[];
+  recentCommits: Array<{ sha: string; subject: string }>;
+}
+
+export const releasesApi = {
+  list: () =>
+    apiFetch<ReleaseWithNotes[]>("/platform/releases"),
+
+  create: (body: {
+    version: string;
+    versionType: string;
+    title: string;
+    notes?: string[];
+  }) =>
+    apiFetch<ReleaseWithNotes>("/platform/releases", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  update: (id: number, body: {
+    version?: string;
+    versionType?: string;
+    title?: string;
+    notes?: string[];
+  }) =>
+    apiFetch<ReleaseWithNotes>(`/platform/releases/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  delete: (id: number) =>
+    apiFetch<{ ok: boolean }>(`/platform/releases/${id}`, { method: "DELETE" }),
+
+  gitHealth: () =>
+    apiFetch<ReleaseGitHealth>("/platform/releases/git-health"),
+
+  requestReview: (id: number) =>
+    apiFetch<ReleaseWithNotes>(`/platform/releases/${id}/request-review`, {
+      method: "POST",
+      body: JSON.stringify({ approved: true }),
+    }),
+
+  confirmMerge: (id: number) =>
+    apiFetch<ReleaseWithNotes>(`/platform/releases/${id}/confirm-merge`, {
+      method: "POST",
+    }),
 };
 
 // ── House store constant (mirrors api-server) ─────────────────────────────────

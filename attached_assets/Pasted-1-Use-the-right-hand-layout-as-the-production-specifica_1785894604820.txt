@@ -1,0 +1,156 @@
+1. Use the right-hand layout as the production specification template
+
+That format is stronger because it:
+
+makes the artwork the dominant visual anchor
+separates narrative, composition, materials, constraints, and technical requirements cleanly
+reads well at a glance
+feels like a visual design document rather than a dense administrative report
+supports review without forcing the reviewer to hunt through small text blocks
+
+The left-hand version is useful as a formal audit sheet, but it is too text-heavy for creative review.
+
+2. Add a required Detail & Element References strip
+
+WorldSmith should generate this section automatically from the approved image and prompt data.
+
+Recommended behavior:
+
+create 4–6 cropped detail references
+derive them from the generated concept image
+select crops that correspond to governed focal elements
+preserve the same illustration style and color treatment
+label each crop by function, not with invented story text
+
+For this record, the reference strip should include crops such as:
+
+Estate map detail
+Open journal spread
+Ribbon-tied correspondence
+Brass dividers and spectacles
+Botanical plate
+Bound journal stack
+
+This should not require separate image generation unless a crop is unusable. The default should be deterministic crops from the approved concept image.
+
+3. Match the generated image to the specification-sheet style
+
+The WorldSmith image should follow the visual character shown on the right:
+
+hand-illustrated Victorian archival artwork
+watercolor, gouache, fine ink, and graphite character
+softened edges
+visible aged-paper integration
+muted pigments
+restrained contrast
+tactile, illustrated materials
+no photographic depth of field
+no cinematic realism
+no glossy digital rendering
+
+The current WorldSmith image leans closer to a polished digital illustration. It should move toward the flatter, tactile, hand-rendered language of the right-hand reference.
+
+Recommended Replit specification
+product_specification_template:
+  template_id: WS-PRODUCT-SPEC-V3
+  orientation: square
+  layout_reference: visual_specification_sheet
+
+  visual_priority:
+    primary: generated_concept_image
+    secondary:
+      - narrative_role
+      - composition_and_focal_hierarchy
+      - required_elements
+      - material_and_lighting_notes
+      - negative_space_guidance
+      - design_constraints
+    tertiary:
+      - technical_specifications
+      - color_palette
+      - relationship_to_companion_assets
+      - emotional_intent
+      - artist_notes
+
+  concept_image:
+    required: true
+    placement: upper_right_dominant
+    target_area_percent: 55
+    caption: Internal production specification — final artwork generated separately
+    style_source: linked_style_guide
+    style_guide_required: VSG-1
+
+  detail_element_references:
+    required: true
+    source: generated_concept_image
+    crop_count:
+      minimum: 4
+      maximum: 6
+    selection_logic:
+      - primary_focal_element
+      - secondary_narrative_element
+      - material_detail
+      - governed_object
+      - botanical_or_archival_detail
+      - composition_support
+    crop_behavior:
+      preserve_style: true
+      preserve_color_palette: true
+      no_independent_regeneration_by_default: true
+      allow_manual_override: true
+
+  illustration_style:
+    medium:
+      - watercolor
+      - gouache
+      - fine_ink
+      - graphite
+    surface:
+      - aged_rag_paper
+      - visible_paper_texture
+      - restrained_foxing
+    rendering:
+      - hand_illustrated
+      - softened_edges
+      - layered_pigment
+      - restrained_engraved_detail
+    prohibited:
+      - photography
+      - photorealism
+      - hyperreal_3d
+      - cinematic_rendering
+      - glossy_digital_painting
+      - razor_sharp_depth_of_field
+      - high_contrast_commercial_lighting
+
+  style_validation:
+    require_linked_style_guide: true
+    authoritative_style_guide: VSG-1
+    compare_generated_image_against:
+      - medium
+      - palette
+      - material_texture
+      - edge_treatment
+      - lighting
+      - saturation
+      - historical_object_accuracy
+    fail_when:
+      - image_reads_as_photograph
+      - image_reads_as_game_concept_art
+      - image_uses_modern_or_ungoverned_objects
+      - detail_reference_strip_missing
+      - reference_crops_do_not_match_main_image
+Additional template rules
+
+The specification generator should also:
+
+use the actual Production Specification record as the source of truth
+pull the concept image from Product Specification Image
+use the linked Component Specification for technical requirements
+use VSG-1 for visual styling
+derive Collection and Volume through Component Set
+show the record ID, version, date, owner, and review status
+never invent readable map labels, dates, correspondence, or botanical names
+mark the sheet clearly as a specification, not final customer artwork
+
+The Notion connection failed when I tried to reopen the record, so I have not yet written these instructions into the template page. The specification itself above is ready to give Replit and should become the new WS-PRODUCT-SPEC-V3 contract.

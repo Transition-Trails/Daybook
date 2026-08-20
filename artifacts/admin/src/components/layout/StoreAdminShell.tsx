@@ -91,6 +91,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     flagsQueryOptions(storeId),
   );
   const aiEnabled = flags?.aiEnabled ?? false;
+  const worldsmithEnabled = flags?.worldsmithEnabled ?? false;
 
   // 4-second soft deadline: show "unavailable" banner if flags haven't arrived
   // yet.  Does NOT block the studio page — aiEnabled just stays false.
@@ -115,12 +116,16 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     { label: "Shop catalog",    icon: ShoppingBag,     href: `${base}/catalog` },
     { label: "Planner builds",  icon: BookCopy,        href: `${base}/builds` },
     { label: "My content",      icon: LibraryBig,      href: `${base}/my-content` },
+    { label: "Palette library", icon: Palette,         href: `${base}/my-content?focus=palettes` },
     { label: "Sticker library", icon: Sticker,         href: `${base}/stickers` },
     { label: "Widgets",         icon: Shapes,          href: `${base}/widgets` },
     { label: "Customers",       icon: Users,           href: `${base}/customers` },
     { label: "Staff & roles",   icon: UserCog,         href: `${base}/staff` },
     { label: "Help",            icon: HelpCircle,      href: `${base}/help` },
   ];
+  if (worldsmithEnabled) {
+    NAV.splice(6, 0, { label: "WorldSmith", icon: Sparkles, href: `${base}/worldsmith` });
+  }
 
   const STUDIO_NAV = [
     { label: "Theme Studio",      icon: Palette,       href: `${base}/studios/theme` },
@@ -135,8 +140,16 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     { label: "Store Profile & Voice", icon: UserCircle2, href: `${base}/settings/profile` },
   ];
 
-  const isActive = (href: string) =>
-    href === base ? location === base : location.startsWith(href);
+  const isActive = (href: string) => {
+    const [targetPath, targetQuery] = href.split("?");
+    const currentPath = location.split("?")[0];
+    if (targetQuery) return location === href || location.startsWith(`${href}&`);
+    // Keep the focused Palette Library destination distinct from its parent.
+    if (currentPath === `${base}/my-content` && location.includes("focus=palettes")) {
+      return false;
+    }
+    return href === base ? currentPath === base : currentPath.startsWith(targetPath);
+  };
 
   const handleLogout = () => {
     logout.mutate(undefined, {

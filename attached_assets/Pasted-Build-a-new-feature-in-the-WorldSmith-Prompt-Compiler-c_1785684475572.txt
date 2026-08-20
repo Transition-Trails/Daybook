@@ -1,0 +1,528 @@
+Build a new feature in the WorldSmith Prompt Compiler called:
+
+Product Specification Preview
+
+PURPOSE
+
+After a Production Specification compiles successfully, the engine should generate a lightweight Product Specification Image for human review.
+
+This preview is not a final printable production asset. It is a review artifact that summarizes the Production Specification visually using the established WorldSmith Product Specification layout.
+
+The feature should:
+
+1. Generate a lightweight Product Specification Image.
+2. Upload the image to the Product Specification Image property on the same Notion record.
+3. Move the Production Specification to the next human-review status.
+4. Return a clickable link to the Notion record.
+5. Allow the user to visually inspect the specification before approving generation of the final asset.
+
+==================================================
+FEATURE PLACEMENT
+==================================================
+
+Add this feature after successful prompt compilation.
+
+Updated workflow:
+
+Resolve Production Specification
+
+↓
+
+Validate
+
+↓
+
+Compile Prompt
+
+↓
+
+Generate Product Specification Preview
+
+↓
+
+Upload Preview to Notion
+
+↓
+
+Move Record to Human Review
+
+↓
+
+Return Notion Record Link
+
+Do not generate the final product artwork in this feature.
+
+==================================================
+UI
+==================================================
+
+After a successful compile, display a new action:
+
+Generate Specification Preview
+
+The button should only be enabled when:
+
+• Validation passed
+• Compiled Prompt exists
+• Prompt Hash exists
+• Production Specification was resolved successfully
+
+Add an optional checkbox:
+
+Generate preview automatically after successful compile
+
+Default this checkbox to enabled.
+
+==================================================
+PREVIEW FORMAT
+==================================================
+
+Use the established WorldSmith Product Specification visual format.
+
+The preview should resemble a professional illustrated specification board with:
+
+• WorldSmith branding
+• Product Specification heading
+• Volume and collection name
+• Production Specification title
+• Document metadata
+• Central visual concept or simplified asset mockup
+• Structured specification sections
+• Color palette
+• Illustration characteristics
+• Technical requirements
+• Negative constraints
+• QA review criteria
+• Canon constraints
+• Footer branding
+
+The attached reference image represents the desired structure and visual language.
+
+The preview should be lighter weight than a final printable product.
+
+Recommended output:
+
+• PNG
+• 1600 to 2000 pixels on the longest edge
+• 72 to 150 DPI
+• sRGB
+• Optimized for screen review
+• Maximum target file size: 4 MB
+
+Do not create a 3600 × 3600 or print-resolution preview unless explicitly requested.
+
+==================================================
+PREVIEW CONTENT
+==================================================
+
+Populate the specification image using data from the resolved Production Specification and its governed relations.
+
+Include, when available:
+
+HEADER
+
+• WorldSmith Foundation
+• PRODUCT SPECIFICATION
+• Collection or Volume
+• Production Item
+• Spec ID
+• Payload Version
+• Current Version
+• Status
+
+SECTION 1: STYLE LOCK
+
+Use the linked Style Guide to summarize:
+
+• Illustration medium
+• Historical period
+• Visual treatment
+• Prohibited style deviations
+
+SECTION 2: ASSET PURPOSE
+
+Use:
+
+• Design Intent
+• Narrative Purpose
+• Quantity Basis
+
+SECTION 3: NARRATIVE OR FUNCTION SUMMARY
+
+Use:
+
+• Required Content
+• Component Type
+• Narrative Density
+• Asset Intent
+
+For construction assets such as pockets and envelopes, describe the functional assembly purpose rather than inventing a scene.
+
+SECTION 4: COMPOSITION AND LAYOUT
+
+Use:
+
+• Prompt Payload
+• Component Specification
+• Print Specification
+• Required Content
+
+For pockets and envelopes, show:
+
+• Cut lines
+• Fold lines
+• Glue tabs
+• Opening direction
+• Panel hierarchy
+• Safe margins
+• Assembly silhouette
+
+SECTION 5: ILLUSTRATION CHARACTERISTICS
+
+Summarize relevant Style Guide and Prompt Module requirements.
+
+SECTION 6: COLOR PALETTE
+
+Use colors from the linked Style Guide.
+
+Show swatches with labels and hexadecimal values when available.
+
+SECTION 7: PROHIBITIONS
+
+Use:
+
+• Negative constraints from Prompt Payload
+• Component Specification validation rules
+• Style Guide prohibitions
+• Canon restrictions
+
+SECTION 8: TECHNICAL REQUIREMENTS
+
+Use:
+
+• Print Specification
+• Output format
+• Dimensions
+• Resolution
+• Color profile
+• File requirements
+
+Clearly label this image as:
+
+SCREEN REVIEW PREVIEW
+NOT FINAL PRINT ARTWORK
+
+SECTION 9: USABILITY
+
+Use:
+
+• Review Criteria
+• Component Specification functional requirements
+• Negative-space requirements
+• Construction usability requirements
+
+SECTION 10: QA REVIEW CRITERIA
+
+Convert Review Criteria into a concise checklist.
+
+SECTION 11: SERIES OR COMPONENT BENCHMARK
+
+Use:
+
+• Component Set
+• Reuse Level
+• related Volume standards
+
+SECTION 12: REFERENCES
+
+Use lightweight thumbnails or text references from:
+
+• linked Product Specification Image, if one already exists
+• related approved assets
+• Style Guide
+• Component Specification
+• Prompt Modules
+
+Do not require references for the feature to run.
+
+SECTION 13: CANON LOCK
+
+Use:
+
+• Canon Dependency
+• linked Canon Records
+• approved names and restrictions
+
+Do not invent canon content.
+
+==================================================
+CENTRAL VISUAL
+==================================================
+
+The center of the specification image should contain a simplified visual interpretation of the intended asset.
+
+For decorative papers and journal cards:
+
+• Show a lightweight concept mockup.
+
+For pockets, envelopes, tags, tabs, labels, and tuck-ins:
+
+• Show a clear flat construction diagram or simplified assembled preview.
+• Prioritize structural clarity over decorative detail.
+• Include restrained cut, fold, and glue indicators.
+• Do not imply that the preview is production-ready artwork.
+
+The central visual may be generated from the compiled prompt, but it must be framed as a concept preview.
+
+Add a visible label near the visual:
+
+CONCEPT PREVIEW
+FOR HUMAN REVIEW
+
+==================================================
+IMAGE GENERATION
+==================================================
+
+Use a lower-cost image generation configuration than the final artwork pipeline.
+
+Create a separate preview-generation configuration.
+
+Suggested environment variables:
+
+SPEC_PREVIEW_PROVIDER
+SPEC_PREVIEW_MODEL
+SPEC_PREVIEW_SIZE
+SPEC_PREVIEW_QUALITY
+
+Suggested defaults:
+
+SPEC_PREVIEW_SIZE=1536x1024
+SPEC_PREVIEW_QUALITY=medium
+
+Do not reuse final-generation settings unless no preview settings are configured.
+
+Store:
+
+• preview provider
+• preview model
+• preview generation timestamp
+• source Prompt Hash
+• Production Specification page ID
+
+==================================================
+NOTION WRITE-BACK
+==================================================
+
+After the preview image is generated:
+
+1. Upload the PNG to Notion.
+2. Attach it to the existing Product Specification Image file property on the same Production Specification record.
+3. Do not create a duplicate Production Specification record.
+4. Preserve any existing file only when explicitly configured to retain prior previews.
+5. Default behavior should replace the prior preview with the newest preview.
+
+Update these fields:
+
+Status = Ready for Review
+
+Next Action = Review the Product Specification Image, confirm the specification and visual direction, then approve or return for revision.
+
+Compiled Prompt Status should remain:
+
+Compiled
+
+Do not set Status to Approved automatically.
+
+Do not update Daybook Ready.
+
+Do not generate the final asset.
+
+==================================================
+NOTION FILE HANDLING
+==================================================
+
+Use the current Notion File Upload API or supported Notion SDK method.
+
+The feature must:
+
+• Upload the generated PNG
+• Wait for upload completion when required
+• Attach the resulting file object to Product Specification Image
+• Verify that the file property contains the uploaded image
+• Report a clear error when the upload or property update fails
+
+Do not store a temporary signed URL as the permanent Notion file value.
+
+==================================================
+RETURN VALUE
+==================================================
+
+After successful completion, return:
+
+• Preview generation status
+• Production Item
+• Spec ID
+• Notion page ID
+• Notion page URL
+• Preview filename
+• Preview provider
+• Preview model
+• Prompt Hash
+• Previous Status
+• New Status
+• Product Specification Image upload status
+
+Example success response:
+
+Specification Preview Created
+
+Production Specification:
+V01 Pocket 001: Library Card Pocket
+
+Status:
+Ready for Review
+
+Preview:
+Uploaded to Product Specification Image
+
+Notion Record:
+https://www.notion.so/...
+
+Next Step:
+Open the Notion record and visually inspect the specification preview.
+
+The Notion record URL must be clickable in the UI.
+
+Add buttons:
+
+Open in Notion
+
+Generate New Preview
+
+Return to Compiler
+
+==================================================
+FAILURE HANDLING
+==================================================
+
+If preview generation fails:
+
+• Do not change Status
+• Do not remove an existing Product Specification Image
+• Return the provider error
+• Allow retry
+
+If image upload fails:
+
+• Keep the generated preview available locally for retry
+• Do not change Status
+• Return a clear upload error
+
+If Notion status update fails:
+
+• Report that the image was uploaded but the status was not updated
+• Provide a retry action
+• Do not regenerate the image unnecessarily
+
+If required specification data is missing:
+
+Return structured validation errors with:
+
+• error code
+• missing property
+• description
+• recommended fix
+
+==================================================
+IDEMPOTENCY
+==================================================
+
+Prevent accidental duplicate previews.
+
+Use:
+
+Production Specification page ID
++
+Prompt Hash
++
+preview template version
+
+If the same combination has already produced a preview, return the existing result unless the user chooses:
+
+Generate New Preview
+
+Generating a new preview should increment a preview version internally.
+
+==================================================
+AUDIT LOGGING
+==================================================
+
+Log:
+
+• Production Specification page ID
+• Production Item
+• Prompt Hash
+• preview template version
+• provider
+• model
+• generation timestamp
+• upload result
+• previous Status
+• new Status
+• Notion page URL
+• error details when applicable
+
+Do not log API keys, integration secrets, or signed file URLs.
+
+==================================================
+DRY RUN
+==================================================
+
+Dry Run should:
+
+✓ Resolve the Production Specification
+✓ Validate preview readiness
+✓ Build the specification-preview payload
+✓ Show the structured text content that will populate the layout
+✓ Show the proposed status change
+✓ Show the Notion record URL
+
+Dry Run must not:
+
+• Generate an image
+• Upload a file
+• Update the Notion record
+• Change Status
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+The feature is complete when:
+
+• A compiled Production Specification can generate a lightweight specification preview.
+• The preview follows the established WorldSmith Product Specification format.
+• The preview clearly says it is for screen review and not final print artwork.
+• The image is uploaded to Product Specification Image on the correct Notion record.
+• The record moves from its current status to Ready for Review only after successful upload.
+• Compiled Prompt Status remains Compiled.
+• The UI returns a clickable Notion record link.
+• The user can open the record and visually inspect the preview.
+• Failures do not incorrectly advance the record status.
+• Re-running the same Prompt Hash does not create duplicates unless Generate New Preview is selected.
+• Final product artwork is not generated by this feature.
+
+==================================================
+ACTION STEPS
+==================================================
+
+1. Implement the Product Specification Preview service.
+2. Add the preview-generation configuration.
+3. Add the Generate Specification Preview action to the compiler success screen.
+4. Build the WorldSmith specification-board layout template.
+5. Generate a lightweight central concept visual.
+6. Upload the result to Product Specification Image.
+7. Change Status to Ready for Review only after upload succeeds.
+8. Return the clickable Notion page link.
+9. Test first with V01 Pocket 001: Library Card Pocket.
+10. Confirm the image appears on the Notion record before enabling the feature for all Production Specifications.

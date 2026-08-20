@@ -289,10 +289,15 @@ async function main() {
     { storeId: "store-gamma", aiEnabled: false, customDomain: false, editionsCap: 5,  storageQuota: 1024 },
     { storeId: "store-delta", aiEnabled: false, customDomain: false, editionsCap: 5,   storageQuota: 1024  },
     // House store — full access, unlimited
-    { storeId: "store-house", aiEnabled: true,  customDomain: true,  editionsCap: 999, storageQuota: 51200 },
+    { storeId: "store-house", aiEnabled: true,  customDomain: true,  editionsCap: 999, storageQuota: 51200, worldsmithEnabled: true },
   ]).onConflictDoUpdate({
     target: storeFlagsTable.storeId,
-    set: { aiEnabled: storeFlagsTable.aiEnabled, editionsCap: storeFlagsTable.editionsCap, storageQuota: storeFlagsTable.storageQuota },
+    set: {
+      aiEnabled: storeFlagsTable.aiEnabled,
+      editionsCap: storeFlagsTable.editionsCap,
+      storageQuota: storeFlagsTable.storageQuota,
+      worldsmithEnabled: storeFlagsTable.worldsmithEnabled,
+    },
   });
   console.log("  ✓ store flags");
 

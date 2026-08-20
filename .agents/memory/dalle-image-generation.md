@@ -4,15 +4,17 @@ description: callDallE() pattern, timeout, and ItemOrigin constraint for AI imag
 ---
 
 ## Rule
-`callDallE(prompt, options?)` lives in `artifacts/api-server/src/lib/ai-proxy.ts`. It enforces a 60-second hard timeout via `AbortController` and returns `data:image/png;base64,...`.
+`callDallE(prompt, options?)` lives in `artifacts/api-server/src/lib/ai-proxy.ts`. Uses **gpt-image-1** via the Replit AI integration proxy (`AI_INTEGRATIONS_OPENAI_BASE_URL` + `AI_INTEGRATIONS_OPENAI_API_KEY`). Falls back to `OPENAI_API_KEY` + direct OpenAI URL if integration vars are absent. Returns `data:<mime>;base64,...`.
 
-**Why:** DALL-E 3 can hang indefinitely without a signal; 60 s is the agreed SLA for all external AI calls.
+**Why:** The Replit proxy rejects `dall-e-3` as a model name, `response_format`, and `style` params. `gpt-image-1` is the correct model for the proxy and always returns base64 with no extra params needed.
 
 **How to apply:**
 - Import as `import { callDallE } from "../lib/ai-proxy";` alongside `callAi`.
-- `options.quality = "hd"` for sticker art; `"standard"` is fine for previews.
-- `options.size = "1024x1024"` is the default; `"1792x1024"` for landscape backgrounds.
-- Response format is always `b64_json` — never `url` (URLs expire).
+- `options.quality = "hd"` maps to `"high"`; `"standard"` maps to `"medium"` internally.
+- `options.size = "1024x1024"` is the default; `"1792x1024"` → `"1536x1024"`, `"1024x1792"` → `"1024x1536"`.
+- 90-second AbortController timeout (generation + optional URL download).
+- `style` param is accepted in the interface for API compat but silently ignored (gpt-image-1 doesn't support it).
+- Run `setupReplitAIIntegrations({ providerSlug: "openai" })` in CodeExecution once to provision the env vars.
 
 ## ItemOrigin constraint
 `ItemOrigin = "starter" | "licensed" | "owned"` — `"platform"` is NOT valid.

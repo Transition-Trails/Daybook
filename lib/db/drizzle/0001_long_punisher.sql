@@ -1,0 +1,2 @@
+ALTER TABLE "ws_canon_record_relations" ADD CONSTRAINT "ws_canon_record_relations_from_record_id_ws_canon_records_id_fk" FOREIGN KEY ("from_record_id") REFERENCES "public"."ws_canon_records"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ws_canon_record_relations" ADD CONSTRAINT "ws_canon_record_relations_to_record_id_ws_canon_records_id_fk" FOREIGN KEY ("to_record_id") REFERENCES "public"."ws_canon_records"("id") ON DELETE cascade ON UPDATE no action;

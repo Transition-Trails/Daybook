@@ -1,0 +1,269 @@
+Build Version 1.1 of the WorldSmith Prompt Compiler.
+
+The goal of this phase is to prove the compiler pipeline from a governed Notion Production Specification to a compiled prompt. Do not implement image generation in this phase.
+
+========================================
+INPUT
+========================================
+
+Allow the compiler to accept any of the following as the Production Specification input:
+
+• Full Notion page URL
+• Dashed Notion page ID
+• 32-character Notion page ID
+
+Normalize the input internally before making any Notion API calls.
+
+Label the field:
+
+Production Specification
+
+Placeholder:
+
+Paste a Notion page URL or page ID
+
+========================================
+RESOLVE RECORD
+========================================
+
+Resolve the Production Specification from Notion.
+
+After it is resolved, display a summary before enabling Compile.
+
+Display:
+
+• Production Specification Name
+• Component Type
+• Component Specification
+• Payload Version
+• Canon Dependency
+• Compiled Prompt Status
+• Generation Readiness
+• Version
+
+========================================
+LOAD DEPENDENCIES
+========================================
+
+Resolve every linked governed record.
+
+Load:
+
+• World
+• Style Guide
+• Component Specification
+• Component Set
+• Prompt Modules
+• Prompt Module dependencies
+• Canon Records
+• Prompt Payload
+• Print Specification
+
+========================================
+VALIDATION
+========================================
+
+Validate using CS-000 Production Payload Specification.
+
+Validate:
+
+• Payload Version
+• Required payload keys
+• Required component extension keys
+• Canon Dependency
+• Accepted Canon Records
+• Print settings
+• Required relations
+• Prompt Modules
+• Component Specification
+• Duplicate payload keys
+• Empty placeholder values
+
+Validation must stop compilation if required dependencies are missing.
+
+========================================
+VALIDATION OUTPUT
+========================================
+
+Return structured validation results.
+
+Each error should contain:
+
+• Error Code
+• Property
+• Description
+• Recommended Fix
+
+Examples:
+
+Missing Component Specification
+
+Missing Prompt Module
+
+Prompt Payload missing required key
+
+Canon Record not Accepted
+
+Unsupported Payload Version
+
+========================================
+PROMPT COMPILATION
+========================================
+
+Compile the prompt using the following inheritance order.
+
+1 World
+
+2 Collection / Volume
+
+3 Component Set
+
+4 Style Guide
+
+5 Component Specification
+
+6 Prompt Modules
+
+7 Prompt Module dependencies
+
+8 Production Specification
+
+9 Prompt Payload
+
+10 Canon Rules
+
+11 Negative Constraints
+
+12 Print Requirements
+
+Assemble one immutable Compiled Prompt.
+
+The prompt must always be assembled in exactly the same order.
+
+========================================
+PROMPT HASH
+========================================
+
+Generate a deterministic SHA-256 Prompt Hash from:
+
+• Payload Version
+• Compiled Prompt
+• Negative Prompt
+• Provider
+• Model
+• Model Version
+• Generation Settings
+
+========================================
+DRY RUN
+========================================
+
+Dry Run should:
+
+✓ Resolve records
+
+✓ Validate
+
+✓ Compile prompt
+
+✓ Calculate Prompt Hash
+
+✓ Display results
+
+Dry Run must NOT:
+
+• Update Notion
+
+• Update Visual Assets
+
+• Update Daybook
+
+• Generate images
+
+========================================
+COMPILE
+========================================
+
+Successful compilation should update the Production Specification.
+
+Set:
+
+Compiled Prompt Status = Compiled
+
+Create or update the related Visual Asset.
+
+Populate:
+
+• Compiled Prompt
+• Prompt Hash
+• Payload Version
+• Component Specification
+• Compilation Timestamp
+
+Leave generation metadata blank for now.
+
+========================================
+SUCCESS SCREEN
+========================================
+
+Display:
+
+Compilation Successful
+
+Production Specification
+
+Component
+
+Payload Version
+
+Prompt Modules Loaded
+
+Compiled Prompt Length
+
+Prompt Hash
+
+Validation Status
+
+Next Step
+
+========================================
+DO NOT IMPLEMENT
+========================================
+
+Do not implement:
+
+• Image generation
+
+• Google Drive upload
+
+• Daybook synchronization
+
+• Artwork Review creation
+
+Those belong to the next phase.
+
+========================================
+SUCCESS CRITERIA
+========================================
+
+The compiler is complete when:
+
+• Production Specification resolves correctly.
+
+• All governed records are inherited.
+
+• CS-000 validation passes.
+
+• Validation failures are actionable.
+
+• Compiled Prompt is assembled deterministically.
+
+• Prompt Hash is deterministic.
+
+• Dry Run works.
+
+• Compile updates Notion correctly.
+
+• Visual Asset receives the immutable Compiled Prompt and Prompt Hash.
+
+Once this phase is complete, the compiler is considered production-ready for prompt compilation and we will begin implementing the Generation Engine.

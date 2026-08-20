@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useGetEdition, useCreateEdition, useUpdateEdition, useDeleteEdition,
   useListThemes, useListStickerPacks, useListInserts, useListProducts,
@@ -7,7 +8,6 @@ import {
   type Edition, type EditionInput, type EditionUpdate,
   type Theme, type StickerPack, type Insert, type RelatedProduct
 } from '@workspace/api-client-react';
-import { useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -24,10 +24,12 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, ArrowLeft, Trash2, Save } from 'lucide-react';
 import { Link } from 'wouter';
 import { type EditionInputTier } from '@workspace/api-client-react';
+import { apiFetch } from '@/lib/api';
 
 const PRODUCT_TYPES = ['planner', 'notebook', 'journal', 'memory-keeping'] as const;
 const BINDING_TYPES   = ['', 'coil', 'twin-loop', 'discs', '3-ring', 'none'] as const;
 const BINDING_FINISHES = ['', 'gold', 'rose gold', 'silver', 'matte black', 'white'] as const;
+const NO_WORLD_VALUE = '__no-world__';
 
 const editionSchema = z.object({
   id: z.string().min(1, 'ID is required'),
@@ -39,9 +41,15 @@ const editionSchema = z.object({
   bindingFinish: z.string().default(''),
   priceLow: z.coerce.number().optional(),
   priceHigh: z.coerce.number().optional(),
+  world: z.string().default(''),
 });
 
 type EditionFormValues = z.infer<typeof editionSchema>;
+
+type WorldOption = {
+  name: string;
+  code: string;
+};
 
 function MultiSelectPicker({
   title,
@@ -118,11 +126,17 @@ export default function EditionDetail() {
   const { data: packsData } = useListStickerPacks();
   const { data: insertsData } = useListInserts();
   const { data: productsData } = useListProducts();
+  const { data: worldsData, isLoading: worldsLoading } = useQuery({
+    queryKey: ['worldsmith/worlds'],
+    queryFn: () => apiFetch<{ worlds: WorldOption[] }>('/v1/worldsmith/worlds'),
+    staleTime: 30_000,
+  });
   
   const themes = (themesData || []) as Theme[];
   const packs = (packsData || []) as StickerPack[];
   const inserts = (insertsData || []) as Insert[];
   const products = (productsData || []) as RelatedProduct[];
+  const worlds = worldsData?.worlds ?? [];
   
   const createEdition = useCreateEdition();
   const updateEdition = useUpdateEdition();
@@ -132,7 +146,7 @@ export default function EditionDetail() {
 
   const form = useForm<EditionFormValues>({
     resolver: zodResolver(editionSchema),
-    defaultValues: { id: '', name: '', tier: 'basic', productType: 'planner', sections: '', bindingType: '', bindingFinish: '', priceLow: 0, priceHigh: 0 }
+    defaultValues: { id: '', name: '', tier: 'basic', productType: 'planner', sections: '', bindingType: '', bindingFinish: '', priceLow: 0, priceHigh: 0, world: '' }
   });
 
   const initializedForId = useRef<string | null>(null);
@@ -151,6 +165,7 @@ export default function EditionDetail() {
         bindingFinish: binding?.finish ?? '',
         priceLow: edition.priceLow ?? 0,
         priceHigh: edition.priceHigh ?? 0,
+        world: ((edition as any).world ?? '') as string,
       });
     }
   }, [edition, id, form]);
@@ -163,6 +178,8 @@ export default function EditionDetail() {
       ? { type: data.bindingType as "coil" | "twin-loop" | "discs" | "3-ring" | "none", finish: (data.bindingFinish || 'gold') as "gold" | "rose gold" | "silver" | "matte black" | "white" }
       : null;
 
+    const worldValue = data.world.trim().toUpperCase() || null;
+
     if (isNew) {
       const payload: EditionInput = {
         id: data.id,
@@ -172,10 +189,14 @@ export default function EditionDetail() {
         priceLow: data.priceLow || undefined,
         priceHigh: data.priceHigh || undefined,
       };
-      createEdition.mutate({ data: { ...payload, productType: data.productType, ...(bindingPayload ? { binding: bindingPayload } : {}) } as EditionInput }, {
+      createEdition.mutate({ data: { ...payload, productType: data.productType, world: worldValue, ...(bindingPayload ? { binding: bindingPayload } : {}) } as EditionInput }, {
         onSuccess: (res) => {
           toast({ title: 'Edition created' });
           queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
+          // Invalidate the world-specific strip so the Stories tab reflects the new link immediately.
+          queryClient.invalidateQueries({ queryKey: ["editions-by-world"] });
+          // Invalidate all ws-stories caches so the Stories tab updates without a page reload.
+          queryClient.invalidateQueries({ queryKey: ["ws-stories"] });
           setLocation(`/editions/${res.id}`);
         },
         onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' })
@@ -189,12 +210,18 @@ export default function EditionDetail() {
         priceHigh: data.priceHigh ?? null,
         ...(data.productType ? { productType: data.productType } : {}),
         ...(bindingPayload ? { binding: bindingPayload } : {}),
+        world: worldValue,
       };
       updateEdition.mutate({ id, data: payload }, {
         onSuccess: () => {
           toast({ title: 'Edition updated' });
           queryClient.invalidateQueries({ queryKey: getGetEditionQueryKey(id) });
           queryClient.invalidateQueries({ queryKey: getListEditionsQueryKey() });
+          // Invalidate the world-specific strip so the Stories tab reflects the new link immediately.
+          queryClient.invalidateQueries({ queryKey: ["editions-by-world"] });
+          // Invalidate all ws-stories caches so the Stories tab updates without a page reload
+          // when this edition's world link is added, changed, or cleared.
+          queryClient.invalidateQueries({ queryKey: ["ws-stories"] });
         }
       });
     }
@@ -322,6 +349,32 @@ export default function EditionDetail() {
                         </SelectContent>
                       </Select>
                       <FormDescription>Controls which studio modes and generator spreads are available.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="world" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>World <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
+                      <Select
+                        onValueChange={(value) => field.onChange(value === NO_WORLD_VALUE ? '' : value)}
+                        value={field.value || NO_WORLD_VALUE}
+                        disabled={worldsLoading}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={worldsLoading ? 'Loading worlds…' : 'Select a world'} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value={NO_WORLD_VALUE}>No world</SelectItem>
+                          {worlds.map((world) => (
+                            <SelectItem key={world.code} value={world.code}>
+                              {world.name} <span className="ml-2 font-mono text-xs text-muted-foreground">({world.code})</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>Link this edition to a WorldSmith world. Select “No world” to unlink it.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )} />

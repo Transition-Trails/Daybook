@@ -1,0 +1,203 @@
+/**
+ * WorldSmith Editorial Suite migration — creates all local-first editorial tables.
+ * Run with: node scripts/migrate-worldsmith-editorial.mjs
+ */
+import pg from "pg";
+
+const { Pool } = pg;
+
+if (!process.env.DATABASE_URL) {
+  console.error("DATABASE_URL is not set");
+  process.exit(1);
+}
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+async function run() {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // ── Collections ───────────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ws_collections (
+        id               TEXT PRIMARY KEY,
+        world_id         TEXT NOT NULL,
+        name             TEXT NOT NULL,
+        season           TEXT,
+        year             INTEGER,
+        description      TEXT NOT NULL DEFAULT '',
+        status           TEXT NOT NULL DEFAULT 'draft',
+        notion_page_id   TEXT,
+        synced_at        TIMESTAMPTZ,
+        created_by       TEXT,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_collections_world_idx ON ws_collections(world_id);`);
+
+    // ── Volumes ───────────────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ws_volumes (
+        id               TEXT PRIMARY KEY,
+        world_id         TEXT NOT NULL,
+        collection_id    TEXT,
+        name             TEXT NOT NULL,
+        code             TEXT,
+        status           TEXT NOT NULL DEFAULT 'draft',
+        description      TEXT NOT NULL DEFAULT '',
+        notion_page_id   TEXT,
+        synced_at        TIMESTAMPTZ,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_volumes_world_idx ON ws_volumes(world_id);`);
+
+    // ── Canon Records ─────────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ws_canon_records (
+        id                TEXT PRIMARY KEY,
+        world_id          TEXT NOT NULL,
+        name              TEXT NOT NULL,
+        status            TEXT NOT NULL DEFAULT 'proposed',
+        canon_type        TEXT,
+        narrative_details TEXT NOT NULL DEFAULT '',
+        historical_context TEXT NOT NULL DEFAULT '',
+        visual_notes      TEXT NOT NULL DEFAULT '',
+        spec_ref_count    INTEGER NOT NULL DEFAULT 0,
+        notion_page_id    TEXT,
+        synced_at         TIMESTAMPTZ,
+        created_by        TEXT,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_canon_records_world_idx ON ws_canon_records(world_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_canon_records_status_idx ON ws_canon_records(status);`);
+
+    // ── Style Guides ──────────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ws_style_guides (
+        id               TEXT PRIMARY KEY,
+        world_id         TEXT NOT NULL,
+        name             TEXT NOT NULL,
+        content          TEXT NOT NULL DEFAULT '',
+        notion_page_id   TEXT,
+        synced_at        TIMESTAMPTZ,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_style_guides_world_idx ON ws_style_guides(world_id);`);
+
+    // ── Component Specs ───────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ws_component_specs (
+        id               TEXT PRIMARY KEY,
+        world_id         TEXT NOT NULL,
+        name             TEXT NOT NULL,
+        component_type   TEXT NOT NULL,
+        content          TEXT NOT NULL DEFAULT '',
+        notion_page_id   TEXT,
+        synced_at        TIMESTAMPTZ,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_component_specs_world_idx ON ws_component_specs(world_id);`);
+
+    // ── Prompt Modules ────────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ws_prompt_modules (
+        id               TEXT PRIMARY KEY,
+        world_id         TEXT NOT NULL,
+        name             TEXT NOT NULL,
+        content          TEXT NOT NULL DEFAULT '',
+        dependency_ids   JSONB NOT NULL DEFAULT '[]',
+        notion_page_id   TEXT,
+        synced_at        TIMESTAMPTZ,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_prompt_modules_world_idx ON ws_prompt_modules(world_id);`);
+
+    // ── Production Specs ──────────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ws_production_specs (
+        id                    TEXT PRIMARY KEY,
+        world_id              TEXT NOT NULL,
+        collection_id         TEXT,
+        volume_id             TEXT,
+        production_item       TEXT NOT NULL,
+        spec_id               TEXT,
+        component_type        TEXT NOT NULL,
+        component_set         TEXT,
+        hero_family           TEXT,
+        current_version       TEXT NOT NULL DEFAULT '1',
+        design_intent         TEXT NOT NULL DEFAULT '',
+        narrative_purpose     TEXT NOT NULL DEFAULT '',
+        required_content      TEXT NOT NULL DEFAULT '',
+        review_criteria       TEXT NOT NULL DEFAULT '',
+        writing_space_percent REAL,
+        orientation           TEXT,
+        front_back_style      TEXT,
+        canon_dependency      TEXT NOT NULL DEFAULT 'None',
+        canon_record_ids      JSONB NOT NULL DEFAULT '[]',
+        payload_version       TEXT,
+        prompt_payload        TEXT NOT NULL DEFAULT '',
+        style_guide_id        TEXT,
+        component_spec_id     TEXT,
+        prompt_module_ids     JSONB NOT NULL DEFAULT '[]',
+        status                TEXT NOT NULL DEFAULT 'draft',
+        compiled_prompt_status TEXT NOT NULL DEFAULT 'Not Compiled',
+        readiness_score       INTEGER NOT NULL DEFAULT 0,
+        notion_page_id        TEXT,
+        synced_at             TIMESTAMPTZ,
+        created_by            TEXT,
+        created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_production_specs_world_idx ON ws_production_specs(world_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_production_specs_status_idx ON ws_production_specs(status);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_production_specs_collection_idx ON ws_production_specs(collection_id);`);
+
+    // ── Prompt Payload Revisions ──────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ws_prompt_payloads (
+        id               TEXT PRIMARY KEY,
+        spec_id          TEXT NOT NULL,
+        payload_version  TEXT NOT NULL,
+        raw_payload      TEXT NOT NULL,
+        shared_prompt    TEXT,
+        front_prompt     TEXT,
+        back_prompt      TEXT,
+        negative_prompt  TEXT,
+        is_current       BOOLEAN NOT NULL DEFAULT true,
+        notion_page_id   TEXT,
+        synced_at        TIMESTAMPTZ,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS ws_prompt_payloads_spec_idx ON ws_prompt_payloads(spec_id);`);
+
+    await client.query("COMMIT");
+    console.log("✓ WorldSmith Editorial Suite tables created (or already exist)");
+    console.log("  Tables: ws_collections, ws_volumes, ws_canon_records, ws_style_guides,");
+    console.log("          ws_component_specs, ws_prompt_modules, ws_production_specs, ws_prompt_payloads");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
+run().catch(err => {
+  console.error("Migration failed:", err);
+  process.exit(1);
+});

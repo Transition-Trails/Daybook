@@ -185,8 +185,8 @@ async function main() {
       .values({
         id: row.id,
         familyName: row.familyName,
-        variants: row.variants as { weight: string; style?: "normal" | "italic" }[],
-        curatedPairings: row.curatedPairings as { role: "heading" | "body" | "accent"; family: string; weight?: string }[],
+        variants: row.variants.map((variant) => ({ ...variant })),
+        curatedPairings: row.curatedPairings.map((pairing) => ({ ...pairing })),
         sampleUrl: row.sampleUrl,
         status: "live",
         origin: "starter",

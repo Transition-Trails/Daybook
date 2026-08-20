@@ -1,0 +1,129 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Check, ChevronDown, Loader2, Type } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+
+export interface DaybookFont {
+  id: string;
+  familyName: string;
+  variants: unknown[];
+  notes?: string | null;
+  curatedPairings: Array<{ role: string; family: string; weight?: string }>;
+  status: "draft" | "live";
+}
+
+export function fontReferenceText(font: DaybookFont): string {
+  const roles = font.curatedPairings
+    .map(pairing => `${pairing.role}${pairing.weight ? ` ${pairing.weight}` : ""}`)
+    .join(", ");
+  return [
+    `Daybook Font: ${font.familyName}`,
+    roles ? `Curated roles: ${roles}` : "Curated roles: general use",
+    font.variants.length ? `Available variants: ${font.variants.length}` : "",
+    font.notes?.trim() ? `Source notes: ${font.notes.trim()}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+export function appendFontReference(current: string, font: DaybookFont): string {
+  const reference = fontReferenceText(font);
+  if (current.includes(`Daybook Font: ${font.familyName}`)) return current;
+  if (/<[a-z][\s\S]*>/i.test(current)) {
+    const safeReference = reference
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\n/g, "<br>");
+    return `${current}<p>${safeReference}</p>`;
+  }
+  return current.trim() ? `${current.trim()}\n\n${reference}` : reference;
+}
+
+export function FontLibraryPicker({
+  value,
+  onApply,
+}: {
+  value: string;
+  onApply: (font: DaybookFont) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["daybook-font-library"],
+    queryFn: () => apiFetch<DaybookFont[]>("/fonts"),
+    staleTime: 60_000,
+  });
+  const fonts = data ?? [];
+
+  return (
+    <div className="mb-3 rounded-xl border border-[#E7E0D7] bg-[#FAF8F3] p-3">
+      <button
+        type="button"
+        onClick={() => setOpen(current => !current)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-2 text-xs font-semibold text-[#1B2A4A]">
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white text-[#C87560]">
+            <Type className="h-3.5 w-3.5" />
+          </span>
+          Use a Daybook font
+        </span>
+        <ChevronDown className={`h-4 w-4 text-[#7C6F62] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      <p className="mt-1 pl-8 text-[11px] leading-relaxed text-[#7C6F62]">
+        Pull a curated family and its usage roles from the Daybook Fonts catalog.
+      </p>
+
+      {open && (
+        <div className="mt-3 max-h-60 space-y-1.5 overflow-y-auto pr-1">
+          {isLoading && (
+            <div className="flex items-center gap-2 px-2 py-3 text-xs text-[#7C6F62]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading fonts…
+            </div>
+          )}
+          {isError && (
+            <p className="px-2 py-3 text-xs text-red-600">
+              The Daybook Fonts catalog could not be loaded. You can still enter typefaces manually.
+            </p>
+          )}
+          {!isLoading && !isError && fonts.length === 0 && (
+            <p className="px-2 py-3 text-xs text-[#7C6F62]">No Daybook fonts are available yet.</p>
+          )}
+          {fonts.map(font => {
+            const selected = value.includes(`Daybook Font: ${font.familyName}`);
+            const roles = [...new Set(font.curatedPairings.map(pairing => pairing.role))];
+            return (
+              <button
+                key={font.id}
+                type="button"
+                onClick={() => {
+                  onApply(font);
+                  setOpen(false);
+                }}
+                className="flex w-full items-center gap-3 rounded-lg border px-2.5 py-2 text-left transition-colors hover:border-[#C87560]/50"
+                style={{
+                  borderColor: selected ? "#C87560" : "#E7E0D7",
+                  background: selected ? "#FFF7F3" : "white",
+                }}
+              >
+                <span className="w-28 shrink-0 truncate text-sm text-[#1B2A4A]" style={{ fontFamily: `"${font.familyName}", Georgia, serif` }}>
+                  {font.familyName}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-wrap gap-1">
+                  {roles.map(role => (
+                    <span key={role} className="rounded-full bg-[#EEF4FF] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#2456A6]">
+                      {role}
+                    </span>
+                  ))}
+                </span>
+                {font.status === "draft" && (
+                  <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">Draft</span>
+                )}
+                {selected && <Check className="h-3.5 w-3.5 shrink-0 text-[#C87560]" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}

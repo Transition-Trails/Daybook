@@ -11,6 +11,13 @@ import { defineConfig, devices } from "@playwright/test";
  *   PORT=3001 NODE_ENV=test SERVE_ADMIN_DIST=artifacts/admin/dist/public \
  *     node --enable-source-maps artifacts/api-server/dist/index.mjs &
  *   pnpm --filter @workspace/e2e run test
+ *
+ * Hosted browser checks use the normal development workflow. The focused
+ * script seeds the deterministic CI fixtures, derives a one-way HMAC from the
+ * server's SESSION_SECRET, and authenticates only the seeded super-admin.
+ * The raw secret never reaches browser code. Run the focused browser journey:
+ *
+ *   pnpm --filter @workspace/e2e run test:development-browser
  */
 const baseURL = process.env["PLAYWRIGHT_BASE_URL"] ?? "http://localhost:3001";
 

@@ -5,7 +5,7 @@
  * Allows editing, publish/unpublish toggle (owner only), and soft-delete
  * (owner only, with orphan guard for items attached to editions).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -185,14 +185,16 @@ function Section({
   title,
   children,
   empty,
+  id,
 }: {
   icon: React.ElementType;
   title: string;
   children?: React.ReactNode;
   empty?: boolean;
+  id?: string;
 }) {
   return (
-    <div className="space-y-2">
+    <div id={id} className="space-y-2 scroll-mt-6">
       <div className="flex items-center gap-2 mb-3">
         <Icon className="w-4 h-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
@@ -923,7 +925,7 @@ interface DeleteState {
 export default function MyContent({ storeId, role }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
 
   const isOwner = role === "store_owner" || role === "super_admin";
 
@@ -959,6 +961,18 @@ export default function MyContent({ storeId, role }: Props) {
     queryKey: ["store-backgrounds", storeId],
     queryFn: () => storeStudiosApi.backgrounds.list(storeId),
   });
+
+  useEffect(() => {
+    const focus = new URLSearchParams(location.split("?")[1] ?? "").get("focus");
+    if (focus !== "palettes" || isLoading) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById("palette-library")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [location, isLoading]);
 
   function deletePalette(p: OwnedPalette) {
     setDeletingPaletteId(p.id);
@@ -1152,7 +1166,7 @@ export default function MyContent({ storeId, role }: Props) {
           </Section>
 
           {/* Palettes */}
-          <Section icon={Palette} title="Palette library" empty={palettes.length === 0}>
+          <Section id="palette-library" icon={Palette} title="Palette library" empty={palettes.length === 0}>
             {isOwner && (
               <div className="mb-2">
                 <Button

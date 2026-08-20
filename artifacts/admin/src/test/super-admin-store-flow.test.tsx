@@ -321,20 +321,22 @@ describe("StoreAdminShell — super_admin via RequireStore", () => {
 
   it("shows the super-admin impersonation banner", () => {
     renderSuperAdminShell();
-    expect(screen.getByText(/browsing/i)).toBeInTheDocument();
-    const storeNameInBanner = screen.getByRole("strong");
-    expect(storeNameInBanner).toHaveTextContent("store-test"); // synthetic name = storeId
+    // Banner renders "Viewing [store name] as super admin"
+    expect(screen.getByText(/viewing/i)).toBeInTheDocument();
+    expect(screen.getByText(/as super admin/i)).toBeInTheDocument();
   });
 
   it("shows Back-to-super-admin quick exit in sidebar", () => {
     renderSuperAdminShell();
-    expect(screen.getByText(/back to super admin/i)).toBeInTheDocument();
+    // Sidebar link reads "Back to platform" (navigates to /super)
+    expect(screen.getByText(/back to platform/i)).toBeInTheDocument();
   });
 
-  it("shows 'Exit store' link pointing to /super/stores", () => {
+  it("shows 'Leave store' link pointing to /super", () => {
     renderSuperAdminShell();
-    const exitLink = screen.getByText(/exit store/i);
-    expect(exitLink.closest("a")).toHaveAttribute("href", "/super/stores");
+    // Banner exit link reads "← Leave store" and points to /super (platform console)
+    const exitLink = screen.getByText(/leave store/i);
+    expect(exitLink.closest("a")).toHaveAttribute("href", "/super");
   });
 
   it("shows all six AI Studio nav links regardless of aiEnabled flag", () => {
@@ -624,9 +626,9 @@ describe("End-to-end: navigate from /super/stores to /store/:id", () => {
     expect(screen.getByText("Trend Research")).toBeInTheDocument();
     expect(screen.getByText("Marketing Studio")).toBeInTheDocument();
 
-    // Super admin banner visible
-    expect(screen.getByText(/browsing/i)).toBeInTheDocument();
-    expect(screen.getByText(/exit store/i)).toBeInTheDocument();
+    // Super admin banner visible — banner reads "Viewing [store] as super admin" / "← Leave store"
+    expect(screen.getByText(/viewing/i)).toBeInTheDocument();
+    expect(screen.getByText(/leave store/i)).toBeInTheDocument();
 
     // No 401/404 triggered (fetch was not called with an unauthorized response)
     const allCalls = (vi.mocked(fetch) as any).mock.calls as Array<[string, unknown]>;

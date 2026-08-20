@@ -14,8 +14,9 @@ import { promises as fs } from "node:fs";
 import { db } from "@workspace/db";
 import { themesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { warmFontCache } from "../lib/font-warmup";
-import { _googleFontCache, _diskCachePath } from "../lib/pdf-generator";
+import { warmFontCache, getWarmupStatus } from "../lib/font-warmup";
+import { _googleFontCache, _diskCachePath, _bundledFontPath } from "../lib/pdf-generator";
+import { existsSync } from "node:fs";
 
 // ── Synthetic font data ───────────────────────────────────────────────────────
 
@@ -67,16 +68,28 @@ async function waitForFile(filePath: string, timeoutMs = 10_000): Promise<boolea
   return false;
 }
 
+/**
+ * Poll until the warmup phase reaches "done" or "error", or timeoutMs elapses.
+ * More reliable than polling for a specific disk file when bundled WOFFs are
+ * present — those are served from src/lib/fonts/ without a /tmp disk write.
+ */
+async function waitForWarmupDone(timeoutMs = 15_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const phase = getWarmupStatus().phase;
+    if (phase === "done" || phase === "error") return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
 // ── Setup / teardown ──────────────────────────────────────────────────────────
 
 beforeEach(async () => {
   // 1. Cold-start: wipe in-process cache so no prior test's state leaks through.
   _googleFontCache.clear();
 
-  // 2. Cold-start: wipe the disk cache dir so every test truly starts fresh.
-  await fs.rm(DISK_DIR, { recursive: true, force: true });
-
-  // 3. Insert a live test theme whose fontPairing references our test family.
+  // 2. Insert a live test theme whose fontPairing references our test family.
   //    collectLiveFamilyNames reads themes.font_pairing JSONB, so this is all
   //    that is needed — no theme_fonts row is required.
   await db
@@ -90,6 +103,12 @@ beforeEach(async () => {
       fontPairing: { heading: TEST_FAMILY },
     })
     .onConflictDoNothing();
+
+  // 3. Wipe the disk cache dir last — after the DB round-trip above — so any
+  //    fire-and-forget disk writes started by a previous test's warmFontCache
+  //    call have had time to settle before we remove the directory.
+  await new Promise((r) => setTimeout(r, 100));
+  await fs.rm(DISK_DIR, { recursive: true, force: true });
 
   // 4. Stub global.fetch so no real network calls are made:
   //    - Any fonts.googleapis.com URL → return fake CSS with truetype format tag
@@ -153,57 +172,98 @@ describe("warmFontCache — cold start (empty in-process Map + empty /tmp)", () 
 
       warmFontCache(); // fire-and-forget — intentionally not awaited
 
-      // Wait for the disk file to appear as a proxy for warmup completion
-      // (the in-process cache is set before the disk write, so if the file is
-      // present the Map entry is guaranteed to exist too).
-      const diskPath400 = _diskCachePath(TEST_FAMILY, 400);
-      const appeared    = await waitForFile(diskPath400);
+      // Wait for the warmup phase to reach "done" rather than polling for a disk
+      // file.  When the family has a bundled WOFF in src/lib/fonts/, fetchGoogleFontBytes
+      // returns from the bundle shortcut without writing to /tmp, so a disk-file proxy
+      // would time-out even though the in-process cache is fully populated.
+      const finished = await waitForWarmupDone();
+      expect(finished).toBe(true);
 
-      expect(appeared).toBe(true);
+      // Both weights must be in the in-process cache (bundle path, disk path, or
+      // network — all three code paths call _googleFontCache.set before returning).
       expect(_googleFontCache.has(`${TEST_FAMILY}:400`)).toBe(true);
       expect(_googleFontCache.has(`${TEST_FAMILY}:700`)).toBe(true);
     },
-    15_000,
+    20_000,
   );
 
   it(
-    "writes valid TTF bytes to the disk cache for weight 400",
+    "caches weight-400 bytes in the in-process Map (or disk cache) after warm-up",
     async () => {
       warmFontCache();
 
+      // Wait for warmup to complete rather than polling for a specific disk file.
+      // When the family has a bundled WOFF, fetchGoogleFontBytes returns from the
+      // bundle shortcut without writing to /tmp — the disk write is only on the
+      // network path.
+      const finished = await waitForWarmupDone();
+      expect(finished).toBe(true);
+
+      const bytes400 = _googleFontCache.get(`${TEST_FAMILY}:400`);
+      expect(bytes400).toBeTruthy();
+      expect(bytes400!.byteLength).toBeGreaterThan(0);
+
+      // If a bundled WOFF served the bytes, the disk cache is not written.
+      // If the network path ran, check the disk file and TTF magic.
+      const hasBundled = existsSync(_bundledFontPath(TEST_FAMILY, 400));
       const diskPath400 = _diskCachePath(TEST_FAMILY, 400);
-      const appeared    = await waitForFile(diskPath400);
-      expect(appeared).toBe(true);
+      const diskExists  = await fs.access(diskPath400).then(() => true).catch(() => false);
 
-      const diskBytes = await fs.readFile(diskPath400);
-      expect(diskBytes.byteLength).toBeGreaterThan(0);
-
-      // First four bytes must be standard TTF magic (00 01 00 00).
-      expect(diskBytes[0]).toBe(0x00);
-      expect(diskBytes[1]).toBe(0x01);
-      expect(diskBytes[2]).toBe(0x00);
-      expect(diskBytes[3]).toBe(0x00);
+      if (hasBundled) {
+        // Bundled WOFF: in-process cache has WOFF bytes (77 4f 46 46 magic)
+        expect(bytes400![0]).toBe(0x77); // 'w'
+        expect(bytes400![1]).toBe(0x4f); // 'O'
+      } else {
+        // Network path: disk cache must have been written with TTF magic
+        expect(diskExists).toBe(true);
+        const diskBytes = await fs.readFile(diskPath400);
+        expect(diskBytes[0]).toBe(0x00);
+        expect(diskBytes[1]).toBe(0x01);
+        expect(diskBytes[2]).toBe(0x00);
+        expect(diskBytes[3]).toBe(0x00);
+      }
     },
-    15_000,
+    20_000,
   );
 
   it(
-    "writes valid TTF bytes to the disk cache for weight 700",
+    "caches weight-700 bytes in the in-process Map after warm-up",
     async () => {
       warmFontCache();
 
-      const diskPath700 = _diskCachePath(TEST_FAMILY, 700);
-      const appeared    = await waitForFile(diskPath700);
-      expect(appeared).toBe(true);
+      // When a bundled WOFF exists for the family (src/lib/fonts/<Family>-700.woff),
+      // fetchGoogleFontBytes takes the bundle shortcut and returns WITHOUT writing
+      // to /tmp — the disk cache is only a hot-reload optimisation for the network
+      // path.  Check the in-process cache (the definitive source for PDF generation)
+      // and, where the disk file was written, verify the format too.
+      const finished = await waitForWarmupDone();
+      expect(finished).toBe(true);
 
-      const diskBytes = await fs.readFile(diskPath700);
-      expect(diskBytes.byteLength).toBeGreaterThan(0);
-      expect(diskBytes[0]).toBe(0x00);
-      expect(diskBytes[1]).toBe(0x01);
-      expect(diskBytes[2]).toBe(0x00);
-      expect(diskBytes[3]).toBe(0x00);
+      const bytes700 = _googleFontCache.get(`${TEST_FAMILY}:700`);
+      expect(bytes700).toBeTruthy();
+      expect(bytes700!.byteLength).toBeGreaterThan(0);
+
+      // If the bundled WOFF served the bytes, validate its WOFF magic (77 4f 46 46).
+      // If a network download wrote to /tmp, validate TTF magic (00 01 00 00).
+      const hasBundled = existsSync(_bundledFontPath(TEST_FAMILY, 700));
+      const diskPath700 = _diskCachePath(TEST_FAMILY, 700);
+      const diskExists  = await fs.access(diskPath700).then(() => true).catch(() => false);
+
+      if (hasBundled) {
+        // Bundle path — bytes are WOFF format (served directly from src/lib/fonts/)
+        expect(bytes700![0]).toBe(0x77); // 'w' — wOFF magic
+        expect(bytes700![1]).toBe(0x4f); // 'O'
+      } else {
+        // Network path — the disk cache must have been written with TTF bytes
+        expect(diskExists).toBe(true);
+        const diskBytes = await fs.readFile(diskPath700);
+        expect(diskBytes[0]).toBe(0x00);
+        expect(diskBytes[1]).toBe(0x01);
+        expect(diskBytes[2]).toBe(0x00);
+        expect(diskBytes[3]).toBe(0x00);
+      }
     },
-    15_000,
+    20_000,
   );
 
   it(

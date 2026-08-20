@@ -1,0 +1,503 @@
+Enhance the WorldSmith Prompt Compiler by replacing the current "Full Compiled Prompt" experience with a true "Compiled Production Specification Inspector."
+
+The compiler is no longer simply assembling text. It is compiling a governed production artifact from multiple approved specifications. The UI should reflect that architecture and make the compilation process transparent, explainable, and easy to debug.
+
+This feature is intended to become the primary inspection tool before Product Specification Preview generation and final image generation.
+
+==================================================
+OBJECTIVE
+==================================================
+
+Transform the compiler results page into a structured inspection experience that allows users to understand:
+
+• what was compiled
+• where every instruction originated
+• what inherited correctly
+• what validation warnings exist
+• what still needs attention before generation
+
+The goal is to eliminate the need to scroll through a 14,000+ character prompt to understand the compilation.
+
+==================================================
+REPLACE
+==================================================
+
+Replace the current:
+
+Full Compiled Prompt
+
+with:
+
+Compiled Production Specification
+
+==================================================
+LAYOUT
+==================================================
+
+Organize the page into five primary tabs.
+
+--------------------------------------------------
+TAB 1
+Compilation Summary
+--------------------------------------------------
+
+Display:
+
+Production Specification
+
+Component
+
+World
+
+Collection
+
+Volume
+
+Component Set
+
+Component Specification
+
+Payload Version
+
+Payload Format
+
+Compiled Artifact ID
+
+Prompt Hash
+
+Compiled Prompt Length
+
+Compiler Version
+
+Compilation Timestamp
+
+Validation Status
+
+Next Step
+
+Resolve all UUIDs into human-readable names.
+
+UUIDs should only appear inside an expandable Technical Details section.
+
+--------------------------------------------------
+TAB 2
+Compilation Inspector
+--------------------------------------------------
+
+Display the complete inheritance tree used during compilation.
+
+Example:
+
+Creative Task
+    Source:
+    Production Specification
+
+World
+    Wychcombe
+
+Collection
+    Victorian Garden Journals
+
+Volume
+    Volume I
+
+Style Guide
+    Victorian Botanical Illustration
+
+Component Specification
+    CS-001 Journal Card
+
+Component Set
+    Greenhouse Workbench
+
+Prompt Modules
+
+    Archival Materials
+
+    Quiet Gothic Lighting
+
+    Botanical Aging
+
+Prompt Payload
+
+    Shared Prompt
+
+    Front Prompt
+
+    Back Prompt (if present)
+
+    Assembly Prompt (if present)
+
+    Negative Prompt
+
+Canon
+
+Print Specification
+
+Each section should show:
+
+• source record
+• status
+• inherited successfully
+• expandable preview
+
+Every section should be collapsible.
+
+==================================================
+TAB 3
+Prompt Sections
+==================================================
+
+Instead of one giant prompt, display each compiled section separately.
+
+Shared Prompt
+
+Front Prompt
+
+Back Prompt
+
+Assembly Prompt
+
+Negative Prompt
+
+Each section should display:
+
+• character count
+• originating record
+• originating specification
+• originating prompt modules
+• copy button
+
+Allow each section to be expanded independently.
+
+Also provide:
+
+Copy Entire Prompt
+
+Export Prompt
+
+==================================================
+TAB 4
+Validation
+==================================================
+
+Replace the existing warning panel with a structured validation report.
+
+Group results into:
+
+Errors
+
+Warnings
+
+Informational Messages
+
+Validation should reference the governing specification.
+
+Example:
+
+Payload Contract Validation
+
+Status
+
+Warning
+
+Component Specification
+
+CS-001 Journal Card
+
+Payload Version
+
+PP-2.0
+
+Missing Section
+
+front_prompt
+
+Required By
+
+Payload Contract
+
+Suggested Fix
+
+Populate front_prompt in the linked Prompt Payload.
+
+Provide direct navigation buttons:
+
+Open Production Specification
+
+Open Prompt Payload
+
+Open Component Specification
+
+==================================================
+TAB 5
+Technical Details
+==================================================
+
+Provide advanced diagnostic information.
+
+Display:
+
+Page IDs
+
+Prompt Hash
+
+Compiled Artifact ID
+
+Compiler Version
+
+Compiler Build
+
+Provider
+
+Model
+
+Model Version
+
+Prompt Length
+
+Compilation Duration
+
+Loaded Record Count
+
+Resolved Relation Count
+
+UUIDs
+
+Compilation Log
+
+Timing Information
+
+This tab is intended for administrators and debugging.
+
+==================================================
+COMPILATION PROVENANCE
+==================================================
+
+Create a new Provenance panel.
+
+Display every record that contributed to the final compilation.
+
+Example:
+
+Production Specification
+
+Journal Card 002
+
+↓
+
+Component Specification
+
+CS-001 Journal Card
+
+↓
+
+Style Guide
+
+Victorian Botanical Illustration
+
+↓
+
+Prompt Modules
+
+Archival Materials
+
+Quiet Gothic Lighting
+
+Negative Constraints
+
+↓
+
+Prompt Payload
+
+PP-2.0
+
+↓
+
+Canon
+
+WorldSmith Living Archive
+
+↓
+
+Print Specification
+
+12 x 12 PNG
+
+Every item should be clickable.
+
+==================================================
+BUILD TREE
+==================================================
+
+Display the compiler as a build pipeline.
+
+Resolve
+
+✓
+
+Validate
+
+✓
+
+Inheritance
+
+✓
+
+Prompt Assembly
+
+✓
+
+Hash Generation
+
+✓
+
+Ready for Preview
+
+Pending
+
+Generate Artwork
+
+Pending
+
+This should visually communicate the publishing pipeline.
+
+==================================================
+UUID HANDLING
+==================================================
+
+Never display raw UUIDs in the primary UI.
+
+Always resolve them to record titles.
+
+Provide a "Show Technical IDs" toggle inside Technical Details.
+
+==================================================
+COMPILED ARTIFACT ID
+==================================================
+
+Rename the displayed Prompt Hash section.
+
+Display:
+
+Compiled Artifact ID
+
+Primary Identifier
+
+Prompt Hash
+
+Secondary Technical Identifier
+
+The Compiled Artifact ID becomes the primary identifier for future references.
+
+==================================================
+PRODUCT SPECIFICATION PREVIEW
+==================================================
+
+Keep the existing Specification Board Preview section.
+
+Move it below the Compilation Summary.
+
+If validation has errors:
+
+Disable Generate Preview.
+
+If only warnings exist:
+
+Allow Generate Preview but display a caution banner.
+
+==================================================
+COPY FUNCTIONS
+==================================================
+
+Support:
+
+Copy Shared Prompt
+
+Copy Front Prompt
+
+Copy Negative Prompt
+
+Copy Entire Prompt
+
+Copy Prompt Hash
+
+Copy Compiled Artifact ID
+
+==================================================
+EXPORT
+==================================================
+
+Support:
+
+Export Compiled Prompt
+
+Export Compilation Report
+
+Export Validation Report
+
+Export Provenance
+
+JSON export is sufficient for Version 1.
+
+==================================================
+VISUAL DESIGN
+==================================================
+
+Maintain the existing WorldSmith visual style.
+
+Use:
+
+expandable cards
+
+section icons
+
+status badges
+
+color-coded validation
+
+clear typography
+
+comfortable spacing
+
+The interface should feel like a professional publishing compiler rather than a developer console.
+
+==================================================
+DO NOT REMOVE
+==================================================
+
+Keep:
+
+Prompt compilation
+
+Prompt hash generation
+
+Dry Run
+
+Specification Preview generation
+
+Current compiler functionality
+
+Only improve the inspection experience.
+
+==================================================
+ACCEPTANCE CRITERIA
+==================================================
+
+The feature is complete when:
+
+• Users no longer need to inspect one massive prompt block to understand compilation.
+
+• Every compiled section has visible provenance.
+
+• Every inherited specification is visible.
+
+• UUIDs are replaced by friendly names.
+
+• Validation references governing specifications instead of hardcoded assumptions.
+
+• The compilation process resembles a professional publishing build pipeline.
+
+• The page clearly communicates what was compiled, where it came from, what still needs attention, and what the next production step is.
+
+The compiler should feel like the authoritative inspection and governance tool for the WorldSmith publishing pipeline, not merely a prompt viewer.

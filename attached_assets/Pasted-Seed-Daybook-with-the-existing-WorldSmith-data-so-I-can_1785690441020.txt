@@ -1,0 +1,410 @@
+Seed Daybook with the existing WorldSmith data so I can immediately demonstrate the platform without recreating my world manually.
+
+This is a one-time seed operation using realistic prototype data based on the existing WorldSmith architecture.
+
+Do NOT overwrite existing production data.
+
+If matching records already exist, update them instead of creating duplicates.
+
+==================================================
+WORLD
+==================================================
+
+Create one primary World.
+
+World Name:
+Wychcombe
+
+World Code:
+WYC
+
+Status:
+Active
+
+Description:
+A fictional Victorian estate dedicated to botanical preservation, archival research, and quiet scholarship. Wychcombe is the flagship World for WorldSmith and serves as the foundation for the Victorian Garden Journals product line.
+
+Owner:
+WorldSmith Foundation
+
+Health:
+Healthy
+
+==================================================
+COLLECTION
+==================================================
+
+Collection
+
+Victorian Garden Journals
+
+Status:
+Active
+
+==================================================
+VOLUME
+==================================================
+
+Volume
+
+Volume I
+
+Title
+
+The Curator's Desk
+
+Status
+
+In Production
+
+Progress
+
+Approximately 65%
+
+==================================================
+STYLE GUIDE
+==================================================
+
+Create one primary Style Guide.
+
+Victorian Botanical Illustration
+
+Status
+
+Approved
+
+==================================================
+CANON
+==================================================
+
+Seed approved Canon.
+
+• Wychcombe Estate
+• The Curator
+• WorldSmith Living Archive
+• WorldSmith Foundation
+• Victorian Garden Journals
+• Volume I – The Curator's Desk
+
+==================================================
+PRODUCTS
+==================================================
+
+Seed these products.
+
+Hero Papers
+
+• Garden Ledger
+• The Greenhouse Workbench
+• The Herbarium Cabinet
+• The Library Table
+
+Coordinating Papers
+
+12 Coordinating Papers
+
+Journal Cards
+
+24 Journal Cards
+
+Ephemera Sheets
+
+• Curator's Desk Objects
+• Botanical & Greenhouse Artifacts
+• Archival Correspondence & Catalog Evidence
+
+Construction Assets
+
+Pockets
+
+• Library Card Pocket
+• Herbarium Specimen Pocket
+• Botanical Corner Pocket
+• Layered Curator's Pocket
+
+Envelopes
+
+• Estate Correspondence Envelope
+• Herbarium Specimen Envelope
+• Curator's Archive Envelope
+• Small Botanical Keepsake Envelope
+
+==================================================
+PRODUCTION STATUS
+==================================================
+
+Seed realistic production status.
+
+Approved
+
+4 Hero Papers
+
+Ready for Review
+
+8 Coordinating Papers
+
+Compiled
+
+6 Coordinating Papers
+
+In Production
+
+24 Journal Cards
+
+Not Started
+
+4 Pockets
+
+4 Envelopes
+
+Blocked
+
+0
+
+Failed
+
+0
+
+==================================================
+REVIEWS
+==================================================
+
+Seed review queue.
+
+Awaiting Product Specification Review
+
+8
+
+Awaiting Artwork Review
+
+6
+
+Approved
+
+12
+
+Returned for Revision
+
+2
+
+==================================================
+VISUAL ASSETS
+==================================================
+
+Seed sample visual assets.
+
+Use placeholder thumbnails where artwork does not yet exist.
+
+Mark them as:
+
+Approved
+
+In Review
+
+Compiled
+
+Concept Preview
+
+Do not generate real artwork.
+
+==================================================
+PRODUCTION RUNS
+==================================================
+
+Seed compiler history.
+
+Successful Runs
+
+38
+
+Failed Runs
+
+1
+
+Last Successful Compile
+
+Today
+
+==================================================
+INTEGRATIONS
+==================================================
+
+Seed integration health.
+
+Notion
+
+Connected
+
+Google Drive
+
+Connected
+
+Image Provider
+
+Connected
+
+Daybook
+
+Connected
+
+GitHub
+
+Not Configured
+
+==================================================
+ACTION CENTER
+==================================================
+
+Seed actionable items.
+
+Review 8 Product Specification previews
+
+Compile 4 Pocket specifications
+
+Compile 4 Envelope specifications
+
+Review 6 generated assets
+
+Volume I is approximately 65% complete
+
+==================================================
+WORLD HEALTH
+==================================================
+
+Health
+
+Healthy
+
+Reason
+
+All required integrations connected.
+
+Canon established.
+
+Style Guide approved.
+
+Production active.
+
+Items awaiting review.
+
+==================================================
+RECENT ACTIVITY
+==================================================
+
+Seed activity.
+
+Compiled Garden Ledger
+
+Generated Product Specification Preview
+
+Approved Hero Paper 003
+
+Created Pocket Component Specification
+
+Created Envelope Component Specification
+
+Compiled Coordinating Paper 012
+
+==================================================
+DASHBOARD METRICS
+==================================================
+
+Worlds
+
+1
+
+Collections
+
+1
+
+Volumes
+
+1
+
+Production Specifications
+
+Approximately 55
+
+Visual Assets
+
+Approximately 40
+
+Awaiting Review
+
+14
+
+Approved
+
+20
+
+Failed Runs
+
+1
+
+==================================================
+WORLD FILTER
+==================================================
+
+The seeded World should immediately appear in the World selector.
+
+Selecting Wychcombe should populate every dashboard section.
+
+==================================================
+NAVIGATION
+==================================================
+
+Opening Wychcombe should navigate to:
+
+Collections
+
+Volumes
+
+Production
+
+Reviews
+
+Assets
+
+Integrations
+
+Settings
+
+==================================================
+IMPLEMENTATION
+==================================================
+
+Create this as development seed data.
+
+If the seed has already been applied:
+
+Update existing records rather than creating duplicates.
+
+The seed should be idempotent.
+
+==================================================
+SUCCESS
+==================================================
+
+After seeding, the WorldSmith landing page should immediately demonstrate:
+
+• One complete World
+• One active Collection
+• One active Volume
+• Production progress
+• Product Specifications
+• Reviews
+• Assets
+• Integrations
+• Activity
+• World Health
+• Action Center
+
+without requiring manual setup.
+
+At the end of the seed process, return:
+
+• Number of records created
+• Number updated
+• Any duplicates skipped
+• Any validation warnings
+• Confirmation that Wychcombe is available in the World selector and ready for demonstration.

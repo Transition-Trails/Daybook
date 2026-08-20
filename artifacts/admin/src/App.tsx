@@ -74,6 +74,7 @@ import SuperAudit from "@/pages/super/AuditLog";
 import SuperRecipes from "@/pages/super/ProductRecipes";
 import NewRecipe from "@/pages/super/NewRecipe";
 import SuperSupportInbox from "@/pages/super/SupportInbox";
+import ReleasesPage from "@/pages/super/Releases";
 import StoreSupportInbox from "@/pages/store/SupportInbox";
 const ShopSupportPage = lazy(() => import("@/pages/shop/SupportPage"));
 
@@ -113,6 +114,28 @@ import Deliverability from "@/pages/super/Deliverability";
 import StoreSupportPatterns from "@/pages/store/SupportPatterns";
 import SuperSupportPatterns from "@/pages/super/SupportPatterns";
 import PromoteCatalog from "@/pages/super/PromoteCatalog";
+import WorldSmithCompiler from "@/pages/super/WorldSmithCompiler";
+import WorldSmithHome from "@/pages/super/WorldSmithHome";
+import {
+  EditorialShell,
+  ReadinessBoard,
+  CanonBoard,
+  CanonLibrary,
+  CanonRecordEditor,
+  WorldsmithCanon,
+  NewSpecFlow,
+  SpecEditor,
+  SpecsList,
+  StyleGuides,
+  NewStyleGuideFlow,
+  NewPromptModuleFlow,
+  EditorialDocumentEditor,
+  PromptModules,
+  StoriesStudio,
+  StorylineEditor,
+  StoryConnections,
+  WorldBibleStudio,
+} from "@/pages/super/worldsmith-editorial";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -162,6 +185,15 @@ function RootRouter() {
           </SuperAdminShell>
         </RequireSuperAdmin>
       </Route>
+      <Route path="/super/releases">
+        <RequireSuperAdmin state={state}>
+          <SidebarProvider>
+            <Shell>
+              <ReleasesPage />
+            </Shell>
+          </SidebarProvider>
+        </RequireSuperAdmin>
+      </Route>
       <Route path="/super/stores">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperStores /></SuperAdminShell></RequireSuperAdmin>
       </Route>
@@ -198,6 +230,129 @@ function RootRouter() {
       <Route path="/super/support/patterns">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperSupportPatterns /></SuperAdminShell></RequireSuperAdmin>
       </Route>
+      {/* ── WorldSmith production home (promoted from concept review) ──── */}
+      <Route path="/super/worldsmith">
+        <RequireSuperAdmin state={state}><WorldSmithHome /></RequireSuperAdmin>
+      </Route>
+      {/* ── WorldSmith Prompt Compiler (accessible from home) ────────────── */}
+      <Route path="/super/worldsmith/compiler">
+        <RequireSuperAdmin state={state}><SuperAdminShell><WorldSmithCompiler /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+
+      {/* ── WorldSmith Editorial Suite ────────────────────────────────────── */}
+      <Route path="/super/worldsmith/editorial/bible">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="bible"><WorldBibleStudio /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/stories">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="stories"><StoriesStudio /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/stories/new">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="stories"><StorylineEditor /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/stories/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="stories"><StorylineEditor storyId={p.id!} /></EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      <Route path="/super/worldsmith/editorial/connections">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="connections"><StoryConnections /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/specs">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="specs"><SpecsList /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/specs/new">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="specs"><NewSpecFlow /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/specs/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="specs">
+              <SpecEditor specId={p.id!} />
+            </EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      <Route path="/super/worldsmith/editorial/canon/new">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="canon"><CanonRecordEditor /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/canon/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="canon">
+              <CanonRecordEditor recordId={p.id!} />
+            </EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      <Route path="/super/worldsmith/editorial/canon">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="canon"><CanonLibrary /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/style-guides/new">
+        {() => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="style-guides"><NewStyleGuideFlow /></EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      <Route path="/super/worldsmith/editorial/style-guides/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="style-guides"><EditorialDocumentEditor kind="style-guide" documentId={p.id!} /></EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      <Route path="/super/worldsmith/editorial/style-guides">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="style-guides"><StyleGuides /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/modules/new">
+        {() => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="modules"><NewPromptModuleFlow /></EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      <Route path="/super/worldsmith/editorial/modules/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <EditorialShell activePage="modules"><EditorialDocumentEditor kind="prompt-module" documentId={p.id!} /></EditorialShell>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      <Route path="/super/worldsmith/editorial/modules">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="modules"><PromptModules /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/board">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="board"><ReadinessBoard /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="board"><ReadinessBoard /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
 
       {/* ── Product Builder ────────────────────────────────────── */}
       <Route path="/store/:storeId/build">
@@ -206,6 +361,19 @@ function RootRouter() {
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
                 <ProductBuilder storeId={p.storeId!} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
+      {/* ── Store-scoped WorldSmith ─────────────────────────────── */}
+      <Route path="/store/:storeId/worldsmith">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <WorldSmithHome storeId={p.storeId!} />
               </StoreAdminShell>
             )}
           </RequireStore>

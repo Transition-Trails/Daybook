@@ -2,9 +2,11 @@
  * CI test personas.
  *
  * These accounts are seeded by scripts/src/seed-ci.ts and exist only in
- * environments where NODE_ENV=test. Never use production credentials here.
+ * test environments. Never use production credentials here.
  *
- * Login is handled by POST /api/auth/test-login (only active in test mode).
+ * Login is handled by POST /api/auth/test-login. The full persona set is only
+ * available in test mode; the development browser check uses an HMAC-protected
+ * super-admin-only session.
  */
 
 export interface Persona {

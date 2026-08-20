@@ -480,7 +480,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     const storeId = req.params.storeId as string;
     const rows = await db.select().from(storeFlagsTable).where(eq(storeFlagsTable.storeId, storeId));
-    res.json(rows[0] ?? { storeId, aiEnabled: false, customDomain: false, editionsCap: 5, storageQuota: 1024, inkEnabled: false });
+    res.json(rows[0] ?? { storeId, aiEnabled: false, customDomain: false, editionsCap: 5, storageQuota: 1024, inkEnabled: false, worldsmithEnabled: false });
   },
 );
 
@@ -492,12 +492,13 @@ router.put(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    const { aiEnabled, customDomain, editionsCap, storageQuota, inkEnabled } = req.body as {
+    const { aiEnabled, customDomain, editionsCap, storageQuota, inkEnabled, worldsmithEnabled } = req.body as {
       aiEnabled?: boolean;
       customDomain?: boolean;
       editionsCap?: number;
       storageQuota?: number;
       inkEnabled?: boolean;
+      worldsmithEnabled?: boolean;
     };
 
     const patch: Partial<typeof storeFlagsTable.$inferInsert> = {};
@@ -506,6 +507,7 @@ router.put(
     if (editionsCap !== undefined) patch.editionsCap = editionsCap;
     if (storageQuota !== undefined) patch.storageQuota = storageQuota;
     if (inkEnabled !== undefined) patch.inkEnabled = inkEnabled;
+    if (worldsmithEnabled !== undefined) patch.worldsmithEnabled = worldsmithEnabled;
 
     const [flags] = await db
       .insert(storeFlagsTable)

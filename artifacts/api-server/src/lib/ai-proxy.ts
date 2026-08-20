@@ -1,8 +1,31 @@
 import { logger } from "./logger";
 
-interface ChatMessage {
+export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+}
+
+/** An image attachment already converted to base64 for the final AI call. */
+export interface AttachmentBlock {
+  /** base64-encoded bytes (no data-URL prefix) */
+  base64: string;
+  /** e.g. "image/jpeg" */
+  mediaType: string;
+  /** Original filename, shown as alt text */
+  name: string;
+}
+
+/** Inline text extracted from a document attachment (plain-text, markdown). */
+export interface TextAttachment {
+  text: string;
+  name: string;
+}
+
+export interface AiCallOptions {
+  /** Base64 image attachments passed as vision blocks on the last user turn. */
+  imageAttachments?: AttachmentBlock[];
+  /** Inline text extracted from documents, prepended to the last user message. */
+  textAttachments?: TextAttachment[];
 }
 
 interface AiResponse {
@@ -16,30 +39,77 @@ export async function callAi(
   messages: ChatMessage[],
   provider: string,
   systemPrompt?: string,
+  options?: AiCallOptions,
 ): Promise<AiResponse> {
   switch (provider) {
     case "claude":
-      return callClaude(messages, systemPrompt);
+      return callClaude(messages, systemPrompt, options);
     case "chatgpt":
-      return callOpenAI(messages, systemPrompt);
+      return callOpenAI(messages, systemPrompt, options);
     case "gemini":
-      return callGemini(messages, systemPrompt);
+      return callGemini(messages, systemPrompt, options);
     default:
-      return callClaude(messages, systemPrompt);
+      return callClaude(messages, systemPrompt, options);
   }
 }
 
 async function callClaude(
   messages: ChatMessage[],
   systemPrompt?: string,
+  options?: AiCallOptions,
 ): Promise<AiResponse> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
 
+  // Build Anthropic message array. The last user message may include image
+  // vision blocks when the caller supplies imageAttachments.
+  type ClaudeContentBlock =
+    | { type: "text"; text: string }
+    | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+
+  const claudeMessages: { role: "user" | "assistant"; content: string | ClaudeContentBlock[] }[] =
+    messages
+      .filter((m) => m.role !== "system")
+      .map((m, idx, arr) => {
+        const isLast = idx === arr.length - 1;
+        const isLastUser = isLast && m.role === "user";
+        if (!isLastUser) return { role: m.role as "user" | "assistant", content: m.content };
+
+        // Build rich content blocks for the final user turn
+        const blocks: ClaudeContentBlock[] = [];
+
+        // Prepend inline text attachments (plain-text / markdown documents)
+        if (options?.textAttachments?.length) {
+          const docParts = options.textAttachments
+            .map(a => `[Attached document: ${a.name}]\n${a.text}`)
+            .join("\n\n---\n\n");
+          blocks.push({ type: "text", text: docParts });
+        }
+
+        // User message text
+        blocks.push({ type: "text", text: m.content });
+
+        // Vision blocks for image attachments
+        if (options?.imageAttachments?.length) {
+          for (const img of options.imageAttachments) {
+            blocks.push({
+              type: "image",
+              source: { type: "base64", media_type: img.mediaType, data: img.base64 },
+            });
+          }
+        }
+
+        if (blocks.length === 1 && blocks[0]!.type === "text") {
+          // No extra blocks — send as plain string to minimise payload
+          return { role: "user" as const, content: m.content };
+        }
+        return { role: "user" as const, content: blocks };
+      });
+
   const body: Record<string, unknown> = {
     model: "claude-opus-4-5",
     max_tokens: 2048,
-    messages: messages.filter((m) => m.role !== "system"),
+    messages: claudeMessages,
   };
   if (systemPrompt) body.system = systemPrompt;
 
@@ -75,24 +145,69 @@ async function callClaude(
 async function callOpenAI(
   messages: ChatMessage[],
   systemPrompt?: string,
+  options?: AiCallOptions,
 ): Promise<AiResponse> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+  // Prefer the Replit AI integration proxy; fall back to direct OpenAI key
+  const apiKey =
+    process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("No OpenAI API key configured (set OPENAI_API_KEY or AI_INTEGRATIONS_OPENAI_API_KEY)");
 
-  const msgs: ChatMessage[] = [];
-  if (systemPrompt) msgs.push({ role: "system", content: systemPrompt });
-  msgs.push(...messages);
+  const baseUrl = (
+    process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || "https://api.openai.com/v1"
+  ).replace(/\/$/, "");
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  // Build messages, injecting vision + document content on the final user turn
+  type OAIContent =
+    | string
+    | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+
+  const builtMessages: { role: string; content: OAIContent }[] = [];
+  if (systemPrompt) builtMessages.push({ role: "system", content: systemPrompt });
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
+    const isLast = i === messages.length - 1;
+    const isLastUser = isLast && m.role === "user";
+
+    if (!isLastUser || (!options?.imageAttachments?.length && !options?.textAttachments?.length)) {
+      builtMessages.push({ role: m.role, content: m.content });
+      continue;
+    }
+
+    const parts: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> = [];
+
+    // Prepend text documents
+    if (options.textAttachments?.length) {
+      const docText = options.textAttachments
+        .map(a => `[Attached document: ${a.name}]\n${a.text}`)
+        .join("\n\n---\n\n");
+      parts.push({ type: "text", text: docText });
+    }
+
+    parts.push({ type: "text", text: m.content });
+
+    // Vision blocks
+    for (const img of options.imageAttachments ?? []) {
+      parts.push({
+        type: "image_url",
+        image_url: { url: `data:${img.mediaType};base64,${img.base64}` },
+      });
+    }
+
+    builtMessages.push({ role: m.role, content: parts });
+  }
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o",
-      messages: msgs,
-      max_tokens: 2048,
+      model: "gpt-5",
+      messages: builtMessages,
+      max_completion_tokens: 2048,
     }),
   });
 
@@ -118,14 +233,45 @@ async function callOpenAI(
 async function callGemini(
   messages: ChatMessage[],
   systemPrompt?: string,
+  options?: AiCallOptions,
 ): Promise<AiResponse> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
 
-  const parts = messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
+  type GeminiPart =
+    | { text: string }
+    | { inline_data: { mime_type: string; data: string } };
+
+  const parts = messages.map((m, index) => {
+    const isLastUser = index === messages.length - 1 && m.role === "user";
+    const content: GeminiPart[] = [];
+
+    if (isLastUser && options?.textAttachments?.length) {
+      content.push({
+        text: options.textAttachments
+          .map((attachment) => `[Attached document: ${attachment.name}]\n${attachment.text}`)
+          .join("\n\n---\n\n"),
+      });
+    }
+
+    content.push({ text: m.content });
+
+    if (isLastUser && options?.imageAttachments?.length) {
+      for (const image of options.imageAttachments) {
+        content.push({
+          inline_data: {
+            mime_type: image.mediaType,
+            data: image.base64,
+          },
+        });
+      }
+    }
+
+    return {
+      role: m.role === "assistant" ? "model" : "user",
+      parts: content,
+    };
+  });
 
   const body: Record<string, unknown> = { contents: parts };
   if (systemPrompt) {
@@ -164,35 +310,54 @@ async function callGemini(
 // ── Image generation ─────────────────────────────────────────────────────────
 
 /**
- * Call DALL-E 3 for image generation.
- * Returns a base64 PNG data URL: `data:image/png;base64,...`
- * Enforces a 60-second hard timeout via AbortController.
+ * Generate an image via the Replit AI integration proxy (gpt-image-1).
+ * Falls back to direct OpenAI if the integration env vars are absent.
+ *
+ * Returns a base64 data URL: `data:<mime>;base64,...`
+ * The proxy always returns base64 — no response_format param needed/allowed.
  */
 export async function callDallE(
   prompt: string,
   options: {
     size?: "1024x1024" | "1792x1024" | "1024x1792";
     quality?: "standard" | "hd";
-    style?: "natural" | "vivid";
+    style?: "natural" | "vivid";  // kept for API compat but ignored by gpt-image-1
   } = {},
 ): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+  // Prefer the AI integration credentials; fall back to the raw OPENAI_API_KEY
+  const apiKey =
+    process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("No OpenAI API key configured (set OPENAI_API_KEY or AI_INTEGRATIONS_OPENAI_API_KEY)");
 
-  const body = {
-    model: "dall-e-3",
+  const baseUrl = (
+    process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ||
+    "https://api.openai.com/v1"
+  ).replace(/\/$/, "");
+
+  // gpt-image-1 size mapping — the model only accepts these values:
+  //   1024x1024 | 1536x1024 (landscape) | 1024x1536 (portrait) | auto
+  const sizeMap: Record<string, string> = {
+    "1024x1024": "1024x1024",
+    "1792x1024": "1536x1024",  // landscape → nearest gpt-image-1 size
+    "1024x1792": "1024x1536",  // portrait  → nearest gpt-image-1 size
+  };
+  const size = sizeMap[options.size ?? "1024x1024"] ?? "1024x1024";
+
+  const body: Record<string, unknown> = {
+    model: "gpt-image-1",
     prompt,
     n: 1,
-    size: options.size ?? "1024x1024",
-    quality: options.quality ?? "standard",
-    style: options.style ?? "natural",
-    response_format: "b64_json",
+    size,
+    // quality: gpt-image-1 accepts "low" | "medium" | "high" | "auto"
+    // Map the legacy "hd" → "high", "standard" → "medium"
+    quality: options.quality === "hd" ? "high" : "medium",
   };
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
+  const timeout = setTimeout(() => controller.abort(), 90_000);
   try {
-    const res = await fetch("https://api.openai.com/v1/images/generations", {
+    const res = await fetch(`${baseUrl}/images/generations`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -207,10 +372,28 @@ export async function callDallE(
       throw new Error(`DALL-E error ${res.status}: ${err}`);
     }
 
-    const data = (await res.json()) as { data: Array<{ b64_json: string }> };
-    const b64 = data.data[0]?.b64_json;
-    if (!b64) throw new Error("DALL-E returned no image data");
-    return `data:image/png;base64,${b64}`;
+    // gpt-image-1 via Replit integration always returns b64_json.
+    // Fall back to downloading a URL if somehow a url is returned instead.
+    const data = (await res.json()) as {
+      data: Array<{ url?: string; b64_json?: string }>;
+    };
+    const item = data.data[0];
+    if (!item) throw new Error("Image generation returned no data");
+
+    if (item.b64_json) {
+      return `data:image/png;base64,${item.b64_json}`;
+    }
+
+    if (item.url) {
+      const imgRes = await fetch(item.url, { signal: controller.signal });
+      if (!imgRes.ok) throw new Error(`Failed to download generated image: ${imgRes.status}`);
+      const buf = await imgRes.arrayBuffer();
+      const b64 = Buffer.from(buf).toString("base64");
+      const ct = imgRes.headers.get("content-type") ?? "image/jpeg";
+      return `data:${ct};base64,${b64}`;
+    }
+
+    throw new Error("Image generation response contained neither url nor b64_json");
   } finally {
     clearTimeout(timeout);
   }

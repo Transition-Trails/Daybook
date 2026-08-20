@@ -14,7 +14,7 @@ import { test as base, type Page } from "@playwright/test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PERSONAS, type PersonaKey } from "./personas.js";
-import { authFile } from "./global.setup.js";
+import { authFile } from "./auth-state.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

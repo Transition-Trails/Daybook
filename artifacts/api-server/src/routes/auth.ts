@@ -5,6 +5,7 @@ import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { User } from "@workspace/db";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const router: IRouter = Router();
 
@@ -111,12 +112,42 @@ router.post("/auth/staff/login", async (req, res): Promise<void> => {
   });
 });
 
-// ── Test-only login (NODE_ENV=test) ──────────────────────────────────────────
-// Allows Playwright to log in as any seeded test persona without Google OAuth.
-// NEVER active in production — guarded by NODE_ENV check at the route level.
+// ── Test-only login ───────────────────────────────────────────────────────────
+// Allows Playwright to log in as seeded test personas without Google OAuth.
+//
+// The full CI persona set is available only in NODE_ENV=test. Hosted browser
+// checks run against the normal development workflow, where this route needs a
+// high-entropy token derived from the server's session secret. The raw session
+// secret is never sent over HTTP, and development access is limited to the
+// deterministic CI super-admin. Production never enables this route.
+
+const CI_SUPER_ADMIN_ID = "ci_super_admin";
+const CI_SUPER_ADMIN_EMAIL = "super@ci.test";
+const TEST_LOGIN_HMAC_CONTEXT = "daybook-development-browser-test-login:v1";
+
+function testLoginMode(): "test" | "development" | null {
+  if (process.env["NODE_ENV"] === "test") return "test";
+  if (process.env["NODE_ENV"] === "development") return "development";
+  return null;
+}
+
+function hasDevelopmentTestLoginToken(token: string | undefined): boolean {
+  const sessionSecret = process.env["SESSION_SECRET"];
+  if (!sessionSecret || !token) return false;
+
+  const expected = createHmac("sha256", sessionSecret)
+    .update(TEST_LOGIN_HMAC_CONTEXT)
+    .digest("base64url");
+  const expectedBuffer = Buffer.from(expected);
+  const suppliedBuffer = Buffer.from(token);
+
+  return expectedBuffer.length === suppliedBuffer.length &&
+    timingSafeEqual(expectedBuffer, suppliedBuffer);
+}
 
 router.post("/auth/test-login", async (req, res): Promise<void> => {
-  if (process.env["NODE_ENV"] !== "test") {
+  const mode = testLoginMode();
+  if (!mode) {
     res.status(404).json({ error: "Not found" });
     return;
   }
@@ -125,9 +156,27 @@ router.post("/auth/test-login", async (req, res): Promise<void> => {
     res.status(400).json({ error: "email required" });
     return;
   }
+  // Development login is intentionally not a general impersonation switch:
+  // it requires a server-secret-derived token and only accepts the seeded CI
+  // super-admin identity.
+  if (
+    mode === "development" &&
+    (email !== CI_SUPER_ADMIN_EMAIL ||
+      !hasDevelopmentTestLoginToken(req.get("x-daybook-test-login-token")))
+  ) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
   if (!user) {
     res.status(404).json({ error: `No user found with email ${email}` });
+    return;
+  }
+  if (
+    mode === "development" &&
+    (user.id !== CI_SUPER_ADMIN_ID || user.platformRole !== "super_admin")
+  ) {
+    res.status(404).json({ error: "Not found" });
     return;
   }
   req.login(user, (err) => {

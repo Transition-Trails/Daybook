@@ -39,3 +39,15 @@
 - [DALL-E image generation](dalle-image-generation.md) — callDallE() in ai-proxy.ts; 60s AbortController timeout; b64_json format; ItemOrigin has no "platform" value — use "licensed" for platform content, "owned" for store-generated
 - [VGJ kit catalog](vgj-kit-catalog.md) — 8 Victorian Garden Journal kits seeded (vgj_ prefix); 24 backgrounds have assetRef: null (status: draft) until images generated via POST /stores/:storeId/backgrounds/generate
 - [IllustrativeTab hooks fix](illustrative-tab-hooks.md) — original IllustrativeTab had useMutation declared after an early return (hooks violation); fixed by moving all hooks before the if(!aiEnabled) guard
+- [WorldSmith Prompt Compiler](worldsmith-compiler.md) — Phase 1 compile-only pipeline; orchestrator + Notion client + 8 core modules; `worldsmith_runs`+`worldsmith_assets` tables; admin UI at /super/worldsmith
+- [WorldSmith chosen concept](worldsmith-chosen-concept.md) — user approved World Gallery for promotion to production landing page
+- [WorldSmith payload aliases](worldsmith-payload-aliases.md) — card_role/paper_and_materials/front_layout are normalised onto asset_role/materials/composition before PP-1.0 validation
+- [WorldSmith PP-2.0 payload contract](worldsmith-payload-contract.md) — section-based format (shared_prompt/front_prompt/negative_prompt); detection by shared_prompt presence; full backward compat with PP-1.0
+- [Font warmup bundled-WOFF test pattern](font-warmup-bundled-woff-test.md) — bundled WOFFs skip /tmp disk write; use waitForWarmupDone() + in-process cache checks in warmup tests
+- [Vitest vi.mock hoisting](vitest-mock-hoisting.md) — variables inside vi.mock factory MUST come from vi.hoisted(); regular const/let throws ReferenceError
+- [Spec board V3 sections](spec-board-v3-sections.md) — "Illustrated Narrative"→"Narrative Role", "Canon Lock"→"Companion Assets", subtitle fallback→"WORLDSMITH LIVING ARCHIVE"
+- [WorldSmith Story schema](worldsmith-story-schema.md) — 5 new tables: ws_stories, ws_story_acts, ws_encounters, ws_journal_prompts, ws_canon_record_story_links; migration via migrate-worldsmith-stories script
+- [WorldSmith store access](worldsmith-store-access.md) — enabled store teams manage only their own worlds; compiler, runs, assets, and Editorial remain platform-admin-only
+- [WorldSmith Synthesis canon UI](worldsmith-synthesis-ui.md) — WorldsmithCanon.tsx replaced with Synthesis design: name+prose+3-tab center, name-only left rail, right panel with Objects/Story Arc/Canon Gaps/Record Details accordion; all existing mutations preserved
+- [WorldSmith Stories + Bible tabs](worldsmith-stories-bible-tabs.md) — WorldSmithHome FocusedWorldView now has Stories + World Bible tabs; StoriesSection fetches ws_stories; WorldBibleSection edits prose-first Bible fields
+- [Editorial browser verification](editorial-browser-verification.md) — use the test-only CI super-admin with a local Playwright server; browser-agent sandboxes cannot reach ephemeral shell ports

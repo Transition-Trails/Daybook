@@ -110,6 +110,8 @@ export const storeFlagsTable = pgTable("store_flags", {
   editionsCap: integer("editions_cap").notNull().default(5),
   storageQuota: integer("storage_quota").notNull().default(1024), // MB
   inkEnabled: boolean("ink_enabled").notNull().default(false),
+  // WorldSmith is opt-in because it gives a store a dedicated creative-world workspace.
+  worldsmithEnabled: boolean("worldsmith_enabled").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

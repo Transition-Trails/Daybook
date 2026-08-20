@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Instrument+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_ds/pixel-perfect-plans-design-system-413c8b20-7658-4042-8223-f3ea07760b4d/tokens/colors.css">
+<link rel="stylesheet" href="_ds/pixel-perfect-plans-design-system-413c8b20-7658-4042-8223-f3ea07760b4d/tokens/typography.css">
+<link rel="stylesheet" href="_ds/pixel-perfect-plans-design-system-413c8b20-7658-4042-8223-f3ea07760b4d/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/pixel-perfect-plans-design-system-413c8b20-7658-4042-8223-f3ea07760b4d/tokens/effects.css">
+<link rel="stylesheet" href="_ds/pixel-perfect-plans-design-system-413c8b20-7658-4042-8223-f3ea07760b4d/styles.css">
+<script src="_ds/pixel-perfect-plans-design-system-413c8b20-7658-4042-8223-f3ea07760b4d/_ds_bundle.js"></script>
+<script src="./image-slot.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#F7F0E6;font-family:'Instrument Sans',system-ui,sans-serif}
+a{color:#4A6080;text-decoration:none}
+a:hover{color:#C87560}
+</style>
+</helmet>
+
+<div style="height:100vh;display:flex;flex-direction:column;background:#F7F0E6;color:#101B31;overflow:hidden">
+
+<div style="height:52px;min-height:52px;background:#FFFDF9;border-bottom:1px solid #E7DCCB;display:flex;align-items:center;gap:10px;padding:0 22px">
+<span style="font:600 13px 'Spectral',Georgia,serif;color:rgba(16,27,49,.55);margin-right:2px">Worldsmith</span>
+<div style="flex:1;min-width:0;display:flex;align-items:center;gap:4px">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+<span onClick="{{ t.onClick }}" style="padding:5px 15px;border-radius:999px;font-size:13px;font-weight:500;cursor:pointer;background:{{ t.bg }};color:{{ t.color }}">{{ t.label }}</span>
+</sc-for>
+</div>
+<div style="display:flex;align-items:center;gap:10px">
+<div style="display:flex;align-items:center;gap:8px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.09em;color:#7A6F5F">READY</span>
+<span style="width:70px;height:6px;border-radius:999px;background:#EFE9E1;display:block;overflow:hidden"><span style="display:block;height:6px;background:#3f6b4c;border-radius:999px;width:{{ readyPct }}"></span></span>
+<span style="font:600 13px 'Spectral',Georgia,serif;color:#1B2A4A">{{ ready }}</span>
+</div>
+<span style="display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 11px;font:700 11px 'Instrument Sans',sans-serif;letter-spacing:.08em;text-transform:uppercase;background:#edf4f0;color:#3f6b4c"><span style="width:6px;height:6px;border-radius:999px;background:#3f6b4c"></span>Notion synced</span>
+<span style="display:inline-flex;align-items:center;padding:7px 17px;border-radius:999px;font-size:13px;font-weight:600;background:#1B2A4A;color:#fff;cursor:pointer">Generate</span>
+</div>
+</div>
+
+<div style="flex:1;display:flex;min-height:0">
+
+<aside style="width:236px;min-width:236px;background:#FFFDF9;border-right:1px solid #E7DCCB;display:flex;flex-direction:column;overflow:hidden">
+<div style="padding:17px 17px 15px;border-bottom:1px solid #E7DCCB;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:baseline;gap:8px">
+<span style="font:700 10px 'Space Mono',monospace;color:#C87560">WC</span>
+<span style="font:600 16px 'Spectral',Georgia,serif;color:#1B2A4A">Wychcombe</span>
+</div>
+<div style="font:400 11.5px/1.5 'Instrument Sans',sans-serif;color:#5F574A">Layered historical mystery. Inherited memory, material evidence, truths that surface gradually.</div>
+<span style="align-self:flex-start;padding:3px 11px;border-radius:999px;font-size:11px;font-weight:600;background:#C87560;color:#fff">Withholding</span>
+</div>
+
+<sc-if value="{{ isCanon }}" hint-placeholder-val="{{ true }}">
+<div style="flex:1;padding:13px 10px;display:flex;flex-direction:column;gap:2px;overflow-y:auto">
+<div style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F;padding:0 7px 8px">RECORDS · 22</div>
+<sc-for list="{{ records }}" as="r" hint-placeholder-count="8">
+<div onClick="{{ r.onClick }}" style="display:flex;align-items:center;gap:9px;padding:8px;border-radius:7px;cursor:pointer;background:{{ r.bg }}">
+<span style="width:3px;height:20px;border-radius:2px;flex:none;background:{{ r.rule }}"></span>
+<span style="flex:1;min-width:0;font-size:12px;color:#1B2A4A;font-weight:{{ r.weight }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</span>
+<span style="font:400 9.5px 'Space Mono',monospace;color:#A99E8E">{{ r.id }}</span>
+</div>
+</sc-for>
+<div style="display:flex;align-items:center;gap:9px;padding:9px 8px 8px;font-size:11.5px;color:#5F574A;cursor:pointer">
+<span style="width:3px;flex:none"></span>14 more · show all
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isModules }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;padding:13px 10px;display:flex;flex-direction:column;gap:3px;overflow-y:auto">
+<div style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F;padding:0 7px 8px">MODULES · 5</div>
+<sc-for list="{{ modRows }}" as="m" hint-placeholder-count="5">
+<div onClick="{{ m.onClick }}" style="display:flex;align-items:center;gap:9px;padding:9px;border-radius:7px;cursor:pointer;background:{{ m.bg }}">
+<span style="width:2px;height:26px;border-radius:2px;flex:none;background:{{ m.rule }}"></span>
+<span style="font:400 9.5px 'Space Mono',monospace;color:#A99E8E;flex:none">{{ m.order }}</span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+<span style="font-size:12.5px;color:#1B2A4A;font-weight:{{ m.weight }}">{{ m.name }}</span>
+<span style="font-size:10.5px;color:#5F574A">{{ m.kind }} · {{ m.count }}</span>
+</div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ isStyle }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;padding:14px 17px;display:flex;flex-direction:column;gap:10px;overflow-y:auto">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">RULE ORIGINS</span>
+<div style="display:flex;align-items:center;gap:9px;font-size:11.5px;color:#2C2822"><span style="width:7px;height:7px;border-radius:2px;background:#4A6080;flex:none"></span>Derived from register · 7</div>
+<div style="display:flex;align-items:center;gap:9px;font-size:11.5px;color:#2C2822"><span style="width:7px;height:7px;border-radius:2px;background:#C87560;flex:none"></span>Learned from drift · 4</div>
+<div style="display:flex;align-items:center;gap:9px;font-size:11.5px;color:#2C2822"><span style="width:7px;height:7px;border-radius:2px;background:#1B2A4A;flex:none"></span>Authored by you · 6</div>
+<span style="font:400 11px/1.55 'Instrument Sans',sans-serif;color:#5F574A">Most of this guide wrote itself. You judge images; it writes rules.</span>
+<div style="margin-top:auto;padding:11px 13px;border-radius:9px;background:#FBF6EE;border:1px solid #E7DCCB;display:flex;flex-direction:column;gap:4px">
+<span style="font:700 9px 'Space Mono',monospace;letter-spacing:.09em;color:#7A6F5F">VERSION 4</span>
+<span style="font:400 11.5px/1.55 'Instrument Sans',sans-serif;color:#2C2822">Changing a rule re-flags every image made under v3. Nothing is deleted.</span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isAssets }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;padding:14px 17px;display:flex;flex-direction:column;gap:10px;overflow-y:auto">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">VIEW</span>
+<sc-for list="{{ assetViews }}" as="v" hint-placeholder-count="2">
+<span onClick="{{ v.onClick }}" style="padding:8px 13px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;background:{{ v.bg }};color:{{ v.color }}">{{ v.label }}</span>
+</sc-for>
+<div style="margin-top:auto;padding:11px 13px;border-radius:9px;background:#FBF6EE;border:1px solid #E7DCCB;display:flex;flex-direction:column;gap:4px">
+<span style="font:700 9px 'Space Mono',monospace;letter-spacing:.09em;color:#7A6F5F">PROVENANCE</span>
+<span style="font:400 11.5px/1.55 'Instrument Sans',sans-serif;color:#2C2822">Every asset stores the record, prompt version and style version that made it.</span>
+</div>
+</div>
+</sc-if>
+</aside>
+
+<main style="flex:1;min-width:0;display:flex;overflow:hidden">
+
+<sc-if value="{{ isCanon }}" hint-placeholder-val="{{ true }}">
+<div style="flex:1;min-width:0;padding:24px 8px 24px 28px;display:flex;flex-direction:column;gap:15px;overflow-y:auto">
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:9px">
+<span style="font:700 11px 'Space Mono',monospace;color:#C87560">WC-INS-001</span>
+<span style="padding:2px 10px;border-radius:999px;font-size:10.5px;font-weight:600;background:#EFE9E1;color:#2C2822">Institution</span>
+<span style="padding:2px 10px;border-radius:999px;font-size:10.5px;font-weight:600;background:#EFE9E1;color:#2C2822">World layer</span>
+<span style="padding:2px 10px;border-radius:999px;font-size:10.5px;font-weight:600;background:#fdf0f0;color:#b23b3b">Critical</span>
+</div>
+<div style="font:600 29px/1.15 'Spectral',Georgia,serif;color:#1B2A4A">House of Ashcroft</div>
+</div>
+<div style="background:#FFFDF9;border:1px solid #E7DCCB;border-radius:10px;padding:17px 19px;display:flex;flex-direction:column;gap:14px">
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+<div style="display:flex;flex-direction:column;gap:5px"><span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">STATUS</span><span style="font-size:13px;font-weight:600;color:#1B2A4A">Under Review</span></div>
+<div style="display:flex;flex-direction:column;gap:5px"><span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">CONFIDENCE</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:#b23b3b"><span style="width:7px;height:7px;border-radius:999px;background:#b23b3b"></span>No Confidence</span></div>
+<div style="display:flex;flex-direction:column;gap:5px"><span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">SOURCE</span><span style="font-size:13px;color:#2C2822">Recovered Archive · Book Bible</span></div>
+</div>
+<div style="height:1px;background:#E7DCCB"></div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">SUMMARY</span>
+<div style="font:400 14.5px/1.65 'Instrument Sans',sans-serif;color:#2C2822">The House of Ashcroft is both a family lineage and a durable Wychcombe institution whose influence extends through property, reputation, records, and inherited obligations.</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">DETAILS</span>
+<div style="font:400 14.5px/1.7 'Instrument Sans',sans-serif;color:#2C2822">Authority rests less in title than in custody. The House holds ledgers, correspondence and keys that other families need and cannot obtain, and its standing is maintained by <span style="background:#F6E7CC;border-bottom:1.5px solid #C87560;padding:0 2px">inherited obligations</span> that are rarely written down.</div>
+</div>
+<div style="height:1px;background:#E7DCCB"></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+<div style="display:flex;flex-direction:column;gap:5px"><span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">EMOTIONAL REGISTER</span><span style="font-size:13px;font-weight:600;color:{{ regColor }}">{{ regValue }}</span></div>
+<div style="display:flex;flex-direction:column;gap:5px"><span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">SENSORY CLAUSES</span><span style="font-size:13px;font-weight:600;color:{{ senColor }}">{{ senValue }}</span></div>
+</div>
+</div>
+<div style="background:#FFFDF9;border:1px solid #E7DCCB;border-radius:10px;padding:15px 19px;display:flex;flex-direction:column;gap:10px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">RELATED CANON · 4</span>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<span style="display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;border:1px solid #E7DCCB;font-size:12px;color:#2C2822"><span style="font:400 9.5px 'Space Mono',monospace;color:#A99E8E">CHR-001</span>Margaret Ashcroft</span>
+<span style="display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;border:1px solid #E7DCCB;font-size:12px;color:#2C2822"><span style="font:400 9.5px 'Space Mono',monospace;color:#A99E8E">CHR-002</span>Elias Ashcroft</span>
+<span style="display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;border:1px solid #E7DCCB;font-size:12px;color:#2C2822"><span style="font:400 9.5px 'Space Mono',monospace;color:#A99E8E">PLC-003</span>Ashcroft Estate</span>
+<span style="display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;border:1px solid #E7DCCB;font-size:12px;color:#2C2822"><span style="font:400 9.5px 'Space Mono',monospace;color:#A99E8E">ART-002</span>The Seven Keys</span>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:12px 17px;border-radius:10px;background:#F1EAE0;border:1px solid #E2D6C4">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">PROMPT EFFECT</span>
+<span style="flex:1;font-size:12.5px;line-height:1.5;color:#2C2822">{{ promptEffect }}</span>
+</div>
+</div>
+
+<div style="width:352px;min-width:352px;padding:22px 24px 22px 16px;display:flex;flex-direction:column;gap:12px;border-left:1px dashed #DCCFBB;overflow-y:auto">
+<span style="font:400 12px 'Spectral',Georgia,serif;font-style:italic;color:#A99E8E">Worldsmith, in the margin</span>
+<div style="display:flex;gap:5px">
+<sc-for list="{{ noteTabs }}" as="t" hint-placeholder-count="3">
+<span onClick="{{ t.onClick }}" style="padding:4px 11px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;background:{{ t.bg }};color:{{ t.color }}">{{ t.label }}</span>
+</sc-for>
+</div>
+
+<sc-for list="{{ notes }}" as="n" hint-placeholder-count="4">
+<div style="display:flex;gap:10px">
+<span style="width:2px;border-radius:2px;flex:none;background:{{ n.accent }}"></span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
+<div style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.09em;color:{{ n.accent }}">{{ n.label }}</div>
+
+<sc-if value="{{ n.collapsed }}" hint-placeholder-val="{{ true }}">
+<div style="font:400 12.5px/1.6 'Instrument Sans',sans-serif;color:#2C2822">{{ n.note }}</div>
+<sc-if value="{{ n.hasWhy }}" hint-placeholder-val="{{ false }}">
+<span style="font:400 10.5px/1.5 'Instrument Sans',sans-serif;color:#5F574A">{{ n.why }}</span>
+</sc-if>
+<span onClick="{{ n.onOpen }}" style="align-self:flex-start;font-size:11.5px;font-weight:600;color:#4A6080;cursor:pointer">{{ n.ctaArrow }}</span>
+</sc-if>
+
+<sc-if value="{{ n.peek }}" hint-placeholder-val="{{ false }}">
+<span onClick="{{ n.onOpen }}" style="font:500 11.5px/1.4 'Instrument Sans',sans-serif;color:#4A6080;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">{{ n.ctaArrow }}</span>
+</sc-if>
+
+<sc-if value="{{ n.expanded }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:9px;padding:13px;border-radius:10px;background:#FFFDF9;border:1.5px solid #C87560;box-shadow:0 4px 16px rgba(200,117,96,.14)">
+<div style="font:400 15px/1.4 'Spectral',Georgia,serif;color:#1B2A4A;text-wrap:pretty">{{ n.q }}</div>
+<div style="font:400 11.5px/1.55 'Instrument Sans',sans-serif;color:#5F574A">{{ n.qNote }}</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<sc-for list="{{ n.opts }}" as="o" hint-placeholder-count="3">
+<div onClick="{{ o.onClick }}" style="display:flex;align-items:flex-start;gap:8px;padding:9px 11px;border-radius:8px;cursor:pointer;background:{{ o.bg }};border:1.5px solid {{ o.border }}">
+<span style="flex:none;margin-top:1px;padding:1px 8px;border-radius:999px;font:700 9px 'Instrument Sans',sans-serif;letter-spacing:.05em;background:{{ o.pillBg }};color:{{ o.pillColor }}">{{ o.tag }}</span>
+<span style="flex:1;min-width:0;font:400 12px/1.45 'Instrument Sans',sans-serif;color:#2C2822;font-weight:{{ o.weight }}">{{ o.label }}</span>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:2px">
+<span style="font:400 11px/1.5 'Instrument Sans',sans-serif;color:#2C2822"><span style="font:700 9px 'Space Mono',monospace;letter-spacing:.09em;color:#7A6F5F">WRITES </span>{{ n.writes }}</span>
+<span style="font:400 10.5px/1.45 'Instrument Sans',sans-serif;color:#5F574A">{{ n.scope }}</span>
+</div>
+<div style="display:flex;gap:7px">
+<span onClick="{{ n.onClose }}" style="flex:none;display:inline-flex;align-items:center;justify-content:center;padding:7px 13px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid #C6BCAA;color:#2C2822;cursor:pointer">{{ n.dismissLabel }}</span>
+<span onClick="{{ n.onApprove }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;padding:7px 13px;border-radius:999px;font-size:11.5px;font-weight:600;cursor:pointer;background:{{ n.ctaBg }};color:{{ n.ctaColor }}">{{ n.ctaLabel }}</span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ n.resolved }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:8px;background:#edf4f0">
+<span style="font:700 9px 'Space Mono',monospace;letter-spacing:.06em;color:#3f6b4c">{{ n.doneVerb }}</span>
+<span style="font-size:12px;font-weight:600;color:#2C2822">{{ n.doneLabel }}</span>
+<span style="margin-left:auto;font-size:10.5px;color:#3f6b4c">synced</span>
+</div>
+</sc-if>
+</div>
+</div>
+</sc-for>
+
+<div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+<sc-if value="{{ anyDone }}" hint-placeholder-val="{{ false }}">
+<span onClick="{{ resetNotes }}" style="align-self:flex-start;padding:6px 14px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid #C6BCAA;color:#2C2822;cursor:pointer">Reset</span>
+</sc-if>
+<div style="font:400 11px/1.5 'Instrument Sans',sans-serif;color:#A99E8E">Declining an opening is not a debt. It just goes away.</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isModules }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-width:0;padding:24px 8px 24px 28px;display:flex;flex-direction:column;gap:15px;overflow-y:auto">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="font:600 25px 'Spectral',Georgia,serif;color:#1B2A4A">{{ modName }}</span>
+<span style="padding:2px 10px;border-radius:999px;font-size:10.5px;font-weight:600;background:#EFE9E1;color:#2C2822">{{ modKind }}</span>
+<span style="font-size:11.5px;color:#5F574A">{{ modCount }}</span>
+</div>
+<div style="background:#FFFDF9;border:1px solid #E7DCCB;border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:9px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">MODULE TEXT</span>
+<span style="font:400 13.5px/1.75 'Space Mono',monospace;color:#2C2822">{{ modBody }}</span>
+</div>
+<div style="display:flex;gap:12px">
+<div style="flex:1;background:#FFFDF9;border:1px solid #E7DCCB;border-radius:10px;padding:15px 17px;display:flex;flex-direction:column;gap:8px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">ASSEMBLED FROM</span>
+<sc-for list="{{ modFrom }}" as="f" hint-placeholder-count="2">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="font:700 9.5px 'Space Mono',monospace;color:#C87560;width:76px;flex:none">{{ f.src }}</span>
+<span style="font-size:12px;color:#2C2822">{{ f.field }}</span>
+</div>
+</sc-for>
+</div>
+<div style="flex:1;background:#F1EAE0;border:1px solid #E2D6C4;border-radius:10px;padding:15px 17px;display:flex;flex-direction:column;gap:5px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">NOTE</span>
+<span style="font-size:12.5px;line-height:1.55;color:#2C2822">{{ modNote }}</span>
+</div>
+</div>
+<div style="flex:1;min-height:0;background:#FFFDF9;border:1px solid #E7DCCB;border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;overflow-y:auto">
+<div style="display:flex;align-items:baseline;gap:9px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">COMPILED PROMPT · v7</span>
+<span style="font-size:11px;color:#5F574A">the selected module is highlighted in place</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:5px">
+<sc-for list="{{ compiled }}" as="c" hint-placeholder-count="5">
+<span style="font:400 12.5px/1.65 'Space Mono',monospace;padding:6px 8px;border-radius:6px;background:{{ c.bg }};border:{{ c.border }};color:{{ c.color }}">{{ c.body }}</span>
+</sc-for>
+</div>
+</div>
+</div>
+<div style="width:300px;min-width:300px;padding:22px 24px 22px 16px;display:flex;flex-direction:column;gap:13px;border-left:1px dashed #DCCFBB;overflow-y:auto">
+<span style="font:400 12px 'Spectral',Georgia,serif;font-style:italic;color:#A99E8E">Worldsmith, in the margin</span>
+<div style="display:flex;gap:10px">
+<span style="width:2px;border-radius:2px;flex:none;background:#C87560"></span>
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.09em;color:#C87560">COVERAGE</span>
+<span style="font:400 12.5px/1.6 'Instrument Sans',sans-serif;color:#2C2822">Eight records have no Materials module. Those eight produce every generic render you have complained about.</span>
+<span style="font-size:11.5px;font-weight:600;color:#4A6080;cursor:pointer">Run a materials pass →</span>
+</div>
+</div>
+<div style="display:flex;gap:10px">
+<span style="width:2px;border-radius:2px;flex:none;background:#1B2A4A"></span>
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.09em;color:#1B2A4A">AN OPENING</span>
+<span style="font:400 12.5px/1.6 'Instrument Sans',sans-serif;color:#2C2822">Hollowmere solved the same thin-materials problem with a shared module every record inherits. Borrow its shape, not its content.</span>
+<span style="font:400 10.5px/1.5 'Instrument Sans',sans-serif;color:#5F574A">Found by comparing module coverage across worlds.</span>
+<span style="font-size:11.5px;font-weight:600;color:#4A6080;cursor:pointer">See how Hollowmere did it →</span>
+</div>
+</div>
+<div style="margin-top:auto;padding:11px 13px;border-radius:9px;background:#FBF6EE;border:1px solid #E7DCCB;display:flex;flex-direction:column;gap:4px">
+<span style="font:700 9px 'Space Mono',monospace;letter-spacing:.09em;color:#7A6F5F">PRECEDENCE</span>
+<span style="font:400 11.5px/1.55 'Instrument Sans',sans-serif;color:#2C2822">Negatives compile last. A record can never talk its way past a world rule.</span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isStyle }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-width:0;padding:24px 8px 24px 28px;display:flex;flex-direction:column;gap:15px;overflow-y:auto">
+<div style="display:flex;align-items:center;gap:6px">
+<sc-for list="{{ guideTabs }}" as="t" hint-placeholder-count="4">
+<span onClick="{{ t.onClick }}" style="padding:5px 14px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;background:{{ t.bg }};color:{{ t.color }}">{{ t.t }}</span>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="font:600 25px/1.2 'Spectral',Georgia,serif;color:#1B2A4A">{{ guideTitle }}</div>
+<div style="font:400 15px/1.6 'Spectral',Georgia,serif;color:#2C2822;max-width:680px">{{ guideRule }}</div>
+</div>
+<div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-radius:10px;background:#F1EAE0;border:1px solid #E2D6C4">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F;flex:none;margin-top:2px">WHY</span>
+<span style="flex:1;font-size:12.5px;line-height:1.55;color:#2C2822">{{ guideWhy }}</span>
+<span style="font-size:11px;color:#5F574A;flex:none;margin-top:2px">{{ guideApplies }}</span>
+</div>
+<sc-if value="{{ guideIsLight }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;gap:10px">
+<sc-for list="{{ guideSwatches }}" as="s" hint-placeholder-count="5">
+<div style="flex:1 1 0;display:flex;flex-direction:column;gap:7px">
+<span style="height:68px;border-radius:8px;display:block;border:1px solid rgba(27,42,74,.10);background:{{ s.hex }}"></span>
+<div style="display:flex;flex-direction:column;gap:1px">
+<span style="font-size:11.5px;font-weight:600;color:#1B2A4A">{{ s.name }}</span>
+<span style="font:400 9.5px 'Space Mono',monospace;color:#5F574A">{{ s.hex }}</span>
+<span style="font-size:10.5px;line-height:1.4;color:#5F574A">{{ s.note }}</span>
+</div>
+</div>
+</sc-for>
+</div>
+<div style="flex:1;min-height:0;display:flex;gap:12px">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">APPROVED REFERENCE</span>
+<div style="flex:1;min-height:0;border-radius:9px;overflow:hidden;border:1.5px solid #3f6b4c">
+<image-slot id="app-style-ok" shape="rounded" radius="7" placeholder="Drop the approved plate"></image-slot>
+</div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#b23b3b">REJECTED · WHY THE RULE EXISTS</span>
+<div style="flex:1;min-height:0;border-radius:9px;overflow:hidden;border:1.5px solid #b23b3b">
+<image-slot id="app-style-no" shape="rounded" radius="7" placeholder="Drop the rejected plate"></image-slot>
+</div>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ guideHasRows }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ guideRows }}" as="r" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:9px;background:#FFFDF9;border:1px solid #E7DCCB">
+<span style="width:80px;flex:none;font-size:13px;font-weight:600;color:#1B2A4A">{{ r.m }}</span>
+<span style="flex:1;min-width:0;font-size:12.5px;line-height:1.5;color:#2C2822">{{ r.d }}</span>
+<span style="font:400 9.5px 'Space Mono',monospace;color:#5F574A;flex:none">{{ r.src }}</span>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ guideIsNeg }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+<sc-for list="{{ guideNegs }}" as="n" hint-placeholder-count="6">
+<div style="display:flex;flex-direction:column;gap:3px;padding:12px 15px;border-radius:9px;background:#FFFDF9;border:1px solid #E7DCCB">
+<span style="font-size:13px;font-weight:600;color:#1B2A4A">{{ n.t }}</span>
+<span style="font-size:10.5px;color:#5F574A">{{ n.s }}</span>
+</div>
+</sc-for>
+</div>
+</sc-if>
+</div>
+<div style="width:326px;min-width:326px;padding:22px 24px 22px 16px;display:flex;flex-direction:column;gap:13px;border-left:1px dashed #DCCFBB;overflow-y:auto">
+<span style="font:400 12px 'Spectral',Georgia,serif;font-style:italic;color:#A99E8E">Worldsmith, in the margin</span>
+<div style="display:flex;gap:10px">
+<span style="width:2px;border-radius:2px;flex:none;background:#b23b3b"></span>
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.09em;color:#b23b3b">DRIFT</span>
+<span style="font:400 12.5px/1.6 'Instrument Sans',sans-serif;color:#2C2822">Three approved images use lamplight as the key source. They predate this rule and are now the reference set new renders imitate.</span>
+<span style="font-size:11.5px;font-weight:600;color:#4A6080;cursor:pointer">Review the three →</span>
+</div>
+</div>
+<div style="display:flex;gap:10px">
+<span style="width:2px;border-radius:2px;flex:none;background:#C87560"></span>
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.09em;color:#C87560">CONFLICT</span>
+<span style="font:400 12.5px/1.6 'Instrument Sans',sans-serif;color:#2C2822">The Stationery House overrides the register to Confidence, but composition still frames it from a doorway. A welcoming shop shot from the threshold reads as surveillance.</span>
+<span style="font-size:11.5px;font-weight:600;color:#4A6080;cursor:pointer">Let register drive composition →</span>
+</div>
+</div>
+<div style="display:flex;gap:10px">
+<span style="width:2px;border-radius:2px;flex:none;background:#1B2A4A"></span>
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.09em;color:#1B2A4A">AN OPENING</span>
+<span style="font:400 12.5px/1.6 'Instrument Sans',sans-serif;color:#2C2822">Your palette has no warm note anywhere. One sanctioned warmth — a lit window seen from outside — would make the cold mean something.</span>
+<span style="font:400 10.5px/1.5 'Instrument Sans',sans-serif;color:#5F574A">Found by reading the palette against the register.</span>
+<span style="font-size:11.5px;font-weight:600;color:#4A6080;cursor:pointer">Add one exception →</span>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isAssets }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ assetGrid }}" hint-placeholder-val="{{ true }}">
+<div style="flex:1;min-width:0;padding:22px 8px 22px 28px;display:flex;flex-direction:column;gap:14px;overflow-y:auto">
+<div style="display:flex;align-items:center;gap:12px">
+<span style="font:600 23px 'Spectral',Georgia,serif;color:#1B2A4A">Visual assets</span>
+<div style="display:flex;gap:5px">
+<sc-for list="{{ assetTabs }}" as="t" hint-placeholder-count="4">
+<span onClick="{{ t.onClick }}" style="padding:4px 12px;border-radius:999px;font-size:11.5px;font-weight:600;cursor:pointer;background:{{ t.bg }};color:{{ t.color }}">{{ t.t }}</span>
+</sc-for>
+</div>
+<span style="margin-left:auto;margin-right:18px;font-size:11.5px;color:#5F574A">{{ assetCount }}</span>
+</div>
+<div style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr 1fr;grid-auto-rows:330px;align-content:start;gap:12px;padding-right:18px;overflow-y:auto">
+<sc-for list="{{ assets }}" as="a" hint-placeholder-count="6">
+<div style="min-height:0;display:flex;flex-direction:column;border-radius:10px;overflow:hidden;background:#FFFDF9;border:1.5px solid {{ a.border }}">
+<div style="flex:1;min-height:0;position:relative">
+<image-slot id="{{ a.slot }}" shape="rect" placeholder="Drop render"></image-slot>
+<span style="position:absolute;top:8px;left:8px;padding:2px 9px;border-radius:999px;font:700 9.5px 'Instrument Sans',sans-serif;background:{{ a.toneBg }};color:{{ a.tone }}">{{ a.state }}</span>
+</div>
+<div style="flex:none;padding:10px 12px;display:flex;flex-direction:column;gap:4px;border-top:1px solid #E7DCCB">
+<div style="display:flex;align-items:baseline;gap:7px">
+<span style="font:700 9px 'Space Mono',monospace;color:#C87560">{{ a.id }}</span>
+<span style="font-size:12.5px;font-weight:600;color:#1B2A4A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.title }}</span>
+</div>
+<span style="font-size:10.5px;color:#5F574A">{{ a.rec }} · {{ a.ver }}</span>
+<sc-if value="{{ a.hasFlag }}" hint-placeholder-val="{{ false }}">
+<span style="font-size:10.5px;line-height:1.45;color:#b23b3b;font-weight:600">{{ a.flag }}</span>
+</sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="width:316px;min-width:316px;background:#FFFDF9;border-left:1px solid #E7DCCB;padding:22px;display:flex;flex-direction:column;gap:13px;overflow-y:auto">
+<span style="font:400 12px 'Spectral',Georgia,serif;font-style:italic;color:#A99E8E">Worldsmith, in the margin</span>
+<div style="display:flex;gap:10px">
+<span style="width:2px;border-radius:2px;flex:none;background:#b23b3b"></span>
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.09em;color:#b23b3b">LIVING UNDER AN OLD LAW</span>
+<span style="font:400 12.5px/1.6 'Instrument Sans',sans-serif;color:#2C2822">Two approved images were made under style v3 and break v4. Both are still in use.</span>
+<span style="font-size:11.5px;font-weight:600;color:#4A6080;cursor:pointer">Regenerate both under v4 →</span>
+</div>
+</div>
+<div style="display:flex;gap:10px">
+<span style="width:2px;border-radius:2px;flex:none;background:#1B2A4A"></span>
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.09em;color:#1B2A4A">READ THE WHOLE SET</span>
+<span style="font:400 12.5px/1.6 'Instrument Sans',sans-serif;color:#2C2822">Four patterns nobody chose, including one that only shows up across all six images at once.</span>
+<span onClick="{{ goObs }}" style="font-size:11.5px;font-weight:600;color:#4A6080;cursor:pointer">See what the set is missing →</span>
+</div>
+</div>
+<div style="margin-top:auto;padding:11px 13px;border-radius:9px;background:#FBF6EE;border:1px solid #E7DCCB;display:flex;flex-direction:column;gap:4px">
+<span style="font:700 9px 'Space Mono',monospace;letter-spacing:.09em;color:#7A6F5F">PROVENANCE</span>
+<span style="font:400 11.5px/1.55 'Instrument Sans',sans-serif;color:#2C2822">Nothing here is an orphan file.</span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ assetObs }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-width:0;padding:22px 28px;display:flex;flex-direction:column;gap:14px;overflow-y:auto">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:600 23px 'Spectral',Georgia,serif;color:#1B2A4A">What the set is missing</span>
+<span style="font-size:12.5px;color:#5F574A">Read across all six assets, not one at a time.</span>
+</div>
+<div style="flex:1;min-height:0;display:flex;gap:18px">
+<div style="width:340px;min-width:340px;display:flex;flex-direction:column;gap:9px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">OBSERVATIONS · 4</span>
+<sc-for list="{{ obsRows }}" as="o" hint-placeholder-count="4">
+<div onClick="{{ o.onClick }}" style="display:flex;flex-direction:column;gap:3px;padding:14px 15px;border-radius:10px;cursor:pointer;background:{{ o.bg }};border:1.5px solid {{ o.border }}">
+<span style="font:400 15px/1.35 'Spectral',Georgia,serif;color:#1B2A4A;font-weight:{{ o.weight }}">{{ o.head }}</span>
+<span style="font:400 10.5px 'Space Mono',monospace;color:#5F574A">{{ o.count }}</span>
+</div>
+</sc-for>
+<div style="margin-top:auto;padding:12px 14px;border-radius:10px;background:#FBF6EE;border:1px solid #E7DCCB;display:flex;flex-direction:column;gap:4px">
+<span style="font:700 9px 'Space Mono',monospace;letter-spacing:.09em;color:#7A6F5F">WHY THIS IS NOT A CRITIQUE</span>
+<span style="font:400 11.5px/1.55 'Instrument Sans',sans-serif;color:#2C2822">Every one is a count, not a judgment. Disagree with the conclusion and the fact still stands.</span>
+</div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:13px">
+<div style="background:#FFFDF9;border:1px solid #E7DCCB;border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:13px">
+<div style="font:400 24px/1.3 'Spectral',Georgia,serif;color:#1B2A4A;text-wrap:pretty">{{ obsHead }}</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ obsDist }}" as="d" hint-placeholder-count="2">
+<div style="display:flex;align-items:center;gap:11px">
+<span style="width:112px;flex:none;font-size:12.5px;color:{{ d.color }}">{{ d.label }}</span>
+<span style="flex:1;height:14px;border-radius:4px;background:#EFE9E1;display:block;overflow:hidden"><span style="display:block;height:14px;border-radius:4px;width:{{ d.pct }};background:{{ d.fill }}"></span></span>
+<span style="width:84px;flex:none;text-align:right;font-size:11.5px;color:{{ d.color }}">{{ d.empty }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="background:#FFFDF9;border:1px solid #E7DCCB;border-radius:10px;padding:16px 20px;display:flex;flex-direction:column;gap:7px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">WHAT IT MEANS</span>
+<span style="font:400 14px/1.7 'Instrument Sans',sans-serif;color:#2C2822">{{ obsBody }}</span>
+</div>
+<div style="background:#F1EAE0;border:1px solid #E2D6C4;border-radius:10px;padding:16px 20px;display:flex;flex-direction:column;gap:7px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">WHAT IT WOULD UNLOCK</span>
+<span style="font:400 13.5px/1.65 'Instrument Sans',sans-serif;color:#2C2822">{{ obsUnlock }}</span>
+</div>
+<div style="margin-top:auto;display:flex;align-items:center;gap:12px;padding:15px 20px;border-radius:10px;background:#FFFDF9;border:1px solid #E7DCCB">
+<div style="flex:1;display:flex;flex-direction:column;gap:3px">
+<span style="font:700 9.5px 'Space Mono',monospace;letter-spacing:.1em;color:#7A6F5F">SUGGESTED</span>
+<span style="font-size:13.5px;font-weight:600;color:#1B2A4A">{{ obsAction }}</span>
+</div>
+<span style="display:inline-flex;align-items:center;padding:9px 18px;border-radius:999px;font-size:12.5px;font-weight:600;border:1px solid #C6BCAA;color:#2C2822;cursor:pointer">Not this one</span>
+<span style="display:inline-flex;align-items:center;padding:9px 20px;border-radius:999px;font-size:12.5px;font-weight:600;background:#C87560;color:#fff;cursor:pointer;box-shadow:0 2px 8px rgba(200,117,96,.32)">Take it</span>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+</sc-if>
+
+</main>
+</div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{}">
+class Component extends DCLogic {
+  state = { tab: 'canon', rec: 0, note: null, sel: {}, done: {}, filter: 'all',
+            mod: 1, guide: 0, assetView: 'grid', assetFilter: 'All', obs: 0 };
+
+  RECORDS = [
+    { id: 'INS-001', name: 'House of Ashcroft' }, { id: 'CHR-001', name: 'Margaret Ashcroft' },
+    { id: 'CHR-002', name: 'Elias Ashcroft' }, { id: 'PLC-003', name: 'Ashcroft Estate' },
+    { id: 'ART-002', name: 'The Seven Keys' }, { id: 'PLC-001', name: 'Stationery House' },
+    { id: 'SYM-001', name: 'Symbol Dictionary' }, { id: 'ART-001', name: 'The Chronicle' }
+  ];
+
+  NOTES = [
+    { id: 'n1', kind: 'gap', label: 'CONFIDENCE', accent: '#b23b3b', cta: 'Settle it',
+      note: 'No Confidence on a Critical record. Six Volume I items are waiting on this.',
+      q: 'When the Estate changed hands, who was holding the record?',
+      qNote: 'The losing reading is logged as an open mystery, not quietly dropped.',
+      opts: [{ label: 'The family. Custody was personal first.', tag: 'Intimate' },
+             { label: 'The institution. The House outranked its people.', tag: 'Withholding' },
+             { label: 'Neither — the record was already missing.', tag: 'Absence' }],
+      writes: 'Confidence → Probable · losing reading to MYS-001', scope: 'Resolves against PLC-003' },
+    { id: 'n2', kind: 'idea', label: 'AN OPENING', accent: '#1B2A4A',
+      cta: 'Two characters, never in the same room',
+      note: 'Margaret and Elias each hold keys, and no record puts them together. The scene where they meet does not exist yet.',
+      why: 'Found by reading CHR-001 and CHR-002 against ART-002.',
+      q: 'What happens when they finally have to be in the same room?',
+      qNote: 'Answering writes a new Story-layer record and links all three.',
+      opts: [{ label: 'They divide the keys and never speak of it again.', tag: 'Withholding' },
+             { label: 'One discovers the other has been copying pages.', tag: 'Trespass' },
+             { label: 'Neither will admit which key is missing.', tag: 'Absence' }],
+      writes: 'New Story-layer record linked to three others', scope: 'Adds to the world rather than fixing it' },
+    { id: 'n3', kind: 'gap', label: 'SUMMARY', accent: '#C87560', cta: 'Say what it looks like',
+      note: 'This says what the House is. Nothing says what it looks like — no stone, no ink, no light.',
+      q: 'When someone describes the ledgers from memory, what comes first?',
+      qNote: 'Whatever they say first is what the model should render first.',
+      opts: [{ label: 'The iron clasps, and how loudly they shut.', tag: 'Withholding' },
+             { label: 'The water stain, same page every volume.', tag: 'Absence' },
+             { label: 'The cedar box, and the smell on your hands.', tag: 'Intimate' }],
+      writes: 'New Materials prompt module · register set', scope: 'Global — the Estate and the Keys inherit it' },
+    { id: 'n4', kind: 'idea', label: 'AN OPENING', accent: '#1B2A4A',
+      cta: 'Seven keys, one symbol',
+      note: 'The Seven Keys are named and counted. The Symbol Dictionary holds one mark. Seven objects that already matter are sitting there un-symbolized.',
+      why: 'Found by reading ART-002 against SYM-001.',
+      q: 'What if each key carries its own mark?',
+      qNote: 'The cheapest way to take Symbol from your thinnest category to your richest.',
+      opts: [{ label: 'One mark per key, each naming what it opens.', tag: '7 symbols' },
+             { label: 'Six marked, one deliberately blank.', tag: '6 + absence' },
+             { label: 'The marks only make sense in sequence.', tag: 'A cipher' }],
+      writes: 'Up to 7 new Symbol records · SYM-001 expanded', scope: 'Unblocks 3 Volume I items as a side effect' }
+  ];
+
+  MODULES = [
+    { name: 'Subject', order: '1', kind: 'Per record', count: '22 records',
+      body: 'Institutional interior, inherited authority held through custody of documents.',
+      from: [['INS-001', 'Summary'], ['PLC-003', 'Summary']],
+      note: 'Written from the record\u2019s own summary. The only module a record fully controls.' },
+    { name: 'Materials', order: '2', kind: 'Per record', count: '14 of 22',
+      body: 'Blackened iron clasps on oxblood leather, water-bloomed vellum, pale cedar casing resin-dark at the joints.',
+      from: [['INS-001', 'Sensory clauses'], ['ART-001', 'Sensory clauses']],
+      note: 'Eight records still have none. Those eight are where renders come back generic.' },
+    { name: 'Register', order: '3', kind: 'Inherited', count: 'All records',
+      body: 'Viewpoint held back in the doorway, nothing centered, nothing arranged for a visitor.',
+      from: [['Style guide', 'Withholding'], ['PLC-001', 'Override: Confidence']],
+      note: 'Comes from the style guide unless a record overrides it. Two records do.' },
+    { name: 'Palette & light', order: '4', kind: 'Global', count: 'All images',
+      body: 'Daylight only and failing, no lamp as key source. Ledger brown, vellum, slate cold, oxblood used sparingly.',
+      from: [['Style guide', 'v4']],
+      note: 'Not overridable by a record. Changing it re-flags every image made under v3.' },
+    { name: 'Negatives', order: '5', kind: 'Global', count: 'All images',
+      body: 'No magic that visibly works, no modern technology, nothing supernatural, no warm lamplight, no tidy interiors, no people facing camera.',
+      from: [['Genesis', '3 world rules'], ['Style guide', '3 learned']],
+      note: 'Compiled last so nothing downstream can contradict it.' }
+  ];
+
+  GUIDE = [
+    { key: 'light', tab: 'Palette & light', title: 'Palette and light',
+      rule: 'Daylight only, and always failing. No lamp is ever the primary source; if a lamp appears it is unlit or guttering.',
+      why: 'Derived from the register — Withholding cannot survive warm lamplight.',
+      applies: 'All 22 records',
+      swatches: [{ hex: '#3B3226', name: 'Ledger brown', note: 'Leather, boards, shelving' },
+                 { hex: '#8A8172', name: 'Failing daylight', note: 'The only light source' },
+                 { hex: '#C9BFA8', name: 'Vellum', note: 'Paper, dust, plaster' },
+                 { hex: '#4A5250', name: 'Slate cold', note: 'Stone, iron, shadow' },
+                 { hex: '#6B3B2E', name: 'Oxblood', note: 'Seals and spines only' }] },
+    { key: 'mat', tab: 'Materials', title: 'Materials',
+      rule: 'Every surface is worked, aged, or repaired. Nothing in Wychcombe is new, and nothing is ruined — it is all in use.',
+      why: 'The distinction that stops renders sliding into either showroom or haunted house.',
+      applies: '14 records carry material clauses',
+      rows: [{ m: 'Iron', d: 'Blackened, never bright. Clasps, hinges, keys.', src: 'INS-001' },
+             { m: 'Vellum', d: 'Water-bloomed. The same tide line in every volume.', src: 'ART-001' },
+             { m: 'Cedar', d: 'Resin-dark at the joints, faint oil sheen on the boards.', src: 'INS-001' },
+             { m: 'Stone', d: 'Hand-cut, unheated, holding cold into the afternoon.', src: 'PLC-003' },
+             { m: 'Wool', d: 'Overdyed, mended visibly. Repair is not hidden here.', src: 'CHR-001' }] },
+    { key: 'comp', tab: 'Composition', title: 'Composition',
+      rule: 'Held slightly too far back, nothing centered. The viewer is never given the best seat in the room.',
+      why: 'Composition is where the register becomes a camera position.',
+      applies: 'All images',
+      rows: [{ m: 'Viewpoint', d: 'From a doorway or threshold, not inside the space.', src: 'Register' },
+             { m: 'Subject', d: 'Off-centre. Often partly occluded by something nearer.', src: 'Register' },
+             { m: 'Depth', d: 'One clear foreground object, everything behind it soft.', src: 'Style' },
+             { m: 'Emptiness', d: 'At least one part of the frame holds nothing at all.', src: 'Style' }] },
+    { key: 'neg', tab: 'Never', title: 'What never appears',
+      rule: 'Hard negatives. These compile onto every prompt and are not overridable by a record.',
+      why: 'Set at world creation. Constraints do more for a world than additions.',
+      applies: 'Every compiled prompt',
+      negs: [{ t: 'No magic that visibly works', s: 'World rule · genesis' },
+             { t: 'No modern technology', s: 'World rule · genesis' },
+             { t: 'Nothing supernatural on the page', s: 'World rule · genesis' },
+             { t: 'No warm lamplight as key source', s: 'Derived from register' },
+             { t: 'No tidy or arranged interiors', s: 'Derived from register' },
+             { t: 'No people facing the camera', s: 'Added after round 2 drift' }] }
+  ];
+
+  ASSETS = [
+    { id: 'IMG-014', title: 'Volume I cover', state: 'Approved', rec: 'INS-001', ver: 'Style v4 · prompt v7', flag: '' },
+    { id: 'IMG-011', title: 'Record room, threshold', state: 'Approved', rec: 'INS-001', ver: 'Style v4 · prompt v6', flag: '' },
+    { id: 'IMG-009', title: 'Estate approach', state: 'Flagged', rec: 'PLC-003', ver: 'Style v3 · prompt v5', flag: 'Lamplight as key source — violates v4' },
+    { id: 'IMG-008', title: 'The seven keys', state: 'Flagged', rec: 'ART-002', ver: 'Style v3 · prompt v5', flag: 'Arranged composition — violates v4' },
+    { id: 'IMG-016', title: 'Stationery House interior', state: 'Draft', rec: 'PLC-001', ver: 'Style v4 · prompt v7', flag: 'Register conflict: Confidence vs doorway framing' },
+    { id: 'IMG-017', title: 'Ledger press, closed', state: 'Draft', rec: 'INS-001', ver: 'Style v4 · prompt v7', flag: '' }
+  ];
+
+  OBS = [
+    { head: 'Every image is an interior', count: '6 of 6',
+      dist: [['Interior', 6, '#1B2A4A'], ['Exterior', 0, '#C87560']],
+      body: 'A world this concerned with what is kept indoors would say something by showing the outside once. The cold only means something if we have seen the weather it keeps out.',
+      unlock: 'Volume I has no establishing image. An exterior would carry the cover and three chapter openers.',
+      action: 'Draft an exterior of the Estate approach' },
+    { head: 'Everything sits at the same distance', count: 'all mid-shot',
+      dist: [['Mid', 6, '#1B2A4A'], ['Close', 0, '#C87560'], ['Wide', 0, '#C87560']],
+      body: 'Six images, one camera distance. The register asks the reader to feel held back — but held back reads as a choice only when something else was close enough to touch.',
+      unlock: 'A single macro plate would give the journal cards a second rhythm.',
+      action: 'Draft one macro: the clasp, at hand distance' },
+    { head: 'Nobody appears anywhere', count: '0 of 6',
+      dist: [['Unpeopled', 6, '#1B2A4A'], ['With figures', 0, '#C87560']],
+      body: 'Two character records and no image contains a person. That may be correct for Withholding — but it is currently an accident of prompting, not a decision you made.',
+      unlock: 'Deciding it either way turns six coincidences into a rule.',
+      action: 'Make it a style rule, or break it once' },
+    { head: 'It is always the same afternoon', count: '6 of 6',
+      dist: [['Failing daylight', 6, '#1B2A4A'], ['Night', 0, '#C87560'], ['Morning', 0, '#C87560']],
+      body: 'The light rule did its job so thoroughly that the world has one hour in it. A story about what happens unobserved has never once been shown after dark.',
+      unlock: 'Night is the only condition under which the ledgers could plausibly be copied.',
+      action: 'Add a sanctioned night exception' }
+  ];
+
+  pill(on) { return { bg: on ? '#1B2A4A' : '#EFE9E1', color: on ? '#fff' : '#5F574A' }; }
+
+  renderVals() {
+    const s = this.state;
+    const doneCount = Object.keys(s.done).length;
+    const ready = 62 + doneCount * 7;
+    const tabDefs = [['canon', 'Canon'], ['modules', 'Prompt modules'], ['style', 'Style guides'], ['assets', 'Visual assets']];
+
+    const shownNotes = this.NOTES.filter(n => s.filter === 'all' ? true : n.kind === s.filter);
+    const notes = shownNotes.map(n => {
+      const open = s.note === n.id, done = s.done[n.id], sel = s.sel[n.id];
+      return {
+        label: n.label, note: n.note, accent: n.accent, why: n.why || '', hasWhy: !!n.why,
+        ctaArrow: n.cta + ' \u2192', q: n.q, qNote: n.qNote, writes: n.writes, scope: n.scope,
+        collapsed: !open && !done && !s.note, peek: !open && !done && !!s.note,
+        expanded: open && !done, resolved: !!done, doneLabel: done || '',
+        doneVerb: n.kind === 'idea' ? 'TAKEN' : 'WRITTEN',
+        dismissLabel: n.kind === 'idea' ? 'Not this one' : 'Close',
+        opts: n.opts.map((o, i) => ({
+          label: o.label, tag: o.tag,
+          border: sel === i ? '#C87560' : '#E7DCCB', bg: sel === i ? '#FFFDF9' : '#FBF6EE',
+          pillBg: sel === i ? '#C87560' : '#EFE9E1', pillColor: sel === i ? '#fff' : '#7A6F5F',
+          weight: sel === i ? '600' : '400',
+          onClick: () => { const nx = Object.assign({}, s.sel); nx[n.id] = i; this.setState({ sel: nx }); }
+        })),
+        ctaBg: sel == null ? '#E0D5C4' : '#C87560',
+        ctaColor: sel == null ? '#7A6F5F' : '#fff',
+        ctaLabel: sel == null ? 'Choose one' : (n.kind === 'idea' ? 'Take it' : 'Approve and write'),
+        onOpen: () => this.setState({ note: n.id }),
+        onClose: () => this.setState({ note: null }),
+        onApprove: () => {
+          if (s.sel[n.id] == null) return;
+          const d = Object.assign({}, s.done); d[n.id] = n.opts[s.sel[n.id]].tag;
+          this.setState({ done: d, note: null });
+        }
+      };
+    });
+
+    const m = this.MODULES[s.mod], g = this.GUIDE[s.guide];
+    const filtered = this.ASSETS.filter(a => s.assetFilter === 'All' ? true : a.state === s.assetFilter);
+    const o = this.OBS[s.obs];
+    const tone = st => st === 'Approved' ? ['#3f6b4c', '#edf4f0']
+      : st === 'Flagged' ? ['#b23b3b', '#fdf0f0'] : ['#7A6F5F', '#EFE9E1'];
+
+    return {
+      tabs: tabDefs.map(t => Object.assign({ label: t[1], onClick: () => this.setState({ tab: t[0], note: null }) }, this.pill(s.tab === t[0]))),
+      isCanon: s.tab === 'canon', isModules: s.tab === 'modules',
+      isStyle: s.tab === 'style', isAssets: s.tab === 'assets',
+      ready: ready, readyPct: ready + '%',
+
+      records: this.RECORDS.map((r, i) => ({
+        id: r.id, name: r.name,
+        bg: s.rec === i ? '#EFE9E1' : 'transparent',
+        rule: s.rec === i ? '#C87560' : 'transparent',
+        weight: s.rec === i ? '600' : '400',
+        onClick: () => this.setState({ rec: i })
+      })),
+      noteTabs: [['all', 'All'], ['gap', 'To resolve'], ['idea', 'Openings']].map(t =>
+        Object.assign({ label: t[1], onClick: () => this.setState({ filter: t[0], note: null }) }, this.pill(s.filter === t[0]))),
+      notes: notes,
+      anyDone: doneCount > 0,
+      resetNotes: () => this.setState({ note: null, sel: {}, done: {} }),
+      regValue: s.done.n3 ? s.done.n3 : 'Not set',
+      regColor: s.done.n3 ? '#1B2A4A' : '#b23b3b',
+      senValue: s.done.n3 ? '1 clause' : 'None',
+      senColor: s.done.n3 ? '#1B2A4A' : '#b23b3b',
+      promptEffect: s.done.n3
+        ? 'Feeds 4 prompt modules including Materials. The House now has something to be drawn with.'
+        : 'Feeds 3 prompt modules, none of them Materials or Architecture — DALL\u00b7E has nothing to draw the House with.',
+
+      modRows: this.MODULES.map((x, i) => ({
+        name: x.name, order: x.order, kind: x.kind, count: x.count,
+        bg: s.mod === i ? '#F1EAE0' : 'transparent',
+        rule: s.mod === i ? '#C87560' : 'transparent',
+        weight: s.mod === i ? '600' : '500',
+        onClick: () => this.setState({ mod: i })
+      })),
+      modName: m.name, modBody: m.body, modNote: m.note, modKind: m.kind, modCount: m.count,
+      modFrom: m.from.map(f => ({ src: f[0], field: f[1] })),
+      compiled: this.MODULES.map((x, i) => ({
+        body: x.body,
+        bg: s.mod === i ? '#F0D5CC' : 'transparent',
+        border: s.mod === i ? '1.5px solid #C87560' : '1.5px solid transparent',
+        color: s.mod === i ? '#2C2822' : '#5F574A'
+      })),
+
+      guideTabs: this.GUIDE.map((x, i) => Object.assign({ t: x.tab, onClick: () => this.setState({ guide: i }) }, this.pill(s.guide === i))),
+      guideTitle: g.title, guideRule: g.rule, guideWhy: g.why, guideApplies: g.applies,
+      guideIsLight: g.key === 'light', guideIsNeg: g.key === 'neg', guideHasRows: !!g.rows,
+      guideSwatches: g.swatches || [], guideRows: g.rows || [], guideNegs: g.negs || [],
+
+      assetViews: [['grid', 'All assets'], ['obs', 'What the set is missing']].map(v => ({
+        label: v[1],
+        bg: s.assetView === v[0] ? '#1B2A4A' : '#EFE9E1',
+        color: s.assetView === v[0] ? '#fff' : '#2C2822',
+        onClick: () => this.setState({ assetView: v[0] })
+      })),
+      assetGrid: s.assetView === 'grid', assetObs: s.assetView === 'obs',
+      goObs: () => this.setState({ assetView: 'obs' }),
+      assetTabs: ['All', 'Approved', 'Flagged', 'Draft'].map(f =>
+        Object.assign({ t: f, onClick: () => this.setState({ assetFilter: f }) }, this.pill(s.assetFilter === f))),
+      assets: filtered.map(a => ({
+        id: a.id, title: a.title, state: a.state, rec: a.rec, ver: a.ver,
+        flag: a.flag, hasFlag: !!a.flag, slot: 'app-asset-' + a.id,
+        tone: tone(a.state)[0], toneBg: tone(a.state)[1],
+        border: a.state === 'Flagged' ? '#b23b3b' : '#E7DCCB'
+      })),
+      assetCount: filtered.length + ' of 6 shown',
+
+      obsRows: this.OBS.map((x, i) => ({
+        head: x.head, count: x.count,
+        bg: s.obs === i ? '#F1EAE0' : '#FFFDF9',
+        border: s.obs === i ? '#C87560' : '#E7DCCB',
+        weight: s.obs === i ? '600' : '500',
+        onClick: () => this.setState({ obs: i })
+      })),
+      obsHead: o.head, obsBody: o.body, obsUnlock: o.unlock, obsAction: o.action,
+      obsDist: o.dist.map(d => ({
+        label: d[0], pct: Math.round((d[1] / 6) * 100) + '%', fill: d[2],
+        color: d[1] === 0 ? '#b23b3b' : '#2C2822',
+        empty: d[1] === 0 ? 'none of them' : d[1] + ' of 6'
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { BibleRichTextField, BibleSection } from "@/pages/super/WorldSmithHome";
+import { BibleRichTextField, BibleSection, openWorldBibleEditor } from "@/pages/super/WorldSmithHome";
 
 describe("World Bible editor building blocks", () => {
   beforeEach(() => {
@@ -9,6 +9,15 @@ describe("World Bible editor building blocks", () => {
       configurable: true,
       value: vi.fn(),
     });
+  });
+
+  it("routes the overview World Bible edit action to the editorial Bible studio", () => {
+    const navigate = vi.fn();
+
+    openWorldBibleEditor("world-42", navigate);
+
+    expect(localStorage.getItem("ws:editorial:world")).toBe("world-42");
+    expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/bible");
   });
 
   it("keeps a Bible section accessible when collapsed and reopened", () => {

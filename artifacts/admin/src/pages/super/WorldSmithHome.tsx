@@ -481,6 +481,11 @@ function WorldListView({ worlds, onSelect }: { worlds: WsWorld[]; onSelect: (id:
 
 // ── Focused World view ────────────────────────────────────────────────────────
 
+export function openWorldBibleEditor(worldId: string, navigate: (path: string) => void) {
+  localStorage.setItem("ws:editorial:world", worldId);
+  navigate("/super/worldsmith/editorial/bible");
+}
+
 function FocusedWorldView({
   world,
   assets,
@@ -494,16 +499,10 @@ function FocusedWorldView({
 }) {
   const [activeSection, setActiveSection] = useState<"overview" | "production" | "review" | "integrations" | "bible">("overview");
   const [, navigate] = useLocation();
-  // When the user clicks "Edit" on the World Bible card in Overview, jump to Settings
-  // and tell IntegrationsSection to open in edit mode immediately.
-  const [openSettingsEditing, setOpenSettingsEditing] = useState(false);
 
-  const goToSettings = () => {
-    setOpenSettingsEditing(true);
-    setActiveSection("integrations");
+  const goToBible = () => {
+    openWorldBibleEditor(world.id, navigate);
   };
-  // Reset the flag once IntegrationsSection has consumed it
-  const clearOpenSettingsEditing = () => setOpenSettingsEditing(false);
 
   const { data: runsData, isLoading: runsLoading } = useQuery({
     queryKey: ["worldsmith/runs", world.id],
@@ -706,7 +705,7 @@ function FocusedWorldView({
           assets={worldAssets}
           runs={runs}
           runsLoading={runsLoading}
-          onGoToSettings={goToSettings}
+          onGoToBible={goToBible}
         />
       </div>
 
@@ -774,8 +773,6 @@ function FocusedWorldView({
         <IntegrationsSection
           world={world}
           integrations={integrations}
-          defaultEditing={openSettingsEditing}
-          onDefaultEditingConsumed={clearOpenSettingsEditing}
         />
       </div>
     </div>
@@ -789,13 +786,13 @@ function OverviewSection({
   assets,
   runs,
   runsLoading,
-  onGoToSettings,
+  onGoToBible,
 }: {
   world: WsWorld;
   assets: WsAsset[];
   runs: WsRun[];
   runsLoading: boolean;
-  onGoToSettings: () => void;
+  onGoToBible: () => void;
 }) {
   const byState = {
     total: assets.length,
@@ -886,12 +883,12 @@ function OverviewSection({
         )}
       </div>
 
-      {/* World Bible — always visible; shows Edit button to jump to Settings */}
+      {/* World Bible — always visible; Edit opens the dedicated editorial studio */}
       <div className="md:col-span-2 rounded-xl border border-border bg-card p-5">
         <div className="flex items-center justify-between mb-4">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">World Bible &amp; Rules</p>
           <button
-            onClick={onGoToSettings}
+            onClick={onGoToBible}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-medium bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
           >
             <Pencil className="w-3 h-3" />
@@ -907,7 +904,7 @@ function OverviewSection({
               Add Visual Palette, Prose Voice, Atmospheric Notes, Material World, and World Rules — they're injected into every generation prompt for this world.
             </p>
             <button
-              onClick={onGoToSettings}
+              onClick={onGoToBible}
               className="mt-2 px-3 py-1.5 rounded-lg text-[12px] font-medium bg-[#1B2A4A] text-white hover:bg-[#2a3d6b] transition-colors"
             >
               Set up World Bible

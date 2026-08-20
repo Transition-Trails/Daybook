@@ -72,7 +72,7 @@ describe("CanonRecordEditor", () => {
     renderEditor("canon-1");
     await waitFor(() => expect(screen.getByRole("heading", { name: /The Ashcroft Ledger — Canon Record/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save and return" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
       "/v1/editorial/canon-records/canon-1",
@@ -81,6 +81,7 @@ describe("CanonRecordEditor", () => {
         body: expect.stringContaining('"portrait_url":null'),
       }),
     ));
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("keeps an unsaved rich-text draft when workflow status changes", async () => {

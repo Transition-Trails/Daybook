@@ -243,8 +243,11 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       provisionalPortraitsRef.current.clear();
       queryClient.setQueryData(["editorial-canon-record", result.canon_record.id], { canon_record: result.canon_record });
       queryClient.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      initialPortraitRef.current = result.canon_record.portraitUrl ?? null;
       toast({ title: isNew ? "Canon record created" : "Canon record saved" });
-      navigate("/super/worldsmith/editorial/canon");
+      if (isNew) {
+        navigate(`/super/worldsmith/editorial/canon/${result.canon_record.id}`);
+      }
     },
     onError: async (error: Error) => {
       await Promise.all([...provisionalPortraitsRef.current].map(path => storageApi.deleteObject(path).catch(() => undefined)));
@@ -507,7 +510,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               <button type="button" onClick={cancel} disabled={saveMutation.isPending || imageUploading} className="rounded-lg border px-3.5 py-2 text-xs font-semibold disabled:opacity-50" style={{ borderColor: "#DDD4C4", color: "#667085" }}>Cancel</button>
               <button type="submit" disabled={saveMutation.isPending || imageUploading} className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ background: INK }}>
                 {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                {isNew ? "Create record" : "Save and return"}
+                {isNew ? "Create record" : "Save"}
               </button>
             </div>
           </div>

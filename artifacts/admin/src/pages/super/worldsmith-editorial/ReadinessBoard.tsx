@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   AlertTriangle, Plus, RefreshCw, Loader2, Clock,
-  CheckCircle2, Zap, BookOpen, FileText, Circle, Sparkles,
+  CheckCircle2, Zap, BookOpen, FileText, Circle,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -223,32 +223,6 @@ export default function ReadinessBoard() {
         ) : error ? (
           <div className="flex items-center justify-center h-full text-red-400 text-sm">
             Failed to load board. <button onClick={() => refetch()} className="underline ml-1">Retry</button>
-          </div>
-        ) : summary.total === 0 ? (
-          /* ── Full-board empty state ── */
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center max-w-sm px-4">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#1B2A4A]/8 mb-5">
-                <Sparkles className="w-7 h-7 text-[#1B2A4A] opacity-50" />
-              </div>
-              <h3 className="text-base font-semibold text-gray-800 mb-2">
-                No specs yet for this world
-              </h3>
-              <p className="text-sm text-gray-500 mb-6 leading-relaxed">
-                Production specs track each printable component — hero papers, journal cards,
-                ephemera sheets, and more — through the pipeline from draft to published.
-                Create your first spec to get started.
-              </p>
-              <Link href="/super/worldsmith/editorial/specs/new">
-                <button
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors hover:opacity-90"
-                  style={{ background: "#1B2A4A" }}
-                >
-                  <Plus className="w-4 h-4" />
-                  Create your first spec
-                </button>
-              </Link>
-            </div>
           </div>
         ) : (
           <div className="flex gap-3 h-full" style={{ minWidth: COLUMNS.length * 240 }}>

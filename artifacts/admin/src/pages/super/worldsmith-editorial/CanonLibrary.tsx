@@ -11,12 +11,12 @@
  */
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   Plus, Search, RefreshCw, Loader2, X, LayoutGrid, Table2,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
   BookOpen, ChevronRight, Clock, Sparkles, CheckCircle2, Download,
-  GitBranch, Repeat2, Wand2, RotateCcw,
+  GitBranch, Repeat2, Wand2, RotateCcw, ArrowRight,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -580,6 +580,117 @@ interface CanonSuggestion {
   narrativeDetails: string;
 }
 
+function InlineSuggestionsSection({
+  suggestions,
+  loading,
+  error,
+  onRefresh,
+  onCreate,
+}: {
+  suggestions: CanonSuggestion[];
+  loading: boolean;
+  error: boolean;
+  onRefresh: () => void;
+  onCreate: (suggestion: CanonSuggestion) => void;
+}) {
+  return (
+    <section
+      className="mx-5 mb-7 mt-3 rounded-2xl p-5"
+      style={{ background: "#FFFCF8", border: "1px solid #DDD4C4" }}
+      aria-labelledby="canon-suggestions-heading"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <div className="flex items-start gap-3">
+          <span
+            className="mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: "rgba(200,117,96,0.12)" }}
+          >
+            <Sparkles className="w-4 h-4" style={{ color: "#C87560" }} />
+          </span>
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#C87560" }}>
+              World-aware suggestions
+            </p>
+            <h2 id="canon-suggestions-heading" className="mt-0.5 text-base font-semibold" style={{ color: "#1B2A4A" }}>
+              Missing pieces for your canon
+            </h2>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed" style={{ color: "#667085" }}>
+              These record ideas are grounded in your World Bible, existing canon, and storylines. Open any one to shape it before saving.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50"
+          style={{ borderColor: "#D9C9BA", color: "#9D5B49", background: "white" }}
+        >
+          <RotateCcw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+          Refresh ideas
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-8 text-sm" style={{ color: "#786D60" }}>
+          <Loader2 className="w-4 h-4 animate-spin" style={{ color: "#C87560" }} />
+          Reading your world and storylines…
+        </div>
+      ) : error ? (
+        <div className="rounded-xl px-4 py-3 text-sm" style={{ background: "#FFF7ED", color: "#9A3412" }}>
+          We couldn’t create suggestions just now. Refresh to try again.
+        </div>
+      ) : suggestions.length === 0 ? (
+        <div className="rounded-xl px-4 py-5 text-sm text-center" style={{ background: "#F7F3EE", color: "#786D60" }}>
+          No new suggestions yet. Refresh after adding more World Bible or storyline detail.
+        </div>
+      ) : (
+        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(245px, 1fr))" }}>
+          {suggestions.map((suggestion) => {
+            const type = CANON_TYPES.find((item) => item.key === suggestion.canonType);
+            return (
+              <article
+                key={`${suggestion.canonType}-${suggestion.name}`}
+                className="flex min-h-[205px] flex-col rounded-xl border p-4"
+                style={{ background: "white", borderColor: "#E7DED4" }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  {type ? (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                      style={{ background: `${type.color}18`, color: type.color }}
+                    >
+                      <type.Icon className="w-2.5 h-2.5" />
+                      {type.label}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#667085" }}>
+                      {suggestion.canonType}
+                    </span>
+                  )}
+                </div>
+                <h3 className="mt-3 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{suggestion.name}</h3>
+                <p className="mt-1.5 text-xs leading-relaxed line-clamp-3" style={{ color: "#667085" }}>
+                  {suggestion.rationale}
+                </p>
+                <p className="mt-2 text-[11.5px] italic leading-relaxed line-clamp-3" style={{ color: "#8A7B6A" }}>
+                  {suggestion.narrativeDetails}
+                </p>
+                <button
+                  onClick={() => onCreate(suggestion)}
+                  className="mt-auto pt-3 inline-flex items-center gap-1 text-xs font-semibold hover:underline self-start"
+                  style={{ color: "#C87560" }}
+                >
+                  Create record <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SuggestionsPanel({
   worldId,
   worldName,
@@ -864,6 +975,7 @@ function saveLibraryFilters(worldId: string, filters: LibraryFilters) {
 export default function CanonLibrary() {
   const { selectedWorldId, selectedWorld } = useEditorial();
   const [, navigate] = useLocation();
+  const searchParams = useSearch();
   const qc = useQueryClient();
   const { toast } = useToast();
 
@@ -932,9 +1044,11 @@ export default function CanonLibrary() {
   const [prefilledNarrative, setPrefilledNarrative] = useState("");
 
   // Auto-open the create drawer when navigated here with ?new=1&name=…&type=…&narrative=…
-  // (e.g. from the editorial co-write panel's "Create record" button).
+  // (e.g. from the editorial co-write panel's "Create record" button). `useSearch`
+  // is deliberate: Wouter's useLocation tracks the pathname only, so a co-write
+  // suggestion clicked while this library is already open changes only the query.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(searchParams);
     if (params.get("new") === "1") {
       setPrefilledName(params.get("name") ?? "");
       setPrefilledType(params.get("type") ?? "location");
@@ -943,7 +1057,7 @@ export default function CanonLibrary() {
       // Clean the URL so a refresh doesn't re-trigger the drawer
       window.history.replaceState({}, "", window.location.pathname);
     }
-  }, []);
+  }, [searchParams]);
 
   // Suggestions panel
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -1007,6 +1121,18 @@ export default function CanonLibrary() {
   const total = data?.total ?? 0;
   const byType = data?.by_type ?? {};
 
+  const inlineSuggestions = useQuery<{ suggestions: CanonSuggestion[] }>({
+    queryKey: ["editorial-canon-suggestions", selectedWorldId],
+    queryFn: () =>
+      apiFetch("/v1/editorial/canon-records/suggest", {
+        method: "POST",
+        body: JSON.stringify({ world_id: selectedWorldId }),
+      }),
+    enabled: !!selectedWorldId && !!data && total > 0,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
   // Client-side filter for search/type/status/visibility/stability/register
   const filtered = allRecords.filter(r => {
     if (activeType !== "all" && r.canonType !== activeType) return false;
@@ -1044,6 +1170,15 @@ export default function CanonLibrary() {
 
   const openCreate = (type = "location") => {
     setPrefilledType(type);
+    setPrefilledName("");
+    setPrefilledNarrative("");
+    setShowCreate(true);
+  };
+
+  const openSuggestedCreate = (suggestion: CanonSuggestion) => {
+    setPrefilledType(suggestion.canonType);
+    setPrefilledName(suggestion.name);
+    setPrefilledNarrative(suggestion.narrativeDetails);
     setShowCreate(true);
   };
 
@@ -1480,6 +1615,13 @@ export default function CanonLibrary() {
                 </table>
               </div>
             )}
+            <InlineSuggestionsSection
+              suggestions={inlineSuggestions.data?.suggestions ?? []}
+              loading={inlineSuggestions.isLoading || inlineSuggestions.isFetching}
+              error={inlineSuggestions.isError}
+              onRefresh={() => void inlineSuggestions.refetch()}
+              onCreate={openSuggestedCreate}
+            />
           </div>
         </div>
       )}

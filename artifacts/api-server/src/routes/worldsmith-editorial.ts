@@ -723,12 +723,22 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
 // Uses the AI to analyse the world's existing canon and World Bible, then
 // suggests new records that would meaningfully enrich the library.
 // Body: { world_id, focus_type? }
-// Returns: { suggestions: [{ name, canonType, rationale, narrativeDetails }] }
+// Returns: { suggestions: [{ name, canonType, rationale, narrativeDetails }] }.
+// Without a focus type, the response contains one suggestion for every canon type.
+
+const CANON_SUGGESTION_TYPES = [
+  "character", "location", "object", "event", "lore",
+  "atmosphere", "material", "relationship", "motif",
+] as const;
 
 router.post("/v1/editorial/canon-records/suggest", async (req: Request, res: Response) => {
   const { world_id, focus_type } = req.body as { world_id?: string; focus_type?: string };
   if (!world_id) {
     res.status(400).json({ error: "world_id is required" });
+    return;
+  }
+  if (focus_type && !CANON_SUGGESTION_TYPES.includes(focus_type as typeof CANON_SUGGESTION_TYPES[number])) {
+    res.status(400).json({ error: "focus_type is not a supported canon record type" });
     return;
   }
 
@@ -756,23 +766,62 @@ router.post("/v1/editorial/canon-records/suggest", async (req: Request, res: Res
       .orderBy(wsCanonRecordsTable.name)
       .limit(80);
 
+    // Storylines give the suggestions narrative purpose instead of producing
+    // world-building ideas in isolation from the stories they need to support.
+    const stories = await db
+      .select({
+        id: wsStoriesTable.id,
+        title: wsStoriesTable.title,
+        summary: wsStoriesTable.summary,
+        status: wsStoriesTable.status,
+      })
+      .from(wsStoriesTable)
+      .where(eq(wsStoriesTable.worldId, world_id))
+      .orderBy(wsStoriesTable.sortOrder, wsStoriesTable.createdAt)
+      .limit(20);
+    const storyIds = stories.map((story) => story.id);
+    const acts = storyIds.length > 0
+      ? await db
+          .select({
+            storyId: wsStoryActsTable.storyId,
+            actNumber: wsStoryActsTable.actNumber,
+            title: wsStoryActsTable.title,
+            tagline: wsStoryActsTable.tagline,
+          })
+          .from(wsStoryActsTable)
+          .where(inArray(wsStoryActsTable.storyId, storyIds))
+          .orderBy(wsStoryActsTable.storyId, wsStoryActsTable.actNumber)
+      : [];
+
     const existingLines = existing.length > 0
       ? existing.map(r => `- ${r.name} [${r.canonType ?? "unknown"}] (${r.status})`).join("\n")
       : "(no records yet)";
 
     const worldBible = [
-      world.visualPalette ? `Visual Palette: ${world.visualPalette}` : "",
-      world.proseVoice    ? `Prose Voice: ${world.proseVoice}`       : "",
-      world.atmosphericNotes ? `Atmospheric Notes: ${world.atmosphericNotes}` : "",
-      world.materialWorld ? `Material World: ${world.materialWorld}` : "",
+      world.visualPalette ? `Visual Palette: ${editorialRichTextToPlainText(world.visualPalette)}` : "",
+      world.proseVoice    ? `Prose Voice: ${editorialRichTextToPlainText(world.proseVoice)}`       : "",
+      world.atmosphericNotes ? `Atmospheric Notes: ${editorialRichTextToPlainText(world.atmosphericNotes)}` : "",
+      world.materialWorld ? `Material World: ${editorialRichTextToPlainText(world.materialWorld)}` : "",
       Array.isArray(world.worldRules) && world.worldRules.length > 0
         ? `World Rules:\n${(world.worldRules as string[]).map(r => `  - ${r}`).join("\n")}`
         : "",
     ].filter(Boolean).join("\n");
 
+    const storylineLines = stories.map((story) => {
+      const storyActs = acts
+        .filter((act) => act.storyId === story.id)
+        .map((act) => `  Act ${act.actNumber}: ${act.title}${act.tagline ? ` — ${act.tagline}` : ""}`)
+        .join("\n");
+      return [
+        `- ${story.title} [${story.status}]${story.summary ? ` — ${story.summary.slice(0, 700)}` : ""}`,
+        storyActs,
+      ].filter(Boolean).join("\n");
+    }).join("\n");
+
     const focusLine = focus_type
       ? `Focus specifically on the "${focus_type}" type — all six suggestions must be of that type.`
-      : "Spread suggestions across at least three different types to fill gaps.";
+      : `Suggest exactly one record for each of these types: ${CANON_SUGGESTION_TYPES.join(", ")}.`;
+    const suggestionCount = focus_type ? 6 : CANON_SUGGESTION_TYPES.length;
 
     const systemPrompt = `You are an expert WorldSmith editor who analyses a world's canon library and identifies the most valuable missing entries. Your job is to spot gaps — important characters, locations, objects, events, lore, atmosphere, materials, relationships, or motifs that the existing canon needs but doesn't yet have. Every suggestion must feel like it belongs deeply to this world's specific identity.`;
 
@@ -784,8 +833,11 @@ ${worldBible || "(not yet written)"}
 ## Existing Canon Records (${existing.length} total)
 ${existingLines}
 
+## Storylines
+${storylineLines || "(no storylines recorded yet)"}
+
 ## Task
-Suggest exactly 6 new canon records that would meaningfully enrich this world. ${focusLine}
+Suggest exactly ${suggestionCount} new canon records that would meaningfully enrich this world and give the existing storylines useful anchors. ${focusLine}
 
 Return ONLY a JSON array (no markdown fences, no preamble) where each element has:
 - "name": string — the record's title (specific, evocative, fits this world's voice)
@@ -808,7 +860,7 @@ All six must be DIFFERENT from existing records and from each other. Avoid gener
       // Strip any accidental code fences
       const clean = text.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
       const parsed = JSON.parse(clean);
-      if (Array.isArray(parsed)) suggestions = parsed.slice(0, 6);
+        if (Array.isArray(parsed)) suggestions = parsed.slice(0, suggestionCount);
     } catch {
       logger.warn({ raw: result.content }, "editorial: suggest — AI returned non-JSON, attempting extraction");
       // Fallback: try to find the first [ ... ] block
@@ -819,7 +871,7 @@ All six must be DIFFERENT from existing records and from each other. Avoid gener
     }
 
     // Sanitise each suggestion
-    const VALID_TYPES = new Set(["character","location","object","event","lore","atmosphere","material","relationship","motif"]);
+    const VALID_TYPES = new Set<string>(CANON_SUGGESTION_TYPES);
     const sanitised = suggestions
       .filter((s): s is Record<string, unknown> => typeof s === "object" && s !== null)
       .map(s => ({

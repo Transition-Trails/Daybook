@@ -100,6 +100,7 @@ vi.mock("@/hooks/use-toast", () => ({
 
 vi.mock("wouter", () => ({
   useLocation: () => ["/super/worldsmith/editorial/canon", vi.fn()],
+  useSearch: () => "",
 }));
 
 import CanonLibrary from "@/pages/super/worldsmith-editorial/CanonLibrary";

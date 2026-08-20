@@ -128,6 +128,7 @@ vi.mock("@/contexts/EditorialContext", () => ({
 
 vi.mock("wouter", () => ({
   useLocation: () => ["/super/worldsmith/editorial/canon/" + RECORD_ID, vi.fn()],
+  useSearch: () => "",
   // Render children directly — the component wraps <Link> around an <a> element,
   // so adding another <a> here would create invalid nested anchors that stall jsdom.
   Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,

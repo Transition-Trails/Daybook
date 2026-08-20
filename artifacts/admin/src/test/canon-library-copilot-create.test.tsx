@@ -55,12 +55,13 @@ describe("CanonLibrary suggested-record handoff", () => {
   });
 
   it("shows world-aware suggestions above canon cards and lets editors collapse them", async () => {
-    apiFetch.mockImplementation((path: string) => {
+    apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === "/v1/editorial/canon-records/suggest") {
+        const body = JSON.parse(String(options?.body ?? "{}"));
         return Promise.resolve({
           suggestions: [{
             name: "The Thorn Keeper",
-            canonType: "character",
+            canonType: body.focus_type ?? "character",
             rationale: "This caretaker connects the village's botanical lore to its hidden history.",
             narrativeDetails: "A quiet archivist who tends the garden walls after dusk.",
           }],
@@ -108,5 +109,57 @@ describe("CanonLibrary suggested-record handoff", () => {
     expect(navigate).toHaveBeenCalledWith(
       "/super/worldsmith/editorial/canon/new?name=The+Thorn+Keeper&type=character&narrative=A+quiet+archivist+who+tends+the+garden+walls+after+dusk.",
     );
+  });
+
+  it("regenerates world-aware suggestions for the active record type", async () => {
+    const suggestionBodies: Array<Record<string, unknown>> = [];
+    apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "/v1/editorial/canon-records/suggest") {
+        const body = JSON.parse(String(options?.body ?? "{}"));
+        suggestionBodies.push(body);
+        return Promise.resolve({
+          suggestions: [{
+            name: body.focus_type === "object" ? "The Thorn Reliquary" : "The Thorn Keeper",
+            canonType: body.focus_type ?? "character",
+            rationale: "A world-grounded gap.",
+            narrativeDetails: "A detail that belongs to this world.",
+          }],
+        });
+      }
+      return Promise.resolve({
+        canon_records: [{
+          id: "canon-1",
+          worldId: "world-wychcombe",
+          name: "Wychcombe Village",
+          canonType: "location",
+          narrativeDetails: "An old village.",
+          historicalContext: "",
+          visualNotes: "",
+          status: "accepted",
+          specRefCount: 0,
+          updatedAt: "2026-08-20T00:00:00.000Z",
+        }],
+        total: 1,
+        by_type: { location: 1 },
+      });
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <CanonLibrary />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("The Thorn Keeper")).toBeInTheDocument());
+    expect(suggestionBodies[0]).toEqual({ world_id: "world-wychcombe" });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Object/ }));
+
+    await waitFor(() => expect(screen.getByText("The Thorn Reliquary")).toBeInTheDocument());
+    expect(suggestionBodies.at(-1)).toEqual({
+      world_id: "world-wychcombe",
+      focus_type: "object",
+    });
+    expect(screen.getByRole("heading", { name: "Missing object records for your canon" })).toBeInTheDocument();
   });
 });

@@ -507,8 +507,8 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
           )}
           {navItem("Readiness Board", LayoutDashboard, "/super/worldsmith/editorial/board", "board")}
           {navItem("World Bible", BookOpen, "/super/worldsmith/editorial/bible", "bible")}
-          {navItem("Storylines", BookOpen, "/super/worldsmith/editorial/stories", "stories")}
           {navItem("Story Map", Network, "/super/worldsmith/editorial/connections", "connections")}
+          {navItem("Storylines", BookOpen, "/super/worldsmith/editorial/stories", "stories")}
           {navItem("Canon Records", BookOpen, "/super/worldsmith/editorial/canon", "canon")}
 
           {!drawerCollapsed && (

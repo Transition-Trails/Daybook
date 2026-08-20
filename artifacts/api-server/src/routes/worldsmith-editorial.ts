@@ -847,7 +847,7 @@ Return ONLY a JSON array (no markdown fences, no preamble) where each element ha
 - "rationale": string — 1-2 sentences explaining why this record is missing and why it matters
 - "narrativeDetails": string — 2-4 sentences of polished opening prose for this record, written in the world's voice
 
-All six must be DIFFERENT from existing records and from each other. Avoid generic fantasy/Victorian tropes — ground every entry in this world's specific identity.`;
+All ${suggestionCount} suggestions must be DIFFERENT from existing records and from each other. Avoid generic fantasy/Victorian tropes — ground every entry in this world's specific identity.`;
 
     const result = await callAi(
       [{ role: "user", content: userMessage }],

@@ -586,14 +586,19 @@ function InlineSuggestionsSection({
   error,
   onRefresh,
   onCreate,
+  focusType,
 }: {
   suggestions: CanonSuggestion[];
   loading: boolean;
   error: boolean;
   onRefresh: () => void;
   onCreate: (suggestion: CanonSuggestion) => void;
+  focusType: string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const focusLabel = focusType === "all"
+    ? "all record types"
+    : `${CANON_TYPES.find(type => type.key === focusType)?.label ?? focusType} records`;
 
   return (
     <section
@@ -620,10 +625,10 @@ function InlineSuggestionsSection({
               World-aware suggestions
             </p>
             <h2 id="canon-suggestions-heading" className="mt-0.5 text-base font-semibold" style={{ color: "#1B2A4A" }}>
-              Missing pieces for your canon
+              {focusType === "all" ? "Missing pieces for your canon" : `Missing ${focusLabel.toLowerCase()} for your canon`}
             </h2>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed" style={{ color: "#667085" }}>
-              These record ideas are grounded in your World Bible, existing canon, and storylines. Open any one to shape it before saving.
+              These {focusLabel} are grounded in your World Bible, existing canon, and storylines. Open any one to shape it before saving.
             </p>
           </div>
           <ChevronDown
@@ -1111,11 +1116,14 @@ export default function CanonLibrary() {
   const byType = data?.by_type ?? {};
 
   const inlineSuggestions = useQuery<{ suggestions: CanonSuggestion[] }>({
-    queryKey: ["editorial-canon-suggestions", selectedWorldId],
+    queryKey: ["editorial-canon-suggestions", selectedWorldId, activeType],
     queryFn: () =>
       apiFetch("/v1/editorial/canon-records/suggest", {
         method: "POST",
-        body: JSON.stringify({ world_id: selectedWorldId }),
+        body: JSON.stringify({
+          world_id: selectedWorldId,
+          ...(activeType !== "all" ? { focus_type: activeType } : {}),
+        }),
       }),
     enabled: !!selectedWorldId && !!data && total > 0,
     staleTime: 5 * 60_000,
@@ -1546,6 +1554,7 @@ export default function CanonLibrary() {
                error={inlineSuggestions.isError}
                onRefresh={() => void inlineSuggestions.refetch()}
                onCreate={openSuggestedCreate}
+                focusType={activeType}
              />
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 py-16">

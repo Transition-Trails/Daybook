@@ -7,11 +7,11 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { vi, describe, expect, it } from "vitest";
+import { vi, describe, expect, it, beforeEach } from "vitest";
 
-const { apiFetch, useSearch } = vi.hoisted(() => ({
+const { apiFetch, navigate } = vi.hoisted(() => ({
   apiFetch: vi.fn(),
-  useSearch: vi.fn(),
+  navigate: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({ apiFetch }));
@@ -25,17 +25,18 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 vi.mock("wouter", () => ({
-  useLocation: () => ["/super/worldsmith/editorial/canon", vi.fn()],
-  useSearch,
+  useLocation: () => ["/super/worldsmith/editorial/canon", navigate],
 }));
 
 import CanonLibrary from "@/pages/super/worldsmith-editorial/CanonLibrary";
 
 describe("CanonLibrary suggested-record handoff", () => {
-  it("opens a prefilled Create Record drawer from the co-write query string", async () => {
-    useSearch.mockReturnValue(
-      "?new=1&name=The+Ashcroft+Ledger&type=object&narrative=A+weathered+diary+with+family+secrets.",
-    );
+  beforeEach(() => {
+    navigate.mockReset();
+    apiFetch.mockReset();
+  });
+
+  it("opens the dedicated new-record page from the library", async () => {
     apiFetch.mockResolvedValue({
       canon_records: [],
       total: 0,
@@ -48,14 +49,12 @@ describe("CanonLibrary suggested-record handoff", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "New Canon Record" })).toBeInTheDocument());
-    expect(screen.getByDisplayValue("The Ashcroft Ledger")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("A weathered diary with family secrets.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Object/i })).toHaveStyle({ borderColor: "#F59E0B60" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Build Your Canon Library" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Location Places, spaces, and geographical features/ }));
+    expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/canon/new?type=location");
   });
 
   it("shows world-aware suggestions below canon cards and opens their prefilled record form", async () => {
-    useSearch.mockReturnValue("");
     apiFetch.mockImplementation((path: string) => {
       if (path === "/v1/editorial/canon-records/suggest") {
         return Promise.resolve({
@@ -95,9 +94,8 @@ describe("CanonLibrary suggested-record handoff", () => {
     await waitFor(() => expect(screen.getByText("The Thorn Keeper")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Create record" }));
-
-    await waitFor(() => expect(screen.getByRole("heading", { name: "New Canon Record" })).toBeInTheDocument());
-    expect(screen.getByDisplayValue("The Thorn Keeper")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("A quiet archivist who tends the garden walls after dusk.")).toBeInTheDocument();
+    expect(navigate).toHaveBeenCalledWith(
+      "/super/worldsmith/editorial/canon/new?name=The+Thorn+Keeper&type=character&narrative=A+quiet+archivist+who+tends+the+garden+walls+after+dusk.",
+    );
   });
 });

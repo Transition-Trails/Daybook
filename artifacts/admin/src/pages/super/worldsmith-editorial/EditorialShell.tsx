@@ -121,7 +121,7 @@ function EditorialCopilot({
             type: s.canonType,
             narrative: s.narrative ?? "",
           });
-          navigate(`/super/worldsmith/editorial/canon?${params.toString()}`);
+          navigate(`/super/worldsmith/editorial/canon/new?${params.toString()}`);
         }}
         panelStyle={{
           width: "100%",

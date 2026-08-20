@@ -11,7 +11,7 @@
  */
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useSearch } from "wouter";
+import { useLocation } from "wouter";
 import {
   Plus, Search, RefreshCw, Loader2, X, LayoutGrid, Table2,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
@@ -975,7 +975,6 @@ function saveLibraryFilters(worldId: string, filters: LibraryFilters) {
 export default function CanonLibrary() {
   const { selectedWorldId, selectedWorld } = useEditorial();
   const [, navigate] = useLocation();
-  const searchParams = useSearch();
   const qc = useQueryClient();
   const { toast } = useToast();
 
@@ -1036,28 +1035,6 @@ export default function CanonLibrary() {
 
   // Selection (table mode)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  // Create drawer
-  const [showCreate, setShowCreate] = useState(false);
-  const [prefilledType, setPrefilledType] = useState("location");
-  const [prefilledName, setPrefilledName] = useState("");
-  const [prefilledNarrative, setPrefilledNarrative] = useState("");
-
-  // Auto-open the create drawer when navigated here with ?new=1&name=…&type=…&narrative=…
-  // (e.g. from the editorial co-write panel's "Create record" button). `useSearch`
-  // is deliberate: Wouter's useLocation tracks the pathname only, so a co-write
-  // suggestion clicked while this library is already open changes only the query.
-  useEffect(() => {
-    const params = new URLSearchParams(searchParams);
-    if (params.get("new") === "1") {
-      setPrefilledName(params.get("name") ?? "");
-      setPrefilledType(params.get("type") ?? "location");
-      setPrefilledNarrative(params.get("narrative") ?? "");
-      setShowCreate(true);
-      // Clean the URL so a refresh doesn't re-trigger the drawer
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, [searchParams]);
 
   // Suggestions panel
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -1169,21 +1146,16 @@ export default function CanonLibrary() {
     !hasActiveFilter;
 
   const openCreate = (type = "location") => {
-    setPrefilledType(type);
-    setPrefilledName("");
-    setPrefilledNarrative("");
-    setShowCreate(true);
+    navigate(`/super/worldsmith/editorial/canon/new?type=${encodeURIComponent(type)}`);
   };
 
   const openSuggestedCreate = (suggestion: CanonSuggestion) => {
-    setPrefilledType(suggestion.canonType);
-    setPrefilledName(suggestion.name);
-    setPrefilledNarrative(suggestion.narrativeDetails);
-    setShowCreate(true);
-  };
-
-  const handleCreated = () => {
-    qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+    const params = new URLSearchParams({
+      name: suggestion.name,
+      type: suggestion.canonType,
+      narrative: suggestion.narrativeDetails,
+    });
+    navigate(`/super/worldsmith/editorial/canon/new?${params.toString()}`);
   };
 
   const toggleSelect = (id: string) => {
@@ -1624,18 +1596,6 @@ export default function CanonLibrary() {
             />
           </div>
         </div>
-      )}
-
-      {/* ── Create drawer ───────────────────────────────────────────────────── */}
-      {showCreate && selectedWorldId && (
-        <CreateDrawer
-          worldId={selectedWorldId}
-          prefilledType={prefilledType}
-          prefilledName={prefilledName}
-          prefilledNarrative={prefilledNarrative}
-          onClose={() => { setShowCreate(false); setPrefilledName(""); setPrefilledNarrative(""); }}
-          onCreated={handleCreated}
-        />
       )}
 
       {/* ── Suggestions panel ────────────────────────────────────────────────── */}

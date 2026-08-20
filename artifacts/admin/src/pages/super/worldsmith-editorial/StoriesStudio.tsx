@@ -5,6 +5,7 @@ import { ArrowRight, BookOpen, ChevronRight, Loader2, Plus, Sparkles } from "luc
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
+import { EditorialRichTextField } from "@/components/EditorialRichText";
 
 interface StoryAct {
   id: string;
@@ -50,6 +51,7 @@ export default function StoriesStudio() {
   const [newSummary, setNewSummary] = useState("");
   const [newStatus, setNewStatus] = useState("draft");
   const [summaryDraft, setSummaryDraft] = useState<Record<string, string>>({});
+  const [titleDraft, setTitleDraft] = useState<Record<string, string>>({});
   const [newActTitle, setNewActTitle] = useState("");
 
   const { data, isLoading } = useQuery({
@@ -76,7 +78,7 @@ export default function StoriesStudio() {
         body: JSON.stringify({
           world_id: selectedWorldId,
           title: newTitle.trim(),
-          summary: newSummary.trim(),
+          summary: newSummary,
           status: newStatus,
         }),
       }),
@@ -109,15 +111,15 @@ export default function StoriesStudio() {
     onError: () => toast({ title: "Could not add chapter", variant: "destructive" }),
   });
 
-  const saveSummary = (story: Story) => {
-    const summary = summaryDraft[story.id];
-    if (summary === undefined || summary === story.summary) return;
+  const saveStoryField = (story: Story, field: "title" | "summary") => {
+    const draft = field === "title" ? titleDraft[story.id] : summaryDraft[story.id];
+    if (draft === undefined || draft === story[field]) return;
     apiFetch(`/v1/editorial/stories/${story.id}`, {
       method: "PATCH",
-      body: JSON.stringify({ summary }),
+      body: JSON.stringify({ [field]: field === "title" ? draft.trim() : draft }),
     })
       .then(refreshStories)
-      .catch(() => toast({ title: "Could not save story summary", variant: "destructive" }));
+      .catch(() => toast({ title: `Could not save story ${field}`, variant: "destructive" }));
   };
 
   if (!selectedWorldId || !selectedWorld) {
@@ -130,7 +132,7 @@ export default function StoriesStudio() {
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: "#FAF8F3" }}>
-      <div className="max-w-6xl mx-auto px-7 py-7">
+      <div className="w-full px-7 py-7">
         <header className="flex flex-wrap items-start justify-between gap-4 mb-7">
           <div>
             <p className="text-[10px] uppercase tracking-[0.18em] font-bold" style={{ color: "#C87560" }}>
@@ -198,14 +200,14 @@ export default function StoriesStudio() {
             </div>
             <label className="block text-xs font-semibold mt-4" style={{ color: "#344054" }}>
               What pulls us in?
-              <textarea
-                value={newSummary}
-                onChange={event => setNewSummary(event.target.value)}
-                rows={3}
-                placeholder="A short premise — who wants what, what complicates it, and why it matters in this world."
-                className="mt-1.5 w-full resize-y rounded-lg bg-white px-3 py-2.5 text-sm leading-relaxed outline-none"
-                style={{ border: "1px solid #DDD4C4", color: "#1B2A4A" }}
-              />
+              <div className="mt-1.5">
+                <EditorialRichTextField
+                  value={newSummary}
+                  onChange={setNewSummary}
+                  minHeight={110}
+                  placeholder="A short premise — who wants what, what complicates it, and why it matters in this world."
+                />
+              </div>
             </label>
             <div className="mt-4 flex justify-end">
               <button
@@ -234,7 +236,7 @@ export default function StoriesStudio() {
             </button>
           </section>
         ) : (
-          <div className="grid lg:grid-cols-[280px_minmax(0,1fr)] gap-6 items-start">
+          <div className="grid lg:grid-cols-[250px_minmax(0,1fr)] gap-6 items-start">
             <aside className="rounded-2xl p-2.5" style={{ background: "white", border: "1px solid #E7E0D7" }}>
               <p className="px-2.5 pt-1 pb-2 text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#98A2B3" }}>
                 In this world
@@ -274,9 +276,14 @@ export default function StoriesStudio() {
                       <StoryStatus status={selectedStory.status} />
                       <span className="text-[11px]" style={{ color: "#98A2B3" }}>Storyline</span>
                     </div>
-                    <h2 className="mt-2 text-2xl" style={{ color: "#1B2A4A", fontFamily: "'Playfair Display', Georgia, serif" }}>
-                      {selectedStory.title}
-                    </h2>
+                    <input
+                      aria-label="Story title"
+                      value={titleDraft[selectedStory.id] ?? selectedStory.title}
+                      onChange={event => setTitleDraft(draft => ({ ...draft, [selectedStory.id]: event.target.value }))}
+                      onBlur={() => saveStoryField(selectedStory, "title")}
+                      className="mt-2 w-full border-b bg-transparent pb-1 text-2xl outline-none focus:border-[#C87560]"
+                      style={{ color: "#1B2A4A", borderColor: "#E7E0D7", fontFamily: "'Playfair Display', Georgia, serif" }}
+                    />
                   </div>
                   <Link href="/super/worldsmith/editorial/connections">
                     <span className="inline-flex items-center gap-1.5 text-xs font-semibold cursor-pointer" style={{ color: "#C87560" }}>
@@ -287,14 +294,12 @@ export default function StoriesStudio() {
                 <label className="block text-[10px] uppercase tracking-[0.14em] font-bold mb-2" style={{ color: "#98A2B3" }}>
                   The narrative promise
                 </label>
-                <textarea
-                  rows={4}
+                <EditorialRichTextField
                   value={summaryDraft[selectedStory.id] ?? selectedStory.summary ?? ""}
-                  onChange={event => setSummaryDraft(draft => ({ ...draft, [selectedStory.id]: event.target.value }))}
-                  onBlur={() => saveSummary(selectedStory)}
+                  onChange={value => setSummaryDraft(draft => ({ ...draft, [selectedStory.id]: value }))}
+                  onBlur={() => saveStoryField(selectedStory, "summary")}
+                  minHeight={150}
                   placeholder="What is this story about? Who is changed by it, and what will a reader carry into the physical world?"
-                  className="w-full resize-y rounded-xl p-4 text-sm leading-relaxed outline-none"
-                  style={{ background: "#FFFCF8", border: "1px solid #E7E0D7", color: "#344054", fontFamily: "'Spectral', Georgia, serif" }}
                 />
 
                 <div className="mt-7 flex items-center justify-between gap-3">

@@ -370,7 +370,7 @@ router.get("/v1/editorial/canon-records", async (req: Request, res: Response) =>
 });
 
 router.post("/v1/editorial/canon-records", async (req: Request, res: Response) => {
-  const { world_id, name, canon_type, narrative_details, historical_context, visual_notes } = req.body;
+  const { world_id, name, canon_type, narrative_details, historical_context, visual_notes, notes, portrait_url } = req.body;
   if (!world_id || !name?.trim()) {
     res.status(400).json({ error: "world_id and name are required" });
     return;
@@ -387,6 +387,8 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
         narrativeDetails: sanitizeEditorialRichText(narrative_details ?? ""),
         historicalContext: sanitizeEditorialRichText(historical_context ?? ""),
         visualNotes: sanitizeEditorialRichText(visual_notes ?? ""),
+        notes: sanitizeEditorialRichText(notes ?? ""),
+        portraitUrl: portrait_url ?? null,
         createdBy: (req.user as any)?.id,
       })
       .returning();
@@ -813,7 +815,7 @@ router.post("/v1/editorial/canon-records/suggest", async (req: Request, res: Res
         .map((act) => `  Act ${act.actNumber}: ${act.title}${act.tagline ? ` — ${act.tagline}` : ""}`)
         .join("\n");
       return [
-        `- ${story.title} [${story.status}]${story.summary ? ` — ${story.summary.slice(0, 700)}` : ""}`,
+        `- ${story.title} [${story.status}]${story.summary ? ` — ${editorialRichTextToPlainText(story.summary).slice(0, 700)}` : ""}`,
         storyActs,
       ].filter(Boolean).join("\n");
     }).join("\n");
@@ -2314,7 +2316,7 @@ router.post("/v1/editorial/stories", async (req: Request, res: Response) => {
       id: randomUUID(),
       worldId: world_id,
       title,
-      summary: summary ?? "",
+      summary: sanitizeEditorialRichText(summary ?? ""),
       status: status ?? "draft",
     }).returning();
     res.status(201).json({ story });
@@ -2330,8 +2332,8 @@ router.patch("/v1/editorial/stories/:id", async (req: Request, res: Response) =>
     const { id } = req.params;
     const { title, summary, status, sort_order } = req.body;
     const update: Record<string, unknown> = {};
-    if (title !== undefined) update.title = title;
-    if (summary !== undefined) update.summary = summary;
+    if (title !== undefined) update.title = typeof title === "string" ? title.trim() : title;
+    if (summary !== undefined) update.summary = sanitizeEditorialRichText(summary ?? "");
     if (status !== undefined) update.status = status;
     if (sort_order !== undefined) update.sortOrder = sort_order;
     const [story] = await db.update(wsStoriesTable).set(update).where(eq(wsStoriesTable.id, id as string)).returning();

@@ -88,7 +88,19 @@ function pngDimensions(buf: Buffer): { width: number; height: number } {
 
 let pngBuf: Buffer;               // raw PNG as returned by the production function
 let rawPixels: Buffer;            // decompressed RGBA (or RGB) pixel bytes
-let channels: number;             // 3 = RGB, 4 = RGBA (depends on sharp output)
+let channels: number;             // always 4 after ensureAlpha()
+
+/**
+ * Span of the Spectral 36 px title "The Library Table" measured from the
+ * production PNG: leftmost and rightmost column that contain a dark pixel
+ * in the y=148..188 band (the Spectral title-line-2 glyph area).
+ *
+ * Stored here so the tight geometric tests below can run instantly
+ * without re-scanning the full pixel buffer.
+ */
+let spectralSpan   = 0;
+let spectralLeft   = 0;
+let spectralRight  = 0;
 
 // Timeout as a plain number — Vitest 4 beforeAll does not accept an options object.
 beforeAll(async () => {
@@ -103,6 +115,28 @@ beforeAll(async () => {
 
   rawPixels = data;
   channels  = info.channels; // always 4 after ensureAlpha()
+
+  // ── Measure Spectral title-2 span ────────────────────────────────────────
+  // Scan x=14..700 in the Spectral 36 px band (y=148..188) to find the
+  // leftmost and rightmost column that contain at least one dark pixel.
+  // In this area the ONLY dark elements are the rendered title glyphs — there
+  // are no background rects, strokes, or ornaments at this x/y range.
+  let left  = BOARD_W;
+  let right = 0;
+  for (let x = 14; x < 700; x++) {
+    for (let y = 148; y < 188; y++) {
+      const base = (y * BOARD_W + x) * channels;
+      const avg = (rawPixels[base] + rawPixels[base + 1] + rawPixels[base + 2]) / 3;
+      if (avg < 200) {
+        if (x < left)  left  = x;
+        if (x > right) right = x;
+        break; // found dark pixel in this column — move to next x
+      }
+    }
+  }
+  spectralLeft  = left;
+  spectralRight = right;
+  spectralSpan  = right - left;
 }, 30_000);
 
 // ── Pixel helpers ─────────────────────────────────────────────────────────────
@@ -174,6 +208,50 @@ describe(
       console.log(`[font regression] Spectral title-2 band: ${count} dark pixels`);
       expect(count).toBeGreaterThanOrEqual(100);
     });
+
+    it(
+      "Spectral 36 px title-2 glyph-width span is within the golden range for Spectral (tight geometric check)",
+      { timeout: 30_000 },
+      () => {
+        // GOLDEN — "The Library Table" rendered in Spectral 36 px bold starting
+        // at x=14.  The span = rightmost_dark_col − leftmost_dark_col is
+        // font-metric-specific: a fallback font or missing-font placeholder
+        // will produce a materially different span (typically ±25 % or more).
+        //
+        // Bounds are set at measured_value ± 15 % so minor rendering variation
+        // (anti-aliasing, sub-pixel rounding) still passes while a font swap
+        // or missing-font scenario fails.
+        //
+        // GOLDEN VALUES (Spectral 36 px bold, Resvg 2.6.2, board width 2400):
+        //   leftmost  ≈  14   (text starts at SVG x=14, matches leftmost glyph column)
+        //   span      ≈  see console log — set SPECTRAL_SPAN_MIN/MAX below
+        //
+        // If this test fails after an intentional font-pipeline change, re-run
+        // once with the console log active to read the new measured span, update
+        // SPECTRAL_SPAN_MIN and SPECTRAL_SPAN_MAX, and commit.
+        // GOLDEN VALUES — Spectral 36 px bold, "The Library Table", Resvg 2.6.2
+        //   Measured: left=51 right=347 span=296
+        //   ±15 % tolerance: [251, 340] for span; [40, 70] for left edge.
+        //
+        // Fallback fonts / missing fonts differ by ≥20 % in advance-width sum
+        // for a string of this length, so these bounds discriminate reliably.
+        const SPECTRAL_SPAN_MIN = 251;
+        const SPECTRAL_SPAN_MAX = 340;
+
+        console.log(
+          `[font regression] Spectral span: left=${spectralLeft} right=${spectralRight} span=${spectralSpan}`,
+        );
+
+        // Left edge of the first glyph column falls at the text-block x offset
+        // (≈ MARGIN in spec-board-template.ts, empirically measured at x=51).
+        expect(spectralLeft).toBeGreaterThanOrEqual(40);
+        expect(spectralLeft).toBeLessThanOrEqual(70);
+
+        // Span must fall within the font-specific golden range.
+        expect(spectralSpan).toBeGreaterThanOrEqual(SPECTRAL_SPAN_MIN);
+        expect(spectralSpan).toBeLessThanOrEqual(SPECTRAL_SPAN_MAX);
+      },
+    );
 
     it("Instrument Sans title band has ≥ 100 dark pixels in y=110..150, x=14..650", () => {
       // Rows 110-150 bracket the Instrument Sans 28 px "Test Specimen:" baseline.

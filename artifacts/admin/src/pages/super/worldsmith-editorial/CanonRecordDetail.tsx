@@ -240,7 +240,9 @@ export default function CanonRecordDetail({ recordId }: { recordId: string }) {
     onMutate: () => setIsSaving(true),
     onSuccess: (result) => {
       qc.setQueryData(["editorial-canon-record", recordId], { canon_record: result.canon_record });
-      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      qc.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
       setLastSaved(new Date());
       setIsSaving(false);
     },
@@ -255,7 +257,9 @@ export default function CanonRecordDetail({ recordId }: { recordId: string }) {
     mutationFn: () =>
       apiFetch(`/v1/editorial/canon-records/${recordId}`, { method: "DELETE" }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      qc.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
       toast({ title: "Canon record deleted" });
       navigate("/super/worldsmith/editorial/canon");
     },
@@ -274,7 +278,9 @@ export default function CanonRecordDetail({ recordId }: { recordId: string }) {
       }),
     onSuccess: (result) => {
       qc.setQueryData(["editorial-canon-record", recordId], { canon_record: result.canon_record });
-      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      qc.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
       toast({ title: `Moved to ${result.canon_record.status.replace("_", " ")}` });
     },
     onError: () => toast({ title: "Transition failed", variant: "destructive" }),

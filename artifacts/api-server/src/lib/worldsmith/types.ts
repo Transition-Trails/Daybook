@@ -229,6 +229,7 @@ export interface ValidationResult {
   compiled_prompt_status: string;
   errors: ValidationError[];
   warnings: ValidationError[];
+  payload?: Partial<ParsedPayload>;
 }
 
 export type CompiledPromptStatus =

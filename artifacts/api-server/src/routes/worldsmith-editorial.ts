@@ -98,7 +98,6 @@ export function computeReadinessScore(spec: Partial<InsertWsProductionSpec>): nu
     payload.trim().length > 30,
     payload.includes("shared_prompt") || payload.includes("asset_role"),
     // Canon & Governance (3)
-    dep !== "None" || canonIds.length > 0 || !!spec.styleGuideId,
     !!spec.styleGuideId?.trim(),
     dep === "None" || canonIds.length > 0,
     // Related records (4)
@@ -117,12 +116,11 @@ function derivePipelineStatus(spec: Partial<InsertWsProductionSpec>, readinessSc
   const canonIds = (spec.canonRecordIds ?? []) as string[];
   const payload = spec.promptPayload ?? "";
 
-  if (spec.compiledPromptStatus === "Compiled") return "compiled";
-  if (spec.notionPageId && spec.syncedAt) return "published";
-
   // Check for blocking issues
   const needsCanon = dep === "Canon Reference" || dep === "Canon Defining";
   if (needsCanon && canonIds.length === 0) return "blocked";
+  if (spec.notionPageId && spec.syncedAt) return "published";
+  if (spec.compiledPromptStatus === "Compiled") return "compiled";
 
   if (!spec.productionItem?.trim() || !spec.componentType?.trim()) return "draft";
   if (!payload.trim()) return "draft";

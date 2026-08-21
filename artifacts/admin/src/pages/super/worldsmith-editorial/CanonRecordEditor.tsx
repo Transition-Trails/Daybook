@@ -264,7 +264,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       }
       provisionalPortraitsRef.current.clear();
       queryClient.setQueryData(["editorial-canon-record", result.canon_record.id], { canon_record: result.canon_record });
-      queryClient.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      queryClient.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
       initialPortraitRef.current = result.canon_record.portraitUrl ?? null;
       toast({ title: isNew ? "Canon record created" : "Canon record saved" });
       if (isNew) {
@@ -286,7 +288,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     }),
     onSuccess: result => {
       queryClient.setQueryData(["editorial-canon-record", recordId], { canon_record: result.canon_record });
-      queryClient.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      queryClient.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
       toast({ title: `Moved to ${result.canon_record.status.replace(/_/g, " ")}` });
     },
     onError: () => toast({ title: "Could not update workflow", variant: "destructive" }),
@@ -301,7 +305,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       ]);
       await Promise.all([...objectsToRemove].map(path => storageApi.deleteObject(path).catch(() => undefined)));
       provisionalPortraitsRef.current.clear();
-      queryClient.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      queryClient.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
       toast({ title: "Canon record deleted" });
       navigate("/super/worldsmith/editorial/canon");
     },

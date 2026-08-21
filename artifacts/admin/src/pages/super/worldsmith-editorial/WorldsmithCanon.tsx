@@ -1159,7 +1159,9 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
       }),
     onSuccess: (result) => {
       qc.setQueryData(["editorial-canon-record", recordId], { canon_record: result.canon_record });
-      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      qc.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
     },
     onError: () => toast({ title: "Save failed", variant: "destructive" }),
   });
@@ -1171,7 +1173,9 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
       }),
     onSuccess: (result) => {
       qc.setQueryData(["editorial-canon-record", recordId], { canon_record: result.canon_record });
-      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      qc.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
       toast({ title: `Moved to ${result.canon_record.status.replace(/_/g, " ")}` });
     },
     onError: () => toast({ title: "Transition failed", variant: "destructive" }),
@@ -1180,7 +1184,9 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const deleteMutation = useMutation({
     mutationFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}`, { method: "DELETE" }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      qc.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
       toast({ title: "Canon record deleted" });
       navigate("/super/worldsmith/editorial/canon");
     },
@@ -1231,7 +1237,9 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
       apiFetch<{ updated: number; skipped_locked: number; register: string }>(
         `/v1/editorial/canon-records/${recordId}/cascade-register`, { method: "POST" }),
     onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      qc.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
       toast({ title: result.updated > 0 ? `Propagated to ${result.updated} record${result.updated !== 1 ? "s" : ""}` : "No related records to update" });
     },
     onError: () => toast({ title: "Cascade failed", variant: "destructive" }),

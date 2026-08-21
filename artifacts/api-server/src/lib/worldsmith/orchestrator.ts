@@ -255,7 +255,8 @@ export async function runCompilation(
     }
 
     // ── Stage 9: Assemble Compiled Prompt ────────────────────────────────
-    const { payload } = parsePayload(spec.promptPayload);
+    const payload =
+      payloadValidation.payload ?? parsePayload(spec.promptPayload).payload;
     const compiled = compilePrompt(chainWithBible, payload as Parameters<typeof compilePrompt>[1]);
 
     // ── Stage 10: Calculate Prompt Hash ──────────────────────────────────

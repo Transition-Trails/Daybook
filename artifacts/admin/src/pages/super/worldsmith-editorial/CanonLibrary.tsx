@@ -1184,7 +1184,9 @@ export default function CanonLibrary() {
     onSuccess: (_d, vars) => {
       toast({ title: `${vars.ids.length} record${vars.ids.length !== 1 ? "s" : ""} moved to ${vars.status.replace("_", " ")}` });
       setSelectedIds(new Set());
-      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      qc.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
     },
     onError: () => toast({ title: "Bulk update failed", variant: "destructive" }),
   });
@@ -1200,7 +1202,9 @@ export default function CanonLibrary() {
         title: `Notion sync complete — ${d.created} new, ${d.updated} updated`,
         description: d.skipped > 0 ? `${d.skipped} page${d.skipped !== 1 ? "s" : ""} skipped (no name)` : undefined,
       });
-      qc.invalidateQueries({ queryKey: ["editorial-canon-library"] });
+      qc.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
     },
     onError: (err: Error) =>
       toast({
@@ -1600,7 +1604,9 @@ export default function CanonLibrary() {
           worldId={selectedWorldId}
           worldName={selectedWorld?.name ?? "your world"}
           onClose={() => setShowSuggestions(false)}
-          onAdd={() => qc.invalidateQueries({ queryKey: ["editorial-canon-library"] })}
+          onAdd={() => qc.invalidateQueries({
+            predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+          })}
         />
       )}
 

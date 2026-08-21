@@ -18,7 +18,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import type { SpecBoardData } from "./types";
 
-const FONT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fonts");
+const FONT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fonts");
 
 // ── Canvas constants ─────────────────────────────────────────────────────────
 
@@ -696,11 +696,11 @@ function footer(data: SpecBoardData): string {
 
 function fontCss(): string {
   return `
-    @font-face { font-family: 'Spectral'; src: url('${FONT_DIR}/spectral-regular.woff') format('woff'); font-weight: 400; }
-    @font-face { font-family: 'Spectral'; src: url('${FONT_DIR}/spectral-bold.woff') format('woff'); font-weight: 700; }
-    @font-face { font-family: 'Spectral'; src: url('${FONT_DIR}/spectral-italic.woff') format('woff'); font-weight: 400; font-style: italic; }
-    @font-face { font-family: 'Instrument Sans'; src: url('${FONT_DIR}/instrument-sans-regular.woff') format('woff'); font-weight: 400; }
-    @font-face { font-family: 'Instrument Sans'; src: url('${FONT_DIR}/instrument-sans-bold.woff') format('woff'); font-weight: 700; }
+    @font-face { font-family: 'Spectral'; src: url('${FONT_DIR}/Spectral-400.woff') format('woff'); font-weight: 400; }
+    @font-face { font-family: 'Spectral'; src: url('${FONT_DIR}/Spectral-700.woff') format('woff'); font-weight: 700; }
+    @font-face { font-family: 'Spectral'; src: url('${FONT_DIR}/Spectral-Italic-400.woff') format('woff'); font-weight: 400; font-style: italic; }
+    @font-face { font-family: 'Instrument Sans'; src: url('${FONT_DIR}/Instrument_Sans-400.woff') format('woff'); font-weight: 400; }
+    @font-face { font-family: 'Instrument Sans'; src: url('${FONT_DIR}/Instrument_Sans-700.woff') format('woff'); font-weight: 700; }
   `;
 }
 
@@ -774,7 +774,11 @@ export async function renderSpecBoardToPng(data: SpecBoardData): Promise<Buffer>
   const { Resvg } = await import("@resvg/resvg-js");
   const svg = buildSpecBoardSvg(data);
   const resvg = new Resvg(svg, {
-    font: { loadSystemFonts: false },
+    font: {
+      loadSystemFonts: false,
+      fontDirs: [FONT_DIR],
+      defaultFontFamily: "Spectral",
+    },
     fitTo: { mode: "width" as const, value: BOARD_W },
   });
   return Buffer.from(resvg.render().asPng());

@@ -220,7 +220,7 @@ export function validatePayload(
   }
 
   const valid = errors.length === 0;
-  return buildResult(specId, spec.payloadVersion, valid, errors, warnings);
+  return buildResult(specId, spec.payloadVersion, valid, errors, warnings, payload);
 }
 
 // ── PP-2.0 section contract validation ───────────────────────────────────────
@@ -328,6 +328,7 @@ function buildResult(
   valid: boolean,
   errors: ValidationError[],
   warnings: ValidationError[],
+  payload?: Partial<ParsedPayload>,
 ): ValidationResult {
   const compiledPromptStatus = valid
     ? "Ready to Compile"
@@ -342,5 +343,6 @@ function buildResult(
     compiled_prompt_status: compiledPromptStatus,
     errors,
     warnings,
+    payload,
   };
 }

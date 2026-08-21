@@ -244,7 +244,9 @@ export default function CanonBoard() {
         method: "POST",
         body: JSON.stringify({ status }),
       });
-      qc.invalidateQueries({ queryKey: ["editorial-canon-board"] });
+      qc.invalidateQueries({
+        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+      });
       toast({ title: `Moved to ${status.replace("_", " ")}` });
     } catch {
       toast({ title: "Transition failed", variant: "destructive" });
@@ -340,7 +342,9 @@ export default function CanonBoard() {
         <CreateCanonModal
           worldId={selectedWorldId}
           onClose={() => setShowCreate(false)}
-          onCreated={() => qc.invalidateQueries({ queryKey: ["editorial-canon-board"] })}
+          onCreated={() => qc.invalidateQueries({
+            predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+          })}
         />
       )}
     </div>

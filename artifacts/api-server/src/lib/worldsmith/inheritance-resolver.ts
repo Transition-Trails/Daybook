@@ -34,6 +34,37 @@ const VISUAL_ASSETS_DB = () => process.env.NOTION_VISUAL_ASSETS_DB_ID ?? "";
 const CANON_DB = () => process.env.NOTION_CANON_DB_ID ?? "";
 const STYLE_GUIDES_DB = () => process.env.NOTION_STYLE_GUIDES_DB_ID ?? "";
 
+// ── In-process page cache ─────────────────────────────────────────────────────
+// World, collection, and volume pages change infrequently and are often fetched
+// repeatedly across successive compiles for the same world.  A 5-minute TTL
+// avoids hammering the Notion API and cuts compile latency in batch runs.
+//
+// Production Spec pages are intentionally NOT cached (they change every draft).
+// Style Guide / Component Spec / Prompt Module pages are also not cached because
+// their content is the primary variable in day-to-day editorial work.
+
+const PAGE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const _pageCache = new Map<string, { data: NotionPage; expiry: number }>();
+
+async function getCachedPage(pageId: string): Promise<NotionPage> {
+  const hit = _pageCache.get(pageId);
+  if (hit && Date.now() < hit.expiry) {
+    return hit.data;
+  }
+  const data = await getPage(pageId);
+  _pageCache.set(pageId, { data, expiry: Date.now() + PAGE_CACHE_TTL_MS });
+  return data;
+}
+
+/**
+ * Flush the in-process page cache.
+ * Call this from tests that need isolation between resolveInheritanceChain runs,
+ * or from long-running worker processes that need to force a cache refresh.
+ */
+export function clearPageCache(): void {
+  _pageCache.clear();
+}
+
 // ── Production Spec extraction ────────────────────────────────────────────────
 
 function extractProductionSpec(page: NotionPage): ProductionSpec {
@@ -406,7 +437,7 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
   // available for prompt compilation and the ProvenanceRecord.
   if (productionSpec.collectionId && !productionSpec.collection) {
     try {
-      const collectionPage = await getPage(productionSpec.collectionId);
+      const collectionPage = await getCachedPage(productionSpec.collectionId);
       resolvedSourceIds["collection"] = productionSpec.collectionId;
       const collectionName =
         extractTitle(collectionPage.properties["Name"]) ||
@@ -432,7 +463,7 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
   // title so it is available for prompt compilation and the ProvenanceRecord.
   if (productionSpec.worldId && !productionSpec.world) {
     try {
-      const worldPage = await getPage(productionSpec.worldId);
+      const worldPage = await getCachedPage(productionSpec.worldId);
       resolvedSourceIds["world"] = productionSpec.worldId;
       const worldName =
         extractTitle(worldPage.properties["Name"]) ||
@@ -458,7 +489,7 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
   // title so it is available for prompt compilation and the ProvenanceRecord.
   if (productionSpec.volumeId && !productionSpec.volume) {
     try {
-      const volumePage = await getPage(productionSpec.volumeId);
+      const volumePage = await getCachedPage(productionSpec.volumeId);
       resolvedSourceIds["volume"] = productionSpec.volumeId;
       const volumeName =
         extractTitle(volumePage.properties["Name"]) ||

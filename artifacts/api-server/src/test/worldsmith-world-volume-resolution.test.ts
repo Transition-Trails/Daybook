@@ -16,6 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { clearPageCache } from "../lib/worldsmith/inheritance-resolver.js";
 
 // ── Hoisted mock state ─────────────────────────────────────────────────────────
 const { mockGetPage, mockGetPageText } = vi.hoisted(() => ({
@@ -140,6 +141,9 @@ beforeEach(() => {
   process.env.NOTION_TOKEN = "test-token-not-real";
   vi.clearAllMocks();
   mockGetPageText.mockResolvedValue("");
+  // Clear the in-process page cache introduced in Wave 2 so each test starts
+  // with a fresh cache and isn't affected by mocked data from a previous test.
+  clearPageCache();
 });
 
 // ── World field tests ─────────────────────────────────────────────────────────

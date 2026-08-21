@@ -20,6 +20,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { clearPageCache } from "../lib/worldsmith/inheritance-resolver.js";
 
 // ── Hoisted mock state ─────────────────────────────────────────────────────────
 const { mockGetPage, mockGetPageText } = vi.hoisted(() => ({
@@ -143,6 +144,7 @@ beforeEach(() => {
   process.env.NOTION_TOKEN = "test-token-not-real";
   vi.clearAllMocks();
   mockGetPageText.mockResolvedValue("");
+  clearPageCache(); // wave2: clear in-process cache so each test sees fresh mocked pages
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────────────

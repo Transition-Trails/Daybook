@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Lock, ChevronRight, ArrowLeft, CheckCircle2, AlertTriangle,
   Send, Trash2, X, ExternalLink, RefreshCw, Clock, BookOpen,
-  FileText, Zap, GitBranch, Circle,
+  FileText, Zap, GitBranch, Circle, Save,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -68,6 +68,21 @@ interface SpecResponse {
 
 type CheckEntry = { label: string; done: boolean; section: string };
 
+/**
+ * Component types for which an orientation value (portrait/landscape/square) is
+ * a meaningful spec field.  Kept in sync with the identical constant in the API's
+ * worldsmith-editorial.ts — update both if component types are added or renamed.
+ */
+const ORIENTATION_AWARE_TYPES = new Set([
+  "Hero Paper",
+  "Decorative Paper",
+  "Journal Card",
+  "Coordinating Paper",
+  "Ephemera Sheet",
+  "Notepaper",
+  "Endpaper",
+]);
+
 function getChecks(s: Spec): CheckEntry[] {
   const dep = s.canonDependency ?? "None";
   const canonIds = (s.canonRecordIds ?? []) as string[];
@@ -80,6 +95,10 @@ function getChecks(s: Spec): CheckEntry[] {
   const rcText = editorialRichTextToPlainText(s.requiredContent ?? "");
   const revText = editorialRichTextToPlainText(s.reviewCriteria ?? "");
 
+  // Orientation is only a meaningful check for component types that have an
+  // inherent orientation concept — same logic as the API readiness scorer.
+  const needsOrientation = ORIENTATION_AWARE_TYPES.has(s.componentType ?? "");
+
   return [
     { label: "Production item name", done: !!s.productionItem?.trim(), section: "identity" },
     { label: "Component type", done: !!s.componentType?.trim(), section: "identity" },
@@ -88,7 +107,8 @@ function getChecks(s: Spec): CheckEntry[] {
     { label: "Design intent", done: !!diText, section: "creative" },
     { label: "Narrative purpose", done: !!npText, section: "creative" },
     { label: "Required content", done: !!rcText, section: "creative" },
-    { label: "Orientation", done: !!s.orientation?.trim(), section: "creative" },
+    // Orientation is N/A for types without an orientation concept (e.g. Washi Tape).
+    { label: "Orientation", done: !needsOrientation || !!s.orientation?.trim(), section: "creative" },
     { label: "Front/back style", done: !!s.frontBackStyle?.trim(), section: "creative" },
     { label: "Payload version", done: !!s.payloadVersion?.trim(), section: "payload" },
     { label: "Prompt payload content", done: payload.trim().length > 30, section: "payload" },
@@ -550,12 +570,22 @@ function CanonTab({
       >
         <div className="space-y-4">
           <Field label="Canon Dependency">
-            <select value={spec.canonDependency} onChange={e => onChange({ canonDependency: e.target.value })} onFocus={() => onFocus?.("requiredContent", "Canon Constraints")} className={selectCls}>
-              <option value="None">None</option>
-              <option value="Supports Canon">Supports Canon</option>
-              <option value="Canon Reference">Canon Reference</option>
-              <option value="Canon Defining">Canon Defining</option>
-            </select>
+            {/* Immutable after creation — not in the PATCH mutable-fields contract */}
+            <div className="flex items-center gap-2">
+              <select
+                value={spec.canonDependency}
+                onChange={() => {/* locked — not mutable post-creation */}}
+                disabled
+                className={`${selectCls} disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-gray-50`}
+                title="Canon dependency is locked after creation"
+              >
+                <option value="None">None</option>
+                <option value="Supports Canon">Supports Canon</option>
+                <option value="Canon Reference">Canon Reference</option>
+                <option value="Canon Defining">Canon Defining</option>
+              </select>
+              <Lock className="h-3.5 w-3.5 shrink-0 text-gray-400" aria-label="Locked after creation" />
+            </div>
           </Field>
           <Field label="Style Guide">
             <select value={spec.styleGuideId ?? ""} onChange={e => onChange({ styleGuideId: e.target.value || null })} className={selectCls}>
@@ -716,9 +746,42 @@ export default function SpecEditor({ specId }: { specId: string }) {
     if (data?.spec) setLocalSpec(data.spec);
   }, [data?.spec]);
 
-  // Tab components also power the original record layout; their form controls
-  // are inert in this viewer, so changes are intentionally ignored.
-  const onChange = (_patch: Partial<Spec>) => undefined;
+  // Mutable fields — payload, canon links, prompt modules.
+  // Identity and creative-direction fields stay locked (readOnly on those tabs).
+  const onChange = (patch: Partial<Spec>) =>
+    setLocalSpec(prev => prev ? { ...prev, ...patch } : null);
+
+  // Detect unsaved changes in the mutable fields only
+  const hasUnsavedChanges = Boolean(
+    data?.spec && localSpec && (
+      localSpec.promptPayload !== data.spec.promptPayload ||
+      localSpec.payloadVersion !== data.spec.payloadVersion ||
+      JSON.stringify(localSpec.canonRecordIds) !== JSON.stringify(data.spec.canonRecordIds) ||
+      JSON.stringify(localSpec.promptModuleIds) !== JSON.stringify(data.spec.promptModuleIds) ||
+      localSpec.styleGuideId !== data.spec.styleGuideId ||
+      localSpec.componentSpecId !== data.spec.componentSpecId
+    ),
+  );
+
+  const saveMutation = useMutation({
+    mutationFn: (s: Spec) =>
+      apiFetch(`/v1/editorial/specs/${specId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          prompt_payload:    s.promptPayload,
+          payload_version:   s.payloadVersion,
+          canon_record_ids:  s.canonRecordIds,
+          prompt_module_ids: s.promptModuleIds,
+          style_guide_id:    s.styleGuideId,
+          component_spec_id: s.componentSpecId,
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["editorial-spec", specId] });
+      toast({ title: "Spec saved" });
+    },
+    onError: () => toast({ title: "Save failed", variant: "destructive" }),
+  });
 
   const publishMutation = useMutation({
     mutationFn: () => apiFetch(`/v1/editorial/specs/${specId}/publish`, { method: "POST", body: JSON.stringify({}) }),
@@ -779,6 +842,18 @@ export default function SpecEditor({ specId }: { specId: string }) {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {hasUnsavedChanges && (
+            <button
+              onClick={() => localSpec && saveMutation.mutate(localSpec)}
+              disabled={saveMutation.isPending}
+              className="flex items-center gap-1.5 rounded-lg bg-[#1B2A4A] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0f1d36] transition-colors disabled:opacity-40"
+            >
+              {saveMutation.isPending
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Save className="w-3.5 h-3.5" />}
+              Save Changes
+            </button>
+          )}
           <button
             onClick={() => deleteMutation.mutate()}
             className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
@@ -787,7 +862,7 @@ export default function SpecEditor({ specId }: { specId: string }) {
             <Trash2 className="w-4 h-4" />
           </button>
           <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#E7E0D7] bg-[#FAF8F3] px-3 py-1.5 text-xs font-semibold text-[#786D60]">
-            <Lock className="h-3.5 w-3.5" /> Locked after creation
+            <Lock className="h-3.5 w-3.5" /> Identity locked
           </span>
         </div>
       </div>
@@ -819,12 +894,16 @@ export default function SpecEditor({ specId }: { specId: string }) {
           <div className="flex-1 overflow-y-auto p-6">
             <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[#E7E0D7] bg-[#FFFCF8] px-4 py-3 text-xs leading-relaxed text-[#786D60]">
               <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#C87560]" />
-              <span>Production Specs are an immutable creation record. Review and use this specification as created; start a new Production Spec when the direction needs to change.</span>
+              <span>
+                Identity and creative-direction fields are locked after creation.{" "}
+                Payload, canon links, and prompt modules can be updated — save your changes with the button above.
+              </span>
             </div>
             {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} readOnly />}
             {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} readOnly />}
-            {activeTab === "canon" && <CanonTab spec={spec} onChange={onChange} readOnly />}
-            {activeTab === "payload" && <PayloadTab spec={spec} onChange={onChange} readOnly />}
+            {/* Canon and Payload tabs have mutable linkage fields — not readOnly */}
+            {activeTab === "canon"   && <CanonTab   spec={spec} onChange={onChange} />}
+            {activeTab === "payload" && <PayloadTab spec={spec} onChange={onChange} />}
           </div>
         </div>
 

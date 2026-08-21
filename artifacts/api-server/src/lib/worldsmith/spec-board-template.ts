@@ -1,5 +1,5 @@
 /**
- * WorldSmith Product Specification Board — SVG template generator (v3.0)
+ * WorldSmith Product Specification Board — SVG template generator (v3.1)
  *
  * "Visual Specification Sheet" layout (WS-PRODUCT-SPEC-V3):
  *   - Concept image is the dominant visual anchor (upper-right, ~63% width × ~51% height)
@@ -13,6 +13,9 @@
  * The DALL-E concept image is composited at CONCEPT_IMAGE_AREA by spec-preview-service.ts.
  * Detail crop thumbnails are composited into DETAIL_CROP_DEST_AREAS from the DALL-E image.
  */
+
+/** Exported version string — bump when the layout contract changes. */
+export const TEMPLATE_VERSION = "3.1";
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -396,13 +399,9 @@ function midSection(data: SpecBoardData): string {
     .map(s => s.trim())
     .filter(Boolean)
     .slice(0, 10);
-  if (reqItems.length < 3) {
-    reqItems.push(
-      componentType || "Primary illustrated component",
-      "Muted, period-appropriate palette",
-      "Hand-illustrated medium — no photography",
-    );
-  }
+  // Show a placeholder only if the spec has no required elements at all — never
+  // pad with invented content that doesn't come from the real spec data.
+  if (reqItems.length === 0) reqItems.push("—");
 
   const charsC1 = Math.floor((colW - 36) / 6.4);
   let cy1 = MID_Y + 46;
@@ -426,7 +425,7 @@ function midSection(data: SpecBoardData): string {
     .map(s => s.trim())
     .filter(Boolean)
     .slice(0, 7);
-  if (matBullets.length === 0) matBullets.push("Aged paper, cloth, and worn leather surfaces.", "Natural window light or warm ambient library light.", "No harsh contrast or theatrical effects.");
+  if (matBullets.length === 0) matBullets.push("—");
 
   const charsC2 = Math.floor((colW - 28) / 6.4);
   let cy2 = MID_Y + 46;
@@ -448,7 +447,7 @@ function midSection(data: SpecBoardData): string {
     .map(s => s.trim())
     .filter(Boolean)
     .slice(0, 6);
-  if (negBullets.length === 0) negBullets.push("Preserve open paper areas for layering and writing.", "Avoid filling every inch — allow composition to breathe.", "Keep margins and clear areas for cropping.");
+  if (negBullets.length === 0) negBullets.push("—");
 
   const charsC3 = Math.floor((colW - 28) / 6.4);
   let cy3 = MID_Y + 46;
@@ -598,7 +597,10 @@ function bottomStrip(data: SpecBoardData): string {
 // ── COMPANION / EMOTIONAL / ARTIST ROW ──────────────────────────────────────
 
 function companionRow(data: SpecBoardData): string {
-  const { canonNames, specId, componentType, styleGuideName, materials, reviewCriteria } = data;
+  const {
+    canonNames, specId, componentType, styleGuideName, reviewCriteria,
+    designIntent, narrativePurpose,
+  } = data;
 
   const totalW = BOARD_W - 2 * MARGIN;
   const gap = 12;
@@ -609,20 +611,19 @@ function companionRow(data: SpecBoardData): string {
   const companions = (canonNames ?? []).slice(0, 5);
   if (companions.length === 0 && componentType) companions.push(`${componentType} Series`);
   const col1Text = companions.length
-    ? companions.map((n, i) => `HP00${i + 1}: ${n}`).join("\n")
+    ? companions.join("\n")
     : "See Canon Records for companion asset relationships.";
   const col1Lines = wrapText(col1Text, Math.floor((colW - 28) / 6.4), 8);
 
-  // ── Col 2: Emotional Intent ─────────────────────────────────────────────
-  const emotionalWords = [
-    "Expanding understanding",
-    "Intellectual anticipation",
-    "Careful comparison",
-    "Connected histories",
-    "Quiet responsibility",
-    "The first glimpse of a larger system",
-  ];
+  // ── Col 2: Emotional Intent — derived from real spec data ───────────────
+  // Draw from designIntent (the artistic/emotional intent field) or fall back
+  // to narrativePurpose.  Never invent placeholder phrases here.
+  const emotionalRaw = (designIntent || narrativePurpose || "").trim() || "—";
+  const emotionalLines = wrapText(trunc(emotionalRaw, 300), Math.floor((colW - 48) / 6.4), 12);
   const emoY = CMP_Y + 44;
+  const col2Svg = `<text x="${cols[1] + 24}" y="${emoY}" font-family="Spectral" font-size="13" fill="${INK}" opacity="0.78" font-style="italic">` +
+    tspans(emotionalLines, cols[1] + 24, 20) +
+    `</text>`;
 
   // ── Col 3: Notes for Artist ─────────────────────────────────────────────
   const artistNotes = [
@@ -653,13 +654,8 @@ function companionRow(data: SpecBoardData): string {
     `<text x="${cols[0] + 14}" y="${CMP_Y + 44}" font-family="Spectral" font-size="12.5" fill="${INK}" opacity="0.83">`,
     tspans(col1Lines, cols[0] + 14, 17),
     `</text>`,
-    // Col 2 content — emotional descriptors as phrase list
-    ...emotionalWords.map((w, i) => [
-      `<text x="${cols[1] + 24}" y="${emoY + i * 28}" font-family="Spectral" font-size="13" fill="${INK}" opacity="0.78" font-style="italic">${esc(w)}</text>`,
-      i < emotionalWords.length - 1
-        ? `<line x1="${cols[1] + 24}" y1="${emoY + i * 28 + 8}" x2="${cols[1] + colW - 20}" y2="${emoY + i * 28 + 8}" stroke="${RULE}" stroke-width="0.3" opacity="0.5"/>`
-        : "",
-    ].join("\n")),
+    // Col 2 content — real spec designIntent / narrativePurpose (not invented phrases)
+    col2Svg,
     // Col 3 content
     col3Svg,
   ].join("\n");
@@ -680,7 +676,7 @@ function footer(data: SpecBoardData): string {
     `<line x1="${MARGIN}" y1="${FTR_Y}" x2="${BOARD_W - MARGIN}" y2="${FTR_Y}" stroke="${RULE}" stroke-width="0.5" opacity="0.5"/>`,
     `<line x1="${MARGIN}" y1="${FTR_Y + 3}" x2="${BOARD_W - MARGIN}" y2="${FTR_Y + 3}" stroke="${CLAY}" stroke-width="1.5" opacity="0.2"/>`,
     `<text x="${midX}" y="${FTR_Y + 24}" text-anchor="middle" font-family="Instrument Sans" font-size="12" fill="${MUTED}" letter-spacing="2">INTERNAL PRODUCTION SPECIFICATION  ·  FINAL ARTWORK GENERATED SEPARATELY</text>`,
-    `<text x="${MARGIN}" y="${FTR_Y + 42}" font-family="Instrument Sans" font-size="9" fill="${MUTED}">WorldSmith Foundation  ·  Template v3  ·  Generated ${today}</text>`,
+    `<text x="${MARGIN}" y="${FTR_Y + 42}" font-family="Instrument Sans" font-size="9" fill="${MUTED}">WorldSmith Foundation  ·  Template v${TEMPLATE_VERSION}  ·  Generated ${today}</text>`,
     specId ? `<text x="${MARGIN + 500}" y="${FTR_Y + 42}" font-family="Instrument Sans" font-size="9" fill="${MUTED}">Asset ID: ${esc(specId.slice(0, 18))}</text>` : "",
     // Seal
     `<circle cx="${sealX}" cy="${sealY}" r="42" fill="none" stroke="${NAVY}" stroke-width="1.4" opacity="0.3"/>`,

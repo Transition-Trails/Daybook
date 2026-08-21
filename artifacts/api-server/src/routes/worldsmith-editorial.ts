@@ -76,11 +76,56 @@ router.use(requireAuth, requireSuperAdmin);
 
 // ── Readiness score helper ────────────────────────────────────────────────────
 
+// ── Shared error handler ──────────────────────────────────────────────────────
+
+/**
+ * Handle a DB (or other) error from an editorial route.
+ * Maps known Postgres constraint codes to specific HTTP status codes so
+ * operators get actionable responses instead of a bare 500.
+ */
+function editorialDbError(err: unknown, res: Response, context: string): void {
+  logger.error({ err }, `editorial: ${context}`);
+  const pgCode = (err as any)?.code;
+  if (pgCode === "23503") {
+    // Foreign-key constraint: a referenced record (world, style guide, etc.) doesn't exist
+    res.status(422).json({
+      error: "A required linked record (world, collection, style guide, or component spec) does not exist.",
+      code: "LINKED_RECORD_NOT_FOUND",
+    });
+    return;
+  }
+  if (pgCode === "23505") {
+    // Unique constraint: the record already exists
+    res.status(409).json({
+      error: "A record with these unique fields already exists.",
+      code: "DUPLICATE_RECORD",
+    });
+    return;
+  }
+  res.status(500).json({ error: "Internal server error" });
+}
+
+/** Component types for which an orientation value (portrait/landscape/square)
+ *  is a meaningful spec field.  Types like "Washi Tape" have no inherent
+ *  orientation concept, so counting its absence as a readiness gap is wrong. */
+const ORIENTATION_AWARE_TYPES = new Set([
+  "Hero Paper",
+  "Decorative Paper",
+  "Journal Card",
+  "Coordinating Paper",
+  "Ephemera Sheet",
+  "Notepaper",
+  "Endpaper",
+]);
+
 export function computeReadinessScore(spec: Partial<InsertWsProductionSpec>): number {
   const canonIds = (spec.canonRecordIds ?? []) as string[];
   const moduleIds = (spec.promptModuleIds ?? []) as string[];
   const payload = spec.promptPayload ?? "";
   const dep = spec.canonDependency ?? "None";
+
+  // Only check orientation for component types that have an orientation concept.
+  const needsOrientation = ORIENTATION_AWARE_TYPES.has(spec.componentType ?? "");
 
   const checks = [
     // Identity (4)
@@ -92,7 +137,9 @@ export function computeReadinessScore(spec: Partial<InsertWsProductionSpec>): nu
     !!editorialRichTextToPlainText(spec.designIntent),
     !!editorialRichTextToPlainText(spec.narrativePurpose),
     !!editorialRichTextToPlainText(spec.requiredContent),
-    !!spec.orientation?.trim(),
+    // Orientation: always true (pass) for types without the concept, so the
+    // overall score is not penalised for a field that doesn't apply.
+    !needsOrientation || !!spec.orientation?.trim(),
     // Payload (3)
     !!spec.payloadVersion?.trim(),
     payload.trim().length > 30,
@@ -1986,15 +2033,26 @@ router.post("/v1/editorial/specs", async (req: Request, res: Response) => {
   }
 
   try {
+    // Validate that the world exists — the worldId column has no DB-level FK
+    // constraint, so we guard here to avoid silently creating orphaned specs.
+    const [worldRecord] = await db
+      .select({ id: worldsmithWorldsTable.id, code: worldsmithWorldsTable.code })
+      .from(worldsmithWorldsTable)
+      .where(eq(worldsmithWorldsTable.id, world_id))
+      .limit(1);
+
+    if (!worldRecord) {
+      res.status(422).json({
+        error: "A required linked record (world, collection, style guide, or component spec) does not exist.",
+        code: "LINKED_RECORD_NOT_FOUND",
+      });
+      return;
+    }
+
     // Auto-generate spec_id if the caller did not supply one
     let resolvedSpecId = spec_id?.trim() || null;
     if (!resolvedSpecId) {
-      const [worldRow] = await db
-        .select({ code: worldsmithWorldsTable.code })
-        .from(worldsmithWorldsTable)
-        .where(eq(worldsmithWorldsTable.id, world_id))
-        .limit(1);
-      const worldCode = (worldRow?.code ?? "UNK").toUpperCase();
+      const worldCode = worldRecord.code.toUpperCase();
       const typeAbbr = SPEC_TYPE_ABBR[component_type] ?? component_type.slice(0, 3).toUpperCase();
       const [{ cnt }] = await db
         .select({ cnt: sql<number>`count(*)::int` })
@@ -2046,8 +2104,7 @@ router.post("/v1/editorial/specs", async (req: Request, res: Response) => {
 
     res.status(201).json({ spec: row });
   } catch (err) {
-    logger.error({ err }, "editorial: create spec");
-    res.status(500).json({ error: "Internal server error" });
+    editorialDbError(err, res, "create spec");
   }
 });
 
@@ -2098,11 +2155,61 @@ router.get("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
   }
 });
 
-router.patch("/v1/editorial/specs/:id", async (_req: Request, res: Response) => {
-  res.status(405).json({
-    error: "Production Specs are immutable after creation. Create a new spec to change the direction.",
-    code: "PRODUCTION_SPEC_IMMUTABLE",
-  });
+// Mutable spec fields: linkage fields that evolve during the editorial
+// process (payload, canon links, prompt modules, style guide, component spec).
+// Identity and creative-direction fields remain immutable after creation so
+// the prompt identity (and its derived promptHash) stays stable.
+router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
+  const specId = req.params.id as string;
+  const {
+    prompt_payload,
+    payload_version,
+    canon_record_ids,
+    prompt_module_ids,
+    style_guide_id,
+    component_spec_id,
+  } = req.body;
+
+  const mutableUpdate: Partial<InsertWsProductionSpec> = {};
+  if (prompt_payload    !== undefined) mutableUpdate.promptPayload    = prompt_payload;
+  if (payload_version   !== undefined) mutableUpdate.payloadVersion   = payload_version;
+  if (canon_record_ids  !== undefined) mutableUpdate.canonRecordIds   = canon_record_ids;
+  if (prompt_module_ids !== undefined) mutableUpdate.promptModuleIds  = prompt_module_ids;
+  if (style_guide_id    !== undefined) mutableUpdate.styleGuideId     = style_guide_id;
+  if (component_spec_id !== undefined) mutableUpdate.componentSpecId  = component_spec_id;
+
+  if (Object.keys(mutableUpdate).length === 0) {
+    res.status(400).json({
+      error: "No mutable fields provided. Identity and creative-direction fields are immutable after creation.",
+      code: "NO_MUTABLE_FIELDS",
+      mutable_fields: ["prompt_payload", "payload_version", "canon_record_ids", "prompt_module_ids", "style_guide_id", "component_spec_id"],
+    });
+    return;
+  }
+
+  try {
+    const [existing] = await db
+      .select()
+      .from(wsProductionSpecsTable)
+      .where(eq(wsProductionSpecsTable.id, specId))
+      .limit(1);
+    if (!existing) { res.status(404).json({ error: "Spec not found" }); return; }
+
+    const merged = { ...existing, ...mutableUpdate };
+    const readinessScore = computeReadinessScore(merged);
+    const status = derivePipelineStatus(merged, readinessScore);
+
+    const [updated] = await db
+      .update(wsProductionSpecsTable)
+      .set({ ...mutableUpdate, readinessScore, status, updatedAt: new Date() })
+      .where(eq(wsProductionSpecsTable.id, specId))
+      .returning();
+
+    res.json({ spec: updated });
+  } catch (err) {
+    logger.error({ err }, "editorial: patch spec");
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 router.delete("/v1/editorial/specs/:id", async (req: Request, res: Response) => {

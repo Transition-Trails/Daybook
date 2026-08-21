@@ -711,8 +711,8 @@ export function buildSpecBoardSvg(data: SpecBoardData): string {
 
   const background = [
     `<rect width="${BOARD_W}" height="${BOARD_H}" fill="${PAPER}"/>`,
-    // Subtle paper texture vignette
-    `<rect width="${BOARD_W}" height="${BOARD_H}" fill="none" stroke="${NAVY}" stroke-width="0.5" opacity="0.12" x="22" y="22" width="${BOARD_W - 44}" height="${BOARD_H - 44}"/>`,
+    // Subtle paper texture vignette (inset 22 px on each side)
+    `<rect x="22" y="22" width="${BOARD_W - 44}" height="${BOARD_H - 44}" fill="none" stroke="${NAVY}" stroke-width="0.5" opacity="0.12"/>`,
     // Aged-paper corner dots
     `<circle cx="32" cy="32" r="2.5" fill="${RULE}" opacity="0.4"/>`,
     `<circle cx="${BOARD_W - 32}" cy="32" r="2.5" fill="${RULE}" opacity="0.4"/>`,

@@ -1104,6 +1104,7 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const [openHistory, setOpenHistory] = useState(false);
   const [openVisual, setOpenVisual] = useState(false);
   const [openNotes, setOpenNotes] = useState(true);
+  const [bibleExpanded, setBibleExpanded] = useState(false);
 
   const world = worlds.find(w => w.id === selectedWorldId) ?? worlds[0] ?? null;
 
@@ -1289,6 +1290,19 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   const idStamp = recordWorld ? displayId(recordWorld.code.toUpperCase(), recordId, Math.max(0, recordIndex), record.canonType) : "—";
   const imageIdeas = generateImageIdeas(record, recordWorld);
 
+  // ── World Bible strip ────────────────────────────────────────────────────────
+  // Only populated fields are shown; strip hides entirely when all are empty.
+  const bibleFields: Array<{ key: string; label: string; value: string }> = recordWorld
+    ? [
+        { key: "visualPalette",    label: "Visual Palette",    value: recordWorld.visualPalette    ?? "" },
+        { key: "proseVoice",       label: "Prose Voice",       value: recordWorld.proseVoice       ?? "" },
+        { key: "atmosphericNotes", label: "Atmospheric Notes", value: recordWorld.atmosphericNotes ?? "" },
+        { key: "materialWorld",    label: "Material World",    value: recordWorld.materialWorld    ?? "" },
+      ].filter(f => f.value.trim().length > 0)
+    : [];
+  const bibleRules   = recordWorld?.worldRules?.filter(Boolean) ?? [];
+  const bibleHasAny  = bibleFields.length > 0 || bibleRules.length > 0;
+
   const tabs: { id: typeof activeTab; label: string }[] = [
     { id: "ideas",   label: "✦ Image Ideas"     },
     { id: "scene",   label: "Compose a Scene"   },
@@ -1382,21 +1396,90 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
             </div>
           </div>
 
-          {/* World Bible link */}
-          {recordWorld && (
-            <div className="mb-6 rounded-xl px-4 py-3 flex items-center justify-between"
-              style={{ background: PARCHMENT, border: `1px solid ${WARM_BORDER}` }}>
-              <div className="flex items-center gap-2">
-                <BookOpen className="w-3.5 h-3.5" style={{ color: CLAY }} />
-                <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: INK }}>World Bible</span>
-                <span className="text-[11px]" style={{ color: "#9CA3AF" }}>— aesthetic context for {recordWorld.name}</span>
-              </div>
-              <Link href="/super/worldsmith/editorial/bible">
-                <span className="flex items-center gap-1 text-[11px] font-semibold cursor-pointer rounded-lg px-2.5 py-1"
-                  style={{ color: INK, border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE }}>
-                  <ExternalLink className="w-3 h-3" /> Open World Bible
-                </span>
-              </Link>
+          {/* World Bible strip — hidden when all aesthetic fields are empty */}
+          {recordWorld && bibleHasAny && (
+            <div
+              data-testid="world-bible-strip"
+              className="mb-6 rounded-xl overflow-hidden"
+              style={{ border: `1px solid ${WARM_BORDER}` }}
+            >
+              {/* Header — always visible; click anywhere to collapse/expand */}
+              <button
+                onClick={() => setBibleExpanded(o => !o)}
+                className="w-full flex items-center justify-between px-4 py-3"
+                style={{ background: PARCHMENT }}
+              >
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-3.5 h-3.5" style={{ color: CLAY }} />
+                  <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: INK }}>
+                    World Bible
+                  </span>
+                  <span className="text-[11px]" style={{ color: "#9CA3AF" }}>
+                    — {bibleFields.length + (bibleRules.length > 0 ? 1 : 0)}{" "}
+                    field{bibleFields.length + (bibleRules.length > 0 ? 1 : 0) !== 1 ? "s" : ""} set
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link href="/super/worldsmith/editorial/bible">
+                    <span
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                      className="flex items-center gap-1 text-[11px] font-semibold cursor-pointer rounded-lg px-2.5 py-1"
+                      style={{ color: INK, border: `1px solid ${WARM_BORDER}`, background: WARM_WHITE }}
+                    >
+                      <ExternalLink className="w-3 h-3" /> Edit
+                    </span>
+                  </Link>
+                  {bibleExpanded
+                    ? <ChevronUp className="w-3.5 h-3.5" style={{ color: "#9CA3AF" }} />
+                    : <ChevronDown className="w-3.5 h-3.5" style={{ color: "#9CA3AF" }} />}
+                </div>
+              </button>
+
+              {/* Expanded rows — only non-null fields rendered */}
+              {bibleExpanded && (
+                <div
+                  className="px-4 py-3 flex flex-col gap-3"
+                  style={{ background: WARM_WHITE, borderTop: `1px solid ${WARM_BORDER}` }}
+                >
+                  {bibleFields.map(f => (
+                    <div key={f.key}>
+                      <div
+                        className="text-[9.5px] font-semibold uppercase tracking-widest mb-1"
+                        style={{ color: "#9CA3AF" }}
+                      >
+                        {f.label}
+                      </div>
+                      <p
+                        className="text-[12px] leading-relaxed line-clamp-3"
+                        style={{ color: INK, fontFamily: "'Spectral', Georgia, serif" }}
+                      >
+                        {editorialRichTextToPlainText(f.value).slice(0, 300) || "—"}
+                      </p>
+                    </div>
+                  ))}
+                  {bibleRules.length > 0 && (
+                    <div>
+                      <div
+                        className="text-[9.5px] font-semibold uppercase tracking-widest mb-1.5"
+                        style={{ color: "#9CA3AF" }}
+                      >
+                        World Rules
+                      </div>
+                      <ul className="flex flex-col gap-1">
+                        {bibleRules.map((rule, i) => (
+                          <li key={i} className="flex items-start gap-1.5 text-[12px]" style={{ color: INK }}>
+                            <span
+                              className="mt-2 w-1 h-1 rounded-full shrink-0"
+                              style={{ background: "#C4BAB0" }}
+                            />
+                            {rule}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

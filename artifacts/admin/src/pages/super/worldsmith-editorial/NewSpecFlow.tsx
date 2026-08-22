@@ -9,6 +9,15 @@ import {
   ChevronRight, CheckCircle2, Circle, Loader2, ArrowLeft,
   BookOpen, Layers, Zap, FileText, GitBranch, X, Plus,
 } from "lucide-react";
+import {
+  BANDS,
+  canonClear,
+  payloadReady,
+  readinessChecks,
+  readinessScore,
+  sectionScore,
+  type SectionId,
+} from "@workspace/api-zod/readiness";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
@@ -65,10 +74,9 @@ const EMPTY: FormState = {
 // ── Completion scoring ────────────────────────────────────────────────────────
 
 interface SectionMeta {
-  id: string;
+  id: SectionId;
   label: string;
   icon: React.ElementType;
-  checks: (f: FormState) => { label: string; done: boolean }[];
 }
 
 const SECTIONS: SectionMeta[] = [
@@ -76,77 +84,35 @@ const SECTIONS: SectionMeta[] = [
     id: "identity",
     label: "Identity",
     icon: FileText,
-    checks: f => [
-      { label: "Production item name", done: !!f.productionItem.trim() },
-      { label: "Component type", done: !!f.componentType.trim() },
-      { label: "Component set", done: !!f.componentSet.trim() },
-    ],
   },
   {
     id: "creative",
     label: "Creative Direction",
     icon: Layers,
-    checks: f => [
-      { label: "Design intent", done: !!f.designIntent.trim() },
-      { label: "Narrative purpose", done: !!f.narrativePurpose.trim() },
-      { label: "Required content", done: !!f.requiredContent.trim() },
-      { label: "Orientation", done: !!f.orientation },
-      { label: "Front/back style", done: !!f.frontBackStyle },
-    ],
   },
   {
     id: "canon",
     label: "Canon & Governance",
     icon: BookOpen,
-    checks: f => [
-      { label: "Canon dependency set", done: !!f.canonDependency },
-      { label: "Style guide linked", done: !!f.styleGuideId },
-      { label: "Component spec linked", done: !!f.componentSpecId },
-      {
-        label: "Canon records linked (if required)",
-        done: f.canonDependency === "None" || f.canonRecordIds.length > 0,
-      },
-    ],
   },
   {
     id: "payload",
     label: "Prompt Payload",
     icon: Zap,
-    checks: f => [
-      { label: "Payload version", done: !!f.payloadVersion },
-      { label: "Prompt payload content", done: f.promptPayload.trim().length > 30 },
-      { label: "Includes shared_prompt", done: f.promptPayload.includes("shared_prompt") || f.promptPayload.includes("asset_role") },
-    ],
   },
   {
     id: "review",
     label: "Review Criteria",
     icon: GitBranch,
-    checks: f => [
-      { label: "Review criteria filled", done: !!f.reviewCriteria.trim() },
-      { label: "Writing space set", done: !!f.writingSpacePercent },
-      { label: "Prompt modules linked", done: f.promptModuleIds.length > 0 },
-    ],
   },
 ];
 
-function computeSectionScore(section: SectionMeta, f: FormState): number {
-  const checks = section.checks(f);
-  return Math.round(checks.filter(c => c.done).length / checks.length * 100);
-}
-
-function computeOverallScore(f: FormState): number {
-  const allChecks = SECTIONS.flatMap(s => s.checks(f));
-  return Math.round(allChecks.filter(c => c.done).length / allChecks.length * 100);
-}
-
 // ── Subcomponents ─────────────────────────────────────────────────────────────
 
-function CircleScore({ score, size = 56 }: { score: number; size?: number }) {
+function CircleScore({ score, color, size = 56 }: { score: number; color: string; size?: number }) {
   const r = (size - 8) / 2;
   const circ = 2 * Math.PI * r;
   const offset = circ * (1 - score / 100);
-  const color = score >= 80 ? "#0D9488" : score >= 50 ? "#F59E0B" : "#C87560";
   return (
     <svg width={size} height={size}>
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#E5E7EB" strokeWidth="3.5" />
@@ -631,7 +597,20 @@ export default function NewSpecFlow() {
     });
   };
 
-  const overallScore = computeOverallScore(form);
+  const checks = readinessChecks({
+    ...form,
+    worldId: selectedWorldId,
+    collectionId: selectedCollectionId,
+  });
+  const overallScore = readinessScore(checks);
+  const isPayloadReady = payloadReady(checks);
+  const isCanonClear = canonClear(checks);
+  const readinessLabel = !isCanonClear ? "Canon needed" : isPayloadReady ? "Canon clear" : "In progress";
+  const readinessColor = !isCanonClear
+    ? "#C87560"
+    : isPayloadReady
+      ? "#0D9488"
+      : overallScore >= BANDS.payloadReady ? "#F59E0B" : "#9CA3AF";
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -688,14 +667,14 @@ export default function NewSpecFlow() {
 
         {/* Overall score */}
         <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: "#F3F4F6" }}>
-          <CircleScore score={overallScore} size={48} />
+          <CircleScore score={overallScore} color={readinessColor} size={48} />
           <div>
             <div className="text-xs text-gray-500">Readiness</div>
             <div
               className="text-sm font-semibold"
-              style={{ color: overallScore >= 80 ? "#0D9488" : overallScore >= 50 ? "#F59E0B" : "#9CA3AF" }}
+              style={{ color: readinessColor }}
             >
-              {overallScore >= 80 ? "Compile-ready" : overallScore >= 50 ? "Near complete" : "In progress"}
+              {readinessLabel}
             </div>
           </div>
         </div>
@@ -703,7 +682,7 @@ export default function NewSpecFlow() {
         {/* Section list */}
         <div className="flex-1 overflow-y-auto py-2">
           {SECTIONS.map((sec, i) => {
-            const score = computeSectionScore(sec, form);
+            const score = sectionScore(checks, sec.id);
             const isActive = i === activeSection;
             const Icon = sec.icon;
             return (
@@ -730,13 +709,13 @@ export default function NewSpecFlow() {
         {/* "What's needed" */}
         <div className="border-t px-4 py-3" style={{ borderColor: "#F3F4F6" }}>
           <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Next required</p>
-          {SECTIONS.flatMap(s => s.checks(form).filter(c => !c.done)).slice(0, 3).map((c, i) => (
-            <p key={i} className="text-xs text-gray-500 flex items-start gap-1.5 mb-1">
+          {SECTIONS.flatMap(s => checks.filter(c => c.section === s.id && !c.done)).slice(0, 3).map((c) => (
+            <p key={c.id} className="text-xs text-gray-500 flex items-start gap-1.5 mb-1">
               <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
               {c.label}
             </p>
           ))}
-          {SECTIONS.flatMap(s => s.checks(form).filter(c => !c.done)).length === 0 && (
+          {checks.filter(c => !c.done).length === 0 && (
             <p className="text-xs text-teal-600">All checks passed ✓</p>
           )}
         </div>

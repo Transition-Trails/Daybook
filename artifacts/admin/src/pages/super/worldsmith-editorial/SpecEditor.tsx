@@ -11,6 +11,13 @@ import {
   Send, Trash2, X, ExternalLink, RefreshCw, Clock, BookOpen,
   FileText, Zap, GitBranch, Circle, Save,
 } from "lucide-react";
+import {
+  BANDS,
+  canonClear,
+  payloadReady,
+  readinessChecks,
+  readinessScore,
+} from "@workspace/api-zod/readiness";
 import { apiFetch } from "@/lib/api";
 import {
   bypassNextSpecNavigationGuard,
@@ -33,6 +40,7 @@ interface Spec {
   id: string;
   worldId: string;
   collectionId?: string | null;
+  volumeId?: string | null;
   productionItem: string;
   specId?: string | null;
   componentType: string;
@@ -69,64 +77,6 @@ interface SpecResponse {
     canon_records: { id: string; name: string; status: string; canonType: string }[];
     prompt_modules: { id: string; name: string }[];
   };
-}
-
-// ── Completion scoring ────────────────────────────────────────────────────────
-
-type CheckEntry = { label: string; done: boolean; section: string };
-
-/**
- * Component types for which an orientation value (portrait/landscape/square) is
- * a meaningful spec field.  Kept in sync with the identical constant in the API's
- * worldsmith-editorial.ts — update both if component types are added or renamed.
- */
-const ORIENTATION_AWARE_TYPES = new Set([
-  "Hero Paper",
-  "Decorative Paper",
-  "Journal Card",
-  "Coordinating Paper",
-  "Ephemera Sheet",
-  "Notepaper",
-  "Endpaper",
-]);
-
-function getChecks(s: Spec): CheckEntry[] {
-  const dep = s.canonDependency ?? "None";
-  const canonIds = (s.canonRecordIds ?? []) as string[];
-  const moduleIds = (s.promptModuleIds ?? []) as string[];
-  const payload = s.promptPayload ?? "";
-
-  // For rich-text fields, strip to plain text before checking emptiness
-  const diText = editorialRichTextToPlainText(s.designIntent ?? "");
-  const npText = editorialRichTextToPlainText(s.narrativePurpose ?? "");
-  const rcText = editorialRichTextToPlainText(s.requiredContent ?? "");
-  const revText = editorialRichTextToPlainText(s.reviewCriteria ?? "");
-
-  // Orientation is only a meaningful check for component types that have an
-  // inherent orientation concept — same logic as the API readiness scorer.
-  const needsOrientation = ORIENTATION_AWARE_TYPES.has(s.componentType ?? "");
-
-  return [
-    { label: "Production item name", done: !!s.productionItem?.trim(), section: "identity" },
-    { label: "Component type", done: !!s.componentType?.trim(), section: "identity" },
-    { label: "Spec ID", done: !!s.specId?.trim(), section: "identity" },
-    { label: "Collection linked", done: !!(s.collectionId?.trim()), section: "identity" },
-    { label: "Design intent", done: !!diText, section: "creative" },
-    { label: "Narrative purpose", done: !!npText, section: "creative" },
-    { label: "Required content", done: !!rcText, section: "creative" },
-    // Orientation is N/A for types without an orientation concept (e.g. Washi Tape).
-    { label: "Orientation", done: !needsOrientation || !!s.orientation?.trim(), section: "creative" },
-    { label: "Front/back style", done: !!s.frontBackStyle?.trim(), section: "creative" },
-    { label: "Payload version", done: !!s.payloadVersion?.trim(), section: "payload" },
-    { label: "Prompt payload content", done: payload.trim().length > 30, section: "payload" },
-    { label: "Payload structure", done: payload.includes("shared_prompt") || payload.includes("asset_role"), section: "payload" },
-    { label: "Canon dependency set", done: true, section: "canon" }, // always set
-    { label: "Style guide linked", done: !!s.styleGuideId?.trim(), section: "canon" },
-    { label: "Component spec linked", done: !!s.componentSpecId?.trim(), section: "canon" },
-    { label: "Canon records (if required)", done: dep === "None" || canonIds.length > 0, section: "canon" },
-    { label: "Prompt modules", done: moduleIds.length > 0, section: "payload" },
-    { label: "Review criteria", done: !!revText, section: "review" },
-  ];
 }
 
 // ── Radial dependency graph ───────────────────────────────────────────────────
@@ -192,15 +142,22 @@ function CompletionSidebar({
   onPublish: () => void;
   isPublishing: boolean;
 }) {
-  const checks = getChecks(spec);
+  const checks = readinessChecks(spec);
   const done = checks.filter(c => c.done).length;
-  const score = Math.round((done / checks.length) * 100);
+  const score = readinessScore(checks);
   const missing = checks.filter(c => !c.done);
+  const isPayloadReady = payloadReady(checks);
+  const isCanonClear = canonClear(checks);
 
   const r = 28;
   const circ = 2 * Math.PI * r;
   const offset = circ * (1 - score / 100);
-  const color = score >= 80 ? "#0D9488" : score >= 50 ? "#F59E0B" : "#C87560";
+  const color = !isCanonClear
+    ? "#C87560"
+    : isPayloadReady
+      ? "#0D9488"
+      : score >= BANDS.payloadReady ? "#F59E0B" : "#9CA3AF";
+  const readinessLabel = !isCanonClear ? "Canon needed" : isPayloadReady ? "Canon clear" : "In progress";
 
   return (
     <aside
@@ -229,7 +186,7 @@ function CompletionSidebar({
               {done}/{checks.length} checks
             </p>
             <p className="text-xs mt-0.5" style={{ color }}>
-              {score >= 80 ? "Compile-ready" : score >= 50 ? "Near complete" : "In progress"}
+              {readinessLabel}
             </p>
           </div>
         </div>
@@ -311,7 +268,7 @@ function CompletionSidebar({
       <div className="px-4 py-3">
         <button
           onClick={onPublish}
-          disabled={isPublishing || score < 30}
+          disabled={isPublishing || !isPayloadReady}
           className="w-full flex items-center justify-center gap-2 py-2 text-sm rounded-lg font-medium disabled:opacity-40 transition-colors"
           style={{ background: "#1B2A4A", color: "white" }}
         >

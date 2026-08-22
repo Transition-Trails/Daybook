@@ -5,6 +5,7 @@
  * Keys use lowercase snake_case; each key appears exactly once.
  */
 import type { ParsedPayload } from "./types";
+import { parsePayloadEntries } from "@workspace/api-zod/readiness";
 
 export interface ParseResult {
   payload: Partial<ParsedPayload>;
@@ -20,65 +21,7 @@ export interface ParseResult {
  * treated as continuation of the previous key's value.
  */
 export function parsePayload(raw: string): ParseResult {
-  const rawEntries: Array<[string, string]> = [];
-  const duplicateKeys: string[] = [];
-  const seen = new Set<string>();
-
-  const lines = raw.replace(/\r\n/g, "\n").split("\n");
-  let currentKey: string | null = null;
-  let currentValue = "";
-
-  const flush = () => {
-    if (currentKey !== null) {
-      const val = currentValue.trim();
-      rawEntries.push([currentKey, val]);
-      if (seen.has(currentKey)) {
-        duplicateKeys.push(currentKey);
-      } else {
-        seen.add(currentKey);
-      }
-      currentKey = null;
-      currentValue = "";
-    }
-  };
-
-  for (const line of lines) {
-    // Skip blank lines
-    if (!line.trim()) {
-      flush();
-      continue;
-    }
-
-    // Continuation line (indented or starts with spaces)
-    if ((line.startsWith(" ") || line.startsWith("\t")) && currentKey !== null) {
-      currentValue += " " + line.trim();
-      continue;
-    }
-
-    const colonIdx = line.indexOf(":");
-    if (colonIdx === -1) {
-      // Treat as continuation if we have a current key
-      if (currentKey !== null) {
-        currentValue += " " + line.trim();
-      }
-      continue;
-    }
-
-    const candidate = line.slice(0, colonIdx).trim().toLowerCase();
-
-    // Validate key format: only lowercase letters, digits, underscores
-    if (/^[a-z][a-z0-9_]*$/.test(candidate)) {
-      flush();
-      currentKey = candidate;
-      currentValue = line.slice(colonIdx + 1).trim();
-    } else {
-      // Treat as continuation text
-      if (currentKey !== null) {
-        currentValue += " " + line.trim();
-      }
-    }
-  }
-  flush();
+  const { rawEntries, duplicateKeys } = parsePayloadEntries(raw);
 
   // Build payload object
   const payload: Partial<ParsedPayload> = {};

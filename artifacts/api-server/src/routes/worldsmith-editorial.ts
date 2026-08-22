@@ -25,6 +25,12 @@
  */
 import { Router } from "express";
 import {
+  canonClear,
+  payloadReady,
+  readinessChecks,
+  readinessScore,
+} from "@workspace/api-zod/readiness";
+import {
   editorialRichTextToPlainText,
   sanitizeEditorialRichText,
 } from "../lib/worldsmith/editorial-rich-text";
@@ -105,60 +111,11 @@ function editorialDbError(err: unknown, res: Response, context: string): void {
   res.status(500).json({ error: "Internal server error" });
 }
 
-/** Component types for which an orientation value (portrait/landscape/square)
- *  is a meaningful spec field.  Types like "Washi Tape" have no inherent
- *  orientation concept, so counting its absence as a readiness gap is wrong. */
-const ORIENTATION_AWARE_TYPES = new Set([
-  "Hero Paper",
-  "Decorative Paper",
-  "Journal Card",
-  "Coordinating Paper",
-  "Ephemera Sheet",
-  "Notepaper",
-  "Endpaper",
-]);
-
 export function computeReadinessScore(spec: Partial<InsertWsProductionSpec>): number {
-  const canonIds = (spec.canonRecordIds ?? []) as string[];
-  const moduleIds = (spec.promptModuleIds ?? []) as string[];
-  const payload = spec.promptPayload ?? "";
-  const dep = spec.canonDependency ?? "None";
-
-  // Only check orientation for component types that have an orientation concept.
-  const needsOrientation = ORIENTATION_AWARE_TYPES.has(spec.componentType ?? "");
-
-  const checks = [
-    // Identity (4)
-    !!spec.productionItem?.trim(),
-    !!spec.componentType?.trim(),
-    !!spec.worldId?.trim(),
-    !!(spec.collectionId?.trim() || spec.volumeId?.trim()),
-    // Creative direction (4)
-    !!editorialRichTextToPlainText(spec.designIntent),
-    !!editorialRichTextToPlainText(spec.narrativePurpose),
-    !!editorialRichTextToPlainText(spec.requiredContent),
-    // Orientation: always true (pass) for types without the concept, so the
-    // overall score is not penalised for a field that doesn't apply.
-    !needsOrientation || !!spec.orientation?.trim(),
-    // Payload (3)
-    !!spec.payloadVersion?.trim(),
-    payload.trim().length > 30,
-    payload.includes("shared_prompt") || payload.includes("asset_role"),
-    // Canon & Governance (3)
-    !!spec.styleGuideId?.trim(),
-    dep === "None" || canonIds.length > 0,
-    // Related records (4)
-    !!spec.componentSpecId?.trim(),
-    moduleIds.length > 0,
-    !!editorialRichTextToPlainText(spec.reviewCriteria),
-    !!(spec.specId?.trim()),
-  ];
-
-  const passed = checks.filter(Boolean).length;
-  return Math.round((passed / checks.length) * 100);
+  return readinessScore(readinessChecks(spec));
 }
 
-function derivePipelineStatus(spec: Partial<InsertWsProductionSpec>, readinessScore: number): string {
+export function derivePipelineStatus(spec: Partial<InsertWsProductionSpec>, _readinessScore: number): string {
   const dep = spec.canonDependency ?? "None";
   const canonIds = (spec.canonRecordIds ?? []) as string[];
   const payload = spec.promptPayload ?? "";
@@ -172,8 +129,9 @@ function derivePipelineStatus(spec: Partial<InsertWsProductionSpec>, readinessSc
   if (!spec.productionItem?.trim() || !spec.componentType?.trim()) return "draft";
   if (!payload.trim()) return "draft";
 
-  if (readinessScore >= 60) return "canon_clear";
-  if (readinessScore >= 30) return "payload_ready";
+  const checks = readinessChecks(spec);
+  if (payloadReady(checks) && canonClear(checks)) return "canon_clear";
+  if (payloadReady(checks)) return "payload_ready";
   return "draft";
 }
 

@@ -15,6 +15,11 @@ All notable changes to Daybook are documented in this file.
 
 ### Changed
 
+- Consolidated WorldSmith authored-spec readiness into one shared definition for the API,
+  New Spec flow, and SpecEditor. Scores, per-section progress, readiness bands, canon rules,
+  and payload structure checks now agree across all three surfaces.
+- Removed the defaulted Canon Dependency completion credit and made pipeline readiness depend
+  on direct payload and canon conditions rather than an unrelated aggregate percentage.
 - Updated the WorldSmith spec-board template to version 3.1 and removed invented emotional
   language from companion content.
 - Made readiness orientation checks conditional on component type in both the API and admin

@@ -137,6 +137,28 @@ describe("SpecEditor save flow (Wave 2 Item 5)", () => {
     expect(screen.queryByRole("button", { name: /Save Changes/i })).not.toBeInTheDocument();
   });
 
+  it("does not call a high-score Canon Defining spec canon clear without linked canon records", async () => {
+    apiFetch.mockImplementation((path: string) => {
+      if (path === "/v1/editorial/specs/spec-test-001") {
+        return Promise.resolve(makeSpecResponse({
+          collectionId: "collection-001",
+          canonDependency: "Canon Defining",
+          canonRecordIds: [],
+          styleGuideId: "guide-001",
+          componentSpecId: "component-001",
+          promptModuleIds: ["module-001"],
+          promptPayload: "shared_prompt: A complete line-based prompt payload that exceeds the readiness minimum.",
+        }));
+      }
+      if (path.startsWith("/v1/editorial/")) return Promise.resolve({});
+      return Promise.resolve({});
+    });
+
+    renderEditor();
+    await waitFor(() => expect(screen.getByText("Canon needed")).toBeInTheDocument());
+    expect(screen.queryByText("Canon clear")).not.toBeInTheDocument();
+  });
+
   it("does not block navigation when there are no unsaved changes", async () => {
     renderEditor();
     await waitFor(() => expect(screen.getByText("Hero Paper 001: The Library Table")).toBeInTheDocument());

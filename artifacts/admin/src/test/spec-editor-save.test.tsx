@@ -4,6 +4,7 @@
  * Covers:
  *   - Save button is hidden when there are no unsaved changes
  *   - Editing the Prompt Payload makes the Save button appear
+ *   - Discard resets all changed mutable fields without issuing a request
  *   - Clicking Save issues a PATCH with the updated payload
  *   - Payload change persists after a successful save (query invalidation)
  *   - Canon Dependency select is disabled (locked after creation)
@@ -161,7 +162,7 @@ describe("SpecEditor save flow (Wave 2 Item 5)", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /Save Changes/i })).toBeInTheDocument());
   });
 
-  it("clicking Save Issues a PATCH request with the updated promptPayload", async () => {
+  it("Discard resets all changed mutable fields without issuing a request", async () => {
     const INITIAL_PAYLOAD = '{"shared_prompt":"Initial payload content here."}';
     const UPDATED_PAYLOAD = '{"shared_prompt":"Updated payload content here."}';
     const patchedSpec = makeSpec({ promptPayload: UPDATED_PAYLOAD });

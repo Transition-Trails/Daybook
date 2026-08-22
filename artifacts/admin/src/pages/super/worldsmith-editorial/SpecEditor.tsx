@@ -843,16 +843,27 @@ export default function SpecEditor({ specId }: { specId: string }) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {hasUnsavedChanges && (
-            <button
-              onClick={() => localSpec && saveMutation.mutate(localSpec)}
-              disabled={saveMutation.isPending}
-              className="flex items-center gap-1.5 rounded-lg bg-[#1B2A4A] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0f1d36] transition-colors disabled:opacity-40"
-            >
-              {saveMutation.isPending
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <Save className="w-3.5 h-3.5" />}
-              Save Changes
-            </button>
+            <>
+              <button
+                onClick={() => data?.spec && setLocalSpec(data.spec)}
+                disabled={saveMutation.isPending}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-40"
+                title="Discard unsaved changes"
+              >
+                <X className="w-3.5 h-3.5" />
+                Discard
+              </button>
+              <button
+                onClick={() => localSpec && saveMutation.mutate(localSpec)}
+                disabled={saveMutation.isPending}
+                className="flex items-center gap-1.5 rounded-lg bg-[#1B2A4A] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0f1d36] transition-colors disabled:opacity-40"
+              >
+                {saveMutation.isPending
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Save className="w-3.5 h-3.5" />}
+                Save Changes
+              </button>
+            </>
           )}
           <button
             onClick={() => deleteMutation.mutate()}

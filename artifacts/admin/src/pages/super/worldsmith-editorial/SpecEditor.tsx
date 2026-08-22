@@ -3,7 +3,7 @@
  * Left: immutable creation record (Identity, Creative, Canon, Payload tabs)
  * Right: Completion sidebar with dependency health graph and relationships panel
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,6 +12,11 @@ import {
   FileText, Zap, GitBranch, Circle, Save,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import {
+  bypassNextSpecNavigationGuard,
+  confirmSpecNavigation,
+  registerSpecNavigationGuard,
+} from "@/lib/spec-navigation-guard";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
 import {
@@ -19,6 +24,8 @@ import {
   EditorialSection,
   editorialRichTextToPlainText,
 } from "@/components/EditorialRichText";
+
+let nextHistoryGuardId = 0;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -735,6 +742,14 @@ export default function SpecEditor({ specId }: { specId: string }) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabId>("identity");
   const [localSpec, setLocalSpec] = useState<Spec | null>(null);
+  const historyGuard = useRef<{ id: string; active: boolean; skipNextPop: boolean } | null>(null);
+  if (!historyGuard.current) {
+    historyGuard.current = {
+      id: `spec-editor-${++nextHistoryGuardId}`,
+      active: false,
+      skipNextPop: false,
+    };
+  }
 
   const { data, isLoading, error } = useQuery<SpecResponse>({
     queryKey: ["editorial-spec", specId],
@@ -762,6 +777,73 @@ export default function SpecEditor({ specId }: { specId: string }) {
       localSpec.componentSpecId !== data.spec.componentSpecId
     ),
   );
+
+  useEffect(() => {
+    const unregister = registerSpecNavigationGuard(() => {
+      if (!hasUnsavedChanges) return true;
+      return window.confirm("This spec has unsaved changes. Leave without saving?");
+    });
+
+    return unregister;
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    // Browser Back/Forward does not call Wouter's aroundNav hook. Add a
+    // same-URL history entry, so the first Back stays in this mounted editor
+    // while we ask for confirmation. The next traversal either restores this
+    // entry (cancel) or continues to the actual previous route (confirm).
+    const guard = historyGuard.current!;
+    const state = {
+      ...(window.history.state ?? {}),
+      specEditorNavigationGuard: guard.id,
+    };
+    window.history.pushState(state, "", window.location.href);
+    guard.active = true;
+
+    const handlePopState = () => {
+      if (guard.skipNextPop) {
+        guard.skipNextPop = false;
+        return;
+      }
+
+      if (window.confirm("This spec has unsaved changes. Leave without saving?")) {
+        guard.skipNextPop = true;
+        window.history.back();
+      } else {
+        guard.skipNextPop = true;
+        window.history.forward();
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState, true);
+    return () => {
+      window.removeEventListener("popstate", handlePopState, true);
+
+      // When the edits become clean, remove the same-URL guard entry so a
+      // subsequent Back press still leaves the editor in one step.
+      if (
+        guard.active &&
+        window.history.state?.specEditorNavigationGuard === guard.id
+      ) {
+        guard.active = false;
+        window.history.back();
+      }
+    };
+  }, [hasUnsavedChanges]);
 
   const saveMutation = useMutation({
     mutationFn: (s: Spec) =>
@@ -798,11 +880,19 @@ export default function SpecEditor({ specId }: { specId: string }) {
   const deleteMutation = useMutation({
     mutationFn: () => apiFetch(`/v1/editorial/specs/${specId}`, { method: "DELETE" }),
     onSuccess: () => {
+      // Deletion has already discarded the dirty local state, so do not offer
+      // a second route-leave prompt after the destructive request succeeds.
+      bypassNextSpecNavigationGuard();
       toast({ title: "Spec deleted" });
       navigate("/super/worldsmith/editorial/board");
     },
     onError: () => toast({ title: "Delete failed", variant: "destructive" }),
   });
+
+  const handleDelete = () => {
+    if (!confirmSpecNavigation()) return;
+    deleteMutation.mutate();
+  };
 
   const spec = localSpec ?? data?.spec;
   const rels = data?.relationships ?? { style_guide: null, component_spec: null, canon_records: [], prompt_modules: [] };
@@ -866,7 +956,7 @@ export default function SpecEditor({ specId }: { specId: string }) {
             </>
           )}
           <button
-            onClick={() => deleteMutation.mutate()}
+            onClick={handleDelete}
             className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
             title="Delete spec"
           >

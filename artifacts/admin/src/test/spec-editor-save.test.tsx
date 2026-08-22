@@ -40,6 +40,7 @@ vi.mock("@/contexts/EditorialContext", () => ({
 }));
 
 import SpecEditor from "@/pages/super/worldsmith-editorial/SpecEditor";
+import { confirmSpecNavigation } from "@/lib/spec-navigation-guard";
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -118,7 +119,7 @@ describe("SpecEditor save flow (Wave 2 Item 5)", () => {
 
     // Default: all subsidiary queries return empty lists
     apiFetch.mockImplementation((path: string) => {
-      if (path.startsWith("/v1/editorial/specs/spec-test-001") && !path.includes("/")) {
+      if (path === "/v1/editorial/specs/spec-test-001") {
         return Promise.resolve(makeSpecResponse());
       }
       if (path.startsWith("/v1/editorial/style-guides")) return Promise.resolve({ style_guides: [] });
@@ -134,6 +135,92 @@ describe("SpecEditor save flow (Wave 2 Item 5)", () => {
     renderEditor();
     await waitFor(() => expect(screen.getByText("Hero Paper 001: The Library Table")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /Save Changes/i })).not.toBeInTheDocument();
+  });
+
+  it("does not block navigation when there are no unsaved changes", async () => {
+    renderEditor();
+    await waitFor(() => expect(screen.getByText("Hero Paper 001: The Library Table")).toBeInTheDocument());
+
+    const confirmSpy = vi.spyOn(window, "confirm");
+    expect(confirmSpecNavigation()).toBe(true);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("asks before navigation after a mutable field changes and preserves edits when cancelled", async () => {
+    const initialPayload = '{"shared_prompt":"Initial payload content here."}';
+    const updatedPayload = '{"shared_prompt":"Updated payload content here."}';
+    renderEditor();
+    await waitFor(() => expect(screen.getByText("Hero Paper 001: The Library Table")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /Prompt Payload/i }));
+    await waitFor(() => expect(screen.getByDisplayValue(initialPayload)).toBeInTheDocument());
+    fireEvent.change(screen.getByDisplayValue(initialPayload), { target: { value: updatedPayload } });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    expect(confirmSpecNavigation()).toBe(false);
+    expect(confirmSpy).toHaveBeenCalledWith("This spec has unsaved changes. Leave without saving?");
+    expect(screen.getByDisplayValue(updatedPayload)).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it("registers a browser leave warning only while mutable fields are dirty", async () => {
+    renderEditor();
+    await waitFor(() => expect(screen.getByText("Hero Paper 001: The Library Table")).toBeInTheDocument());
+
+    const cleanEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(cleanEvent);
+    expect(cleanEvent.defaultPrevented).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /Prompt Payload/i }));
+    const initialPayload = '{"shared_prompt":"Initial payload content here."}';
+    await waitFor(() => expect(screen.getByDisplayValue(initialPayload)).toBeInTheDocument());
+    fireEvent.change(screen.getByDisplayValue(initialPayload), { target: { value: "changed" } });
+
+    const dirtyEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(dirtyEvent);
+    expect(dirtyEvent.defaultPrevented).toBe(true);
+  });
+
+  it("restores the dirty editor when browser history navigation is cancelled", async () => {
+    const initialPayload = '{"shared_prompt":"Initial payload content here."}';
+    const updatedPayload = '{"shared_prompt":"Updated payload content here."}';
+    renderEditor();
+    await waitFor(() => expect(screen.getByText("Hero Paper 001: The Library Table")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /Prompt Payload/i }));
+    await waitFor(() => expect(screen.getByDisplayValue(initialPayload)).toBeInTheDocument());
+    fireEvent.change(screen.getByDisplayValue(initialPayload), { target: { value: updatedPayload } });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const forwardSpy = vi.spyOn(window.history, "forward").mockImplementation(() => undefined);
+    fireEvent.popState(window);
+
+    expect(confirmSpy).toHaveBeenCalledWith("This spec has unsaved changes. Leave without saving?");
+    expect(forwardSpy).toHaveBeenCalledOnce();
+    expect(screen.getByDisplayValue(updatedPayload)).toBeInTheDocument();
+
+    forwardSpy.mockRestore();
+    confirmSpy.mockRestore();
+  });
+
+  it("keeps a dirty spec intact when deletion is cancelled at the leave warning", async () => {
+    const initialPayload = '{"shared_prompt":"Initial payload content here."}';
+    const updatedPayload = '{"shared_prompt":"Updated payload content here."}';
+    renderEditor();
+    await waitFor(() => expect(screen.getByText("Hero Paper 001: The Library Table")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /Prompt Payload/i }));
+    await waitFor(() => expect(screen.getByDisplayValue(initialPayload)).toBeInTheDocument());
+    fireEvent.change(screen.getByDisplayValue(initialPayload), { target: { value: updatedPayload } });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByTitle("Delete spec"));
+
+    expect(confirmSpy).toHaveBeenCalledWith("This spec has unsaved changes. Leave without saving?");
+    expect(apiFetch.mock.calls.some(([, options]) => (options as RequestInit | undefined)?.method === "DELETE")).toBe(false);
+    expect(screen.getByDisplayValue(updatedPayload)).toBeInTheDocument();
+    confirmSpy.mockRestore();
   });
 
   it("Save button appears after editing the Prompt Payload", async () => {

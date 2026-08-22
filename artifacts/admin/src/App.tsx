@@ -18,6 +18,7 @@ import { RequireStore, RequireSuperAdmin, StoreStudioLoader } from "@/lib/guards
 import { GlobalAiDrawer } from "@/components/layout/GlobalAiDrawer";
 import { useConsole } from "@/lib/useConsole";
 import { resolveStoreId, inkApi } from "@/lib/api";
+import { confirmSpecNavigation } from "@/lib/spec-navigation-guard";
 import Login from "@/pages/login";
 import Unauthorized from "@/pages/unauthorized";
 import NotFound from "@/pages/not-found";
@@ -869,7 +870,12 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+        <WouterRouter
+          base={import.meta.env.BASE_URL.replace(/\/$/, "")}
+          aroundNav={(navigate, to, options) => {
+            if (confirmSpecNavigation()) navigate(to, options);
+          }}
+        >
           {/* AiDrawerProvider must be inside WouterRouter so GlobalAiDrawer
               can call useLocation() to derive surface-specific AI context. */}
           <AiDrawerProvider>

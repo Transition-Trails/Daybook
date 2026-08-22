@@ -165,12 +165,18 @@ describe("SpecEditor save flow (Wave 2 Item 5)", () => {
     const INITIAL_PAYLOAD = '{"shared_prompt":"Initial payload content here."}';
     const UPDATED_PAYLOAD = '{"shared_prompt":"Updated payload content here."}';
     const patchedSpec = makeSpec({ promptPayload: UPDATED_PAYLOAD });
+    let serverHasUpdatedPayload = false;
 
     apiFetch.mockImplementation((path: string, opts?: RequestInit) => {
       if (path === "/v1/editorial/specs/spec-test-001" && (!opts || opts.method !== "PATCH")) {
-        return Promise.resolve(makeSpecResponse());
+        return Promise.resolve(
+          makeSpecResponse({
+            promptPayload: serverHasUpdatedPayload ? UPDATED_PAYLOAD : INITIAL_PAYLOAD,
+          }),
+        );
       }
       if (path === "/v1/editorial/specs/spec-test-001" && opts?.method === "PATCH") {
+        serverHasUpdatedPayload = true;
         return Promise.resolve({ spec: patchedSpec });
       }
       if (path.startsWith("/v1/editorial/style-guides")) return Promise.resolve({ style_guides: [] });
@@ -203,6 +209,10 @@ describe("SpecEditor save flow (Wave 2 Item 5)", () => {
       expect(patchCall).toBeDefined();
       const body = JSON.parse(String(patchCall![1]?.body ?? "{}"));
       expect(body.prompt_payload).toBe(UPDATED_PAYLOAD);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /Save Changes/i })).not.toBeInTheDocument();
     });
   });
 

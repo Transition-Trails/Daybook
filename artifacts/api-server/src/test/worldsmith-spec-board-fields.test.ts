@@ -113,7 +113,10 @@ vi.mock("../lib/ai-proxy.js", () => ({
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 
-import { buildSpecBoardSvg } from "../lib/worldsmith/spec-board-template.js";
+import {
+  buildSpecBoardSvg,
+  TEMPLATE_VERSION,
+} from "../lib/worldsmith/spec-board-template.js";
 import { runSpecPreview } from "../lib/worldsmith/spec-preview-service.js";
 import type { SpecBoardData } from "../lib/worldsmith/types.js";
 
@@ -710,5 +713,26 @@ describe("runSpecPreview dry_run — new fields present in extracted data", () =
     expect(result.status).toBe("dry_run");
     // dry_run_payload confirms the board would include the production item
     expect(result.dry_run_payload?.["Production Item"]).toBe("Autumn Journal Card");
+  });
+});
+
+describe("runSpecPreview — audit row records the current template version", () => {
+  it("persists the shared board TEMPLATE_VERSION on the preview audit row", async () => {
+    mockGetPage.mockResolvedValueOnce(makeSpecPage());
+
+    await runSpecPreview({
+      spec_page_id: SPEC_ID,
+      prompt_hash: "hash-template-version-001",
+      dry_run: true,
+    });
+
+    const insertBuilder = mockDbInsert.mock.results[0]?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertBuilder.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateVersion: TEMPLATE_VERSION,
+      }),
+    );
   });
 });

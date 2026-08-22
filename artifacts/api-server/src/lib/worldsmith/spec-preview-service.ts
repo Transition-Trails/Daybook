@@ -29,16 +29,18 @@ import {
   type NotionPage,
 } from "../notion-client";
 import { callDallE } from "../ai-proxy";
-import { renderSpecBoardToPng, CONCEPT_IMAGE_AREA, DETAIL_CROP_SOURCE_RECTS, DETAIL_CROP_DEST_AREAS } from "./spec-board-template";
+import {
+  renderSpecBoardToPng,
+  CONCEPT_IMAGE_AREA,
+  DETAIL_CROP_SOURCE_RECTS,
+  DETAIL_CROP_DEST_AREAS,
+  TEMPLATE_VERSION,
+} from "./spec-board-template";
 import { parsePayload } from "./payload-parser";
 import { logger } from "../logger";
 import type { SpecBoardData, SpecPreviewResult, SpecPreviewRequest } from "./types";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
-
-// Bump this any time the SVG template layout changes substantially.
-// Old records won't match the idempotency check and every spec gets a fresh generation.
-const TEMPLATE_VERSION = "v2";
 
 function getPreviewConfig(): { provider: string; model: string; size: "1024x1024" | "1792x1024" | "1024x1792"; quality: "standard" | "hd" } {
   return {

@@ -99,6 +99,29 @@ describe("Item 1 — spec-board: no invented emotional-intent words", () => {
   });
 });
 
+describe("Step 10 remainder — spec-board: no invented palette or constraints", () => {
+  it("renders an explicit empty palette state when the spec has no color swatches", () => {
+    const svg = buildSpecBoardSvg(minimalBoard());
+
+    expect(svg).toContain("No palette specified for this spec.");
+    expect(svg).not.toContain("Antique Ivory");
+    expect(svg).not.toContain("Parchment Cream");
+    expect(svg).not.toContain("Sage Gray");
+    expect(svg).not.toContain("Walnut Brown");
+  });
+
+  it("renders only the constraints carried by the spec", () => {
+    const svg = buildSpecBoardSvg(minimalBoard());
+
+    expect(svg).toContain("Avoid center of page.");
+    expect(svg).toContain("300 DPI minimum.");
+    expect(svg).not.toContain("No modern printed maps");
+    expect(svg).not.toContain("No contemporary typography");
+    expect(svg).not.toContain("No photorealism or 3D rendering");
+    expect(svg).not.toContain("No cinematic or dramatic lighting");
+  });
+});
+
 // ── Item 3: orientation check conditional ────────────────────────────────────
 
 import { computeReadinessScore } from "../routes/worldsmith-editorial.js";

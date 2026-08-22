@@ -20,6 +20,10 @@ All notable changes to Daybook are documented in this file.
 - Made readiness orientation checks conditional on component type in both the API and admin
   readiness UI.
 - Added a five-minute in-process cache for inherited WorldSmith Notion pages.
+- Replaced fabricated default palette swatches and constraint prose with an explicit palette
+  empty state and the constraints actually carried by each spec.
+- Unified preview idempotency and audit records with the board template's shared version
+  constant, so stale `v2` previews are eligible for regeneration under template version 3.1.
 - Added explicit linked-world validation so orphaned Production Specs return HTTP 422 instead
   of being created or failing as an internal server error.
 - Strengthened spec-board font and geometric rendering regression checks.

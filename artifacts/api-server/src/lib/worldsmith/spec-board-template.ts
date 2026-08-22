@@ -121,15 +121,6 @@ const FOREST = "#3D5A48";
 const LIGHT  = "#E8E3D8";
 const CREAM  = "#F0EADE";
 
-const DEFAULT_SWATCHES: Array<{ name: string; hex: string }> = [
-  { name: "Antique Ivory",    hex: "#F3E9D7" },
-  { name: "Parchment Cream",  hex: "#EDE5C6" },
-  { name: "Sage Gray",        hex: "#9AA090" },
-  { name: "Walnut Brown",     hex: "#5A442E" },
-  { name: "Aged Oak",         hex: "#6B4F3A" },
-  { name: "Charcoal",         hex: "#2E2E2E" },
-];
-
 // ── Text helpers ──────────────────────────────────────────────────────────────
 
 function esc(s: string | undefined | null): string {
@@ -468,14 +459,6 @@ function midSection(data: SpecBoardData): string {
   if (textRule)  constraints.push(textRule);
   if (printRule) constraints.push(printRule);
   if (canonRule) constraints.push(canonRule);
-  const stdConstraints = [
-    "No modern printed maps",
-    "No contemporary typography",
-    "No modern devices or supplies",
-    "No photorealism or 3D rendering",
-    "No cinematic or dramatic lighting",
-  ];
-  while (constraints.length < 6) constraints.push(stdConstraints[constraints.length] || "");
   const charsC4 = Math.floor((colW - 30) / 6.4);
   let cy4 = MID_Y + 46;
   const col4Items = constraints.filter(Boolean).slice(0, 8).map(c => {
@@ -538,23 +521,25 @@ function bottomStrip(data: SpecBoardData): string {
   // ── Section 2: Color Palette ────────────────────────────────────────────
   const palX = techX + techW + 12;
   const palW = 656;
-  const effective = ((colorSwatches?.length ?? 0) > 0 ? colorSwatches! : DEFAULT_SWATCHES).slice(0, 6);
+  const effective = (colorSwatches ?? []).slice(0, 6);
   const swatchSz = 26;
   const swatchGap = 10;
   const swatchesPerRow = 3;
   const swatchColW = Math.floor((palW - 28) / swatchesPerRow);
 
-  const swatchSvg = effective.map((sw, i) => {
-    const col = i % swatchesPerRow;
-    const row = Math.floor(i / swatchesPerRow);
-    const sx  = palX + 14 + col * swatchColW + (swatchColW - swatchSz) / 2;
-    const sy  = BTM_Y + 44 + row * (swatchSz + 38);
-    return [
-      `<rect x="${sx}" y="${sy}" width="${swatchSz}" height="${swatchSz}" fill="${esc(sw.hex)}" rx="3" stroke="${RULE}" stroke-width="0.5"/>`,
-      `<text x="${sx + swatchSz / 2}" y="${sy + swatchSz + 13}" text-anchor="middle" font-family="Instrument Sans" font-size="9" fill="${INK}">${esc(trunc(sw.name, 14))}</text>`,
-      `<text x="${sx + swatchSz / 2}" y="${sy + swatchSz + 24}" text-anchor="middle" font-family="Instrument Sans" font-size="8.5" fill="${MUTED}">${esc(sw.hex)}</text>`,
-    ].join("\n");
-  }).join("\n");
+  const swatchSvg = effective.length > 0
+    ? effective.map((sw, i) => {
+        const col = i % swatchesPerRow;
+        const row = Math.floor(i / swatchesPerRow);
+        const sx  = palX + 14 + col * swatchColW + (swatchColW - swatchSz) / 2;
+        const sy  = BTM_Y + 44 + row * (swatchSz + 38);
+        return [
+          `<rect x="${sx}" y="${sy}" width="${swatchSz}" height="${swatchSz}" fill="${esc(sw.hex)}" rx="3" stroke="${RULE}" stroke-width="0.5"/>`,
+          `<text x="${sx + swatchSz / 2}" y="${sy + swatchSz + 13}" text-anchor="middle" font-family="Instrument Sans" font-size="9" fill="${INK}">${esc(trunc(sw.name, 14))}</text>`,
+          `<text x="${sx + swatchSz / 2}" y="${sy + swatchSz + 24}" text-anchor="middle" font-family="Instrument Sans" font-size="8.5" fill="${MUTED}">${esc(sw.hex)}</text>`,
+        ].join("\n");
+      }).join("\n")
+    : `<text x="${palX + palW / 2}" y="${BTM_Y + 112}" text-anchor="middle" font-family="Spectral" font-size="13" fill="${MUTED}" font-style="italic">No palette specified for this spec.</text>`;
 
   // ── Section 3: Detail & Element References (thumbnail placeholders) ─────
   const detX = palX + palW + 12;
@@ -589,8 +574,10 @@ function bottomStrip(data: SpecBoardData): string {
     techSvg,
     swatchSvg,
     detailSvg,
-    // Palette note
-    `<text x="${palX + 14}" y="${BTM_Y + BTM_H - 12}" font-family="Spectral" font-size="9.5" fill="${MUTED}" font-style="italic">Palette must feel cohesive, muted, and authentically aged.</text>`,
+    // Palette note / explicit empty state
+    effective.length > 0
+      ? `<text x="${palX + 14}" y="${BTM_Y + BTM_H - 12}" font-family="Spectral" font-size="9.5" fill="${MUTED}" font-style="italic">Palette must feel cohesive, muted, and authentically aged.</text>`
+      : `<text x="${palX + 14}" y="${BTM_Y + BTM_H - 12}" font-family="Spectral" font-size="9.5" fill="${MUTED}" font-style="italic">No spec-level palette provided.</text>`,
   ].join("\n");
 }
 

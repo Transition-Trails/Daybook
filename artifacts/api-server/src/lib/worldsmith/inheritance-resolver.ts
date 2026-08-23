@@ -568,8 +568,7 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
       const payloadPage = await getPage(productionSpec.promptPayloadId);
       resolvedSourceIds["prompt_payload"] = productionSpec.promptPayloadId;
       const pp = payloadPage.properties;
-      // Log all property keys so we can see what's actually on the page
-      logger.info({ promptPayloadId: productionSpec.promptPayloadId, propertyKeys: Object.keys(pp) }, "WorldSmith: Prompt Payload page properties");
+      logger.debug({ promptPayloadId: productionSpec.promptPayloadId, propertyKeys: Object.keys(pp) }, "WorldSmith: Prompt Payload page properties");
       const versionFromPayload =
         extractSelect(pp["Payload Version"]) ||
         extractRichText(pp["Payload Version"]) ||
@@ -591,7 +590,7 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
 
   if (!productionSpec.payloadVersion) {
     throw new InheritanceError(
-      "Payload Version is blank. Set it to PP-1.0 on the linked Prompt Payload record (or directly on the Production Specification if no Prompt Payload is linked).",
+      "Payload Version is blank. Set it to PP-2.0 on the linked Prompt Payload record (or directly on the Production Specification if no Prompt Payload is linked). PP-1.0 remains supported only for legacy payloads.",
       "validate_payload_version",
       "MISSING_PAYLOAD_VERSION",
       false,

@@ -282,6 +282,8 @@ describe("runCompilation — Missing Payload Version", () => {
     expect(result.failed_stage).toBe("validate_payload_version");
     expect(result.retry_safe).toBe(false);
     expect(result.errors![0].code).toBe("MISSING_PAYLOAD_VERSION");
+    expect(result.errors![0].message).toContain("Set it to PP-2.0");
+    expect(result.errors![0].message).toContain("PP-1.0 remains supported only for legacy payloads");
   });
 });
 

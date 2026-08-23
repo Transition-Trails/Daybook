@@ -11,6 +11,8 @@ All notable changes to Daybook are documented in this file.
   from Postgres.
 - Added local compilation coverage for an unreachable Notion client and for missing World Bible
   grounding, which now blocks a local compile with a visible structured warning.
+- Added persistent local WorldSmith spec-preview boards in protected App Storage and exposed them
+  in Editorial Suite, so unpublished editorial specs can be reopened without Notion publication.
 - Added mutable Production Spec saving from the WorldSmith SpecEditor, including payload,
   payload version, canon record links, prompt modules, style guide, and component spec
   updates.

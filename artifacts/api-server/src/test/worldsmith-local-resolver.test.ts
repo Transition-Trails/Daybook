@@ -127,6 +127,7 @@ function setLocalRows() {
       atmosphericNotes: "Rain gathers on iron.",
       materialWorld: "Oxidized iron and wet stone.",
       worldRules: ["No modern objects."],
+      typography: [],
     }],
   ];
 }
@@ -253,6 +254,7 @@ describe("resolveInheritanceChainLocal", () => {
       atmosphericNotes: "Rain gathers on iron.",
       materialWorld: "Oxidized iron and wet stone.",
       worldRules: ["No modern objects."],
+      typography: [],
     });
   });
 });

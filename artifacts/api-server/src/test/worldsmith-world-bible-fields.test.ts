@@ -158,6 +158,7 @@ function makeWorldRow(overrides: Partial<WorldRow> = {}): WorldRow {
     atmosphericNotes: "Persistent low damp. Smoke and mildew undercut every interior.",
     materialWorld: "Worn leather, tallow candles, iron rivets, stone that never fully dries.",
     worldRules: ["No magic north of the Ridgeline", "Time moves faster in the Undercroft"],
+    typography: [],
     coverImageUrl: null,
     ...overrides,
   };
@@ -186,13 +187,25 @@ describe("buildEnrichedWorld — World Bible fields in GET /v1/worldsmith/worlds
     expect(enriched.worldRules[1]).toBe("Time moves faster in the Undercroft");
   });
 
-  it("includes all five World Bible keys even when all values are null / empty", () => {
+  it("preserves catalog-backed typography so a list refetch cannot clear it", () => {
+    const typography = [{
+      fontId: "font-lora",
+      family: "Lora",
+      roles: [{ role: "heading", weight: "700" }],
+    }];
+    const enriched = buildEnrichedWorld(makeWorldRow({ typography }), NO_ASSETS);
+
+    expect(enriched.typography).toEqual(typography);
+  });
+
+  it("includes all six World Bible keys even when all values are null / empty", () => {
     const row = makeWorldRow({
       visualPalette: null,
       proseVoice: null,
       atmosphericNotes: null,
       materialWorld: null,
       worldRules: [],
+      typography: [],
     });
 
     const enriched = buildEnrichedWorld(row, NO_ASSETS);
@@ -206,9 +219,11 @@ describe("buildEnrichedWorld — World Bible fields in GET /v1/worldsmith/worlds
     expect(Object.prototype.hasOwnProperty.call(enriched, "atmosphericNotes")).toBe(true);
     expect(Object.prototype.hasOwnProperty.call(enriched, "materialWorld")).toBe(true);
     expect(Object.prototype.hasOwnProperty.call(enriched, "worldRules")).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(enriched, "typography")).toBe(true);
 
     expect(enriched.visualPalette).toBeNull();
     expect(enriched.worldRules).toHaveLength(0);
+    expect(enriched.typography).toHaveLength(0);
   });
 
   it("does not truncate long aesthetic text values", () => {

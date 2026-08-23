@@ -13,7 +13,7 @@ import {
   EditorialSection,
   editorialRichTextToPlainText,
 } from "@/components/EditorialRichText";
-import { FontLibraryPicker, appendFontReference } from "@/components/FontLibraryPicker";
+import { FontLibraryPicker } from "@/components/FontLibraryPicker";
 
 const INK = "#1B2A4A";
 const CLAY = "#C87560";
@@ -59,6 +59,7 @@ interface CanonRecord {
   historicalContext: string;
   visualNotes: string;
   notes?: string | null;
+  typography?: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   portraitUrl?: string | null;
   notionPageId?: string | null;
   specRefCount: number;
@@ -80,6 +81,7 @@ interface FormState {
   historicalContext: string;
   visualNotes: string;
   notes: string;
+  typography: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   portraitUrl: string | null;
 }
 
@@ -92,6 +94,7 @@ function createEmptyForm(search: string): FormState {
     historicalContext: "",
     visualNotes: "",
     notes: "",
+    typography: [],
     portraitUrl: null,
   };
 }
@@ -221,6 +224,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         historicalContext: record.historicalContext ?? "",
         visualNotes: record.visualNotes ?? "",
         notes: record.notes ?? "",
+        typography: record.typography ?? [],
         portraitUrl: record.portraitUrl ?? null,
       });
     }
@@ -243,6 +247,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         historical_context: form.historicalContext,
         visual_notes: form.visualNotes,
         notes: form.notes,
+        typography: form.typography,
         portrait_url: form.portraitUrl,
       };
       if (isNew) {
@@ -434,8 +439,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     >
       {key === "visual" && (
         <FontLibraryPicker
-          value={value}
-          onApply={font => setField("visualNotes", appendFontReference(value, font))}
+          value={form.typography}
+          onChange={choices => setField("typography", choices as any)}
         />
       )}
       <EditorialRichTextField value={value} placeholder={placeholder} minHeight={minHeight} onChange={next => setField(key === "narrative" ? "narrativeDetails" : key === "historical" ? "historicalContext" : key === "visual" ? "visualNotes" : "notes", next)} />

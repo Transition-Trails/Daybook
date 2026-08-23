@@ -4,7 +4,7 @@
  * DDL and backfills without changing the shared development database.
  */
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { pool } from "@workspace/db";
 
 const { applyWorldsmithEditorialMigration } = await import(
@@ -124,6 +124,105 @@ describe("WorldSmith Editorial Suite migration", () => {
         SELECT section FROM ws_prompt_modules WHERE id = 'author-choice'
       `);
       expect(result.rows).toEqual([{ section: "general" }]);
+    });
+  });
+
+  it("backfills only catalog-matched font blocks once, retaining unmatched prose for review", async () => {
+    await inIsolatedSchema(async (client, schema) => {
+      await client.query(`
+        CREATE TABLE fonts (
+          id TEXT PRIMARY KEY,
+          family_name TEXT NOT NULL,
+          curated_pairings JSONB NOT NULL DEFAULT '[]'
+        );
+        INSERT INTO fonts (id, family_name, curated_pairings)
+        VALUES ('font-lora', 'Lora', '[{"role":"heading","weight":"700"},{"role":"body","weight":"400"}]');
+
+        CREATE TABLE worldsmith_worlds (
+          id TEXT PRIMARY KEY,
+          visual_palette TEXT
+        );
+        CREATE TABLE ws_canon_records (
+          id TEXT PRIMARY KEY,
+          world_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'proposed',
+          visual_notes TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE ws_style_guides (
+          id TEXT PRIMARY KEY,
+          world_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          content TEXT NOT NULL DEFAULT ''
+        );
+
+        INSERT INTO worldsmith_worlds (id, visual_palette)
+        VALUES ('world-1', 'World palette
+Daybook Font: Lora
+Curated roles: heading 700, body 400
+Available variants: 8');
+        INSERT INTO ws_canon_records (id, world_id, name, visual_notes)
+        VALUES ('canon-1', 'world-1', 'The Lantern', '<p>Daybook Font: Lora<br>Curated roles: heading 700, body 400<br>Source notes: legacy catalog note</p><p>Keep this visual note.</p>');
+        INSERT INTO ws_style_guides (id, world_id, name, content)
+        VALUES ('style-1', 'world-1', 'House Style', 'Daybook Font: Lora
+Curated roles: heading 700, body 400
+Daybook Font: Missing Family
+Curated roles: body 400
+Available variants: 2
+Source notes: manual source');
+      `);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      let warnings: unknown[][] = [];
+      try {
+        await applyWorldsmithEditorialMigration(client, schema);
+        warnings = warn.mock.calls;
+      } finally {
+        warn.mockRestore();
+      }
+
+      const expectedTypography = [{
+        fontId: "font-lora",
+        family: "Lora",
+        roles: [{ role: "heading", weight: "700" }, { role: "body", weight: "400" }],
+      }];
+      const world = await client.query<{ typography: unknown; prose: string }>(
+        `SELECT typography, visual_palette AS prose FROM worldsmith_worlds WHERE id = 'world-1'`,
+      );
+      const canon = await client.query<{ typography: unknown; prose: string }>(
+        `SELECT typography, visual_notes AS prose FROM ws_canon_records WHERE id = 'canon-1'`,
+      );
+      const style = await client.query<{ typography: unknown; prose: string }>(
+        `SELECT typography, content AS prose FROM ws_style_guides WHERE id = 'style-1'`,
+      );
+      // The old picker omitted notes, variants, or both when those values were
+      // empty. All valid historical shapes must migrate.
+      expect(world.rows[0]?.typography).toEqual(expectedTypography);
+      expect(canon.rows[0]?.typography).toEqual(expectedTypography);
+      expect(style.rows[0]?.typography).toEqual(expectedTypography);
+      expect(world.rows[0]?.prose).not.toContain("Daybook Font:");
+      expect(canon.rows[0]?.prose).toContain("Keep this visual note.");
+      expect(canon.rows[0]?.prose).not.toContain("Daybook Font:");
+      expect(style.rows[0]?.prose).toContain("Daybook Font: Missing Family");
+      expect(warnings).toEqual([
+        [expect.stringContaining("unmatched legacy font reference")],
+      ]);
+
+      // The newly introduced typography column marks the migration as complete.
+      // An intentional empty selection must not be regenerated on later runs.
+      await client.query(`
+        UPDATE ws_style_guides
+        SET typography = '[]', content = 'Daybook Font: Lora
+Curated roles: heading 700, body 400
+Available variants: 8
+Source notes: author deliberately removed it'
+        WHERE id = 'style-1'
+      `);
+      await applyWorldsmithEditorialMigration(client, schema);
+      const rerun = await client.query<{ typography: unknown; content: string }>(
+        `SELECT typography, content FROM ws_style_guides WHERE id = 'style-1'`,
+      );
+      expect(rerun.rows[0]?.typography).toEqual([]);
+      expect(rerun.rows[0]?.content).toContain("Daybook Font: Lora");
     });
   });
 });

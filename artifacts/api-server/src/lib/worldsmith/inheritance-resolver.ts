@@ -839,6 +839,7 @@ export async function resolveInheritanceChainLocal(specId: string): Promise<Inhe
       notionPageId: row.notionPageId ?? undefined,
       name: row.name,
       content: row.content,
+      typography: row.typography,
     };
     resolvedSourceIds.style_guide = row.id;
   }
@@ -947,6 +948,7 @@ export async function resolveInheritanceChainLocal(specId: string): Promise<Inhe
       emotionalRegister: row.emotionalRegister,
       sensoryClauses: row.sensoryClauses,
       notes: row.notes,
+      typography: row.typography,
     });
   }
   if (localSpec.canonRecordIds.length > 0) {
@@ -989,6 +991,7 @@ export async function resolveInheritanceChainLocalWithWorldBible(
     atmosphericNotes: string | null;
     materialWorld: string | null;
     worldRules: string[] | null;
+    typography: WorldBible["typography"];
   } | undefined;
   try {
     [worldBibleRow] = await db
@@ -998,6 +1001,7 @@ export async function resolveInheritanceChainLocalWithWorldBible(
         atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
         materialWorld: worldsmithWorldsTable.materialWorld,
         worldRules: worldsmithWorldsTable.worldRules,
+        typography: worldsmithWorldsTable.typography,
       })
       .from(worldsmithWorldsTable)
       .where(eq(worldsmithWorldsTable.id, worldId))
@@ -1027,6 +1031,7 @@ export async function resolveInheritanceChainLocalWithWorldBible(
       atmosphericNotes: worldBibleRow.atmosphericNotes,
       materialWorld: worldBibleRow.materialWorld,
       worldRules: worldBibleRow.worldRules ?? [],
+      typography: worldBibleRow.typography ?? [],
     },
   };
 }
@@ -1060,6 +1065,7 @@ export async function resolveLocalPreviewContextWithWorldBible(
     atmosphericNotes: string | null;
     materialWorld: string | null;
     worldRules: string[] | null;
+    typography: WorldBible["typography"];
   } | undefined;
   try {
     [world] = await db
@@ -1071,6 +1077,7 @@ export async function resolveLocalPreviewContextWithWorldBible(
         atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
         materialWorld: worldsmithWorldsTable.materialWorld,
         worldRules: worldsmithWorldsTable.worldRules,
+        typography: worldsmithWorldsTable.typography,
       })
       .from(worldsmithWorldsTable)
       .where(eq(worldsmithWorldsTable.id, localSpec.worldId))
@@ -1128,6 +1135,7 @@ export async function resolveLocalPreviewContextWithWorldBible(
       atmosphericNotes: world.atmosphericNotes,
       materialWorld: world.materialWorld,
       worldRules: world.worldRules ?? [],
+      typography: world.typography ?? [],
     },
   };
 }

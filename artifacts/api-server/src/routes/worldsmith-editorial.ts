@@ -63,6 +63,7 @@ import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
 import { callAi, callDallE } from "../lib/ai-proxy";
 import { isPromptModuleSection } from "../lib/worldsmith/types";
+import { resolveTypographyChoices, TypographyValidationError } from "../lib/worldsmith/typography";
 import {
   updatePage,
   createPage,
@@ -156,6 +157,7 @@ router.get("/v1/editorial/worlds", async (_req: Request, res: Response) => {
         atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
         materialWorld: worldsmithWorldsTable.materialWorld,
         worldRules: worldsmithWorldsTable.worldRules,
+        typography: worldsmithWorldsTable.typography,
       })
       .from(worldsmithWorldsTable)
       .orderBy(worldsmithWorldsTable.name);
@@ -416,12 +418,13 @@ router.get("/v1/editorial/canon-records", async (req: Request, res: Response) =>
 });
 
 router.post("/v1/editorial/canon-records", async (req: Request, res: Response) => {
-  const { world_id, name, canon_type, narrative_details, historical_context, visual_notes, notes, portrait_url } = req.body;
+  const { world_id, name, canon_type, narrative_details, historical_context, visual_notes, notes, portrait_url, typography } = req.body;
   if (!world_id || !name?.trim()) {
     res.status(400).json({ error: "world_id and name are required" });
     return;
   }
   try {
+    const resolvedTypography = typography === undefined ? undefined : await resolveTypographyChoices(typography);
     const id = crypto.randomUUID();
     const [row] = await db
       .insert(wsCanonRecordsTable)
@@ -433,6 +436,7 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
         narrativeDetails: sanitizeEditorialRichText(narrative_details ?? ""),
         historicalContext: sanitizeEditorialRichText(historical_context ?? ""),
         visualNotes: sanitizeEditorialRichText(visual_notes ?? ""),
+        ...(resolvedTypography !== undefined ? { typography: resolvedTypography } : {}),
         notes: sanitizeEditorialRichText(notes ?? ""),
         portraitUrl: portrait_url ?? null,
         createdBy: (req.user as any)?.id,
@@ -440,6 +444,10 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
       .returning();
     res.status(201).json({ canon_record: row });
   } catch (err) {
+    if (err instanceof TypographyValidationError) {
+      res.status(400).json({ error: err.message, code: "INVALID_TYPOGRAPHY" });
+      return;
+    }
     logger.error({ err }, "editorial: create canon record");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -973,6 +981,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     narrative_visibility, temporal_scope, canon_stability,
     from_entity_id, to_entity_id, emotional_valence,
     portrait_url, notes,
+    typography,
   } = req.body;
   // Validate emotional_register if provided
   const VALID_REGISTERS = ["Withholding", "Intimate", "Guarded", "Trespass", "Absence", "Confidence"];
@@ -1025,6 +1034,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     }
   }
   try {
+    const resolvedTypography = typography === undefined ? undefined : await resolveTypographyChoices(typography);
     const [row] = await db
       .update(wsCanonRecordsTable)
       .set({
@@ -1033,6 +1043,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(narrative_details !== undefined ? { narrativeDetails: sanitizeEditorialRichText(narrative_details) } : {}),
         ...(historical_context !== undefined ? { historicalContext: sanitizeEditorialRichText(historical_context) } : {}),
         ...(visual_notes !== undefined ? { visualNotes: sanitizeEditorialRichText(visual_notes) } : {}),
+        ...(resolvedTypography !== undefined ? { typography: resolvedTypography } : {}),
         ...(emotional_register !== undefined ? { emotionalRegister: emotional_register } : {}),
         ...(sensory_clauses !== undefined ? { sensoryClauses: sensory_clauses } : {}),
         ...(register_locked !== undefined ? { registerLocked: register_locked } : {}),
@@ -1089,6 +1100,10 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
 
     res.json({ canon_record: row });
   } catch (err) {
+    if (err instanceof TypographyValidationError) {
+      res.status(400).json({ error: err.message, code: "INVALID_TYPOGRAPHY" });
+      return;
+    }
     logger.error({ err }, "editorial: update canon record");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -1630,18 +1645,29 @@ router.get("/v1/editorial/style-guides", async (req: Request, res: Response) => 
 });
 
 router.post("/v1/editorial/style-guides", async (req: Request, res: Response) => {
-  const { world_id, name, content } = req.body;
+  const { world_id, name, content, typography } = req.body;
   if (!world_id || !name?.trim()) {
     res.status(400).json({ error: "world_id and name are required" });
     return;
   }
   try {
+    const resolvedTypography = typography === undefined ? undefined : await resolveTypographyChoices(typography);
     const [row] = await db
       .insert(wsStyleGuidesTable)
-      .values({ id: crypto.randomUUID(), worldId: world_id, name: name.trim(), content: sanitizeEditorialRichText(content ?? "") })
+      .values({
+        id: crypto.randomUUID(),
+        worldId: world_id,
+        name: name.trim(),
+        content: sanitizeEditorialRichText(content ?? ""),
+        ...(resolvedTypography !== undefined ? { typography: resolvedTypography } : {}),
+      })
       .returning();
     res.status(201).json({ style_guide: row });
   } catch (err) {
+    if (err instanceof TypographyValidationError) {
+      res.status(400).json({ error: err.message, code: "INVALID_TYPOGRAPHY" });
+      return;
+    }
     logger.error({ err }, "editorial: create style guide");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -1780,15 +1806,24 @@ router.get("/v1/editorial/style-guides/:id", async (req: Request, res: Response)
 });
 
 router.patch("/v1/editorial/style-guides/:id", async (req: Request, res: Response) => {
-  const { name, content } = req.body;
+  const { name, content, typography } = req.body;
   try {
+    const resolvedTypography = typography === undefined ? undefined : await resolveTypographyChoices(typography);
     const [row] = await db.update(wsStyleGuidesTable)
-      .set({ ...(name !== undefined ? { name } : {}), ...(content !== undefined ? { content: sanitizeEditorialRichText(content) } : {}) })
+      .set({
+        ...(name !== undefined ? { name } : {}),
+        ...(content !== undefined ? { content: sanitizeEditorialRichText(content) } : {}),
+        ...(resolvedTypography !== undefined ? { typography: resolvedTypography } : {}),
+      })
       .where(eq(wsStyleGuidesTable.id, req.params.id as string))
       .returning();
     if (!row) { res.status(404).json({ error: "Style guide not found" }); return; }
     res.json({ style_guide: row });
   } catch (err) {
+    if (err instanceof TypographyValidationError) {
+      res.status(400).json({ error: err.message, code: "INVALID_TYPOGRAPHY" });
+      return;
+    }
     logger.error({ err }, "editorial: update style guide");
     res.status(500).json({ error: "Internal server error" });
   }

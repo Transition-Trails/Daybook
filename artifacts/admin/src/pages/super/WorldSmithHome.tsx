@@ -18,7 +18,7 @@ import { bibleRichTextToPlainText, sanitizeBibleRichText } from "@/lib/world-bib
 import { useToast } from "@/hooks/use-toast";
 import { CopilotPanel } from "@/components/CopilotPanel";
 import { PaletteLibraryPicker, paletteReferenceText } from "@/components/PaletteLibraryPicker";
-import { FontLibraryPicker, appendFontReference } from "@/components/FontLibraryPicker";
+import { FontLibraryPicker } from "@/components/FontLibraryPicker";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -44,6 +44,7 @@ export interface WsWorld {
   proseVoice?: string | null;
   atmosphericNotes?: string | null;
   materialWorld?: string | null;
+  typography?: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   createdAt: string;
   updatedAt: string;
   // Hero background image
@@ -104,7 +105,7 @@ function createWsApi(storeId?: string) {
   worlds: () => worldsmithFetch<{ worlds: WsWorld[] }>("/v1/worldsmith/worlds", storeId),
   createWorld: (body: Partial<WsWorld>) =>
     worldsmithFetch<WsWorld>("/v1/worldsmith/worlds", storeId, { method: "POST", body: JSON.stringify(body) }),
-  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume" | "worldRules" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "coverImageUrl">>) =>
+  updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume" | "worldRules" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "typography" | "coverImageUrl">>) =>
     worldsmithFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(id)}`, storeId, { method: "PATCH", body: JSON.stringify(body) }),
   runs: (worldId?: string) =>
     worldsmithFetch<{ runs: WsRun[] }>(`/v1/worldsmith/runs${worldId ? `?world_id=${encodeURIComponent(worldId)}` : ""}`, storeId),
@@ -1612,7 +1613,7 @@ export function WorldBibleSection({
   onSaved,
   storeId,
 }: {
-  world: Pick<WsWorld, "id" | "name" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "worldRules">;
+  world: Pick<WsWorld, "id" | "name" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "worldRules" | "typography">;
   showCopilot?: boolean;
   onSaved?: (updatedWorld: WsWorld) => void;
   storeId?: string;
@@ -1625,6 +1626,7 @@ export function WorldBibleSection({
     atmosphericNotes: world.atmosphericNotes ?? "",
     materialWorld: world.materialWorld ?? "",
     worldRules: world.worldRules ?? [] as string[],
+    typography: world.typography ?? [],
   });
   const [newRule, setNewRule] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -1726,7 +1728,7 @@ export function WorldBibleSection({
     onError: () => toast({ title: "Failed to save", variant: "destructive" }),
   });
 
-  const set = (field: BibleTextField, value: string) => {
+  const set = (field: BibleTextField | "typography", value: any) => {
     setForm(f => ({ ...f, [field]: value })); setDirty(true);
     // A manual edit invalidates any pending undo for that field
     setUndoBuffer(u => (u && u.field === field ? null : u));
@@ -1784,8 +1786,8 @@ export function WorldBibleSection({
                     worldId={world.id}
                   />
                   <FontLibraryPicker
-                    value={form.visualPalette}
-                    onApply={font => set("visualPalette", appendFontReference(form.visualPalette, font))}
+                    value={form.typography}
+                    onChange={choices => set("typography", choices as any)}
                   />
                 </>
               )}
@@ -1999,6 +2001,7 @@ function IntegrationsSection({
     currentVolume: world.currentVolume ?? "",
     worldRules: world.worldRules ?? [] as string[],
     visualPalette: world.visualPalette ?? "",
+    typography: world.typography ?? [],
     proseVoice: world.proseVoice ?? "",
     atmosphericNotes: world.atmosphericNotes ?? "",
     materialWorld: world.materialWorld ?? "",
@@ -2017,6 +2020,7 @@ function IntegrationsSection({
         currentVolume: form.currentVolume.trim() || null,
         worldRules: form.worldRules,
         visualPalette: form.visualPalette.trim() || null,
+        typography: form.typography,
         proseVoice: form.proseVoice.trim() || null,
         atmosphericNotes: form.atmosphericNotes.trim() || null,
         materialWorld: form.materialWorld.trim() || null,
@@ -2336,6 +2340,7 @@ function IntegrationsSection({
                   currentVolume: world.currentVolume ?? "",
                   worldRules: world.worldRules ?? [],
                   visualPalette: world.visualPalette ?? "",
+                  typography: world.typography ?? [],
                   proseVoice: world.proseVoice ?? "",
                   atmosphericNotes: world.atmosphericNotes ?? "",
                   materialWorld: world.materialWorld ?? "",

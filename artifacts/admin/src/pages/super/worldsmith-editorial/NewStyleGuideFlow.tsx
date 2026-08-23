@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { EditorialCopilot } from "@/components/EditorialCopilot";
 import type { ApplyTarget } from "@/components/CopilotPanel";
 import { PaletteLibraryPicker, paletteReferenceText } from "@/components/PaletteLibraryPicker";
-import { FontLibraryPicker, appendFontReference } from "@/components/FontLibraryPicker";
+import { FontLibraryPicker } from "@/components/FontLibraryPicker";
 
 // ── Form state ────────────────────────────────────────────────────────────────
 
@@ -31,6 +31,7 @@ interface FormState {
   textureAndMaterials: string;
   // Typography & Tone
   typefaceDirection: string;
+  typography: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   typeHierarchy: string;
   proseVoice: string;
   register: string;
@@ -49,6 +50,7 @@ const EMPTY: FormState = {
   illustrationStyle: "",
   textureAndMaterials: "",
   typefaceDirection: "",
+  typography: [],
   typeHierarchy: "",
   proseVoice: "",
   register: "",
@@ -489,8 +491,8 @@ function TypographySection({ f, set, onFocus }: {
         action={hasSuggestions ? <SuggestChip onClick={() => set("typefaceDirection", suggest.typefaceDirection)} /> : undefined}
       >
         <FontLibraryPicker
-          value={f.typefaceDirection}
-          onApply={font => set("typefaceDirection", appendFontReference(f.typefaceDirection, font))}
+          value={f.typography}
+          onChange={choices => set("typography", choices as any)}
         />
         <textarea value={f.typefaceDirection} onChange={e => set("typefaceDirection", e.target.value)} onFocus={() => onFocus?.("typefaceDirection", "Typeface Direction")} className={textareaCls} rows={4} placeholder="Primary, secondary, display typefaces and their contexts…" />
       </Field>
@@ -655,6 +657,7 @@ export default function NewStyleGuideFlow() {
           world_id: selectedWorldId,
           name: form.name.trim(),
           content,
+          typography: form.typography,
         }),
       });
     },

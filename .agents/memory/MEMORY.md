@@ -53,3 +53,4 @@
 - [WorldSmith Stories + Bible tabs](worldsmith-stories-bible-tabs.md) — WorldSmithHome FocusedWorldView now has Stories + World Bible tabs; StoriesSection fetches ws_stories; WorldBibleSection edits prose-first Bible fields
 - [Editorial browser verification](editorial-browser-verification.md) — use the test-only CI super-admin with a local Playwright server; browser-agent sandboxes cannot reach ephemeral shell ports
 - [WorldSmith publishing readiness](worldsmith-publishing-readiness.md) — prompt modules remain a mandatory publish gate for local WorldSmith specs
+- [WorldSmith typography migration](worldsmith-typography-migration.md) — legacy font prose is preserved for review but never reaches compiled image prompts

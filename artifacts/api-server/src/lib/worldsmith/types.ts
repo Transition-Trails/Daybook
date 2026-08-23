@@ -51,6 +51,7 @@ export interface StyleGuide {
   notionPageId?: string;
   name: string;
   content: string;
+  typography?: TypographyChoice[];
 }
 
 export interface ComponentSpec {
@@ -89,6 +90,14 @@ export interface CanonRecord {
   emotionalRegister?: string | null;
   sensoryClauses?: string;
   notes?: string;
+  typography?: TypographyChoice[];
+}
+
+/** A catalog-backed typeface selection safe to include in image-generation prompts. */
+export interface TypographyChoice {
+  fontId: string;
+  family: string;
+  roles: Array<{ role: string; weight?: string }>;
 }
 
 /** World Bible fields fetched from the local DB for the world that owns this spec. */
@@ -98,6 +107,7 @@ export interface WorldBible {
   atmosphericNotes?: string | null; // ambient mood, emotional texture
   materialWorld?: string | null;    // textures, surfaces, physical substances
   worldRules?: string[];            // hard negatives compiled last onto every prompt
+  typography?: TypographyChoice[];
 }
 
 export interface InheritanceChain {
@@ -275,6 +285,8 @@ export interface CompiledPromptSections {
   canon_policy: string;
   negative_constraints: string;
   print_and_output_requirements: string;
+  /** Structured typography is emitted as a prompt section, never folded into prose. */
+  typography: string;
   /**
    * PP-2.0 content is deliberately exposed under its own section names.
    * The legacy composition/materials keys remain for PP-1.0 callers only.

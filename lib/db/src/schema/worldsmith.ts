@@ -178,6 +178,12 @@ export const worldsmithWorldsTable = pgTable("worldsmith_worlds", {
   proseVoice:        text("prose_voice"),         // tense, person, sentence rhythm, register
   atmosphericNotes:  text("atmospheric_notes"),   // ambient mood, emotional texture
   materialWorld:     text("material_world"),      // textures, surfaces, physical substances
+  // Catalog-backed selections only; compiled separately from editorial prose.
+  typography: jsonb("typography").$type<Array<{
+    fontId: string;
+    family: string;
+    roles: Array<{ role: string; weight?: string }>;
+  }>>().notNull().default([]),
   // Bumped when a style rule changes; triggers re-flagging of all affected assets
   styleGuideVersion: integer("style_guide_version").notNull().default(1),
   // Google Drive folder

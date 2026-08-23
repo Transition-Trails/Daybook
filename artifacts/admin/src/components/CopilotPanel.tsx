@@ -411,6 +411,10 @@ function CopilotPanelSession({
   const [copyError, setCopyError] = useState<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const copiedSummaryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copiedSummaryTimeoutRef.current) clearTimeout(copiedSummaryTimeoutRef.current);
+  }, []);
   // Seed msgIdRef above any restored messages so IDs don't collide.
   const msgIdRef = useRef(chat.reduce((max, m) => Math.max(max, m.id), 0));
   const nextId = () => ++msgIdRef.current;
@@ -679,7 +683,11 @@ function CopilotPanelSession({
       }
       setCopiedSummary(true);
       setCopyError(null);
-      window.setTimeout(() => setCopiedSummary(false), 1800);
+      if (copiedSummaryTimeoutRef.current) clearTimeout(copiedSummaryTimeoutRef.current);
+      copiedSummaryTimeoutRef.current = setTimeout(() => {
+        copiedSummaryTimeoutRef.current = null;
+        setCopiedSummary(false);
+      }, 1800);
     } catch {
       setCopiedSummary(false);
       setCopyError("Couldn’t copy notes. Try again or select the text to copy it manually.");

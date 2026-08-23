@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronDown, Loader2, Type } from "lucide-react";
+import { Check, ChevronDown, Loader2, Type, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export interface DaybookFont {
@@ -12,38 +12,32 @@ export interface DaybookFont {
   status: "draft" | "live";
 }
 
-export function fontReferenceText(font: DaybookFont): string {
-  const roles = font.curatedPairings
-    .map(pairing => `${pairing.role}${pairing.weight ? ` ${pairing.weight}` : ""}`)
-    .join(", ");
-  return [
-    `Daybook Font: ${font.familyName}`,
-    roles ? `Curated roles: ${roles}` : "Curated roles: general use",
-    font.variants.length ? `Available variants: ${font.variants.length}` : "",
-    font.notes?.trim() ? `Source notes: ${font.notes.trim()}` : "",
-  ].filter(Boolean).join("\n");
+export interface TypographyChoice {
+  fontId: string;
+  family: string;
+  roles: Array<{ role: string; weight?: string }>;
 }
 
-export function appendFontReference(current: string, font: DaybookFont): string {
-  const reference = fontReferenceText(font);
-  if (current.includes(`Daybook Font: ${font.familyName}`)) return current;
-  if (/<[a-z][\s\S]*>/i.test(current)) {
-    const safeReference = reference
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/\n/g, "<br>");
-    return `${current}<p>${safeReference}</p>`;
+export function toggleTypographyChoice(
+  value: TypographyChoice[],
+  font: DaybookFont,
+): TypographyChoice[] {
+  if (value.some((choice) => choice.fontId === font.id)) {
+    return value.filter((choice) => choice.fontId !== font.id);
   }
-  return current.trim() ? `${current.trim()}\n\n${reference}` : reference;
+  return [...value, {
+    fontId: font.id,
+    family: font.familyName,
+    roles: font.curatedPairings.map(({ role, weight }) => ({ role, weight })),
+  }];
 }
 
 export function FontLibraryPicker({
-  value,
-  onApply,
+  value = [],
+  onChange,
 }: {
-  value: string;
-  onApply: (font: DaybookFont) => void;
+  value?: TypographyChoice[] | null;
+  onChange: (choices: TypographyChoice[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const { data, isLoading, isError } = useQuery({
@@ -52,9 +46,38 @@ export function FontLibraryPicker({
     staleTime: 60_000,
   });
   const fonts = data ?? [];
+  const selectedChoices = value ?? [];
+
+  const handleToggle = (font: DaybookFont) => {
+    onChange(toggleTypographyChoice(selectedChoices, font));
+  };
+
+  const handleRemove = (fontId: string) => {
+    onChange(selectedChoices.filter(c => c.fontId !== fontId));
+  };
 
   return (
     <div className="mb-3 rounded-xl border border-[#E7E0D7] bg-[#FAF8F3] p-3">
+      {selectedChoices.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {selectedChoices.map(choice => (
+            <div key={choice.fontId} className="flex items-center gap-1.5 rounded-full border border-[#C87560]/30 bg-[#FFF7F3] pl-2.5 pr-1 py-1 shadow-sm">
+              <span className="text-xs font-medium text-[#1B2A4A]" style={{ fontFamily: `"${choice.family}", Georgia, serif` }}>
+                {choice.family}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleRemove(choice.fontId)}
+                className="flex h-4 w-4 items-center justify-center rounded-full text-[#C87560] hover:bg-[#C87560]/10 transition-colors"
+                aria-label={`Remove ${choice.family}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <button
         type="button"
         onClick={() => setOpen(current => !current)}
@@ -69,9 +92,11 @@ export function FontLibraryPicker({
         </span>
         <ChevronDown className={`h-4 w-4 text-[#7C6F62] transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
-      <p className="mt-1 pl-8 text-[11px] leading-relaxed text-[#7C6F62]">
-        Pull a curated family and its usage roles from the Daybook Fonts catalog.
-      </p>
+      {!selectedChoices.length && (
+        <p className="mt-1 pl-8 text-[11px] leading-relaxed text-[#7C6F62]">
+          Select fonts from the Daybook catalog to attach them to this document.
+        </p>
+      )}
 
       {open && (
         <div className="mt-3 max-h-60 space-y-1.5 overflow-y-auto pr-1">
@@ -82,23 +107,20 @@ export function FontLibraryPicker({
           )}
           {isError && (
             <p className="px-2 py-3 text-xs text-red-600">
-              The Daybook Fonts catalog could not be loaded. You can still enter typefaces manually.
+              The Daybook Fonts catalog could not be loaded.
             </p>
           )}
           {!isLoading && !isError && fonts.length === 0 && (
             <p className="px-2 py-3 text-xs text-[#7C6F62]">No Daybook fonts are available yet.</p>
           )}
           {fonts.map(font => {
-            const selected = value.includes(`Daybook Font: ${font.familyName}`);
+            const selected = selectedChoices.some(c => c.fontId === font.id);
             const roles = [...new Set(font.curatedPairings.map(pairing => pairing.role))];
             return (
               <button
                 key={font.id}
                 type="button"
-                onClick={() => {
-                  onApply(font);
-                  setOpen(false);
-                }}
+                onClick={() => handleToggle(font)}
                 className="flex w-full items-center gap-3 rounded-lg border px-2.5 py-2 text-left transition-colors hover:border-[#C87560]/50"
                 style={{
                   borderColor: selected ? "#C87560" : "#E7E0D7",

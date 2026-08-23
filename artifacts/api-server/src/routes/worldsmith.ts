@@ -52,6 +52,7 @@ import {
 import { resolveInheritanceChain, InheritanceError } from "../lib/worldsmith/inheritance-resolver";
 import { normalizeNotionId as normalizeId } from "../lib/worldsmith/normalize-id";
 import { sanitizeWorldBibleRichText, worldBibleRichTextToPlainText } from "../lib/worldsmith/world-bible-rich-text";
+import { resolveTypographyChoices, TypographyValidationError } from "../lib/worldsmith/typography";
 
 const router = Router();
 
@@ -624,6 +625,7 @@ export function buildEnrichedWorld(
     atmosphericNotes: w.atmosphericNotes,
     materialWorld: w.materialWorld,
     worldRules: w.worldRules,
+    typography: w.typography,
     coverImageUrl: w.coverImageUrl ?? null,
   };
 }
@@ -1585,6 +1587,7 @@ router.patch("/v1/worldsmith/worlds/:id", requireStoreAccess("store_staff"), req
     atmosphericNotes?: unknown;
     materialWorld?: unknown;
     coverImageUrl?: unknown;
+    typography?: unknown;
   };
 
   // Build a patch object with only the keys the caller supplied
@@ -1641,6 +1644,15 @@ router.patch("/v1/worldsmith/worlds/:id", requireStoreAccess("store_staff"), req
     patch.worldRules = body.worldRules
       ? body.worldRules.map((r: string) => r.trim()).filter(Boolean)
       : [];
+  }
+  if ("typography" in body) {
+    try {
+      patch.typography = await resolveTypographyChoices(body.typography);
+    } catch (err) {
+      const message = err instanceof TypographyValidationError ? err.message : "Invalid typography selection.";
+      res.status(400).json({ error: message, code: "INVALID_TYPOGRAPHY" });
+      return;
+    }
   }
 
   if (Object.keys(patch).length === 0) {

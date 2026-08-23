@@ -12,7 +12,7 @@ import {
   EditorialSection,
   editorialRichTextToPlainText,
 } from "@/components/EditorialRichText";
-import { FontLibraryPicker, appendFontReference } from "@/components/FontLibraryPicker";
+import { FontLibraryPicker } from "@/components/FontLibraryPicker";
 
 type DocumentKind = "style-guide" | "prompt-module";
 type PromptModuleSection = "world" | "style" | "general";
@@ -23,6 +23,7 @@ type EditorialDocument = {
   content: string;
   section?: PromptModuleSection;
   dependencyIds?: string[] | null;
+  typography?: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
 };
 
 const CONFIG = {
@@ -55,6 +56,7 @@ export default function EditorialDocumentEditor({ kind, documentId }: { kind: Do
   const [name, setName] = useState("");
   const [section, setSection] = useState<PromptModuleSection>("general");
   const [content, setContent] = useState("");
+  const [typography, setTypography] = useState<Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>>([]);
   const [open, setOpen] = useState({ identity: true, content: true });
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [activeTarget, setActiveTarget] = useState<ApplyTarget>({ key: "content", label: "Document content" });
@@ -71,6 +73,7 @@ export default function EditorialDocumentEditor({ kind, documentId }: { kind: Do
       setName(document.name);
       setSection(document.section ?? "general");
       setContent(document.content);
+      setTypography(document.typography ?? []);
     }
   }, [document]);
 
@@ -80,6 +83,7 @@ export default function EditorialDocumentEditor({ kind, documentId }: { kind: Do
       body: JSON.stringify({
         name: name.trim(),
         content,
+        typography,
         ...(kind === "prompt-module" ? { section } : {}),
       }),
     }),
@@ -175,8 +179,8 @@ export default function EditorialDocumentEditor({ kind, documentId }: { kind: Do
               </div>
               {kind === "style-guide" && (
                 <FontLibraryPicker
-                  value={content}
-                  onApply={font => setContent(current => appendFontReference(current, font))}
+                  value={typography}
+                  onChange={choices => setTypography(choices as any)}
                 />
               )}
               <EditorialRichTextField

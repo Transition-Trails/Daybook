@@ -60,6 +60,11 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   narrativeDetails: text("narrative_details").notNull().default(""),
   historicalContext: text("historical_context").notNull().default(""),
   visualNotes: text("visual_notes").notNull().default(""),
+  typography: jsonb("typography").$type<Array<{
+    fontId: string;
+    family: string;
+    roles: Array<{ role: string; weight?: string }>;
+  }>>().notNull().default([]),
   // Worldsmith Canon Records UI — three new fields (Step 1)
   // Withholding | Intimate | Guarded | Trespass | Absence | Confidence
   emotionalRegister: text("emotional_register"),
@@ -121,6 +126,11 @@ export const wsStyleGuidesTable = pgTable("ws_style_guides", {
   worldId: text("world_id").notNull(),
   name: text("name").notNull(),
   content: text("content").notNull().default(""),
+  typography: jsonb("typography").$type<Array<{
+    fontId: string;
+    family: string;
+    roles: Array<{ role: string; weight?: string }>;
+  }>>().notNull().default([]),
   notionPageId: text("notion_page_id"),
   syncedAt: timestamp("synced_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

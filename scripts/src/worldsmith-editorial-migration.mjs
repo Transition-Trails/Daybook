@@ -4,6 +4,99 @@
  * Both the TypeScript and JavaScript entry points call this module so their
  * schema and upgrade behavior cannot drift apart.
  */
+
+const HTML_FONT_REFERENCE = /<p>\s*Daybook Font:\s*([^<\r\n]+?)\s*<br\s*\/?>\s*Curated roles:\s*[^<\r\n]*(?:\s*<br\s*\/?>\s*Available variants:\s*[^<\r\n]*)?(?:\s*<br\s*\/?>\s*Source notes:\s*[\s\S]*?)?\s*<\/p>/gi;
+const TEXT_FONT_REFERENCE = /(?:^|\r?\n)Daybook Font:[ \t]*([^\r\n]+?)[ \t]*\r?\nCurated roles:[ \t]*[^\r\n]*[ \t]*(?:\r?\nAvailable variants:[ \t]*[^\r\n]*[ \t]*)?(?:\r?\nSource notes:[ \t]*[^\r\n]*)?(?=\r?\n|$)/gim;
+
+async function tableExists(client, schema, table) {
+  const result = await client.query(`
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = $1 AND table_name = $2
+  `, [schema, table]);
+  return result.rows.length > 0;
+}
+
+async function columnExists(client, schema, table, column) {
+  const result = await client.query(`
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = $2 AND column_name = $3
+  `, [schema, table, column]);
+  return result.rows.length > 0;
+}
+
+function catalogTypography(font) {
+  const pairings = Array.isArray(font.curated_pairings) ? font.curated_pairings : [];
+  return {
+    fontId: font.id,
+    family: font.family_name,
+    roles: pairings
+      .filter((pairing) => pairing && typeof pairing.role === "string" && pairing.role.trim())
+      .map((pairing) => ({
+        role: pairing.role.trim(),
+        ...(typeof pairing.weight === "string" && pairing.weight.trim() ? { weight: pairing.weight.trim() } : {}),
+      })),
+  };
+}
+
+async function backfillTypographyFromProse(client, table, proseColumn) {
+  const fonts = await client.query(`
+    SELECT id, family_name, curated_pairings
+    FROM fonts
+  `);
+  const fontByFamily = new Map(
+    fonts.rows.map((font) => [String(font.family_name).trim().toLowerCase(), font]),
+  );
+  const rows = await client.query(`
+    SELECT id, ${proseColumn} AS prose
+    FROM ${table}
+  `);
+
+  for (const row of rows.rows) {
+    if (typeof row.prose !== "string" || !row.prose.includes("Daybook Font:")) continue;
+
+    const typography = [];
+    let prose = row.prose;
+    let unmatched = false;
+    for (const pattern of [HTML_FONT_REFERENCE, TEXT_FONT_REFERENCE]) {
+      // RegExp instances with the global flag retain a cursor. Recreate the
+      // matcher per row so a previous record cannot hide a later legacy block.
+      const matches = Array.from(row.prose.matchAll(new RegExp(pattern.source, pattern.flags)));
+      for (const match of matches) {
+        const family = match[1]?.trim() ?? "";
+        const font = fontByFamily.get(family.toLowerCase());
+        if (!font) {
+          unmatched = true;
+          continue;
+        }
+        typography.push(catalogTypography(font));
+        prose = prose.replace(match[0], "");
+      }
+    }
+
+    if (typography.length > 0) {
+      const distinct = Array.from(new Map(typography.map((choice) => [choice.fontId, choice])).values());
+      await client.query(`
+        UPDATE ${table}
+        SET typography = $1::jsonb, ${proseColumn} = $2
+        WHERE id = $3
+      `, [JSON.stringify(distinct), prose, row.id]);
+    }
+    if (unmatched) {
+      console.warn(`[worldsmith typography migration] ${table}:${row.id} contains an unmatched legacy font reference; prose was retained for manual review.`);
+    }
+  }
+}
+
+async function addTypographyOnce(client, schema, table, proseColumn) {
+  if (!(await tableExists(client, schema, table))) return;
+  if (await columnExists(client, schema, table, "typography")) return;
+
+  await client.query(`ALTER TABLE ${table} ADD COLUMN typography JSONB NOT NULL DEFAULT '[]';`);
+  await backfillTypographyFromProse(client, table, proseColumn);
+}
+
 export async function applyWorldsmithEditorialMigration(client, schema = "public") {
   // ── Collections ───────────────────────────────────────────────────────────
   await client.query(`
@@ -53,6 +146,7 @@ export async function applyWorldsmithEditorialMigration(client, schema = "public
       narrative_details TEXT NOT NULL DEFAULT '',
       historical_context TEXT NOT NULL DEFAULT '',
       visual_notes      TEXT NOT NULL DEFAULT '',
+       typography        JSONB NOT NULL DEFAULT '[]',
       spec_ref_count    INTEGER NOT NULL DEFAULT 0,
       notion_page_id    TEXT,
       synced_at         TIMESTAMPTZ,
@@ -82,6 +176,7 @@ export async function applyWorldsmithEditorialMigration(client, schema = "public
       world_id         TEXT NOT NULL,
       name             TEXT NOT NULL,
       content          TEXT NOT NULL DEFAULT '',
+       typography       JSONB NOT NULL DEFAULT '[]',
       notion_page_id   TEXT,
       synced_at        TIMESTAMPTZ,
       created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -89,6 +184,12 @@ export async function applyWorldsmithEditorialMigration(client, schema = "public
     );
   `);
   await client.query(`CREATE INDEX IF NOT EXISTS ws_style_guides_world_idx ON ws_style_guides(world_id);`);
+
+  // Typography is backfilled only at column introduction. An empty array is a
+  // deliberate author state, so re-running this migration must never revisit it.
+  await addTypographyOnce(client, schema, "ws_canon_records", "visual_notes");
+  await addTypographyOnce(client, schema, "ws_style_guides", "content");
+  await addTypographyOnce(client, schema, "worldsmith_worlds", "visual_palette");
 
   // ── Component Specs ───────────────────────────────────────────────────────
   await client.query(`

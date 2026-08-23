@@ -18,9 +18,28 @@ import { worldBibleRichTextToPlainText } from "./world-bible-rich-text";
 import { PROMPT_SECTION_ORDER } from "./types";
 
 const SECTION_DIVIDER = "\n\n";
+const LEGACY_FONT_REFERENCE_HTML = /<p>\s*Daybook Font:\s*([^<\r\n]+?)\s*<br\s*\/?>\s*Curated roles:\s*[^<\r\n]*(?:\s*<br\s*\/?>\s*Available variants:\s*[^<\r\n]*)?(?:\s*<br\s*\/?>\s*Source notes:\s*[\s\S]*?)?\s*<\/p>/gi;
+const LEGACY_FONT_REFERENCE_TEXT = /(?:^|\r?\n)Daybook Font:[ \t]*([^\r\n]+?)[ \t]*\r?\nCurated roles:[ \t]*[^\r\n]*[ \t]*(?:\r?\nAvailable variants:[ \t]*[^\r\n]*[ \t]*)?(?:\r?\nSource notes:[ \t]*[^\r\n]*)?(?=\r?\n|$)/gim;
+
+/**
+ * Historical picker metadata remains in editorial prose for manual review, but
+ * must never be inherited by an image prompt. Structured typography is the
+ * sole permitted source for the [TYPOGRAPHY] section.
+ */
+function promptSafeEditorialText(value: string): string {
+  return value
+    .replace(LEGACY_FONT_REFERENCE_HTML, "")
+    .replace(LEGACY_FONT_REFERENCE_TEXT, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function promptSafeBibleText(value: string): string {
+  return promptSafeEditorialText(worldBibleRichTextToPlainText(value));
+}
 
 function section(tag: string, content: string): string {
-  const trimmed = content.trim();
+  const trimmed = promptSafeEditorialText(content);
   if (!trimmed) return "";
   return `[${tag}]\n${trimmed}`;
 }
@@ -31,17 +50,44 @@ function rec(
   content: string,
   source: string,
 ): CompiledSectionRecord {
-  return { key, label, content: content.trim(), source };
+  return { key, label, content: promptSafeEditorialText(content), source };
 }
 
 function appendCanonRecord(parts: string[], record: InheritanceChain["canonRecords"][number]): void {
   parts.push(`Canon Record: ${record.name} (${record.status})`);
-  if (record.narrativeDetails?.trim()) parts.push(`Narrative Details: ${record.narrativeDetails}`);
-  if (record.historicalContext?.trim()) parts.push(`Historical Context: ${record.historicalContext}`);
-  if (record.visualNotes?.trim()) parts.push(`Visual Notes: ${record.visualNotes}`);
-  if (record.emotionalRegister?.trim()) parts.push(`Emotional Register: ${record.emotionalRegister}`);
-  if (record.sensoryClauses?.trim()) parts.push(`Sensory Clauses: ${record.sensoryClauses}`);
-  if (record.notes?.trim()) parts.push(`Canon Notes: ${record.notes}`);
+  const fields: Array<[string, string | null | undefined]> = [
+    ["Narrative Details", record.narrativeDetails],
+    ["Historical Context", record.historicalContext],
+    ["Visual Notes", record.visualNotes],
+    ["Emotional Register", record.emotionalRegister],
+    ["Sensory Clauses", record.sensoryClauses],
+    ["Canon Notes", record.notes],
+  ];
+  for (const [label, value] of fields) {
+    const promptSafeValue = value ? promptSafeEditorialText(value) : "";
+    if (promptSafeValue) parts.push(`${label}: ${promptSafeValue}`);
+  }
+}
+
+function typographyContent(chain: InheritanceChain): string {
+  const seen = new Set<string>();
+  const choices = [
+    ...(chain.worldBible?.typography ?? []),
+    ...(chain.styleGuide?.typography ?? []),
+    ...chain.canonRecords.flatMap((record) => record.typography ?? []),
+  ].filter((choice) => {
+    if (!choice.fontId || !choice.family || seen.has(choice.fontId)) return false;
+    seen.add(choice.fontId);
+    return true;
+  });
+
+  return choices.map((choice) => {
+    const roles = choice.roles
+      .filter((role) => role.role.trim())
+      .map((role) => `${role.role.trim()}${role.weight?.trim() ? ` ${role.weight.trim()}` : ""}`)
+      .join(", ");
+    return roles ? `${choice.family} — ${roles}` : choice.family;
+  }).join("\n");
 }
 
 export function compilePrompt(
@@ -71,7 +117,8 @@ function compileNewFormat(
   if (spec.volume) worldParts.push(`Volume: ${spec.volume}`);
   const worldModules = chain.promptModules.filter((m) => m.section === "world");
   for (const m of worldModules) {
-    if (m.content.trim()) worldParts.push(m.content.trim());
+    const promptSafeContent = promptSafeEditorialText(m.content);
+    if (promptSafeContent) worldParts.push(promptSafeContent);
   }
   const worldContent = worldParts.join("\n");
   const worldSrc = worldModules.length > 0
@@ -83,27 +130,32 @@ function compileNewFormat(
   // Injected after the world/collection context and before the style system.
   // Each field is only emitted when non-null and non-empty.
   const bible = chain.worldBible;
+  const typography = typographyContent(chain);
+  if (bible?.visualPalette?.trim()) {
+      pushSection("visual_palette", "VISUAL PALETTE", promptSafeBibleText(bible.visualPalette), "World Bible", parts, sectionRecords);
+  }
+  if (typography) {
+    pushSection("typography", "TYPOGRAPHY", typography, "World Bible, Style Guide, and Canon Records", parts, sectionRecords);
+  }
   if (bible) {
-    if (bible.visualPalette?.trim()) {
-      pushSection("visual_palette", "VISUAL PALETTE", worldBibleRichTextToPlainText(bible.visualPalette), "World Bible", parts, sectionRecords);
-    }
     if (bible.proseVoice?.trim()) {
-      pushSection("prose_voice", "PROSE VOICE", worldBibleRichTextToPlainText(bible.proseVoice), "World Bible", parts, sectionRecords);
+      pushSection("prose_voice", "PROSE VOICE", promptSafeBibleText(bible.proseVoice), "World Bible", parts, sectionRecords);
     }
     if (bible.atmosphericNotes?.trim()) {
-      pushSection("atmospheric_notes", "ATMOSPHERIC NOTES", worldBibleRichTextToPlainText(bible.atmosphericNotes), "World Bible", parts, sectionRecords);
+      pushSection("atmospheric_notes", "ATMOSPHERIC NOTES", promptSafeBibleText(bible.atmosphericNotes), "World Bible", parts, sectionRecords);
     }
     if (bible.materialWorld?.trim()) {
-      pushSection("material_world", "MATERIAL WORLD", worldBibleRichTextToPlainText(bible.materialWorld), "World Bible", parts, sectionRecords);
+      pushSection("material_world", "MATERIAL WORLD", promptSafeBibleText(bible.materialWorld), "World Bible", parts, sectionRecords);
     }
   }
 
   // [STYLE SYSTEM]
   const styleParts: string[] = [];
-  if (chain.styleGuide?.content) styleParts.push(chain.styleGuide.content.trim());
+  if (chain.styleGuide?.content) styleParts.push(promptSafeEditorialText(chain.styleGuide.content));
   const styleModules = chain.promptModules.filter((m) => m.section === "style");
   for (const m of styleModules) {
-    if (m.content.trim()) styleParts.push(m.content.trim());
+    const promptSafeContent = promptSafeEditorialText(m.content);
+    if (promptSafeContent) styleParts.push(promptSafeContent);
   }
   const styleContent = styleParts.join("\n\n");
   const styleSrc = chain.styleGuide
@@ -113,7 +165,7 @@ function compileNewFormat(
 
   // [COMPONENT REQUIREMENTS]
   const componentParts: string[] = [];
-  if (chain.componentSpec?.content) componentParts.push(chain.componentSpec.content.trim());
+  if (chain.componentSpec?.content) componentParts.push(promptSafeEditorialText(chain.componentSpec.content));
   const componentContent = componentParts.join("\n");
   const componentSrc = chain.componentSpec
     ? `Component Specification: ${chain.componentSpec.name}`
@@ -123,9 +175,10 @@ function compileNewFormat(
   // General modules are emitted as their own named compiled sections.
   const additionalModules = chain.promptModules.filter((m) => (m.section ?? "general") === "general");
   for (const m of additionalModules) {
-    if (m.content.trim()) {
+    const promptSafeContent = promptSafeEditorialText(m.content);
+    if (promptSafeContent) {
       const tag = m.name.toUpperCase().replace(/\s+/g, " ").trim();
-      pushSection(`module_${m.notionPageId}`, tag, m.content, `Prompt Module: ${m.name}`, parts, sectionRecords);
+      pushSection(`module_${m.notionPageId}`, tag, promptSafeContent, `Prompt Module: ${m.name}`, parts, sectionRecords);
     }
   }
 
@@ -161,7 +214,9 @@ function compileNewFormat(
   pushSection("print_and_output_requirements", "PRINT AND OUTPUT REQUIREMENTS", printContent, "Production Specification", parts, sectionRecords);
 
   // ── World Rules (hard negatives — always last) ─────────────────────────────
-  const worldRules = chain.worldBible?.worldRules ?? [];
+  const worldRules = (chain.worldBible?.worldRules ?? [])
+    .map(promptSafeEditorialText)
+    .filter(Boolean);
   if (worldRules.length > 0) {
     pushSection("world_rules", "WORLD RULES", worldRules.join("\n"), "World Bible", parts, sectionRecords);
   }
@@ -183,7 +238,7 @@ function pushSection(
   parts: string[],
   sectionRecords: CompiledSectionRecord[],
 ): void {
-  const trimmed = content.trim();
+  const trimmed = promptSafeEditorialText(content);
   if (!trimmed) return;
   parts.push(section(tag, trimmed));
   sectionRecords.push(rec(key, toTitleCase(tag), trimmed, source));
@@ -218,22 +273,24 @@ function compileLegacyFormat(
   if (spec.volume) worldParts.push(`Volume: ${spec.volume}`);
   const worldModules = chain.promptModules.filter((m) => m.section === "world");
   for (const m of worldModules) {
-    if (m.content.trim()) worldParts.push(m.content.trim());
+    const promptSafeContent = promptSafeEditorialText(m.content);
+    if (promptSafeContent) worldParts.push(promptSafeContent);
   }
   const worldContext = worldParts.join("\n");
 
   // ── [STYLE SYSTEM] ──────────────────────────────────────────────────────
   const styleParts: string[] = [];
-  if (chain.styleGuide?.content) styleParts.push(chain.styleGuide.content.trim());
+  if (chain.styleGuide?.content) styleParts.push(promptSafeEditorialText(chain.styleGuide.content));
   const styleModules = chain.promptModules.filter((m) => m.section === "style");
   for (const m of styleModules) {
-    if (m.content.trim()) styleParts.push(m.content.trim());
+    const promptSafeContent = promptSafeEditorialText(m.content);
+    if (promptSafeContent) styleParts.push(promptSafeContent);
   }
   const styleSystem = styleParts.join("\n\n");
 
   // ── [COMPONENT REQUIREMENTS] ────────────────────────────────────────────
   const componentParts: string[] = [];
-  if (chain.componentSpec?.content) componentParts.push(chain.componentSpec.content.trim());
+  if (chain.componentSpec?.content) componentParts.push(promptSafeEditorialText(chain.componentSpec.content));
   if (payload.paper_role)                   componentParts.push(`Paper Role: ${payload.paper_role}`);
   if (payload.pattern_behavior)             componentParts.push(`Pattern Behavior: ${payload.pattern_behavior}`);
   if (payload.repeat_rule)                  componentParts.push(`Repeat Rule: ${payload.repeat_rule}`);
@@ -313,6 +370,7 @@ function compileLegacyFormat(
     canon_policy: canonPolicy,
     negative_constraints: negativeConstraints,
     print_and_output_requirements: printAndOutputRequirements,
+    typography: typographyContent(chain),
   };
 
   const orderedSectionKeys: Array<[keyof CompiledPromptSections, string]> = [
@@ -336,25 +394,29 @@ function compileLegacyFormat(
     // Inject World Bible fields immediately after WORLD AND COLLECTION CONTEXT
     if (key === "world_and_collection_context") {
       const bible = chain.worldBible;
+      if (bible?.visualPalette?.trim())    parts.push(section("VISUAL PALETTE",    promptSafeBibleText(bible.visualPalette)));
+      if (sections.typography)              parts.push(section("TYPOGRAPHY",        sections.typography));
       if (bible) {
-        if (bible.visualPalette?.trim())    parts.push(section("VISUAL PALETTE",    worldBibleRichTextToPlainText(bible.visualPalette)));
-        if (bible.proseVoice?.trim())       parts.push(section("PROSE VOICE",       worldBibleRichTextToPlainText(bible.proseVoice)));
-        if (bible.atmosphericNotes?.trim()) parts.push(section("ATMOSPHERIC NOTES", worldBibleRichTextToPlainText(bible.atmosphericNotes)));
-        if (bible.materialWorld?.trim())    parts.push(section("MATERIAL WORLD",    worldBibleRichTextToPlainText(bible.materialWorld)));
+        if (bible.proseVoice?.trim())       parts.push(section("PROSE VOICE",       promptSafeBibleText(bible.proseVoice)));
+        if (bible.atmosphericNotes?.trim()) parts.push(section("ATMOSPHERIC NOTES", promptSafeBibleText(bible.atmosphericNotes)));
+        if (bible.materialWorld?.trim())    parts.push(section("MATERIAL WORLD",    promptSafeBibleText(bible.materialWorld)));
       }
     }
   }
 
   // Inject additional modules before negative constraints
   for (const m of additionalModules) {
-    if (m.content.trim()) {
+    const promptSafeContent = promptSafeEditorialText(m.content);
+    if (promptSafeContent) {
       const tag = m.name.toUpperCase().replace(/\s+/g, " ").trim();
-      parts.splice(parts.length - 2, 0, section(tag, m.content));
+      parts.splice(parts.length - 2, 0, section(tag, promptSafeContent));
     }
   }
 
   // ── World Rules (hard negatives — always last) ─────────────────────────────
-  const worldRules = chain.worldBible?.worldRules ?? [];
+  const worldRules = (chain.worldBible?.worldRules ?? [])
+    .map(promptSafeEditorialText)
+    .filter(Boolean);
   if (worldRules.length > 0) {
     parts.push(section("WORLD RULES", worldRules.join("\n")));
   }
@@ -369,11 +431,12 @@ function compileLegacyFormat(
 
   // Append World Bible sectionRecords for the viewer
   const bible = chain.worldBible;
+  if (bible?.visualPalette?.trim())    sectionRecords.push(rec("visual_palette",    "Visual Palette",    promptSafeBibleText(bible.visualPalette),    "World Bible"));
+  if (sections.typography)              sectionRecords.push(rec("typography",        "Typography",        sections.typography,                               "World Bible, Style Guide, and Canon Records"));
   if (bible) {
-    if (bible.visualPalette?.trim())    sectionRecords.push(rec("visual_palette",    "Visual Palette",    worldBibleRichTextToPlainText(bible.visualPalette),    "World Bible"));
-    if (bible.proseVoice?.trim())       sectionRecords.push(rec("prose_voice",       "Prose Voice",       worldBibleRichTextToPlainText(bible.proseVoice),       "World Bible"));
-    if (bible.atmosphericNotes?.trim()) sectionRecords.push(rec("atmospheric_notes", "Atmospheric Notes", worldBibleRichTextToPlainText(bible.atmosphericNotes), "World Bible"));
-    if (bible.materialWorld?.trim())    sectionRecords.push(rec("material_world",    "Material World",    worldBibleRichTextToPlainText(bible.materialWorld),    "World Bible"));
+    if (bible.proseVoice?.trim())       sectionRecords.push(rec("prose_voice",       "Prose Voice",       promptSafeBibleText(bible.proseVoice),       "World Bible"));
+    if (bible.atmosphericNotes?.trim()) sectionRecords.push(rec("atmospheric_notes", "Atmospheric Notes", promptSafeBibleText(bible.atmosphericNotes), "World Bible"));
+    if (bible.materialWorld?.trim())    sectionRecords.push(rec("material_world",    "Material World",    promptSafeBibleText(bible.materialWorld),    "World Bible"));
     if (worldRules.length > 0)          sectionRecords.push(rec("world_rules",       "World Rules",       worldRules.join("\n"),  "World Bible"));
   }
 
@@ -400,8 +463,8 @@ function buildLegacySectionsFromNewFormat(
   return {
     creative_task: `Component Type: ${spec.componentType}`,
     world_and_collection_context: `World: ${spec.world}${spec.volume ? `\nVolume: ${spec.volume}` : ""}`,
-    style_system: chain.styleGuide?.content ?? "",
-    component_requirements: chain.componentSpec?.content ?? "",
+    style_system: chain.styleGuide?.content ? promptSafeEditorialText(chain.styleGuide.content) : "",
+    component_requirements: chain.componentSpec?.content ? promptSafeEditorialText(chain.componentSpec.content) : "",
     asset_specific_intent: [spec.designIntent, spec.narrativePurpose, spec.requiredContent].filter(Boolean).join("\n"),
     // PP-2.0 sections must not be represented under misleading PP-1.0 labels.
     // Keep the legacy keys for callers that expect the shape, but only attach
@@ -412,6 +475,7 @@ function buildLegacySectionsFromNewFormat(
     canon_policy: chain.canonRecords.map((r) => `${r.name} (${r.status})`).join("\n"),
     negative_constraints: payload.negative_prompt ?? "",
     print_and_output_requirements: [spec.orientation, spec.frontBackStyle].filter(Boolean).join("\n"),
+    typography: "",
     shared_prompt: payload.shared_prompt ?? "",
     front_prompt: payload.front_prompt ?? "",
   };

@@ -8,3 +8,9 @@ Use the existing test-only login route and deterministic CI persona for authenti
 **Why:** The browser-testing sandbox cannot reach an ephemeral server started from a shell, while the repository's local Playwright runner can share that server's network namespace. Local Chromium may also require its downloaded browser binary and Nix runtime libraries before it launches.
 
 **How to apply:** Prefer the repository's Playwright runner for these checks. Reuse or remove clearly labelled CI fixtures, restore any existing record changed during a round trip, and keep the normal managed development workflow unchanged.
+
+CI store personas must use the canonical `store_staff` and `store_owner` membership roles. The seed must upsert those roles so rerunning it repairs older fixture rows instead of preserving legacy labels.
+
+**Why:** Store-route authorization compares membership roles strictly. Legacy `staff`/`owner` fixture values can authenticate successfully but receive 403 responses from scoped routes, masking the browser behavior under test.
+
+**How to apply:** Before a store-persona browser run, rerun the CI seed and ensure its membership inserts update an existing persona's role as well as creating a new one.

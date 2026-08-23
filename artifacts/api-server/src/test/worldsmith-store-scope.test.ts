@@ -52,6 +52,7 @@ const ids = {
   betaStore: `ws-scope-beta-${RUN}`,
   disabledStore: `ws-scope-disabled-${RUN}`,
   alphaUser: `ws-scope-alpha-user-${RUN}`,
+  alphaOwner: `ws-scope-alpha-owner-${RUN}`,
   betaUser: `ws-scope-beta-user-${RUN}`,
   disabledUser: `ws-scope-disabled-user-${RUN}`,
 };
@@ -98,6 +99,7 @@ function makeApp(user: User | null) {
 }
 
 const alphaApp = makeApp(actor(ids.alphaUser));
+const alphaOwnerApp = makeApp(actor(ids.alphaOwner));
 const betaApp = makeApp(actor(ids.betaUser));
 const disabledApp = makeApp(actor(ids.disabledUser));
 
@@ -115,6 +117,7 @@ function scoped(
 beforeAll(async () => {
   await db.insert(usersTable).values([
     { id: ids.alphaUser, email: `${ids.alphaUser}@test.invalid`, name: "WorldSmith Alpha Staff" },
+    { id: ids.alphaOwner, email: `${ids.alphaOwner}@test.invalid`, name: "WorldSmith Alpha Owner" },
     { id: ids.betaUser, email: `${ids.betaUser}@test.invalid`, name: "WorldSmith Beta Staff" },
     { id: ids.disabledUser, email: `${ids.disabledUser}@test.invalid`, name: "WorldSmith Disabled Staff" },
     { id: migrationIds.user, email: `${migrationIds.user}@test.invalid`, name: "WorldSmith Migration House" },
@@ -127,6 +130,7 @@ beforeAll(async () => {
   ]);
   await db.insert(storeMembersTable).values([
     { storeId: ids.alphaStore, userId: ids.alphaUser, role: "store_staff" },
+    { storeId: ids.alphaStore, userId: ids.alphaOwner, role: "store_owner" },
     { storeId: ids.betaStore, userId: ids.betaUser, role: "store_staff" },
     { storeId: ids.disabledStore, userId: ids.disabledUser, role: "store_staff" },
   ]);
@@ -158,6 +162,7 @@ describe("WorldSmith store-facing access", () => {
     const alphaList = await scoped(alphaApp, ids.alphaStore).get("/api/v1/worldsmith/worlds");
     expect(alphaList.status).toBe(200);
     expect(alphaList.body.worlds.map((world: { id: string }) => world.id)).toEqual([worldIds.alpha]);
+    expect(alphaList.body.permissions).toEqual({ canEditWorldRules: false });
 
     const betaList = await scoped(betaApp, ids.betaStore).get("/api/v1/worldsmith/worlds");
     expect(betaList.status).toBe(200);
@@ -178,17 +183,44 @@ describe("WorldSmith store-facing access", () => {
     expect(betaCreate.body).toMatchObject({ id: `${ids.betaStore}--shared-world`, storeId: ids.betaStore });
   });
 
-  it("updates its own World Bible but returns not found for another store's world and Bible copilot", async () => {
+  it("allows staff to update World Bible prose but rejects World Rules changes", async () => {
     const ownUpdate = await scoped(alphaApp, ids.alphaStore)
       .patch(`/api/v1/worldsmith/worlds/${worldIds.alpha}`)
-      .send({ visualPalette: "Ink blue and brass", worldRules: ["Keep it local"] });
+      .send({ visualPalette: "Ink blue and brass" });
     expect(ownUpdate.status).toBe(200);
     expect(ownUpdate.body).toMatchObject({
       id: worldIds.alpha,
       visualPalette: "Ink blue and brass",
+    });
+
+    const forbiddenRulesUpdate = await scoped(alphaApp, ids.alphaStore)
+      .patch(`/api/v1/worldsmith/worlds/${worldIds.alpha}`)
+      .send({ worldRules: ["Keep it local"] });
+    expect(forbiddenRulesUpdate.status).toBe(403);
+    expect(forbiddenRulesUpdate.body).toMatchObject({
+      code: "WORLD_RULES_OWNER_REQUIRED",
+      field: "worldRules",
+    });
+    expect(forbiddenRulesUpdate.body.error).toContain("worldRules");
+  });
+
+  it("allows store owners to update World Rules", async () => {
+    const ownerUpdate = await scoped(alphaOwnerApp, ids.alphaStore)
+      .patch(`/api/v1/worldsmith/worlds/${worldIds.alpha}`)
+      .send({ worldRules: ["Keep it local"] });
+
+    expect(ownerUpdate.status).toBe(200);
+    expect(ownerUpdate.body).toMatchObject({
+      id: worldIds.alpha,
       worldRules: ["Keep it local"],
     });
 
+    const ownerList = await scoped(alphaOwnerApp, ids.alphaStore).get("/api/v1/worldsmith/worlds");
+    expect(ownerList.status).toBe(200);
+    expect(ownerList.body.permissions).toEqual({ canEditWorldRules: true });
+  });
+
+  it("returns not found for another store's world and Bible copilot", async () => {
     const crossStoreUpdate = await scoped(alphaApp, ids.alphaStore)
       .patch(`/api/v1/worldsmith/worlds/${worldIds.beta}`)
       .send({ visualPalette: "Attempted cross-store write" });

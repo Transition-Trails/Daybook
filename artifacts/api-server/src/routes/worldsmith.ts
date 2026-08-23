@@ -666,7 +666,12 @@ router.get("/v1/worldsmith/worlds", requireStoreAccess("store_staff"), requireWo
     // asset registry. The platform console retains those portfolio metrics.
     const enriched = worlds.map(w => buildEnrichedWorld(w, storeId ? [] : assetCounts));
 
-    res.json({ worlds: enriched });
+    res.json({
+      worlds: enriched,
+      permissions: {
+        canEditWorldRules: req.actor?.isSuperAdmin === true || req.actor?.storeRole === "store_owner",
+      },
+    });
   } catch (err) {
     logger.error({ err }, "Failed to list worlds");
     res.status(500).json({ error: "Internal server error" });
@@ -1589,6 +1594,19 @@ router.patch("/v1/worldsmith/worlds/:id", requireStoreAccess("store_staff"), req
     coverImageUrl?: unknown;
     typography?: unknown;
   };
+
+  if (
+    "worldRules" in body &&
+    req.actor?.isSuperAdmin !== true &&
+    req.actor?.storeRole !== "store_owner"
+  ) {
+    res.status(403).json({
+      error: "Forbidden: worldRules can only be updated by a store owner or super admin",
+      code: "WORLD_RULES_OWNER_REQUIRED",
+      field: "worldRules",
+    });
+    return;
+  }
 
   // Build a patch object with only the keys the caller supplied
   const patch: Record<string, unknown> = {};

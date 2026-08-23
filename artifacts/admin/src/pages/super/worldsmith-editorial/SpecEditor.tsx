@@ -328,12 +328,18 @@ function CompletionSidebar({
         <button
           onClick={onPublish}
           disabled={isPublishing || !isPayloadReady}
+          aria-describedby={!isPayloadReady ? "publish-requirements" : undefined}
           className="w-full flex items-center justify-center gap-2 py-2 text-sm rounded-lg font-medium disabled:opacity-40 transition-colors"
           style={{ background: "#1B2A4A", color: "white" }}
         >
           {isPublishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
           {spec.notionPageId ? "Re-publish to Notion" : "Publish to Notion"}
         </button>
+        {!isPayloadReady && (
+          <p id="publish-requirements" className="mt-2 text-[11px] leading-relaxed text-amber-700">
+            Publishing is unavailable until the prompt payload is complete and at least one prompt module is linked.
+          </p>
+        )}
         {spec.notionPageId && (
           <a
             href={`https://notion.so/${spec.notionPageId.replace(/-/g, "")}`}

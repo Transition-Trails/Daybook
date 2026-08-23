@@ -102,7 +102,10 @@ function worldsmithFetch<T>(path: string, storeId?: string, init: RequestInit = 
 
 function createWsApi(storeId?: string) {
   return {
-  worlds: () => worldsmithFetch<{ worlds: WsWorld[] }>("/v1/worldsmith/worlds", storeId),
+  worlds: () => worldsmithFetch<{
+    worlds: WsWorld[];
+    permissions: { canEditWorldRules: boolean };
+  }>("/v1/worldsmith/worlds", storeId),
   createWorld: (body: Partial<WsWorld>) =>
     worldsmithFetch<WsWorld>("/v1/worldsmith/worlds", storeId, { method: "POST", body: JSON.stringify(body) }),
   updateWorld: (id: string, body: Partial<Pick<WsWorld, "notionProductionDbId" | "notionCanonDbId" | "driveFolderId" | "imageProvider" | "status" | "currentCollection" | "currentVolume" | "worldRules" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "typography" | "coverImageUrl">>) =>
@@ -156,6 +159,7 @@ export default function WorldSmithHome({ storeId }: { storeId?: string }) {
   });
 
   const worlds = worldsData?.worlds ?? [];
+  const canEditWorldRules = worldsData?.permissions?.canEditWorldRules ?? !storeId;
   const assets = assetsData?.assets ?? [];
   const integrations = healthData?.integrations ?? [];
   const worldsmithDisabled = Boolean(storeId && !flagsLoading && !storeFlags?.worldsmithEnabled);
@@ -271,6 +275,7 @@ export default function WorldSmithHome({ storeId }: { storeId?: string }) {
             assets={assets}
             integrations={integrations}
             storeId={storeId}
+            canEditWorldRules={canEditWorldRules}
             onBack={() => setFocusedWorldId(null)}
           />
         ) : (
@@ -556,12 +561,14 @@ function FocusedWorldView({
   assets,
   integrations,
   storeId,
+  canEditWorldRules,
   onBack,
 }: {
   world: WsWorld;
   assets: WsAsset[];
   integrations: HealthStatus[];
   storeId?: string;
+  canEditWorldRules: boolean;
   onBack: () => void;
 }) {
   const [activeSection, setActiveSection] = useState<"overview" | "production" | "review" | "integrations" | "bible">("overview");
@@ -837,7 +844,7 @@ function FocusedWorldView({
       </div>
 
       <div style={{ display: activeSection === "bible" ? undefined : "none" }}>
-        <WorldBibleSection world={world} storeId={storeId} />
+        <WorldBibleSection world={world} storeId={storeId} canEditWorldRules={canEditWorldRules} />
       </div>
 
       {/* IntegrationsSection must stay mounted so its form state survives tab switches.
@@ -848,6 +855,7 @@ function FocusedWorldView({
           world={world}
           integrations={integrations}
           storeId={storeId}
+          canEditWorldRules={canEditWorldRules}
         />
       </div>
     </div>
@@ -1612,11 +1620,13 @@ export function WorldBibleSection({
   showCopilot = true,
   onSaved,
   storeId,
+  canEditWorldRules = true,
 }: {
   world: Pick<WsWorld, "id" | "name" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "worldRules" | "typography">;
   showCopilot?: boolean;
   onSaved?: (updatedWorld: WsWorld) => void;
   storeId?: string;
+  canEditWorldRules?: boolean;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -1715,7 +1725,8 @@ export function WorldBibleSection({
           proseVoice: sanitizeBibleRichText(form.proseVoice).trim() || null,
           atmosphericNotes: sanitizeBibleRichText(form.atmosphericNotes).trim() || null,
           materialWorld: sanitizeBibleRichText(form.materialWorld).trim() || null,
-          worldRules: form.worldRules,
+          typography: form.typography,
+          ...(canEditWorldRules ? { worldRules: form.worldRules } : {}),
         }),
       }),
     onSuccess: (updatedWorld) => {
@@ -1809,52 +1820,64 @@ export function WorldBibleSection({
             onToggle={() => setOpenSections(current => ({ ...current, worldRules: !current.worldRules }))}
             preview={form.worldRules.join(" · ")}
           >
+            {!canEditWorldRules && (
+              <div
+                className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800"
+                role="note"
+              >
+                World Rules are read-only for store staff. Ask a store owner to update them because they apply to every future image prompt.
+              </div>
+            )}
             <div className="space-y-2 mb-2">
               {form.worldRules.map((rule, i) => (
                 <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-card text-sm">
                   <span className="flex-1 text-foreground">{rule}</span>
-                  <button
-                    type="button"
-                    aria-label={`Remove rule ${i + 1}`}
-                    onClick={() => {
-                      setForm(f => ({ ...f, worldRules: f.worldRules.filter((_, j) => j !== i) }));
-                      setDirty(true);
-                    }}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                  {canEditWorldRules && (
+                    <button
+                      type="button"
+                      aria-label={`Remove rule ${i + 1}`}
+                      onClick={() => {
+                        setForm(f => ({ ...f, worldRules: f.worldRules.filter((_, j) => j !== i) }));
+                        setDirty(true);
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
-            <div className="flex gap-2">
-              <input
-                value={newRule}
-                onChange={e => setNewRule(e.target.value)}
-                placeholder="Add a rule…"
-                className="flex-1 rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-foreground/30"
-                onKeyDown={e => {
-                  if (e.key === "Enter" && newRule.trim()) {
-                    e.preventDefault();
+            {canEditWorldRules && (
+              <div className="flex gap-2">
+                <input
+                  value={newRule}
+                  onChange={e => setNewRule(e.target.value)}
+                  placeholder="Add a rule…"
+                  className="flex-1 rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-foreground/30"
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && newRule.trim()) {
+                      e.preventDefault();
+                      setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
+                      setNewRule("");
+                      setDirty(true);
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newRule.trim()) return;
                     setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
                     setNewRule("");
                     setDirty(true);
-                  }
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (!newRule.trim()) return;
-                  setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
-                  setNewRule("");
-                  setDirty(true);
-                }}
-                className="px-3 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground"
-              >
-                Add
-              </button>
-            </div>
+                  }}
+                  className="px-3 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Add
+                </button>
+              </div>
+            )}
           </BibleSection>
         </div>
 
@@ -1970,12 +1993,14 @@ function IntegrationsSection({
   world,
   integrations,
   storeId,
+  canEditWorldRules,
   defaultEditing = false,
   onDefaultEditingConsumed,
 }: {
   world: WsWorld;
   integrations: HealthStatus[];
   storeId?: string;
+  canEditWorldRules: boolean;
   defaultEditing?: boolean;
   onDefaultEditingConsumed?: () => void;
 }) {
@@ -2018,7 +2043,7 @@ function IntegrationsSection({
         status: form.status as WsWorld["status"],
         currentCollection: form.currentCollection.trim() || null,
         currentVolume: form.currentVolume.trim() || null,
-        worldRules: form.worldRules,
+        ...(canEditWorldRules ? { worldRules: form.worldRules } : {}),
         visualPalette: form.visualPalette.trim() || null,
         typography: form.typography,
         proseVoice: form.proseVoice.trim() || null,
@@ -2209,55 +2234,66 @@ function IntegrationsSection({
               <p className="text-[10px] text-muted-foreground mb-2">
                 Authorial constraints injected into every prompt for this world (e.g. "Never name the protagonist directly").
               </p>
+              {!canEditWorldRules && (
+                <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+                  World Rules are read-only for store staff. A store owner must update them because they apply to every future image prompt.
+                </p>
+              )}
               <div className="space-y-1.5 mb-2">
                 {form.worldRules.map((rule, idx) => (
                   <div key={idx} className="flex items-start gap-2">
                     <input
                       value={rule}
+                      readOnly={!canEditWorldRules}
                       onChange={e => {
+                        if (!canEditWorldRules) return;
                         const next = [...form.worldRules];
                         next[idx] = e.target.value;
                         setForm(f => ({ ...f, worldRules: next }));
                       }}
-                      className="flex-1 px-3 py-1.5 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30"
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-border bg-background text-sm outline-none focus:border-foreground/30 read-only:bg-muted/30"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setForm(f => ({ ...f, worldRules: f.worldRules.filter((_, i) => i !== idx) }))}
-                      className="mt-0.5 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      title="Remove rule"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+                    {canEditWorldRules && (
+                      <button
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, worldRules: f.worldRules.filter((_, i) => i !== idx) }))}
+                        className="mt-0.5 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        title="Remove rule"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
-              <div className="flex items-center gap-2">
-                <input
-                  value={newRule}
-                  onChange={e => setNewRule(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && newRule.trim()) {
-                      e.preventDefault();
+              {canEditWorldRules && (
+                <div className="flex items-center gap-2">
+                  <input
+                    value={newRule}
+                    onChange={e => setNewRule(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && newRule.trim()) {
+                        e.preventDefault();
+                        setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
+                        setNewRule("");
+                      }
+                    }}
+                    placeholder="Add a rule and press Enter…"
+                    className="flex-1 px-3 py-1.5 rounded-lg border border-dashed border-border bg-background text-sm outline-none focus:border-foreground/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!newRule.trim()) return;
                       setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
                       setNewRule("");
-                    }
-                  }}
-                  placeholder="Add a rule and press Enter…"
-                  className="flex-1 px-3 py-1.5 rounded-lg border border-dashed border-border bg-background text-sm outline-none focus:border-foreground/30"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!newRule.trim()) return;
-                    setForm(f => ({ ...f, worldRules: [...f.worldRules, newRule.trim()] }));
-                    setNewRule("");
-                  }}
-                  className="px-3 py-1.5 rounded-lg border border-border text-[11.5px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                >
-                  Add
-                </button>
-              </div>
+                    }}
+                    className="px-3 py-1.5 rounded-lg border border-border text-[11.5px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* World Bible — aesthetic identity */}

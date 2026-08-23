@@ -135,15 +135,16 @@ export async function applyWorldsmithEditorialMigration(client, schema = "public
       ADD COLUMN section TEXT NOT NULL DEFAULT 'general'
       CHECK (section IN ('world', 'style', 'general'));
     `);
-    await client.query(`
-      UPDATE ws_prompt_modules
-      SET section = CASE
-        WHEN LOWER(name) LIKE '%style%' OR LOWER(name) LIKE '%aesthetic%' THEN 'style'
-        WHEN LOWER(name) LIKE '%world%' THEN 'world'
-        ELSE 'general'
-      END;
-    `);
   }
+  await client.query(`
+    UPDATE ws_prompt_modules
+    SET section = CASE
+      WHEN LOWER(name) LIKE '%style%' OR LOWER(name) LIKE '%aesthetic%' THEN 'style'
+      WHEN LOWER(name) LIKE '%world%' THEN 'world'
+      ELSE 'general'
+    END
+    WHERE section = 'general';
+  `);
 
   // ── Production Specs ──────────────────────────────────────────────────────
   await client.query(`

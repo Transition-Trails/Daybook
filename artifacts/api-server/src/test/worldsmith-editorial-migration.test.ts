@@ -109,4 +109,21 @@ describe("WorldSmith Editorial Suite migration", () => {
       ).rejects.toThrow();
     });
   });
+
+  it("preserves non-general sections when a migration is re-run", async () => {
+    await inIsolatedSchema(async (client, schema) => {
+      await applyWorldsmithEditorialMigration(client, schema);
+      await client.query(`
+        INSERT INTO ws_prompt_modules (id, world_id, name, section)
+        VALUES ('author-choice', 'world-1', 'Style Notes', 'world')
+      `);
+
+      await applyWorldsmithEditorialMigration(client, schema);
+
+      const result = await client.query<{ section: string }>(`
+        SELECT section FROM ws_prompt_modules WHERE id = 'author-choice'
+      `);
+      expect(result.rows).toEqual([{ section: "world" }]);
+    });
+  });
 });

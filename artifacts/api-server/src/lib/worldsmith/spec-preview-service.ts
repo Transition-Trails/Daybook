@@ -38,7 +38,9 @@ import {
 } from "./spec-board-template";
 import { parsePayload } from "./payload-parser";
 import { logger } from "../logger";
-import type { SpecBoardData, SpecPreviewResult, SpecPreviewRequest } from "./types";
+import { resolveInheritanceChainLocalWithWorldBible, InheritanceError } from "./inheritance-resolver";
+import { objectStorageClient, ObjectStorageService } from "../objectStorage";
+import type { InheritanceChain, SpecBoardData, SpecPreviewResult, SpecPreviewRequest } from "./types";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -79,6 +81,36 @@ function buildPreviewFilename(data: SpecBoardData): string {
   return `wm-spec-preview-${slug}-${ts}.png`;
 }
 
+const objectStorageService = new ObjectStorageService();
+
+/**
+ * Store a local board in the private App Storage namespace. The matching
+ * serving route requires a platform admin, unlike the public background assets.
+ */
+async function storeLocalPreviewBoard(boardPng: Buffer, filename: string): Promise<string> {
+  const privateDir = objectStorageService.getPrivateObjectDir().replace(/^\/+|\/+$/g, "");
+  const [bucketName, ...prefix] = privateDir.split("/");
+  if (!bucketName) {
+    throw new Error("PRIVATE_OBJECT_DIR does not contain an App Storage bucket.");
+  }
+
+  const entityPath = `worldsmith/spec-previews/${randomUUID()}-${filename}`;
+  const objectName = [...prefix, entityPath].filter(Boolean).join("/");
+  await objectStorageClient.bucket(bucketName).file(objectName).save(boardPng, {
+    resumable: false,
+    metadata: {
+      contentType: "image/png",
+      contentDisposition: `inline; filename="${filename}"`,
+      cacheControl: "private, max-age=3600",
+    },
+  });
+  return `/objects/${entityPath}`;
+}
+
+function localPreviewUrl(objectPath: string): string {
+  return `/api/storage${objectPath}`;
+}
+
 // Victorian hand-illustrated style preamble prepended to every prompt (V3 spec requirement)
 const VICTORIAN_STYLE_PREAMBLE =
   "Hand-illustrated Victorian archival artwork. " +
@@ -105,16 +137,87 @@ function buildConceptDallePrompt(data: SpecBoardData): string {
   }
 
   const scene = data.illustratedNarrative || data.designIntent || `${data.componentType} scene`;
+  const bible = data.worldBible;
   const parts = [
     VICTORIAN_STYLE_PREAMBLE,
     scene,
     data.composition ? `Composition: ${data.composition}.` : "",
     data.materials ? `Visual materials: ${data.materials}.` : "",
+    bible?.visualPalette ? `World palette: ${bible.visualPalette}.` : "",
+    bible?.atmosphericNotes ? `World atmosphere: ${bible.atmosphericNotes}.` : "",
+    bible?.materialWorld ? `World materials: ${bible.materialWorld}.` : "",
     data.requiredContent ? `Include: ${data.requiredContent}.` : "",
     `Context: ${data.componentType} for the ${data.world}${data.volume ? " " + data.volume : ""} collection.`,
     "Concept preview for editorial review — not final artwork.",
   ].filter(Boolean);
   return parts.join(" ").slice(0, 3800);
+}
+
+/** Map the shared local inheritance contract into the spec-board contract. */
+function extractLocalBoardData(
+  chain: InheritanceChain,
+  specId: string,
+  promptHash: string,
+): SpecBoardData {
+  const spec = chain.productionSpec;
+  const parsedPayload = spec.promptPayload ? parsePayload(spec.promptPayload).payload : {};
+  const payload = parsedPayload as Record<string, string | undefined>;
+  const bible = chain.worldBible;
+  const bibleGrounding = [
+    bible?.visualPalette,
+    bible?.proseVoice,
+    bible?.atmosphericNotes,
+    bible?.materialWorld,
+    ...(bible?.worldRules ?? []),
+  ].filter((value): value is string => Boolean(value?.trim()));
+  const illustratedNarrative = (
+    payload.front_prompt ||
+    payload.world_and_collection_context ||
+    spec.narrativePurpose ||
+    ""
+  ).slice(0, 900);
+
+  return {
+    specPageId: specId,
+    productionItem: spec.productionItem,
+    specId: spec.specId,
+    world: spec.world,
+    volume: spec.volume,
+    collection: spec.collection,
+    componentType: spec.componentType,
+    payloadVersion: spec.payloadVersion,
+    currentVersion: spec.currentVersion,
+    status: spec.status,
+    designIntent: spec.designIntent,
+    narrativePurpose: spec.narrativePurpose,
+    requiredContent: spec.requiredContent,
+    reviewCriteria: spec.reviewCriteria,
+    assetRole: payload.asset_role ?? "",
+    composition: payload.composition ?? "",
+    materials: payload.materials ?? "",
+    visualHierarchy: payload.visual_hierarchy ?? "",
+    textRule: payload.text_rule ?? "",
+    canonRule: payload.canon_rule ?? "",
+    printRule: payload.print_rule ?? "",
+    negativeConstraints: payload.negative_constraints ?? "",
+    illustratedNarrative: [illustratedNarrative, ...bibleGrounding].filter(Boolean).join(" ").slice(0, 900) || undefined,
+    focalHierarchy: [
+      payload.primary_focal_area || payload.composition || "",
+      payload.secondary_narrative_cluster || payload.visual_hierarchy || "",
+      payload.supporting_objects || payload.materials || "",
+      payload.story_signal || payload.negative_constraints || "",
+    ].map((value) => value.trim()).filter(Boolean),
+    componentSpecName: chain.componentSpec?.name,
+    componentSpecContent: chain.componentSpec?.content.slice(0, 600),
+    styleGuideName: chain.styleGuide?.name,
+    styleGuideContent: chain.styleGuide?.content.slice(0, 900),
+    promptModuleCount: chain.promptModules.length,
+    canonDependency: spec.canonDependency,
+    canonRecordCount: chain.canonRecords.length,
+    canonNames: chain.canonRecords.slice(0, 5).map((record) => record.name),
+    promptHash,
+    worldBible: bible,
+  };
 }
 
 /** Extract SpecBoardData from a raw Notion page. */
@@ -258,12 +361,48 @@ async function findExistingPreview(specPageId: string, promptHash: string) {
   return rows[0] ?? null;
 }
 
+/** Return the newest retrievable local board so an editor can see it after reload. */
+export async function getLatestLocalSpecPreview(specPageId: string): Promise<SpecPreviewResult | null> {
+  const rows = await db
+    .select()
+    .from(worldsmithSpecPreviewsTable)
+    .where(
+      and(
+        eq(worldsmithSpecPreviewsTable.specPageId, specPageId),
+        eq(worldsmithSpecPreviewsTable.status, "success"),
+        eq(worldsmithSpecPreviewsTable.dryRun, false),
+      ),
+    )
+    .orderBy(desc(worldsmithSpecPreviewsTable.createdAt))
+    .limit(1);
+  const preview = rows[0];
+  if (!preview?.previewObjectPath) return null;
+
+  return {
+    status: "success",
+    source: "local",
+    production_item: preview.productionItem ?? "",
+    spec_page_id: specPageId,
+    preview_filename: preview.previewFilename ?? undefined,
+    preview_object_path: preview.previewObjectPath,
+    preview_url: localPreviewUrl(preview.previewObjectPath),
+    provider: preview.provider ?? undefined,
+    model: preview.model ?? undefined,
+    prompt_hash: preview.promptHash,
+    previous_status: preview.previousStatus ?? undefined,
+    new_status: preview.newStatus ?? undefined,
+    upload_status: "skipped",
+    dalle_skipped: true,
+  };
+}
+
 /** Persist a preview audit record. */
 async function savePreviewRecord(fields: {
   specPageId: string;
   promptHash: string;
   status: string;
   previewFilename?: string;
+  previewObjectPath?: string;
   provider?: string;
   model?: string;
   notionUploadId?: string;
@@ -282,6 +421,7 @@ async function savePreviewRecord(fields: {
       templateVersion: TEMPLATE_VERSION,
       status: fields.status,
       previewFilename: fields.previewFilename ?? null,
+      previewObjectPath: fields.previewObjectPath ?? null,
       provider: fields.provider ?? null,
       model: fields.model ?? null,
       notionUploadId: fields.notionUploadId ?? null,
@@ -297,12 +437,186 @@ async function savePreviewRecord(fields: {
   }
 }
 
+async function runLocalSpecPreview(
+  options: SpecPreviewRequest & { initiatedBy?: string },
+): Promise<SpecPreviewResult> {
+  const specPageId = options.production_spec_id?.trim();
+  const promptHash = options.prompt_hash;
+  const forceNew = options.force_new ?? false;
+  const dryRun = options.dry_run ?? false;
+
+  if (!specPageId) {
+    throw new SpecPreviewError("MISSING_SPEC_ID", "production_spec_id is required for a local spec preview.");
+  }
+
+  if (!forceNew && !dryRun) {
+    const existing = await findExistingPreview(specPageId, promptHash);
+    if (existing) {
+      // Pre-storage local audit rows have no retrievable board; render a fresh
+      // board instead of treating their filename as a usable idempotent result.
+      if (existing.previewObjectPath) {
+        return {
+          status: "success",
+          source: "local",
+          production_item: existing.productionItem ?? "",
+          spec_page_id: specPageId,
+          preview_filename: existing.previewFilename ?? undefined,
+          preview_object_path: existing.previewObjectPath,
+          preview_url: localPreviewUrl(existing.previewObjectPath),
+          provider: existing.provider ?? undefined,
+          model: existing.model ?? undefined,
+          prompt_hash: promptHash,
+          previous_status: existing.previousStatus ?? undefined,
+          new_status: existing.newStatus ?? undefined,
+          upload_status: "skipped",
+          dalle_skipped: true,
+        };
+      }
+    }
+  }
+
+  let chain: InheritanceChain;
+  try {
+    chain = await resolveInheritanceChainLocalWithWorldBible(specPageId);
+  } catch (err) {
+    if (err instanceof InheritanceError) {
+      throw new SpecPreviewError(err.errorCode, err.message);
+    }
+    throw new SpecPreviewError(
+      "LOCAL_INHERITANCE_FAILED",
+      `Could not resolve local Editorial Suite records: ${String(err)}`,
+    );
+  }
+
+  const boardData = extractLocalBoardData(chain, specPageId, promptHash);
+  const localStatusNote = "Preview generated from Editorial Suite; publish the Production Specification to attach it in Notion.";
+
+  if (dryRun) {
+    const dryPayload: Record<string, string> = {
+      "Production Item": boardData.productionItem,
+      "Component Type": boardData.componentType,
+      "Design Intent": boardData.designIntent,
+      "Composition": boardData.composition,
+      "Materials": boardData.materials,
+      "Negative Constraints": boardData.negativeConstraints,
+      "Print Rule": boardData.printRule,
+      "Canon Dependency": boardData.canonDependency,
+      "Style Guide": boardData.styleGuideName ?? "—",
+      "Component Spec": boardData.componentSpecName ?? "—",
+      "World Bible": [
+        boardData.worldBible?.visualPalette,
+        boardData.worldBible?.proseVoice,
+        boardData.worldBible?.atmosphericNotes,
+        boardData.worldBible?.materialWorld,
+      ].filter(Boolean).join(" · ") || "—",
+      "Template Version": TEMPLATE_VERSION,
+    };
+    await savePreviewRecord({
+      specPageId,
+      promptHash,
+      status: "dry_run",
+      productionItem: boardData.productionItem,
+      dryRun: true,
+      previousStatus: boardData.status,
+      newStatus: boardData.status,
+    });
+    return {
+      status: "dry_run",
+      source: "local",
+      production_item: boardData.productionItem,
+      spec_page_id: specPageId,
+      prompt_hash: promptHash,
+      previous_status: boardData.status,
+      new_status: boardData.status,
+      upload_status: "skipped",
+      dry_run_payload: dryPayload,
+      proposed_status_change: { from: boardData.status, to: boardData.status },
+    };
+  }
+
+  let boardPng: Buffer;
+  try {
+    boardPng = await renderSpecBoardToPng(boardData);
+  } catch (err) {
+    await savePreviewRecord({
+      specPageId,
+      promptHash,
+      status: "failed",
+      productionItem: boardData.productionItem,
+      error: `SVG render failed: ${String(err)}`,
+    });
+    throw new SpecPreviewError("GENERATION_FAILED", `Spec board render failed: ${String(err)}`);
+  }
+
+  // An unpublished Editorial Suite spec has no safe Notion target for an image
+  // attachment or workflow transition. Persist it in protected App Storage
+  // instead, while keeping all Notion writes deferred until publication.
+  const filename = buildPreviewFilename(boardData);
+  let previewObjectPath: string;
+  try {
+    previewObjectPath = await storeLocalPreviewBoard(boardPng, filename);
+  } catch (err) {
+    await savePreviewRecord({
+      specPageId,
+      promptHash,
+      status: "failed",
+      previewFilename: filename,
+      productionItem: boardData.productionItem,
+      previousStatus: boardData.status,
+      newStatus: boardData.status,
+      error: `App Storage upload failed: ${String(err)}`,
+    });
+    throw new SpecPreviewError("PREVIEW_STORAGE_FAILED", `Could not store the local spec board: ${String(err)}`);
+  }
+  await savePreviewRecord({
+    specPageId,
+    promptHash,
+    status: "success",
+    previewFilename: filename,
+    previewObjectPath,
+    provider: "local",
+    model: "spec-board",
+    productionItem: boardData.productionItem,
+    previousStatus: boardData.status,
+    newStatus: boardData.status,
+    error: localStatusNote,
+  });
+  logger.info(
+    { specPageId, promptHash, filename, previewObjectPath, bytes: boardPng.length },
+    "WorldSmith local spec preview stored without Notion write-back",
+  );
+
+  return {
+    status: "success",
+    source: "local",
+    production_item: boardData.productionItem,
+    spec_page_id: specPageId,
+    preview_filename: filename,
+    preview_object_path: previewObjectPath,
+    preview_url: localPreviewUrl(previewObjectPath),
+    provider: "local",
+    model: "spec-board",
+    prompt_hash: promptHash,
+    previous_status: boardData.status,
+    new_status: boardData.status,
+    upload_status: "skipped",
+    dalle_skipped: true,
+  };
+}
+
 // ── Main service function ─────────────────────────────────────────────────────
 
 export async function runSpecPreview(
   options: SpecPreviewRequest & { initiatedBy?: string },
 ): Promise<SpecPreviewResult> {
+  if (options.production_spec_id?.trim()) {
+    return runLocalSpecPreview(options);
+  }
+
   const { spec_page_id: specPageId, prompt_hash: promptHash, force_new = false, dry_run = false } = options;
+  if (!specPageId) {
+    throw new SpecPreviewError("MISSING_SPEC_ID", "spec_page_id is required for a Notion-backed spec preview.");
+  }
   const pageUrl = notionPageUrl(specPageId);
 
   // ── 1. Idempotency ──────────────────────────────────────────────────────
@@ -312,6 +626,7 @@ export async function runSpecPreview(
       logger.info({ specPageId, promptHash }, "Spec preview: returning existing result (idempotent)");
       return {
         status: "success",
+        source: "notion",
         production_item: existing.productionItem ?? "",
         spec_page_id: specPageId,
         notion_page_id: specPageId,
@@ -500,6 +815,7 @@ export async function runSpecPreview(
     });
     return {
       status: "dry_run",
+      source: "notion",
       production_item: finalBoardData.productionItem,
       spec_page_id: specPageId,
       notion_page_id: specPageId,
@@ -723,6 +1039,7 @@ export async function runSpecPreview(
 
   return {
     status: statusUpdateFailed ? "upload_success_status_failed" : "success",
+    source: "notion",
     production_item: finalBoardData.productionItem,
     spec_page_id: specPageId,
     notion_page_id: specPageId,

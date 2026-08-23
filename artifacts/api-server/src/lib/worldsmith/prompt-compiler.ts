@@ -34,6 +34,16 @@ function rec(
   return { key, label, content: content.trim(), source };
 }
 
+function appendCanonRecord(parts: string[], record: InheritanceChain["canonRecords"][number]): void {
+  parts.push(`Canon Record: ${record.name} (${record.status})`);
+  if (record.narrativeDetails?.trim()) parts.push(`Narrative Details: ${record.narrativeDetails}`);
+  if (record.historicalContext?.trim()) parts.push(`Historical Context: ${record.historicalContext}`);
+  if (record.visualNotes?.trim()) parts.push(`Visual Notes: ${record.visualNotes}`);
+  if (record.emotionalRegister?.trim()) parts.push(`Emotional Register: ${record.emotionalRegister}`);
+  if (record.sensoryClauses?.trim()) parts.push(`Sensory Clauses: ${record.sensoryClauses}`);
+  if (record.notes?.trim()) parts.push(`Canon Notes: ${record.notes}`);
+}
+
 export function compilePrompt(
   chain: InheritanceChain,
   payload: ParsedPayload,
@@ -143,7 +153,7 @@ function compileNewFormat(
     canonParts.push(`Canon Dependency: ${spec.canonDependency}`);
   }
   for (const rec_ of chain.canonRecords) {
-    canonParts.push(`Canon Record: ${rec_.name} (${rec_.status})`);
+    appendCanonRecord(canonParts, rec_);
   }
   const canonContent = canonParts.join("\n");
   const canonSrc = chain.canonRecords.length > 0
@@ -287,7 +297,7 @@ function compileLegacyFormat(
     canonParts.push(`Canon Dependency: ${spec.canonDependency}`);
   }
   for (const r of chain.canonRecords) {
-    canonParts.push(`Canon Record: ${r.name} (${r.status})`);
+    appendCanonRecord(canonParts, r);
   }
   const canonPolicy = canonParts.join("\n");
 

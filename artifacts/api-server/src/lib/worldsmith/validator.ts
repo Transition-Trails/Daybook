@@ -24,7 +24,7 @@ export function validatePayload(
 ): ValidationResult {
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
-  const specId = spec.notionPageId;
+  const specId = spec.sourceId ?? spec.notionPageId ?? spec.specId;
 
   // ── 1. Payload Version ───────────────────────────────────────────────────
   if (!spec.payloadVersion || spec.payloadVersion.trim() === "") {

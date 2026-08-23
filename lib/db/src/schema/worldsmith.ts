@@ -129,6 +129,8 @@ export const worldsmithSpecPreviewsTable = pgTable("worldsmith_spec_previews", {
   status: text("status").notNull().default("pending"),
   // pending | success | failed | upload_failed | status_update_failed
   previewFilename: text("preview_filename"),
+  /** Durable App Storage path for a locally generated Editorial Suite board. */
+  previewObjectPath: text("preview_object_path"),
   provider: text("provider"),
   model: text("model"),
   notionUploadId: text("notion_upload_id"),

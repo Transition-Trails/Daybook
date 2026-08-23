@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Lock, ChevronRight, ArrowLeft, CheckCircle2, AlertTriangle,
   Send, Trash2, X, ExternalLink, RefreshCw, Clock, BookOpen,
-  FileText, Zap, GitBranch, Circle, Save,
+  FileText, Zap, GitBranch, Circle, Save, Image,
 } from "lucide-react";
 import {
   BANDS,
@@ -79,6 +79,15 @@ interface SpecResponse {
   };
 }
 
+interface LocalSpecPreview {
+  status: "success";
+  source: "local";
+  production_item: string;
+  preview_filename?: string;
+  preview_object_path: string;
+  preview_url: string;
+}
+
 // ── Radial dependency graph ───────────────────────────────────────────────────
 
 function DependencyGraph({ spec, rels }: { spec: Spec; rels: SpecResponse["relationships"] }) {
@@ -136,11 +145,19 @@ function CompletionSidebar({
   rels,
   onPublish,
   isPublishing,
+  onGeneratePreview,
+  isGeneratingPreview,
+  preview,
+  previewDisabled,
 }: {
   spec: Spec;
   rels: SpecResponse["relationships"];
   onPublish: () => void;
   isPublishing: boolean;
+  onGeneratePreview: () => void;
+  isGeneratingPreview: boolean;
+  preview: LocalSpecPreview | null;
+  previewDisabled: boolean;
 }) {
   const checks = readinessChecks(spec);
   const done = checks.filter(c => c.done).length;
@@ -261,6 +278,48 @@ function CompletionSidebar({
         ))}
         {rels.canon_records.length === 0 && !rels.style_guide && rels.prompt_modules.length === 0 && (
           <p className="text-xs text-gray-400">No linked records.</p>
+        )}
+      </div>
+
+      {/* Local board preview */}
+      <div className="px-4 py-3 border-b" style={{ borderColor: "#F3F4F6" }}>
+        <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Specification Board</p>
+        {preview ? (
+          <div className="space-y-2">
+            <a href={preview.preview_url} target="_blank" rel="noopener noreferrer" className="block">
+              <img
+                src={preview.preview_url}
+                alt={`Specification board for ${preview.production_item}`}
+                className="w-full rounded-md border border-gray-200 bg-[#FAF8F3]"
+              />
+            </a>
+            <a
+              href={preview.preview_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1.5 text-xs text-[#1B2A4A] hover:underline"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Open full board
+            </a>
+          </div>
+        ) : (
+          <p className="text-xs leading-relaxed text-gray-500 mb-3">
+            Generate a review board from this local Editorial Suite record. It stays out of Notion until you publish.
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={onGeneratePreview}
+          disabled={previewDisabled || isGeneratingPreview}
+          title={previewDisabled ? "Save changes before generating a board." : undefined}
+          className="mt-2 w-full flex items-center justify-center gap-2 py-2 text-sm rounded-lg font-medium disabled:opacity-40 transition-colors border border-[#1B2A4A] text-[#1B2A4A] hover:bg-[#F3F6FB]"
+        >
+          {isGeneratingPreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Image className="w-3.5 h-3.5" />}
+          {preview ? "Generate new board" : "Generate specification board"}
+        </button>
+        {previewDisabled && (
+          <p className="mt-2 text-[11px] text-amber-700">Save your edits before generating a board.</p>
         )}
       </div>
 
@@ -834,6 +893,43 @@ export default function SpecEditor({ specId }: { specId: string }) {
     },
   });
 
+  const existingPreviewQuery = useQuery<{ preview: LocalSpecPreview | null }>({
+    queryKey: ["editorial-spec-preview", specId],
+    queryFn: () => apiFetch(`/v1/worldsmith/spec-preview/local/${encodeURIComponent(specId)}`),
+    staleTime: 30_000,
+  });
+
+  const previewMutation = useMutation({
+    mutationFn: async (): Promise<LocalSpecPreview> => {
+      const compilation = await apiFetch<{ status: string; prompt_hash?: string }>("/v1/prompt-compilations", {
+        method: "POST",
+        body: JSON.stringify({
+          production_spec_id: specId,
+          operation: "validate_and_compile",
+          dry_run: false,
+        }),
+      });
+      if (compilation.status !== "compiled" || !compilation.prompt_hash) {
+        throw new Error("This Production Spec needs a successful local compilation before its board can be generated.");
+      }
+      return apiFetch<LocalSpecPreview>("/v1/worldsmith/spec-preview", {
+        method: "POST",
+        body: JSON.stringify({
+          production_spec_id: specId,
+          prompt_hash: compilation.prompt_hash,
+        }),
+      });
+    },
+    onSuccess: (preview) => {
+      qc.invalidateQueries({ queryKey: ["editorial-spec", specId] });
+      qc.setQueryData(["editorial-spec-preview", specId], { preview });
+      toast({ title: "Specification board ready", description: preview.preview_filename ?? "Open the board from the sidebar." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Board generation failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: () => apiFetch(`/v1/editorial/specs/${specId}`, { method: "DELETE" }),
     onSuccess: () => {
@@ -971,6 +1067,10 @@ export default function SpecEditor({ specId }: { specId: string }) {
           rels={rels}
           onPublish={() => publishMutation.mutate()}
           isPublishing={publishMutation.isPending}
+          onGeneratePreview={() => previewMutation.mutate()}
+          isGeneratingPreview={previewMutation.isPending}
+          preview={previewMutation.data ?? existingPreviewQuery.data?.preview ?? null}
+          previewDisabled={hasUnsavedChanges}
         />
       </div>
     </div>

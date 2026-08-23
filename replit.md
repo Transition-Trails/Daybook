@@ -98,6 +98,16 @@ All owned-catalog routes (`/api/stores/:storeId/owned/...`) call `assertSameStor
 **7. Audit every mutation.**
 `writeAudit()` is called in every route that creates, modifies, publishes, or deletes a resource. It records actor, store scope, action, target type, and target ID. Audit failures are logged and swallowed (never block the primary request) but the invariant test suite uses the audit log as a secondary oracle for all permission tests.
 
+**8. WorldSmith local work stays local until publication.**
+Editorial Suite Production Specs may compile and render preview boards from
+Postgres before they have Notion pages. Use the shared local resolver and the
+spec's `worldId` for World Bible grounding; if that grounding is missing or
+unreadable, block rather than producing an ungrounded prompt or preview.
+Unpublished specs must not send IDs, files, relations, or status transitions to
+Notion. Store their preview boards in protected App Storage. Preserve the
+legacy Notion resolver and writeback behavior for records that have a real
+`notionPageId`.
+
 ## Product
 
 Daybook Studio is a white-label digital-planner platform with three user tiers:

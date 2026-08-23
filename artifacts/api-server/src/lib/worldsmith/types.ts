@@ -3,7 +3,10 @@
 // ── Notion-resolved records ───────────────────────────────────────────────────
 
 export interface ProductionSpec {
-  notionPageId: string;
+  /** Stable source identity: a Notion page ID for legacy chains or local spec ID for local chains. */
+  sourceId?: string;
+  /** Publication target when the record has been synchronized to Notion. */
+  notionPageId?: string;
   // Core identity
   productionItem: string;
   specId: string;
@@ -44,29 +47,39 @@ export interface ProductionSpec {
 }
 
 export interface StyleGuide {
-  notionPageId: string;
+  sourceId?: string;
+  notionPageId?: string;
   name: string;
   content: string;
 }
 
 export interface ComponentSpec {
-  notionPageId: string;
+  sourceId?: string;
+  notionPageId?: string;
   name: string;
   content: string;
   componentType: string;
 }
 
 export interface PromptModule {
-  notionPageId: string;
+  sourceId?: string;
+  notionPageId?: string;
   name: string;
   content: string;
   dependencies: string[];
 }
 
 export interface CanonRecord {
-  notionPageId: string;
+  sourceId?: string;
+  notionPageId?: string;
   name: string;
   status: string;
+  narrativeDetails?: string;
+  historicalContext?: string;
+  visualNotes?: string;
+  emotionalRegister?: string | null;
+  sensoryClauses?: string;
+  notes?: string;
 }
 
 /** World Bible fields fetched from the local DB for the world that owns this spec. */
@@ -287,7 +300,7 @@ export interface ProvenanceRecord {
   run_id: string;
   compilation_timestamp: string;
   // ── Notion IDs for deep-linking (raw — never shown in primary UI) ─────────
-  production_spec_notion_id: string;
+  production_spec_notion_id?: string;
   style_guide_notion_id?: string;
   component_spec_notion_id?: string;
   prompt_payload_notion_id?: string;
@@ -367,13 +380,17 @@ export interface DaybookResult {
 // ── API shapes ────────────────────────────────────────────────────────────────
 
 export interface CompileRequest {
-  notion_production_spec_id: string;
+  /** Local Editorial Suite spec ID. Preferred when USE_LOCAL_RESOLVER is enabled. */
+  production_spec_id?: string;
+  /** Legacy Notion Production Specification page ID. */
+  notion_production_spec_id?: string;
   operation: "validate_and_compile" | "preview";
   dry_run?: boolean;
 }
 
 export interface CompileAndGenerateRequest {
-  notion_production_spec_id: string;
+  production_spec_id?: string;
+  notion_production_spec_id?: string;
   operation: "compile_and_generate";
   provider: string;
   model: string;
@@ -453,15 +470,23 @@ export interface SpecBoardData {
   referenceImageUrls?: string[]; // Up to 4 image URLs from the linked Style Guide's file attachments
   /** Up to 4 focal-hierarchy labels derived from the prompt payload (used as detail-crop captions). */
   focalHierarchy?: string[];
+  /** Required grounding for local Editorial Suite previews. */
+  worldBible?: WorldBible;
 }
 
 export interface SpecPreviewResult {
   status: "success" | "dry_run" | "upload_success_status_failed" | "failed";
   production_item: string;
   spec_page_id: string;
-  notion_page_id: string;
-  notion_page_url: string;
+  notion_page_id?: string;
+  notion_page_url?: string;
+  /** Identifies whether the preview was resolved from Editorial Suite or Notion. */
+  source?: "local" | "notion";
   preview_filename?: string;
+  /** App Storage object path for an Editorial Suite board. */
+  preview_object_path?: string;
+  /** Protected API URL that serves preview_object_path. */
+  preview_url?: string;
   provider?: string;
   model?: string;
   prompt_hash: string;
@@ -480,7 +505,10 @@ export interface SpecPreviewResult {
 }
 
 export interface SpecPreviewRequest {
-  spec_page_id: string;
+  /** Local Editorial Suite Production Specification ID. */
+  production_spec_id?: string;
+  /** Legacy Notion Production Specification page ID. */
+  spec_page_id?: string;
   prompt_hash: string;
   force_new?: boolean;
   dry_run?: boolean;

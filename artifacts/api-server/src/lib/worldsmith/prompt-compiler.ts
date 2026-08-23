@@ -423,11 +423,16 @@ function buildLegacySectionsFromNewFormat(
     style_system: chain.styleGuide?.content ?? "",
     component_requirements: chain.componentSpec?.content ?? "",
     asset_specific_intent: [spec.designIntent, spec.narrativePurpose, spec.requiredContent].filter(Boolean).join("\n"),
-    composition_and_content: payload.front_prompt ?? "",
-    materials_and_lighting: payload.shared_prompt ?? "",
+    // PP-2.0 sections must not be represented under misleading PP-1.0 labels.
+    // Keep the legacy keys for callers that expect the shape, but only attach
+    // content to accurately named PP-2.0 fields.
+    composition_and_content: "",
+    materials_and_lighting: "",
     text_policy: "",
     canon_policy: chain.canonRecords.map((r) => `${r.name} (${r.status})`).join("\n"),
     negative_constraints: payload.negative_prompt ?? "",
     print_and_output_requirements: [spec.orientation, spec.frontBackStyle].filter(Boolean).join("\n"),
+    shared_prompt: payload.shared_prompt ?? "",
+    front_prompt: payload.front_prompt ?? "",
   };
 }

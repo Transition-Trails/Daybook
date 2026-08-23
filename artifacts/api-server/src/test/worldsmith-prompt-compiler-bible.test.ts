@@ -109,6 +109,13 @@ function tagIndex(prompt: string, tag: string): number {
 describe("compilePrompt (PP-2.0) — all four Bible fields present", () => {
   const result = compilePrompt(makeChain(fullBible), pp2Payload());
 
+  it("keeps PP-2.0 shared/front content under accurately named compatibility keys", () => {
+    expect(result.sections.shared_prompt).toBe("A misty forest glade at dawn.");
+    expect(result.sections.front_prompt).toBe("Close-up of dew-covered ferns.");
+    expect(result.sections.composition_and_content).toBe("");
+    expect(result.sections.materials_and_lighting).toBe("");
+  });
+
   it("fullPrompt contains [VISUAL PALETTE]", () => {
     expect(result.fullPrompt).toContain("[VISUAL PALETTE]");
     expect(result.fullPrompt).toContain(fullBible.visualPalette!);

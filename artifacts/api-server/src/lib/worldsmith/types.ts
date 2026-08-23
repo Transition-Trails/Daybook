@@ -266,6 +266,12 @@ export interface CompiledPromptSections {
   canon_policy: string;
   negative_constraints: string;
   print_and_output_requirements: string;
+  /**
+   * PP-2.0 content is deliberately exposed under its own section names.
+   * The legacy composition/materials keys remain for PP-1.0 callers only.
+   */
+  shared_prompt?: string;
+  front_prompt?: string;
 }
 
 /** A single labeled section in the structured compiled prompt (PP-2.0+). */

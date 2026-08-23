@@ -34,7 +34,13 @@ async function run() {
       )
     `);
 
-    console.log("2. Creating idempotency index…");
+    console.log("2. Adding durable preview-object reference…");
+    await client.query(`
+      ALTER TABLE worldsmith_spec_previews
+        ADD COLUMN IF NOT EXISTS preview_object_path TEXT
+    `);
+
+    console.log("3. Creating idempotency index…");
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_worldsmith_spec_previews_idempotency
         ON worldsmith_spec_previews(spec_page_id, prompt_hash, template_version)

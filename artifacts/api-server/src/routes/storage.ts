@@ -6,6 +6,7 @@ import {
 import { Router, type IRouter, type Request, type Response } from 'express';
 
 import { requireSuperAdmin } from '../middleware/requireRole';
+import { requireAuth } from '../lib/auth-middleware';
 import {
   ObjectNotFoundError,
   ObjectStorageService,
@@ -114,6 +115,36 @@ router.get(
  * embedded into generated planner PDFs and previews which are served to
  * unauthenticated buyers. No ACL check is applied here intentionally.
  */
+router.get(
+  '/storage/objects/worldsmith/spec-previews/*path',
+  requireAuth,
+  requireSuperAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const raw = req.params.path;
+      const wildcardPath = Array.isArray(raw) ? raw.join('/') : raw;
+      const objectPath = `/objects/worldsmith/spec-previews/${wildcardPath}`;
+      const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+      const response = await objectStorageService.downloadObject(objectFile);
+
+      res.status(response.status);
+      response.headers.forEach((value, key) => res.setHeader(key, value));
+      if (response.body) {
+        Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
+      } else {
+        res.end();
+      }
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        res.status(404).json({ error: 'Object not found' });
+        return;
+      }
+      req.log.error({ err: error }, 'Error serving protected WorldSmith spec preview');
+      res.status(500).json({ error: 'Failed to serve spec preview' });
+    }
+  },
+);
+
 router.get('/storage/objects/*path', async (req: Request, res: Response) => {
   try {
     const raw = req.params.path;

@@ -41,6 +41,7 @@ import {
   clearPageCache,
   resolveInheritanceChain,
   resolveInheritanceChainLocal,
+  resolveInheritanceChainLocalWithWorldBible,
 } from "../lib/worldsmith/inheritance-resolver.js";
 import { compilePrompt } from "../lib/worldsmith/prompt-compiler.js";
 import { computePromptHash } from "../lib/worldsmith/prompt-hasher.js";
@@ -118,6 +119,14 @@ function setLocalRows() {
       emotionalRegister: "Withholding",
       sensoryClauses: "rain-dark iron; lichen-cold stone",
       notes: "Keep it distant.",
+    }],
+    [{
+      id: IDS.world,
+      visualPalette: "Moss green and rain-muted amber.",
+      proseVoice: "Quiet and observant.",
+      atmosphericNotes: "Rain gathers on iron.",
+      materialWorld: "Oxidized iron and wet stone.",
+      worldRules: ["No modern objects."],
     }],
   ];
 }
@@ -233,5 +242,17 @@ describe("resolveInheritanceChainLocal", () => {
     expect(compiled.fullPrompt).toContain("Narrative Details: An old gate marks the border.");
     expect(changedCompiled.fullPrompt).toContain("Emotional Register: Trespass");
     expect(changedHash).not.toBe(hash);
+  });
+
+  it("attaches the required local World Bible grounding", async () => {
+    const chain = await resolveInheritanceChainLocalWithWorldBible(IDS.spec);
+
+    expect(chain.worldBible).toEqual({
+      visualPalette: "Moss green and rain-muted amber.",
+      proseVoice: "Quiet and observant.",
+      atmosphericNotes: "Rain gathers on iron.",
+      materialWorld: "Oxidized iron and wet stone.",
+      worldRules: ["No modern objects."],
+    });
   });
 });

@@ -4,6 +4,8 @@ const {
   mockDbBibleRows,
   mockDbBibleError,
   mockLocalResolver,
+  mockLocalBibleResolver,
+  mockLocalBibleFailure,
   mockNotionGetPage,
   mockNotionUpdatePage,
   mockDaybookUpsert,
@@ -11,6 +13,8 @@ const {
   mockDbBibleRows: { value: [] as unknown[][] },
   mockDbBibleError: { value: "" },
   mockLocalResolver: vi.fn(),
+  mockLocalBibleResolver: vi.fn(),
+  mockLocalBibleFailure: { value: null as { code: string; message: string; retryable?: boolean } | null },
   mockNotionGetPage: vi.fn(),
   mockNotionUpdatePage: vi.fn(),
   mockDaybookUpsert: vi.fn(),
@@ -29,10 +33,8 @@ vi.mock("@workspace/db", () => {
   };
 });
 
-vi.mock("../lib/worldsmith/inheritance-resolver.js", () => ({
-  resolveInheritanceChain: vi.fn(),
-  resolveInheritanceChainLocal: mockLocalResolver,
-  InheritanceError: class InheritanceError extends Error {
+vi.mock("../lib/worldsmith/inheritance-resolver.js", () => {
+  class InheritanceError extends Error {
     constructor(
       message: string,
       public readonly stage: string,
@@ -41,8 +43,25 @@ vi.mock("../lib/worldsmith/inheritance-resolver.js", () => ({
     ) {
       super(message);
     }
-  },
-}));
+  }
+  return {
+    resolveInheritanceChain: vi.fn(),
+    resolveInheritanceChainLocal: mockLocalResolver,
+    resolveInheritanceChainLocalWithWorldBible: async (...args: unknown[]) => {
+      if (mockLocalBibleFailure.value) {
+        const failure = mockLocalBibleFailure.value;
+        throw new InheritanceError(
+          failure.message,
+          "resolve_world_bible",
+          failure.code,
+          failure.retryable ?? false,
+        );
+      }
+      return mockLocalBibleResolver(...args);
+    },
+    InheritanceError,
+  };
+});
 
 vi.mock("../lib/worldsmith/run-repository.js", () => ({
   createRun: vi.fn().mockResolvedValue("local-run"),
@@ -113,6 +132,27 @@ describe("runCompilation with the local resolver", () => {
     }]];
     mockDbBibleError.value = "";
     mockLocalResolver.mockResolvedValue(localChain);
+    mockLocalBibleFailure.value = null;
+    mockLocalBibleResolver.mockImplementation(async () => {
+      if (mockLocalBibleFailure.value) {
+        const failure = mockLocalBibleFailure.value;
+        throw new (class extends Error {
+          stage = "resolve_world_bible";
+          errorCode = failure.code;
+          retryable = failure.retryable ?? false;
+        })(failure.message);
+      }
+      return {
+        ...localChain,
+        worldBible: {
+          visualPalette: "moss green",
+          proseVoice: "quiet",
+          atmosphericNotes: "rain",
+          materialWorld: "iron",
+          worldRules: [],
+        },
+      };
+    });
     mockNotionGetPage.mockRejectedValue(new Error("Notion must not be read for a local compile"));
   });
 
@@ -138,12 +178,15 @@ describe("runCompilation with the local resolver", () => {
 
     expect(result.status).toBe("compiled");
     expect(result.production_spec_id).toBe("local-spec");
-    expect(mockLocalResolver).toHaveBeenCalledWith("local-spec");
+    expect(mockLocalBibleResolver).toHaveBeenCalledWith("local-spec");
     expect(mockNotionGetPage).not.toHaveBeenCalled();
   });
 
   it("blocks compilation when the local world ID has no World Bible record", async () => {
-    mockDbBibleRows.value = [[]];
+    mockLocalBibleFailure.value = {
+      code: "WORLD_BIBLE_NOT_FOUND",
+      message: "The World Bible record for local world \"local-world\" was not found.",
+    };
 
     const result = await runCompilation({
       production_spec_id: "local-spec",
@@ -163,7 +206,11 @@ describe("runCompilation with the local resolver", () => {
   });
 
   it("blocks compilation when the local World Bible query fails", async () => {
-    mockDbBibleError.value = "database unavailable";
+    mockLocalBibleFailure.value = {
+      code: "WORLD_BIBLE_FETCH_ERROR",
+      message: "World Bible fields could not be fetched for local world \"local-world\": database unavailable.",
+      retryable: true,
+    };
 
     const result = await runCompilation({
       production_spec_id: "local-spec",

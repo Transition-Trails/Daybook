@@ -5,7 +5,7 @@
  */
 import {
   resolveInheritanceChain,
-  resolveInheritanceChainLocal,
+  resolveInheritanceChainLocalWithWorldBible,
   InheritanceError,
 } from "./inheritance-resolver";
 import { parsePayload } from "./payload-parser";
@@ -77,21 +77,24 @@ export async function runCompilation(
     let chain;
     try {
       chain = useLocalResolver
-        ? await resolveInheritanceChainLocal(specId)
+          ? await resolveInheritanceChainLocalWithWorldBible(specId)
         : await resolveInheritanceChain(specId);
     } catch (err) {
       if (err instanceof InheritanceError) {
+          const inheritanceWarnings: ValidationError[] = [
+            {
+              code: err.errorCode,
+              field: err.stage === "resolve_world_bible" ? "world_bible" : err.stage,
+              governing_rule: err.stage === "resolve_world_bible" ? "WS-BIBLE-001" : "CS-000 Inheritance",
+              message: err.message,
+              recommended_action: useLocalResolver
+                ? "Resolve the missing dependency in the Editorial Suite before retrying."
+                : "Resolve the missing dependency in Notion before retrying.",
+            },
+          ];
         await failRun(runId, err.stage, err.errorCode, [
-          {
-            code: err.errorCode,
-            field: err.stage,
-            governing_rule: "CS-000 Inheritance",
-            message: err.message,
-            recommended_action: useLocalResolver
-              ? "Resolve the missing dependency in the Editorial Suite before retrying."
-              : "Resolve the missing dependency in Notion before retrying.",
-          },
-        ]);
+            ...inheritanceWarnings,
+          ]);
         // Persist retry events even when inheritance resolution fails
         if (notionRetryEvents.length > 0) {
           await updateRun(runId, {
@@ -99,7 +102,7 @@ export async function runCompilation(
             notionRetries: notionRetryEvents,
           }).catch(() => { /* best-effort */ });
         }
-        return failResponse(specId, err.stage, err.errorCode, err.message, [], err.retryable, null, null, runId);
+        return failResponse(specId, err.stage, err.errorCode, err.message, inheritanceWarnings, err.retryable, null, null, runId);
       }
       const msg = String(err);
       await failRun(runId, "inheritance_resolution", "INHERITANCE_ERROR", [
@@ -127,11 +130,11 @@ export async function runCompilation(
     // These are stored in worldsmithWorldsTable, not in Notion, so we resolve
     // them here (after inheritance resolution) and attach them to the chain
     // before prompt compilation.
-    let worldBible: InheritanceChain["worldBible"] | undefined;
+    let worldBible: InheritanceChain["worldBible"] | undefined = chain.worldBible;
     // Collects system-level warnings (e.g. Bible fetch failures) that are
     // prepended to every subsequent warnings array written to the run record.
     const systemWarnings: ValidationError[] = [];
-    if (chain.productionSpec.worldId || (!useLocalResolver && chain.productionSpec.world)) {
+    if (!useLocalResolver && (chain.productionSpec.worldId || chain.productionSpec.world)) {
       try {
         const bibleQuery = db
           .select({
@@ -219,27 +222,6 @@ export async function runCompilation(
         // Persist immediately so the warning survives even if a later stage fails.
         await updateRun(runId, { warnings: systemWarnings }).catch(() => { /* best-effort */ });
       }
-    } else if (useLocalResolver) {
-      const missingWorldIdWarning: ValidationError = {
-        code: "WORLD_BIBLE_WORLD_ID_MISSING",
-        field: "world_bible",
-        governing_rule: "WS-BIBLE-001",
-        message: "The local Production Specification has no world ID, so World Bible grounding cannot be resolved.",
-        recommended_action: "Link the Production Specification to a local WorldSmith world before retrying.",
-      };
-      systemWarnings.push(missingWorldIdWarning);
-      await failRun(runId, "resolve_world_bible", "WORLD_BIBLE_WORLD_ID_MISSING", [missingWorldIdWarning]);
-      return failResponse(
-        specId,
-        "resolve_world_bible",
-        "WORLD_BIBLE_WORLD_ID_MISSING",
-        missingWorldIdWarning.message,
-        systemWarnings,
-        false,
-        null,
-        null,
-        runId,
-      );
     }
     const chainWithBible: InheritanceChain = worldBible ? { ...chain, worldBible } : chain;
 

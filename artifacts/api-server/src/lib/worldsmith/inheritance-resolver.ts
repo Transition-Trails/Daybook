@@ -944,3 +944,70 @@ export async function resolveInheritanceChainLocal(specId: string): Promise<Inhe
     warnings,
   };
 }
+
+/**
+ * Resolve a local Editorial Suite spec together with its required World Bible
+ * grounding. Local compilation and preview generation must use this entry point
+ * so unpublished records never produce an ungrounded result.
+ */
+export async function resolveInheritanceChainLocalWithWorldBible(
+  specId: string,
+): Promise<InheritanceChain> {
+  const chain = await resolveInheritanceChainLocal(specId);
+  const worldId = chain.productionSpec.worldId;
+
+  if (!worldId) {
+    throw localDependencyError(
+      "The local Production Specification has no world ID, so World Bible grounding cannot be resolved.",
+      "resolve_world_bible",
+      "WORLD_BIBLE_WORLD_ID_MISSING",
+    );
+  }
+
+  let worldBibleRow: {
+    visualPalette: string | null;
+    proseVoice: string | null;
+    atmosphericNotes: string | null;
+    materialWorld: string | null;
+    worldRules: string[] | null;
+  } | undefined;
+  try {
+    [worldBibleRow] = await db
+      .select({
+        visualPalette: worldsmithWorldsTable.visualPalette,
+        proseVoice: worldsmithWorldsTable.proseVoice,
+        atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
+        materialWorld: worldsmithWorldsTable.materialWorld,
+        worldRules: worldsmithWorldsTable.worldRules,
+      })
+      .from(worldsmithWorldsTable)
+      .where(eq(worldsmithWorldsTable.id, worldId))
+      .limit(1);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw localDependencyError(
+      `World Bible fields could not be fetched for local world "${worldId}": ${message}. Compilation was blocked to avoid producing an ungrounded prompt.`,
+      "resolve_world_bible",
+      "WORLD_BIBLE_FETCH_ERROR",
+    );
+  }
+
+  if (!worldBibleRow) {
+    throw localDependencyError(
+      `The World Bible record for local world "${worldId}" was not found. Compilation was blocked to avoid producing an ungrounded prompt.`,
+      "resolve_world_bible",
+      "WORLD_BIBLE_NOT_FOUND",
+    );
+  }
+
+  return {
+    ...chain,
+    worldBible: {
+      visualPalette: worldBibleRow.visualPalette,
+      proseVoice: worldBibleRow.proseVoice,
+      atmosphericNotes: worldBibleRow.atmosphericNotes,
+      materialWorld: worldBibleRow.materialWorld,
+      worldRules: worldBibleRow.worldRules ?? [],
+    },
+  };
+}

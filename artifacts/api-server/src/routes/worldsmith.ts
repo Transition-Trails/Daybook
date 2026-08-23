@@ -11,7 +11,12 @@ import { Router } from "express";
 import { requireAuth } from "../lib/auth-middleware";
 import { requireStoreAccess, requireSuperAdmin } from "../middleware/requireRole";
 import { runCompilation } from "../lib/worldsmith/orchestrator";
-import { runSpecPreview, retrySpecPreviewStatus, SpecPreviewError } from "../lib/worldsmith/spec-preview-service";
+import {
+  getLatestLocalSpecPreview,
+  runSpecPreview,
+  retrySpecPreviewStatus,
+  SpecPreviewError,
+} from "../lib/worldsmith/spec-preview-service";
 import { getRun, getRunsBySpec, failStaleRunsForSpec, updateRun } from "../lib/worldsmith/run-repository";
 import { getAsset, getAssetBySpec } from "../lib/worldsmith/daybook-adapter";
 import { normalizeNotionId } from "../lib/worldsmith/normalize-id";
@@ -449,40 +454,69 @@ router.get("/v1/worldsmith/preflight", requireAuth, requireSuperAdmin, async (re
 });
 
 // ── POST /v1/worldsmith/spec-preview ─────────────────────────────────────────
-// Generate a Product Specification Image, upload to Notion, advance Status to
-// "Ready for Review".  Idempotent by (spec_page_id + prompt_hash + template v1)
-// unless force_new=true.
+// Generate a Product Specification Image. Editorial Suite specs are resolved
+// locally and never write to Notion until they have been published; legacy
+// spec_page_id requests retain the Notion upload/status-transition behavior.
+
+router.get("/v1/worldsmith/spec-preview/local/:productionSpecId", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const productionSpecId = (req.params.productionSpecId as string | undefined)?.trim();
+  if (!productionSpecId) {
+    res.status(400).json({ error: "production_spec_id is required", code: "MISSING_SPEC_ID" });
+    return;
+  }
+
+  try {
+    const preview = await getLatestLocalSpecPreview(productionSpecId);
+    res.json({ preview });
+  } catch (err) {
+    logger.error({ err, productionSpecId }, "WorldSmith local spec preview lookup failed");
+    res.status(500).json({ error: "Failed to load local specification board", code: "PREVIEW_LOOKUP_FAILED" });
+  }
+});
 
 router.post("/v1/worldsmith/spec-preview", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
   const body = req.body as {
+    production_spec_id?: string;
     spec_page_id?: string;
     prompt_hash?: string;
     force_new?: boolean;
     dry_run?: boolean;
   };
 
-  const { spec_page_id: rawId, prompt_hash, force_new = false, dry_run = false } = body;
+  const {
+    production_spec_id: localSpecId,
+    spec_page_id: rawId,
+    prompt_hash,
+    force_new = false,
+    dry_run = false,
+  } = body;
 
-  if (!rawId || !prompt_hash) {
+  if ((!localSpecId && !rawId) || !prompt_hash) {
     res.status(400).json({
-      error: "spec_page_id and prompt_hash are required",
+      error: "production_spec_id (local) or spec_page_id (Notion), and prompt_hash are required",
       code: "MISSING_FIELDS",
     });
     return;
   }
 
-  let spec_page_id: string;
-  try {
-    spec_page_id = normalizeNotionId(rawId);
-  } catch (normErr) {
-    res.status(400).json({ error: String(normErr), code: "INVALID_SPEC_ID" });
-    return;
+  let production_spec_id: string | undefined;
+  let spec_page_id: string | undefined;
+  if (localSpecId?.trim()) {
+    production_spec_id = localSpecId.trim();
+  } else if (rawId) {
+    try {
+      spec_page_id = normalizeNotionId(rawId);
+    } catch (normErr) {
+      res.status(400).json({ error: String(normErr), code: "INVALID_SPEC_ID" });
+      return;
+    }
   }
 
   const user = req.user as import("@workspace/db").User;
 
   try {
     const result = await runSpecPreview({
+      production_spec_id,
       spec_page_id,
       prompt_hash,
       force_new,
@@ -494,9 +528,10 @@ router.post("/v1/worldsmith/spec-preview", requireAuth, requireSuperAdmin, async
   } catch (err) {
     if (err instanceof SpecPreviewError) {
       const httpStatus =
-        err.code === "SPEC_NOT_FOUND"     ? 404
+        err.code === "SPEC_NOT_FOUND" || err.code === "LOCAL_SPEC_NOT_FOUND" ? 404
+        : err.code === "WORLD_BIBLE_NOT_FOUND" || err.code === "WORLD_BIBLE_WORLD_ID_MISSING" ? 422
         : err.code === "UPLOAD_FAILED"    ? 502
-        : err.code === "NOTION_FETCH_FAILED" ? 503
+        : err.code === "NOTION_FETCH_FAILED" || err.code === "WORLD_BIBLE_FETCH_ERROR" ? 503
         : 500;
       res.status(httpStatus).json({ error: err.message, code: err.code });
     } else {

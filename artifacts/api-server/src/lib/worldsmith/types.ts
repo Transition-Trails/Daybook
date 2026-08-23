@@ -470,15 +470,23 @@ export interface SpecBoardData {
   referenceImageUrls?: string[]; // Up to 4 image URLs from the linked Style Guide's file attachments
   /** Up to 4 focal-hierarchy labels derived from the prompt payload (used as detail-crop captions). */
   focalHierarchy?: string[];
+  /** Required grounding for local Editorial Suite previews. */
+  worldBible?: WorldBible;
 }
 
 export interface SpecPreviewResult {
   status: "success" | "dry_run" | "upload_success_status_failed" | "failed";
   production_item: string;
   spec_page_id: string;
-  notion_page_id: string;
-  notion_page_url: string;
+  notion_page_id?: string;
+  notion_page_url?: string;
+  /** Identifies whether the preview was resolved from Editorial Suite or Notion. */
+  source?: "local" | "notion";
   preview_filename?: string;
+  /** App Storage object path for an Editorial Suite board. */
+  preview_object_path?: string;
+  /** Protected API URL that serves preview_object_path. */
+  preview_url?: string;
   provider?: string;
   model?: string;
   prompt_hash: string;
@@ -497,7 +505,10 @@ export interface SpecPreviewResult {
 }
 
 export interface SpecPreviewRequest {
-  spec_page_id: string;
+  /** Local Editorial Suite Production Specification ID. */
+  production_spec_id?: string;
+  /** Legacy Notion Production Specification page ID. */
+  spec_page_id?: string;
   prompt_hash: string;
   force_new?: boolean;
   dry_run?: boolean;

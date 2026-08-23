@@ -198,6 +198,52 @@ describe("compilePrompt (PP-2.0) — all four Bible fields present", () => {
   });
 });
 
+describe("compilePrompt — explicit prompt-module section routing", () => {
+  it("routes each module by section rather than title for PP-2.0 and PP-1.0", () => {
+    const chain = makeChain();
+    chain.promptModules = [
+      {
+        notionPageId: "module-style",
+        name: "World Notes With a Misleading Name",
+        section: "style",
+        content: "EXPLICIT STYLE CONTENT",
+        dependencies: [],
+      },
+      {
+        notionPageId: "module-world",
+        name: "Aesthetic Notes With a Misleading Name",
+        section: "world",
+        content: "EXPLICIT WORLD CONTENT",
+        dependencies: [],
+      },
+      {
+        notionPageId: "module-general",
+        name: "Style World Display Name",
+        section: "general",
+        content: "EXPLICIT GENERAL CONTENT",
+        dependencies: [],
+      },
+    ];
+
+    for (const payload of [pp2Payload(), pp1Payload()]) {
+      const result = compilePrompt(chain, payload);
+      const world = result.sectionRecords.find(record => record.key === "world_and_collection_context");
+      const style = result.sectionRecords.find(record => record.key === "style_system");
+      const general = result.sectionRecords.find(record => record.key === "module_module-general");
+
+      expect(world?.content).toContain("EXPLICIT WORLD CONTENT");
+      expect(world?.content).not.toContain("EXPLICIT STYLE CONTENT");
+      expect(style?.content).toContain("EXPLICIT STYLE CONTENT");
+      expect(style?.content).not.toContain("EXPLICIT WORLD CONTENT");
+      if (result.isLegacyFormat) {
+        expect(result.fullPrompt).toContain("EXPLICIT GENERAL CONTENT");
+      } else {
+        expect(general?.content).toBe("EXPLICIT GENERAL CONTENT");
+      }
+    }
+  });
+});
+
 // ── PP-2.0: null / undefined / whitespace fields omitted ─────────────────────
 
 describe("compilePrompt (PP-2.0) — null/undefined Bible fields produce no section", () => {

@@ -23,10 +23,12 @@ import type {
   StyleGuide,
   ComponentSpec,
   PromptModule,
+  PromptModuleSection,
   CanonRecord,
   InheritanceChain,
   ValidationError,
 } from "./types";
+import { isPromptModuleSection } from "./types";
 import { logger } from "../logger";
 import {
   db,
@@ -285,6 +287,18 @@ async function resolveComponentSpec(pageId: string): Promise<ComponentSpec> {
 
 // ── Prompt Module ─────────────────────────────────────────────────────────────
 
+/**
+ * Notion modules predate the persisted local routing field. Retain their
+ * established placement until they can be authored with an explicit Section
+ * property, while keeping all routing inference outside the compiler.
+ */
+function legacyPromptModuleSection(name: string): PromptModuleSection {
+  const lowerName = name.toLowerCase();
+  if (lowerName.includes("style") || lowerName.includes("aesthetic")) return "style";
+  if (lowerName.includes("world")) return "world";
+  return "general";
+}
+
 async function resolvePromptModule(
   pageId: string,
   visited = new Set<string>(),
@@ -303,6 +317,10 @@ async function resolvePromptModule(
 
   const dependencyIds = extractRelation(page.properties["Dependencies"]) || [];
   const content = await getPageText(pageId);
+  const configuredSection = extractSelect(page.properties["Section"]);
+  const section = isPromptModuleSection(configuredSection)
+    ? configuredSection
+    : legacyPromptModuleSection(name);
 
   // Resolve dependencies (one level deep for MVP)
   const resolvedDeps: string[] = [];
@@ -340,7 +358,7 @@ async function resolvePromptModule(
   // Prepend dependency content to this module's content
   const fullContent = [...resolvedDeps, content].filter(Boolean).join("\n\n");
 
-  return { sourceId: pageId, notionPageId: pageId, name, content: fullContent, dependencies: dependencyIds };
+  return { sourceId: pageId, notionPageId: pageId, name, section, content: fullContent, dependencies: dependencyIds };
 }
 
 // ── Canon Records ─────────────────────────────────────────────────────────────
@@ -852,7 +870,7 @@ export async function resolveInheritanceChainLocal(specId: string): Promise<Inhe
   const visitedModules = new Set<string>();
   async function resolveLocalPromptModule(moduleId: string): Promise<PromptModule> {
     if (visitedModules.has(moduleId)) {
-      return { sourceId: moduleId, name: moduleId, content: "", dependencies: [] };
+      return { sourceId: moduleId, name: moduleId, section: "general", content: "", dependencies: [] };
     }
     visitedModules.add(moduleId);
 
@@ -890,6 +908,7 @@ export async function resolveInheritanceChainLocal(specId: string): Promise<Inhe
       sourceId: row.id,
       notionPageId: row.notionPageId ?? undefined,
       name: row.name,
+      section: isPromptModuleSection(row.section) ? row.section : "general",
       content: [...dependencyContent, row.content].filter(Boolean).join("\n\n"),
       dependencies: row.dependencyIds,
     };

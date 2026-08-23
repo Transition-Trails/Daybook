@@ -62,6 +62,7 @@ import { and, eq, inArray, like, desc, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
 import { callAi, callDallE } from "../lib/ai-proxy";
+import { isPromptModuleSection } from "../lib/worldsmith/types";
 import {
   updatePage,
   createPage,
@@ -1871,14 +1872,18 @@ router.get("/v1/editorial/prompt-modules", async (req: Request, res: Response) =
 });
 
 router.post("/v1/editorial/prompt-modules", async (req: Request, res: Response) => {
-  const { world_id, name, content } = req.body;
+  const { world_id, name, content, section = "general" } = req.body;
   if (!world_id || !name?.trim()) {
     res.status(400).json({ error: "world_id and name are required" });
     return;
   }
+  if (!isPromptModuleSection(section)) {
+    res.status(400).json({ error: "section must be world, style, or general" });
+    return;
+  }
   try {
     const [row] = await db.insert(wsPromptModulesTable)
-      .values({ id: crypto.randomUUID(), worldId: world_id, name: name.trim(), content: sanitizeEditorialRichText(content ?? "") })
+      .values({ id: crypto.randomUUID(), worldId: world_id, name: name.trim(), section, content: sanitizeEditorialRichText(content ?? "") })
       .returning();
     res.status(201).json({ prompt_module: row });
   } catch (err) {
@@ -1900,13 +1905,18 @@ router.get("/v1/editorial/prompt-modules/:id", async (req: Request, res: Respons
 });
 
 router.patch("/v1/editorial/prompt-modules/:id", async (req: Request, res: Response) => {
-  const { name, content, dependency_ids } = req.body;
+  const { name, content, dependency_ids, section } = req.body;
+  if (section !== undefined && !isPromptModuleSection(section)) {
+    res.status(400).json({ error: "section must be world, style, or general" });
+    return;
+  }
   try {
     const [row] = await db.update(wsPromptModulesTable)
       .set({
         ...(name !== undefined ? { name } : {}),
         ...(content !== undefined ? { content: sanitizeEditorialRichText(content) } : {}),
         ...(dependency_ids !== undefined ? { dependencyIds: dependency_ids } : {}),
+        ...(section !== undefined ? { section } : {}),
       })
       .where(eq(wsPromptModulesTable.id, req.params.id as string)).returning();
     if (!row) { res.status(404).json({ error: "Prompt module not found" }); return; }

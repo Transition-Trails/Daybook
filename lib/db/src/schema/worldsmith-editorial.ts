@@ -155,6 +155,8 @@ export const wsPromptModulesTable = pgTable("ws_prompt_modules", {
   id: text("id").primaryKey(),
   worldId: text("world_id").notNull(),
   name: text("name").notNull(),
+  // world | style | general — compiler routing is explicit, never inferred from the display name.
+  section: text("section").notNull().default("general"),
   content: text("content").notNull().default(""),
   dependencyIds: jsonb("dependency_ids").$type<string[]>().notNull().default([]),
   notionPageId: text("notion_page_id"),

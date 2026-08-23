@@ -23,6 +23,7 @@ interface PromptModule {
   id: string;
   world_id: string;
   name: string;
+  section: "world" | "style" | "general";
   content: string;
   dependency_ids: string[] | null;
   created_at: string;
@@ -51,6 +52,7 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [name, setName] = useState(module?.name ?? "");
+  const [section, setSection] = useState<PromptModule["section"]>(module?.section ?? "general");
   const [content, setContent] = useState(module?.content ?? "");
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [activeTarget, setActiveTarget] = useState<ApplyTarget>({ key: "content", label: "Content" });
@@ -61,12 +63,12 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
       if (module) {
         return apiFetch(`/v1/editorial/prompt-modules/${module.id}`, {
           method: "PATCH",
-          body: JSON.stringify({ name: name.trim(), content }),
+          body: JSON.stringify({ name: name.trim(), section, content }),
         });
       }
       return apiFetch("/v1/editorial/prompt-modules", {
         method: "POST",
-        body: JSON.stringify({ world_id: worldId, name: name.trim(), content }),
+          body: JSON.stringify({ world_id: worldId, name: name.trim(), section, content }),
       });
     },
     onSuccess: () => {
@@ -130,6 +132,24 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C87560]/30 focus:border-[#C87560]"
             />
           </div>
+
+           <div>
+             <label className="block text-sm font-medium text-gray-700 mb-1.5">
+               Compiler section
+             </label>
+             <select
+               value={section}
+               onChange={e => setSection(e.target.value as PromptModule["section"])}
+               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C87560]/30 focus:border-[#C87560] bg-white"
+             >
+               <option value="world">World & collection context</option>
+               <option value="style">Style system</option>
+               <option value="general">General module</option>
+             </select>
+             <p className="mt-1.5 text-xs text-gray-400">
+               This explicitly controls where the module is placed in the compiled prompt.
+             </p>
+           </div>
 
           {/* Content */}
           <div className="flex-1">
@@ -215,6 +235,8 @@ function ModuleCard({ module, onEdit }: { module: PromptModule; onEdit: () => vo
               <span className="text-xs text-gray-400">
                 {wc > 0 ? `${wc.toLocaleString()} words` : "No content yet"}
               </span>
+              <span className="text-gray-300">·</span>
+              <span className="text-xs font-medium text-[#1B2A4A] capitalize">{module.section}</span>
               <span className="text-gray-300">·</span>
               <span className="text-xs text-gray-400">Updated {fmtDate(module.updated_at)}</span>
             </div>

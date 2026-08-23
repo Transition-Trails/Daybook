@@ -65,8 +65,17 @@ export interface PromptModule {
   sourceId?: string;
   notionPageId?: string;
   name: string;
+  /** Explicit compiler routing for local modules and normalized legacy modules. */
+  section?: PromptModuleSection;
   content: string;
   dependencies: string[];
+}
+
+export const PROMPT_MODULE_SECTIONS = ["world", "style", "general"] as const;
+export type PromptModuleSection = typeof PROMPT_MODULE_SECTIONS[number];
+
+export function isPromptModuleSection(value: unknown): value is PromptModuleSection {
+  return typeof value === "string" && (PROMPT_MODULE_SECTIONS as readonly string[]).includes(value);
 }
 
 export interface CanonRecord {

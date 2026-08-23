@@ -139,6 +139,7 @@ jobs:
           node lib/db/migrate-support-v2.mjs
            pnpm --filter @workspace/scripts run migrate-releases
            pnpm --filter @workspace/scripts run migrate-release-github-review
+           pnpm --filter @workspace/scripts run migrate-worldsmith-editorial
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 

@@ -94,6 +94,7 @@ async function run() {
         id               TEXT PRIMARY KEY,
         world_id         TEXT NOT NULL,
         name             TEXT NOT NULL,
+        section          TEXT NOT NULL DEFAULT 'general' CHECK (section IN ('world', 'style', 'general')),
         content          TEXT NOT NULL DEFAULT '',
         notion_page_id   TEXT,
         synced_at        TIMESTAMPTZ,
@@ -136,6 +137,28 @@ async function run() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS ws_prompt_modules_world_idx ON ws_prompt_modules(world_id);`);
+    const sectionColumn = await client.query(`
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'ws_prompt_modules'
+        AND column_name = 'section'
+    `);
+    if (sectionColumn.rowCount === 0) {
+      await client.query(`
+        ALTER TABLE ws_prompt_modules
+        ADD COLUMN section TEXT NOT NULL DEFAULT 'general'
+        CHECK (section IN ('world', 'style', 'general'));
+      `);
+      await client.query(`
+        UPDATE ws_prompt_modules
+        SET section = CASE
+          WHEN LOWER(name) LIKE '%style%' OR LOWER(name) LIKE '%aesthetic%' THEN 'style'
+          WHEN LOWER(name) LIKE '%world%' THEN 'world'
+          ELSE 'general'
+        END;
+      `);
+    }
     console.log("  ✓ ws_prompt_modules");
 
     // ── Production Specs ──────────────────────────────────────────────────────

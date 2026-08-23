@@ -69,9 +69,7 @@ function compileNewFormat(
   // [WORLD AND COLLECTION CONTEXT]
   const worldParts: string[] = [`World: ${spec.world}`];
   if (spec.volume) worldParts.push(`Volume: ${spec.volume}`);
-  const worldModules = chain.promptModules.filter(
-    (m) => m.name.toLowerCase().includes("world") || m.name.toLowerCase().includes("collection"),
-  );
+  const worldModules = chain.promptModules.filter((m) => m.section === "world");
   for (const m of worldModules) {
     if (m.content.trim()) worldParts.push(m.content.trim());
   }
@@ -103,9 +101,7 @@ function compileNewFormat(
   // [STYLE SYSTEM]
   const styleParts: string[] = [];
   if (chain.styleGuide?.content) styleParts.push(chain.styleGuide.content.trim());
-  const styleModules = chain.promptModules.filter(
-    (m) => m.name.toLowerCase().includes("style") || m.name.toLowerCase().includes("aesthetic"),
-  );
+  const styleModules = chain.promptModules.filter((m) => m.section === "style");
   for (const m of styleModules) {
     if (m.content.trim()) styleParts.push(m.content.trim());
   }
@@ -124,14 +120,8 @@ function compileNewFormat(
     : "No Component Specification linked";
   pushSection("component_requirements", "COMPONENT REQUIREMENTS", componentContent, componentSrc, parts, sectionRecords);
 
-  // Additional prompt modules (non-world, non-style, non-aesthetic)
-  const additionalModules = chain.promptModules.filter(
-    (m) =>
-      !m.name.toLowerCase().includes("world") &&
-      !m.name.toLowerCase().includes("collection") &&
-      !m.name.toLowerCase().includes("style") &&
-      !m.name.toLowerCase().includes("aesthetic"),
-  );
+  // General modules are emitted as their own named compiled sections.
+  const additionalModules = chain.promptModules.filter((m) => (m.section ?? "general") === "general");
   for (const m of additionalModules) {
     if (m.content.trim()) {
       const tag = m.name.toUpperCase().replace(/\s+/g, " ").trim();
@@ -226,9 +216,7 @@ function compileLegacyFormat(
   // ── [WORLD AND COLLECTION CONTEXT] ──────────────────────────────────────
   const worldParts: string[] = [`World: ${spec.world}`];
   if (spec.volume) worldParts.push(`Volume: ${spec.volume}`);
-  const worldModules = chain.promptModules.filter(
-    (m) => m.name.toLowerCase().includes("world") || m.name.toLowerCase().includes("collection"),
-  );
+  const worldModules = chain.promptModules.filter((m) => m.section === "world");
   for (const m of worldModules) {
     if (m.content.trim()) worldParts.push(m.content.trim());
   }
@@ -237,9 +225,7 @@ function compileLegacyFormat(
   // ── [STYLE SYSTEM] ──────────────────────────────────────────────────────
   const styleParts: string[] = [];
   if (chain.styleGuide?.content) styleParts.push(chain.styleGuide.content.trim());
-  const styleModules = chain.promptModules.filter(
-    (m) => m.name.toLowerCase().includes("style") || m.name.toLowerCase().includes("aesthetic"),
-  );
+  const styleModules = chain.promptModules.filter((m) => m.section === "style");
   for (const m of styleModules) {
     if (m.content.trim()) styleParts.push(m.content.trim());
   }
@@ -313,13 +299,7 @@ function compileLegacyFormat(
   const printAndOutputRequirements = printParts.join("\n");
 
   // Additional modules
-  const additionalModules = chain.promptModules.filter(
-    (m) =>
-      !m.name.toLowerCase().includes("world") &&
-      !m.name.toLowerCase().includes("collection") &&
-      !m.name.toLowerCase().includes("style") &&
-      !m.name.toLowerCase().includes("aesthetic"),
-  );
+  const additionalModules = chain.promptModules.filter((m) => (m.section ?? "general") === "general");
 
   const sections: CompiledPromptSections = {
     creative_task: creativeTask,
@@ -351,7 +331,7 @@ function compileLegacyFormat(
 
   const parts: string[] = [];
   for (const [key, tag] of orderedSectionKeys) {
-    const s = section(tag, sections[key]);
+    const s = section(tag, sections[key] ?? "");
     if (s) parts.push(s);
     // Inject World Bible fields immediately after WORLD AND COLLECTION CONTEXT
     if (key === "world_and_collection_context") {
@@ -384,7 +364,7 @@ function compileLegacyFormat(
 
   // Build sectionRecords from legacy sections for the viewer
   const sectionRecords: CompiledSectionRecord[] = orderedSectionKeys
-    .map(([key, label]) => rec(key, toTitleCase(label), sections[key], legacySectionSource(key as string, chain)))
+    .map(([key, label]) => rec(key, toTitleCase(label), sections[key] ?? "", legacySectionSource(key as string, chain)))
     .filter((r) => r.content.length > 0);
 
   // Append World Bible sectionRecords for the viewer

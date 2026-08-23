@@ -27,6 +27,7 @@ import type { ApplyTarget } from "@/components/CopilotPanel";
 interface FormState {
   // Identity
   name: string;
+  compilerSection: "world" | "style" | "general";
   moduleType: string;
   usageContext: string;
   // Prompt Content
@@ -45,6 +46,7 @@ interface FormState {
 
 const EMPTY: FormState = {
   name: "",
+  compilerSection: "general",
   moduleType: "",
   usageContext: "",
   primaryContent: "",
@@ -115,6 +117,7 @@ const SECTIONS: SectionMeta[] = [
     icon: FileText,
     checks: f => [
       { label: "Module name", done: !!f.name.trim() },
+        { label: "Compiler section", done: !!f.compilerSection },
       { label: "Module type", done: !!f.moduleType },
       { label: "Usage context", done: !!f.usageContext.trim() },
     ],
@@ -434,6 +437,21 @@ function IdentitySection({ f, set, onFocus }: { f: FormState; set: (k: keyof For
         </select>
       </Field>
       <Field
+        label="Compiler Section"
+        required
+        hint="Controls placement in the compiled prompt. It is independent of the module's display name."
+      >
+        <select
+          value={f.compilerSection}
+          onChange={e => set("compilerSection", e.target.value)}
+          className={selectCls}
+        >
+          <option value="world">World & collection context</option>
+          <option value="style">Style system</option>
+          <option value="general">General module</option>
+        </select>
+      </Field>
+      <Field
         label="Usage Context"
         required
         hint="When should editors attach this module? Which specs benefit from it?"
@@ -651,6 +669,7 @@ export default function NewPromptModuleFlow() {
         body: JSON.stringify({
           world_id: selectedWorldId,
           name: form.name.trim(),
+          section: form.compilerSection,
           content,
         }),
       });

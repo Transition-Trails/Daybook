@@ -28,6 +28,18 @@ import type {
   ValidationError,
 } from "./types";
 import { logger } from "../logger";
+import {
+  db,
+  worldsmithWorldsTable,
+  wsCollectionsTable,
+  wsVolumesTable,
+  wsStyleGuidesTable,
+  wsComponentSpecsTable,
+  wsPromptModulesTable,
+  wsCanonRecordsTable,
+  wsProductionSpecsTable,
+} from "@workspace/db";
+import { eq } from "drizzle-orm";
 
 const PRODUCTION_SPEC_DB = () => process.env.NOTION_PRODUCTION_SPEC_DB_ID ?? "";
 const VISUAL_ASSETS_DB = () => process.env.NOTION_VISUAL_ASSETS_DB_ID ?? "";
@@ -206,6 +218,7 @@ function extractProductionSpec(page: NotionPage): ProductionSpec {
     extractUrl(p["Drive Link"]);
 
   return {
+    sourceId: page.id,
     notionPageId: page.id,
     productionItem,
     specId,
@@ -251,7 +264,7 @@ async function resolveStyleGuide(pageId: string): Promise<StyleGuide> {
     extractTitle(page.properties["Style Guide"]) ||
     pageId;
   const content = await getPageText(pageId);
-  return { notionPageId: pageId, name, content };
+  return { sourceId: pageId, notionPageId: pageId, name, content };
 }
 
 // ── Component Spec ────────────────────────────────────────────────────────────
@@ -267,7 +280,7 @@ async function resolveComponentSpec(pageId: string): Promise<ComponentSpec> {
     extractRichText(page.properties["Component Type"]) ||
     "";
   const content = await getPageText(pageId);
-  return { notionPageId: pageId, name, content, componentType };
+  return { sourceId: pageId, notionPageId: pageId, name, content, componentType };
 }
 
 // ── Prompt Module ─────────────────────────────────────────────────────────────
@@ -278,7 +291,7 @@ async function resolvePromptModule(
   warnings: ValidationError[] = [],
 ): Promise<PromptModule> {
   if (visited.has(pageId)) {
-    return { notionPageId: pageId, name: pageId, content: "", dependencies: [] };
+    return { sourceId: pageId, notionPageId: pageId, name: pageId, content: "", dependencies: [] };
   }
   visited.add(pageId);
 
@@ -327,7 +340,7 @@ async function resolvePromptModule(
   // Prepend dependency content to this module's content
   const fullContent = [...resolvedDeps, content].filter(Boolean).join("\n\n");
 
-  return { notionPageId: pageId, name, content: fullContent, dependencies: dependencyIds };
+  return { sourceId: pageId, notionPageId: pageId, name, content: fullContent, dependencies: dependencyIds };
 }
 
 // ── Canon Records ─────────────────────────────────────────────────────────────
@@ -342,7 +355,7 @@ async function resolveCanonRecord(pageId: string): Promise<CanonRecord> {
     extractSelect(page.properties["Status"]) ||
     extractSelect(page.properties["Canon Status"]) ||
     "Unknown";
-  return { notionPageId: pageId, name, status };
+  return { sourceId: pageId, notionPageId: pageId, name, status };
 }
 
 // ── Error classification helper ───────────────────────────────────────────────
@@ -650,5 +663,284 @@ export async function resolveInheritanceChain(pageId: string): Promise<Inheritan
     canonRecords,
     resolvedSourceIds,
     warnings: inheritanceWarnings,
+  };
+}
+
+// ── Local Editorial resolver ──────────────────────────────────────────────────
+
+function localDependencyError(
+  message: string,
+  stage: string,
+  errorCode: string,
+): InheritanceError {
+  return new InheritanceError(message, stage, errorCode, false);
+}
+
+/**
+ * Resolve the authored Editorial Suite records that define a compilation.
+ *
+ * The result deliberately matches the existing Notion resolver contract so the
+ * validator and compiler can consume either source. `sourceId` always contains
+ * the local record ID for this path; `notionPageId` is populated only when a
+ * record has been published to Notion.
+ */
+export async function resolveInheritanceChainLocal(specId: string): Promise<InheritanceChain> {
+  const [localSpec] = await db
+    .select()
+    .from(wsProductionSpecsTable)
+    .where(eq(wsProductionSpecsTable.id, specId))
+    .limit(1);
+
+  if (!localSpec) {
+    throw localDependencyError(
+      `Local Production Specification ${specId} was not found.`,
+      "fetch_production_spec",
+      "LOCAL_SPEC_NOT_FOUND",
+    );
+  }
+
+  const [world] = await db
+    .select()
+    .from(worldsmithWorldsTable)
+    .where(eq(worldsmithWorldsTable.id, localSpec.worldId))
+    .limit(1);
+  if (!world) {
+    throw localDependencyError(
+      `Local Production Specification ${specId} points to missing world ${localSpec.worldId}.`,
+      "resolve_world",
+      "LOCAL_WORLD_NOT_FOUND",
+    );
+  }
+
+  const resolvedSourceIds: Record<string, string | string[]> = {
+    production_spec: localSpec.id,
+    world: world.id,
+  };
+  const warnings: ValidationError[] = [];
+
+  let collectionName: string | undefined;
+  if (localSpec.collectionId) {
+    const [collection] = await db
+      .select()
+      .from(wsCollectionsTable)
+      .where(eq(wsCollectionsTable.id, localSpec.collectionId))
+      .limit(1);
+    if (!collection || collection.worldId !== localSpec.worldId) {
+      throw localDependencyError(
+        `Local Collection ${localSpec.collectionId} is missing or belongs to a different world.`,
+        "resolve_collection",
+        "LOCAL_COLLECTION_NOT_FOUND",
+      );
+    }
+    collectionName = collection.name;
+    resolvedSourceIds.collection = collection.id;
+  }
+
+  let volumeName: string | undefined;
+  if (localSpec.volumeId) {
+    const [volume] = await db
+      .select()
+      .from(wsVolumesTable)
+      .where(eq(wsVolumesTable.id, localSpec.volumeId))
+      .limit(1);
+    if (!volume || volume.worldId !== localSpec.worldId) {
+      throw localDependencyError(
+        `Local Volume ${localSpec.volumeId} is missing or belongs to a different world.`,
+        "resolve_volume",
+        "LOCAL_VOLUME_NOT_FOUND",
+      );
+    }
+    volumeName = volume.name;
+    resolvedSourceIds.volume = volume.id;
+  }
+
+  if (!localSpec.componentType) {
+    throw localDependencyError(
+      "Local Production Specification is missing required field: Component Type.",
+      "resolve_component_type",
+      "MISSING_COMPONENT_TYPE",
+    );
+  }
+  if (!localSpec.payloadVersion) {
+    throw localDependencyError(
+      "Local Production Specification is missing required field: Payload Version.",
+      "validate_payload_version",
+      "MISSING_PAYLOAD_VERSION",
+    );
+  }
+
+  const productionSpec: ProductionSpec = {
+    sourceId: localSpec.id,
+    notionPageId: localSpec.notionPageId ?? undefined,
+    productionItem: localSpec.productionItem,
+    specId: localSpec.specId ?? localSpec.id,
+    componentType: localSpec.componentType,
+    componentSet: localSpec.componentSet ?? undefined,
+    heroFamily: localSpec.heroFamily ?? undefined,
+    world: world.name,
+    worldId: world.id,
+    collection: collectionName,
+    collectionId: localSpec.collectionId ?? undefined,
+    volume: volumeName,
+    volumeId: localSpec.volumeId ?? undefined,
+    currentVersion: localSpec.currentVersion,
+    designIntent: localSpec.designIntent,
+    narrativePurpose: localSpec.narrativePurpose,
+    requiredContent: localSpec.requiredContent,
+    reviewCriteria: localSpec.reviewCriteria,
+    writingSpacePercent: localSpec.writingSpacePercent ?? undefined,
+    orientation: localSpec.orientation ?? undefined,
+    frontBackStyle: localSpec.frontBackStyle ?? undefined,
+    payloadVersion: localSpec.payloadVersion,
+    promptPayload: localSpec.promptPayload,
+    componentSpecificationId: localSpec.componentSpecId ?? undefined,
+    styleGuideId: localSpec.styleGuideId ?? undefined,
+    promptModuleIds: localSpec.promptModuleIds,
+    canonDependency: localSpec.canonDependency,
+    canonRecordIds: localSpec.canonRecordIds,
+    status: localSpec.status,
+    compiledPromptStatus: localSpec.compiledPromptStatus,
+  };
+
+  let styleGuide: StyleGuide | undefined;
+  if (localSpec.styleGuideId) {
+    const [row] = await db
+      .select()
+      .from(wsStyleGuidesTable)
+      .where(eq(wsStyleGuidesTable.id, localSpec.styleGuideId))
+      .limit(1);
+    if (!row || row.worldId !== localSpec.worldId) {
+      throw localDependencyError(
+        `Local Style Guide ${localSpec.styleGuideId} is missing or belongs to a different world.`,
+        "resolve_style_guide",
+        "LOCAL_STYLE_GUIDE_NOT_FOUND",
+      );
+    }
+    styleGuide = {
+      sourceId: row.id,
+      notionPageId: row.notionPageId ?? undefined,
+      name: row.name,
+      content: row.content,
+    };
+    resolvedSourceIds.style_guide = row.id;
+  }
+
+  let componentSpec: ComponentSpec | undefined;
+  if (localSpec.componentSpecId) {
+    const [row] = await db
+      .select()
+      .from(wsComponentSpecsTable)
+      .where(eq(wsComponentSpecsTable.id, localSpec.componentSpecId))
+      .limit(1);
+    if (!row || row.worldId !== localSpec.worldId) {
+      throw localDependencyError(
+        `Local Component Specification ${localSpec.componentSpecId} is missing or belongs to a different world.`,
+        "resolve_component_spec",
+        "LOCAL_COMPONENT_SPEC_NOT_FOUND",
+      );
+    }
+    componentSpec = {
+      sourceId: row.id,
+      notionPageId: row.notionPageId ?? undefined,
+      name: row.name,
+      content: row.content,
+      componentType: row.componentType,
+    };
+    resolvedSourceIds.component_spec = row.id;
+  }
+
+  const visitedModules = new Set<string>();
+  async function resolveLocalPromptModule(moduleId: string): Promise<PromptModule> {
+    if (visitedModules.has(moduleId)) {
+      return { sourceId: moduleId, name: moduleId, content: "", dependencies: [] };
+    }
+    visitedModules.add(moduleId);
+
+    const [row] = await db
+      .select()
+      .from(wsPromptModulesTable)
+      .where(eq(wsPromptModulesTable.id, moduleId))
+      .limit(1);
+    if (!row || row.worldId !== localSpec.worldId) {
+      throw localDependencyError(
+        `Local Prompt Module ${moduleId} is missing or belongs to a different world.`,
+        "resolve_prompt_modules",
+        "LOCAL_PROMPT_MODULE_NOT_FOUND",
+      );
+    }
+
+    const dependencyContent: string[] = [];
+    for (const dependencyId of row.dependencyIds) {
+      try {
+        const dependency = await resolveLocalPromptModule(dependencyId);
+        if (dependency.content) dependencyContent.push(dependency.content);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        warnings.push({
+          code: "PROMPT_MODULE_DEP_FETCH_FAILED",
+          field: `prompt_module_dependency:${dependencyId}`,
+          governing_rule: "CS-000 Inheritance",
+          message: `Local dependency module ${dependencyId} could not be resolved and was dropped from the compiled prompt: ${message}`,
+          recommended_action: "Restore the local dependency or remove the dependency link, then compile again.",
+        });
+      }
+    }
+
+    return {
+      sourceId: row.id,
+      notionPageId: row.notionPageId ?? undefined,
+      name: row.name,
+      content: [...dependencyContent, row.content].filter(Boolean).join("\n\n"),
+      dependencies: row.dependencyIds,
+    };
+  }
+
+  const promptModules: PromptModule[] = [];
+  for (const moduleId of localSpec.promptModuleIds) {
+    promptModules.push(await resolveLocalPromptModule(moduleId));
+  }
+  if (localSpec.promptModuleIds.length > 0) {
+    resolvedSourceIds.prompt_modules = localSpec.promptModuleIds;
+  }
+
+  const canonRecords: CanonRecord[] = [];
+  for (const recordId of localSpec.canonRecordIds) {
+    const [row] = await db
+      .select()
+      .from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, recordId))
+      .limit(1);
+    if (!row || row.worldId !== localSpec.worldId) {
+      throw localDependencyError(
+        `Local Canon Record ${recordId} is missing or belongs to a different world.`,
+        "resolve_canon_records",
+        "LOCAL_CANON_RECORD_NOT_FOUND",
+      );
+    }
+    canonRecords.push({
+      sourceId: row.id,
+      notionPageId: row.notionPageId ?? undefined,
+      name: row.name,
+      status: row.status,
+      narrativeDetails: row.narrativeDetails,
+      historicalContext: row.historicalContext,
+      visualNotes: row.visualNotes,
+      emotionalRegister: row.emotionalRegister,
+      sensoryClauses: row.sensoryClauses,
+      notes: row.notes,
+    });
+  }
+  if (localSpec.canonRecordIds.length > 0) {
+    resolvedSourceIds.canon_records = localSpec.canonRecordIds;
+  }
+
+  return {
+    productionSpec,
+    styleGuide,
+    componentSpec,
+    promptModules,
+    canonRecords,
+    resolvedSourceIds,
+    warnings,
   };
 }

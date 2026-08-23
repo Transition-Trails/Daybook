@@ -257,7 +257,7 @@ export function checkGenerationRequirements(
 export function buildSourceObject(chain: InheritanceChain): PayloadSource {
   const spec = chain.productionSpec;
   return {
-    specId: spec.notionPageId,
+    specId: spec.sourceId ?? spec.notionPageId ?? spec.specId,
     productionItem: spec.productionItem,
     componentType: spec.componentType,
     designIntent: editorialRichTextToPlainText(spec.designIntent),

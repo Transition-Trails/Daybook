@@ -3,7 +3,10 @@
 // ── Notion-resolved records ───────────────────────────────────────────────────
 
 export interface ProductionSpec {
-  notionPageId: string;
+  /** Stable source identity: a Notion page ID for legacy chains or local spec ID for local chains. */
+  sourceId?: string;
+  /** Publication target when the record has been synchronized to Notion. */
+  notionPageId?: string;
   // Core identity
   productionItem: string;
   specId: string;
@@ -44,29 +47,39 @@ export interface ProductionSpec {
 }
 
 export interface StyleGuide {
-  notionPageId: string;
+  sourceId?: string;
+  notionPageId?: string;
   name: string;
   content: string;
 }
 
 export interface ComponentSpec {
-  notionPageId: string;
+  sourceId?: string;
+  notionPageId?: string;
   name: string;
   content: string;
   componentType: string;
 }
 
 export interface PromptModule {
-  notionPageId: string;
+  sourceId?: string;
+  notionPageId?: string;
   name: string;
   content: string;
   dependencies: string[];
 }
 
 export interface CanonRecord {
-  notionPageId: string;
+  sourceId?: string;
+  notionPageId?: string;
   name: string;
   status: string;
+  narrativeDetails?: string;
+  historicalContext?: string;
+  visualNotes?: string;
+  emotionalRegister?: string | null;
+  sensoryClauses?: string;
+  notes?: string;
 }
 
 /** World Bible fields fetched from the local DB for the world that owns this spec. */

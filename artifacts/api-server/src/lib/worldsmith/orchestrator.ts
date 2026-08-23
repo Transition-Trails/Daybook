@@ -369,12 +369,12 @@ export async function runCompilation(
       run_id: runId,
       compilation_timestamp: new Date().toISOString(),
       // Notion IDs
-      production_spec_notion_id: spec.notionPageId,
+      production_spec_notion_id: spec.notionPageId ?? spec.sourceId ?? spec.specId,
       style_guide_notion_id: chain.styleGuide?.notionPageId,
       component_spec_notion_id: chain.componentSpec?.notionPageId,
       prompt_payload_notion_id: spec.promptPayloadId,
-      prompt_module_notion_ids: chain.promptModules.map((m) => m.notionPageId),
-      canon_record_notion_ids: chain.canonRecords.map((r) => r.notionPageId),
+      prompt_module_notion_ids: chain.promptModules.flatMap((m) => m.notionPageId ? [m.notionPageId] : []),
+      canon_record_notion_ids: chain.canonRecords.flatMap((r) => r.notionPageId ? [r.notionPageId] : []),
       prompt_payload_type: spec.promptPayloadId ? "linked" : "inline",
       // Payload governance
       prompt_hash: promptHash,
@@ -432,7 +432,7 @@ async function upsertVisualAsset(
   filename: string,
 ): Promise<string | null> {
   const dbId = VISUAL_ASSETS_DB();
-  if (!dbId) return null;
+  if (!dbId || !spec.notionPageId) return null;
 
   const props: Record<string, unknown> = {
     Name: { title: [{ text: { content: spec.productionItem || assetId } }] },

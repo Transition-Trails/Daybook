@@ -110,12 +110,12 @@ describe("WorldSmith Editorial Suite migration", () => {
     });
   });
 
-  it("preserves non-general sections when a migration is re-run", async () => {
+  it("preserves a deliberate general section when a migration is re-run", async () => {
     await inIsolatedSchema(async (client, schema) => {
       await applyWorldsmithEditorialMigration(client, schema);
       await client.query(`
         INSERT INTO ws_prompt_modules (id, world_id, name, section)
-        VALUES ('author-choice', 'world-1', 'Style Notes', 'world')
+        VALUES ('author-choice', 'world-1', 'World Materials', 'general')
       `);
 
       await applyWorldsmithEditorialMigration(client, schema);
@@ -123,7 +123,7 @@ describe("WorldSmith Editorial Suite migration", () => {
       const result = await client.query<{ section: string }>(`
         SELECT section FROM ws_prompt_modules WHERE id = 'author-choice'
       `);
-      expect(result.rows).toEqual([{ section: "world" }]);
+      expect(result.rows).toEqual([{ section: "general" }]);
     });
   });
 });

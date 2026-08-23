@@ -15,6 +15,10 @@ All have `notion_page_id TEXT` + `synced_at TIMESTAMPTZ` for the publish adapter
 
 Run migration: `pnpm --filter @workspace/scripts run migrate-worldsmith-editorial`
 
+Prompt-module section routing is backfilled only when the `section` column is
+first added. It must never be reconciled on later migration runs because
+`general` is both the default and a deliberate author choice.
+
 ## API routes
 `artifacts/api-server/src/routes/worldsmith-editorial.ts` — mounted in `routes/index.ts`.
 All routes under `/v1/editorial/` prefix, all protected by `requireAuth + requireSuperAdmin`.

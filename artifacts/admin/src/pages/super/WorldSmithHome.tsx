@@ -758,6 +758,10 @@ function FocusedWorldView({
             key={s.id}
             onClick={() => {
               if (s.id === "bible") {
+                if (storeId) {
+                  setActiveSection("bible");
+                  return;
+                }
                 localStorage.setItem("ws:editorial:world", world.id);
                 navigate("/super/worldsmith/editorial/bible");
                 return;

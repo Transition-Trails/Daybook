@@ -6,7 +6,7 @@
  * "ci_bad_*" fixtures so the quality-checker invariant test can assert that a
  * checker run against clean data does NOT pass silently.
  *
- * Safe to re-run — every insert uses onConflictDoNothing().
+ * Safe to re-run — fixtures use idempotent conflict handling.
  *
  * Run: pnpm --filter @workspace/scripts run seed:ci
  *
@@ -118,14 +118,20 @@ async function main() {
   console.log("  ✓ stores (ci_store_a, ci_store_b)");
 
   // ── Store memberships ─────────────────────────────────────────────────────
-  await db
-    .insert(storeMembersTable)
-    .values([
-      { storeId: CI_IDS.storeA, userId: CI_IDS.ownerA, role: "owner" },
-      { storeId: CI_IDS.storeA, userId: CI_IDS.staffA, role: "staff" },
-      { storeId: CI_IDS.storeB, userId: CI_IDS.ownerB, role: "owner" },
-    ])
-    .onConflictDoNothing();
+  const ciMemberships = [
+    { storeId: CI_IDS.storeA, userId: CI_IDS.ownerA, role: "store_owner" },
+    { storeId: CI_IDS.storeA, userId: CI_IDS.staffA, role: "store_staff" },
+    { storeId: CI_IDS.storeB, userId: CI_IDS.ownerB, role: "store_owner" },
+  ] as const;
+  await Promise.all(ciMemberships.map(membership =>
+    db
+      .insert(storeMembersTable)
+      .values(membership)
+      .onConflictDoUpdate({
+        target: [storeMembersTable.storeId, storeMembersTable.userId],
+        set: { role: membership.role },
+      }),
+  ));
   console.log("  ✓ memberships");
 
   // ── WorldSmith Editorial Studio fixtures ────────────────────────────────────

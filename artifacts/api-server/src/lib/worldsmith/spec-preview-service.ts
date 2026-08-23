@@ -38,9 +38,9 @@ import {
 } from "./spec-board-template";
 import { parsePayload } from "./payload-parser";
 import { logger } from "../logger";
-import { resolveInheritanceChainLocalWithWorldBible, InheritanceError } from "./inheritance-resolver";
+import { resolveLocalPreviewContextWithWorldBible, InheritanceError } from "./inheritance-resolver";
 import { objectStorageClient, ObjectStorageService } from "../objectStorage";
-import type { CompiledSectionRecord, InheritanceChain, SpecBoardData, SpecPreviewResult, SpecPreviewRequest } from "./types";
+import type { CompiledSectionRecord, ProductionSpec, SpecBoardData, SpecPreviewResult, SpecPreviewRequest, WorldBible } from "./types";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -191,13 +191,13 @@ function compiledSectionContent(
 
 /** Map compiled section records and required local grounding into the spec-board contract. */
 function extractLocalBoardData(
-  chain: InheritanceChain,
+  context: { productionSpec: ProductionSpec; worldBible: WorldBible },
   specId: string,
   promptHash: string,
   sectionRecords: CompiledSectionRecord[],
 ): SpecBoardData {
-  const spec = chain.productionSpec;
-  const bible = chain.worldBible;
+  const spec = context.productionSpec;
+  const bible = context.worldBible;
   const creativeTask = compiledSectionContent(sectionRecords, "creative_task");
   const worldContext = compiledSectionContent(sectionRecords, "world_and_collection_context");
   const componentRequirements = compiledSectionContent(sectionRecords, "component_requirements");
@@ -234,14 +234,14 @@ function extractLocalBoardData(
     negativeConstraints,
     illustratedNarrative: composition.slice(0, 900) || undefined,
     focalHierarchy: [composition, "", materials, negativeConstraints].filter(Boolean),
-    componentSpecName: chain.componentSpec?.name,
-    componentSpecContent: chain.componentSpec?.content.slice(0, 600),
-    styleGuideName: chain.styleGuide?.name,
-    styleGuideContent: chain.styleGuide?.content.slice(0, 900),
-    promptModuleCount: chain.promptModules.length,
+    componentSpecName: undefined,
+    componentSpecContent: undefined,
+    styleGuideName: undefined,
+    styleGuideContent: undefined,
+    promptModuleCount: 0,
     canonDependency: spec.canonDependency,
-    canonRecordCount: chain.canonRecords.length,
-    canonNames: chain.canonRecords.slice(0, 5).map((record) => record.name),
+    canonRecordCount: canonPolicy ? 1 : 0,
+    canonNames: canonPolicy ? [canonPolicy] : [],
     promptHash,
     worldBible: bible,
     usesCompiledSections: true,
@@ -477,9 +477,9 @@ async function runLocalSpecPreview(
     throw new SpecPreviewError("MISSING_SPEC_ID", "production_spec_id is required for a local spec preview.");
   }
 
-  let chain: InheritanceChain;
+  let context: { productionSpec: ProductionSpec; worldBible: WorldBible };
   try {
-    chain = await resolveInheritanceChainLocalWithWorldBible(specPageId);
+    context = await resolveLocalPreviewContextWithWorldBible(specPageId);
   } catch (err) {
     if (err instanceof InheritanceError) {
       throw new SpecPreviewError(err.errorCode, err.message);
@@ -514,7 +514,7 @@ async function runLocalSpecPreview(
     }
   }
 
-  const boardData = extractLocalBoardData(chain, specPageId, promptHash, sectionRecords);
+  const boardData = extractLocalBoardData(context, specPageId, promptHash, sectionRecords);
   const localStatusNote = "Preview generated from Editorial Suite; publish the Production Specification to attach it in Notion.";
 
   if (dryRun) {

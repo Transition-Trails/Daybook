@@ -43,7 +43,7 @@ vi.mock("@workspace/db", () => ({
 }));
 
 vi.mock("../lib/worldsmith/inheritance-resolver.js", () => ({
-  resolveInheritanceChainLocalWithWorldBible: mockLocalResolver,
+  resolveLocalPreviewContextWithWorldBible: mockLocalResolver,
   InheritanceError: MockInheritanceError,
 }));
 
@@ -129,6 +129,7 @@ const localChain: InheritanceChain = {
 const compiledSections = [
   { key: "world_and_collection_context", label: "World And Collection Context", content: "World: Thornvale\nCompiled world context.", source: "Production Spec" },
   { key: "component_requirements", label: "Component Requirements", content: "Compiled component requirements.", source: "Component Spec" },
+  { key: "canon_policy", label: "Canon Policy", content: "Compiled Quiet Gate canon policy.", source: "Canon Record" },
   { key: "front_prompt", label: "Front Prompt", content: "Compiled gate scene.", source: "Prompt Payload" },
   { key: "material_world", label: "Material World", content: "Compiled wet stone and iron.", source: "World Bible" },
   { key: "negative_prompt", label: "Negative Prompt", content: "Compiled no text.", source: "Prompt Payload" },
@@ -181,7 +182,7 @@ describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
     expect(renderedBoard?.materials).toBe("Compiled wet stone and iron.");
     expect(renderedBoard?.negativeConstraints).toBe("Compiled no text.");
     expect(renderedBoard?.usesCompiledSections).toBe(true);
-    expect(renderedBoard?.canonNames).toEqual(["The Quiet Gate"]);
+    expect(renderedBoard?.canonNames).toEqual(["Compiled Quiet Gate canon policy."]);
     expect(mockGetPage).not.toHaveBeenCalled();
     expect(mockUpload).not.toHaveBeenCalled();
     expect(mockAttach).not.toHaveBeenCalled();

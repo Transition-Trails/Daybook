@@ -24,6 +24,7 @@ import type {
   ComponentSpec,
   PromptModule,
   PromptModuleSection,
+  WorldBible,
   CanonRecord,
   InheritanceChain,
   ValidationError,
@@ -1027,6 +1028,107 @@ export async function resolveInheritanceChainLocalWithWorldBible(
       atmosphericNotes: worldBibleRow.atmosphericNotes,
       materialWorld: worldBibleRow.materialWorld,
       worldRules: worldBibleRow.worldRules ?? [],
+    },
+  };
+}
+
+/**
+ * Resolve only the immutable local specification identity and its mandatory
+ * World Bible. Preview boards consume persisted compiler records for all
+ * authored content, so they must not re-resolve mutable inheritance links.
+ */
+export async function resolveLocalPreviewContextWithWorldBible(
+  specId: string,
+): Promise<{ productionSpec: ProductionSpec; worldBible: WorldBible }> {
+  const [localSpec] = await db
+    .select()
+    .from(wsProductionSpecsTable)
+    .where(eq(wsProductionSpecsTable.id, specId))
+    .limit(1);
+  if (!localSpec) {
+    throw localDependencyError(
+      `Local Production Specification ${specId} was not found.`,
+      "fetch_production_spec",
+      "LOCAL_SPEC_NOT_FOUND",
+    );
+  }
+
+  let world: {
+    id: string;
+    name: string;
+    visualPalette: string | null;
+    proseVoice: string | null;
+    atmosphericNotes: string | null;
+    materialWorld: string | null;
+    worldRules: string[] | null;
+  } | undefined;
+  try {
+    [world] = await db
+      .select({
+        id: worldsmithWorldsTable.id,
+        name: worldsmithWorldsTable.name,
+        visualPalette: worldsmithWorldsTable.visualPalette,
+        proseVoice: worldsmithWorldsTable.proseVoice,
+        atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
+        materialWorld: worldsmithWorldsTable.materialWorld,
+        worldRules: worldsmithWorldsTable.worldRules,
+      })
+      .from(worldsmithWorldsTable)
+      .where(eq(worldsmithWorldsTable.id, localSpec.worldId))
+      .limit(1);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw localDependencyError(
+      `World Bible fields could not be fetched for local world "${localSpec.worldId}": ${message}. Preview generation was blocked to avoid producing an ungrounded board.`,
+      "resolve_world_bible",
+      "WORLD_BIBLE_FETCH_ERROR",
+    );
+  }
+  if (!world) {
+    throw localDependencyError(
+      `The World Bible record for local world "${localSpec.worldId}" was not found. Preview generation was blocked to avoid producing an ungrounded board.`,
+      "resolve_world_bible",
+      "WORLD_BIBLE_NOT_FOUND",
+    );
+  }
+
+  return {
+    productionSpec: {
+      sourceId: localSpec.id,
+      notionPageId: localSpec.notionPageId ?? undefined,
+      productionItem: localSpec.productionItem,
+      specId: localSpec.specId ?? localSpec.id,
+      componentType: localSpec.componentType,
+      componentSet: localSpec.componentSet ?? undefined,
+      heroFamily: localSpec.heroFamily ?? undefined,
+      world: world.name,
+      worldId: world.id,
+      collectionId: localSpec.collectionId ?? undefined,
+      volumeId: localSpec.volumeId ?? undefined,
+      currentVersion: localSpec.currentVersion,
+      designIntent: localSpec.designIntent,
+      narrativePurpose: localSpec.narrativePurpose,
+      requiredContent: localSpec.requiredContent,
+      reviewCriteria: localSpec.reviewCriteria,
+      writingSpacePercent: localSpec.writingSpacePercent ?? undefined,
+      orientation: localSpec.orientation ?? undefined,
+      frontBackStyle: localSpec.frontBackStyle ?? undefined,
+      payloadVersion: localSpec.payloadVersion ?? "PP-2.0",
+      promptPayload: localSpec.promptPayload,
+      componentSpecificationId: localSpec.componentSpecId ?? undefined,
+      styleGuideId: localSpec.styleGuideId ?? undefined,
+      promptModuleIds: localSpec.promptModuleIds,
+      canonDependency: localSpec.canonDependency,
+      canonRecordIds: localSpec.canonRecordIds,
+      status: localSpec.status,
+      compiledPromptStatus: localSpec.compiledPromptStatus,
+    },
+    worldBible: {
+      visualPalette: world.visualPalette,
+      proseVoice: world.proseVoice,
+      atmosphericNotes: world.atmosphericNotes,
+      materialWorld: world.materialWorld,
+      worldRules: world.worldRules ?? [],
     },
   };
 }

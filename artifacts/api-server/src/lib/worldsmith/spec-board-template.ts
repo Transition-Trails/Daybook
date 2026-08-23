@@ -598,16 +598,19 @@ function companionRow(data: SpecBoardData): string {
 
   // ── Col 1: Relationship to companion assets ─────────────────────────────
   const companions = (canonNames ?? []).slice(0, 5);
-  if (companions.length === 0 && componentType) companions.push(`${componentType} Series`);
+  if (!data.usesCompiledSections && companions.length === 0 && componentType) companions.push(`${componentType} Series`);
   const col1Text = companions.length
     ? companions.join("\n")
+    : data.usesCompiledSections
+    ? "Not specified."
     : "See Canon Records for companion asset relationships.";
   const col1Lines = wrapText(col1Text, Math.floor((colW - 28) / 6.4), 8);
 
   // ── Col 2: Emotional Intent — derived from real spec data ───────────────
   // Draw from designIntent (the artistic/emotional intent field) or fall back
   // to narrativePurpose.  Never invent placeholder phrases here.
-  const emotionalRaw = (designIntent || narrativePurpose || "").trim() || "—";
+  const emotionalRaw = (designIntent || narrativePurpose || "").trim() ||
+    (data.usesCompiledSections ? "Not specified." : "—");
   const emotionalLines = wrapText(trunc(emotionalRaw, 300), Math.floor((colW - 48) / 6.4), 12);
   const emoY = CMP_Y + 44;
   const col2Svg = `<text x="${cols[1] + 24}" y="${emoY}" font-family="Spectral" font-size="13" fill="${INK}" opacity="0.78" font-style="italic">` +
@@ -615,11 +618,13 @@ function companionRow(data: SpecBoardData): string {
     `</text>`;
 
   // ── Col 3: Notes for Artist ─────────────────────────────────────────────
-  const artistNotes = [
-    styleGuideName ? `Follow style guide: ${styleGuideName}` : "Maintain historical accuracy in materials, tools, and bindings.",
-    "Keep text minimal and suggestive — no legible names, dates, or invented content.",
-    reviewCriteria ? trunc(reviewCriteria, 90) : "Scene should feel active, not staged — research in progress.",
-  ];
+  const artistNotes = data.usesCompiledSections
+    ? [reviewCriteria ? trunc(reviewCriteria, 90) : "Not specified."]
+    : [
+        styleGuideName ? `Follow style guide: ${styleGuideName}` : "Maintain historical accuracy in materials, tools, and bindings.",
+        "Keep text minimal and suggestive — no legible names, dates, or invented content.",
+        reviewCriteria ? trunc(reviewCriteria, 90) : "Scene should feel active, not staged — research in progress.",
+      ];
   const artistLines = artistNotes.map(n => wrapText(n, Math.floor((colW - 28) / 6.4), 3));
 
   let col3Y = CMP_Y + 44;

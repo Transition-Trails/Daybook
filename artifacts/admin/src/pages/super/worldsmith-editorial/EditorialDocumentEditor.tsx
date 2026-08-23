@@ -15,7 +15,15 @@ import {
 import { FontLibraryPicker, appendFontReference } from "@/components/FontLibraryPicker";
 
 type DocumentKind = "style-guide" | "prompt-module";
-type EditorialDocument = { id: string; worldId: string; name: string; content: string; dependencyIds?: string[] | null };
+type PromptModuleSection = "world" | "style" | "general";
+type EditorialDocument = {
+  id: string;
+  worldId: string;
+  name: string;
+  content: string;
+  section?: PromptModuleSection;
+  dependencyIds?: string[] | null;
+};
 
 const CONFIG = {
   "style-guide": {
@@ -45,6 +53,7 @@ export default function EditorialDocumentEditor({ kind, documentId }: { kind: Do
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
+  const [section, setSection] = useState<PromptModuleSection>("general");
   const [content, setContent] = useState("");
   const [open, setOpen] = useState({ identity: true, content: true });
   const [copilotOpen, setCopilotOpen] = useState(false);
@@ -60,6 +69,7 @@ export default function EditorialDocumentEditor({ kind, documentId }: { kind: Do
   useEffect(() => {
     if (document) {
       setName(document.name);
+      setSection(document.section ?? "general");
       setContent(document.content);
     }
   }, [document]);
@@ -67,7 +77,11 @@ export default function EditorialDocumentEditor({ kind, documentId }: { kind: Do
   const saveMutation = useMutation({
     mutationFn: () => apiFetch(`\/v1\/editorial\/${config.endpoint}\/${documentId}`, {
       method: "PATCH",
-      body: JSON.stringify({ name: name.trim(), content }),
+      body: JSON.stringify({
+        name: name.trim(),
+        content,
+        ...(kind === "prompt-module" ? { section } : {}),
+      }),
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["editorial-document", kind, documentId] });
@@ -135,6 +149,23 @@ export default function EditorialDocumentEditor({ kind, documentId }: { kind: Do
                   placeholder={`Name this ${config.singular.toLowerCase()}…`}
                 />
               </label>
+              {kind === "prompt-module" && (
+                <label className="mt-4 block text-xs font-medium text-muted-foreground">
+                  Compiler section
+                  <select
+                    value={section}
+                    onChange={event => setSection(event.target.value as PromptModuleSection)}
+                    className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-[#1B2A4A]/40 focus:ring-1 focus:ring-[#1B2A4A]/10"
+                  >
+                    <option value="world">World & collection context</option>
+                    <option value="style">Style system</option>
+                    <option value="general">General module</option>
+                  </select>
+                  <span className="mt-1.5 block font-normal text-muted-foreground">
+                    This controls compiled-prompt placement independently of the module name.
+                  </span>
+                </label>
+              )}
             </EditorialSection>
 
             <EditorialSection title="Editorial Document" hint={config.contentHint} open={open.content} onToggle={() => setOpen(prev => ({ ...prev, content: !prev.content }))} preview={`${wordCount.toLocaleString()} words`}>

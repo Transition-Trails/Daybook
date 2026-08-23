@@ -299,6 +299,24 @@ describe("buildSpecBoardSvg — Section 3: Illustrated Narrative", () => {
     expect(svg).toContain("Not specified.");
     expect(svg).not.toContain("Preserve open paper areas.");
   });
+
+  it("does not invent companion or artist guidance for compiled local boards", () => {
+    const svg = buildSpecBoardSvg(makeBoard({
+      usesCompiledSections: true,
+      canonNames: [],
+      componentType: "Journal Card",
+      designIntent: "",
+      narrativePurpose: "",
+      reviewCriteria: "",
+      styleGuideName: undefined,
+    }));
+
+    expect(svg).toContain("Not specified.");
+    expect(svg).not.toContain("Journal Card Series");
+    expect(svg).not.toContain("Maintain historical accuracy in materials, tools, and bindings.");
+    expect(svg).not.toContain("Keep text minimal and suggestive");
+    expect(svg).not.toContain("Scene should feel active, not staged");
+  });
 });
 
 // ── Section 13: Canon Names ───────────────────────────────────────────────────

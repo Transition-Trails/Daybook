@@ -300,7 +300,7 @@ export interface ProvenanceRecord {
   run_id: string;
   compilation_timestamp: string;
   // ── Notion IDs for deep-linking (raw — never shown in primary UI) ─────────
-  production_spec_notion_id: string;
+  production_spec_notion_id?: string;
   style_guide_notion_id?: string;
   component_spec_notion_id?: string;
   prompt_payload_notion_id?: string;

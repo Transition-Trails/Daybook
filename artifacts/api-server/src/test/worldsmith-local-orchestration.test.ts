@@ -1,13 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockDbBibleRows, mockLocalResolver, mockNotionGetPage } = vi.hoisted(() => ({
+const {
+  mockDbBibleRows,
+  mockDbBibleError,
+  mockLocalResolver,
+  mockNotionGetPage,
+  mockNotionUpdatePage,
+  mockDaybookUpsert,
+} = vi.hoisted(() => ({
   mockDbBibleRows: { value: [] as unknown[][] },
+  mockDbBibleError: { value: "" },
   mockLocalResolver: vi.fn(),
   mockNotionGetPage: vi.fn(),
+  mockNotionUpdatePage: vi.fn(),
+  mockDaybookUpsert: vi.fn(),
 }));
 
 vi.mock("@workspace/db", () => {
-  const limit = vi.fn(() => Promise.resolve(mockDbBibleRows.value.shift() ?? []));
+  const limit = vi.fn(() => {
+    if (mockDbBibleError.value) return Promise.reject(new Error(mockDbBibleError.value));
+    return Promise.resolve(mockDbBibleRows.value.shift() ?? []);
+  });
   const where = vi.fn(() => ({ limit }));
   const from = vi.fn(() => ({ where }));
   return {
@@ -41,21 +54,23 @@ vi.mock("../lib/worldsmith/run-repository.js", () => ({
 vi.mock("../lib/worldsmith/daybook-adapter.js", () => ({
   buildAssetId: vi.fn().mockReturnValue("WS-TST-001"),
   buildFilename: vi.fn().mockReturnValue("test.pdf"),
-  upsertAsset: vi.fn(),
+  upsertAsset: mockDaybookUpsert,
   getAssetBySpec: vi.fn(),
 }));
 
 vi.mock("../lib/notion-client.js", () => ({
   _setOnRetry: vi.fn(),
   getPage: mockNotionGetPage,
-  updatePage: vi.fn(),
+  updatePage: mockNotionUpdatePage,
   createPage: vi.fn(),
   richTextProp: vi.fn(),
   selectProp: vi.fn(),
   relationProp: vi.fn(),
 }));
 
-import { runCompilation } from "../lib/worldsmith/orchestrator.js";
+import { isLocalResolverEnabled, runCompilation } from "../lib/worldsmith/orchestrator.js";
+
+const originalNodeEnv = process.env.NODE_ENV;
 
 const localChain = {
   productionSpec: {
@@ -86,6 +101,7 @@ const localChain = {
 
 describe("runCompilation with the local resolver", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     process.env.USE_LOCAL_RESOLVER = "true";
     delete process.env.NOTION_TOKEN;
     mockDbBibleRows.value = [[{
@@ -95,12 +111,22 @@ describe("runCompilation with the local resolver", () => {
       materialWorld: "iron",
       worldRules: [],
     }]];
+    mockDbBibleError.value = "";
     mockLocalResolver.mockResolvedValue(localChain);
     mockNotionGetPage.mockRejectedValue(new Error("Notion must not be read for a local compile"));
   });
 
   afterEach(() => {
     delete process.env.USE_LOCAL_RESOLVER;
+    process.env.NODE_ENV = originalNodeEnv;
+  });
+
+  it("defaults the local resolver on in development and off in production", () => {
+    delete process.env.USE_LOCAL_RESOLVER;
+    process.env.NODE_ENV = "development";
+    expect(isLocalResolverEnabled()).toBe(true);
+    process.env.NODE_ENV = "production";
+    expect(isLocalResolverEnabled()).toBe(false);
   });
 
   it("compiles a local spec while the Notion client throws", async () => {
@@ -114,5 +140,54 @@ describe("runCompilation with the local resolver", () => {
     expect(result.production_spec_id).toBe("local-spec");
     expect(mockLocalResolver).toHaveBeenCalledWith("local-spec");
     expect(mockNotionGetPage).not.toHaveBeenCalled();
+  });
+
+  it("blocks compilation when the local world ID has no World Bible record", async () => {
+    mockDbBibleRows.value = [[]];
+
+    const result = await runCompilation({
+      production_spec_id: "local-spec",
+      operation: "validate_and_compile",
+      dry_run: true,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("WORLD_BIBLE_NOT_FOUND");
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "WORLD_BIBLE_NOT_FOUND",
+        field: "world_bible",
+      }),
+    ]));
+    expect(mockNotionGetPage).not.toHaveBeenCalled();
+  });
+
+  it("blocks compilation when the local World Bible query fails", async () => {
+    mockDbBibleError.value = "database unavailable";
+
+    const result = await runCompilation({
+      production_spec_id: "local-spec",
+      operation: "validate_and_compile",
+      dry_run: true,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error_code).toBe("WORLD_BIBLE_FETCH_ERROR");
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "WORLD_BIBLE_FETCH_ERROR" }),
+    ]));
+  });
+
+  it("does not write unpublished local IDs to Notion or Daybook in a non-dry run", async () => {
+    const result = await runCompilation({
+      production_spec_id: "local-spec",
+      operation: "validate_and_compile",
+      dry_run: false,
+    });
+
+    expect(result.status).toBe("compiled");
+    expect(mockNotionGetPage).not.toHaveBeenCalled();
+    expect(mockNotionUpdatePage).not.toHaveBeenCalled();
+    expect(mockDaybookUpsert).not.toHaveBeenCalled();
   });
 });

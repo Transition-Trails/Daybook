@@ -29,7 +29,7 @@ import type { CompileRequest, CompileResponse, ValidationError, ProvenanceRecord
 import { logger } from "../logger";
 import { db } from "@workspace/db";
 import { worldsmithWorldsTable } from "@workspace/db";
-import { sql, eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 const VISUAL_ASSETS_DB = () => process.env.NOTION_VISUAL_ASSETS_DB_ID ?? "";
 
@@ -131,9 +131,9 @@ export async function runCompilation(
     // Collects system-level warnings (e.g. Bible fetch failures) that are
     // prepended to every subsequent warnings array written to the run record.
     const systemWarnings: ValidationError[] = [];
-    if (chain.productionSpec.world) {
+    if (chain.productionSpec.worldId || (!useLocalResolver && chain.productionSpec.world)) {
       try {
-        const [worldRow] = await db
+        const bibleQuery = db
           .select({
             visualPalette: worldsmithWorldsTable.visualPalette,
             proseVoice: worldsmithWorldsTable.proseVoice,
@@ -141,9 +141,36 @@ export async function runCompilation(
             materialWorld: worldsmithWorldsTable.materialWorld,
             worldRules: worldsmithWorldsTable.worldRules,
           })
-          .from(worldsmithWorldsTable)
-          .where(sql`lower(${worldsmithWorldsTable.name}) = lower(${chain.productionSpec.world})`)
-          .limit(1);
+          .from(worldsmithWorldsTable);
+        // Local authored specs always resolve by their stored world ID. The
+        // name fallback remains only for legacy Notion chains that predate a
+        // local world relation, and will disappear with the Notion resolver.
+        const [worldRow] = await (chain.productionSpec.worldId
+          ? bibleQuery.where(eq(worldsmithWorldsTable.id, chain.productionSpec.worldId)).limit(1)
+          : bibleQuery.where(sql`lower(${worldsmithWorldsTable.name}) = lower(${chain.productionSpec.world})`).limit(1));
+
+        if (!worldRow && useLocalResolver) {
+          const missingBibleWarning: ValidationError = {
+            code: "WORLD_BIBLE_NOT_FOUND",
+            field: "world_bible",
+            governing_rule: "WS-BIBLE-001",
+            message: `The World Bible record for local world "${chain.productionSpec.worldId}" was not found. Compilation was blocked to avoid producing an ungrounded prompt.`,
+            recommended_action: "Restore the linked world record or update the Production Specification's world before retrying.",
+          };
+          systemWarnings.push(missingBibleWarning);
+          await failRun(runId, "resolve_world_bible", "WORLD_BIBLE_NOT_FOUND", [missingBibleWarning]);
+          return failResponse(
+            specId,
+            "resolve_world_bible",
+            "WORLD_BIBLE_NOT_FOUND",
+            missingBibleWarning.message,
+            systemWarnings,
+            false,
+            null,
+            null,
+            runId,
+          );
+        }
 
         if (worldRow) {
           worldBible = {
@@ -155,22 +182,64 @@ export async function runCompilation(
           };
         }
       } catch (bibleErr) {
-        // Non-fatal — log, record in the run, and continue without Bible fields.
-        // This ensures operators reviewing the run later can see that the World
-        // Bible was unavailable rather than silently absent.
         const errMsg = bibleErr instanceof Error ? bibleErr.message : String(bibleErr);
-        logger.warn({ bibleErr, world: chain.productionSpec.world }, "WorldSmith: failed to fetch World Bible fields from DB — continuing without them");
+        if (useLocalResolver) {
+          const bibleFetchError: ValidationError = {
+            code: "WORLD_BIBLE_FETCH_ERROR",
+            field: "world_bible",
+            governing_rule: "WS-BIBLE-001",
+            message: `World Bible fields could not be fetched for local world "${chain.productionSpec.worldId}": ${errMsg}. Compilation was blocked to avoid producing an ungrounded prompt.`,
+            recommended_action: "Check database connectivity and retry. If the problem persists, verify the linked world record.",
+          };
+          systemWarnings.push(bibleFetchError);
+          await failRun(runId, "resolve_world_bible", "WORLD_BIBLE_FETCH_ERROR", [bibleFetchError]);
+          return failResponse(
+            specId,
+            "resolve_world_bible",
+            "WORLD_BIBLE_FETCH_ERROR",
+            bibleFetchError.message,
+            systemWarnings,
+            true,
+            null,
+            null,
+            runId,
+          );
+        }
+        // Legacy Notion chains do not always have a local world ID. Retain their
+        // existing non-fatal behavior until the temporary resolver flag retires.
+        logger.warn({ bibleErr, world: chain.productionSpec.world, worldId: chain.productionSpec.worldId }, "WorldSmith: failed to fetch World Bible fields from DB — continuing without them");
         const bibleFetchWarning: ValidationError = {
           code: "WORLD_BIBLE_FETCH_ERROR",
           field: "world_bible",
           governing_rule: "WS-BIBLE-001",
-          message: `World Bible fields could not be fetched for world "${chain.productionSpec.world}": ${errMsg}. The compiled prompt was assembled without aesthetic grounding.`,
+          message: `World Bible fields could not be fetched for world "${chain.productionSpec.worldId ?? chain.productionSpec.world}": ${errMsg}. The compiled prompt was assembled without aesthetic grounding.`,
           recommended_action: "Check database connectivity and retry the compilation. If the problem persists, verify the world record exists in the WorldSmith worlds registry.",
         };
         systemWarnings.push(bibleFetchWarning);
         // Persist immediately so the warning survives even if a later stage fails.
         await updateRun(runId, { warnings: systemWarnings }).catch(() => { /* best-effort */ });
       }
+    } else if (useLocalResolver) {
+      const missingWorldIdWarning: ValidationError = {
+        code: "WORLD_BIBLE_WORLD_ID_MISSING",
+        field: "world_bible",
+        governing_rule: "WS-BIBLE-001",
+        message: "The local Production Specification has no world ID, so World Bible grounding cannot be resolved.",
+        recommended_action: "Link the Production Specification to a local WorldSmith world before retrying.",
+      };
+      systemWarnings.push(missingWorldIdWarning);
+      await failRun(runId, "resolve_world_bible", "WORLD_BIBLE_WORLD_ID_MISSING", [missingWorldIdWarning]);
+      return failResponse(
+        specId,
+        "resolve_world_bible",
+        "WORLD_BIBLE_WORLD_ID_MISSING",
+        missingWorldIdWarning.message,
+        systemWarnings,
+        false,
+        null,
+        null,
+        runId,
+      );
     }
     const chainWithBible: InheritanceChain = worldBible ? { ...chain, worldBible } : chain;
 
@@ -183,7 +252,7 @@ export async function runCompilation(
     const extendedSourceIds: Record<string, string | string[]> = {
       ...chain.resolvedSourceIds,
       ...(chain.productionSpec.world       ? { world_name:          chain.productionSpec.world }       : {}),
-      ...(chain.productionSpec.worldId     ? { world_notion_id:     chain.productionSpec.worldId }     : {}),
+      ...(chain.productionSpec.worldId     ? { world_id:            chain.productionSpec.worldId }     : {}),
       ...(chain.productionSpec.collection  ? { collection_name:     chain.productionSpec.collection }  : {}),
       ...(chain.productionSpec.collectionId ? { collection_notion_id: chain.productionSpec.collectionId } : {}),
       ...(chain.productionSpec.volume      ? { volume_name:         chain.productionSpec.volume }      : {}),
@@ -300,7 +369,7 @@ export async function runCompilation(
 
     // ── Stage 11: Create or update Visual Asset shell in Notion ──────────
     let visualAssetNotionId: string | null = null;
-    if (!dryRun) {
+    if (!dryRun && spec.notionPageId) {
       try {
           visualAssetNotionId = await upsertVisualAsset(chain, compiled.fullPrompt, promptHash, assetId, filename);
         await updateRun(runId, { visualAssetNotionId: visualAssetNotionId ?? undefined });
@@ -317,7 +386,7 @@ export async function runCompilation(
 
     // ── Stage 19: Upsert asset in Daybook ───────────────────────────────
     let daybookAssetId: string | null = null;
-    if (!dryRun) {
+    if (!dryRun && spec.notionPageId) {
       try {
         const daybookResult = await upsertAsset({
           asset_id: assetId,
@@ -326,7 +395,7 @@ export async function runCompilation(
           world: spec.world,
           volume: spec.volume,
           component_type: spec.componentType,
-          production_specification_id: spec.notionPageId ?? spec.sourceId ?? specId,
+          production_specification_id: spec.notionPageId!,
           visual_asset_id: visualAssetNotionId ?? undefined,
           prompt_hash: promptHash,
           readiness_state: "Under Review",
@@ -390,7 +459,7 @@ export async function runCompilation(
       run_id: runId,
       compilation_timestamp: new Date().toISOString(),
       // Notion IDs
-      production_spec_notion_id: spec.notionPageId ?? spec.sourceId ?? spec.specId,
+      production_spec_notion_id: spec.notionPageId,
       style_guide_notion_id: chain.styleGuide?.notionPageId,
       component_spec_notion_id: chain.componentSpec?.notionPageId,
       prompt_payload_notion_id: spec.promptPayloadId,

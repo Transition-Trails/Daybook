@@ -6,6 +6,11 @@ All notable changes to Daybook are documented in this file.
 
 ### Added
 
+- Added a local-first WorldSmith inheritance resolver that compiles Editorial Suite Production
+  Specs and their linked collection, volume, governance, module, and canon records directly
+  from Postgres.
+- Added local compilation coverage for an unreachable Notion client and for missing World Bible
+  grounding, which now blocks a local compile with a visible structured warning.
 - Added mutable Production Spec saving from the WorldSmith SpecEditor, including payload,
   payload version, canon record links, prompt modules, style guide, and component spec
   updates.
@@ -15,6 +20,12 @@ All notable changes to Daybook are documented in this file.
 
 ### Changed
 
+- WorldSmith CANON POLICY now includes the authored canon narrative, historical context, visual
+  notes, emotional register, sensory clauses, and notes, so those edits affect compiled prompts
+  and prompt hashes.
+- Compilation accepts `production_spec_id` for local records and selects the local resolver by
+  default in development; Notion writeback is retained only for records that have a publication ID.
+- Local World Bible lookup now uses the Production Spec's world ID rather than its display name.
 - Consolidated WorldSmith authored-spec readiness into one shared definition for the API,
   New Spec flow, and SpecEditor. Scores, per-section progress, readiness bands, canon rules,
   and payload structure checks now agree across all three surfaces.

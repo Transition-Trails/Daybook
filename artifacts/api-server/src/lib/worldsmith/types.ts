@@ -380,13 +380,17 @@ export interface DaybookResult {
 // ── API shapes ────────────────────────────────────────────────────────────────
 
 export interface CompileRequest {
-  notion_production_spec_id: string;
+  /** Local Editorial Suite spec ID. Preferred when USE_LOCAL_RESOLVER is enabled. */
+  production_spec_id?: string;
+  /** Legacy Notion Production Specification page ID. */
+  notion_production_spec_id?: string;
   operation: "validate_and_compile" | "preview";
   dry_run?: boolean;
 }
 
 export interface CompileAndGenerateRequest {
-  notion_production_spec_id: string;
+  production_spec_id?: string;
+  notion_production_spec_id?: string;
   operation: "compile_and_generate";
   provider: string;
   model: string;

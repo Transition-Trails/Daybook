@@ -88,24 +88,35 @@ async function requireWorldsmithEnabled(
 
 router.post("/v1/prompt-compilations", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
   const body = req.body as {
+    production_spec_id?: string;
     notion_production_spec_id?: string;
     operation?: string;
     dry_run?: boolean;
   };
 
-  const { notion_production_spec_id: rawSpecId, operation = "validate_and_compile", dry_run = false } = body;
+  const {
+    production_spec_id: localSpecId,
+    notion_production_spec_id: legacyNotionSpecId,
+    operation = "validate_and_compile",
+    dry_run = false,
+  } = body;
 
-  if (!rawSpecId) {
-    res.status(400).json({ error: "notion_production_spec_id is required", code: "MISSING_SPEC_ID" });
+  if (!localSpecId && !legacyNotionSpecId) {
+    res.status(400).json({ error: "production_spec_id is required", code: "MISSING_SPEC_ID" });
     return;
   }
 
-  let notion_production_spec_id: string;
-  try {
-    notion_production_spec_id = normalizeNotionId(rawSpecId);
-  } catch (normErr) {
-    res.status(400).json({ error: String(normErr), code: "INVALID_SPEC_ID" });
-    return;
+  let production_spec_id: string | undefined;
+  let notion_production_spec_id: string | undefined;
+  if (localSpecId) {
+    production_spec_id = localSpecId.trim();
+  } else if (legacyNotionSpecId) {
+    try {
+      notion_production_spec_id = normalizeNotionId(legacyNotionSpecId);
+    } catch (normErr) {
+      res.status(400).json({ error: String(normErr), code: "INVALID_SPEC_ID" });
+      return;
+    }
   }
 
   const validOps = ["validate_and_compile", "preview"];
@@ -122,13 +133,15 @@ router.post("/v1/prompt-compilations", requireAuth, requireSuperAdmin, async (re
   try {
     // Fail any run for this spec that is still stuck in 'compiling' or 'pending'
     // from a previous server instance so the UI never shows a perpetual spinner.
-    const recovered = await failStaleRunsForSpec(notion_production_spec_id);
+    const resolvedSpecId = production_spec_id ?? notion_production_spec_id!;
+    const recovered = await failStaleRunsForSpec(resolvedSpecId);
     if (recovered > 0) {
-      logger.warn({ specId: notion_production_spec_id, recovered }, "WorldSmith: failed stale in-progress run before starting new compile");
+      logger.warn({ specId: resolvedSpecId, recovered }, "WorldSmith: failed stale in-progress run before starting new compile");
     }
 
     const result = await runCompilation(
       {
+        production_spec_id,
         notion_production_spec_id,
         operation: operation as "validate_and_compile" | "preview",
         dry_run,

@@ -3,7 +3,11 @@
  * Implements the 22-stage execution pipeline from the CS-000 spec.
  * Compile-only path for MVP; generation stages are stubbed for Phase 2.
  */
-import { resolveInheritanceChain, InheritanceError } from "./inheritance-resolver";
+import {
+  resolveInheritanceChain,
+  resolveInheritanceChainLocal,
+  InheritanceError,
+} from "./inheritance-resolver";
 import { parsePayload } from "./payload-parser";
 import { validatePayload } from "./validator";
 import { validateCanon } from "./canon-validator";
@@ -29,19 +33,28 @@ import { sql, eq } from "drizzle-orm";
 
 const VISUAL_ASSETS_DB = () => process.env.NOTION_VISUAL_ASSETS_DB_ID ?? "";
 
+export function isLocalResolverEnabled(): boolean {
+  const configured = process.env.USE_LOCAL_RESOLVER?.trim().toLowerCase();
+  if (configured === "true" || configured === "1") return true;
+  if (configured === "false" || configured === "0") return false;
+  return process.env.NODE_ENV === "development";
+}
+
 // ── Main entry point ──────────────────────────────────────────────────────────
 
 export async function runCompilation(
   req: CompileRequest,
   initiatedBy?: string,
 ): Promise<CompileResponse> {
-  const { notion_production_spec_id: specId, dry_run: dryRun = false } = req;
+  const specId = req.production_spec_id ?? req.notion_production_spec_id ?? "";
+  const { dry_run: dryRun = false } = req;
+  const useLocalResolver = isLocalResolverEnabled();
 
   // ── Stage 1: Authenticate / validate request ─────────────────────────────
   if (!specId || specId.trim() === "") {
-    return failResponse("", "request_validation", "MISSING_SPEC_ID", "notion_production_spec_id is required.", [], false, null, null);
+    return failResponse("", "request_validation", "MISSING_SPEC_ID", "production_spec_id is required.", [], false, null, null);
   }
-  if (!process.env.NOTION_TOKEN) {
+  if (!useLocalResolver && !process.env.NOTION_TOKEN) {
     return failResponse(specId, "request_validation", "NOTION_NOT_CONFIGURED", "NOTION_TOKEN is not configured.", [], false, null, null);
   }
 
@@ -63,7 +76,9 @@ export async function runCompilation(
     // ── Stage 2 + 3: Fetch and resolve inheritance chain ──────────────────
     let chain;
     try {
-      chain = await resolveInheritanceChain(specId);
+      chain = useLocalResolver
+        ? await resolveInheritanceChainLocal(specId)
+        : await resolveInheritanceChain(specId);
     } catch (err) {
       if (err instanceof InheritanceError) {
         await failRun(runId, err.stage, err.errorCode, [
@@ -72,7 +87,9 @@ export async function runCompilation(
             field: err.stage,
             governing_rule: "CS-000 Inheritance",
             message: err.message,
-            recommended_action: "Resolve the missing dependency in Notion before retrying.",
+            recommended_action: useLocalResolver
+              ? "Resolve the missing dependency in the Editorial Suite before retrying."
+              : "Resolve the missing dependency in Notion before retrying.",
           },
         ]);
         // Persist retry events even when inheritance resolution fails
@@ -91,7 +108,9 @@ export async function runCompilation(
           field: "inheritance_resolution",
           governing_rule: "CS-000",
           message: msg,
-          recommended_action: "Check Notion connectivity and page permissions.",
+          recommended_action: useLocalResolver
+            ? "Check the Editorial Suite database connection and local record links."
+            : "Check Notion connectivity and page permissions.",
         },
       ]);
       // Persist retry events even on generic inheritance fetch failure
@@ -197,8 +216,8 @@ export async function runCompilation(
         completedAt: new Date(),
       });
 
-      if (!dryRun) {
-        await writeCompiledPromptStatus(specId, compiledStatus);
+        if (!dryRun && spec.notionPageId) {
+          await writeCompiledPromptStatus(spec.notionPageId, compiledStatus);
       }
 
       return {
@@ -233,8 +252,8 @@ export async function runCompilation(
         completedAt: new Date(),
       });
 
-      if (!dryRun) {
-        await writeCompiledPromptStatus(specId, compiledStatus);
+      if (!dryRun && spec.notionPageId) {
+        await writeCompiledPromptStatus(spec.notionPageId, compiledStatus);
       }
 
       return {
@@ -283,7 +302,7 @@ export async function runCompilation(
     let visualAssetNotionId: string | null = null;
     if (!dryRun) {
       try {
-        visualAssetNotionId = await upsertVisualAsset(spec, compiled.fullPrompt, promptHash, assetId, filename);
+          visualAssetNotionId = await upsertVisualAsset(chain, compiled.fullPrompt, promptHash, assetId, filename);
         await updateRun(runId, { visualAssetNotionId: visualAssetNotionId ?? undefined });
       } catch (err) {
         logger.error({ err, runId }, "Failed to upsert Visual Asset in Notion");
@@ -291,7 +310,9 @@ export async function runCompilation(
       }
 
       // ── Stage 12: Update Compiled Prompt Status ────────────────────────
-      await writeCompiledPromptStatus(specId, "Compiled");
+      if (spec.notionPageId) {
+        await writeCompiledPromptStatus(spec.notionPageId, "Compiled");
+      }
     }
 
     // ── Stage 19: Upsert asset in Daybook ───────────────────────────────
@@ -305,7 +326,7 @@ export async function runCompilation(
           world: spec.world,
           volume: spec.volume,
           component_type: spec.componentType,
-          production_specification_id: specId,
+          production_specification_id: spec.notionPageId ?? spec.sourceId ?? specId,
           visual_asset_id: visualAssetNotionId ?? undefined,
           prompt_hash: promptHash,
           readiness_state: "Under Review",
@@ -323,7 +344,7 @@ export async function runCompilation(
     // ── Stage 20: Update Production Specification status ─────────────────
     if (!dryRun) {
       try {
-        await updatePage(specId, {
+        if (spec.notionPageId) await updatePage(spec.notionPageId, {
           ...(spec.compiledPromptStatus !== "Compiled" ? { "Compiled Prompt Status": selectProp("Compiled") } : {}),
           "Next Action": richTextProp("Generate image"),
         });
@@ -425,12 +446,13 @@ export async function runCompilation(
 // ── Visual Asset upsert ───────────────────────────────────────────────────────
 
 async function upsertVisualAsset(
-  spec: import("./types").ProductionSpec,
+  chain: InheritanceChain,
   compiledPrompt: string,
   promptHash: string,
   assetId: string,
   filename: string,
 ): Promise<string | null> {
+  const spec = chain.productionSpec;
   const dbId = VISUAL_ASSETS_DB();
   if (!dbId || !spec.notionPageId) return null;
 
@@ -445,11 +467,12 @@ async function upsertVisualAsset(
     "Volume I Production Spec": relationProp([spec.notionPageId]),
   };
 
-  if (spec.styleGuideId) {
-    props["Style Guide"] = relationProp([spec.styleGuideId]);
+  if (chain.styleGuide?.notionPageId) {
+    props["Style Guide"] = relationProp([chain.styleGuide.notionPageId]);
   }
-  if (spec.canonRecordIds.length > 0) {
-    props["Canon Record"] = relationProp(spec.canonRecordIds);
+  const canonNotionIds = chain.canonRecords.flatMap((record) => record.notionPageId ? [record.notionPageId] : []);
+  if (canonNotionIds.length > 0) {
+    props["Canon Record"] = relationProp(canonNotionIds);
   }
   if (spec.designIntent) {
     props["Visual Summary"] = richTextProp(spec.designIntent);

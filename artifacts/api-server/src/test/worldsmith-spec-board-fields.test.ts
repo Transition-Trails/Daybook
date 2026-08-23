@@ -284,6 +284,21 @@ describe("buildSpecBoardSvg — Section 3: Illustrated Narrative", () => {
     // V3 renamed the section from "Illustrated Narrative" to "Narrative Role"
     expect(svg.toUpperCase()).toContain("NARRATIVE ROLE");
   });
+
+  it("uses the not-specified state for missing local compiled sections", () => {
+    const svg = buildSpecBoardSvg(makeBoard({
+      usesCompiledSections: true,
+      illustratedNarrative: undefined,
+      composition: "",
+      materials: "",
+      visualHierarchy: "",
+      negativeConstraints: "",
+      focalHierarchy: [],
+    }));
+
+    expect(svg).toContain("Not specified.");
+    expect(svg).not.toContain("Preserve open paper areas.");
+  });
 });
 
 // ── Section 13: Canon Names ───────────────────────────────────────────────────

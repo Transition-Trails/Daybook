@@ -279,7 +279,9 @@ function leftPanel(data: SpecBoardData): string {
   // ── Narrative Role section (~312px tall) ──────────────────────────────────
   const narY = IMG_Y + titleBlockH;
   const narH = 312;
-  const narText = illustratedNarrative || narrativePurpose || designIntent || "—";
+  const narText = data.usesCompiledSections
+    ? illustratedNarrative || "Not specified."
+    : illustratedNarrative || narrativePurpose || designIntent || "—";
   const narLines = wrapText(narText, Math.floor((w - 30) / 7.2), 11);
 
   const narrativeSection = [
@@ -305,15 +307,15 @@ function leftPanel(data: SpecBoardData): string {
     },
     {
       label: "Secondary Cluster",
-      text:  rawFocal[1] || visualHierarchy || narrativePurpose || "—",
+      text:  rawFocal[1] || visualHierarchy || (data.usesCompiledSections ? "Not specified." : narrativePurpose || "—"),
     },
     {
       label: "Supporting Field",
-      text:  rawFocal[2] || materials || "—",
+      text:  rawFocal[2] || materials || (data.usesCompiledSections ? "Not specified." : "—"),
     },
     {
       label: "Negative Space",
-      text:  rawFocal[3] || negativeConstraints || "Preserve open paper areas.",
+      text:  rawFocal[3] || negativeConstraints || (data.usesCompiledSections ? "Not specified." : "Preserve open paper areas."),
     },
   ];
 

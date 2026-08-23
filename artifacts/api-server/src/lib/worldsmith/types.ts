@@ -487,6 +487,8 @@ export interface SpecBoardData {
   focalHierarchy?: string[];
   /** Required grounding for local Editorial Suite previews. */
   worldBible?: WorldBible;
+  /** Local board content came from persisted compiler section records. */
+  usesCompiledSections?: boolean;
 }
 
 export interface SpecPreviewResult {

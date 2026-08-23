@@ -11,7 +11,7 @@
 import { randomUUID } from "crypto";
 import sharp from "sharp";
 import { db } from "@workspace/db";
-import { worldsmithSpecPreviewsTable } from "@workspace/db";
+import { worldsmithRunsTable, worldsmithSpecPreviewsTable } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
 import {
   getPage,
@@ -40,7 +40,7 @@ import { parsePayload } from "./payload-parser";
 import { logger } from "../logger";
 import { resolveInheritanceChainLocalWithWorldBible, InheritanceError } from "./inheritance-resolver";
 import { objectStorageClient, ObjectStorageService } from "../objectStorage";
-import type { InheritanceChain, SpecBoardData, SpecPreviewResult, SpecPreviewRequest } from "./types";
+import type { CompiledSectionRecord, InheritanceChain, SpecBoardData, SpecPreviewResult, SpecPreviewRequest } from "./types";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -153,29 +153,61 @@ function buildConceptDallePrompt(data: SpecBoardData): string {
   return parts.join(" ").slice(0, 3800);
 }
 
-/** Map the shared local inheritance contract into the spec-board contract. */
+async function getCompiledSectionsForLocalPreview(
+  productionSpecId: string,
+  promptHash: string,
+): Promise<CompiledSectionRecord[]> {
+  const runs = await db
+    .select({ compiledSections: worldsmithRunsTable.compiledSections })
+    .from(worldsmithRunsTable)
+    .where(and(
+      eq(worldsmithRunsTable.productionSpecId, productionSpecId),
+      eq(worldsmithRunsTable.promptHash, promptHash),
+    ))
+    .orderBy(desc(worldsmithRunsTable.startedAt))
+    .limit(10);
+
+  const sectionRecords = runs.find((run) => Array.isArray(run.compiledSections) && run.compiledSections.length > 0)
+    ?.compiledSections;
+  if (!sectionRecords) {
+    throw new SpecPreviewError(
+      "COMPILED_SECTIONS_NOT_FOUND",
+      "No compiled section records were found for this local specification and prompt hash. Compile the specification again before generating a preview.",
+    );
+  }
+  return sectionRecords;
+}
+
+function compiledSectionContent(
+  sectionRecords: CompiledSectionRecord[],
+  ...keys: string[]
+): string {
+  for (const key of keys) {
+    const content = sectionRecords.find((record) => record.key === key)?.content.trim();
+    if (content) return content;
+  }
+  return "";
+}
+
+/** Map compiled section records and required local grounding into the spec-board contract. */
 function extractLocalBoardData(
   chain: InheritanceChain,
   specId: string,
   promptHash: string,
+  sectionRecords: CompiledSectionRecord[],
 ): SpecBoardData {
   const spec = chain.productionSpec;
-  const parsedPayload = spec.promptPayload ? parsePayload(spec.promptPayload).payload : {};
-  const payload = parsedPayload as Record<string, string | undefined>;
   const bible = chain.worldBible;
-  const bibleGrounding = [
-    bible?.visualPalette,
-    bible?.proseVoice,
-    bible?.atmosphericNotes,
-    bible?.materialWorld,
-    ...(bible?.worldRules ?? []),
-  ].filter((value): value is string => Boolean(value?.trim()));
-  const illustratedNarrative = (
-    payload.front_prompt ||
-    payload.world_and_collection_context ||
-    spec.narrativePurpose ||
-    ""
-  ).slice(0, 900);
+  const creativeTask = compiledSectionContent(sectionRecords, "creative_task");
+  const worldContext = compiledSectionContent(sectionRecords, "world_and_collection_context");
+  const componentRequirements = compiledSectionContent(sectionRecords, "component_requirements");
+  const intent = compiledSectionContent(sectionRecords, "asset_specific_intent");
+  const composition = compiledSectionContent(sectionRecords, "front_prompt", "composition_and_content");
+  const materials = compiledSectionContent(sectionRecords, "material_world", "materials_and_lighting");
+  const textPolicy = compiledSectionContent(sectionRecords, "text_policy");
+  const canonPolicy = compiledSectionContent(sectionRecords, "canon_policy");
+  const printRequirements = compiledSectionContent(sectionRecords, "print_and_output_requirements");
+  const negativeConstraints = compiledSectionContent(sectionRecords, "negative_prompt", "negative_constraints");
 
   return {
     specPageId: specId,
@@ -188,25 +220,20 @@ function extractLocalBoardData(
     payloadVersion: spec.payloadVersion,
     currentVersion: spec.currentVersion,
     status: spec.status,
-    designIntent: spec.designIntent,
-    narrativePurpose: spec.narrativePurpose,
-    requiredContent: spec.requiredContent,
-    reviewCriteria: spec.reviewCriteria,
-    assetRole: payload.asset_role ?? "",
-    composition: payload.composition ?? "",
-    materials: payload.materials ?? "",
-    visualHierarchy: payload.visual_hierarchy ?? "",
-    textRule: payload.text_rule ?? "",
-    canonRule: payload.canon_rule ?? "",
-    printRule: payload.print_rule ?? "",
-    negativeConstraints: payload.negative_constraints ?? "",
-    illustratedNarrative: [illustratedNarrative, ...bibleGrounding].filter(Boolean).join(" ").slice(0, 900) || undefined,
-    focalHierarchy: [
-      payload.primary_focal_area || payload.composition || "",
-      payload.secondary_narrative_cluster || payload.visual_hierarchy || "",
-      payload.supporting_objects || payload.materials || "",
-      payload.story_signal || payload.negative_constraints || "",
-    ].map((value) => value.trim()).filter(Boolean),
+    designIntent: intent,
+    narrativePurpose: worldContext,
+    requiredContent: componentRequirements,
+    reviewCriteria: printRequirements,
+    assetRole: creativeTask,
+    composition,
+    materials,
+    visualHierarchy: "",
+    textRule: textPolicy,
+    canonRule: canonPolicy,
+    printRule: printRequirements,
+    negativeConstraints,
+    illustratedNarrative: composition.slice(0, 900) || undefined,
+    focalHierarchy: [composition, "", materials, negativeConstraints].filter(Boolean),
     componentSpecName: chain.componentSpec?.name,
     componentSpecContent: chain.componentSpec?.content.slice(0, 600),
     styleGuideName: chain.styleGuide?.name,
@@ -217,6 +244,7 @@ function extractLocalBoardData(
     canonNames: chain.canonRecords.slice(0, 5).map((record) => record.name),
     promptHash,
     worldBible: bible,
+    usesCompiledSections: true,
   };
 }
 
@@ -449,32 +477,6 @@ async function runLocalSpecPreview(
     throw new SpecPreviewError("MISSING_SPEC_ID", "production_spec_id is required for a local spec preview.");
   }
 
-  if (!forceNew && !dryRun) {
-    const existing = await findExistingPreview(specPageId, promptHash);
-    if (existing) {
-      // Pre-storage local audit rows have no retrievable board; render a fresh
-      // board instead of treating their filename as a usable idempotent result.
-      if (existing.previewObjectPath) {
-        return {
-          status: "success",
-          source: "local",
-          production_item: existing.productionItem ?? "",
-          spec_page_id: specPageId,
-          preview_filename: existing.previewFilename ?? undefined,
-          preview_object_path: existing.previewObjectPath,
-          preview_url: localPreviewUrl(existing.previewObjectPath),
-          provider: existing.provider ?? undefined,
-          model: existing.model ?? undefined,
-          prompt_hash: promptHash,
-          previous_status: existing.previousStatus ?? undefined,
-          new_status: existing.newStatus ?? undefined,
-          upload_status: "skipped",
-          dalle_skipped: true,
-        };
-      }
-    }
-  }
-
   let chain: InheritanceChain;
   try {
     chain = await resolveInheritanceChainLocalWithWorldBible(specPageId);
@@ -488,7 +490,31 @@ async function runLocalSpecPreview(
     );
   }
 
-  const boardData = extractLocalBoardData(chain, specPageId, promptHash);
+  const sectionRecords = await getCompiledSectionsForLocalPreview(specPageId, promptHash);
+
+  if (!forceNew && !dryRun) {
+    const existing = await findExistingPreview(specPageId, promptHash);
+    if (existing?.previewObjectPath) {
+      return {
+        status: "success",
+        source: "local",
+        production_item: existing.productionItem ?? "",
+        spec_page_id: specPageId,
+        preview_filename: existing.previewFilename ?? undefined,
+        preview_object_path: existing.previewObjectPath,
+        preview_url: localPreviewUrl(existing.previewObjectPath),
+        provider: existing.provider ?? undefined,
+        model: existing.model ?? undefined,
+        prompt_hash: promptHash,
+        previous_status: existing.previousStatus ?? undefined,
+        new_status: existing.newStatus ?? undefined,
+        upload_status: "skipped",
+        dalle_skipped: true,
+      };
+    }
+  }
+
+  const boardData = extractLocalBoardData(chain, specPageId, promptHash, sectionRecords);
   const localStatusNote = "Preview generated from Editorial Suite; publish the Production Specification to attach it in Notion.";
 
   if (dryRun) {

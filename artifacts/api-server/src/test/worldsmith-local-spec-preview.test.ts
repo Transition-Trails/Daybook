@@ -38,6 +38,7 @@ const {
 
 vi.mock("@workspace/db", () => ({
   db: { select: mockDbSelect, insert: mockDbInsert },
+  worldsmithRunsTable: {},
   worldsmithSpecPreviewsTable: {},
 }));
 
@@ -125,6 +126,15 @@ const localChain: InheritanceChain = {
   },
 };
 
+const compiledSections = [
+  { key: "world_and_collection_context", label: "World And Collection Context", content: "World: Thornvale\nCompiled world context.", source: "Production Spec" },
+  { key: "component_requirements", label: "Component Requirements", content: "Compiled component requirements.", source: "Component Spec" },
+  { key: "front_prompt", label: "Front Prompt", content: "Compiled gate scene.", source: "Prompt Payload" },
+  { key: "material_world", label: "Material World", content: "Compiled wet stone and iron.", source: "World Bible" },
+  { key: "negative_prompt", label: "Negative Prompt", content: "Compiled no text.", source: "Prompt Payload" },
+  { key: "print_and_output_requirements", label: "Print And Output Requirements", content: "Compiled print requirements.", source: "Production Spec" },
+] as const;
+
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
@@ -134,7 +144,7 @@ beforeEach(() => {
     from: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({
         orderBy: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue([]),
+          limit: vi.fn().mockResolvedValue([{ compiledSections }]),
         }),
       }),
     }),
@@ -144,7 +154,7 @@ beforeEach(() => {
 });
 
 describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
-  it("stores an unpublished local board with inherited World Bible grounding and no Notion writes", async () => {
+  it("stores an unpublished local board from compiled records with World Bible grounding and no Notion writes", async () => {
     let renderedBoard: SpecBoardData | undefined;
     mockRenderBoard.mockImplementation(async (data: SpecBoardData) => {
       renderedBoard = data;
@@ -166,7 +176,11 @@ describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
     });
     expect(mockLocalResolver).toHaveBeenCalledWith("local-spec");
     expect(renderedBoard?.worldBible?.visualPalette).toContain("Moss green");
-    expect(renderedBoard?.illustratedNarrative).toContain("Rain gathers on iron");
+    expect(renderedBoard?.illustratedNarrative).toBe("Compiled gate scene.");
+    expect(renderedBoard?.composition).toBe("Compiled gate scene.");
+    expect(renderedBoard?.materials).toBe("Compiled wet stone and iron.");
+    expect(renderedBoard?.negativeConstraints).toBe("Compiled no text.");
+    expect(renderedBoard?.usesCompiledSections).toBe(true);
     expect(renderedBoard?.canonNames).toEqual(["The Quiet Gate"]);
     expect(mockGetPage).not.toHaveBeenCalled();
     expect(mockUpload).not.toHaveBeenCalled();
@@ -190,6 +204,24 @@ describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
     expect(result.dry_run_payload?.["World Bible"]).toContain("Moss green");
     expect(mockRenderBoard).not.toHaveBeenCalled();
     expect(mockGetPage).not.toHaveBeenCalled();
+  });
+
+  it("rejects a local preview without matching compiled section records", async () => {
+    mockDbSelect.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          orderBy: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+      }),
+    });
+
+    await expect(runSpecPreview({
+      production_spec_id: "local-spec",
+      prompt_hash: "missing-compiled-hash",
+    })).rejects.toMatchObject({ code: "COMPILED_SECTIONS_NOT_FOUND" });
+    expect(mockRenderBoard).not.toHaveBeenCalled();
   });
 
   it("returns the persisted local board for a later editor session", async () => {

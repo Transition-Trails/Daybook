@@ -42,6 +42,8 @@ import {
   resolveInheritanceChain,
   resolveInheritanceChainLocal,
 } from "../lib/worldsmith/inheritance-resolver.js";
+import { compilePrompt } from "../lib/worldsmith/prompt-compiler.js";
+import { computePromptHash } from "../lib/worldsmith/prompt-hasher.js";
 
 const IDS = {
   spec: "local-spec",
@@ -197,5 +199,39 @@ describe("resolveInheritanceChainLocal", () => {
       .toEqual(notion.canonRecords.map(({ name, status }) => ({ name, status })));
     expect(local.productionSpec.sourceId).toBe(IDS.spec);
     expect(local.productionSpec.notionPageId).toBe(IDS.notionSpec);
+  });
+
+  it("renders authored canon bodies in CANON POLICY and changes the prompt hash", async () => {
+    const chain = await resolveInheritanceChainLocal(IDS.spec);
+    const payload = {
+      shared_prompt: "A quiet threshold in rain.",
+      negative_prompt: "no text",
+    };
+    const compiled = compilePrompt(chain, payload);
+    const changedRegister = {
+      ...chain,
+      canonRecords: chain.canonRecords.map((record) => ({
+        ...record,
+        emotionalRegister: "Trespass",
+      })),
+    };
+    const changedCompiled = compilePrompt(changedRegister, payload);
+    const hash = computePromptHash({
+      payload_version: chain.productionSpec.payloadVersion,
+      compiled_prompt: compiled.fullPrompt,
+      negative_prompt: compiled.negativePrompt,
+    });
+    const changedHash = computePromptHash({
+      payload_version: changedRegister.productionSpec.payloadVersion,
+      compiled_prompt: changedCompiled.fullPrompt,
+      negative_prompt: changedCompiled.negativePrompt,
+    });
+
+    expect(compiled.fullPrompt).toContain("[CANON POLICY]");
+    expect(compiled.fullPrompt).toContain("Emotional Register: Withholding");
+    expect(compiled.fullPrompt).toContain("Sensory Clauses: rain-dark iron; lichen-cold stone");
+    expect(compiled.fullPrompt).toContain("Narrative Details: An old gate marks the border.");
+    expect(changedCompiled.fullPrompt).toContain("Emotional Register: Trespass");
+    expect(changedHash).not.toBe(hash);
   });
 });

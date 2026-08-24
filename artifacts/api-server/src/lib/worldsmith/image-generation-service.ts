@@ -56,7 +56,16 @@ function isExperimentalSizeEnabled(): boolean {
 }
 
 function roundToSupportedDimension(value: number): number {
-  return Math.max(MIN_SIDE, Math.round(value / ROUND_TO) * ROUND_TO);
+  return Math.round(value / ROUND_TO) * ROUND_TO;
+}
+
+function applyMinSide(width: number, height: number): readonly [number, number] {
+  const shortest = Math.min(width, height);
+  if (shortest >= MIN_SIDE) {
+    return [width, height];
+  }
+  const scale = MIN_SIDE / shortest;
+  return [width * scale, height * scale];
 }
 
 function clampRoundedTargetToPixelBudget(
@@ -103,9 +112,13 @@ export function getWorldsmithImageTarget(
   const maxPixels = isExperimentalSizeEnabled() ? 3840 * 2160 : 2560 * 1440;
   const requestedPixels = printWidthIn * requestedDpi * printHeightIn * requestedDpi;
   const scale = Math.min(1, Math.sqrt(maxPixels / requestedPixels));
+  const [rawWidth, rawHeight] = applyMinSide(
+    printWidthIn * requestedDpi * scale,
+    printHeightIn * requestedDpi * scale,
+  );
   const [width, height] = clampRoundedTargetToPixelBudget(
-    roundToSupportedDimension(printWidthIn * requestedDpi * scale),
-    roundToSupportedDimension(printHeightIn * requestedDpi * scale),
+    roundToSupportedDimension(rawWidth),
+    roundToSupportedDimension(rawHeight),
     maxPixels,
   );
   const effectiveDpi = Math.floor(Math.min(width / printWidthIn, height / printHeightIn));

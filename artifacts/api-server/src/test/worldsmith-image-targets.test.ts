@@ -1,4 +1,7 @@
-import { ORIENTATION_AWARE_TYPES } from "@workspace/api-zod/readiness";
+import {
+  missingOrientationAwarePrintSizes,
+  ORIENTATION_AWARE_TYPES,
+} from "@workspace/api-zod/readiness";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   getWorldsmithImageTarget,
@@ -78,6 +81,25 @@ describe("WorldSmith image targets", () => {
     expect(width % 16).toBe(0);
     expect(height % 16).toBe(0);
     expect(target).toMatchObject({ dpi: 150, requestedDpi: 150 });
+  });
+
+  it("requires every orientation-aware component type to have explicit print dimensions", () => {
+    expect(missingOrientationAwarePrintSizes(WORLD_SMITH_PRINT_SIZES_IN)).toEqual([]);
+  });
+
+  it("reports a newly declared orientation-aware type instead of using the square fallback", () => {
+    const futureComponentType = "Future Orientation-Aware Paper";
+    const orientationAwareTypes = ORIENTATION_AWARE_TYPES as Set<string>;
+    orientationAwareTypes.add(futureComponentType);
+
+    try {
+      expect(() => validateWorldsmithPreviewGenerationConfiguration())
+        .toThrow(`orientation-aware component type(s): ${futureComponentType}`);
+      expect(() => getWorldsmithImageTarget(futureComponentType, "landscape"))
+        .toThrow(`orientation-aware component type "${futureComponentType}"`);
+    } finally {
+      orientationAwareTypes.delete(futureComponentType);
+    }
   });
 
   it.each(DPIS)("keeps Journal Card rectangular at %d DPI", (dpi) => {

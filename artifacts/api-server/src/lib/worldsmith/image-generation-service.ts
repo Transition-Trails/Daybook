@@ -8,7 +8,10 @@
  */
 
 import { randomUUID } from "crypto";
-import { ORIENTATION_AWARE_TYPES } from "@workspace/api-zod/readiness";
+import {
+  missingOrientationAwarePrintSizes,
+  ORIENTATION_AWARE_TYPES,
+} from "@workspace/api-zod/readiness";
 import { db, worldsmithSpecPreviewsTable, type SpecPreviewOutputMetadata } from "@workspace/db";
 import {
   attachUploadToPageProperty,
@@ -93,8 +96,14 @@ export function getWorldsmithImageTarget(
   requestedOrientation?: string | null,
 ): WorldsmithImageTarget {
   const type = componentType?.trim() ?? "";
-  const [baseWidth, baseHeight] = WORLD_SMITH_PRINT_SIZES_IN[type] ?? [8.5, 8.5];
   const orientationAware = ORIENTATION_AWARE_TYPES.has(type);
+  const printSize = WORLD_SMITH_PRINT_SIZES_IN[type];
+  if (orientationAware && !printSize) {
+    throw new Error(
+      `WorldSmith print-size catalog is missing explicit dimensions for orientation-aware component type "${type}".`,
+    );
+  }
+  const [baseWidth, baseHeight] = printSize ?? [8.5, 8.5];
   const normalizedOrientation = requestedOrientation?.trim().toLowerCase() ?? "";
 
   let printWidthIn = baseWidth;
@@ -157,6 +166,12 @@ export function getWorldsmithPreviewGeneration(
 
 export function validateWorldsmithPreviewGenerationConfiguration(): void {
   configuredPreviewQuality();
+  const missingPrintSizes = missingOrientationAwarePrintSizes(WORLD_SMITH_PRINT_SIZES_IN);
+  if (missingPrintSizes.length > 0) {
+    throw new Error(
+      `WorldSmith print-size catalog is missing explicit dimensions for orientation-aware component type(s): ${missingPrintSizes.join(", ")}.`,
+    );
+  }
 }
 
 export interface WorldsmithImageGeneration {

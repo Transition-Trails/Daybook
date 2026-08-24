@@ -76,6 +76,17 @@ export const ORIENTATION_AWARE_TYPES: ReadonlySet<string> = new Set([
   "Endpaper",
 ]);
 
+/**
+ * Return orientation-aware component types that do not have an explicit print
+ * size in the supplied catalog. Image generation must not infer a square size
+ * for these types because their orientation may change the target dimensions.
+ */
+export function missingOrientationAwarePrintSizes(
+  printSizes: Readonly<Record<string, readonly [number, number]>>,
+): string[] {
+  return [...ORIENTATION_AWARE_TYPES].filter((componentType) => !Object.hasOwn(printSizes, componentType));
+}
+
 function value(spec: SpecLike, camel: keyof SpecLike, snake: keyof SpecLike): string {
   const raw = spec[camel] ?? spec[snake];
   return typeof raw === "string" ? raw : "";

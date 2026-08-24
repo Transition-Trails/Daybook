@@ -573,6 +573,10 @@ export default function WorldSmithCompiler() {
                 isPending={compile.isPending}
                 canCompile={canCompile}
               />
+              {/* Pricing is intentionally unavailable until a compile carries
+                  explicit provider usage. Show that status before an editor
+                  decides whether to compile rather than hiding the card. */}
+              <CostEstimateCard prov={null} />
               {/* PP-2.0 payload generator — shown only when payload is blank */}
               {preflight.prompt_payload_blank && resolvedId && (
                 <PayloadGeneratorPanel
@@ -1758,6 +1762,10 @@ function OverviewTab({
 
       {/* Grouped Readiness */}
       <GroupedReadinessCard result={result} preflight={preflight} prov={prov} />
+
+      {/* Keep pricing provenance visible in the default post-compile view.
+          The detailed Inspector stage also includes this card. */}
+      <CostEstimateCard prov={prov} />
 
       {/* World Bible — shown when Bible-derived sections were compiled */}
       {(result.compiled_sections ?? []).some((s) => s.source === "World Bible") && (

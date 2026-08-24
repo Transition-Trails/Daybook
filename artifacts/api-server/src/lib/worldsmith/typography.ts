@@ -1,5 +1,6 @@
 import { db, fontsTable } from "@workspace/db";
 import { inArray } from "drizzle-orm";
+import { filterEntitled, type EntitlementContext } from "../entitlement";
 import type { TypographyChoice } from "./types";
 
 export class TypographyValidationError extends Error {
@@ -13,7 +14,10 @@ export class TypographyValidationError extends Error {
  * Resolves externally supplied font IDs back through the catalog. This keeps
  * persisted typography limited to compiler-safe family and role data.
  */
-export async function resolveTypographyChoices(value: unknown): Promise<TypographyChoice[]> {
+export async function resolveTypographyChoices(
+  value: unknown,
+  entitlementContext?: EntitlementContext,
+): Promise<TypographyChoice[]> {
   if (!Array.isArray(value)) {
     throw new TypographyValidationError("typography must be an array of font selections.");
   }
@@ -38,15 +42,29 @@ export async function resolveTypographyChoices(value: unknown): Promise<Typograp
       id: fontsTable.id,
       familyName: fontsTable.familyName,
       curatedPairings: fontsTable.curatedPairings,
+      status: fontsTable.status,
+      globalAvailable: fontsTable.globalAvailable,
+      origin: fontsTable.origin,
+      authoredByStoreId: fontsTable.authoredByStoreId,
     })
     .from(fontsTable)
     .where(inArray(fontsTable.id, fontIds));
 
-  if (fonts.length !== fontIds.length) {
+  const availableFonts = entitlementContext
+    ? filterEntitled(
+        fonts.filter((font) =>
+          font.status !== "deleted" &&
+          (font.origin === "owned" || (font.status === "live" && font.globalAvailable)),
+        ),
+        entitlementContext,
+      )
+    : fonts;
+
+  if (availableFonts.length !== fontIds.length) {
     throw new TypographyValidationError("One or more selected fonts are no longer available in the catalog.");
   }
 
-  const byId = new Map(fonts.map((font) => [font.id, font]));
+  const byId = new Map(availableFonts.map((font) => [font.id, font]));
   return fontIds.map((fontId) => {
     const font = byId.get(fontId)!;
     return {

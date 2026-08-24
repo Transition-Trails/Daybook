@@ -22,7 +22,8 @@ import { getAsset, getAssetBySpec } from "../lib/worldsmith/daybook-adapter";
 import { normalizeNotionId } from "../lib/worldsmith/normalize-id";
 import { db } from "@workspace/db";
 import {
-  storeFlagsTable, worldsmithAssetsTable, worldsmithRunsTable, worldsmithWorldsTable,
+  fontsTable, palettesTable, storeFlagsTable, storesTable, worldsmithAssetsTable,
+  worldsmithRunsTable, worldsmithWorldsTable,
   wsCanonRecordsTable, wsComponentSpecsTable, wsPromptModulesTable, wsStyleGuidesTable,
 } from "@workspace/db";
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
@@ -53,6 +54,7 @@ import { resolveInheritanceChain, InheritanceError } from "../lib/worldsmith/inh
 import { normalizeNotionId as normalizeId } from "../lib/worldsmith/normalize-id";
 import { sanitizeWorldBibleRichText, worldBibleRichTextToPlainText } from "../lib/worldsmith/world-bible-rich-text";
 import { resolveTypographyChoices, TypographyValidationError } from "../lib/worldsmith/typography";
+import { filterEntitled, type EntitlementContext } from "../lib/entitlement";
 
 const router = Router();
 
@@ -88,6 +90,117 @@ async function requireWorldsmithEnabled(
   }
   next();
 }
+
+async function storeEntitlementContext(storeId: string): Promise<EntitlementContext> {
+  const [store] = await db
+    .select({ subscriptionActive: storesTable.subscriptionActive })
+    .from(storesTable)
+    .where(eq(storesTable.id, storeId))
+    .limit(1);
+
+  return {
+    storeId,
+    // A missing store cannot safely receive licensed content. Membership checks
+    // normally make this impossible, but fail closed if an orphaned membership exists.
+    subscriptionActive: store?.subscriptionActive ?? false,
+  };
+}
+
+// ── World Bible supporting libraries ─────────────────────────────────────────
+// Store-facing alternatives to the platform Editorial library routes. These
+// retain the same world scope as the World Bible write path.
+
+router.get("/v1/worldsmith/worlds/:id/palette-library", requireStoreAccess("store_staff"), requireWorldsmithEnabled, async (req: Request, res: Response): Promise<void> => {
+  const worldId = req.params.id as string;
+  const storeId = scopedStoreId(req);
+
+  try {
+    const [world] = await db
+      .select({ storeId: worldsmithWorldsTable.storeId })
+      .from(worldsmithWorldsTable)
+      .where(storeId
+        ? and(eq(worldsmithWorldsTable.id, worldId), eq(worldsmithWorldsTable.storeId, storeId))
+        : eq(worldsmithWorldsTable.id, worldId))
+      .limit(1);
+
+    if (!world) {
+      res.status(404).json({ error: "World not found", code: "NOT_FOUND" });
+      return;
+    }
+
+    const palettes = await db
+      .select({
+        id: palettesTable.id,
+        name: palettesTable.name,
+        colors: palettesTable.colors,
+        status: palettesTable.status,
+      })
+      .from(palettesTable)
+      .where(world.storeId
+        ? and(
+            eq(palettesTable.origin, "owned"),
+            eq(palettesTable.authoredByStoreId, world.storeId),
+            ne(palettesTable.status, "deleted"),
+          )
+        : ne(palettesTable.status, "deleted"))
+      .orderBy(desc(palettesTable.updatedAt));
+
+    res.json({ source: world.storeId ? "store" : "platform", palettes });
+  } catch (err) {
+    req.log.error({ err, worldId }, "WorldSmith palette library lookup failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/v1/worldsmith/worlds/:id/font-library", requireStoreAccess("store_staff"), requireWorldsmithEnabled, async (req: Request, res: Response): Promise<void> => {
+  const worldId = req.params.id as string;
+  const storeId = scopedStoreId(req);
+
+  try {
+    const [world] = await db
+      .select({ storeId: worldsmithWorldsTable.storeId })
+      .from(worldsmithWorldsTable)
+      .where(storeId
+        ? and(eq(worldsmithWorldsTable.id, worldId), eq(worldsmithWorldsTable.storeId, storeId))
+        : eq(worldsmithWorldsTable.id, worldId))
+      .limit(1);
+
+    if (!world) {
+      res.status(404).json({ error: "World not found", code: "NOT_FOUND" });
+      return;
+    }
+
+    const fonts = await db
+      .select({
+        id: fontsTable.id,
+        familyName: fontsTable.familyName,
+        variants: fontsTable.variants,
+        notes: fontsTable.notes,
+        curatedPairings: fontsTable.curatedPairings,
+        status: fontsTable.status,
+        globalAvailable: fontsTable.globalAvailable,
+        origin: fontsTable.origin,
+        authoredByStoreId: fontsTable.authoredByStoreId,
+      })
+      .from(fontsTable)
+      .where(ne(fontsTable.status, "deleted"))
+      .orderBy(fontsTable.createdAt);
+
+    const visibleFonts = world.storeId
+      ? filterEntitled(
+          fonts.filter((font) =>
+            font.origin === "owned" || (font.status === "live" && font.globalAvailable),
+          ),
+          await storeEntitlementContext(world.storeId),
+        )
+      : fonts;
+
+    res.json({ source: world.storeId ? "store" : "platform", fonts: visibleFonts });
+  } catch (err) {
+    req.log.error({ err, worldId }, "WorldSmith font library lookup failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // ── POST /api/v1/prompt-compilations ─────────────────────────────────────────
 // validate_and_compile or preview
@@ -1665,7 +1778,24 @@ router.patch("/v1/worldsmith/worlds/:id", requireStoreAccess("store_staff"), req
   }
   if ("typography" in body) {
     try {
-      patch.typography = await resolveTypographyChoices(body.typography);
+      const requestStoreId = scopedStoreId(req);
+      const [world] = await db
+        .select({ storeId: worldsmithWorldsTable.storeId })
+        .from(worldsmithWorldsTable)
+        .where(requestStoreId
+          ? and(eq(worldsmithWorldsTable.id, worldId), eq(worldsmithWorldsTable.storeId, requestStoreId))
+          : eq(worldsmithWorldsTable.id, worldId))
+        .limit(1);
+
+      if (!world) {
+        res.status(404).json({ error: "World not found", code: "NOT_FOUND" });
+        return;
+      }
+
+      patch.typography = await resolveTypographyChoices(
+        body.typography,
+        world.storeId ? await storeEntitlementContext(world.storeId) : undefined,
+      );
     } catch (err) {
       const message = err instanceof TypographyValidationError ? err.message : "Invalid typography selection.";
       res.status(400).json({ error: message, code: "INVALID_TYPOGRAPHY" });

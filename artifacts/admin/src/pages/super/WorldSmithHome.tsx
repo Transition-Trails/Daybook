@@ -1804,6 +1804,8 @@ export function WorldBibleSection({
                   <FontLibraryPicker
                     value={form.typography}
                     onChange={choices => set("typography", choices as any)}
+                    worldId={world.id}
+                    storeId={storeId}
                   />
                 </>
               )}

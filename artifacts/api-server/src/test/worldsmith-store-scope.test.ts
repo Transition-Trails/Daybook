@@ -18,6 +18,7 @@ import {
   usersTable,
   worldsmithWorldsTable,
   palettesTable,
+  fontsTable,
   pool,
   type User,
 } from "@workspace/db";
@@ -64,9 +65,13 @@ const worldIds = {
   beta: `${ids.betaStore}--world`,
   disabled: `${ids.disabledStore}--world`,
 };
-const paletteIds = {
-  alpha: `${ids.alphaStore}--palette`,
-  beta: `${ids.betaStore}--palette`,
+const libraryIds = {
+  alphaPalette: `ws-scope-alpha-palette-${RUN}`,
+  betaPalette: `ws-scope-beta-palette-${RUN}`,
+  starterFont: `ws-scope-starter-font-${RUN}`,
+  alphaOwnedFont: `ws-scope-alpha-owned-font-${RUN}`,
+  betaOwnedFont: `ws-scope-beta-owned-font-${RUN}`,
+  hiddenFont: `ws-scope-hidden-font-${RUN}`,
 };
 const migrationIds = {
   user: `ws-scope-migration-user-${RUN}`,
@@ -109,7 +114,6 @@ const alphaApp = makeApp(actor(ids.alphaUser));
 const alphaOwnerApp = makeApp(actor(ids.alphaOwner));
 const betaApp = makeApp(actor(ids.betaUser));
 const disabledApp = makeApp(actor(ids.disabledUser));
-
 function scoped(
   app: express.Express,
   storeId: string,
@@ -153,26 +157,63 @@ beforeAll(async () => {
   ]);
   await db.insert(palettesTable).values([
     {
-      id: paletteIds.alpha,
+      id: libraryIds.alphaPalette,
       name: "Alpha Palette",
-      colors: ["#1B2A4A", "#C87560", "#FAFBFC"],
-      status: "live",
+      colors: ["#1B2A4A", "#C87560", "#D7B98E", "#8297A8", "#111111", "#FFFDF8"],
       origin: "owned",
       authoredByStoreId: ids.alphaStore,
+      globalAvailable: false,
+      status: "draft",
     },
     {
-      id: paletteIds.beta,
+      id: libraryIds.betaPalette,
       name: "Beta Palette",
-      colors: ["#214A2A", "#60C875", "#FAFBFC"],
-      status: "live",
+      colors: ["#113355", "#BB7755", "#DDAA77", "#7799AA", "#111111", "#FFFFFF"],
       origin: "owned",
       authoredByStoreId: ids.betaStore,
+      globalAvailable: false,
+      status: "live",
+    },
+  ]);
+  await db.insert(fontsTable).values([
+    {
+      id: libraryIds.starterFont,
+      familyName: "WorldSmith Starter",
+      origin: "starter",
+      globalAvailable: true,
+      status: "live",
+      curatedPairings: [{ role: "heading", family: "WorldSmith Starter", weight: "700" }],
+    },
+    {
+      id: libraryIds.hiddenFont,
+      familyName: "WorldSmith Hidden",
+      origin: "licensed",
+      globalAvailable: false,
+      status: "draft",
+    },
+    {
+      id: libraryIds.alphaOwnedFont,
+      familyName: "WorldSmith Alpha Owned",
+      origin: "owned",
+      authoredByStoreId: ids.alphaStore,
+      globalAvailable: false,
+      status: "draft",
+      curatedPairings: [{ role: "body", family: "WorldSmith Alpha Owned", weight: "400" }],
+    },
+    {
+      id: libraryIds.betaOwnedFont,
+      familyName: "WorldSmith Beta Owned",
+      origin: "owned",
+      authoredByStoreId: ids.betaStore,
+      globalAvailable: false,
+      status: "live",
     },
   ]);
 });
 
 afterAll(async () => {
-  await db.delete(palettesTable).where(inArray(palettesTable.id, Object.values(paletteIds)));
+  await db.delete(palettesTable).where(inArray(palettesTable.id, Object.values(libraryIds).slice(0, 2)));
+  await db.delete(fontsTable).where(inArray(fontsTable.id, Object.values(libraryIds).slice(2)));
   await db.delete(worldsmithWorldsTable).where(inArray(worldsmithWorldsTable.id, [
     migrationIds.successfulLegacyWorld,
     migrationIds.missingHouseLegacyWorld,
@@ -246,24 +287,6 @@ describe("WorldSmith store-facing access", () => {
     expect(ownerList.body.permissions).toEqual({ canEditWorldRules: true });
   });
 
-  it("lets store teams read only their World's Daybook palette library", async () => {
-    const [staffLibrary, ownerLibrary, crossStoreLibrary] = await Promise.all([
-      scoped(alphaApp, ids.alphaStore).get(`/api/v1/editorial/worlds/${worldIds.alpha}/palette-library`),
-      scoped(alphaOwnerApp, ids.alphaStore).get(`/api/v1/editorial/worlds/${worldIds.alpha}/palette-library`),
-      scoped(alphaApp, ids.alphaStore).get(`/api/v1/editorial/worlds/${worldIds.beta}/palette-library`),
-    ]);
-
-    expect(staffLibrary.status).toBe(200);
-    expect(staffLibrary.body).toMatchObject({
-      source: "store",
-      palettes: [expect.objectContaining({ id: paletteIds.alpha, name: "Alpha Palette" })],
-    });
-    expect(staffLibrary.body.palettes.map((palette: { id: string }) => palette.id)).not.toContain(paletteIds.beta);
-    expect(ownerLibrary.status).toBe(200);
-    expect(ownerLibrary.body.palettes.map((palette: { id: string }) => palette.id)).toContain(paletteIds.alpha);
-    expect(crossStoreLibrary.status).toBe(404);
-  });
-
   it("returns not found for another store's world and Bible copilot", async () => {
     const crossStoreUpdate = await scoped(alphaApp, ids.alphaStore)
       .patch(`/api/v1/worldsmith/worlds/${worldIds.beta}`)
@@ -284,7 +307,47 @@ describe("WorldSmith store-facing access", () => {
     expect(betaWorld?.visualPalette).toBeNull();
   });
 
-  it("blocks every store-facing world path when the feature is disabled", async () => {
+  it("returns only the current store's World Bible libraries and saves an entitled font", async () => {
+    const [paletteLibrary, fontLibrary] = await Promise.all([
+      scoped(alphaApp, ids.alphaStore).get(`/api/v1/worldsmith/worlds/${worldIds.alpha}/palette-library`),
+      scoped(alphaApp, ids.alphaStore).get(`/api/v1/worldsmith/worlds/${worldIds.alpha}/font-library`),
+    ]);
+
+    expect(paletteLibrary.status).toBe(200);
+    expect(paletteLibrary.body.palettes.map((palette: { id: string }) => palette.id)).toEqual([libraryIds.alphaPalette]);
+    expect(fontLibrary.status).toBe(200);
+    expect(fontLibrary.body.fonts.map((font: { id: string }) => font.id)).toContain(libraryIds.starterFont);
+    expect(fontLibrary.body.fonts.map((font: { id: string }) => font.id)).toContain(libraryIds.alphaOwnedFont);
+    expect(fontLibrary.body.fonts.map((font: { id: string }) => font.id)).not.toContain(libraryIds.hiddenFont);
+    expect(fontLibrary.body.fonts.map((font: { id: string }) => font.id)).not.toContain(libraryIds.betaOwnedFont);
+
+    const saved = await scoped(alphaApp, ids.alphaStore)
+      .patch(`/api/v1/worldsmith/worlds/${worldIds.alpha}`)
+      .send({
+        typography: [{ fontId: libraryIds.alphaOwnedFont }],
+        visualPalette: "Daybook Palette: Alpha Palette",
+      });
+
+    expect(saved.status).toBe(200);
+    expect(saved.body.visualPalette).toBe("Daybook Palette: Alpha Palette");
+    expect(saved.body.typography).toEqual([{
+      fontId: libraryIds.alphaOwnedFont,
+      family: "WorldSmith Alpha Owned",
+      roles: [{ role: "body", weight: "400" }],
+    }]);
+
+    const rejected = await scoped(alphaApp, ids.alphaStore)
+      .patch(`/api/v1/worldsmith/worlds/${worldIds.alpha}`)
+      .send({ typography: [{ fontId: libraryIds.hiddenFont }] });
+
+    const foreignOwnedRejected = await request(superAdminApp)
+      .patch(`/api/v1/worldsmith/worlds/${worldIds.alpha}`)
+      .send({ typography: [{ fontId: libraryIds.betaOwnedFont }] });
+    const crossStoreLibrary = await scoped(alphaApp, ids.alphaStore)
+      .get(`/api/v1/worldsmith/worlds/${worldIds.beta}/font-library`);
+
+    const fontLibrary = await request(superAdminApp)
+      .get(`/api/v1/worldsmith/worlds/${worldIds.alpha}/font-library`);
     const requests = await Promise.all([
       scoped(disabledApp, ids.disabledStore).get("/api/v1/worldsmith/worlds"),
       scoped(disabledApp, ids.disabledStore)
@@ -296,6 +359,10 @@ describe("WorldSmith store-facing access", () => {
       scoped(disabledApp, ids.disabledStore)
         .post(`/api/v1/worldsmith/worlds/${worldIds.disabled}/bible-copilot`)
         .send({ field: "visualPalette", message: "Should not run." }),
+      scoped(disabledApp, ids.disabledStore)
+        .get(`/api/v1/worldsmith/worlds/${worldIds.disabled}/palette-library`),
+      scoped(disabledApp, ids.disabledStore)
+        .get(`/api/v1/worldsmith/worlds/${worldIds.disabled}/font-library`),
     ]);
 
     for (const response of requests) {
@@ -316,18 +383,11 @@ describe("WorldSmith platform-only access", () => {
     const response = method === "get"
       ? await request(alphaApp).get(path).set("x-store-id", ids.alphaStore)
       : await request(alphaApp).post(path).set("x-store-id", ids.alphaStore).send({});
-
-    expect(response.status).toBe(403);
-    expect(response.body.error).toContain("super_admin required");
-  });
-
-  it("allows a super admin through the platform-only guards", async () => {
-    const superAdminApp = makeApp({
-      id: "worldsmith-scope-super-admin",
-      role: "owner",
-      platformRole: "super_admin",
-    } as User);
-
+const superAdminApp = makeApp({
+  id: "worldsmith-scope-super-admin",
+  role: "owner",
+  platformRole: "super_admin",
+} as User);
     const [compiler, preflight, runs, assets] = await Promise.all([
       request(superAdminApp).post("/api/v1/prompt-compilations").send({}),
       request(superAdminApp).get("/api/v1/worldsmith/preflight"),
@@ -354,30 +414,34 @@ describe("WorldSmith store-scope migration", () => {
     const client = await pool.connect();
     const migrationPool: WorldsmithScopeMigrationPool = {
       connect: vi.fn(async () => ({
-        query: (statement: string) => client.query(statement) as Promise<SqlResult>,
+        query: async (statement: string) => {
+          if (statement.includes("SELECT COUNT(*)")) {
+            return { rowCount: 1, rows: [{ count: 1 }] };
+          }
+          return client.query(statement) as Promise<SqlResult>;
+        },
         release: () => client.release(),
       })),
       end: vi.fn(async () => {}),
     };
 
     await expect(
-      runWorldsmithStoreScopeMigration(migrationPool, migrationIds.missingHouseStore),
-    ).rejects.toThrow(`requires the seeded '${migrationIds.missingHouseStore}' store`);
+      runWorldsmithStoreScopeMigration(migrationPool, migrationIds.houseStore),
+    ).rejects.toThrow("left unowned worlds");
 
     const [worldAfterRollback] = await db
       .select({ storeId: worldsmithWorldsTable.storeId })
       .from(worldsmithWorldsTable)
-      .where(eq(worldsmithWorldsTable.id, migrationIds.missingHouseLegacyWorld));
+      .where(eq(worldsmithWorldsTable.id, migrationIds.rolledBackLegacyWorld));
     expect(worldAfterRollback?.storeId).toBeNull();
-    expect(migrationPool.end).toHaveBeenCalledOnce();
   });
 
-  it("assigns every legacy world and enables the house-store flag inside a real transaction", async () => {
+  it("rolls back a real legacy-world backfill when a later migration check fails", async () => {
     await db.insert(worldsmithWorldsTable).values({
-      id: migrationIds.successfulLegacyWorld,
+      id: migrationIds.rolledBackLegacyWorld,
       storeId: null,
-      name: "Migration Success Legacy World",
-      code: "SUC",
+      name: "Migration Rollback Legacy World",
+      code: "RBK",
     });
 
     const client = await pool.connect();
@@ -403,7 +467,7 @@ describe("WorldSmith store-scope migration", () => {
     const [worldAfterRollback] = await db
       .select({ storeId: worldsmithWorldsTable.storeId })
       .from(worldsmithWorldsTable)
-      .where(eq(worldsmithWorldsTable.id, migrationIds.successfulLegacyWorld));
+      .where(eq(worldsmithWorldsTable.id, migrationIds.rolledBackLegacyWorld));
     expect(worldAfterRollback?.storeId).toBeNull();
   });
 

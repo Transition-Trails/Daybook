@@ -35,14 +35,32 @@ export function toggleTypographyChoice(
 export function FontLibraryPicker({
   value = [],
   onChange,
+  worldId,
+  storeId,
 }: {
   value?: TypographyChoice[] | null;
   onChange: (choices: TypographyChoice[]) => void;
+  worldId?: string | null;
+  storeId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["daybook-font-library"],
-    queryFn: () => apiFetch<DaybookFont[]>("/fonts"),
+    queryKey: ["world-font-library", worldId, storeId],
+    queryFn: async () => {
+      if (!worldId) {
+        // Editorial's super-admin-only documents are not store-scoped. Keep
+        // their existing catalog request while World Bible calls use the
+        // scoped route above.
+        return apiFetch<DaybookFont[]>("/fonts");
+      }
+      const result = await apiFetch<{ fonts: DaybookFont[] }>(
+        `/v1/worldsmith/worlds/${encodeURIComponent(worldId)}/font-library`,
+        {
+          headers: storeId ? { "x-store-id": storeId } : undefined,
+        },
+      );
+      return result.fonts;
+    },
     staleTime: 60_000,
   });
   const fonts = data ?? [];
@@ -110,7 +128,12 @@ export function FontLibraryPicker({
               The Daybook Fonts catalog could not be loaded.
             </p>
           )}
-          {!isLoading && !isError && fonts.length === 0 && (
+          {!worldId && (
+            <p className="px-2 py-3 text-xs text-[#7C6F62]">
+              Select a world to view its Daybook font library.
+            </p>
+          )}
+          {worldId && !isLoading && !isError && fonts.length === 0 && (
             <p className="px-2 py-3 text-xs text-[#7C6F62]">No Daybook fonts are available yet.</p>
           )}
           {fonts.map(font => {

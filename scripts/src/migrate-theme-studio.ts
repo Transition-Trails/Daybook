@@ -59,6 +59,7 @@ async function main() {
         status              TEXT        NOT NULL DEFAULT 'draft',
         global_available    BOOLEAN     NOT NULL DEFAULT TRUE,
         origin              TEXT        NOT NULL DEFAULT 'licensed',
+        authored_by_store_id TEXT       REFERENCES stores(id) ON DELETE SET NULL,
         created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );

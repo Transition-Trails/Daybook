@@ -47,8 +47,10 @@ export function PaletteLibraryPicker({
   const { data, isLoading, isError } = useQuery({
     queryKey: ["world-palette-library", worldId, storeId],
     queryFn: () => apiFetch<{ palettes: DaybookPalette[] }>(
-      `/v1/editorial/worlds/${encodeURIComponent(worldId!)}/palette-library`,
-      storeId ? { headers: { "x-store-id": storeId } } : undefined,
+      `/v1/worldsmith/worlds/${encodeURIComponent(worldId!)}/palette-library`,
+      {
+        headers: storeId ? { "x-store-id": storeId } : undefined,
+      },
     ),
     select: result => result.palettes,
     enabled: Boolean(worldId),

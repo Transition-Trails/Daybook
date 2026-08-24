@@ -559,6 +559,10 @@ export const fontsTable = pgTable("fonts", {
   status: text("status").notNull().default("draft"),
   globalAvailable: boolean("global_available").notNull().default(true),
   origin: text("origin").notNull().default("licensed").$type<ItemOrigin>(),
+  authoredByStoreId: text("authored_by_store_id").references(
+    () => storesTable.id,
+    { onDelete: "set null" },
+  ),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

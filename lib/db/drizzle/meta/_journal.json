@@ -29,6 +29,13 @@
       "when": 1786201000000,
       "tag": "0003_font_catalog_store_ownership",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786202000000,
+      "tag": "0004_font_catalog_notes",
+      "breakpoints": true
     }
   ]
 }

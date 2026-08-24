@@ -21,7 +21,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import express, { type Request, type Response, type NextFunction } from "express";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import {
   themesTable,
   backgroundsTable,
@@ -78,6 +78,90 @@ function makeApp() {
 
 const app = makeApp();
 
+// ── Enriched theme loader migration contract ──────────────────────────────────
+//
+// Every loader below selects its catalog row as a whole. Keep this list in step
+// with the table fields used by catalog.ts so a missed forward migration reports
+// the schema mismatch before an unrelated theme-detail assertion becomes a 500.
+
+const enrichedThemeLoaderColumns: Record<string, readonly string[]> = {
+  themes: [
+    "id", "name", "desc", "colors", "price", "status", "created_by",
+    "created_at", "global_available", "origin", "authored_by_store_id",
+    "font_pairing", "background_roles", "updated_at",
+  ],
+  palettes: [
+    "id", "name", "colors", "status", "global_available", "origin",
+    "authored_by_store_id", "created_at", "updated_at",
+  ],
+  backgrounds: [
+    "id", "name", "type", "asset_ref", "status", "global_available",
+    "origin", "authored_by_store_id", "created_at", "updated_at",
+  ],
+  sticker_packs: [
+    "id", "name", "tags", "price", "status", "cover_drive_file_id",
+    "planners", "created_at", "global_available", "origin",
+    "authored_by_store_id", "attestation", "attesting_tool",
+    "instruction_sheet_file_id", "updated_at",
+  ],
+  inserts: [
+    "id", "name", "cat", "collection", "asset_id", "planners", "status",
+    "global_available", "origin", "authored_by_store_id", "created_at",
+    "updated_at",
+  ],
+  widgets: [
+    "id", "name", "store_id", "size_variants", "svg_data", "palette_slots",
+    "status", "origin", "authored_by_store_id", "created_at", "updated_at",
+  ],
+  hardware: [
+    "id", "name", "kind", "finish", "status", "global_available", "origin",
+    "authored_by_store_id", "created_at", "updated_at",
+  ],
+  accessories: [
+    "id", "name", "kind", "status", "global_available", "origin",
+    "authored_by_store_id", "created_at", "updated_at",
+  ],
+  fonts: [
+    "id", "family_name", "variants", "sample_url", "notes",
+    "curated_pairings", "status", "global_available", "origin",
+    "authored_by_store_id", "created_at", "updated_at",
+  ],
+  theme_palettes: ["theme_id", "palette_id", "position", "is_primary"],
+  theme_backgrounds: ["theme_id", "background_id", "position"],
+  theme_packs: ["theme_id", "pack_id", "position"],
+  theme_inserts: ["theme_id", "insert_id", "position"],
+  theme_widgets: ["theme_id", "widget_id", "position"],
+  theme_covers: ["theme_id", "insert_id", "position"],
+  theme_hardware: ["theme_id", "hardware_id", "position"],
+  theme_accessories: ["theme_id", "accessory_id", "position"],
+  theme_fonts: ["theme_id", "font_id", "position"],
+};
+
+async function assertEnrichedThemeLoaderSchema(): Promise<void> {
+  const { rows } = await pool.query<{ table_name: string; column_name: string }>(
+    `
+      SELECT table_name, column_name
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = ANY($1::text[])
+    `,
+    [Object.keys(enrichedThemeLoaderColumns)],
+  );
+  const available = new Set(rows.map(({ table_name, column_name }) => `${table_name}.${column_name}`));
+  const missing = Object.entries(enrichedThemeLoaderColumns).flatMap(([table, columns]) =>
+    columns
+      .filter(column => !available.has(`${table}.${column}`))
+      .map(column => `${table}.${column}`),
+  );
+
+  if (missing.length) {
+    throw new Error(
+      `Catalog schema mismatch: enriched theme loaders require ${missing.join(", ")}. ` +
+      "Apply the outstanding catalog migrations before exercising /themes.",
+    );
+  }
+}
+
 // ── Per-run unique fixture IDs ─────────────────────────────────────────────────
 
 const RUN = Math.random().toString(36).slice(2, 10);
@@ -90,6 +174,8 @@ const ids = {
 const cleanups: Array<() => Promise<unknown>> = [];
 
 beforeAll(async () => {
+  await assertEnrichedThemeLoaderSchema();
+
   // Insert a test theme
   await db.insert(themesTable).values({
     id: ids.theme,

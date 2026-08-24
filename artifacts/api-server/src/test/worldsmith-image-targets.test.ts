@@ -3,21 +3,20 @@ import {
   getWorldsmithImageTarget,
   getWorldsmithPreviewGeneration,
   validateWorldsmithPreviewGenerationConfiguration,
+  WORLD_SMITH_PRINT_SIZES_IN,
 } from "../lib/worldsmith/image-targets.js";
 
 function dimensions(size: string): [number, number] {
   return size.split("x").map(Number) as [number, number];
 }
 
-const PRINT_SIZES = [
-  ["Hero Paper", 12, 12],
-  ["Decorative Paper", 12, 12],
-  ["Coordinating Paper", 12, 12],
-  ["Journal Card", 3, 4],
-  ["Ephemera Sheet", 8.5, 11],
-  ["Notepaper", 8.5, 11],
-  ["Endpaper", 8.5, 11],
-] as const;
+const PRINT_SIZES = Object.entries(WORLD_SMITH_PRINT_SIZES_IN).map(
+  ([componentType, [printWidthIn, printHeightIn]]) => ({
+    componentType,
+    printWidthIn,
+    printHeightIn,
+  }),
+);
 const DPIS = [72, 150, 300] as const;
 const ROUND_TO = 16;
 const NORMAL_PIXEL_BUDGET = 2560 * 1440;
@@ -62,7 +61,7 @@ describe("WorldSmith image targets", () => {
 
   it.each(
     [false, true].flatMap((experimental) =>
-      PRINT_SIZES.flatMap(([componentType, printWidthIn, printHeightIn]) =>
+      PRINT_SIZES.flatMap(({ componentType, printWidthIn, printHeightIn }) =>
         DPIS.map((dpi) => ({
           componentType,
           printWidthIn,

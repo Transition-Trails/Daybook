@@ -23,7 +23,7 @@ import {
 import { logger } from "../logger";
 
 const ALLOWED_QUALITY = new Set<ImageGenerationQuality>(["low", "medium", "high", "standard", "hd"]);
-const PRINT_SIZES_IN: Record<string, readonly [number, number]> = {
+export const WORLD_SMITH_PRINT_SIZES_IN: Readonly<Record<string, readonly [number, number]>> = {
   "Hero Paper": [12, 12],
   "Decorative Paper": [12, 12],
   "Coordinating Paper": [12, 12],
@@ -93,7 +93,7 @@ export function getWorldsmithImageTarget(
   requestedOrientation?: string | null,
 ): WorldsmithImageTarget {
   const type = componentType?.trim() ?? "";
-  const [baseWidth, baseHeight] = PRINT_SIZES_IN[type] ?? [8.5, 8.5];
+  const [baseWidth, baseHeight] = WORLD_SMITH_PRINT_SIZES_IN[type] ?? [8.5, 8.5];
   const orientationAware = ORIENTATION_AWARE_TYPES.has(type);
   const normalizedOrientation = requestedOrientation?.trim().toLowerCase() ?? "";
 

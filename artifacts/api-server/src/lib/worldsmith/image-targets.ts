@@ -8,12 +8,16 @@ import {
   type ImageGenerationMetadata,
   type ImageGenerationQuality,
 } from "../ai-proxy";
-import { getWorldsmithImageTarget, type WorldsmithImageTarget } from "./image-generation-service";
+import {
+  getWorldsmithImageTarget,
+  type WorldsmithImageTarget,
+} from "./image-generation-service";
 
 export {
   getWorldsmithImageTarget,
   getWorldsmithPreviewGeneration,
   validateWorldsmithPreviewGenerationConfiguration,
+  WORLD_SMITH_PRINT_SIZES_IN,
 } from "./image-generation-service";
 export type { WorldsmithImageTarget } from "./image-generation-service";
 

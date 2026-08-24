@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import request from "supertest";
+import express, { type NextFunction, type Request, type Response } from "express";
 
 const {
   packageRows,
@@ -7,6 +9,7 @@ const {
   mockAttach,
   mockUpdatePage,
   mockUpdateRun,
+  mockSpecStatus,
 } = vi.hoisted(() => ({
   packageRows: { value: [] as Array<Record<string, unknown>> },
   mockGenerateImage: vi.fn(),
@@ -14,6 +17,7 @@ const {
   mockAttach: vi.fn(),
   mockUpdatePage: vi.fn(),
   mockUpdateRun: vi.fn(),
+  mockSpecStatus: { value: "Draft" },
 }));
 
 vi.mock("@workspace/db", () => {
@@ -42,6 +46,17 @@ vi.mock("@workspace/db", () => {
   return {
     worldsmithProductionPackagesTable: table,
     worldsmithWorldsTable: { id: "world-id", name: "world-name" },
+    storeMembersTable: { storeId: "store-id", userId: "user-id", role: "role" },
+    fontsTable: {},
+    palettesTable: {},
+    storeFlagsTable: {},
+    storesTable: {},
+    worldsmithAssetsTable: {},
+    worldsmithRunsTable: {},
+    wsCanonRecordsTable: {},
+    wsComponentSpecsTable: {},
+    wsPromptModulesTable: {},
+    wsStyleGuidesTable: {},
     db: {
       insert: vi.fn(() => ({
         values: (value: Record<string, unknown>) => ({
@@ -86,13 +101,70 @@ vi.mock("@workspace/db", () => {
 
 vi.mock("../lib/ai-proxy.js", () => ({
   generateImage: mockGenerateImage,
+  resolveImageGenerationMetadata: ({
+    size = "1024x1024",
+    quality = "medium",
+  }: {
+    size?: string;
+    quality?: "low" | "medium" | "high" | "standard" | "hd";
+  }) => ({
+    provider: "replit_ai_integrations",
+    model: "gpt-image-2",
+    modelVersion: "2026-01",
+    settings: {
+      size,
+      quality: quality === "standard" ? "medium" : quality === "hd" ? "high" : quality,
+    },
+  }),
 }));
 
 vi.mock("../lib/worldsmith/run-repository.js", () => ({
-  createRun: vi.fn(),
+  createRun: vi.fn().mockResolvedValue("run-1"),
   updateRun: mockUpdateRun,
   failRun: vi.fn(),
   getRun: vi.fn(),
+  getRunsBySpec: vi.fn().mockResolvedValue([]),
+  failStaleRunsForSpec: vi.fn().mockResolvedValue(0),
+}));
+
+vi.mock("../lib/worldsmith/daybook-adapter.js", () => ({
+  upsertAsset: vi.fn().mockResolvedValue({ asset_id: "daybook-asset-1" }),
+  getAssetBySpec: vi.fn().mockResolvedValue(null),
+  getAsset: vi.fn().mockResolvedValue(null),
+  buildAssetId: vi.fn().mockReturnValue("WS-WYC-V01-HERO-MASTER"),
+  buildFilename: vi.fn().mockReturnValue("WS-WYC-V01-HERO-MASTER.png"),
+}));
+
+vi.mock("../lib/worldsmith/inheritance-resolver.js", () => ({
+  resolveInheritanceChain: vi.fn(),
+  resolveInheritanceChainLocalWithWorldBible: vi.fn(async () => ({
+    productionSpec: {
+      sourceId: "spec-1",
+      notionPageId: "spec-page-1",
+      productionItem: "WorldSmith Hero",
+      specId: "spec-1",
+      componentType: "Hero Paper",
+      world: "Thornvale",
+      currentVersion: "1",
+      designIntent: "A quiet woodland threshold.",
+      narrativePurpose: "Set the opening tone.",
+      requiredContent: "Mist and ferns.",
+      reviewCriteria: "No modern objects.",
+      payloadVersion: "PP-2.0",
+      promptPayload: "shared_prompt: woodland threshold\nfront_prompt: mist and ferns\nnegative_prompt: no text",
+      promptModuleIds: [],
+      canonDependency: "None",
+      canonRecordIds: [],
+      status: mockSpecStatus.value,
+      compiledPromptStatus: "Not Compiled",
+      existingVisualAssetId: "visual-1",
+    },
+    promptModules: [],
+    canonRecords: [],
+    resolvedSourceIds: { production_spec: "spec-1", world: "world-1" },
+    warnings: [],
+  })),
+  InheritanceError: class InheritanceError extends Error {},
 }));
 
 vi.mock("../lib/notion-client.js", () => ({
@@ -108,6 +180,10 @@ vi.mock("../lib/notion-client.js", () => ({
 }));
 
 import { runFinalArtwork } from "../lib/worldsmith/orchestrator.js";
+import worldsmithRouter from "../routes/worldsmith.js";
+
+const initialLocalResolver = process.env.USE_LOCAL_RESOLVER;
+const initialVisualAssetsDatabase = process.env.NOTION_VISUAL_ASSETS_DB_ID;
 
 const baseInput = {
   runId: "run-1",
@@ -136,6 +212,7 @@ describe("WorldSmith final production packages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     packageRows.value = [];
+    mockSpecStatus.value = "Draft";
     mockGenerateImage.mockResolvedValue({
       ...baseInput.generation,
       dataUrl: "data:image/png;base64,cHJvZHVjdGlvbi1hcnQ=",
@@ -144,6 +221,31 @@ describe("WorldSmith final production packages", () => {
     mockAttach.mockResolvedValue({});
     mockUpdatePage.mockResolvedValue({});
   });
+
+  afterEach(() => {
+    if (initialLocalResolver === undefined) delete process.env.USE_LOCAL_RESOLVER;
+    else process.env.USE_LOCAL_RESOLVER = initialLocalResolver;
+    if (initialVisualAssetsDatabase === undefined) delete process.env.NOTION_VISUAL_ASSETS_DB_ID;
+    else process.env.NOTION_VISUAL_ASSETS_DB_ID = initialVisualAssetsDatabase;
+  });
+
+  function makeApp() {
+    const app = express();
+    app.use(express.json());
+    app.use((req: Request, _res: Response, next: NextFunction) => {
+      // Passport's type declaration uses a type predicate; the test shim only
+      // needs to provide the runtime behavior expected by the role middleware.
+      const authenticatedRequest = req as Request & {
+        isAuthenticated: () => boolean;
+        user: { platformRole: "super_admin" };
+      };
+      Object.defineProperty(authenticatedRequest, "isAuthenticated", { value: () => true });
+      authenticatedRequest.user = { platformRole: "super_admin" };
+      next();
+    });
+    app.use("/api", worldsmithRouter);
+    return app;
+  }
 
   it("uploads once and returns the persisted final artwork for an identical retry", async () => {
     const first = await runFinalArtwork(baseInput);
@@ -240,5 +342,67 @@ describe("WorldSmith final production packages", () => {
     expect(mockUpload).toHaveBeenCalledTimes(1);
     expect(mockAttach).toHaveBeenCalledTimes(2);
     expect(mockUpdatePage).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an unapproved production package at the HTTP route before calling the provider", async () => {
+    process.env.USE_LOCAL_RESOLVER = "true";
+    mockSpecStatus.value = "In Review";
+
+    const res = await request(makeApp())
+      .post("/api/v1/production-packages")
+      .send({ production_spec_id: "spec-1" });
+
+    expect(res.status).toBe(422);
+    expect(res.body.status).toBe("failed");
+    expect(res.body.error_code).toBe("FINAL_ARTWORK_APPROVAL_REQUIRED");
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "FINAL_ARTWORK_APPROVAL_REQUIRED" }),
+      ]),
+    );
+    expect(mockGenerateImage).not.toHaveBeenCalled();
+    expect(mockUpload).not.toHaveBeenCalled();
+    expect(mockAttach).not.toHaveBeenCalled();
+  });
+
+  it("finishes an uploaded-status retry after the board status changes without generating again", async () => {
+    process.env.USE_LOCAL_RESOLVER = "true";
+    process.env.NOTION_VISUAL_ASSETS_DB_ID = "visual-assets-db";
+    mockSpecStatus.value = "Approved";
+
+    let failFinalStatusOnce = true;
+    mockUpdatePage.mockImplementation(async (_pageId: string, props: Record<string, unknown>) => {
+      if (failFinalStatusOnce && props.Status === "Artwork Review") {
+        failFinalStatusOnce = false;
+        throw new Error("status write temporarily unavailable");
+      }
+      return {};
+    });
+
+    const first = await request(makeApp())
+      .post("/api/v1/production-packages")
+      .send({ production_spec_id: "spec-1" });
+
+    expect(first.status).toBe(200);
+    expect(first.body.production_package).toMatchObject({
+      status: "uploaded_status_pending",
+      notion_upload_id: "notion-upload-1",
+    });
+    expect(mockGenerateImage).toHaveBeenCalledTimes(1);
+
+    mockSpecStatus.value = "In Review";
+    const retry = await request(makeApp())
+      .post("/api/v1/production-packages")
+      .send({ production_spec_id: "spec-1" });
+
+    expect(retry.status).toBe(200);
+    expect(retry.body.production_package).toMatchObject({
+      status: "success",
+      idempotent: true,
+      notion_upload_id: "notion-upload-1",
+    });
+    expect(mockGenerateImage).toHaveBeenCalledTimes(1);
+    expect(mockUpload).toHaveBeenCalledTimes(1);
+    expect(mockAttach).toHaveBeenCalledTimes(1);
   });
 });

@@ -56,3 +56,4 @@
 - [WorldSmith publishing readiness](worldsmith-publishing-readiness.md) — prompt modules remain a mandatory publish gate for local WorldSmith specs
 - [WorldSmith typography migration](worldsmith-typography-migration.md) — legacy font prose is preserved for review but never reaches compiled image prompts
 - [GPT Image 2 proxy compatibility](gpt-image-2-proxy.md) — Replit’s OpenAI image endpoint accepts GPT Image 2 generation requests without response_format
+- [WorldSmith production route tests](worldsmith-production-route-tests.md) — route-level final-art tests need provider metadata mocked before approval gating runs

@@ -791,6 +791,7 @@ function FocusedWorldView({
           runs={runs}
           runsLoading={runsLoading}
           onGoToBible={goToBible}
+          storeId={storeId}
         />
       </div>
 
@@ -874,12 +875,14 @@ function OverviewSection({
   runs,
   runsLoading,
   onGoToBible,
+  storeId,
 }: {
   world: WsWorld;
   assets: WsAsset[];
   runs: WsRun[];
   runsLoading: boolean;
   onGoToBible: () => void;
+  storeId?: string;
 }) {
   const byState = {
     total: assets.length,
@@ -898,16 +901,19 @@ function OverviewSection({
     queryKey: ["ws-stories", world.id],
     queryFn: () => apiFetch<{ stories: unknown[] }>(`/v1/editorial/stories?world_id=${encodeURIComponent(world.id)}`),
     staleTime: 30_000,
+    enabled: !storeId,
   });
   const { data: canonData, isLoading: canonLoading } = useQuery({
     queryKey: ["editorial-canon-library", world.id],
     queryFn: () => apiFetch<{ canon_records: unknown[] }>(`/v1/editorial/canon-records?world_id=${encodeURIComponent(world.id)}&limit=500`),
     staleTime: 30_000,
+    enabled: !storeId,
   });
   const { data: editionsData, isLoading: editionsLoading } = useQuery({
     queryKey: ["editions-by-world", world.code],
     queryFn: () => apiFetch<EditionRow[]>(`/v1/catalog/editions?world=${encodeURIComponent(world.code.toUpperCase())}`),
     staleTime: 30_000,
+    enabled: !storeId,
   });
 
   const contentLoading = storiesLoading || canonLoading || editionsLoading;

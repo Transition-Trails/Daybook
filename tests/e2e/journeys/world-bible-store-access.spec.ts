@@ -44,8 +44,21 @@ test.describe("Store-scoped World Bible access", () => {
     expect(originalWorld).toBeTruthy();
 
     const replacementProse = "CI store staff browser prose verification.";
+    const platformOnlyRequests: string[] = [];
+    asStaffA.on("request", request => {
+      const url = request.url();
+      if (
+        url.includes("/api/v1/editorial/stories") ||
+        url.includes("/api/v1/editorial/canon-records") ||
+        url.includes("/api/v1/catalog/editions")
+      ) {
+        platformOnlyRequests.push(url);
+      }
+    });
+
     try {
       await openWorldBible(asStaffA);
+      expect(platformOnlyRequests).toEqual([]);
 
       const rules = worldRulesSection(asStaffA);
       await expect(rules.getByText("Keep all test content explicitly labelled as CI data.")).toBeVisible();

@@ -314,6 +314,7 @@ vi.mock("../lib/auth-middleware.js", () => ({
 }));
 vi.mock("../middleware/requireRole.js", () => ({
   requireSuperAdmin: (_req: any, _res: any, next: any) => next(),
+  requireStoreAccess: () => (_req: any, _res: any, next: any) => next(),
 }));
 
 let app: Application;

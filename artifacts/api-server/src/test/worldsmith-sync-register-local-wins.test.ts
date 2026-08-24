@@ -192,6 +192,7 @@ vi.mock("../lib/auth-middleware.js", () => ({
 
 vi.mock("../middleware/requireRole.js", () => ({
   requireSuperAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireStoreAccess: () => (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 // ── Logger — silence ──────────────────────────────────────────────────────────

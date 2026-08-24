@@ -35,7 +35,7 @@ import {
   sanitizeEditorialRichText,
 } from "../lib/worldsmith/editorial-rich-text";
 import { requireAuth } from "../lib/auth-middleware";
-import { requireSuperAdmin } from "../middleware/requireRole";
+import { requireStoreAccess, requireSuperAdmin } from "../middleware/requireRole";
 import { db } from "@workspace/db";
 import {
   wsCollectionsTable,
@@ -79,7 +79,51 @@ import {
 
 const router = Router();
 
-// Apply super-admin guard to all editorial routes
+// ── Daybook palette library ──────────────────────────────────────────────────
+// Store teams can select palettes for a World Bible, but only from the store
+// that owns the selected world. The rest of Editorial remains platform-only.
+router.get(
+  "/v1/editorial/worlds/:worldId/palette-library",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const [world] = await db
+        .select({ storeId: worldsmithWorldsTable.storeId })
+        .from(worldsmithWorldsTable)
+        .where(eq(worldsmithWorldsTable.id, req.params.worldId as string))
+        .limit(1);
+
+      if (!world || (!req.actor?.isSuperAdmin && world.storeId !== req.actor?.storeId)) {
+        res.status(404).json({ error: "World not found" });
+        return;
+      }
+
+      const palettes = await db
+        .select({
+          id: palettesTable.id,
+          name: palettesTable.name,
+          colors: palettesTable.colors,
+          status: palettesTable.status,
+        })
+        .from(palettesTable)
+        .where(world.storeId
+          ? and(
+              eq(palettesTable.origin, "owned"),
+              eq(palettesTable.authoredByStoreId, world.storeId),
+              ne(palettesTable.status, "deleted"),
+            )
+          : ne(palettesTable.status, "deleted"))
+        .orderBy(desc(palettesTable.updatedAt));
+
+      res.json({ source: world.storeId ? "store" : "platform", palettes });
+    } catch (err) {
+      logger.error({ err, worldId: req.params.worldId }, "editorial: list palette library error");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
+// Apply super-admin guard to all remaining editorial routes.
 router.use(requireAuth, requireSuperAdmin);
 
 // ── Readiness score helper ────────────────────────────────────────────────────
@@ -164,47 +208,6 @@ router.get("/v1/editorial/worlds", async (_req: Request, res: Response) => {
     res.json({ worlds });
   } catch (err) {
     logger.error({ err }, "editorial: list worlds error");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ── Daybook palette library ──────────────────────────────────────────────────
-// Resolve this server-side so WorldSmith always reads the same owned palette
-// library the selected world's Daybook store sees. Older platform-only worlds
-// use the central catalog as a practical fallback.
-router.get("/v1/editorial/worlds/:worldId/palette-library", async (req: Request, res: Response) => {
-  try {
-    const [world] = await db
-      .select({ storeId: worldsmithWorldsTable.storeId })
-      .from(worldsmithWorldsTable)
-      .where(eq(worldsmithWorldsTable.id, req.params.worldId as string))
-      .limit(1);
-
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
-    }
-
-    const palettes = await db
-      .select({
-        id: palettesTable.id,
-        name: palettesTable.name,
-        colors: palettesTable.colors,
-        status: palettesTable.status,
-      })
-      .from(palettesTable)
-      .where(world.storeId
-        ? and(
-            eq(palettesTable.origin, "owned"),
-            eq(palettesTable.authoredByStoreId, world.storeId),
-            ne(palettesTable.status, "deleted"),
-          )
-        : ne(palettesTable.status, "deleted"))
-      .orderBy(desc(palettesTable.updatedAt));
-
-    res.json({ source: world.storeId ? "store" : "platform", palettes });
-  } catch (err) {
-    logger.error({ err, worldId: req.params.worldId }, "editorial: list palette library error");
     res.status(500).json({ error: "Internal server error" });
   }
 });

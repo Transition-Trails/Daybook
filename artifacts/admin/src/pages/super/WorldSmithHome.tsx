@@ -1799,6 +1799,7 @@ export function WorldBibleSection({
                     value={form.visualPalette}
                     onApply={palette => set("visualPalette", paletteReferenceText(palette))}
                     worldId={world.id}
+                    storeId={storeId}
                   />
                   <FontLibraryPicker
                     value={form.typography}

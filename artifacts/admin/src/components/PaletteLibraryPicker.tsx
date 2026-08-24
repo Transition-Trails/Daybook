@@ -36,16 +36,19 @@ export function PaletteLibraryPicker({
   value,
   onApply,
   worldId,
+  storeId,
 }: {
   value: string;
   onApply: (palette: DaybookPalette) => void;
   worldId?: string | null;
+  storeId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["world-palette-library", worldId],
+    queryKey: ["world-palette-library", worldId, storeId],
     queryFn: () => apiFetch<{ palettes: DaybookPalette[] }>(
       `/v1/editorial/worlds/${encodeURIComponent(worldId!)}/palette-library`,
+      storeId ? { headers: { "x-store-id": storeId } } : undefined,
     ),
     select: result => result.palettes,
     enabled: Boolean(worldId),

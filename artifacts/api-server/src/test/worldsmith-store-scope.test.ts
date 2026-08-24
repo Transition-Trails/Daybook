@@ -17,10 +17,12 @@ import {
   storesTable,
   usersTable,
   worldsmithWorldsTable,
+  palettesTable,
   pool,
   type User,
 } from "@workspace/db";
 import worldsmithRouter from "../routes/worldsmith.js";
+import worldsmithEditorialRouter from "../routes/worldsmith-editorial.js";
 
 type SqlResult = { rowCount: number | null; rows: Array<{ count?: number }> };
 type WorldsmithScopeMigrationClient = {
@@ -62,6 +64,10 @@ const worldIds = {
   beta: `${ids.betaStore}--world`,
   disabled: `${ids.disabledStore}--world`,
 };
+const paletteIds = {
+  alpha: `${ids.alphaStore}--palette`,
+  beta: `${ids.betaStore}--palette`,
+};
 const migrationIds = {
   user: `ws-scope-migration-user-${RUN}`,
   houseStore: `ws-scope-house-${RUN}`,
@@ -95,6 +101,7 @@ function makeApp(user: User | null) {
     next();
   });
   app.use("/api", worldsmithRouter);
+  app.use("/api", worldsmithEditorialRouter);
   return app;
 }
 
@@ -144,9 +151,28 @@ beforeAll(async () => {
     { id: worldIds.beta, storeId: ids.betaStore, name: "Beta World", code: "BET" },
     { id: worldIds.disabled, storeId: ids.disabledStore, name: "Disabled World", code: "DIS" },
   ]);
+  await db.insert(palettesTable).values([
+    {
+      id: paletteIds.alpha,
+      name: "Alpha Palette",
+      colors: ["#1B2A4A", "#C87560", "#FAFBFC"],
+      status: "live",
+      origin: "owned",
+      authoredByStoreId: ids.alphaStore,
+    },
+    {
+      id: paletteIds.beta,
+      name: "Beta Palette",
+      colors: ["#214A2A", "#60C875", "#FAFBFC"],
+      status: "live",
+      origin: "owned",
+      authoredByStoreId: ids.betaStore,
+    },
+  ]);
 });
 
 afterAll(async () => {
+  await db.delete(palettesTable).where(inArray(palettesTable.id, Object.values(paletteIds)));
   await db.delete(worldsmithWorldsTable).where(inArray(worldsmithWorldsTable.id, [
     migrationIds.successfulLegacyWorld,
     migrationIds.missingHouseLegacyWorld,
@@ -218,6 +244,24 @@ describe("WorldSmith store-facing access", () => {
     const ownerList = await scoped(alphaOwnerApp, ids.alphaStore).get("/api/v1/worldsmith/worlds");
     expect(ownerList.status).toBe(200);
     expect(ownerList.body.permissions).toEqual({ canEditWorldRules: true });
+  });
+
+  it("lets store teams read only their World's Daybook palette library", async () => {
+    const [staffLibrary, ownerLibrary, crossStoreLibrary] = await Promise.all([
+      scoped(alphaApp, ids.alphaStore).get(`/api/v1/editorial/worlds/${worldIds.alpha}/palette-library`),
+      scoped(alphaOwnerApp, ids.alphaStore).get(`/api/v1/editorial/worlds/${worldIds.alpha}/palette-library`),
+      scoped(alphaApp, ids.alphaStore).get(`/api/v1/editorial/worlds/${worldIds.beta}/palette-library`),
+    ]);
+
+    expect(staffLibrary.status).toBe(200);
+    expect(staffLibrary.body).toMatchObject({
+      source: "store",
+      palettes: [expect.objectContaining({ id: paletteIds.alpha, name: "Alpha Palette" })],
+    });
+    expect(staffLibrary.body.palettes.map((palette: { id: string }) => palette.id)).not.toContain(paletteIds.beta);
+    expect(ownerLibrary.status).toBe(200);
+    expect(ownerLibrary.body.palettes.map((palette: { id: string }) => palette.id)).toContain(paletteIds.alpha);
+    expect(crossStoreLibrary.status).toBe(404);
   });
 
   it("returns not found for another store's world and Bible copilot", async () => {

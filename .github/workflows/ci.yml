@@ -176,6 +176,9 @@ jobs:
           PARTIAL_URL="${DATABASE_URL%/daybook_ci}/daybook_partial"
           LEGACY_LEDGER_URL="${DATABASE_URL%/daybook_ci}/daybook_legacy_ledger"
           UNKNOWN_LEDGER_URL="${DATABASE_URL%/daybook_ci}/daybook_unknown_ledger"
+          DUPLICATE_LEDGER_URL="${DATABASE_URL%/daybook_ci}/daybook_duplicate_ledger"
+          GAPPED_LEDGER_URL="${DATABASE_URL%/daybook_ci}/daybook_gapped_ledger"
+          REORDERED_LEDGER_URL="${DATABASE_URL%/daybook_ci}/daybook_reordered_ledger"
 
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_legacy_base'
           psql "$BASELINE_URL" -v ON_ERROR_STOP=1 -f lib/db/drizzle/0000_verify-canon-relation-primary-key.sql
@@ -243,16 +246,71 @@ NODE
           DATABASE_URL="$LEGACY_LEDGER_URL" pnpm --filter @workspace/db run verify-migration
 
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_unknown_ledger'
-          psql "$UNKNOWN_LEDGER_URL" -v ON_ERROR_STOP=1 -c "
-            CREATE SCHEMA drizzle;
-            CREATE TABLE drizzle.__drizzle_migrations (id serial PRIMARY KEY, hash text NOT NULL, created_at bigint);
-            INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('unrecognized-ledger-entry', 1);
-          "
-          if DATABASE_URL="$UNKNOWN_LEDGER_URL" pnpm --filter @workspace/db run verify-migration >unknown-ledger.err 2>&1; then
-            echo "Expected an unknown migration ledger to be rejected" >&2
-            exit 1
-          fi
-          grep -q 'expected .* ledger rows' unknown-ledger.err
+          for invalid_db in duplicate gapped reordered; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE daybook_${invalid_db}_ledger"
+          done
+          (
+            cd lib/db
+            UNKNOWN_LEDGER_URL="$UNKNOWN_LEDGER_URL" \
+            DUPLICATE_LEDGER_URL="$DUPLICATE_LEDGER_URL" \
+            GAPPED_LEDGER_URL="$GAPPED_LEDGER_URL" \
+            REORDERED_LEDGER_URL="$REORDERED_LEDGER_URL" \
+            node --input-type=module <<'NODE'
+            import { createHash } from "node:crypto";
+            import { readFile } from "node:fs/promises";
+            import path from "node:path";
+            import pg from "pg";
+
+            const journal = JSON.parse(await readFile(path.join("drizzle", "meta", "_journal.json"), "utf8"));
+            const migrations = await Promise.all(journal.entries.map(async entry => ({
+              hash: createHash("sha256")
+                .update(await readFile(path.join("drizzle", `${entry.tag}.sql`)))
+                .digest("hex"),
+              createdAt: entry.when,
+            })));
+            const invalidHistories = {
+              UNKNOWN_LEDGER_URL: [{ hash: "unrecognized-ledger-entry", createdAt: 1 }],
+              DUPLICATE_LEDGER_URL: [migrations[0], migrations[0]],
+              GAPPED_LEDGER_URL: [migrations[0], migrations[2]],
+              REORDERED_LEDGER_URL: [migrations[0], migrations[2], migrations[1]],
+            };
+            for (const [variable, rows] of Object.entries(invalidHistories)) {
+              const client = new pg.Client({ connectionString: process.env[variable] });
+              await client.connect();
+              try {
+                await client.query('CREATE SCHEMA "drizzle"');
+                await client.query(`
+                  CREATE TABLE "drizzle"."__drizzle_migrations" (
+                    id SERIAL PRIMARY KEY,
+                    hash text NOT NULL,
+                    created_at bigint
+                  )
+                `);
+                for (const row of rows) {
+                  await client.query(
+                    'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ($1, $2)',
+                    [row.hash, row.createdAt],
+                  );
+                }
+              } finally {
+                await client.end();
+              }
+            }
+NODE
+          )
+          for invalid_db in unknown duplicate gapped reordered; do
+            invalid_url="${DATABASE_URL%/daybook_ci}/daybook_${invalid_db}_ledger"
+            pg_dump "$invalid_url" --schema-only --no-owner --no-privileges \
+              | sed -E '/^\\(un)?restrict /d' > "${invalid_db}-ledger-before.sql"
+            if DATABASE_URL="$invalid_url" pnpm --filter @workspace/db run migrate >"${invalid_db}-ledger.err" 2>&1; then
+              echo "Expected ${invalid_db} migration ledger to be rejected" >&2
+              exit 1
+            fi
+            grep -q 'No schema changes were made' "${invalid_db}-ledger.err"
+            pg_dump "$invalid_url" --schema-only --no-owner --no-privileges \
+              | sed -E '/^\\(un)?restrict /d' > "${invalid_db}-ledger-after.sql"
+            cmp "${invalid_db}-ledger-before.sql" "${invalid_db}-ledger-after.sql"
+          done
 
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_partial'
           psql "$PARTIAL_URL" -v ON_ERROR_STOP=1 -c 'CREATE TABLE users (id text PRIMARY KEY)'

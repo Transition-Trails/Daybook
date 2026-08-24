@@ -45,22 +45,24 @@ diagnosing drift to confirm its idempotency. Keep the standalone script only as
 a compatibility fallback for environments that cannot yet use the tracked
 ledger.
 
-The known older shared-development ledger order is normalized only by the
-deployment migration preparation step, not accepted by the verifier. Its
-historical seven-row core is matched exactly; any later rows must form a
-contiguous journal suffix. Unknown, duplicate, missing, and differently ordered
-rows must remain verification failures.
+The migration preparation step classifies every existing tracked ledger before
+it creates baseline records or reaches Drizzle. The known older
+shared-development order is normalized only there, not accepted by the
+verifier. Its historical seven-row core is matched exactly; any later rows must
+form a contiguous journal suffix. Unknown, duplicate, missing, and differently
+ordered rows must abort preparation before schema changes.
 
 **Why:** Drizzle uses the ledger's row sequence for deployment verification,
 while long-lived development environments recorded several existing migrations
 in their historical introduction order. Automatically repairing only that
-provable sequence restores trustworthy deployment checks without making a
-corrupt ledger look valid.
+provable sequence restores trustworthy deployment checks without allowing a
+corrupt ledger to apply new schema changes before it is diagnosed.
 
 **How to apply:** Keep the recognition sequence narrowly scoped when adding
 migrations, and let new migrations extend only the canonical suffix. Recovery
-is always the normal `@workspace/db migrate` command followed by verification;
-never prescribe hand-editing the Drizzle ledger.
+is diagnosis and restoration to the checked-in journal order, followed by the
+normal `@workspace/db migrate` command and verification; never prescribe
+hand-editing the Drizzle ledger.
 
 WorldSmith schema additions must be recorded in the Drizzle ledger and deployed
 through `@workspace/db migrate`; standalone WorldSmith scripts are compatibility

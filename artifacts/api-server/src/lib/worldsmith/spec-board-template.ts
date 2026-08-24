@@ -537,15 +537,24 @@ function midSection(data: SpecBoardData): string {
 
 function bottomStrip(data: SpecBoardData): string {
   const { payloadVersion, componentType, currentVersion, reviewCriteria,
-          colorSwatches, focalHierarchy } = data;
+          colorSwatches, focalHierarchy, generationTarget } = data;
 
   // ── Section 1: Technical Specifications ──────────────────────────────
   const techX = MARGIN;
   const techW = 480;
+  const renderTarget = generationTarget
+    ? `${generationTarget.size} px (GPT Image render target)`
+    : "Resolved at image generation";
+  const printReference = generationTarget
+    ? `${generationTarget.printWidthIn} × ${generationTarget.printHeightIn} in @ ${generationTarget.dpi} DPI; upscale for master`
+    : "Component-specific; upscale for master";
+  const componentSize = generationTarget
+    ? `${generationTarget.printWidthIn} × ${generationTarget.printHeightIn} in`
+    : "Component-specific output";
   const techLines: Array<[string, string]> = [
-    ["Size",        "12 × 12 in (or 8.5 × 11)"],
-    ["Dimensions",  "3600 × 3600 px (or 2550 × 3300)"],
-    ["Resolution",  "300 DPI"],
+    ["Size",        componentSize],
+    ["Render target", renderTarget],
+    ["Print reference", printReference],
     ["Color",       "sRGB / RGB"],
     ["Format",      "PNG master"],
     ["Focal Safety","0.25 in"],

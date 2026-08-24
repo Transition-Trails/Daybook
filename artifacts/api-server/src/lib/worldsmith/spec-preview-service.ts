@@ -11,7 +11,7 @@
 import { randomUUID } from "crypto";
 import sharp from "sharp";
 import { db } from "@workspace/db";
-import { worldsmithRunsTable, worldsmithSpecPreviewsTable } from "@workspace/db";
+import { worldsmithRunsTable, worldsmithSpecPreviewsTable, type SpecPreviewOutputMetadata } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
 import {
   getPage,
@@ -28,7 +28,7 @@ import {
   extractNumber,
   type NotionPage,
 } from "../notion-client";
-import { callDallE } from "../ai-proxy";
+import { generateImage, type ImageGenerationMetadata } from "../ai-proxy";
 import {
   renderSpecBoardToPng,
   CONCEPT_IMAGE_AREA,
@@ -41,18 +41,8 @@ import { parsePayload } from "./payload-parser";
 import { logger } from "../logger";
 import { resolveLocalPreviewContextWithWorldBible, InheritanceError } from "./inheritance-resolver";
 import { objectStorageClient, ObjectStorageService } from "../objectStorage";
+import { getWorldsmithPreviewGeneration } from "./image-targets";
 import type { CompiledSectionRecord, ProductionSpec, SpecBoardData, SpecPreviewResult, SpecPreviewRequest, WorldBible } from "./types";
-
-// ── Configuration ─────────────────────────────────────────────────────────────
-
-function getPreviewConfig(): { provider: string; model: string; size: "1024x1024" | "1792x1024" | "1024x1792"; quality: "standard" | "hd" } {
-  return {
-    provider: process.env.SPEC_PREVIEW_PROVIDER ?? "dall-e-3",
-    model:    process.env.SPEC_PREVIEW_MODEL    ?? "dall-e-3",
-    size:     (process.env.SPEC_PREVIEW_SIZE    ?? "1024x1024") as "1024x1024" | "1792x1024" | "1024x1792",
-    quality:  (process.env.SPEC_PREVIEW_QUALITY ?? "standard") as "standard" | "hd",
-  };
-}
 
 // ── Custom error ─────────────────────────────────────────────────────────────
 
@@ -218,6 +208,7 @@ function extractLocalBoardData(
     volume: spec.volume,
     collection: spec.collection,
     componentType: spec.componentType,
+    orientation: spec.orientation,
     payloadVersion: spec.payloadVersion,
     currentVersion: spec.currentVersion,
     status: spec.status,
@@ -270,6 +261,7 @@ function extractBoardData(page: NotionPage, specPageId: string, promptHash: stri
     specPageId.slice(0, 8).toUpperCase();
 
   const componentType   = extractSelect(p["Component Type"])  || extractRichText(p["Component Type"]) || "";
+  const orientation     = extractSelect(p["Orientation"])     || extractRichText(p["Orientation"]) || undefined;
   const payloadVersion  = extractSelect(p["Payload Version"]) || extractRichText(p["Payload Version"]) || "";
   const currentVersion  = extractRichText(p["Current Version"]) || extractSelect(p["Current Version"]) || "1";
   const status          = extractSelect(p["Status"]) || extractSelect(p["Workflow Status"]) || "";
@@ -341,6 +333,7 @@ function extractBoardData(page: NotionPage, specPageId: string, promptHash: stri
     volume,
     collection,
     componentType,
+    orientation,
     payloadVersion,
     currentVersion,
     status,
@@ -441,16 +434,7 @@ async function savePreviewRecord(fields: {
   notionPageUrl?: string;
   error?: string;
   dryRun?: boolean;
-  outputMetadata?: {
-    originalByteLength: number;
-    finalByteLength: number;
-    originalWidth: number;
-    originalHeight: number;
-    finalWidth: number;
-    finalHeight: number;
-    encoding: "lossless_png" | "palette_png" | "resized_palette_png";
-    degradationReason?: string;
-  };
+  outputMetadata?: SpecPreviewOutputMetadata;
 }): Promise<void> {
   try {
     await db.insert(worldsmithSpecPreviewsTable).values({
@@ -628,7 +612,15 @@ async function runLocalSpecPreview(
     }
   }
 
-  const boardData = extractLocalBoardData(context, specPageId, promptHash, sectionRecords);
+  const localBoardData = extractLocalBoardData(context, specPageId, promptHash, sectionRecords);
+  const localPreviewGeneration = getWorldsmithPreviewGeneration(
+    localBoardData.componentType,
+    localBoardData.orientation,
+  );
+  const boardData: SpecBoardData = {
+    ...localBoardData,
+    generationTarget: localPreviewGeneration.target,
+  };
   const localStatusNote = "Preview generated from Editorial Suite; publish the Production Specification to attach it in Notion.";
 
   if (dryRun) {
@@ -871,7 +863,7 @@ export async function runSpecPreview(
       : Promise.resolve(),
   ]);
 
-  const finalBoardData: SpecBoardData = safeBoardData;
+  let finalBoardData: SpecBoardData = safeBoardData;
 
   // ── 4. Dry run: return text payload without generating/uploading ─────────
   if (dry_run) {
@@ -920,7 +912,11 @@ export async function runSpecPreview(
   }
 
   // ── 5. Generate spec board PNG ────────────────────────────────────────────
-  const cfg = getPreviewConfig();
+  const previewGeneration = getWorldsmithPreviewGeneration(
+    finalBoardData.componentType,
+    finalBoardData.orientation,
+  );
+  finalBoardData = { ...finalBoardData, generationTarget: previewGeneration.target };
   let boardPng: Buffer;
   try {
     boardPng = await renderSpecBoardToPng(finalBoardData);
@@ -939,6 +935,7 @@ export async function runSpecPreview(
   let finalPng = boardPng;
   let dalleApplied = false;
   let dalleErrorMsg: string | undefined;
+  let generationMetadata: ImageGenerationMetadata | undefined;
   let detailCropSourceRects: ReadonlyArray<{ x: number; y: number; width: number; height: number }> = [];
 
   try {
@@ -949,11 +946,12 @@ export async function runSpecPreview(
       const dallePrompt = buildConceptDallePrompt(finalBoardData);
       logger.info({ specPageId, promptLength: dallePrompt.length }, "Calling DALL-E for concept visual");
 
-      const b64DataUrl = await callDallE(dallePrompt, {
-        size: cfg.size,
-        quality: cfg.quality,
-        // 'style' intentionally omitted — some API configurations reject it
+      const generatedImage = await generateImage(dallePrompt, {
+        size: previewGeneration.metadata.settings.size,
+        quality: previewGeneration.metadata.settings.quality,
       });
+      const { dataUrl: b64DataUrl, ...effectiveMetadata } = generatedImage;
+      generationMetadata = effectiveMetadata;
 
       // Decode base64 → buffer
       const b64 = b64DataUrl.replace(/^data:image\/[a-z+]+;base64,/, "");
@@ -1047,10 +1045,10 @@ export async function runSpecPreview(
       status: "upload_failed",
       productionItem: finalBoardData.productionItem,
       notionPageUrl: pageUrl,
-      provider: cfg.provider,
-      model: cfg.model,
+      provider: generationMetadata?.provider,
+      model: generationMetadata?.model,
       error: String(uploadErr),
-      outputMetadata: preparedPreview.metadata,
+      outputMetadata: { ...preparedPreview.metadata, ...(generationMetadata ? { generation: generationMetadata } : {}) },
     });
     throw new SpecPreviewError("UPLOAD_FAILED", `Notion upload failed: ${String(uploadErr)}`);
   }
@@ -1089,15 +1087,15 @@ export async function runSpecPreview(
     promptHash,
     status: finalStatus,
     previewFilename: filename,
-    provider: cfg.provider,
-    model: cfg.model,
+    provider: generationMetadata?.provider,
+    model: generationMetadata?.model,
     notionUploadId: uploadId,
     productionItem: finalBoardData.productionItem,
     previousStatus,
     newStatus,
     notionPageUrl: pageUrl,
     error: dalleApplied ? undefined : dalleErrorMsg,
-    outputMetadata: preparedPreview.metadata,
+    outputMetadata: { ...preparedPreview.metadata, ...(generationMetadata ? { generation: generationMetadata } : {}) },
   });
 
   logger.info(
@@ -1113,8 +1111,8 @@ export async function runSpecPreview(
     notion_page_id: specPageId,
     notion_page_url: pageUrl,
     preview_filename: filename,
-    provider: cfg.provider,
-    model: cfg.model,
+    provider: generationMetadata?.provider,
+    model: generationMetadata?.model,
     prompt_hash: promptHash,
     previous_status: previousStatus,
     new_status: newStatus,
@@ -1192,6 +1190,7 @@ export async function retrySpecPreviewStatus(
     previousStatus: existingRecord.previousStatus ?? undefined,
     newStatus: "Ready for Review",
     notionPageUrl: existingRecord.notionPageUrl ?? pageUrl,
+    outputMetadata: existingRecord.outputMetadata ?? undefined,
   });
 
   logger.info(

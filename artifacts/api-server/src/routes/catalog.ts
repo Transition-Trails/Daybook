@@ -43,7 +43,7 @@ import { eq, ne, and, inArray, asc, sql } from "drizzle-orm";
 import { requireSuperAdmin, requireStoreAccess } from "../middleware/requireRole";
 import { isSuperAdmin, type ActorContext } from "../lib/roles";
 import { writeAudit } from "../lib/audit";
-import { callAi, callDallE } from "../lib/ai-proxy";
+import { callAi, generateImage } from "../lib/ai-proxy";
 import { KNOWN_TEXTURE_SLUGS } from "../lib/texture-registry";
 import type { User } from "@workspace/db";
 
@@ -1290,12 +1290,12 @@ Respond with ONLY the prompt text — nothing else.`,
       );
       const expandedPrompt = expansionResult.content.trim().replace(/^["']|["']$/g, "");
 
-      // Step 2: Generate the image with DALL-E 3
-      const imageDataUrl = await callDallE(expandedPrompt, {
+      // Step 2: Generate the image with the shared GPT Image contract.
+      const generatedImage = await generateImage(expandedPrompt, {
         size: "1024x1024",
-        quality: "hd",
-        style: "natural",
+        quality: "high",
       });
+      const { dataUrl: imageDataUrl, ...generationMetadata } = generatedImage;
 
       let savedId: string | null = null;
       if (saveToStore) {
@@ -1320,7 +1320,7 @@ Respond with ONLY the prompt text — nothing else.`,
         action: "backgrounds.generate",
         targetType: "background",
         targetId: savedId ?? undefined,
-        metadata: { storeId, type, saveToStore: !!saveToStore },
+        metadata: { storeId, type, saveToStore: !!saveToStore, generation: generationMetadata },
       });
 
       res.json({ expandedPrompt, assetRef: imageDataUrl, savedId });

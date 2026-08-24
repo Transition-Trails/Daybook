@@ -55,3 +55,4 @@
 - [Editorial browser verification](editorial-browser-verification.md) — use the test-only CI super-admin with a local Playwright server; browser-agent sandboxes cannot reach ephemeral shell ports
 - [WorldSmith publishing readiness](worldsmith-publishing-readiness.md) — prompt modules remain a mandatory publish gate for local WorldSmith specs
 - [WorldSmith typography migration](worldsmith-typography-migration.md) — legacy font prose is preserved for review but never reaches compiled image prompts
+- [GPT Image 2 proxy compatibility](gpt-image-2-proxy.md) — Replit’s OpenAI image endpoint accepts GPT Image 2 generation requests without response_format

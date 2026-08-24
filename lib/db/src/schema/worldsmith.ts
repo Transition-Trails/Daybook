@@ -130,6 +130,12 @@ export interface SpecPreviewOutputMetadata {
   finalHeight: number;
   encoding: "lossless_png" | "palette_png" | "resized_palette_png";
   degradationReason?: string;
+  generation?: {
+    provider: string;
+    model: string;
+    modelVersion?: string;
+    settings: { size: string; quality: string };
+  };
 }
 
 export const worldsmithSpecPreviewsTable = pgTable("worldsmith_spec_previews", {

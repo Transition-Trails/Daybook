@@ -61,7 +61,7 @@ import { randomUUID } from "crypto";
 import { and, eq, inArray, like, desc, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
-import { callAi, callDallE } from "../lib/ai-proxy";
+import { callAi, generateImage } from "../lib/ai-proxy";
 import { isPromptModuleSection } from "../lib/worldsmith/types";
 import { resolveTypographyChoices, TypographyValidationError } from "../lib/worldsmith/typography";
 import {
@@ -1186,8 +1186,9 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
       visualDirection && `Canon direction:\n${visualDirection}`,
     ].filter(Boolean).join("\n\n");
 
-    const imageDataUrl = await callDallE(prompt, { size: "1024x1024", quality: "hd", style: "natural" });
-    res.json({ image_data_url: imageDataUrl });
+    const generatedImage = await generateImage(prompt, { size: "1024x1024", quality: "high" });
+    const { dataUrl: imageDataUrl, ...generationMetadata } = generatedImage;
+    res.json({ image_data_url: imageDataUrl, generation: generationMetadata });
   } catch (err) {
     logger.error({ err, canonName: name }, "editorial: generate canon image");
     res.status(502).json({ error: "Image generation could not be completed. Please try again." });

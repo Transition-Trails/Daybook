@@ -461,6 +461,7 @@ export interface SpecBoardData {
   world: string;
   volume?: string;
   componentType: string;
+  orientation?: string;
   payloadVersion: string;
   currentVersion: string;
   status: string;
@@ -500,6 +501,13 @@ export interface SpecBoardData {
   worldBible?: WorldBible;
   /** Local board content came from persisted compiler section records. */
   usesCompiledSections?: boolean;
+  /** Actual capped render target shown on the review board. */
+  generationTarget?: {
+    size: string;
+    dpi: number;
+    printWidthIn: number;
+    printHeightIn: number;
+  };
 }
 
 export interface SpecPreviewResult {

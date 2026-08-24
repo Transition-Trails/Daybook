@@ -108,7 +108,17 @@ vi.mock("../lib/worldsmith/spec-board-template.js", async (importOriginal) => {
 });
 
 vi.mock("../lib/ai-proxy.js", () => ({
-  callDallE: vi.fn().mockResolvedValue("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="),
+  resolveImageGenerationMetadata: vi.fn((options?: { size?: string; quality?: string }) => ({
+    provider: "replit_ai_integrations",
+    model: "gpt-image-2",
+    settings: { size: options?.size ?? "1024x1024", quality: options?.quality ?? "medium" },
+  })),
+  generateImage: vi.fn().mockResolvedValue({
+    dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+    provider: "replit_ai_integrations",
+    model: "gpt-image-2",
+    settings: { size: "1024x1024", quality: "medium" },
+  }),
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────

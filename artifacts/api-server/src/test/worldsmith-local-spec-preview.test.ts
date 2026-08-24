@@ -70,7 +70,19 @@ vi.mock("../lib/worldsmith/spec-board-template.js", () => ({
   renderSpecBoardToPng: mockRenderBoard,
 }));
 
-vi.mock("../lib/ai-proxy.js", () => ({ callDallE: vi.fn() }));
+vi.mock("../lib/ai-proxy.js", () => ({
+  resolveImageGenerationMetadata: vi.fn((options?: { size?: string; quality?: string }) => ({
+    provider: "replit_ai_integrations",
+    model: "gpt-image-2",
+    settings: { size: options?.size ?? "1024x1024", quality: options?.quality ?? "medium" },
+  })),
+  generateImage: vi.fn().mockResolvedValue({
+    dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+    provider: "replit_ai_integrations",
+    model: "gpt-image-2",
+    settings: { size: "1024x1024", quality: "medium" },
+  }),
+}));
 
 vi.mock("../lib/objectStorage.js", () => ({
   ObjectStorageService: class {

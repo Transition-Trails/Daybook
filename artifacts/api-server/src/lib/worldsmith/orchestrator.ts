@@ -13,6 +13,7 @@ import { validatePayload } from "./validator";
 import { validateCanon } from "./canon-validator";
 import { compilePrompt } from "./prompt-compiler";
 import { computePromptHash } from "./prompt-hasher";
+import { getWorldsmithPreviewGeneration } from "./image-targets";
 import { createRun, updateRun, failRun, getRun } from "./run-repository";
 import { upsertAsset, getAssetBySpec, buildAssetId, buildFilename } from "./daybook-adapter";
 import {
@@ -330,10 +331,18 @@ export async function runCompilation(
     const compiled = compilePrompt(chainWithBible, payload as Parameters<typeof compilePrompt>[1]);
 
     // ── Stage 10: Calculate Prompt Hash ──────────────────────────────────
+    const { target: generationTarget, metadata: generationMetadata } = getWorldsmithPreviewGeneration(
+      spec.componentType,
+      spec.orientation,
+    );
     const promptHash = computePromptHash({
       payload_version: spec.payloadVersion,
       compiled_prompt: compiled.fullPrompt,
       negative_prompt: compiled.negativePrompt,
+      generation_provider: generationMetadata.provider,
+      model_name: generationMetadata.model,
+      model_version: generationMetadata.modelVersion,
+      generation_settings: generationMetadata.settings,
     });
 
     // ── Derive stable Asset ID and filename ──────────────────────────────
@@ -347,6 +356,13 @@ export async function runCompilation(
       assetId,
       assetVersion,
       compiledPromptStatus: "Compiled",
+      provider: generationMetadata.provider,
+      modelName: generationMetadata.model,
+      modelVersion: generationMetadata.modelVersion,
+      generationSettings: {
+        ...generationMetadata.settings,
+        target: generationTarget,
+      },
     });
 
     // ── Stage 11: Create or update Visual Asset shell in Notion ──────────

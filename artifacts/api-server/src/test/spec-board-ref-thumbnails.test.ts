@@ -19,7 +19,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Hoisted values (available in vi.mock factory closures) ────────────────────
 
-const { mockGetPage, mockGetPageText, mockCompositeSpy, mockCallDallE, FAKE_PNG, FAKE_B64 } = vi.hoisted(() => {
+const { mockGetPage, mockGetPageText, mockCompositeSpy, mockGenerateImage, FAKE_PNG, FAKE_B64 } = vi.hoisted(() => {
   const png = Buffer.alloc(64, 0);
   png[0] = 0x89; png[1] = 0x50; png[2] = 0x4e; png[3] = 0x47;
   png[4] = 0x0d; png[5] = 0x0a; png[6] = 0x1a; png[7] = 0x0a;
@@ -28,7 +28,12 @@ const { mockGetPage, mockGetPageText, mockCompositeSpy, mockCallDallE, FAKE_PNG,
     mockGetPage:      vi.fn(),
     mockGetPageText:  vi.fn(),
     mockCompositeSpy: vi.fn(),
-    mockCallDallE:    vi.fn().mockResolvedValue(b64),
+    mockGenerateImage: vi.fn().mockResolvedValue({
+      dataUrl: b64,
+      provider: "replit_ai_integrations",
+      model: "gpt-image-2",
+      settings: { size: "1024x1024", quality: "medium" },
+    }),
     FAKE_PNG:         png,
     FAKE_B64:         b64,
   };
@@ -113,11 +118,16 @@ vi.mock("../lib/notion-client.js", () => ({
 }));
 
 // ── Mock ai-proxy — success path ──────────────────────────────────────────────
-// mockCallDallE is declared inside vi.hoisted() above so it is available when
+// mockGenerateImage is declared inside vi.hoisted() above so it is available when
 // this vi.mock factory runs (vi.mock is hoisted before regular const declarations).
 
 vi.mock("../lib/ai-proxy.js", () => ({
-  callDallE: mockCallDallE,
+  resolveImageGenerationMetadata: (options?: { size?: string; quality?: string }) => ({
+    provider: "replit_ai_integrations",
+    model: "gpt-image-2",
+    settings: { size: options?.size ?? "1024x1024", quality: options?.quality ?? "medium" },
+  }),
+  generateImage: mockGenerateImage,
 }));
 
 // ── Mock drizzle-orm operators ────────────────────────────────────────────────
@@ -206,7 +216,12 @@ function makeSpecPage() {
 describe("spec-preview-service — step 6b: DALL-E detail-crop compositing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCallDallE.mockResolvedValue(FAKE_B64);
+    mockGenerateImage.mockResolvedValue({
+      dataUrl: FAKE_B64,
+      provider: "replit_ai_integrations",
+      model: "gpt-image-2",
+      settings: { size: "1024x1024", quality: "medium" },
+    });
 
     mockGetPage.mockResolvedValue(makeSpecPage());
     mockGetPageText.mockResolvedValue("");
@@ -274,7 +289,7 @@ describe("spec-preview-service — step 6b: DALL-E detail-crop compositing", () 
 
   it("skips detail crops when DALL-E fails (non-fatal)", async () => {
     // Make DALL-E fail for this test only
-    mockCallDallE.mockRejectedValueOnce(new Error("DALL-E disabled in test"));
+    mockGenerateImage.mockRejectedValueOnce(new Error("Image generation disabled in test"));
 
     // Must not throw
     await expect(

@@ -1,5 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { validateImageGenerationConfiguration } from "./lib/ai-proxy";
+import { validateWorldsmithPreviewGenerationConfiguration } from "./lib/worldsmith/image-targets";
 import { warmFontCache } from "./lib/font-warmup";
 import { schedulePeriodicDomainVerify } from "./lib/email/domain-recheck";
 import { recoverStaleRuns } from "./lib/worldsmith/run-repository";
@@ -17,6 +19,9 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+validateImageGenerationConfiguration();
+validateWorldsmithPreviewGenerationConfiguration();
 
 app.listen(port, (err) => {
   if (err) {

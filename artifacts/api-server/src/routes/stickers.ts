@@ -57,7 +57,7 @@ import {
   addDropShadow,
   UserImageError,
 } from "../lib/imageProcessing";
-import { callAi, callDallE } from "../lib/ai-proxy";
+import { callAi, generateImage } from "../lib/ai-proxy";
 import { buildProfileGrounding } from "../lib/profile-grounding";
 import { renderLabelPng } from "../lib/labelImageGen";
 import { storeProfilesTable, storeFlagsTable } from "@workspace/db";
@@ -1349,8 +1349,9 @@ router.post(
     }
 
     try {
-      // 1. Generate the image with DALL-E 3
-      const rawImageDataUrl = await callDallE(prompt.trim(), { quality: "hd", style: "natural" });
+      // 1. Generate the image with the shared GPT Image contract.
+      const generatedImage = await generateImage(prompt.trim(), { quality: "high" });
+      const { dataUrl: rawImageDataUrl, ...generationMetadata } = generatedImage;
 
       // 2. Process through the sticker pipeline (bg removal → border → shadow → cutline)
       const { processedImageData, cutlineSvg } = await runPipeline({
@@ -1368,7 +1369,7 @@ router.post(
         scope: storeId,
         action: "sticker.generate.illustrative-image",
         targetType: "sticker",
-        metadata: { storeId, promptLength: prompt.length },
+        metadata: { storeId, promptLength: prompt.length, generation: generationMetadata },
       });
 
       res.json({ processedImageData, cutlineSvg, prompt: prompt.trim() });

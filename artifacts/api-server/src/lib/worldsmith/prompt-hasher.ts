@@ -49,6 +49,6 @@ export function computePromptHash(input: HashInput): string {
       : {},
   };
 
-  const json = JSON.stringify(canonical, Object.keys(canonical).sort());
+  const json = stableStringify(canonical);
   return createHash("sha256").update(json, "utf8").digest("hex");
 }

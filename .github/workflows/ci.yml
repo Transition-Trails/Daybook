@@ -144,6 +144,26 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
+      - name: Verify tracked ledger and WorldSmith API tables
+        run: pnpm --filter @workspace/db run verify-migration
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Confirm the tracked migration is a no-op when repeated
+        run: |
+          pg_dump "$DATABASE_URL" --schema-only --no-owner --no-privileges | sed -E '/^\\(un)?restrict /d' > /tmp/schema-before-rerun.sql
+          psql "$DATABASE_URL" -Atc 'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id' > /tmp/ledger-before-rerun.txt
+
+          pnpm --filter @workspace/db run migrate
+
+          pg_dump "$DATABASE_URL" --schema-only --no-owner --no-privileges | sed -E '/^\\(un)?restrict /d' > /tmp/schema-after-rerun.sql
+          psql "$DATABASE_URL" -Atc 'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id' > /tmp/ledger-after-rerun.txt
+          cmp /tmp/schema-before-rerun.sql /tmp/schema-after-rerun.sql
+          cmp /tmp/ledger-before-rerun.txt /tmp/ledger-after-rerun.txt
+          pnpm --filter @workspace/db run verify-migration
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
       - name: Verify core tables exist
         run: |
           psql "$DATABASE_URL" -c "\dt" | grep -E "orders|tickets|email_configs"
@@ -159,12 +179,12 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_legacy_base'
           psql "$BASELINE_URL" -v ON_ERROR_STOP=1 -f lib/db/drizzle/0000_verify-canon-relation-primary-key.sql
           DATABASE_URL="$BASELINE_URL" pnpm --filter @workspace/db run migrate
-          psql "$BASELINE_URL" -Atc 'SELECT count(*) FROM drizzle.__drizzle_migrations' | grep -qx '5'
+          DATABASE_URL="$BASELINE_URL" pnpm --filter @workspace/db run verify-migration
 
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_legacy_pushed'
           for migration in lib/db/drizzle/*.sql; do psql "$PUSHED_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
           DATABASE_URL="$PUSHED_URL" pnpm --filter @workspace/db run migrate
-          psql "$PUSHED_URL" -Atc 'SELECT count(*) FROM drizzle.__drizzle_migrations' | grep -qx '5'
+          DATABASE_URL="$PUSHED_URL" pnpm --filter @workspace/db run verify-migration
           DATABASE_URL="$PUSHED_URL" pnpm --filter @workspace/db run migrate
 
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_partial'

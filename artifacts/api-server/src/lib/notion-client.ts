@@ -62,6 +62,8 @@ export class NotionApiError extends Error {
     public readonly status: number,
     public readonly method: string,
     public readonly path: string,
+    /** Notion's machine-readable error code, when the response included one. */
+    public readonly notionCode?: string,
   ) {
     super(message);
     this.name = "NotionApiError";
@@ -153,11 +155,19 @@ async function notionFetch<T>(path: string, options: RequestInit = {}): Promise<
 
     if (!res.ok) {
       const body = await res.text();
+      let notionCode: string | undefined;
+      try {
+        const parsed = JSON.parse(body) as { code?: unknown };
+        if (typeof parsed.code === "string") notionCode = parsed.code;
+      } catch {
+        // Keep the raw response in the error message for non-JSON responses.
+      }
       throw new NotionApiError(
         `Notion API ${method} ${path} → ${res.status}: ${body}`,
         res.status,
         method,
         path,
+        notionCode,
       );
     }
 

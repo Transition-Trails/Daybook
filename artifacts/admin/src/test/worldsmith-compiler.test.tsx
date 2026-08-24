@@ -89,4 +89,47 @@ describe("WorldSmith compiler Notion page resolution", () => {
     expect(screen.getByRole("button", { name: "Resolve" })).toBeDisabled();
     await waitFor(() => expect(apiFetchMock).not.toHaveBeenCalled());
   });
+
+  it("distinguishes a valid page without integration access from a mistyped page ID", async () => {
+    const accessError = Object.assign(
+      new Error("The Production Specification page exists, but the WorldSmith Notion integration cannot access it."),
+      { code: "SPEC_ACCESS_DENIED", status: 403 },
+    );
+    apiFetchMock.mockRejectedValueOnce(accessError);
+
+    renderCompiler();
+    fireEvent.change(screen.getByLabelText("Production Specification"), {
+      target: { value: validPageId },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The page ID is valid");
+    expect(alert).toHaveTextContent("invite the WorldSmith integration");
+    expect(alert).toHaveTextContent("Open WorldSmith settings");
+    expect(alert).toHaveTextContent("Notion sharing help");
+    expect(screen.getByRole("link", { name: /Open this page in Notion/i })).toHaveAttribute(
+      "href",
+      `https://www.notion.so/${validPageId.replace(/-/g, "")}`,
+    );
+  });
+
+  it("keeps rate-limit failures focused on retrying instead of page sharing", async () => {
+    const rateLimited = Object.assign(
+      new Error("Notion rate limit hit. Wait a moment and try again."),
+      { code: "NOTION_RATE_LIMITED", status: 429 },
+    );
+    apiFetchMock.mockRejectedValueOnce(rateLimited);
+
+    renderCompiler();
+    fireEvent.change(screen.getByLabelText("Production Specification"), {
+      target: { value: validPageId },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Notion rate limit hit");
+    expect(alert).not.toHaveTextContent("Restore Notion access");
+    expect(screen.queryByRole("link", { name: /Notion sharing help/i })).not.toBeInTheDocument();
+  });
 });

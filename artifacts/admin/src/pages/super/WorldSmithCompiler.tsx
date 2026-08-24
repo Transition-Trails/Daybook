@@ -59,6 +59,11 @@ interface PreflightResponse {
   prompt_payload_blank?: boolean;
 }
 
+interface PreflightError extends Error {
+  code?: string;
+  status?: number;
+}
+
 // ── Payload Generator types ───────────────────────────────────────────────────
 
 interface PP2Sections {
@@ -350,7 +355,7 @@ export default function WorldSmithCompiler() {
   const [rawInput, setRawInput] = useState("");
   const [resolvedId, setResolvedId] = useState<string | null>(null);
   const [preflight, setPreflight] = useState<PreflightResponse | null>(null);
-  const [preflightError, setPreflightError] = useState<string | null>(null);
+  const [preflightError, setPreflightError] = useState<PreflightError | null>(null);
   const [dryRun, setDryRun] = useState(false);
   const [result, setResult] = useState<CompileResponse | null>(null);
   const [activeTab, setActiveTab] = useState<"compiler" | "runs" | "assets" | "batch">("compiler");
@@ -384,7 +389,10 @@ export default function WorldSmithCompiler() {
     onError: (err: Error) => {
       setPreflight(null);
       setResolvedId(null);
-      setPreflightError(err.message || "Production Specification page could not be resolved. Check the page ID and Notion access.");
+      setPreflightError(Object.assign(
+        err,
+        { message: err.message || "Production Specification page could not be resolved. Check the page ID and Notion access." },
+      ) as PreflightError);
       toast({ title: "Could not resolve spec", description: err.message, variant: "destructive" });
     },
   });
@@ -569,7 +577,17 @@ export default function WorldSmithCompiler() {
                   <p role="alert" className="text-xs text-red-600">{inputValidationError}</p>
                 )}
                 {preflightError && !inputValidationError && (
-                  <p role="alert" className="text-xs text-red-600">{preflightError}</p>
+                  isNotionPageResolutionFailure(preflightError.code) ? (
+                    <div role="alert" className="space-y-3 rounded-lg border border-red-200 bg-red-50/70 p-3 text-xs text-red-800">
+                      <p>{preflightError.message}</p>
+                      <NotionAccessRecovery
+                        code={preflightError.code}
+                        pageId={normalizedId}
+                      />
+                    </div>
+                  ) : (
+                    <p role="alert" className="text-xs text-red-600">{preflightError.message}</p>
+                  )
                 )}
               </div>
             </CardContent>
@@ -767,6 +785,71 @@ function CanonRecordsLabel({ dep, count }: { dep: string; count: number }) {
       {count} Canon Record{count !== 1 ? "s" : ""} <span className="font-medium">linked</span>
     </div>
   );
+}
+
+// ── Notion access recovery ────────────────────────────────────────────────────
+
+function NotionAccessRecovery({
+  code,
+  pageId,
+}: {
+  code?: string;
+  pageId: string | null;
+}) {
+  const accessDenied = code === "SPEC_ACCESS_DENIED";
+  const pageUrl = pageId
+    ? `https://www.notion.so/${pageId.replace(/-/g, "")}`
+    : null;
+
+  return (
+    <div className="border-t border-red-200 pt-3">
+      <p className="font-semibold text-red-900">Restore Notion access</p>
+      {accessDenied ? (
+        <p className="mt-1 leading-relaxed">
+          The page ID is valid, but the WorldSmith Notion integration cannot open this page.
+          In Notion, open the page, choose <strong>Share</strong>, and invite the WorldSmith integration.
+        </p>
+      ) : (
+        <p className="mt-1 leading-relaxed">
+          First check that this is the intended Production Specification page ID.
+          If the ID is correct, open the page in Notion, choose <strong>Share</strong>, and invite the WorldSmith integration.
+        </p>
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 font-medium">
+        {pageUrl && (
+          <a
+            href={pageUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-red-900 underline underline-offset-2 hover:text-red-700"
+          >
+            Open this page in Notion
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+        <a
+          href="/super/worldsmith"
+          className="inline-flex items-center gap-1 text-red-900 underline underline-offset-2 hover:text-red-700"
+        >
+          Open WorldSmith settings
+          <ArrowUpRight className="h-3 w-3" />
+        </a>
+        <a
+          href="https://www.notion.so/help/add-and-manage-connections-with-the-notion-api"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-red-900 underline underline-offset-2 hover:text-red-700"
+        >
+          Notion sharing help
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function isNotionPageResolutionFailure(code?: string): boolean {
+  return code === "SPEC_ACCESS_DENIED" || code === "SPEC_NOT_FOUND";
 }
 
 // ── Preflight Card ────────────────────────────────────────────────────────────

@@ -18,7 +18,14 @@ export async function apiFetch<T = unknown>(
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body?.error ?? `HTTP ${res.status}`);
+    const error = new Error(body?.error ?? `HTTP ${res.status}`) as Error & {
+      code?: string;
+      status?: number;
+    };
+    // Preserve structured API failure metadata for contextual recovery UI.
+    error.code = typeof body?.code === "string" ? body.code : undefined;
+    error.status = res.status;
+    throw error;
   }
   if (res.status === 204) return undefined as T;
   return res.json();

@@ -550,27 +550,41 @@ router.get("/v1/worldsmith/preflight", requireAuth, requireSuperAdmin, async (re
     });
   } catch (err) {
     const msg = String(err);
-    // Notion uses both 404 (missing or not shared) and 403 (integration
-    // cannot access the page) for page lookup failures.  The client preserves
-    // the status when available; retain the message fallback for mocked or
-    // older callers that throw a plain Error.
+    // Notion uses 404 for an unknown page and 403/restricted_resource when
+    // the integration is explicitly denied. The client preserves both the
+    // HTTP status and Notion's machine-readable code; retain message fallbacks
+    // for mocked or older callers that throw a plain Error.
     const notionStatus = (
       typeof err === "object" &&
       err !== null &&
       "status" in err &&
       typeof err.status === "number"
     ) ? err.status : undefined;
+    const notionCode = (
+      typeof err === "object" &&
+      err !== null &&
+      "notionCode" in err &&
+      typeof err.notionCode === "string"
+    ) ? err.notionCode : undefined;
+    const isAccessDenied =
+      notionStatus === 403 ||
+      notionCode === "restricted_resource" ||
+      /restricted_resource|access denied|cannot access/i.test(msg);
     const isNotFound =
       notionStatus === 400 ||
-      notionStatus === 403 ||
       notionStatus === 404 ||
       /404|not_found|object_not_found/i.test(msg);
     const isUnreachable = /ETIMEDOUT|ENOTFOUND|ECONNREFUSED|AbortError|timeout/i.test(msg);
     const isRateLimited = /429|rate.?limit/i.test(msg);
 
-    if (isNotFound) {
+    if (isAccessDenied) {
+      res.status(403).json({
+        error: "The Production Specification page exists, but the WorldSmith Notion integration cannot access it. Share the page with the integration, then try again.",
+        code: "SPEC_ACCESS_DENIED",
+      });
+    } else if (isNotFound) {
       res.status(404).json({
-        error: "Production Specification page could not be resolved. Check that the page ID is correct and that the Notion integration has access.",
+        error: "Production Specification page could not be found. Check that the page ID is correct. If it is correct, share the page with the WorldSmith Notion integration and try again.",
         code: "SPEC_NOT_FOUND",
       });
     } else if (isRateLimited) {

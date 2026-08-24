@@ -319,12 +319,12 @@ describe("WorldSmith preflight — unavailable Notion page", () => {
 
     expect(res.status).toBe(404);
     expect(res.body.code).toBe("SPEC_NOT_FOUND");
-    expect(res.body.error).toContain("could not be resolved");
+    expect(res.body.error).toContain("could not be found");
     expect(res.body.error).toContain("page ID");
     expect(res.body.error).toContain("Notion integration");
   });
 
-  it("returns the same actionable client error when the page is inaccessible", async () => {
+  it("returns a distinct access-denied response when the page is not shared", async () => {
     const inaccessible = Object.assign(
       new Error("Notion API GET /pages/spec-restricted → 403: restricted_resource"),
       { status: 403 },
@@ -334,9 +334,10 @@ describe("WorldSmith preflight — unavailable Notion page", () => {
     const res = await request(app)
       .get(`/api/v1/worldsmith/preflight?spec_id=${SPEC_ID}`);
 
-    expect(res.status).toBe(404);
-    expect(res.body.code).toBe("SPEC_NOT_FOUND");
-    expect(res.body.error).toContain("could not be resolved");
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("SPEC_ACCESS_DENIED");
+    expect(res.body.error).toContain("Share the page");
+    expect(res.body.error).toContain("WorldSmith Notion integration");
   });
 });
 

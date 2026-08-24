@@ -381,6 +381,7 @@ describe("notionFetch — structured lookup failures", () => {
       status: 403,
       method: "GET",
       path: "/pages/page-restricted",
+      notionCode: "restricted_resource",
     });
     await expect(getPage("page-restricted")).rejects.toBeInstanceOf(NotionApiError);
   });

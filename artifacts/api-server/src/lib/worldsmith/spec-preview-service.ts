@@ -32,8 +32,9 @@ import { callDallE } from "../ai-proxy";
 import {
   renderSpecBoardToPng,
   CONCEPT_IMAGE_AREA,
-  DETAIL_CROP_SOURCE_RECTS,
+  CONCEPT_IMAGE_RENDER_AREA,
   DETAIL_CROP_DEST_AREAS,
+  getDetailCropSourceRects,
   TEMPLATE_VERSION,
 } from "./spec-board-template";
 import { parsePayload } from "./payload-parser";
@@ -440,6 +441,16 @@ async function savePreviewRecord(fields: {
   notionPageUrl?: string;
   error?: string;
   dryRun?: boolean;
+  outputMetadata?: {
+    originalByteLength: number;
+    finalByteLength: number;
+    originalWidth: number;
+    originalHeight: number;
+    finalWidth: number;
+    finalHeight: number;
+    encoding: "lossless_png" | "palette_png" | "resized_palette_png";
+    degradationReason?: string;
+  };
 }): Promise<void> {
   try {
     await db.insert(worldsmithSpecPreviewsTable).values({
@@ -459,10 +470,113 @@ async function savePreviewRecord(fields: {
       notionPageUrl: fields.notionPageUrl ?? null,
       error: fields.error ?? null,
       dryRun: fields.dryRun ?? false,
+      outputMetadata: fields.outputMetadata ?? null,
     });
   } catch (err) {
     logger.warn({ err }, "Could not save spec preview audit record — non-fatal");
   }
+}
+
+const NOTION_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Keep the review board at its intended geometry where possible. We first apply
+ * lossless PNG compression, then explicitly recorded palette compression, and
+ * only resize as a final, audited option. A board that still exceeds Notion's
+ * limit fails rather than silently uploading an unidentified degraded image.
+ */
+async function preparePreviewForUpload(input: Buffer) {
+  const originalByteLength = input.length;
+  if (originalByteLength <= NOTION_PREVIEW_MAX_BYTES) {
+    let originalWidth = 0;
+    let originalHeight = 0;
+    try {
+      const source = await sharp(input).metadata();
+      originalWidth = source.width ?? 0;
+      originalHeight = source.height ?? 0;
+    } catch {
+      // The generated production board is always PNG. Keeping this tolerant
+      // preserves lightweight test fixtures without weakening the size limit.
+    }
+    return {
+      buffer: input,
+      metadata: {
+        originalByteLength,
+        finalByteLength: originalByteLength,
+        originalWidth,
+        originalHeight,
+        finalWidth: originalWidth,
+        finalHeight: originalHeight,
+        encoding: "lossless_png" as const,
+      },
+    };
+  }
+
+  const source = await sharp(input).metadata();
+  const originalWidth = source.width ?? 0;
+  const originalHeight = source.height ?? 0;
+
+  const lossless = await sharp(input)
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toBuffer();
+  if (lossless.length <= NOTION_PREVIEW_MAX_BYTES) {
+    return {
+      buffer: lossless,
+      metadata: {
+        originalByteLength,
+        finalByteLength: lossless.length,
+        originalWidth,
+        originalHeight,
+        finalWidth: originalWidth,
+        finalHeight: originalHeight,
+        encoding: "lossless_png" as const,
+      },
+    };
+  }
+
+  const palette = await sharp(input)
+    .png({ palette: true, quality: 95, colours: 256, compressionLevel: 9, adaptiveFiltering: true })
+    .toBuffer();
+  if (palette.length <= NOTION_PREVIEW_MAX_BYTES) {
+    return {
+      buffer: palette,
+      metadata: {
+        originalByteLength,
+        finalByteLength: palette.length,
+        originalWidth,
+        originalHeight,
+        finalWidth: originalWidth,
+        finalHeight: originalHeight,
+        encoding: "palette_png" as const,
+        degradationReason: "Palette compression was required to meet Notion's 4 MB upload limit.",
+      },
+    };
+  }
+
+  const resized = await sharp(input)
+    .resize(2000, undefined, { withoutEnlargement: true })
+    .png({ palette: true, quality: 95, colours: 256, compressionLevel: 9, adaptiveFiltering: true })
+    .toBuffer();
+  const resizedMetadata = await sharp(resized).metadata();
+  if (resized.length > NOTION_PREVIEW_MAX_BYTES) {
+    throw new SpecPreviewError(
+      "GENERATION_FAILED",
+      `Spec board is ${Math.ceil(resized.length / 1024 / 1024)} MB after compression; it exceeds Notion's 4 MB upload limit.`,
+    );
+  }
+  return {
+    buffer: resized,
+    metadata: {
+      originalByteLength,
+      finalByteLength: resized.length,
+      originalWidth,
+      originalHeight,
+      finalWidth: resizedMetadata.width ?? 0,
+      finalHeight: resizedMetadata.height ?? 0,
+      encoding: "resized_palette_png" as const,
+      degradationReason: "Palette compression and a final dimension reduction were required to meet Notion's 4 MB upload limit.",
+    },
+  };
 }
 
 async function runLocalSpecPreview(
@@ -702,31 +816,6 @@ export async function runSpecPreview(
             const sgText = await getPageText(styleGuideId);
             safeBoardData.styleGuideContent = sgText.slice(0, 900);
 
-            // Collect up to 4 image file URLs from any "files"-type property on the page
-            const refUrls: string[] = [];
-            for (const prop of Object.values(sgPage.properties)) {
-              const p = prop as {
-                type?: string;
-                files?: Array<{
-                  type: string;
-                  file?: { url: string };
-                  external?: { url: string };
-                }>;
-              };
-              if (p.type === "files" && Array.isArray(p.files)) {
-                for (const f of p.files) {
-                  const url = f.type === "file" ? f.file?.url : f.external?.url;
-                  if (url && /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url)) {
-                    refUrls.push(url);
-                    if (refUrls.length >= 4) break;
-                  }
-                }
-              }
-              if (refUrls.length >= 4) break;
-            }
-            if (refUrls.length > 0) {
-              safeBoardData.referenceImageUrls = refUrls;
-            }
           } catch { /* non-fatal */ }
         })()
       : Promise.resolve(),
@@ -759,11 +848,10 @@ export async function runSpecPreview(
         })()
       : Promise.resolve(),
 
-    // Canon record names (up to 5, for Section 13 bullet list) + fallback reference images
+    // Canon record names (up to 5, for Section 13 bullet list).
     canonRecordIds.length > 0
       ? (async () => {
           const names: string[] = [];
-          const canonRefUrls: string[] = [];
           await Promise.all(
             canonRecordIds.slice(0, 5).map(async (id) => {
               try {
@@ -775,37 +863,10 @@ export async function runSpecPreview(
                   extractRichText(cPage.properties["Name"]);
                 if (name) names.push(name);
 
-                // Collect image file URLs for reference thumbnail fallback
-                if (canonRefUrls.length < 4) {
-                  for (const prop of Object.values(cPage.properties)) {
-                    const p = prop as {
-                      type?: string;
-                      files?: Array<{
-                        type: string;
-                        file?: { url: string };
-                        external?: { url: string };
-                      }>;
-                    };
-                    if (p.type === "files" && Array.isArray(p.files)) {
-                      for (const f of p.files) {
-                        const url = f.type === "file" ? f.file?.url : f.external?.url;
-                        if (url && /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url)) {
-                          canonRefUrls.push(url);
-                          if (canonRefUrls.length >= 4) break;
-                        }
-                      }
-                    }
-                    if (canonRefUrls.length >= 4) break;
-                  }
-                }
               } catch { /* non-fatal */ }
             }),
           );
           if (names.length > 0) safeBoardData.canonNames = names;
-          // Only use canon images if the style guide provided none
-          if (canonRefUrls.length > 0 && !safeBoardData.referenceImageUrls?.length) {
-            safeBoardData.referenceImageUrls = canonRefUrls.slice(0, 4);
-          }
         })()
       : Promise.resolve(),
   ]);
@@ -878,6 +939,7 @@ export async function runSpecPreview(
   let finalPng = boardPng;
   let dalleApplied = false;
   let dalleErrorMsg: string | undefined;
+  let detailCropSourceRects: ReadonlyArray<{ x: number; y: number; width: number; height: number }> = [];
 
   try {
     if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY && !process.env.OPENAI_API_KEY) {
@@ -900,7 +962,7 @@ export async function runSpecPreview(
       // Resize to fit the concept image area, maintaining aspect ratio
       const { x, y, width, height } = CONCEPT_IMAGE_AREA;
       const resized = await sharp(dalleBuffer)
-        .resize(width - 10, height - 10, {
+        .resize(CONCEPT_IMAGE_RENDER_AREA.width, CONCEPT_IMAGE_RENDER_AREA.height, {
           fit: "inside",
           withoutEnlargement: false,
         })
@@ -909,28 +971,15 @@ export async function runSpecPreview(
 
       // Center the resized image in the concept area
       const meta = await sharp(resized).metadata();
-      const imgW = meta.width ?? width;
-      const imgH = meta.height ?? height;
-      const left = x + Math.floor((width - imgW) / 2);
-      const top  = y + Math.floor((height - imgH) / 2);
+      const imgW = meta.width ?? CONCEPT_IMAGE_RENDER_AREA.width;
+      const imgH = meta.height ?? CONCEPT_IMAGE_RENDER_AREA.height;
+      const left = CONCEPT_IMAGE_RENDER_AREA.x + Math.floor((CONCEPT_IMAGE_RENDER_AREA.width - imgW) / 2);
+      const top  = CONCEPT_IMAGE_RENDER_AREA.y + Math.floor((CONCEPT_IMAGE_RENDER_AREA.height - imgH) / 2);
+      detailCropSourceRects = getDetailCropSourceRects({ x: left, y: top, width: imgW, height: imgH });
 
       // Composite over the spec board
       finalPng = await sharp(boardPng)
         .composite([{ input: resized, left, top, blend: "over" }])
-        .png()
-        .toBuffer();
-
-      // Overlay the "CONCEPT PREVIEW" label on top of the composited image
-      const labelSvg = Buffer.from(
-        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="28">
-          <rect width="${width}" height="28" fill="rgba(27,42,74,0.72)"/>
-          <text x="${width / 2}" y="19" text-anchor="middle"
-            font-family="sans-serif" font-size="11" font-weight="bold"
-            fill="#FFFFFF" letter-spacing="1.5">CONCEPT PREVIEW · FOR HUMAN REVIEW</text>
-        </svg>`,
-      );
-      finalPng = await sharp(finalPng)
-        .composite([{ input: labelSvg, left: x, top: y + height - 28, blend: "over" }])
         .png()
         .toBuffer();
 
@@ -951,7 +1000,7 @@ export async function runSpecPreview(
     try {
       const composites: Array<{ input: Buffer; left: number; top: number; blend: "over" }> = [];
       await Promise.all(
-        DETAIL_CROP_SOURCE_RECTS.map(async (src, i) => {
+        detailCropSourceRects.map(async (src, i) => {
           const dest = DETAIL_CROP_DEST_AREAS[i];
           if (!dest) return;
           try {
@@ -978,17 +1027,8 @@ export async function runSpecPreview(
     }
   }
 
-  // Enforce max file size (4 MB). Reduce PNG compression if needed.
-  if (finalPng.length > 4 * 1024 * 1024) {
-    try {
-      finalPng = await sharp(finalPng)
-        .resize(1400, undefined, { withoutEnlargement: true })
-        .png({ compressionLevel: 9, quality: 80 })
-        .toBuffer();
-    } catch {
-      // Use as-is
-    }
-  }
+  const preparedPreview = await preparePreviewForUpload(finalPng);
+  finalPng = preparedPreview.buffer;
 
   // ── 7. Upload to Notion ───────────────────────────────────────────────────
   const filename = buildPreviewFilename(finalBoardData);
@@ -1010,6 +1050,7 @@ export async function runSpecPreview(
       provider: cfg.provider,
       model: cfg.model,
       error: String(uploadErr),
+      outputMetadata: preparedPreview.metadata,
     });
     throw new SpecPreviewError("UPLOAD_FAILED", `Notion upload failed: ${String(uploadErr)}`);
   }
@@ -1056,6 +1097,7 @@ export async function runSpecPreview(
     newStatus,
     notionPageUrl: pageUrl,
     error: dalleApplied ? undefined : dalleErrorMsg,
+    outputMetadata: preparedPreview.metadata,
   });
 
   logger.info(

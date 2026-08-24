@@ -2,7 +2,7 @@
  * WorldSmith spec-preview-service — step 6b: DALL-E detail-crop compositing.
  *
  * Confirms that after a successful DALL-E generation the service auto-crops
- * 4 regions from the board (using DETAIL_CROP_SOURCE_RECTS) and composites
+ * 4 regions from the fitted DALL-E image and composites
  * them into DETAIL_CROP_DEST_AREAS in the bottom technical strip.
  *
  * When DALL-E fails the crop step must be skipped entirely (non-fatal).
@@ -59,7 +59,7 @@ vi.mock("sharp", () => {
 });
 
 // ── Mock spec-board-template ──────────────────────────────────────────────────
-// Keep the real DETAIL_CROP_SOURCE_RECTS / DETAIL_CROP_DEST_AREAS constants;
+// Keep the real crop geometry / destination-area constants;
 // only stub the resvg-dependent renderSpecBoardToPng function.
 
 vi.mock("../lib/worldsmith/spec-board-template.js", async (importOriginal) => {

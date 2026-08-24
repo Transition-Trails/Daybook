@@ -67,29 +67,70 @@ const CMP_H  = 264;
 // Footer
 const FTR_Y  = CMP_Y + CMP_H + 10; // 2420
 
-// ── Detail crop source rectangles (within CONCEPT_IMAGE_AREA, board coords) ──
+// ── Detail crop source rectangles (within the fitted concept image) ───────────
+
+export type BoardRect = Readonly<{ x: number; y: number; width: number; height: number }>;
 
 /**
- * Four source rectangles within the concept image area.
+ * The template owns this caption strip, so DALL-E artwork and all derived crops
+ * must remain above it. Keeping it outside the rendered image also preserves the
+ * specimen identifier for human review.
+ */
+export const CONCEPT_IMAGE_CAPTION_HEIGHT = 38;
+
+/** Area available to the fitted DALL-E bitmap, excluding frame padding/caption. */
+export const CONCEPT_IMAGE_RENDER_AREA: BoardRect = {
+  x: IMG_X + 5,
+  y: IMG_Y + 5,
+  width: IMG_W - 10,
+  height: IMG_H - CONCEPT_IMAGE_CAPTION_HEIGHT - 10,
+};
+
+/**
+ * Calculates the actual board rectangle occupied by a fitted source image.
+ * The service uses the same dimensions when it composites DALL-E output, so
+ * crops can never include the empty panel margins or caption strip.
+ */
+export function getFittedConceptImageBox(sourceWidth: number, sourceHeight: number): BoardRect {
+  const safeWidth = Math.max(1, sourceWidth);
+  const safeHeight = Math.max(1, sourceHeight);
+  const scale = Math.min(
+    CONCEPT_IMAGE_RENDER_AREA.width / safeWidth,
+    CONCEPT_IMAGE_RENDER_AREA.height / safeHeight,
+  );
+  const width = Math.max(1, Math.floor(safeWidth * scale));
+  const height = Math.max(1, Math.floor(safeHeight * scale));
+  return {
+    x: CONCEPT_IMAGE_RENDER_AREA.x + Math.floor((CONCEPT_IMAGE_RENDER_AREA.width - width) / 2),
+    y: CONCEPT_IMAGE_RENDER_AREA.y + Math.floor((CONCEPT_IMAGE_RENDER_AREA.height - height) / 2),
+    width,
+    height,
+  };
+}
+
+/**
+ * Four source rectangles inside the actual composited image rectangle.
  * spec-preview-service.ts crops these from the board after DALL-E compositing
  * and scales them into DETAIL_CROP_DEST_AREAS.
  */
-export const DETAIL_CROP_SOURCE_RECTS: ReadonlyArray<{ x: number; y: number; width: number; height: number }> = (() => {
-  const cw = IMG_W;
-  const ch = IMG_H;
-  const cropW = Math.floor(cw * 0.38);  // ~571
-  const cropH = Math.floor(ch * 0.36);  // ~456
+export function getDetailCropSourceRects(imageBox: BoardRect): ReadonlyArray<BoardRect> {
+  const insetX = Math.min(32, Math.floor(imageBox.width * 0.08));
+  const insetY = Math.min(28, Math.floor(imageBox.height * 0.08));
+  const cropW = Math.max(1, Math.min(
+    Math.floor(imageBox.width * 0.38),
+    Math.floor((imageBox.width - insetX * 2) / 2),
+  ));
+  const cropH = Math.max(1, Math.min(
+    Math.floor(imageBox.height * 0.36),
+    Math.floor((imageBox.height - insetY * 2) / 2),
+  ));
   return [
-    // top-left — primary focal area
-    { x: IMG_X + 32,           y: IMG_Y + 28,           width: cropW, height: cropH },
-    // top-right — secondary element
-    { x: IMG_X + cw - cropW - 32, y: IMG_Y + 28,        width: cropW, height: cropH },
-    // bottom-left — material / texture detail
-    { x: IMG_X + 32,           y: IMG_Y + ch - cropH - 28, width: cropW, height: cropH },
-    // bottom-right — supporting / archival detail
-    { x: IMG_X + cw - cropW - 32, y: IMG_Y + ch - cropH - 28, width: cropW, height: cropH },
+    { x: imageBox.x + insetX, y: imageBox.y + insetY, width: cropW, height: cropH },
+    { x: imageBox.x + imageBox.width - cropW - insetX, y: imageBox.y + insetY, width: cropW, height: cropH },
+    { x: imageBox.x + insetX, y: imageBox.y + imageBox.height - cropH - insetY, width: cropW, height: cropH },
+    { x: imageBox.x + imageBox.width - cropW - insetX, y: imageBox.y + imageBox.height - cropH - insetY, width: cropW, height: cropH },
   ];
-})();
+}
 
 /**
  * Four destination rectangles in the bottom strip where crops are composited.

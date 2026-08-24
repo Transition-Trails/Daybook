@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { EditorialProvider, useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
 import { CopilotPanel, type RecordSuggestion } from "@/components/CopilotPanel";
 import { apiFetch } from "@/lib/api";
+import { worldsmithStorage } from "@/lib/worldsmith/storage";
 
 interface EditorialShellProps {
   children: ReactNode;
@@ -214,13 +215,11 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
   const worldMenuRef = useRef<HTMLDivElement>(null);
   const collectionMenuRef = useRef<HTMLDivElement>(null);
   const [drawerCollapsed, setDrawerCollapsed] = useState(() => {
-    try { return localStorage.getItem("ws:editorial:drawer-collapsed") === "true"; } catch { return false; }
+    return worldsmithStorage.drawerCollapsed() === "true";
   });
 
   useEffect(() => {
-    try {
-      localStorage.setItem("ws:editorial:drawer-collapsed", drawerCollapsed ? "true" : "false");
-    } catch { /* storage may be unavailable */ }
+    worldsmithStorage.setDrawerCollapsed(drawerCollapsed);
   }, [drawerCollapsed]);
 
   useEffect(() => {
@@ -237,10 +236,10 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
 
   // Copilot open/closed — persisted across navigation
   const [copilotOpen, setCopilotOpen] = useState(() => {
-    try { return localStorage.getItem("ws:editorial:copilot") === "true"; } catch { return false; }
+    return worldsmithStorage.copilotOpen() === "true";
   });
   useEffect(() => {
-    try { localStorage.setItem("ws:editorial:copilot", copilotOpen ? "true" : "false"); } catch { /* ok */ }
+    worldsmithStorage.setCopilotOpen(copilotOpen);
   }, [copilotOpen]);
 
   useEffect(() => {

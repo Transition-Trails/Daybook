@@ -94,8 +94,8 @@ describe("EditorialShell drawer", () => {
     await screen.findByText("Co-write partner");
 
     await waitFor(() => {
-      expect(localStorage.getItem("ws:editorial:drawer-collapsed")).toBe("true");
-      expect(localStorage.getItem("ws:editorial:world")).toBe("world-bramble");
+      expect(localStorage.getItem("daybook:worldsmith:v1:drawer-collapsed")).toBe("true");
+      expect(localStorage.getItem("daybook:worldsmith:v1:selected-world")).toBe("world-bramble");
     });
 
     firstRender.unmount();

@@ -121,6 +121,17 @@ export interface NotionRetryEvent {
 // ── WorldSmith Spec Preview Audit Log ────────────────────────────────────────
 // Tracks every spec-preview generation attempt for idempotency + audit.
 
+export interface SpecPreviewOutputMetadata {
+  originalByteLength: number;
+  finalByteLength: number;
+  originalWidth: number;
+  originalHeight: number;
+  finalWidth: number;
+  finalHeight: number;
+  encoding: "lossless_png" | "palette_png" | "resized_palette_png";
+  degradationReason?: string;
+}
+
 export const worldsmithSpecPreviewsTable = pgTable("worldsmith_spec_previews", {
   id: text("id").primaryKey(),
   specPageId: text("spec_page_id").notNull(),
@@ -140,6 +151,8 @@ export const worldsmithSpecPreviewsTable = pgTable("worldsmith_spec_previews", {
   notionPageUrl: text("notion_page_url"),
   error: text("error"),
   dryRun: boolean("dry_run").notNull().default(false),
+  /** Compression and any quality/geometry degradation applied before Notion upload. */
+  outputMetadata: jsonb("output_metadata").$type<SpecPreviewOutputMetadata>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

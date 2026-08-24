@@ -137,7 +137,7 @@ describe("World Bible editor building blocks", () => {
 
     openWorldBibleEditor("world-42", navigate);
 
-    expect(localStorage.getItem("ws:editorial:world")).toBe("world-42");
+    expect(localStorage.getItem("daybook:worldsmith:v1:selected-world")).toBe("world-42");
     expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/bible");
   });
 

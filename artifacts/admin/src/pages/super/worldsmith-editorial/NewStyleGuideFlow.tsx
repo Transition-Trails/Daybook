@@ -17,6 +17,7 @@ import { EditorialCopilot } from "@/components/EditorialCopilot";
 import type { ApplyTarget } from "@/components/CopilotPanel";
 import { PaletteLibraryPicker, paletteReferenceText } from "@/components/PaletteLibraryPicker";
 import { FontLibraryPicker } from "@/components/FontLibraryPicker";
+import { worldsmithStorage } from "@/lib/worldsmith/storage";
 
 // ── Form state ────────────────────────────────────────────────────────────────
 
@@ -572,12 +573,9 @@ function ConstraintsSection({ f, set, onFocus }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-const DRAFT_KEY = (worldId: string | null | undefined) =>
-  `daybook:style-guide-draft:${worldId ?? "__none__"}`;
-
 function loadDraft(worldId: string | null | undefined): { form: FormState; section: number } | null {
   try {
-    const raw = localStorage.getItem(DRAFT_KEY(worldId));
+    const raw = worldsmithStorage.styleGuideDraft(worldId);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { form: FormState; section: number };
     // Only restore if there's at least a name
@@ -589,7 +587,7 @@ function loadDraft(worldId: string | null | undefined): { form: FormState; secti
 }
 
 function clearDraft(worldId: string | null | undefined) {
-  try { localStorage.removeItem(DRAFT_KEY(worldId)); } catch { /* ignore */ }
+  worldsmithStorage.clearStyleGuideDraft(worldId);
 }
 
 export default function NewStyleGuideFlow() {
@@ -617,10 +615,9 @@ export default function NewStyleGuideFlow() {
   const set = (k: keyof FormState, v: string) => setForm(prev => ({ ...prev, [k]: v }));
 
   const saveDraft = useCallback(() => {
-    try {
-      localStorage.setItem(DRAFT_KEY(selectedWorldId), JSON.stringify({ form, section: activeSection }));
+    if (worldsmithStorage.setStyleGuideDraft(selectedWorldId, JSON.stringify({ form, section: activeSection }))) {
       toast({ title: "Draft saved — you can safely leave and return to continue" });
-    } catch {
+    } else {
       toast({ title: "Could not save draft", variant: "destructive" });
     }
   }, [form, activeSection, selectedWorldId, toast]);

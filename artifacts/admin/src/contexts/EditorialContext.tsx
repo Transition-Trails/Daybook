@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import { apiFetch } from "@/lib/api";
+import { worldsmithStorage } from "@/lib/worldsmith/storage";
 
 export interface WorldRecord {
   id: string;
@@ -47,12 +48,12 @@ export function EditorialProvider({ children }: { children: ReactNode }) {
   const [worlds, setWorlds] = useState<WorldRecord[]>([]);
   const [worldsLoading, setWorldsLoading] = useState(true);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(() =>
-    localStorage.getItem("ws:editorial:world") ?? null
+    worldsmithStorage.selectedWorld()
   );
   const [collections, setCollections] = useState<CollectionRecord[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(() =>
-    localStorage.getItem("ws:editorial:collection") ?? null
+    worldsmithStorage.selectedCollection()
   );
   const [lastSyncedAt] = useState<Date | null>(new Date());
 
@@ -74,7 +75,7 @@ export function EditorialProvider({ children }: { children: ReactNode }) {
 
   // Persist world selection
   useEffect(() => {
-    if (selectedWorldId) localStorage.setItem("ws:editorial:world", selectedWorldId);
+    if (selectedWorldId) worldsmithStorage.setSelectedWorld(selectedWorldId);
   }, [selectedWorldId]);
 
   // Load collections when world changes
@@ -89,8 +90,8 @@ export function EditorialProvider({ children }: { children: ReactNode }) {
 
   // Persist collection selection
   useEffect(() => {
-    if (selectedCollectionId) localStorage.setItem("ws:editorial:collection", selectedCollectionId);
-    else localStorage.removeItem("ws:editorial:collection");
+    if (selectedCollectionId) worldsmithStorage.setSelectedCollection(selectedCollectionId);
+    else worldsmithStorage.clearSelectedCollection();
   }, [selectedCollectionId]);
 
   const selectedWorld = worlds.find(w => w.id === selectedWorldId) ?? null;

@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CopilotPanel } from "@/components/CopilotPanel";
 import { PaletteLibraryPicker, paletteReferenceText } from "@/components/PaletteLibraryPicker";
 import { FontLibraryPicker } from "@/components/FontLibraryPicker";
+import { worldsmithStorage } from "@/lib/worldsmith/storage";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -552,7 +553,7 @@ function WorldListView({ worlds, onSelect }: { worlds: WsWorld[]; onSelect: (id:
 // ── Focused World view ────────────────────────────────────────────────────────
 
 export function openWorldBibleEditor(worldId: string, navigate: (path: string) => void) {
-  localStorage.setItem("ws:editorial:world", worldId);
+  worldsmithStorage.setSelectedWorld(worldId);
   navigate("/super/worldsmith/editorial/bible");
 }
 
@@ -762,7 +763,7 @@ function FocusedWorldView({
                   setActiveSection("bible");
                   return;
                 }
-                localStorage.setItem("ws:editorial:world", world.id);
+                worldsmithStorage.setSelectedWorld(world.id);
                 navigate("/super/worldsmith/editorial/bible");
                 return;
               }

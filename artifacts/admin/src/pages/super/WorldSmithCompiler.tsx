@@ -24,20 +24,10 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
-
-// ── Notion ID normalizer (mirrors server-side logic) ─────────────────────────
-
-function normalizeNotionId(raw: string): string | null {
-  const input = (raw ?? "").trim();
-  if (!input) return null;
-  const hexOnly = input.replace(/-/g, "");
-  const match = hexOnly.match(/([0-9a-fA-F]{32})(?:[^0-9a-fA-F]|$)/);
-  const hex = match ? match[1] :
-    (hexOnly.length === 32 && /^[0-9a-fA-F]{32}$/.test(hexOnly) ? hexOnly : null);
-  if (!hex) return null;
-  return [hex.slice(0,8), hex.slice(8,12), hex.slice(12,16), hex.slice(16,20), hex.slice(20,32)]
-    .join("-").toLowerCase();
-}
+import { normalizeNotionId } from "@/lib/worldsmith/notion-id";
+import { isRecommendationCode } from "@/lib/worldsmith/recommendations";
+import { worldsmithStorage } from "@/lib/worldsmith/storage";
+import { resolveCostEstimate, type ExplicitCostProvenance } from "@/lib/worldsmith/cost-estimate";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -369,8 +359,7 @@ export default function WorldSmithCompiler() {
   const [previewResult, setPreviewResult] = useState<SpecPreviewResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [autoPreview, setAutoPreview] = useState<boolean>(() => {
-    try { return localStorage.getItem("worldsmith:auto-preview") !== "false"; }
-    catch { return true; }
+    return worldsmithStorage.compilerAutoPreview() !== "false";
   });
   // Track whether the most recent compile was a dry run so auto-preview never
   // fires for dry-run compiles (they should not trigger real Notion writes).
@@ -631,7 +620,7 @@ export default function WorldSmithCompiler() {
                       autoPreview={autoPreview}
                       setAutoPreview={(v) => {
                         setAutoPreview(v);
-                        try { localStorage.setItem("worldsmith:auto-preview", v ? "true" : "false"); } catch {}
+                        worldsmithStorage.setCompilerAutoPreview(v);
                       }}
                       previewMutation={previewMutation}
                       previewError={previewError}
@@ -2307,8 +2296,8 @@ function StatusOverviewCard({
   const specUrl     = notionUrl(prov?.production_spec_notion_id);
   const readiness   = calcReadiness(result, prov, preflight);
   const errCount    = (result.errors ?? []).length;
-  const recCount    = (result.warnings ?? []).filter(w => RECOMMENDATION_CODES.has(w.code ?? "")).length;
-  const warnCount   = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const recCount    = (result.warnings ?? []).filter(w => isRecommendationCode(w.code)).length;
+  const warnCount   = (result.warnings ?? []).filter(w => !isRecommendationCode(w.code)).length;
   const isLegacy    = prov?.payload_format === "legacy";
   const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
 
@@ -2483,8 +2472,8 @@ function StickyPublishingHeader({
   const specUrl    = notionUrl(prov?.production_spec_notion_id);
   const readiness  = calcReadiness(result, prov, preflight);
   const errCount   = (result.errors ?? []).length;
-  const recCount   = (result.warnings ?? []).filter(w => RECOMMENDATION_CODES.has(w.code ?? "")).length;
-  const warnCount  = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const recCount   = (result.warnings ?? []).filter(w => isRecommendationCode(w.code)).length;
+  const warnCount  = (result.warnings ?? []).filter(w => !isRecommendationCode(w.code)).length;
   const isLegacy   = prov?.payload_format === "legacy";
 
   const barColor       = errCount > 0 ? "bg-red-500" : readiness >= 90 ? "bg-emerald-500" : readiness >= 70 ? "bg-amber-400" : "bg-orange-400";
@@ -2623,7 +2612,7 @@ function ActionCenter({
   isGeneratingBoard?: boolean;
 }) {
   const errCount    = (result.errors ?? []).length;
-  const warnCount   = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? "")).length;
+  const warnCount   = (result.warnings ?? []).filter(w => !isRecommendationCode(w.code)).length;
   const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
 
   type SecAction = { label: string; href?: string; onClick?: () => void; icon: React.ReactNode; disabled?: boolean };
@@ -2725,8 +2714,8 @@ function ReadinessPanel({
   const promptHash  = result.prompt_hash ?? "—";
   const errCount    = (result.errors ?? []).length;
   const errors      = result.errors ?? [];
-  const realWarnings = (result.warnings ?? []).filter(w => !RECOMMENDATION_CODES.has(w.code ?? ""));
-  const recs         = (result.warnings ?? []).filter(w =>  RECOMMENDATION_CODES.has(w.code ?? ""));
+  const realWarnings = (result.warnings ?? []).filter(w => !isRecommendationCode(w.code));
+  const recs         = (result.warnings ?? []).filter(w => isRecommendationCode(w.code));
   const isLegacy    = prov?.payload_format === "legacy";
   const moduleCount = prov?.prompt_modules.length ?? preflight?.prompt_module_count ?? 0;
   const canonCount  = prov?.canon_records.length  ?? preflight?.canon_record_count  ?? 0;
@@ -3217,41 +3206,44 @@ function CompilationTimeline({ prov, result }: { prov: ProvenanceRecord | null; 
 // ── Cost Estimate Card ─────────────────────────────────────────────────────────
 
 function CostEstimateCard({ prov }: { prov: ProvenanceRecord | null }) {
-  // Static estimates — future: derive from model + token count when available
-  const items: Array<{ stage: string; estimate: string; cost: number; note?: string }> = [
-    { stage: "Specification Board", estimate: "$0.01", cost: 0.01, note: "DALL-E standard" },
-    { stage: "Artwork Generation",  estimate: "$0.07", cost: 0.07, note: "DALL-E HD" },
-    { stage: "QA",                  estimate: "—",     cost: 0,    note: "No cost" },
-    { stage: "Publish",             estimate: "—",     cost: 0,    note: "No cost" },
-  ];
-  const total = items.reduce((s, i) => s + i.cost, 0);
-  const provider = prov ? "Anthropic + OpenAI" : "Anthropic + OpenAI";
+  const cost = resolveCostEstimate(prov as ExplicitCostProvenance | null);
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
           <DollarSign className="w-4 h-4 text-muted-foreground" />
-          Publishing Cost Estimate
+          Projected Publishing Cost
         </CardTitle>
-        <p className="text-xs text-muted-foreground">Provider: {provider}</p>
+        <p className="text-xs text-muted-foreground">
+          Provider: {cost.providerLabel}{cost.modelLabel ? ` · ${cost.modelLabel}` : ""}
+        </p>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="space-y-2">
-          {items.map(({ stage, estimate, note }) => (
-            <div key={stage} className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{stage}</span>
-              <div className="flex items-center gap-3">
-                {note && <span className="text-xs text-muted-foreground/60">{note}</span>}
-                <span className="font-mono font-semibold tabular-nums w-10 text-right">{estimate}</span>
-              </div>
+        {cost.lineItems.length > 0 ? (
+          <>
+            <div className="space-y-2">
+              {cost.lineItems.map(({ stage, amountUsd, note }) => (
+                <div key={stage} className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{stage}</span>
+                  <div className="flex items-center gap-3">
+                    {note && <span className="text-xs text-muted-foreground/60">{note}</span>}
+                    <span className="font-mono font-semibold tabular-nums text-right">${amountUsd.toFixed(2)}</span>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Estimated Total</p>
-          <p className="font-mono font-bold text-sm tabular-nums text-[#1B2A4A]">${total.toFixed(2)}</p>
-        </div>
+            <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Projected Total</p>
+              <p className="font-mono font-bold text-sm tabular-nums text-[#1B2A4A]">${cost.totalUsd!.toFixed(2)}</p>
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">{cost.message}</p>
+        )}
+        {cost.lineItems.length > 0 && cost.message && (
+          <p className="text-xs text-muted-foreground mt-3">{cost.message}</p>
+        )}
       </CardContent>
     </Card>
   );
@@ -3942,12 +3934,6 @@ function PromptSectionsTab({
 
 // ── Tab 4: Validation ─────────────────────────────────────────────────────────
 
-// Codes that represent best-practice modernization — not quality or blocking concerns.
-const RECOMMENDATION_CODES = new Set([
-  "LEGACY_PAYLOAD_FORMAT", "MIGRATION_SUGGESTED", "PAYLOAD_OPTIMIZATION",
-  "OPTIONAL_PROMPT_MODULE", "OPTIONAL_MODULE",
-]);
-
 function ValidationTab({
   errors, warnings, prov,
 }: {
@@ -3955,8 +3941,8 @@ function ValidationTab({
   warnings: ValidationError[];
   prov: ProvenanceRecord | null;
 }) {
-  const realWarnings = warnings.filter(w => !RECOMMENDATION_CODES.has(w.code ?? ""));
-  const recs         = warnings.filter(w =>  RECOMMENDATION_CODES.has(w.code ?? ""));
+  const realWarnings = warnings.filter(w => !isRecommendationCode(w.code));
+  const recs         = warnings.filter(w => isRecommendationCode(w.code));
   const allClean     = errors.length === 0 && realWarnings.length === 0 && recs.length === 0;
   const recsOnly     = errors.length === 0 && realWarnings.length === 0 && recs.length > 0;
 

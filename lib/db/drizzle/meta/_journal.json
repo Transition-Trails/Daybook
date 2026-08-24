@@ -57,6 +57,13 @@
       "when": 1787578000000,
       "tag": "0007_worldsmith_spec_preview_output_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787579000000,
+      "tag": "0008_worldsmith_production_packages",
+      "breakpoints": true
     }
   ]
 }

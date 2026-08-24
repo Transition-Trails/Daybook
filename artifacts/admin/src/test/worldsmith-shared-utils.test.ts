@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { resolveCostEstimate } from "@/lib/worldsmith/cost-estimate";
+import { resolveCostEstimate, resolveProductionCostEstimate } from "@/lib/worldsmith/cost-estimate";
 import { normalizeNotionId } from "@/lib/worldsmith/notion-id";
 import { isRecommendationCode } from "@/lib/worldsmith/recommendations";
 import { worldsmithStorage, worldsmithStorageKeys } from "@/lib/worldsmith/storage";
@@ -87,6 +87,28 @@ describe("WorldSmith shared admin utilities", () => {
       providerLabel: "OpenAI",
       modelLabel: "gpt-image",
       totalUsd: 0.04,
+    });
+  });
+
+  it("surfaces configured final-art estimates and preserves an explicit unavailable state", () => {
+    expect(resolveProductionCostEstimate({
+      provider: "OpenAI",
+      model: "gpt-image-2",
+      estimatedCostUsd: 0.19,
+    })).toMatchObject({
+      providerLabel: "OpenAI",
+      modelLabel: "gpt-image-2",
+      totalUsd: 0.19,
+    });
+    expect(resolveProductionCostEstimate({
+      provider: "OpenAI",
+      model: "gpt-image-2",
+      estimatedCostUsd: null,
+      estimateNote: "No configured estimate",
+    })).toMatchObject({
+      providerLabel: "OpenAI",
+      totalUsd: null,
+      message: "No configured estimate",
     });
   });
 });

@@ -26,3 +26,17 @@ deployment. Preserve the legacy fingerprint check when changing the
 consolidated base migration or its replacement. Before recording an existing
 legacy migration, confirm that it cannot cause earlier unapplied migrations to
 be skipped.
+
+The legacy WorldSmith baseline can lack the final-art run audit fields even
+when the application schema expects them. Run the idempotent
+`migrate-worldsmith-production-packages` script before exercising production
+packages on a database created from that baseline.
+
+**Why:** `worldsmith_runs.generated_filename` and `notion_upload_id` were
+introduced outside the old consolidated baseline; a missing field blocks even
+dry-run compilation before the artwork workflow can be tested.
+
+**How to apply:** Treat the migration as a required additive schema repair for
+legacy development databases, and run it twice when diagnosing drift to
+confirm its idempotency. Follow up by adding a tracked migration if the
+baseline/ledger has not yet absorbed the fields.

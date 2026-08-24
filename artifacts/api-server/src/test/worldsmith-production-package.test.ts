@@ -220,4 +220,25 @@ describe("WorldSmith final production packages", () => {
     // status is written only after that operation has succeeded.
     expect(mockUpdatePage).not.toHaveBeenCalled();
   });
+
+  it("retries an existing Notion upload without regenerating provider artwork", async () => {
+    mockAttach.mockRejectedValueOnce(new Error("Notion attach failed"));
+
+    const first = await runFinalArtwork(baseInput);
+    const second = await runFinalArtwork({ ...baseInput, runId: "run-retry" });
+
+    expect(first).toMatchObject({
+      status: "upload_failed",
+      notion_upload_id: "notion-upload-1",
+    });
+    expect(second).toMatchObject({
+      status: "success",
+      idempotent: true,
+      notion_upload_id: "notion-upload-1",
+    });
+    expect(mockGenerateImage).toHaveBeenCalledTimes(1);
+    expect(mockUpload).toHaveBeenCalledTimes(1);
+    expect(mockAttach).toHaveBeenCalledTimes(2);
+    expect(mockUpdatePage).toHaveBeenCalledTimes(1);
+  });
 });

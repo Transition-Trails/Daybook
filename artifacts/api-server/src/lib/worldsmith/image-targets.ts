@@ -3,12 +3,21 @@
  * The reusable image-generation service owns the implementation so every
  * image-producing flow resolves the same model configuration and dimensions.
  */
+import {
+  resolveImageGenerationMetadata,
+  type ImageGenerationMetadata,
+  type ImageGenerationQuality,
+} from "../ai-proxy";
+import { getWorldsmithImageTarget, type WorldsmithImageTarget } from "./image-generation-service";
+
 export {
   getWorldsmithImageTarget,
   getWorldsmithPreviewGeneration,
   validateWorldsmithPreviewGenerationConfiguration,
 } from "./image-generation-service";
 export type { WorldsmithImageTarget } from "./image-generation-service";
+
+const ALLOWED_QUALITY = new Set<ImageGenerationQuality>(["low", "medium", "high", "standard", "hd"]);
 
 function configuredProductionQuality(requestedQuality?: ImageGenerationQuality): ImageGenerationQuality {
   const quality = (requestedQuality ?? process.env.WS_PRODUCTION_QUALITY ?? process.env.SPEC_PREVIEW_QUALITY ?? "medium")

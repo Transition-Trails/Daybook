@@ -394,6 +394,52 @@ export async function runCompilation(
           quality: generationMetadata.settings.quality,
         })
       : null;
+
+    // Final renders are billable and must come from a human-approved
+    // Specification Board. Existing uploaded/status-only work can still be
+    // finished after a later status change because those paths do not create a
+    // new provider image.
+    const mayFinishExistingPackage = existingProductionPackage?.status === "success"
+      || existingProductionPackage?.status === "generating"
+      || existingProductionPackage?.status === "uploaded_status_pending"
+      || (
+        existingProductionPackage?.status === "upload_failed"
+        && !!existingProductionPackage.notionUploadId
+      );
+    if (
+      req.operation === "compile_and_generate"
+      && !isApprovedForFinalArtwork(spec.status)
+      && !mayFinishExistingPackage
+    ) {
+      const approvalError: ValidationError = {
+        code: "FINAL_ARTWORK_APPROVAL_REQUIRED",
+        field: "status",
+        governing_rule: "WS-PRODUCTION-APPROVAL-001",
+        message: `Final artwork requires an approved Specification Board. Current status is "${spec.status || "unset"}".`,
+        recommended_action: "Approve the concept in Notion, refresh its status in the compiler, and request final artwork again.",
+      };
+      await updateRun(runId, {
+        status: "failed",
+        errors: [approvalError],
+        warnings: [...systemWarnings, ...payloadValidation.warnings, ...canonValidation.warnings],
+        completedAt: new Date(),
+      });
+      return {
+        status: "failed",
+        run_id: runId,
+        production_spec_id: specId,
+        payload_version: spec.payloadVersion,
+        compiled_prompt_status: "Compiled",
+        warnings: [...systemWarnings, ...payloadValidation.warnings, ...canonValidation.warnings],
+        errors: [approvalError],
+        next_action: "Approve the Specification Board before requesting final artwork",
+        failed_stage: "final_artwork_approval",
+        error_code: approvalError.code,
+        message: approvalError.message,
+        retry_safe: false,
+        created_resources: { visual_asset_id: null, drive_file_id: null },
+      };
+    }
     let visualAssetNotionId: string | null = existingProductionPackage?.visualAssetNotionId ?? null;
     if (!dryRun && spec.notionPageId) {
       try {
@@ -720,6 +766,10 @@ function configuredProductionEstimate(): { cost: number | null; note?: string } 
     : { cost: null, note: "Estimated provider cost configuration is invalid." };
 }
 
+function isApprovedForFinalArtwork(status: string | undefined): boolean {
+  return status?.trim().toLocaleLowerCase() === "approved";
+}
+
 function packageResponse(
   row: {
     id: string;
@@ -907,6 +957,56 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
           .set({ error: message, updatedAt: new Date() })
           .where(eq(worldsmithProductionPackagesTable.id, packageRow.id));
         return { ...packageResponse(packageRow, target, true), error: message };
+      }
+    }
+
+    // An upload can fail after Notion has accepted the file but before it was
+    // attached to the Visual Asset property. In that case, retrying the package
+    // must finish the existing upload rather than paying for another provider
+    // image. Only failures with no reusable upload fall through to generation.
+    if (packageRow.status === "upload_failed" && packageRow.notionUploadId) {
+      try {
+        await attachUploadToPageProperty(
+          input.visualAssetNotionId,
+          "Final Artwork",
+          packageRow.notionUploadId,
+          packageRow.filename,
+        );
+        const [uploaded] = await db
+          .update(worldsmithProductionPackagesTable)
+          .set({ status: "uploaded_status_pending", error: null, updatedAt: new Date() })
+          .where(eq(worldsmithProductionPackagesTable.id, packageRow.id))
+          .returning();
+        packageRow = uploaded ?? packageRow;
+
+        await updatePage(input.visualAssetNotionId, {
+          "Status": selectProp("Artwork Review"),
+          "Next Action": richTextProp("Review final artwork"),
+        });
+        const [completed] = await db
+          .update(worldsmithProductionPackagesTable)
+          .set({ status: "success", productionArtStatus: "artwork_review", error: null, updatedAt: new Date() })
+          .where(eq(worldsmithProductionPackagesTable.id, packageRow.id))
+          .returning();
+        packageRow = completed ?? packageRow;
+        await updateRun(input.runId, {
+          status: "complete",
+          generatedFilename: packageRow.filename,
+          notionUploadId: packageRow.notionUploadId ?? undefined,
+        });
+        return packageResponse(packageRow, target, true);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const [updated] = await db
+          .update(worldsmithProductionPackagesTable)
+          .set({ error: message, updatedAt: new Date() })
+          .where(eq(worldsmithProductionPackagesTable.id, packageRow.id))
+          .returning();
+        return {
+          ...packageResponse(updated ?? packageRow, target, true),
+          fatal: true,
+          error_code: "UPLOAD_FAILED",
+        };
       }
     }
 

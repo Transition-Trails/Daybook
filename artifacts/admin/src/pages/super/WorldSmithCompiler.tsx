@@ -27,7 +27,11 @@ import { apiFetch } from "@/lib/api";
 import { normalizeNotionId } from "@/lib/worldsmith/notion-id";
 import { isRecommendationCode } from "@/lib/worldsmith/recommendations";
 import { worldsmithStorage } from "@/lib/worldsmith/storage";
-import { resolveCostEstimate, type ExplicitCostProvenance } from "@/lib/worldsmith/cost-estimate";
+import {
+  resolveCostEstimate,
+  resolveProductionCostEstimate,
+  type ExplicitCostProvenance,
+} from "@/lib/worldsmith/cost-estimate";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -180,6 +184,31 @@ interface CompileResponse {
   production_specification?: string;
   component_type?: string;
   prompt_modules_loaded?: number;
+  production_package?: ProductionPackageResult;
+}
+
+interface ProductionPackageResult {
+  id: string;
+  status: "dry_run" | "in_progress" | "generation_failed" | "upload_failed" | "uploaded_status_pending" | "success";
+  production_art_status: "not_started" | "artwork_review";
+  idempotent: boolean;
+  filename: string;
+  notion_upload_id?: string;
+  visual_asset_id?: string;
+  provider: string;
+  model: string;
+  model_version?: string;
+  effective_size: string;
+  quality: string;
+  target: {
+    dpi: number;
+    print_width_in: number;
+    print_height_in: number;
+    orientation: "landscape" | "portrait" | "square";
+  };
+  estimated_cost_usd: number | null;
+  estimate_note?: string;
+  error?: string;
 }
 
 interface NotionRetryEvent {
@@ -299,6 +328,26 @@ const worldsmithApi = {
       }),
     }),
 
+  requestProductionPackage: async (specId: string, dryRun: boolean): Promise<CompileResponse> => {
+    const res = await fetch("/api/v1/production-packages", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        notion_production_spec_id: specId,
+        dry_run: dryRun,
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (body === null) throw new Error(`HTTP ${res.status}`);
+    // Validation and safe package failures return the normal structured
+    // response so the artwork panel can explain what is retryable.
+    if (!res.ok && body.status === undefined) {
+      throw new Error(body?.error ?? `HTTP ${res.status}`);
+    }
+    return body as CompileResponse;
+  },
+
   refreshCollectionName: (runId: string) =>
     apiFetch<{ collection_name: string; run_id: string }>(
       `/v1/worldsmith/runs/${runId}/refresh-collection-name`,
@@ -370,6 +419,7 @@ export default function WorldSmithCompiler() {
   // Track whether the most recent compile was a dry run so auto-preview never
   // fires for dry-run compiles (they should not trigger real Notion writes).
   const [lastCompileWasDryRun, setLastCompileWasDryRun] = useState(false);
+  const [productionPackage, setProductionPackage] = useState<ProductionPackageResult | null>(null);
 
   const normalizedId = normalizeNotionId(rawInput);
   const inputIsValid = !!normalizedId;
@@ -385,6 +435,7 @@ export default function WorldSmithCompiler() {
       setPreflight(data);
       setPreflightError(null);
       setResult(null);
+      setProductionPackage(null);
     },
     onError: (err: Error) => {
       setPreflight(null);
@@ -404,6 +455,7 @@ export default function WorldSmithCompiler() {
       // Record whether this compile was a dry run so auto-preview can gate on it
       setLastCompileWasDryRun(vars.dry);
       setResult(res);
+      setProductionPackage(null);
       setPreviewResult(null);
       setPreviewError(null);
       if (res.status === "compiled") {
@@ -428,6 +480,40 @@ export default function WorldSmithCompiler() {
     },
     onError: (err: Error) => {
       toast({ title: "Status retry failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Final artwork re-resolves and recompiles on the server, so the request
+  // always uses the approved source data and trusted generation settings.
+  const productionMutation = useMutation({
+    mutationFn: ({ id, dryRun: requestDryRun }: { id: string; dryRun: boolean }) =>
+      worldsmithApi.requestProductionPackage(id, requestDryRun),
+    onSuccess: (res) => {
+      setProductionPackage(res.production_package ?? null);
+      // Keep the current board result visible; only replace it when the API
+      // supplied a complete new compile response (for example after a retry).
+      if (res.status === "compiled") setResult(res);
+
+      const packageResult = res.production_package;
+      if (packageResult?.status === "success") {
+        toast({
+          title: "Final artwork ready for review",
+          description: packageResult.idempotent
+            ? "The existing final artwork was returned; no duplicate generation was started."
+            : packageResult.filename,
+        });
+      } else if (packageResult?.status === "dry_run") {
+        toast({ title: "Final-art dry run complete", description: "No provider generation or Notion upload was performed." });
+      } else if (packageResult?.status === "uploaded_status_pending") {
+        toast({ title: "Artwork uploaded; status retry needed", description: "No new provider generation was started." });
+      } else if (packageResult?.status === "upload_failed") {
+        toast({ title: "Final-art upload needs a retry", description: "The generated file was not fully attached to Notion.", variant: "destructive" });
+      } else if (packageResult?.status === "generation_failed") {
+        toast({ title: "Final-art generation failed", description: packageResult.error, variant: "destructive" });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Final-art request failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -633,7 +719,8 @@ export default function WorldSmithCompiler() {
                     result={result}
                     preflight={preflight}
                     previewResult={previewResult}
-                    onReset={() => { setResult(null); setPreviewResult(null); setPreviewError(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
+                    productionPackage={productionPackage}
+                    onReset={() => { setResult(null); setProductionPackage(null); setPreviewResult(null); setPreviewError(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
                     onGenerateNewBoard={() => previewMutation.mutate({
                       specId: resolvedId!,
                       hash: result.prompt_hash!,
@@ -645,6 +732,11 @@ export default function WorldSmithCompiler() {
                       hash: result.prompt_hash!,
                     })}
                     isRetryingStatus={retryStatusMutation.isPending}
+                    onRequestFinalArtwork={(requestDryRun) => productionMutation.mutate({ id: resolvedId!, dryRun: requestDryRun })}
+                    isRequestingFinalArtwork={productionMutation.isPending}
+                    finalArtworkApproved={preflight?.status.trim().toLocaleLowerCase() === "approved"}
+                    onRefreshFinalArtworkApproval={() => preflightMutation.mutate(resolvedId!)}
+                    isRefreshingFinalArtworkApproval={preflightMutation.isPending}
                   />
 
                   {/* Preview section — shown while generating, after dry-run, or after failure.
@@ -1691,7 +1783,8 @@ function PublishingPipeline({
 
 function InspectorScreen({
   result, preflight, previewResult, onReset, onGenerateNewBoard, isGeneratingBoard,
-  onRetryStatus, isRetryingStatus,
+  onRetryStatus, isRetryingStatus, productionPackage, onRequestFinalArtwork, isRequestingFinalArtwork,
+  finalArtworkApproved, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
@@ -1701,6 +1794,12 @@ function InspectorScreen({
   isGeneratingBoard?: boolean;
   onRetryStatus?: () => void;
   isRetryingStatus?: boolean;
+  productionPackage?: ProductionPackageResult | null;
+  onRequestFinalArtwork?: (dryRun: boolean) => void;
+  isRequestingFinalArtwork?: boolean;
+  finalArtworkApproved: boolean;
+  onRefreshFinalArtworkApproval?: () => void;
+  isRefreshingFinalArtworkApproval?: boolean;
 }) {
   const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
   const [workspaceTab, setWorkspaceTab]     = useState<"overview" | "inspector" | "history">("overview");
@@ -1722,6 +1821,17 @@ function InspectorScreen({
       setWorkspaceTab("inspector");
     }
   }, [boardSuccess]);
+
+  useEffect(() => {
+    if (!productionPackage) return;
+    if (productionPackage.status === "success") {
+      setInspectorStage("artwork-review");
+      setWorkspaceTab("inspector");
+    } else if (productionPackage.status !== "dry_run") {
+      setInspectorStage("artwork-generation");
+      setWorkspaceTab("inspector");
+    }
+  }, [productionPackage]);
 
   return (
     <div className="space-y-3">
@@ -1745,6 +1855,9 @@ function InspectorScreen({
         onReset={onReset}
         onGenerateNewBoard={onGenerateNewBoard}
         isGeneratingBoard={isGeneratingBoard}
+        productionPackage={productionPackage}
+        onRequestFinalArtwork={onRequestFinalArtwork}
+        isRequestingFinalArtwork={isRequestingFinalArtwork}
       />
 
       {/* Zone 3 — Publishing Workspace */}
@@ -1762,6 +1875,12 @@ function InspectorScreen({
         isGeneratingBoard={isGeneratingBoard}
         onRetryStatus={onRetryStatus}
         isRetryingStatus={isRetryingStatus}
+        productionPackage={productionPackage}
+        onRequestFinalArtwork={onRequestFinalArtwork}
+        isRequestingFinalArtwork={isRequestingFinalArtwork}
+        finalArtworkApproved={finalArtworkApproved}
+        onRefreshFinalArtworkApproval={onRefreshFinalArtworkApproval}
+        isRefreshingFinalArtworkApproval={isRefreshingFinalArtworkApproval}
       />
 
       {result.visual_asset_id && (
@@ -1782,7 +1901,8 @@ function WorkspacePanel({
   inspectorStage, setInspectorStage,
   goToStage,
   previewResult, onGenerateNewBoard, isGeneratingBoard,
-  onRetryStatus, isRetryingStatus,
+  onRetryStatus, isRetryingStatus, productionPackage, onRequestFinalArtwork, isRequestingFinalArtwork,
+  finalArtworkApproved, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
@@ -1797,6 +1917,12 @@ function WorkspacePanel({
   isGeneratingBoard?: boolean;
   onRetryStatus?: () => void;
   isRetryingStatus?: boolean;
+  productionPackage?: ProductionPackageResult | null;
+  onRequestFinalArtwork?: (dryRun: boolean) => void;
+  isRequestingFinalArtwork?: boolean;
+  finalArtworkApproved: boolean;
+  onRefreshFinalArtworkApproval?: () => void;
+  isRefreshingFinalArtworkApproval?: boolean;
 }) {
   const TABS = [
     { id: "overview",  label: "Overview"  },
@@ -1826,7 +1952,13 @@ function WorkspacePanel({
         <InspectorWorkspaceTab result={result} preflight={preflight} prov={prov}
           stage={inspectorStage} setStage={setInspectorStage}
           previewResult={previewResult} onGenerateNewBoard={onGenerateNewBoard} isGeneratingBoard={isGeneratingBoard}
-          onRetryStatus={onRetryStatus} isRetryingStatus={isRetryingStatus} />
+          onRetryStatus={onRetryStatus} isRetryingStatus={isRetryingStatus}
+          productionPackage={productionPackage}
+          onRequestFinalArtwork={onRequestFinalArtwork}
+          isRequestingFinalArtwork={isRequestingFinalArtwork}
+          finalArtworkApproved={finalArtworkApproved}
+          onRefreshFinalArtworkApproval={onRefreshFinalArtworkApproval}
+          isRefreshingFinalArtworkApproval={isRefreshingFinalArtworkApproval} />
       )}
       {workspaceTab === "history" && (
         <HistoryTab result={result} />
@@ -2058,10 +2190,10 @@ function GroupedReadinessCard({
     { label: "Production Specification", ok: true },
     { label: "Component Specification",  ok: !!(prov?.component_specification ?? preflight?.component_specification) },
     { label: "Style Guide",              ok: !!prov?.style_guide },
-    { label: "Canon Records",            ok: (prov?.canon_records.length ?? preflight?.canon_record_count ?? 0) > 0 },
+    { label: "Canon Records",            ok: (prov?.canon_records?.length ?? preflight?.canon_record_count ?? 0) > 0 },
   ];
   const compileItems = [
-    { label: "Prompt Modules",   ok: (prov?.prompt_modules.length ?? preflight?.prompt_module_count ?? 0) > 0 },
+    { label: "Prompt Modules",   ok: (prov?.prompt_modules?.length ?? preflight?.prompt_module_count ?? 0) > 0 },
     { label: "Prompt Payload",   ok: true },
     { label: "Prompt Hash",      ok: !!result.prompt_hash },
     { label: "Compiled Artifact",ok: true },
@@ -2229,7 +2361,8 @@ function NextAfterThisCard({ result }: { result: CompileResponse }) {
 function InspectorWorkspaceTab({
   result, preflight, prov, stage, setStage,
   previewResult, onGenerateNewBoard, isGeneratingBoard,
-  onRetryStatus, isRetryingStatus,
+  onRetryStatus, isRetryingStatus, productionPackage, onRequestFinalArtwork, isRequestingFinalArtwork,
+  finalArtworkApproved, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
@@ -2241,6 +2374,12 @@ function InspectorWorkspaceTab({
   isGeneratingBoard?: boolean;
   onRetryStatus?: () => void;
   isRetryingStatus?: boolean;
+  productionPackage?: ProductionPackageResult | null;
+  onRequestFinalArtwork?: (dryRun: boolean) => void;
+  isRequestingFinalArtwork?: boolean;
+  finalArtworkApproved: boolean;
+  onRefreshFinalArtworkApproval?: () => void;
+  isRefreshingFinalArtworkApproval?: boolean;
 }) {
   const isLegacy = prov?.payload_format === "legacy";
   const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
@@ -2261,10 +2400,33 @@ function InspectorWorkspaceTab({
       {stage === "ready-for-spec-board" && <ReadinessPanel result={result} preflight={preflight} prov={prov} />}
       {stage === "specification-review" && (
         boardSuccess && previewResult
-          ? <SpecificationReviewPanel previewResult={previewResult} prov={prov} onGenerateNew={onGenerateNewBoard} isGenerating={isGeneratingBoard} onRetryStatus={onRetryStatus} isRetryingStatus={isRetryingStatus} />
+          ? <SpecificationReviewPanel
+              previewResult={previewResult}
+              prov={prov}
+              onGenerateNew={onGenerateNewBoard}
+              isGenerating={isGeneratingBoard}
+              onRetryStatus={onRetryStatus}
+              isRetryingStatus={isRetryingStatus}
+              productionPackage={productionPackage}
+              onRequestFinalArtwork={onRequestFinalArtwork}
+              isRequestingFinalArtwork={isRequestingFinalArtwork}
+              finalArtworkApproved={finalArtworkApproved}
+              onRefreshFinalArtworkApproval={onRefreshFinalArtworkApproval}
+              isRefreshingFinalArtworkApproval={isRefreshingFinalArtworkApproval}
+            />
           : <FuturePlaceholderPanel stage="specification-review" />
       )}
-      {PLACEHOLDER_STAGES.includes(stage) && <FuturePlaceholderPanel stage={stage} />}
+      {["ready-for-artwork", "artwork-generation", "artwork-review"].includes(stage) && (
+        <FinalArtworkPanel
+          packageResult={productionPackage}
+          onRequest={onRequestFinalArtwork}
+          isRequesting={isRequestingFinalArtwork}
+          approved={finalArtworkApproved}
+          onRefreshApproval={onRefreshFinalArtworkApproval}
+          isRefreshingApproval={isRefreshingFinalArtworkApproval}
+        />
+      )}
+      {PLACEHOLDER_STAGES.includes(stage) && !["ready-for-artwork", "artwork-generation", "artwork-review"].includes(stage) && <FuturePlaceholderPanel stage={stage} />}
     </div>
   );
 }
@@ -2366,8 +2528,8 @@ function calcReadiness(
     { ok: true,                                                                                    weight: 12 }, // Prompt Payload — must exist to compile
     { ok: !!prov?.component_type,                                                                  weight: 11 }, // Print Specification
     { ok: !!prov?.style_guide,                                                                     weight: 12 }, // Style Guide
-    { ok: (prov?.prompt_modules.length ?? preflight?.prompt_module_count ?? 0) > 0,               weight:  9 }, // Prompt Modules
-    { ok: (prov?.canon_records.length  ?? preflight?.canon_record_count  ?? 0) > 0,               weight:  8 }, // Canon
+    { ok: (prov?.prompt_modules?.length ?? preflight?.prompt_module_count ?? 0) > 0,             weight:  9 }, // Prompt Modules
+    { ok: (prov?.canon_records?.length  ?? preflight?.canon_record_count  ?? 0) > 0,             weight:  8 }, // Canon
     { ok: prov?.payload_format !== "legacy",                                                       weight:  6 }, // PP-2.0 contract
   ];
   const total  = items.reduce((s, i) => s + i.weight, 0);
@@ -2707,6 +2869,7 @@ function StickyPublishingHeader({
 
 function ActionCenter({
   result, prov, setActiveStage, previewResult, onReset, onGenerateNewBoard, isGeneratingBoard,
+  productionPackage, onRequestFinalArtwork, isRequestingFinalArtwork,
 }: {
   result: CompileResponse;
   prov: ProvenanceRecord | null;
@@ -2715,10 +2878,15 @@ function ActionCenter({
   onReset?: () => void;
   onGenerateNewBoard?: () => void;
   isGeneratingBoard?: boolean;
+  productionPackage?: ProductionPackageResult | null;
+  onRequestFinalArtwork?: (dryRun: boolean) => void;
+  isRequestingFinalArtwork?: boolean;
 }) {
   const errCount    = (result.errors ?? []).length;
   const warnCount   = (result.warnings ?? []).filter(w => !isRecommendationCode(w.code)).length;
   const boardSuccess = previewResult?.status === "success" || previewResult?.status === "upload_success_status_failed";
+  const finalArtworkReady = productionPackage?.status === "success";
+  const finalAssetHref = finalArtworkReady ? notionUrl(productionPackage?.visual_asset_id) : undefined;
 
   type SecAction = { label: string; href?: string; onClick?: () => void; icon: React.ReactNode; disabled?: boolean };
 
@@ -2734,10 +2902,21 @@ function ActionCenter({
     primaryIcon   = <XCircle className="w-4 h-4" />;
     primaryDanger = true;
     handlePrimary = () => setActiveStage("validate");
-  } else if (boardSuccess && previewResult?.notion_page_url) {
-    primaryLabel = "Open Notion Record";
+  } else if (finalArtworkReady && finalAssetHref) {
+    primaryLabel = "Open Final Visual Asset";
     primaryIcon  = <ExternalLink className="w-4 h-4" />;
-    primaryHref  = previewResult.notion_page_url;
+    primaryHref  = finalAssetHref;
+  } else if (boardSuccess) {
+    primaryLabel  = productionPackage?.status === "uploaded_status_pending"
+      ? "Retry Final-Art Status"
+      : "Plan Final Artwork";
+    primaryIcon   = productionPackage?.status === "uploaded_status_pending"
+      ? <RefreshCw className="w-4 h-4" />
+      : <Package className="w-4 h-4" />;
+    handlePrimary = () => {
+      if (productionPackage?.status === "uploaded_status_pending") onRequestFinalArtwork?.(false);
+      else setActiveStage("ready-for-artwork");
+    };
   } else {
     primaryLabel  = "Generate Specification Board";
     primaryIcon   = <ImagePlus className="w-4 h-4" />;
@@ -2755,6 +2934,10 @@ function ActionCenter({
     ];
   } else if (boardSuccess) {
     secondary = [
+      { label: "Plan Final Artwork", icon: <Package className="w-3 h-3" />, onClick: () => setActiveStage("ready-for-artwork") },
+      productionPackage?.status === "uploaded_status_pending"
+        ? { label: "Retry Final-Art Status", icon: <RefreshCw className="w-3 h-3" />, onClick: () => onRequestFinalArtwork?.(false), disabled: isRequestingFinalArtwork }
+        : null,
       { label: "Generate New Board", icon: <ImagePlus className="w-3 h-3" />, onClick: onGenerateNewBoard, disabled: isGeneratingBoard },
       prov?.production_spec_notion_id ? { label: "Production Specification", icon: <ExternalLink className="w-3 h-3" />, href: notionUrl(prov.production_spec_notion_id) } : null,
       warnCount > 0 ? { label: "Review Validation", icon: <AlertTriangle className="w-3 h-3" />, onClick: () => setActiveStage("validate") } : null,
@@ -2822,8 +3005,8 @@ function ReadinessPanel({
   const realWarnings = (result.warnings ?? []).filter(w => !isRecommendationCode(w.code));
   const recs         = (result.warnings ?? []).filter(w => isRecommendationCode(w.code));
   const isLegacy    = prov?.payload_format === "legacy";
-  const moduleCount = prov?.prompt_modules.length ?? preflight?.prompt_module_count ?? 0;
-  const canonCount  = prov?.canon_records.length  ?? preflight?.canon_record_count  ?? 0;
+  const moduleCount = prov?.prompt_modules?.length ?? preflight?.prompt_module_count ?? 0;
+  const canonCount  = prov?.canon_records?.length  ?? preflight?.canon_record_count  ?? 0;
 
   const checklist: Array<{ label: string; ok: boolean; note: string; notionId?: string }> = [
     { label: "Production Specification", ok: true,                                              note: prov?.production_spec_title ?? preflight?.production_specification ?? "Resolved",                   notionId: prov?.production_spec_notion_id },
@@ -3310,8 +3493,21 @@ function CompilationTimeline({ prov, result }: { prov: ProvenanceRecord | null; 
 
 // ── Cost Estimate Card ─────────────────────────────────────────────────────────
 
-function CostEstimateCard({ prov }: { prov: ProvenanceRecord | null }) {
-  const cost = resolveCostEstimate(prov as ExplicitCostProvenance | null);
+function CostEstimateCard({
+  prov,
+  productionPackage,
+}: {
+  prov: ProvenanceRecord | null;
+  productionPackage?: ProductionPackageResult | null;
+}) {
+  const cost = productionPackage
+    ? resolveProductionCostEstimate({
+        provider: productionPackage.provider,
+        model: productionPackage.model,
+        estimatedCostUsd: productionPackage.estimated_cost_usd,
+        estimateNote: productionPackage.estimate_note,
+      })
+    : resolveCostEstimate(prov as ExplicitCostProvenance | null);
 
   return (
     <Card>
@@ -3363,8 +3559,8 @@ function ResolvePanel({
   preflight: PreflightResponse | null;
   prov: ProvenanceRecord | null;
 }) {
-  const moduleCount = prov?.prompt_modules.length ?? preflight?.prompt_module_count ?? 0;
-  const canonCount  = prov?.canon_records.length ?? preflight?.canon_record_count ?? 0;
+  const moduleCount = prov?.prompt_modules?.length ?? preflight?.prompt_module_count ?? 0;
+  const canonCount  = prov?.canon_records?.length ?? preflight?.canon_record_count ?? 0;
 
   const records: Array<{ label: string; value: string | null | undefined; resolved: boolean; notionId?: string; detail?: string }> = [
     { label: "Production Specification", value: prov?.production_spec_title ?? preflight?.production_specification, resolved: true,               notionId: prov?.production_spec_notion_id },
@@ -3420,6 +3616,8 @@ function ResolvePanel({
 
 function SpecificationReviewPanel({
   previewResult, prov, onGenerateNew, isGenerating, onRetryStatus, isRetryingStatus,
+  productionPackage, onRequestFinalArtwork, isRequestingFinalArtwork,
+  finalArtworkApproved, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
 }: {
   previewResult: SpecPreviewResult;
   prov: ProvenanceRecord | null;
@@ -3427,6 +3625,12 @@ function SpecificationReviewPanel({
   isGenerating?: boolean;
   onRetryStatus?: () => void;
   isRetryingStatus?: boolean;
+  productionPackage?: ProductionPackageResult | null;
+  onRequestFinalArtwork?: (dryRun: boolean) => void;
+  isRequestingFinalArtwork?: boolean;
+  finalArtworkApproved: boolean;
+  onRefreshFinalArtworkApproval?: () => void;
+  isRefreshingFinalArtworkApproval?: boolean;
 }) {
   const { toast } = useToast();
   const uploadPartial = previewResult.status === "upload_success_status_failed";
@@ -3582,6 +3786,15 @@ function SpecificationReviewPanel({
         )}
       </div>
 
+      <FinalArtworkPanel
+        packageResult={productionPackage}
+        onRequest={onRequestFinalArtwork}
+        isRequesting={isRequestingFinalArtwork}
+        approved={finalArtworkApproved}
+        onRefreshApproval={onRefreshFinalArtworkApproval}
+        isRefreshingApproval={isRefreshingFinalArtworkApproval}
+      />
+
       {/* Generate new board */}
       {onGenerateNew && (
         <div className="flex justify-end">
@@ -3595,6 +3808,220 @@ function SpecificationReviewPanel({
     </div>
   );
 }
+
+function FinalArtworkPanel({
+  packageResult,
+  onRequest,
+  isRequesting,
+  approved,
+  onRefreshApproval,
+  isRefreshingApproval,
+}: {
+  packageResult?: ProductionPackageResult | null;
+  onRequest?: (dryRun: boolean) => void;
+  isRequesting?: boolean;
+  approved: boolean;
+  onRefreshApproval?: () => void;
+  isRefreshingApproval?: boolean;
+}) {
+  const hasPackage = !!packageResult;
+  const status = packageResult?.status ?? "not_requested";
+  const visualAssetUrl = notionUrl(packageResult?.visual_asset_id);
+  const cost = resolveProductionCostEstimate(packageResult
+    ? {
+        provider: packageResult.provider,
+        model: packageResult.model,
+        estimatedCostUsd: packageResult.estimated_cost_usd,
+        estimateNote: packageResult.estimate_note,
+      }
+    : null);
+  const statusInfo: Record<string, { label: string; className: string; message: string }> = {
+    not_requested: {
+      label: "Not requested",
+      className: "bg-muted text-muted-foreground",
+      message: "After the concept is approved in Notion, request a dry run to inspect the final-art plan or start the final package.",
+    },
+    dry_run: {
+      label: "Dry run complete",
+      className: "bg-amber-100 text-amber-700",
+      message: "The final-art plan was assembled. No provider generation or Notion upload was performed.",
+    },
+    in_progress: {
+      label: "Package in progress",
+      className: "bg-[#1B2A4A]/10 text-[#1B2A4A]",
+      message: "An identical final-art request is already being processed. Wait for the package result before trying again.",
+    },
+    generation_failed: {
+      label: "Generation failed",
+      className: "bg-red-100 text-red-700",
+      message: "The provider did not return final artwork. A retry is safe, but a new provider generation may be required.",
+    },
+    upload_failed: {
+      label: "Upload retry available",
+      className: "bg-amber-100 text-amber-700",
+      message: "Final artwork was not fully attached to the Visual Asset. Retry safely; the server reuses an existing upload when available and does not promise a second generation.",
+    },
+    uploaded_status_pending: {
+      label: "Status update pending",
+      className: "bg-amber-100 text-amber-700",
+      message: "Artwork is uploaded. Retrying only completes the Notion status update; it does not generate another image.",
+    },
+    success: {
+      label: "Ready for artwork review",
+      className: "bg-emerald-100 text-emerald-700",
+      message: "The final package is attached to the Visual Asset and ready for review. The existing package is reused instead of generating a duplicate.",
+    },
+  };
+  const info = statusInfo[status] ?? statusInfo.not_requested;
+  const canFinishExistingPackage = status === "uploaded_status_pending"
+    || (status === "upload_failed" && !!packageResult?.notion_upload_id);
+  const canRequest = !!onRequest
+    && !isRequesting
+    && status !== "success"
+    && status !== "in_progress"
+    && (approved || canFinishExistingPackage);
+  const isStatusOnlyRetry = status === "uploaded_status_pending";
+
+  return (
+    <Card id="final-artwork-card" className="border-[#1B2A4A]/20">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <Package className="w-4 h-4 text-[#C87560] shrink-0" />
+            <div>
+              <CardTitle className="text-sm">Final Artwork Package</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">Production render, Notion upload, and artwork-review handoff.</p>
+            </div>
+          </div>
+          <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${info.className}`}>
+            {isRequesting && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+            {info.label}
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-4">
+        <div className={`flex items-start gap-3 rounded-lg border p-3 ${
+          status === "success" ? "border-emerald-200 bg-emerald-50"
+          : status === "generation_failed" ? "border-red-200 bg-red-50"
+          : status === "upload_failed" || status === "uploaded_status_pending" || status === "dry_run" ? "border-amber-200 bg-amber-50"
+          : "border-[#1B2A4A]/10 bg-[#1B2A4A]/[0.03]"
+        }`}>
+          {status === "success"
+            ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            : status === "generation_failed"
+            ? <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+            : status === "upload_failed" || status === "uploaded_status_pending"
+            ? <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            : <Info className="w-4 h-4 text-[#1B2A4A] shrink-0 mt-0.5" />}
+          <div className="min-w-0">
+            <p className="text-xs leading-relaxed">{info.message}</p>
+            {packageResult?.error && <p className="text-xs mt-1.5 text-red-700 break-words">{packageResult.error}</p>}
+          </div>
+        </div>
+
+        {hasPackage && packageResult && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-xs">
+            <ArtworkPackageField
+              label="Effective dimensions"
+              value={`${packageResult.effective_size} px · ${packageResult.target.print_width_in}×${packageResult.target.print_height_in} in · ${packageResult.target.dpi} dpi`}
+            />
+            <ArtworkPackageField
+              label="Provider / model"
+              value={`${packageResult.provider} · ${packageResult.model}${packageResult.model_version ? ` (${packageResult.model_version})` : ""}`}
+            />
+            <ArtworkPackageField label="Quality" value={packageResult.quality} />
+            <ArtworkPackageField label="Filename" value={packageResult.filename} mono />
+            <ArtworkPackageField
+              label="Cost estimate"
+              value={cost.totalUsd === null ? "Unavailable" : `$${cost.totalUsd.toFixed(2)} projected`}
+              note={cost.message ?? undefined}
+            />
+            <ArtworkPackageField
+              label="Upload state"
+              value={status.replaceAll("_", " ")}
+              note={packageResult.notion_upload_id ? `Notion upload: ${packageResult.notion_upload_id.slice(0, 16)}…` : undefined}
+            />
+          </div>
+        )}
+
+        {visualAssetUrl && (
+          <a href={visualAssetUrl} target="_blank" rel="noopener noreferrer" className="inline-flex">
+            <Button size="sm" variant="outline" className="gap-1.5">
+              <ExternalLink className="w-3.5 h-3.5" />Open Final Visual Asset in Notion
+            </Button>
+          </a>
+        )}
+
+        {!approved && !canFinishExistingPackage && status !== "success" && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div>
+              <p className="text-xs font-semibold text-amber-800">Approval required before final artwork</p>
+              <p className="text-xs text-amber-700 mt-0.5">Approve the Specification Board in Notion, then refresh this status before requesting a package.</p>
+            </div>
+            {onRefreshApproval && (
+              <Button type="button" size="sm" variant="outline" onClick={onRefreshApproval} disabled={isRefreshingApproval} className="gap-1.5 shrink-0">
+                {isRefreshingApproval
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Refreshing…</>
+                  : <><RefreshCw className="w-3.5 h-3.5" />Refresh Approval</>}
+              </Button>
+            )}
+          </div>
+        )}
+
+        {status !== "success" && status !== "in_progress" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {!isStatusOnlyRetry && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!canRequest}
+                onClick={() => onRequest?.(true)}
+                className="gap-2"
+              >
+                <FileText className="w-4 h-4" />Plan Final Artwork (Dry Run)
+              </Button>
+            )}
+            <Button
+              type="button"
+              disabled={!canRequest}
+              onClick={() => onRequest?.(false)}
+              className="bg-[#1B2A4A] hover:bg-[#2a3d6a] text-white gap-2"
+            >
+              {isRequesting
+                ? <><Loader2 className="w-4 h-4 animate-spin" />Working…</>
+                : isStatusOnlyRetry
+                ? <><RefreshCw className="w-4 h-4" />Retry Status Update</>
+                : status === "upload_failed"
+                ? <><RefreshCw className="w-4 h-4" />Retry Final Package</>
+                : <><ImagePlus className="w-4 h-4" />Request Final Artwork</>}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ArtworkPackageField({
+  label,
+  value,
+  note,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
+      <p className={`font-medium break-words ${mono ? "font-mono" : ""}`}>{value}</p>
+      {note && <p className="text-[10px] text-muted-foreground mt-0.5 break-words">{note}</p>}
+    </div>
+  );
+}
+
 function FuturePlaceholderPanel({ stage }: { stage: PipelineStageKey }) {
   const labels: Partial<Record<PipelineStageKey, { title: string; description: string }>> = {
     "specification-review": { title: "Specification Review",  description: "A human reviewer opens the generated Specification Board in Notion and approves the compiled prompt before artwork generation begins." },
@@ -3688,9 +4115,9 @@ function InspectorTab({
     ...(prov?.component_set ? [{ label: "Component Set", value: prov.component_set, source: "Production Specification", status: "ok" as const }] : []),
     {
       label: "Prompt Modules",
-      value: (prov?.prompt_modules.length ?? 0) > 0 ? `${prov!.prompt_modules.length} module${prov!.prompt_modules.length !== 1 ? "s" : ""} loaded` : "None linked",
+      value: (prov?.prompt_modules?.length ?? 0) > 0 ? `${prov!.prompt_modules!.length} module${prov!.prompt_modules!.length !== 1 ? "s" : ""} loaded` : "None linked",
       source: "Prompt Module records",
-      status: (prov?.prompt_modules.length ?? 0) > 0 ? "ok" : "warning",
+      status: (prov?.prompt_modules?.length ?? 0) > 0 ? "ok" : "warning",
       children: (prov?.prompt_modules ?? []).map((name, i) => ({
         label: name,
         notionId: prov?.prompt_module_notion_ids[i],
@@ -3708,9 +4135,9 @@ function InspectorTab({
     },
     {
       label: "Canon",
-      value: (prov?.canon_records.length ?? 0) > 0 ? `${prov!.canon_records.length} record${prov!.canon_records.length !== 1 ? "s" : ""}` : "No canon records",
+      value: (prov?.canon_records?.length ?? 0) > 0 ? `${prov!.canon_records!.length} record${prov!.canon_records!.length !== 1 ? "s" : ""}` : "No canon records",
       source: "Canon Records",
-      status: (prov?.canon_records.length ?? 0) > 0 ? "ok" : "warning",
+      status: (prov?.canon_records?.length ?? 0) > 0 ? "ok" : "warning",
       children: (prov?.canon_records ?? []).map((name, i) => ({ label: name, notionId: prov?.canon_record_notion_ids[i] })),
     },
     {
@@ -4178,8 +4605,8 @@ function TechnicalTab({ result }: { result: CompileResponse }) {
     { label: "Compilation Timestamp",  value: fmtTs(prov?.compilation_timestamp) },
     { label: "Prompt Length",          value: result.compiled_prompt ? `${result.compiled_prompt.length.toLocaleString()} chars` : "—" },
     { label: "Prompt Hash",            value: result.prompt_hash ?? "—" },
-    { label: "Prompt Modules Loaded",  value: String(prov?.prompt_modules.length ?? "—") },
-    { label: "Canon Records",          value: String(prov?.canon_records.length ?? "—") },
+    { label: "Prompt Modules Loaded",  value: String(prov?.prompt_modules?.length ?? "—") },
+    { label: "Canon Records",          value: String(prov?.canon_records?.length ?? "—") },
   ];
 
   const idRows: Array<{ label: string; value?: string }> = [

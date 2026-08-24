@@ -305,6 +305,39 @@ describe("WorldSmith final production packages", () => {
     expect(mockUpdatePage).not.toHaveBeenCalled();
   });
 
+  it("blocks a failed-generation retry after final-art approval is withdrawn", async () => {
+    process.env.USE_LOCAL_RESOLVER = "true";
+    process.env.NOTION_VISUAL_ASSETS_DB_ID = "visual-assets-db";
+    mockSpecStatus.value = "Approved";
+    mockGenerateImage.mockRejectedValueOnce(new Error("provider temporarily unavailable"));
+
+    const first = await request(makeApp())
+      .post("/api/v1/production-packages")
+      .send({ production_spec_id: "spec-1" });
+
+    expect(first.status).toBe(200);
+    expect(first.body.production_package).toMatchObject({
+      status: "generation_failed",
+      production_art_status: "not_started",
+      error: "provider temporarily unavailable",
+    });
+    expect(mockGenerateImage).toHaveBeenCalledTimes(1);
+
+    mockSpecStatus.value = "In Review";
+    const retry = await request(makeApp())
+      .post("/api/v1/production-packages")
+      .send({ production_spec_id: "spec-1" });
+
+    expect(retry.status).toBe(422);
+    expect(retry.body.error_code).toBe("FINAL_ARTWORK_APPROVAL_REQUIRED");
+    expect(retry.body.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "FINAL_ARTWORK_APPROVAL_REQUIRED" }),
+      ]),
+    );
+    expect(mockGenerateImage).toHaveBeenCalledTimes(1);
+  });
+
   it("treats an upload failure as fatal and never advances final-art status", async () => {
     mockAttach.mockRejectedValueOnce(new Error("Notion attach failed"));
 

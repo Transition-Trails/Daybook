@@ -195,6 +195,11 @@ describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
     expect(renderedBoard?.negativeConstraints).toBe("Compiled no text.");
     expect(renderedBoard?.usesCompiledSections).toBe(true);
     expect(renderedBoard?.canonNames).toEqual(["Compiled Quiet Gate canon policy."]);
+    expect(renderedBoard?.generationTarget).toMatchObject({
+      size: "1808x1808",
+      dpi: 150,
+      requestedDpi: 150,
+    });
     expect(mockGetPage).not.toHaveBeenCalled();
     expect(mockUpload).not.toHaveBeenCalled();
     expect(mockAttach).not.toHaveBeenCalled();

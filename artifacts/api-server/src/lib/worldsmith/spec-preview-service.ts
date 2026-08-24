@@ -115,8 +115,8 @@ const VICTORIAN_STYLE_PREAMBLE =
   "NO razor-sharp focus, NO modern objects, NO high-contrast commercial lighting. " +
   "Style must read as hand-made illustration, never as a photograph or 3D render.";
 
-/** Derive a DALL-E prompt for the central concept visual using Victorian archival style. */
-function buildConceptDallePrompt(data: SpecBoardData): string {
+/** Derive a prompt for the central concept visual using Victorian archival style. */
+function buildConceptImagePrompt(data: SpecBoardData): string {
   const isConstruction = /pocket|envelope|tag\b|tab\b|label|tuck/i.test(data.componentType);
 
   if (isConstruction) {
@@ -897,24 +897,24 @@ export async function runSpecPreview(
     throw new SpecPreviewError("GENERATION_FAILED", `Spec board render failed: ${String(svgErr)}`);
   }
 
-  // ── 6. Generate and composite central concept visual via DALL-E ───────────
+  // ── 6. Generate and composite the central concept visual ─────────────────
   let finalPng = boardPng;
-  let dalleApplied = false;
-  let dalleErrorMsg: string | undefined;
+  let conceptImageApplied = false;
+  let conceptImageError: string | undefined;
   let generationMetadata: WorldsmithImageGeneration["metadata"];
   let detailCropSourceRects: ReadonlyArray<{ x: number; y: number; width: number; height: number }> = [];
 
   try {
-    const dallePrompt = buildConceptDallePrompt(finalBoardData);
+    const conceptImagePrompt = buildConceptImagePrompt(finalBoardData);
     const generatedImage = await generateWorldsmithImage({
-      prompt: dallePrompt,
+      prompt: conceptImagePrompt,
       componentType: finalBoardData.componentType,
       orientation: finalBoardData.orientation,
       logContext: { specPageId },
     });
     generationMetadata = generatedImage.metadata;
     if (generatedImage.error) {
-      dalleErrorMsg = generatedImage.error;
+      conceptImageError = generatedImage.error;
       finalPng = boardPng;
     } else if (!generatedImage.buffer) {
       throw new Error("Image generation returned no image data");
@@ -942,20 +942,20 @@ export async function runSpecPreview(
         .png()
         .toBuffer();
 
-      dalleApplied = true;
-      logger.info({ specPageId }, "DALL-E concept visual composited successfully");
+      conceptImageApplied = true;
+      logger.info({ specPageId }, "Generated concept visual composited successfully");
     }
-  } catch (dalleErr) {
-    dalleErrorMsg = String(dalleErr);
-    logger.warn({ err: dalleErr, specPageId }, "DALL-E concept visual failed — using spec board without central image");
+  } catch (imageErr) {
+    conceptImageError = String(imageErr);
+    logger.warn({ err: imageErr, specPageId }, "Generated concept visual failed — using spec board without central image");
     // Non-fatal: continue with the plain spec board (placeholder remains)
     finalPng = boardPng;
   }
 
-  // ── 6b. Auto-crop detail references from the DALL-E image ──────────────────
+  // ── 6b. Auto-crop detail references from the concept image ────────────────
   // Crop 4 regions from the concept image area in the board and composite them
   // into the DETAIL_CROP_DEST_AREAS in the bottom technical strip.
-  if (dalleApplied) {
+  if (conceptImageApplied) {
     try {
       const composites: Array<{ input: Buffer; left: number; top: number; blend: "over" }> = [];
       await Promise.all(
@@ -1032,12 +1032,12 @@ export async function runSpecPreview(
   }
 
   // ── 9. Persist audit record ───────────────────────────────────────────────
-  // Use "success_placeholder" when DALL-E was skipped/failed so the idempotency
+  // Use "success_placeholder" when concept generation was skipped/failed so the idempotency
   // check (which only matches "success") won't block future regeneration attempts.
-  // This means every call will retry DALL-E until it actually succeeds.
+  // This means every call will retry concept generation until it actually succeeds.
   const finalStatus = statusUpdateFailed
     ? "status_update_failed"
-    : dalleApplied
+    : conceptImageApplied
       ? "success"
       : "success_placeholder";
   const newStatus = statusUpdateFailed ? (previousStatus || "") : "Ready for Review";
@@ -1054,12 +1054,12 @@ export async function runSpecPreview(
     previousStatus,
     newStatus,
     notionPageUrl: pageUrl,
-    error: dalleApplied ? undefined : dalleErrorMsg,
+    error: conceptImageApplied ? undefined : conceptImageError,
     outputMetadata: { ...preparedPreview.metadata, ...(generationMetadata ? { generation: generationMetadata } : {}) },
   });
 
   logger.info(
-    { specPageId, promptHash, filename, uploadId, previousStatus, newStatus, dalleApplied },
+    { specPageId, promptHash, filename, uploadId, previousStatus, newStatus, conceptImageApplied },
     "WorldSmith spec preview complete",
   );
 
@@ -1078,8 +1078,8 @@ export async function runSpecPreview(
     new_status: newStatus,
     upload_status: "success",
     notion_upload_id: uploadId,
-    dalle_skipped: !dalleApplied,
-    dalle_error: dalleApplied ? undefined : dalleErrorMsg,
+    dalle_skipped: !conceptImageApplied,
+    dalle_error: conceptImageApplied ? undefined : conceptImageError,
   };
 }
 
@@ -1088,7 +1088,7 @@ export async function runSpecPreview(
 /**
  * Re-attempt only the Notion status write for a spec preview whose image was
  * already uploaded successfully but whose status transition failed
- * (upload_success_status_failed).  Skips DALL-E generation and Notion upload
+ * (upload_success_status_failed). Skips concept-image generation and Notion upload
  * entirely — zero additional cost.
  */
 export async function retrySpecPreviewStatus(

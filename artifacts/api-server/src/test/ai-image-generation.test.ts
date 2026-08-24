@@ -51,6 +51,28 @@ describe("shared GPT Image generation", () => {
     });
   });
 
+  it("accepts a square request within the verified normal pixel budget", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(imageResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateImage("A square WorldSmith hero paper study", {
+      size: "1920x1920",
+      quality: "low",
+    })).resolves.toMatchObject({
+      model: "gpt-image-2",
+      settings: { size: "1920x1920", quality: "low" },
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toMatchObject({
+      size: "1920x1920",
+    });
+  });
+
+  it("rejects sizes above the normal pixel budget", () => {
+    expect(() => resolveImageGenerationMetadata({ size: "1936x1936" }))
+      .toThrow('Unsupported GPT Image 2 size "1936x1936"');
+  });
+
   it("makes legacy model mappings visible in the resolved effective settings", () => {
     process.env.WS_IMAGE_MODEL = "gpt-image-1";
     expect(resolveImageGenerationMetadata({ size: "1792x1024", quality: "hd" }))

@@ -260,9 +260,9 @@ interface SpecPreviewResult {
   dry_run_payload?: Record<string, string>;
   proposed_status_change?: { from: string; to: string };
   error?: string;
-  /** true when DALL-E was skipped or failed — spec board has a placeholder image */
+  /** Compatibility field: true when concept-image generation kept the board placeholder. */
   dalle_skipped?: boolean;
-  /** DALL-E error message when dalle_skipped is true and a call was attempted */
+  /** Compatibility field: concept-image error when dalle_skipped is true. */
   dalle_error?: string;
 }
 
@@ -486,7 +486,7 @@ export default function WorldSmithCompiler() {
   });
 
   // ── Retry status-only mutation ──────────────────────────────────────────────
-  // Re-attempts only the Notion status write — no DALL-E call, no upload cost.
+  // Re-attempts only the Notion status write — no image call or upload cost.
   const retryStatusMutation = useMutation({
     mutationFn: ({ specId, hash }: { specId: string; hash: string }) =>
       worldsmithApi.retryStatusUpdate(specId, hash),
@@ -2353,7 +2353,7 @@ function NextAfterThisCard({ result }: { result: CompileResponse }) {
     : [
         { label: "Generate Specification Board", note: "Upload 1600×2000 px board to Notion" },
         { label: "Specification Review",         note: "Human review in Notion" },
-        { label: "Artwork Generation",           note: "DALL-E HD render" },
+        { label: "Artwork Generation",           note: "Configured AI image render" },
         { label: "Artwork QA",                   note: "Quality check and approval" },
         { label: "Publishing Approval",          note: "Final sign-off" },
         { label: "Published",                    note: "Volume progress advances" },
@@ -3707,20 +3707,20 @@ function SpecificationReviewPanel({
         </CardContent>
       </Card>
 
-      {/* DALL-E placeholder warning — shown when concept image was not generated */}
+      {/* Concept-image placeholder warning — shown when generation did not complete */}
       {previewResult.dalle_skipped && (
         <div className="flex items-start gap-3 p-4 rounded-lg border border-amber-200 bg-amber-50/40">
           <ImageOff className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0 space-y-2">
             <p className="text-sm font-semibold text-amber-800">Concept Image Placeholder</p>
             <p className="text-xs text-amber-700 leading-relaxed">
-              The specification board was uploaded with a placeholder — the DALL-E concept image was not generated.
+              The specification board was uploaded with a placeholder — the concept image was not generated.
               {previewResult.dalle_error
                 ? ` Reason: ${previewResult.dalle_error}`
                 : " Check that the OPENAI_API_KEY secret is configured."}
             </p>
             <p className="text-xs text-amber-600">
-              Click <strong>Generate New Board</strong> to retry — a fresh generation will attempt DALL-E again.
+              Click <strong>Generate New Board</strong> to retry — a fresh image-generation request will be made.
             </p>
           </div>
           {onGenerateNew && (

@@ -37,7 +37,10 @@ const MIN_SIDE = 512;
 
 export interface WorldsmithImageTarget {
   size: string;
+  /** Effective, conservative DPI implied by the generated pixel dimensions. */
   dpi: number;
+  /** Configured target DPI before a provider-safe resolution cap is applied. */
+  requestedDpi: number;
   printWidthIn: number;
   printHeightIn: number;
   orientation: "landscape" | "portrait" | "square";
@@ -54,6 +57,25 @@ function isExperimentalSizeEnabled(): boolean {
 
 function roundToSupportedDimension(value: number): number {
   return Math.max(MIN_SIDE, Math.round(value / ROUND_TO) * ROUND_TO);
+}
+
+function clampRoundedTargetToPixelBudget(
+  initialWidth: number,
+  initialHeight: number,
+  maxPixels: number,
+): readonly [number, number] {
+  let width = initialWidth;
+  let height = initialHeight;
+  while (width * height > maxPixels) {
+    if (width >= height && width > MIN_SIDE) {
+      width -= ROUND_TO;
+    } else if (height > MIN_SIDE) {
+      height -= ROUND_TO;
+    } else {
+      break;
+    }
+  }
+  return [width, height];
 }
 
 /** Resolve a safe production render target from the component's print dimensions. */
@@ -77,16 +99,24 @@ export function getWorldsmithImageTarget(
   const orientation = printWidthIn === printHeightIn
     ? "square"
     : printWidthIn > printHeightIn ? "landscape" : "portrait";
-  const dpi = configuredDpi();
-  const maxLongSide = isExperimentalSizeEnabled() ? 3840 : 2560;
-  const maxShortSide = isExperimentalSizeEnabled() ? 2160 : 1440;
-  const longSide = Math.max(printWidthIn, printHeightIn) * dpi;
-  const shortSide = Math.min(printWidthIn, printHeightIn) * dpi;
-  const scale = Math.min(1, maxLongSide / longSide, maxShortSide / shortSide);
-
-  const width = roundToSupportedDimension(printWidthIn * dpi * scale);
-  const height = roundToSupportedDimension(printHeightIn * dpi * scale);
-  return { size: `${width}x${height}`, dpi, printWidthIn, printHeightIn, orientation };
+  const requestedDpi = configuredDpi();
+  const maxPixels = isExperimentalSizeEnabled() ? 3840 * 2160 : 2560 * 1440;
+  const requestedPixels = printWidthIn * requestedDpi * printHeightIn * requestedDpi;
+  const scale = Math.min(1, Math.sqrt(maxPixels / requestedPixels));
+  const [width, height] = clampRoundedTargetToPixelBudget(
+    roundToSupportedDimension(printWidthIn * requestedDpi * scale),
+    roundToSupportedDimension(printHeightIn * requestedDpi * scale),
+    maxPixels,
+  );
+  const effectiveDpi = Math.floor(Math.min(width / printWidthIn, height / printHeightIn));
+  return {
+    size: `${width}x${height}`,
+    dpi: effectiveDpi,
+    requestedDpi,
+    printWidthIn,
+    printHeightIn,
+    orientation,
+  };
 }
 
 function configuredPreviewQuality(): ImageGenerationQuality {
@@ -159,7 +189,7 @@ export async function generateWorldsmithImage(
   try {
     logger.info(
       { ...context, promptLength: input.prompt.length },
-      "Calling DALL-E for concept visual",
+      "Calling configured image model for concept visual",
     );
     const generated = await generateImage(input.prompt, {
       size: generation.metadata.settings.size,
@@ -176,7 +206,7 @@ export async function generateWorldsmithImage(
     const error = String(err);
     logger.warn(
       { ...context, err },
-      "DALL-E concept visual failed — using the caller's placeholder",
+      "Concept image generation failed — using the caller's placeholder",
     );
     return { target: generation.target, error };
   }

@@ -1,15 +1,15 @@
 /**
- * WorldSmith spec-preview-service — step 6b: DALL-E detail-crop compositing.
+ * WorldSmith spec-preview-service — step 6b: concept-image detail-crop compositing.
  *
- * Confirms that after a successful DALL-E generation the service auto-crops
- * 4 regions from the fitted DALL-E image and composites
+ * Confirms that after successful concept-image generation the service auto-crops
+ * 4 regions from the fitted image and composites
  * them into DETAIL_CROP_DEST_AREAS in the bottom technical strip.
  *
- * When DALL-E fails the crop step must be skipped entirely (non-fatal).
+ * When image generation fails the crop step must be skipped entirely (non-fatal).
  *
  * Strategy:
  *   - Mock `getPage` to return a minimal spec page.
- *   - Mock `callDallE` to return a successful base64 PNG data URL.
+ *   - Mock image generation to return a successful base64 PNG data URL.
  *   - Mock `sharp` so the resize/extract/composite chain is captured.
  *   - Mock `renderSpecBoardToPng` (resvg) to return a dummy PNG.
  *   - Mock DB so no real rows are written.
@@ -213,7 +213,7 @@ function makeSpecPage() {
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
-describe("spec-preview-service — step 6b: DALL-E detail-crop compositing", () => {
+describe("spec-preview-service — step 6b: concept-image detail-crop compositing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGenerateImage.mockResolvedValue({
@@ -227,7 +227,7 @@ describe("spec-preview-service — step 6b: DALL-E detail-crop compositing", () 
     mockGetPageText.mockResolvedValue("");
   });
 
-  it("calls sharp.composite with 4 inputs when DALL-E succeeds", async () => {
+  it("calls sharp.composite with 4 inputs when concept-image generation succeeds", async () => {
     const result = await runSpecPreview({
       spec_page_id: SPEC_PAGE_ID,
       prompt_hash:  "hash-detail-crop-001",
@@ -235,7 +235,7 @@ describe("spec-preview-service — step 6b: DALL-E detail-crop compositing", () 
 
     expect(result.status).toMatch(/^(success|upload_success_status_failed)$/);
 
-    // There are two composite calls: one for the DALL-E image itself (step 6),
+    // There are two composite calls: one for the concept image itself (step 6),
     // and one (or more) for the label overlay, and one for the 4 detail crops (step 6b).
     // We assert that at least one composite call carried 4 inputs.
     const allCalls = mockCompositeSpy.mock.calls as Array<
@@ -287,8 +287,8 @@ describe("spec-preview-service — step 6b: DALL-E detail-crop compositing", () 
     }
   });
 
-  it("skips detail crops when DALL-E fails (non-fatal)", async () => {
-    // Make DALL-E fail for this test only
+  it("skips detail crops when image generation fails (non-fatal)", async () => {
+    // Make concept-image generation fail for this test only
     mockGenerateImage.mockRejectedValueOnce(new Error("Image generation disabled in test"));
 
     // Must not throw

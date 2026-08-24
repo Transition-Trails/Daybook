@@ -520,7 +520,7 @@ export interface SpecBoardData {
   canonRecordCount: number;
   // Colors from style guide (if available)
   colorSwatches?: Array<{ name: string; hex: string }>;
-  // Prompt hash passthrough (for DALL-E prompt derivation)
+  // Prompt hash passthrough (for concept-image prompt derivation)
   promptHash: string;
   // Enriched fields populated async by spec-preview-service
   collection?: string;           // Collection / sub-world name (may require relation fetch)
@@ -535,7 +535,10 @@ export interface SpecBoardData {
   /** Actual capped render target shown on the review board. */
   generationTarget?: {
     size: string;
+    /** Effective, conservative DPI implied by the generated dimensions. */
     dpi: number;
+    /** Configured target DPI before resolution capping, when available. */
+    requestedDpi?: number;
     printWidthIn: number;
     printHeightIn: number;
   };
@@ -565,9 +568,9 @@ export interface SpecPreviewResult {
   dry_run_payload?: Record<string, string>;
   proposed_status_change?: { from: string; to: string };
   error?: string;
-  /** true when the central concept image placeholder was kept (DALL-E was skipped or failed) */
+  /** Compatibility field: true when the central concept image placeholder was kept. */
   dalle_skipped?: boolean;
-  /** The DALL-E error message when dalle_skipped is true and a call was attempted */
+  /** Compatibility field: concept-image error message when dalle_skipped is true. */
   dalle_error?: string;
 }
 

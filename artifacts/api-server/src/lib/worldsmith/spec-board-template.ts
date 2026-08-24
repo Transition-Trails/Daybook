@@ -10,8 +10,8 @@
  *   - Footer: "INTERNAL PRODUCTION SPECIFICATION — FINAL ARTWORK GENERATED SEPARATELY"
  *
  * Board: 2400 × 2500 px
- * The DALL-E concept image is composited at CONCEPT_IMAGE_AREA by spec-preview-service.ts.
- * Detail crop thumbnails are composited into DETAIL_CROP_DEST_AREAS from the DALL-E image.
+ * The generated concept image is composited at CONCEPT_IMAGE_AREA by spec-preview-service.ts.
+ * Detail crop thumbnails are composited into DETAIL_CROP_DEST_AREAS from the concept image.
  */
 
 /** Exported version string — bump when the layout contract changes. */
@@ -44,7 +44,7 @@ const IMG_W  = BOARD_W - IMG_X - MARGIN; // 1504
 const IMG_Y  = TOP_Y;
 const IMG_H  = TOP_H;
 
-/** Pixel rectangle where the DALL-E concept image is composited by sharp. */
+/** Pixel rectangle where the generated concept image is composited by sharp. */
 export const CONCEPT_IMAGE_AREA = {
   x: IMG_X,
   y: IMG_Y,
@@ -72,13 +72,13 @@ const FTR_Y  = CMP_Y + CMP_H + 10; // 2420
 export type BoardRect = Readonly<{ x: number; y: number; width: number; height: number }>;
 
 /**
- * The template owns this caption strip, so DALL-E artwork and all derived crops
+ * The template owns this caption strip, so concept artwork and all derived crops
  * must remain above it. Keeping it outside the rendered image also preserves the
  * specimen identifier for human review.
  */
 export const CONCEPT_IMAGE_CAPTION_HEIGHT = 38;
 
-/** Area available to the fitted DALL-E bitmap, excluding frame padding/caption. */
+/** Area available to the fitted concept bitmap, excluding frame padding/caption. */
 export const CONCEPT_IMAGE_RENDER_AREA: BoardRect = {
   x: IMG_X + 5,
   y: IMG_Y + 5,
@@ -88,7 +88,7 @@ export const CONCEPT_IMAGE_RENDER_AREA: BoardRect = {
 
 /**
  * Calculates the actual board rectangle occupied by a fitted source image.
- * The service uses the same dimensions when it composites DALL-E output, so
+ * The service uses the same dimensions when it composites generated output, so
  * crops can never include the empty panel margins or caption strip.
  */
 export function getFittedConceptImageBox(sourceWidth: number, sourceHeight: number): BoardRect {
@@ -110,7 +110,7 @@ export function getFittedConceptImageBox(sourceWidth: number, sourceHeight: numb
 
 /**
  * Four source rectangles inside the actual composited image rectangle.
- * spec-preview-service.ts crops these from the board after DALL-E compositing
+ * spec-preview-service.ts crops these from the board after concept-image compositing
  * and scales them into DETAIL_CROP_DEST_AREAS.
  */
 export function getDetailCropSourceRects(imageBox: BoardRect): ReadonlyArray<BoardRect> {
@@ -546,7 +546,7 @@ function bottomStrip(data: SpecBoardData): string {
     ? `${generationTarget.size} px (GPT Image render target)`
     : "Resolved at image generation";
   const printReference = generationTarget
-    ? `${generationTarget.printWidthIn} × ${generationTarget.printHeightIn} in @ ${generationTarget.dpi} DPI; upscale for master`
+    ? `${generationTarget.size} px · ${generationTarget.printWidthIn} × ${generationTarget.printHeightIn} in · upscale for master`
     : "Component-specific; upscale for master";
   const componentSize = generationTarget
     ? `${generationTarget.printWidthIn} × ${generationTarget.printHeightIn} in`

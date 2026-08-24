@@ -127,6 +127,7 @@ import {
   buildSpecBoardSvg,
   TEMPLATE_VERSION,
 } from "../lib/worldsmith/spec-board-template.js";
+import { getWorldsmithImageTarget } from "../lib/worldsmith/image-targets.js";
 import { runSpecPreview } from "../lib/worldsmith/spec-preview-service.js";
 import type { SpecBoardData } from "../lib/worldsmith/types.js";
 
@@ -443,6 +444,20 @@ describe("buildSpecBoardSvg — Header subtitle: Collection", () => {
     // V3 fallback: "WORLDSMITH LIVING ARCHIVE  ·  THE CURATOR'S DESK"
     expect(svg.toUpperCase()).toContain("WORLDSMITH LIVING ARCHIVE");
     expect(svg.toUpperCase()).toContain("CURATOR");
+  });
+});
+
+describe("buildSpecBoardSvg — effective image target", () => {
+  it("prints the generated dimensions and print reference without claiming a mismatched DPI", () => {
+    const target = getWorldsmithImageTarget("Hero Paper");
+    const svg = buildSpecBoardSvg(makeBoard({
+      componentType: "Hero Paper",
+      generationTarget: target,
+    }));
+
+    expect(svg).toContain(`${target.size} px`);
+    expect(svg).toContain(`${target.printWidthIn} × ${target.printHeightIn} in`);
+    expect(svg).not.toContain(`${target.dpi} DPI`);
   });
 });
 

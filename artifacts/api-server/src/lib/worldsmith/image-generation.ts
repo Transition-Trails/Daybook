@@ -61,18 +61,20 @@ function validateGptImage2Size(size: string): string {
   const height = Number(match[2]);
   const ratio = width / height;
   const experimental = process.env.WS_IMAGE_ALLOW_EXPERIMENTAL_SIZES === "true";
-  const maxLongSide = experimental ? 3840 : 2560;
-  const maxShortSide = experimental ? 2160 : 1440;
+  // Verified against the Replit AI proxy on 2026-08-24: gpt-image-2 accepts
+  // a normal-mode 1920x1920 request. Treat 2560x1440 as a pixel budget, not
+  // independent long/short-side limits, so square WorldSmith artwork retains
+  // the same permitted resolution as a landscape render.
+  const maxPixels = experimental ? 3840 * 2160 : 2560 * 1440;
   if (
     width % 16 !== 0 ||
     height % 16 !== 0 ||
     ratio < 1 / 3 ||
     ratio > 3 ||
-    Math.max(width, height) > maxLongSide ||
-    Math.min(width, height) > maxShortSide
+    width * height > maxPixels
   ) {
-    const ceiling = experimental ? "3840x2160" : "2560x1440";
-    throw new Error(`Unsupported GPT Image 2 size "${size}"; dimensions must be multiples of 16, ratio 1:3–3:1, and within ${ceiling}.`);
+    const ceiling = experimental ? "8,294,400 pixels (3840x2160)" : "3,686,400 pixels (2560x1440)";
+    throw new Error(`Unsupported GPT Image 2 size "${size}"; dimensions must be multiples of 16, ratio 1:3–3:1, and within a ${ceiling} budget.`);
   }
   return size;
 }

@@ -30,6 +30,26 @@ complete legacy schema cannot be recovered, apply the tracked migrations to a
 clean database before restoring its application data through an audited
 recovery process.
 
+### Recovering the known older ledger order
+
+Older shared development databases can contain the complete tracked migration
+history in the historical order that migrations were introduced, rather than
+the checked-in journal order. Run the normal command below before retrying a
+deployment check:
+
+```bash
+pnpm --filter @workspace/db run migrate
+pnpm --filter @workspace/db run verify-migration
+```
+
+The preparation step recognizes only that exact historical sequence (plus a
+contiguous current suffix) and normalizes it transactionally. It does not
+accept an unknown, duplicate, missing, or otherwise reordered ledger; the
+strict verifier continues to reject those histories. Do not insert, delete, or
+reorder migration-ledger rows by hand. If the normal command does not report
+that it normalized the known order, use the partial-database recovery process
+above instead.
+
 For the edition catalog's world filter and WorldSmith's current schema, run:
 
 ```bash

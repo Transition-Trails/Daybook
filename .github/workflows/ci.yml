@@ -174,6 +174,8 @@ jobs:
           BASELINE_URL="${DATABASE_URL%/daybook_ci}/daybook_legacy_base"
           PUSHED_URL="${DATABASE_URL%/daybook_ci}/daybook_legacy_pushed"
           PARTIAL_URL="${DATABASE_URL%/daybook_ci}/daybook_partial"
+          LEGACY_LEDGER_URL="${DATABASE_URL%/daybook_ci}/daybook_legacy_ledger"
+          UNKNOWN_LEDGER_URL="${DATABASE_URL%/daybook_ci}/daybook_unknown_ledger"
 
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_legacy_base'
           psql "$BASELINE_URL" -v ON_ERROR_STOP=1 -f lib/db/drizzle/0000_verify-canon-relation-primary-key.sql
@@ -185,6 +187,72 @@ jobs:
           DATABASE_URL="$PUSHED_URL" pnpm --filter @workspace/db run migrate
           DATABASE_URL="$PUSHED_URL" pnpm --filter @workspace/db run verify-migration
           DATABASE_URL="$PUSHED_URL" pnpm --filter @workspace/db run migrate
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_legacy_ledger'
+          for migration in lib/db/drizzle/*.sql; do psql "$LEGACY_LEDGER_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
+          (
+            cd lib/db
+            LEGACY_LEDGER_URL="$LEGACY_LEDGER_URL" node --input-type=module <<'NODE'
+            import { createHash } from "node:crypto";
+            import { readFile } from "node:fs/promises";
+            import path from "node:path";
+            import pg from "pg";
+
+            const journal = JSON.parse(await readFile(path.join("drizzle", "meta", "_journal.json"), "utf8"));
+            const byTag = new Map(journal.entries.map(entry => [entry.tag, entry]));
+            const historicalCore = [
+              "0000_verify-canon-relation-primary-key",
+              "0002_rel-canon-columns",
+              "0004_font_catalog_notes",
+              "0005_repair_legacy_catalog_baseline",
+              "0006_repair_skipped_legacy_dependencies",
+              "0001_long_punisher",
+              "0003_font_catalog_store_ownership",
+            ];
+            const historicalOrder = [
+              ...historicalCore,
+              ...journal.entries
+                .map(entry => entry.tag)
+                .filter(tag => !historicalCore.includes(tag)),
+            ];
+            const client = new pg.Client({ connectionString: process.env.LEGACY_LEDGER_URL });
+            await client.connect();
+            try {
+              await client.query('CREATE SCHEMA "drizzle"');
+              await client.query(`
+                CREATE TABLE "drizzle"."__drizzle_migrations" (
+                  id SERIAL PRIMARY KEY,
+                  hash text NOT NULL,
+                  created_at bigint
+                )
+              `);
+              for (const tag of historicalOrder) {
+                const entry = byTag.get(tag);
+                const sql = await readFile(path.join("drizzle", `${tag}.sql`));
+                await client.query(
+                  'INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES ($1, $2)',
+                  [createHash("sha256").update(sql).digest("hex"), entry.when],
+                );
+              }
+            } finally {
+              await client.end();
+            }
+NODE
+          )
+          DATABASE_URL="$LEGACY_LEDGER_URL" pnpm --filter @workspace/db run migrate
+          DATABASE_URL="$LEGACY_LEDGER_URL" pnpm --filter @workspace/db run verify-migration
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_unknown_ledger'
+          psql "$UNKNOWN_LEDGER_URL" -v ON_ERROR_STOP=1 -c "
+            CREATE SCHEMA drizzle;
+            CREATE TABLE drizzle.__drizzle_migrations (id serial PRIMARY KEY, hash text NOT NULL, created_at bigint);
+            INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('unrecognized-ledger-entry', 1);
+          "
+          if DATABASE_URL="$UNKNOWN_LEDGER_URL" pnpm --filter @workspace/db run verify-migration >unknown-ledger.err 2>&1; then
+            echo "Expected an unknown migration ledger to be rejected" >&2
+            exit 1
+          fi
+          grep -q 'expected .* ledger rows' unknown-ledger.err
 
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_partial'
           psql "$PARTIAL_URL" -v ON_ERROR_STOP=1 -c 'CREATE TABLE users (id text PRIMARY KEY)'

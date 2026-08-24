@@ -10,6 +10,7 @@ const {
   mockUpdatePage,
   mockUpdateRun,
   mockSpecStatus,
+  packageClaimAttempts,
 } = vi.hoisted(() => ({
   packageRows: { value: [] as Array<Record<string, unknown>> },
   mockGenerateImage: vi.fn(),
@@ -18,6 +19,10 @@ const {
   mockUpdatePage: vi.fn(),
   mockUpdateRun: vi.fn(),
   mockSpecStatus: { value: "Draft" },
+  packageClaimAttempts: {
+    value: 0,
+    onAttempt: undefined as (() => void) | undefined,
+  },
 }));
 
 vi.mock("@workspace/db", () => {
@@ -43,6 +48,51 @@ vi.mock("@workspace/db", () => {
   };
 
   const firstRow = () => packageRows.value[0] ?? null;
+  const chunkText = (chunk: unknown): string | undefined => {
+    if (typeof chunk === "string") return chunk;
+    if (
+      typeof chunk === "object"
+      && chunk !== null
+      && "value" in chunk
+      && Array.isArray(chunk.value)
+      && chunk.value.every((value) => typeof value === "string")
+    ) {
+      return chunk.value.join("");
+    }
+    return undefined;
+  };
+  const matchesCondition = (condition: unknown, row: Record<string, unknown>): boolean => {
+    const predicates: Array<{ column: string; values: unknown[] }> = [];
+    const visit = (node: unknown) => {
+      if (
+        typeof node !== "object"
+        || node === null
+        || !("queryChunks" in node)
+        || !Array.isArray(node.queryChunks)
+      ) {
+        return;
+      }
+      const chunks = node.queryChunks;
+      const operatorIndex = chunks.findIndex((chunk) => {
+        const text = chunkText(chunk)?.trim().toLowerCase();
+        return text === "=" || text === "in";
+      });
+      if (operatorIndex > 0 && operatorIndex < chunks.length - 1) {
+        const column = chunkText(chunks[operatorIndex - 1]);
+        const value = chunks[operatorIndex + 1];
+        if (column) {
+          predicates.push({
+            column,
+            values: Array.isArray(value) ? value : [value],
+          });
+        }
+      }
+      chunks.forEach(visit);
+    };
+    visit(condition);
+    return predicates.every(({ column, values }) => values.includes(row[column]));
+  };
+
   return {
     worldsmithProductionPackagesTable: table,
     worldsmithWorldsTable: { id: "world-id", name: "world-name" },
@@ -79,16 +129,24 @@ vi.mock("@workspace/db", () => {
       select: vi.fn(() => ({
         from: () => ({
           where: () => ({
-            limit: async () => firstRow() ? [firstRow()] : [],
+            limit: async () => {
+              const row = firstRow();
+              return row ? [{ ...row }] : [];
+            },
           }),
         }),
       })),
       update: vi.fn(() => ({
         set: (patch: Record<string, unknown>) => ({
-          where: () => ({
+          where: (condition: unknown) => ({
             returning: async () => {
               const row = firstRow();
               if (!row) return [];
+              if (patch.status === "generating") {
+                packageClaimAttempts.value += 1;
+                packageClaimAttempts.onAttempt?.();
+              }
+              if (!matchesCondition(condition, row)) return [];
               Object.assign(row, patch);
               return [row];
             },
@@ -213,6 +271,8 @@ describe("WorldSmith final production packages", () => {
     vi.clearAllMocks();
     packageRows.value = [];
     mockSpecStatus.value = "Draft";
+    packageClaimAttempts.value = 0;
+    packageClaimAttempts.onAttempt = undefined;
     mockGenerateImage.mockResolvedValue({
       ...baseInput.generation,
       dataUrl: "data:image/png;base64,cHJvZHVjdGlvbi1hcnQ=",
@@ -349,6 +409,73 @@ describe("WorldSmith final production packages", () => {
       idempotent: false,
     });
     expect(packageRows.value).toHaveLength(1);
+    expect(mockGenerateImage).toHaveBeenCalledTimes(2);
+    expect(mockUpload).toHaveBeenCalledTimes(1);
+    expect(mockAttach).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares the failed package identity across concurrent restored retries and claims only one provider call", async () => {
+    process.env.USE_LOCAL_RESOLVER = "true";
+    process.env.NOTION_VISUAL_ASSETS_DB_ID = "visual-assets-db";
+    mockSpecStatus.value = "Approved";
+    mockGenerateImage.mockRejectedValueOnce(new Error("provider temporarily unavailable"));
+
+    const failed = await request(makeApp())
+      .post("/api/v1/production-packages")
+      .send({ production_spec_id: "spec-1" });
+
+    expect(failed.status).toBe(200);
+    expect(failed.body.production_package).toMatchObject({
+      status: "generation_failed",
+      production_art_status: "not_started",
+    });
+
+    let releaseProvider!: () => void;
+    let providerStarted!: () => void;
+    const providerCanFinish = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    const providerHasStarted = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    const bothClaimsAttempted = new Promise<void>((resolve) => {
+      packageClaimAttempts.onAttempt = () => {
+        if (packageClaimAttempts.value === 2) resolve();
+      };
+    });
+    mockGenerateImage.mockImplementationOnce(async () => {
+      providerStarted();
+      await providerCanFinish;
+      return {
+        ...baseInput.generation,
+        dataUrl: "data:image/png;base64,cHJvZHVjdGlvbi1hcnQ=",
+      };
+    });
+
+    const retryA = runFinalArtwork({ ...baseInput, runId: "run-concurrent-a" });
+    const retryB = runFinalArtwork({ ...baseInput, runId: "run-concurrent-b" });
+    const retries = Promise.all([retryA, retryB]);
+
+    await providerHasStarted;
+    await bothClaimsAttempted;
+    releaseProvider();
+    const [a, b] = await retries;
+
+    expect(a).toEqual(
+      expect.objectContaining({ id: packageRows.value[0]?.id }),
+    );
+    expect(b).toEqual(
+      expect.objectContaining({ id: packageRows.value[0]?.id }),
+    );
+    expect(new Set([
+      a.id,
+      b.id,
+    ]).size).toBe(1);
+    expect([
+      a.status,
+      b.status,
+    ].sort()).toEqual(["in_progress", "success"]);
+    expect(packageClaimAttempts.value).toBe(2);
     expect(mockGenerateImage).toHaveBeenCalledTimes(2);
     expect(mockUpload).toHaveBeenCalledTimes(1);
     expect(mockAttach).toHaveBeenCalledTimes(1);

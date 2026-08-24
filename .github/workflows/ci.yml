@@ -50,13 +50,13 @@ jobs:
           BASE_PATH: "/"
 
       # Upload built admin so E2E job can download it without rebuilding
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: admin-dist
           path: artifacts/admin/dist/
           retention-days: 1
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: api-dist
           path: artifacts/api-server/dist/
@@ -259,7 +259,7 @@ jobs:
           PLAYWRIGHT_BASE_URL: ${{ env.PLAYWRIGHT_BASE_URL }}
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report
@@ -267,7 +267,7 @@ jobs:
           retention-days: 7
 
       - name: Upload test traces (failures only)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-traces

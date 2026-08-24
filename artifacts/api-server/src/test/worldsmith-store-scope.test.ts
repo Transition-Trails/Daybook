@@ -114,6 +114,11 @@ const alphaApp = makeApp(actor(ids.alphaUser));
 const alphaOwnerApp = makeApp(actor(ids.alphaOwner));
 const betaApp = makeApp(actor(ids.betaUser));
 const disabledApp = makeApp(actor(ids.disabledUser));
+const superAdminApp = makeApp({
+  id: "worldsmith-scope-super-admin",
+  role: "owner",
+  platformRole: "super_admin",
+} as User);
 function scoped(
   app: express.Express,
   storeId: string,
@@ -339,15 +344,29 @@ describe("WorldSmith store-facing access", () => {
     const rejected = await scoped(alphaApp, ids.alphaStore)
       .patch(`/api/v1/worldsmith/worlds/${worldIds.alpha}`)
       .send({ typography: [{ fontId: libraryIds.hiddenFont }] });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.code).toBe("INVALID_TYPOGRAPHY");
 
-    const foreignOwnedRejected = await request(superAdminApp)
+    const [foreignOwnedRejected, crossStoreLibrary, platformFontLibrary] = await Promise.all([
+      scoped(alphaApp, ids.alphaStore)
       .patch(`/api/v1/worldsmith/worlds/${worldIds.alpha}`)
-      .send({ typography: [{ fontId: libraryIds.betaOwnedFont }] });
-    const crossStoreLibrary = await scoped(alphaApp, ids.alphaStore)
-      .get(`/api/v1/worldsmith/worlds/${worldIds.beta}/font-library`);
+        .send({ typography: [{ fontId: libraryIds.betaOwnedFont }] }),
+      scoped(alphaApp, ids.alphaStore)
+        .get(`/api/v1/worldsmith/worlds/${worldIds.beta}/font-library`),
+      request(superAdminApp)
+        .get(`/api/v1/worldsmith/worlds/${worldIds.alpha}/font-library`),
+    ]);
 
-    const fontLibrary = await request(superAdminApp)
-      .get(`/api/v1/worldsmith/worlds/${worldIds.alpha}/font-library`);
+    expect(foreignOwnedRejected.status).toBe(400);
+    expect(foreignOwnedRejected.body.code).toBe("INVALID_TYPOGRAPHY");
+    expect(crossStoreLibrary.status).toBe(404);
+    expect(crossStoreLibrary.body.code).toBe("NOT_FOUND");
+    expect(platformFontLibrary.status).toBe(200);
+    expect(platformFontLibrary.body.fonts.map((font: { id: string }) => font.id))
+      .not.toContain(libraryIds.betaOwnedFont);
+  });
+
+  it("blocks all store-facing WorldSmith routes while the feature is disabled", async () => {
     const requests = await Promise.all([
       scoped(disabledApp, ids.disabledStore).get("/api/v1/worldsmith/worlds"),
       scoped(disabledApp, ids.disabledStore)
@@ -383,11 +402,11 @@ describe("WorldSmith platform-only access", () => {
     const response = method === "get"
       ? await request(alphaApp).get(path).set("x-store-id", ids.alphaStore)
       : await request(alphaApp).post(path).set("x-store-id", ids.alphaStore).send({});
-const superAdminApp = makeApp({
-  id: "worldsmith-scope-super-admin",
-  role: "owner",
-  platformRole: "super_admin",
-} as User);
+
+    expect(response.status).toBe(403);
+  });
+
+  it("allows platform admins to reach platform-only routes", async () => {
     const [compiler, preflight, runs, assets] = await Promise.all([
       request(superAdminApp).post("/api/v1/prompt-compilations").send({}),
       request(superAdminApp).get("/api/v1/worldsmith/preflight"),
@@ -432,16 +451,16 @@ describe("WorldSmith store-scope migration", () => {
     const [worldAfterRollback] = await db
       .select({ storeId: worldsmithWorldsTable.storeId })
       .from(worldsmithWorldsTable)
-      .where(eq(worldsmithWorldsTable.id, migrationIds.rolledBackLegacyWorld));
+      .where(eq(worldsmithWorldsTable.id, migrationIds.missingHouseLegacyWorld));
     expect(worldAfterRollback?.storeId).toBeNull();
   });
 
-  it("rolls back a real legacy-world backfill when a later migration check fails", async () => {
+  it("backfills a legacy world within the migration transaction", async () => {
     await db.insert(worldsmithWorldsTable).values({
-      id: migrationIds.rolledBackLegacyWorld,
+      id: migrationIds.successfulLegacyWorld,
       storeId: null,
-      name: "Migration Rollback Legacy World",
-      code: "RBK",
+      name: "Migration Successful Legacy World",
+      code: "SUC",
     });
 
     const client = await pool.connect();
@@ -467,7 +486,7 @@ describe("WorldSmith store-scope migration", () => {
     const [worldAfterRollback] = await db
       .select({ storeId: worldsmithWorldsTable.storeId })
       .from(worldsmithWorldsTable)
-      .where(eq(worldsmithWorldsTable.id, migrationIds.rolledBackLegacyWorld));
+      .where(eq(worldsmithWorldsTable.id, migrationIds.successfulLegacyWorld));
     expect(worldAfterRollback?.storeId).toBeNull();
   });
 

@@ -13,7 +13,7 @@ import { validatePayload } from "./validator";
 import { validateCanon } from "./canon-validator";
 import { compilePrompt } from "./prompt-compiler";
 import { computePromptHash } from "./prompt-hasher";
-import { getWorldsmithPreviewGeneration } from "./image-targets";
+import { resolveWorldsmithImageGeneration } from "./image-generation-service";
 import { createRun, updateRun, failRun, getRun } from "./run-repository";
 import { upsertAsset, getAssetBySpec, buildAssetId, buildFilename } from "./daybook-adapter";
 import {
@@ -331,7 +331,7 @@ export async function runCompilation(
     const compiled = compilePrompt(chainWithBible, payload as Parameters<typeof compilePrompt>[1]);
 
     // ── Stage 10: Calculate Prompt Hash ──────────────────────────────────
-    const { target: generationTarget, metadata: generationMetadata } = getWorldsmithPreviewGeneration(
+    const { target: generationTarget, metadata: generationMetadata } = resolveWorldsmithImageGeneration(
       spec.componentType,
       spec.orientation,
     );

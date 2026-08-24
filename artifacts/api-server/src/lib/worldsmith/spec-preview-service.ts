@@ -11,14 +11,12 @@
 import { randomUUID } from "crypto";
 import sharp from "sharp";
 import { db } from "@workspace/db";
-import { worldsmithRunsTable, worldsmithSpecPreviewsTable, type SpecPreviewOutputMetadata } from "@workspace/db";
+import { worldsmithRunsTable, worldsmithSpecPreviewsTable } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
 import {
   getPage,
   getPageText,
   updatePage,
-  uploadFileToNotion,
-  attachUploadToPageProperty,
   selectProp,
   richTextProp,
   extractTitle,
@@ -28,7 +26,6 @@ import {
   extractNumber,
   type NotionPage,
 } from "../notion-client";
-import { generateImage, type ImageGenerationMetadata } from "../ai-proxy";
 import {
   renderSpecBoardToPng,
   CONCEPT_IMAGE_AREA,
@@ -41,7 +38,14 @@ import { parsePayload } from "./payload-parser";
 import { logger } from "../logger";
 import { resolveLocalPreviewContextWithWorldBible, InheritanceError } from "./inheritance-resolver";
 import { objectStorageClient, ObjectStorageService } from "../objectStorage";
-import { getWorldsmithPreviewGeneration } from "./image-targets";
+import {
+  generateWorldsmithImage,
+  resolveWorldsmithImageGeneration,
+  saveWorldsmithImageAudit,
+  uploadWorldsmithImage,
+  type WorldsmithImageAuditFields,
+  type WorldsmithImageGeneration,
+} from "./image-generation-service";
 import type { CompiledSectionRecord, ProductionSpec, SpecBoardData, SpecPreviewResult, SpecPreviewRequest, WorldBible } from "./types";
 
 // ── Custom error ─────────────────────────────────────────────────────────────
@@ -418,47 +422,10 @@ export async function getLatestLocalSpecPreview(specPageId: string): Promise<Spe
   };
 }
 
-/** Persist a preview audit record. */
-async function savePreviewRecord(fields: {
-  specPageId: string;
-  promptHash: string;
-  status: string;
-  previewFilename?: string;
-  previewObjectPath?: string;
-  provider?: string;
-  model?: string;
-  notionUploadId?: string;
-  productionItem?: string;
-  previousStatus?: string;
-  newStatus?: string;
-  notionPageUrl?: string;
-  error?: string;
-  dryRun?: boolean;
-  outputMetadata?: SpecPreviewOutputMetadata;
-}): Promise<void> {
-  try {
-    await db.insert(worldsmithSpecPreviewsTable).values({
-      id: randomUUID(),
-      specPageId: fields.specPageId,
-      promptHash: fields.promptHash,
-      templateVersion: TEMPLATE_VERSION,
-      status: fields.status,
-      previewFilename: fields.previewFilename ?? null,
-      previewObjectPath: fields.previewObjectPath ?? null,
-      provider: fields.provider ?? null,
-      model: fields.model ?? null,
-      notionUploadId: fields.notionUploadId ?? null,
-      productionItem: fields.productionItem ?? null,
-      previousStatus: fields.previousStatus ?? null,
-      newStatus: fields.newStatus ?? null,
-      notionPageUrl: fields.notionPageUrl ?? null,
-      error: fields.error ?? null,
-      dryRun: fields.dryRun ?? false,
-      outputMetadata: fields.outputMetadata ?? null,
-    });
-  } catch (err) {
-    logger.warn({ err }, "Could not save spec preview audit record — non-fatal");
-  }
+/** Keep the preview's existing audit shape while delegating row writing. */
+type PreviewAuditFields = Omit<WorldsmithImageAuditFields, "templateVersion">;
+function savePreviewRecord(fields: PreviewAuditFields): Promise<void> {
+  return saveWorldsmithImageAudit({ ...fields, templateVersion: TEMPLATE_VERSION });
 }
 
 const NOTION_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
@@ -613,7 +580,7 @@ async function runLocalSpecPreview(
   }
 
   const localBoardData = extractLocalBoardData(context, specPageId, promptHash, sectionRecords);
-  const localPreviewGeneration = getWorldsmithPreviewGeneration(
+  const localPreviewGeneration = resolveWorldsmithImageGeneration(
     localBoardData.componentType,
     localBoardData.orientation,
   );
@@ -912,7 +879,7 @@ export async function runSpecPreview(
   }
 
   // ── 5. Generate spec board PNG ────────────────────────────────────────────
-  const previewGeneration = getWorldsmithPreviewGeneration(
+  const previewGeneration = resolveWorldsmithImageGeneration(
     finalBoardData.componentType,
     finalBoardData.orientation,
   );
@@ -935,31 +902,26 @@ export async function runSpecPreview(
   let finalPng = boardPng;
   let dalleApplied = false;
   let dalleErrorMsg: string | undefined;
-  let generationMetadata: ImageGenerationMetadata | undefined;
+  let generationMetadata: WorldsmithImageGeneration["metadata"];
   let detailCropSourceRects: ReadonlyArray<{ x: number; y: number; width: number; height: number }> = [];
 
   try {
-    if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY && !process.env.OPENAI_API_KEY) {
-      dalleErrorMsg = "No OpenAI API key configured — set OPENAI_API_KEY or run the Replit AI integration setup.";
-      logger.warn({ specPageId }, dalleErrorMsg);
+    const dallePrompt = buildConceptDallePrompt(finalBoardData);
+    const generatedImage = await generateWorldsmithImage({
+      prompt: dallePrompt,
+      componentType: finalBoardData.componentType,
+      orientation: finalBoardData.orientation,
+      logContext: { specPageId },
+    });
+    generationMetadata = generatedImage.metadata;
+    if (generatedImage.error) {
+      dalleErrorMsg = generatedImage.error;
+      finalPng = boardPng;
+    } else if (!generatedImage.buffer) {
+      throw new Error("Image generation returned no image data");
     } else {
-      const dallePrompt = buildConceptDallePrompt(finalBoardData);
-      logger.info({ specPageId, promptLength: dallePrompt.length }, "Calling DALL-E for concept visual");
-
-      const generatedImage = await generateImage(dallePrompt, {
-        size: previewGeneration.metadata.settings.size,
-        quality: previewGeneration.metadata.settings.quality,
-      });
-      const { dataUrl: b64DataUrl, ...effectiveMetadata } = generatedImage;
-      generationMetadata = effectiveMetadata;
-
-      // Decode base64 → buffer
-      const b64 = b64DataUrl.replace(/^data:image\/[a-z+]+;base64,/, "");
-      const dalleBuffer = Buffer.from(b64, "base64");
-
       // Resize to fit the concept image area, maintaining aspect ratio
-      const { x, y, width, height } = CONCEPT_IMAGE_AREA;
-      const resized = await sharp(dalleBuffer)
+      const resized = await sharp(generatedImage.buffer)
         .resize(CONCEPT_IMAGE_RENDER_AREA.width, CONCEPT_IMAGE_RENDER_AREA.height, {
           fit: "inside",
           withoutEnlargement: false,
@@ -1032,13 +994,12 @@ export async function runSpecPreview(
   const filename = buildPreviewFilename(finalBoardData);
   let uploadId: string;
   try {
-    uploadId = await uploadFileToNotion(finalPng, filename, "image/png");
-    await attachUploadToPageProperty(
-      specPageId,
-      "Product Specification Image",
-      uploadId,
+    uploadId = await uploadWorldsmithImage({
+      buffer: finalPng,
       filename,
-    );
+      notionPageId: specPageId,
+      propertyName: "Product Specification Image",
+    });
   } catch (uploadErr) {
     await savePreviewRecord({
       specPageId, promptHash,

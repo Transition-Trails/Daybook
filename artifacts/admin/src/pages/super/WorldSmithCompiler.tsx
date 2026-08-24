@@ -420,6 +420,7 @@ export default function WorldSmithCompiler() {
   // fires for dry-run compiles (they should not trigger real Notion writes).
   const [lastCompileWasDryRun, setLastCompileWasDryRun] = useState(false);
   const [productionPackage, setProductionPackage] = useState<ProductionPackageResult | null>(null);
+  const [productionApprovalError, setProductionApprovalError] = useState<ValidationError | null>(null);
 
   const normalizedId = normalizeNotionId(rawInput);
   const inputIsValid = !!normalizedId;
@@ -431,15 +432,30 @@ export default function WorldSmithCompiler() {
   const preflightMutation = useMutation({
     mutationFn: (id: string) => worldsmithApi.preflight(id),
     onSuccess: (data) => {
+      const refreshingCurrentSpec = data.spec_id === resolvedId && !!result;
       setResolvedId(data.spec_id);
       setPreflight(data);
       setPreflightError(null);
-      setResult(null);
-      setProductionPackage(null);
+      // Approval refreshes must not discard the compiled board or a failed
+      // package: operators need that context to retry after re-approval.
+      if (!refreshingCurrentSpec) {
+        setResult(null);
+        setProductionPackage(null);
+        setPreviewResult(null);
+        setPreviewError(null);
+        setProductionApprovalError(null);
+      } else if (data.status.trim().toLocaleLowerCase() === "approved") {
+        setProductionApprovalError(null);
+      }
     },
-    onError: (err: Error) => {
-      setPreflight(null);
-      setResolvedId(null);
+    onError: (err: Error, id) => {
+      // Keep the current inspector usable if an approval refresh itself
+      // fails; a transient Notion error should not remove the retry action.
+      const refreshingCurrentSpec = id === resolvedId && !!result;
+      if (!refreshingCurrentSpec) {
+        setPreflight(null);
+        setResolvedId(null);
+      }
       setPreflightError(Object.assign(
         err,
         { message: err.message || "Production Specification page could not be resolved. Check the page ID and Notion access." },
@@ -489,7 +505,21 @@ export default function WorldSmithCompiler() {
     mutationFn: ({ id, dryRun: requestDryRun }: { id: string; dryRun: boolean }) =>
       worldsmithApi.requestProductionPackage(id, requestDryRun),
     onSuccess: (res) => {
-      setProductionPackage(res.production_package ?? null);
+      const approvalError = res.errors?.find(error => error.code === "FINAL_ARTWORK_APPROVAL_REQUIRED")
+        ?? (res.error_code === "FINAL_ARTWORK_APPROVAL_REQUIRED"
+          ? {
+              code: res.error_code,
+              field: "status",
+              governing_rule: "WS-PRODUCTION-APPROVAL-001",
+              message: res.message ?? "Final artwork requires an approved Specification Board.",
+              recommended_action: res.next_action ?? "Approve the Specification Board, refresh its status, and retry final artwork.",
+            }
+          : null);
+      setProductionApprovalError(approvalError);
+      // An approval block has no package payload. Preserve an earlier failed
+      // package so its retry action is still available after re-approval.
+      if (res.production_package) setProductionPackage(res.production_package);
+      else if (!approvalError) setProductionPackage(null);
       // Keep the current board result visible; only replace it when the API
       // supplied a complete new compile response (for example after a retry).
       if (res.status === "compiled") setResult(res);
@@ -720,7 +750,7 @@ export default function WorldSmithCompiler() {
                     preflight={preflight}
                     previewResult={previewResult}
                     productionPackage={productionPackage}
-                    onReset={() => { setResult(null); setProductionPackage(null); setPreviewResult(null); setPreviewError(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
+                    onReset={() => { setResult(null); setProductionPackage(null); setProductionApprovalError(null); setPreviewResult(null); setPreviewError(null); setPreflight(null); setResolvedId(null); setRawInput(""); }}
                     onGenerateNewBoard={() => previewMutation.mutate({
                       specId: resolvedId!,
                       hash: result.prompt_hash!,
@@ -735,6 +765,7 @@ export default function WorldSmithCompiler() {
                     onRequestFinalArtwork={(requestDryRun) => productionMutation.mutate({ id: resolvedId!, dryRun: requestDryRun })}
                     isRequestingFinalArtwork={productionMutation.isPending}
                     finalArtworkApproved={preflight?.status.trim().toLocaleLowerCase() === "approved"}
+                    finalArtworkApprovalError={productionApprovalError}
                     onRefreshFinalArtworkApproval={() => preflightMutation.mutate(resolvedId!)}
                     isRefreshingFinalArtworkApproval={preflightMutation.isPending}
                   />
@@ -1784,7 +1815,7 @@ function PublishingPipeline({
 function InspectorScreen({
   result, preflight, previewResult, onReset, onGenerateNewBoard, isGeneratingBoard,
   onRetryStatus, isRetryingStatus, productionPackage, onRequestFinalArtwork, isRequestingFinalArtwork,
-  finalArtworkApproved, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
+  finalArtworkApproved, finalArtworkApprovalError, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
@@ -1798,6 +1829,7 @@ function InspectorScreen({
   onRequestFinalArtwork?: (dryRun: boolean) => void;
   isRequestingFinalArtwork?: boolean;
   finalArtworkApproved: boolean;
+  finalArtworkApprovalError?: ValidationError | null;
   onRefreshFinalArtworkApproval?: () => void;
   isRefreshingFinalArtworkApproval?: boolean;
 }) {
@@ -1879,6 +1911,7 @@ function InspectorScreen({
         onRequestFinalArtwork={onRequestFinalArtwork}
         isRequestingFinalArtwork={isRequestingFinalArtwork}
         finalArtworkApproved={finalArtworkApproved}
+        finalArtworkApprovalError={finalArtworkApprovalError}
         onRefreshFinalArtworkApproval={onRefreshFinalArtworkApproval}
         isRefreshingFinalArtworkApproval={isRefreshingFinalArtworkApproval}
       />
@@ -1902,7 +1935,7 @@ function WorkspacePanel({
   goToStage,
   previewResult, onGenerateNewBoard, isGeneratingBoard,
   onRetryStatus, isRetryingStatus, productionPackage, onRequestFinalArtwork, isRequestingFinalArtwork,
-  finalArtworkApproved, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
+  finalArtworkApproved, finalArtworkApprovalError, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
@@ -1921,6 +1954,7 @@ function WorkspacePanel({
   onRequestFinalArtwork?: (dryRun: boolean) => void;
   isRequestingFinalArtwork?: boolean;
   finalArtworkApproved: boolean;
+  finalArtworkApprovalError?: ValidationError | null;
   onRefreshFinalArtworkApproval?: () => void;
   isRefreshingFinalArtworkApproval?: boolean;
 }) {
@@ -1957,6 +1991,7 @@ function WorkspacePanel({
           onRequestFinalArtwork={onRequestFinalArtwork}
           isRequestingFinalArtwork={isRequestingFinalArtwork}
           finalArtworkApproved={finalArtworkApproved}
+          finalArtworkApprovalError={finalArtworkApprovalError}
           onRefreshFinalArtworkApproval={onRefreshFinalArtworkApproval}
           isRefreshingFinalArtworkApproval={isRefreshingFinalArtworkApproval} />
       )}
@@ -2362,7 +2397,7 @@ function InspectorWorkspaceTab({
   result, preflight, prov, stage, setStage,
   previewResult, onGenerateNewBoard, isGeneratingBoard,
   onRetryStatus, isRetryingStatus, productionPackage, onRequestFinalArtwork, isRequestingFinalArtwork,
-  finalArtworkApproved, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
+  finalArtworkApproved, finalArtworkApprovalError, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
 }: {
   result: CompileResponse;
   preflight: PreflightResponse | null;
@@ -2378,6 +2413,7 @@ function InspectorWorkspaceTab({
   onRequestFinalArtwork?: (dryRun: boolean) => void;
   isRequestingFinalArtwork?: boolean;
   finalArtworkApproved: boolean;
+  finalArtworkApprovalError?: ValidationError | null;
   onRefreshFinalArtworkApproval?: () => void;
   isRefreshingFinalArtworkApproval?: boolean;
 }) {
@@ -2411,6 +2447,7 @@ function InspectorWorkspaceTab({
               onRequestFinalArtwork={onRequestFinalArtwork}
               isRequestingFinalArtwork={isRequestingFinalArtwork}
               finalArtworkApproved={finalArtworkApproved}
+              finalArtworkApprovalError={finalArtworkApprovalError}
               onRefreshFinalArtworkApproval={onRefreshFinalArtworkApproval}
               isRefreshingFinalArtworkApproval={isRefreshingFinalArtworkApproval}
             />
@@ -2422,6 +2459,7 @@ function InspectorWorkspaceTab({
           onRequest={onRequestFinalArtwork}
           isRequesting={isRequestingFinalArtwork}
           approved={finalArtworkApproved}
+          approvalError={finalArtworkApprovalError}
           onRefreshApproval={onRefreshFinalArtworkApproval}
           isRefreshingApproval={isRefreshingFinalArtworkApproval}
         />
@@ -3617,7 +3655,7 @@ function ResolvePanel({
 function SpecificationReviewPanel({
   previewResult, prov, onGenerateNew, isGenerating, onRetryStatus, isRetryingStatus,
   productionPackage, onRequestFinalArtwork, isRequestingFinalArtwork,
-  finalArtworkApproved, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
+  finalArtworkApproved, finalArtworkApprovalError, onRefreshFinalArtworkApproval, isRefreshingFinalArtworkApproval,
 }: {
   previewResult: SpecPreviewResult;
   prov: ProvenanceRecord | null;
@@ -3629,6 +3667,7 @@ function SpecificationReviewPanel({
   onRequestFinalArtwork?: (dryRun: boolean) => void;
   isRequestingFinalArtwork?: boolean;
   finalArtworkApproved: boolean;
+  finalArtworkApprovalError?: ValidationError | null;
   onRefreshFinalArtworkApproval?: () => void;
   isRefreshingFinalArtworkApproval?: boolean;
 }) {
@@ -3791,6 +3830,7 @@ function SpecificationReviewPanel({
         onRequest={onRequestFinalArtwork}
         isRequesting={isRequestingFinalArtwork}
         approved={finalArtworkApproved}
+        approvalError={finalArtworkApprovalError}
         onRefreshApproval={onRefreshFinalArtworkApproval}
         isRefreshingApproval={isRefreshingFinalArtworkApproval}
       />
@@ -3814,6 +3854,7 @@ function FinalArtworkPanel({
   onRequest,
   isRequesting,
   approved,
+  approvalError,
   onRefreshApproval,
   isRefreshingApproval,
 }: {
@@ -3821,6 +3862,7 @@ function FinalArtworkPanel({
   onRequest?: (dryRun: boolean) => void;
   isRequesting?: boolean;
   approved: boolean;
+  approvalError?: ValidationError | null;
   onRefreshApproval?: () => void;
   isRefreshingApproval?: boolean;
 }) {
@@ -3873,12 +3915,14 @@ function FinalArtworkPanel({
     },
   };
   const info = statusInfo[status] ?? statusInfo.not_requested;
+  const approvalBlocked = approvalError?.code === "FINAL_ARTWORK_APPROVAL_REQUIRED";
   const canFinishExistingPackage = status === "uploaded_status_pending"
     || (status === "upload_failed" && !!packageResult?.notion_upload_id);
   const canRequest = !!onRequest
     && !isRequesting
     && status !== "success"
     && status !== "in_progress"
+    && !approvalBlocked
     && (approved || canFinishExistingPackage);
   const isStatusOnlyRetry = status === "uploaded_status_pending";
 
@@ -3952,7 +3996,22 @@ function FinalArtworkPanel({
           </a>
         )}
 
-        {!approved && !canFinishExistingPackage && status !== "success" && (
+        {approvalBlocked ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div>
+              <p className="text-xs font-semibold text-amber-800">Final-art retry paused</p>
+              <p className="text-xs text-amber-700 mt-0.5">The Specification Board must be Approved before retrying.</p>
+              {approvalError?.message && <p className="text-xs text-amber-700 mt-0.5">{approvalError.message}</p>}
+            </div>
+            {onRefreshApproval && (
+              <Button type="button" size="sm" variant="outline" onClick={onRefreshApproval} disabled={isRefreshingApproval} className="gap-1.5 shrink-0">
+                {isRefreshingApproval
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Refreshing…</>
+                  : <><RefreshCw className="w-3.5 h-3.5" />Refresh Approval</>}
+              </Button>
+            )}
+          </div>
+        ) : !approved && !canFinishExistingPackage && status !== "success" && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
             <div>
               <p className="text-xs font-semibold text-amber-800">Approval required before final artwork</p>
@@ -3991,7 +4050,7 @@ function FinalArtworkPanel({
                 ? <><Loader2 className="w-4 h-4 animate-spin" />Working…</>
                 : isStatusOnlyRetry
                 ? <><RefreshCw className="w-4 h-4" />Retry Status Update</>
-                : status === "upload_failed"
+                : status === "upload_failed" || status === "generation_failed"
                 ? <><RefreshCw className="w-4 h-4" />Retry Final Package</>
                 : <><ImagePlus className="w-4 h-4" />Request Final Artwork</>}
             </Button>

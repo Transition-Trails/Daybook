@@ -203,6 +203,113 @@ describe("WorldSmith compiler Notion page resolution", () => {
     );
   });
 
+  it("explains a withdrawn approval and restores the final-art retry after the board is approved again", async () => {
+    const previewSuccess = {
+      status: "success",
+      production_item: "The Glasswater Almanac",
+      spec_page_id: correctedPageId,
+      notion_page_id: correctedPageId,
+      notion_page_url: `https://www.notion.so/${correctedPageId.replaceAll("-", "")}`,
+      prompt_hash: "prompt-hash",
+      upload_status: "success",
+    };
+    const compileSuccess = {
+      status: "compiled",
+      run_id: "run-1",
+      production_spec_id: correctedPageId,
+      payload_version: "PP-2.0",
+      compiled_prompt_status: "Compiled",
+      prompt_hash: "prompt-hash",
+      compiled_prompt: "A quiet glasswater cover.",
+      warnings: [],
+      provenance: { world: "Glasswater", payload_format: "2.0" },
+    };
+    const generationFailedPackage = {
+      id: "package-1",
+      status: "generation_failed",
+      production_art_status: "not_started",
+      idempotent: false,
+      filename: "WS-GLASSWATER-HERO-MASTER.png",
+      provider: "OpenAI",
+      model: "gpt-image-2",
+      effective_size: "1440x1440",
+      quality: "medium",
+      target: {
+        dpi: 150,
+        print_width_in: 12,
+        print_height_in: 12,
+        orientation: "square",
+      },
+      estimated_cost_usd: 0.19,
+      error: "Provider temporarily unavailable",
+    };
+    const completedPackage = {
+      ...generationFailedPackage,
+      status: "success",
+      production_art_status: "artwork_review",
+      visual_asset_id: "6f62d5b2-7656-4c55-b0a9-8ce37f3ac7de",
+      notion_upload_id: "upload-1",
+      error: undefined,
+    };
+    const approvalBlocked = {
+      status: "failed",
+      run_id: "run-2",
+      production_spec_id: correctedPageId,
+      payload_version: "PP-2.0",
+      compiled_prompt_status: "Compiled",
+      warnings: [],
+      error_code: "FINAL_ARTWORK_APPROVAL_REQUIRED",
+      message: 'Final artwork requires an approved Specification Board. Current status is "In Review".',
+      next_action: "Approve the Specification Board before requesting final artwork",
+      errors: [{
+        code: "FINAL_ARTWORK_APPROVAL_REQUIRED",
+        field: "status",
+        governing_rule: "WS-PRODUCTION-APPROVAL-001",
+        message: 'Final artwork requires an approved Specification Board. Current status is "In Review".',
+        recommended_action: "Approve the concept in Notion, refresh its status in the compiler, and request final artwork again.",
+      }],
+    };
+
+    apiFetchMock
+      .mockResolvedValueOnce({ ...resolvedPreflight, status: "Approved" })
+      .mockResolvedValueOnce(previewSuccess)
+      .mockResolvedValueOnce({ ...resolvedPreflight, status: "Approved" });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(compileSuccess), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ...compileSuccess,
+        production_package: generationFailedPackage,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(approvalBlocked), { status: 422 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ...compileSuccess,
+        production_package: completedPackage,
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderCompiler();
+    fireEvent.change(screen.getByLabelText("Production Specification"), { target: { value: correctedPageId } });
+    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    await screen.findByText("Spec Resolved");
+    fireEvent.click(screen.getByRole("button", { name: "Compile" }));
+    await screen.findByText("Final Artwork Package");
+
+    fireEvent.click(screen.getByRole("button", { name: "Request Final Artwork" }));
+    expect(await screen.findByRole("button", { name: "Retry Final Package" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry Final Package" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The Specification Board must be Approved before retrying.");
+    expect(screen.getByRole("button", { name: "Retry Final Package" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh Approval" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Retry Final Package" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry Final Package" }));
+    expect(await screen.findByRole("link", { name: "Open Final Visual Asset in Notion" })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it("keeps rate-limit failures focused on retrying instead of page sharing", async () => {
     const rateLimited = Object.assign(
       new Error("Notion rate limit hit. Wait a moment and try again."),

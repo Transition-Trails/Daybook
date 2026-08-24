@@ -346,8 +346,12 @@ router.post("/v1/production-packages", requireAuth, requireSuperAdmin, async (re
       (req.user as User | undefined)?.id ?? "anonymous",
     );
 
+    // Approval blocks are an operator-fixable request error, not a provider
+    // outage. Keep the structured error body intact so the production-artwork
+    // panel can explain the gate and wait for a refreshed Approved status.
     const httpStatus =
       result.status === "compiled" ? 200
+      : result.error_code === "FINAL_ARTWORK_APPROVAL_REQUIRED" ? 422
       : result.status === "validation_failed" || result.status === "requires_canon_review" ? 422
       : result.error_code === "UPLOAD_FAILED" || result.error_code === "VISUAL_ASSET_UNAVAILABLE" ? 502
       : result.status === "failed" && result.retry_safe === false ? 422

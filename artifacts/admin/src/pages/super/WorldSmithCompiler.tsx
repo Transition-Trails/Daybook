@@ -350,6 +350,7 @@ export default function WorldSmithCompiler() {
   const [rawInput, setRawInput] = useState("");
   const [resolvedId, setResolvedId] = useState<string | null>(null);
   const [preflight, setPreflight] = useState<PreflightResponse | null>(null);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
   const [dryRun, setDryRun] = useState(false);
   const [result, setResult] = useState<CompileResponse | null>(null);
   const [activeTab, setActiveTab] = useState<"compiler" | "runs" | "assets" | "batch">("compiler");
@@ -367,6 +368,9 @@ export default function WorldSmithCompiler() {
 
   const normalizedId = normalizeNotionId(rawInput);
   const inputIsValid = !!normalizedId;
+  const inputValidationError = rawInput.trim() && !inputIsValid
+    ? "Enter a valid Notion page URL or 32-character page ID."
+    : null;
 
   // ── Preflight mutation ──────────────────────────────────────────────────────
   const preflightMutation = useMutation({
@@ -374,11 +378,13 @@ export default function WorldSmithCompiler() {
     onSuccess: (data) => {
       setResolvedId(data.spec_id);
       setPreflight(data);
+      setPreflightError(null);
       setResult(null);
     },
     onError: (err: Error) => {
       setPreflight(null);
       setResolvedId(null);
+      setPreflightError(err.message || "Production Specification page could not be resolved. Check the page ID and Notion access.");
       toast({ title: "Could not resolve spec", description: err.message, variant: "destructive" });
     },
   });
@@ -478,11 +484,13 @@ export default function WorldSmithCompiler() {
 
   const handleResolve = useCallback(() => {
     if (!normalizedId) return;
+    setPreflightError(null);
     preflightMutation.mutate(normalizedId);
   }, [normalizedId, preflightMutation]);
 
   const handleInputChange = (v: string) => {
     setRawInput(v);
+    setPreflightError(null);
     // Clear preflight when input changes
     if (preflight) { setPreflight(null); setResolvedId(null); setResult(null); }
   };
@@ -557,6 +565,12 @@ export default function WorldSmithCompiler() {
                     <span className="ml-1.5 text-emerald-600">✓ Normalized: <code className="font-mono">{normalizedId}</code></span>
                   )}
                 </p>
+                {inputValidationError && (
+                  <p role="alert" className="text-xs text-red-600">{inputValidationError}</p>
+                )}
+                {preflightError && !inputValidationError && (
+                  <p role="alert" className="text-xs text-red-600">{preflightError}</p>
+                )}
               </div>
             </CardContent>
           </Card>

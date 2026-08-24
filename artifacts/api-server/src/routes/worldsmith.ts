@@ -550,12 +550,29 @@ router.get("/v1/worldsmith/preflight", requireAuth, requireSuperAdmin, async (re
     });
   } catch (err) {
     const msg = String(err);
-    const isNotFound = /404|not_found|object_not_found/i.test(msg);
+    // Notion uses both 404 (missing or not shared) and 403 (integration
+    // cannot access the page) for page lookup failures.  The client preserves
+    // the status when available; retain the message fallback for mocked or
+    // older callers that throw a plain Error.
+    const notionStatus = (
+      typeof err === "object" &&
+      err !== null &&
+      "status" in err &&
+      typeof err.status === "number"
+    ) ? err.status : undefined;
+    const isNotFound =
+      notionStatus === 400 ||
+      notionStatus === 403 ||
+      notionStatus === 404 ||
+      /404|not_found|object_not_found/i.test(msg);
     const isUnreachable = /ETIMEDOUT|ENOTFOUND|ECONNREFUSED|AbortError|timeout/i.test(msg);
     const isRateLimited = /429|rate.?limit/i.test(msg);
 
     if (isNotFound) {
-      res.status(404).json({ error: "Production Specification page not found. Check the page ID and that the Notion integration has access.", code: "SPEC_NOT_FOUND" });
+      res.status(404).json({
+        error: "Production Specification page could not be resolved. Check that the page ID is correct and that the Notion integration has access.",
+        code: "SPEC_NOT_FOUND",
+      });
     } else if (isRateLimited) {
       res.status(429).json({ error: "Notion rate limit hit. Wait a moment and try again.", code: "NOTION_RATE_LIMITED" });
     } else if (isUnreachable) {

@@ -366,3 +366,22 @@ describe("notionFetch — 429 error message / classifyNotionErr compatibility", 
     expect(thrown!.message).toMatch(/429/);
   });
 });
+
+describe("notionFetch — structured lookup failures", () => {
+  it("preserves the HTTP status for an unavailable or inaccessible page", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeResponse(403, { object: "error", code: "restricted_resource", message: "Could not access page" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { NotionApiError, getPage } = await import("../lib/notion-client.js");
+
+    await expect(getPage("page-restricted")).rejects.toMatchObject({
+      name: "NotionApiError",
+      status: 403,
+      method: "GET",
+      path: "/pages/page-restricted",
+    });
+    await expect(getPage("page-restricted")).rejects.toBeInstanceOf(NotionApiError);
+  });
+});

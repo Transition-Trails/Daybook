@@ -50,6 +50,25 @@ export function _setOnRetry(fn: ((event: NotionRetryEvent) => void) | null): voi
 const RETRYABLE_CODES = new Set(["ETIMEDOUT", "ECONNREFUSED", "ECONNRESET"]);
 
 /**
+ * Error returned for a non-successful Notion API response.
+ *
+ * Keeping the HTTP status alongside the message lets callers distinguish an
+ * unavailable/inaccessible page from a transport failure without parsing the
+ * response text.
+ */
+export class NotionApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly method: string,
+    public readonly path: string,
+  ) {
+    super(message);
+    this.name = "NotionApiError";
+  }
+}
+
+/**
  * Returns true for connection-level errors that are safe to retry:
  * AbortError (request timeout), ETIMEDOUT, ECONNREFUSED, ECONNRESET.
  *
@@ -134,7 +153,12 @@ async function notionFetch<T>(path: string, options: RequestInit = {}): Promise<
 
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Notion API ${method} ${path} → ${res.status}: ${body}`);
+      throw new NotionApiError(
+        `Notion API ${method} ${path} → ${res.status}: ${body}`,
+        res.status,
+        method,
+        path,
+      );
     }
 
     return res.json() as Promise<T>;

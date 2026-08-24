@@ -308,6 +308,38 @@ describe("runCompilation — Notion 404", () => {
   });
 });
 
+describe("WorldSmith preflight — unavailable Notion page", () => {
+  it("returns an actionable 404 instead of a server error for a valid but unavailable page ID", async () => {
+    mockGetPage.mockRejectedValue(
+      new Error("Notion API GET /pages/spec-missing → 404: Could not find page with ID"),
+    );
+
+    const res = await request(app)
+      .get(`/api/v1/worldsmith/preflight?spec_id=${SPEC_ID}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe("SPEC_NOT_FOUND");
+    expect(res.body.error).toContain("could not be resolved");
+    expect(res.body.error).toContain("page ID");
+    expect(res.body.error).toContain("Notion integration");
+  });
+
+  it("returns the same actionable client error when the page is inaccessible", async () => {
+    const inaccessible = Object.assign(
+      new Error("Notion API GET /pages/spec-restricted → 403: restricted_resource"),
+      { status: 403 },
+    );
+    mockGetPage.mockRejectedValue(inaccessible);
+
+    const res = await request(app)
+      .get(`/api/v1/worldsmith/preflight?spec_id=${SPEC_ID}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe("SPEC_NOT_FOUND");
+    expect(res.body.error).toContain("could not be resolved");
+  });
+});
+
 describe("runCompilation — Notion network timeout", () => {
   it("returns a structured failed response (not an unhandled rejection)", async () => {
     const timeoutErr = new Error("connect ETIMEDOUT 2a00:1450:4001:82b::200a:443");

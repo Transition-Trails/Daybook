@@ -29,7 +29,9 @@ pnpm --filter @workspace/admin run dev         # Admin SPA
 pnpm run typecheck                             # full workspace typecheck
 pnpm run build                                 # typecheck + build all packages
 npx tsc -b lib/db                             # REQUIRED before api-server typecheck (see Gotchas)
-pnpm --filter @workspace/db run push          # push schema changes to DB (dev only)
+pnpm --filter @workspace/db run migrate       # apply checked-in migrations (dev/CI)
+pnpm --filter @workspace/db run generate      # generate a migration from schema changes
+pnpm --filter @workspace/db run push          # inspect/apply ad-hoc schema diffs (local only)
 pnpm --filter @workspace/scripts run seed     # standard seed
 pnpm --filter @workspace/scripts run seed:ci  # CI persona + bad-fixture seed
 pnpm --filter @workspace/scripts run seed-stickers
@@ -137,6 +139,14 @@ A studio tab is a compose surface, never a data table. Data tables belong only i
 ## Gotchas
 
 **DB build prerequisite.** `lib/db` has `composite: true` in its tsconfig. Run `npx tsc -b lib/db` before running the api-server typecheck or any schema changes won't be picked up.
+
+**Tracked database migrations.** Use `@workspace/db run migrate` to apply the
+SQL files checked into `lib/db/drizzle/`. It runs non-interactively and records
+each applied migration in Drizzle's migration table, so unrelated schema
+differences do not block a catalog migration. `push` is reserved for local
+schema exploration and is not the deployment or CI update path.
+Databases created before tracked migrations are safely baselined from the
+known consolidated schema before later migrations are applied.
 
 **isSuperAdmin legacy bug (fixed).** `roles.ts` previously had a `role === "owner"` fallback making all store owners bypass store scoping. Fixed to check `platformRole === "super_admin"` only. Never reintroduce the owner bypass.
 

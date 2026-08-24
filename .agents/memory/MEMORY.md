@@ -1,6 +1,7 @@
 - [Daybook seed script](daybook-seed.md) — re-run `pnpm --filter @workspace/scripts run seed` to repopulate; credentials stored in environment secrets only
 - [Daybook Zod schema naming](daybook-zod-names.md) — generated schema names don't always match intuition; consult api.ts before writing routes
 - [DB build requirement](db-build.md) — lib/db has composite:true tsconfig; run `npx tsc -b lib/db` before api-server typecheck or changes won't be picked up
+- [Tracked migration baseline](tracked-migration-baseline.md) — use non-interactive tracked migrations; legacy pre-ledger databases baseline only the consolidated schema
 - [Spec-driven backend rebuild](spec-backend-rebuild.md) — new schema uses text PKs, JSONB arrays replace junction tables; all four spec files live in spec/; catalog visibility rule: unauth=live only, admin=all
 - [Entitlement engine](entitlement-engine.md) — origin-based gating for all catalog items; engine lives in api-server/src/lib/entitlement.ts; gate fires at generation time only (offboarding guarantee)
 - [pdfjs-dist Vite compatibility](pdfjs-vite-compat.md) — never npm-install pdfjs-dist; use CDN `/* @vite-ignore */` import instead or it silently corrupts Vite's dep graph

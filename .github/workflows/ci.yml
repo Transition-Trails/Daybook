@@ -134,6 +134,7 @@ jobs:
 
       - name: Run all migrations in order
         run: |
+          pnpm --filter @workspace/db run migrate
           node lib/db/migrate-email.mjs
           node lib/db/migrate-orders.mjs
           node lib/db/migrate-support-v2.mjs
@@ -146,6 +147,34 @@ jobs:
       - name: Verify core tables exist
         run: |
           psql "$DATABASE_URL" -c "\dt" | grep -E "orders|tickets|email_configs"
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Verify legacy migration baselines are safe
+        run: |
+          BASELINE_URL="${DATABASE_URL%/daybook_ci}/daybook_legacy_base"
+          PUSHED_URL="${DATABASE_URL%/daybook_ci}/daybook_legacy_pushed"
+          PARTIAL_URL="${DATABASE_URL%/daybook_ci}/daybook_partial"
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_legacy_base'
+          psql "$BASELINE_URL" -v ON_ERROR_STOP=1 -f lib/db/drizzle/0000_verify-canon-relation-primary-key.sql
+          DATABASE_URL="$BASELINE_URL" pnpm --filter @workspace/db run migrate
+          psql "$BASELINE_URL" -Atc 'SELECT count(*) FROM drizzle.__drizzle_migrations' | grep -qx '5'
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_legacy_pushed'
+          for migration in lib/db/drizzle/*.sql; do psql "$PUSHED_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
+          DATABASE_URL="$PUSHED_URL" pnpm --filter @workspace/db run migrate
+          psql "$PUSHED_URL" -Atc 'SELECT count(*) FROM drizzle.__drizzle_migrations' | grep -qx '5'
+          DATABASE_URL="$PUSHED_URL" pnpm --filter @workspace/db run migrate
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE daybook_partial'
+          psql "$PARTIAL_URL" -v ON_ERROR_STOP=1 -c 'CREATE TABLE users (id text PRIMARY KEY)'
+          if DATABASE_URL="$PARTIAL_URL" pnpm --filter @workspace/db run migrate 2>partial-migration.err; then
+            echo "Expected a partial pre-ledger schema to be rejected" >&2
+            exit 1
+          fi
+          grep -q 'Cannot safely baseline this database' partial-migration.err
+          psql "$PARTIAL_URL" -Atc "SELECT to_regclass('drizzle.__drizzle_migrations') IS NULL" | grep -qx 't'
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
@@ -213,6 +242,7 @@ jobs:
 
       - name: Run all migrations
         run: |
+          pnpm --filter @workspace/db run migrate
           node lib/db/migrate-email.mjs
           node lib/db/migrate-orders.mjs
           node lib/db/migrate-support-v2.mjs

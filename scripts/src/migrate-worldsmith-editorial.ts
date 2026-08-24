@@ -1,7 +1,7 @@
 /**
- * migrate-worldsmith-editorial — creates all WorldSmith Editorial Suite tables.
+ * migrate-worldsmith-editorial — compatibility repair for legacy databases.
  *
- * Run: pnpm --filter @workspace/scripts run migrate-worldsmith-editorial
+ * New deployments: pnpm --filter @workspace/db run migrate
  *
  * SAFE: uses CREATE TABLE IF NOT EXISTS; idempotent.
  */

@@ -132,15 +132,14 @@ jobs:
       - name: Build lib/db
         run: npx tsc -b lib/db
 
-      - name: Run all migrations in order
+      - name: Run the deployment migration entry point
         run: |
           pnpm --filter @workspace/db run migrate
           node lib/db/migrate-email.mjs
           node lib/db/migrate-orders.mjs
           node lib/db/migrate-support-v2.mjs
-           pnpm --filter @workspace/scripts run migrate-releases
-           pnpm --filter @workspace/scripts run migrate-release-github-review
-           pnpm --filter @workspace/scripts run migrate-worldsmith-editorial
+          pnpm --filter @workspace/scripts run migrate-releases
+          pnpm --filter @workspace/scripts run migrate-release-github-review
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
@@ -260,25 +259,14 @@ jobs:
       - name: Build lib/db
         run: npx tsc -b lib/db
 
-      - name: Run all migrations
+      - name: Run deployment migrations
         run: |
           pnpm --filter @workspace/db run migrate
           node lib/db/migrate-email.mjs
           node lib/db/migrate-orders.mjs
           node lib/db/migrate-support-v2.mjs
-          pnpm --filter @workspace/scripts run migrate-worldsmith-worlds
-          pnpm --filter @workspace/scripts run migrate-worldsmith
-          pnpm --filter @workspace/scripts run migrate-worldsmith-worlds-v2
-          pnpm --filter @workspace/scripts run migrate-worldsmith-worlds-v3
-          pnpm --filter @workspace/scripts run migrate-worldsmith-editorial
-          pnpm --filter @workspace/scripts run migrate-canon-records-v2
-          pnpm --filter @workspace/scripts run migrate-canon-records-v3
-          pnpm --filter @workspace/scripts run migrate-canon-records-v4
-          pnpm --filter @workspace/scripts run migrate-spec-preview
-          pnpm --filter @workspace/scripts run migrate-worldsmith-compiled-sections
-          pnpm --filter @workspace/scripts run migrate-worldsmith-stories
-           pnpm --filter @workspace/scripts run migrate-releases
-           pnpm --filter @workspace/scripts run migrate-release-github-review
+          pnpm --filter @workspace/scripts run migrate-releases
+          pnpm --filter @workspace/scripts run migrate-release-github-review
 
       - name: Seed full dev data
         run: pnpm --filter @workspace/scripts run seed

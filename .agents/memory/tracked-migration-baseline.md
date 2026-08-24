@@ -44,3 +44,15 @@ legacy development databases, and run the database migration command twice when
 diagnosing drift to confirm its idempotency. Keep the standalone script only as
 a compatibility fallback for environments that cannot yet use the tracked
 ledger.
+
+WorldSmith schema additions must be recorded in the Drizzle ledger and deployed
+through `@workspace/db migrate`; standalone WorldSmith scripts are compatibility
+repairs, not deployment prerequisites. The migration verifier checks the full
+API-facing WorldSmith column contract on a clean database.
+
+**Why:** CI sequencing separate editorial scripts let a deployment pass its
+tracked migration step while starting the API without newer editorial fields.
+
+**How to apply:** Add future WorldSmith DDL to a checked-in tracked migration
+and expand the contract verifier in the same change. Do not add a new required
+WorldSmith script to the deployment workflow.

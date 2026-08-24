@@ -64,6 +64,13 @@
       "when": 1787579000000,
       "tag": "0008_worldsmith_production_packages",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787580000000,
+      "tag": "0009_worldsmith_editorial_contract",
+      "breakpoints": true
     }
   ]
 }

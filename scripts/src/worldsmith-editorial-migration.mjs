@@ -1,8 +1,10 @@
 /**
- * Shared WorldSmith Editorial Suite migration implementation.
+ * Compatibility WorldSmith Editorial Suite repair implementation.
  *
- * Both the TypeScript and JavaScript entry points call this module so their
- * schema and upgrade behavior cannot drift apart.
+ * New deployments must use `pnpm --filter @workspace/db run migrate`, whose
+ * tracked ledger owns the complete WorldSmith API contract. Both standalone
+ * entry points call this module only to repair older environments that cannot
+ * yet use the tracked migration command.
  */
 
 const HTML_FONT_REFERENCE = /<p>\s*Daybook Font:\s*([^<\r\n]+?)\s*<br\s*\/?>\s*Curated roles:\s*[^<\r\n]*(?:\s*<br\s*\/?>\s*Available variants:\s*[^<\r\n]*)?(?:\s*<br\s*\/?>\s*Source notes:\s*[\s\S]*?)?\s*<\/p>/gi;

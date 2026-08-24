@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { validateImageGenerationConfiguration } from "./lib/ai-proxy";
+import { validateImageGenerationConfiguration } from "./lib/worldsmith/image-generation";
 import { validateWorldsmithPreviewGenerationConfiguration } from "./lib/worldsmith/image-targets";
 import { warmFontCache } from "./lib/font-warmup";
 import { schedulePeriodicDomainVerify } from "./lib/email/domain-recheck";

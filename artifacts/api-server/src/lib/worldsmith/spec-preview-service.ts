@@ -49,7 +49,6 @@ import {
 import type { CompiledSectionRecord, ProductionSpec, SpecBoardData, SpecPreviewResult, SpecPreviewRequest, WorldBible } from "./types";
 
 // ── Custom error ─────────────────────────────────────────────────────────────
-
 export class SpecPreviewError extends Error {
   constructor(
     public readonly code: string,

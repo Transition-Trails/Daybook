@@ -19,7 +19,7 @@ import {
   type ImageGenerationMetadata,
   type ImageGenerationQuality,
   resolveImageGenerationMetadata,
-} from "../ai-proxy";
+} from "./image-generation";
 import { logger } from "../logger";
 
 const ALLOWED_QUALITY = new Set<ImageGenerationQuality>(["low", "medium", "high", "standard", "hd"]);

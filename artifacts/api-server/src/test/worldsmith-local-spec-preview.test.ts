@@ -70,7 +70,7 @@ vi.mock("../lib/worldsmith/spec-board-template.js", () => ({
   renderSpecBoardToPng: mockRenderBoard,
 }));
 
-vi.mock("../lib/ai-proxy.js", () => ({
+vi.mock("../lib/worldsmith/image-generation.js", () => ({
   resolveImageGenerationMetadata: vi.fn((options?: { size?: string; quality?: string }) => ({
     provider: "replit_ai_integrations",
     model: "gpt-image-2",

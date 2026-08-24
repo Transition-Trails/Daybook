@@ -61,7 +61,8 @@ import { randomUUID } from "crypto";
 import { and, eq, inArray, like, desc, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
-import { callAi, generateImage } from "../lib/ai-proxy";
+import { callAi } from "../lib/ai-proxy";
+import { generateImage } from "../lib/worldsmith/image-generation";
 import { isPromptModuleSection } from "../lib/worldsmith/types";
 import { resolveTypographyChoices, TypographyValidationError } from "../lib/worldsmith/typography";
 import {

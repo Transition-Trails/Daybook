@@ -117,11 +117,11 @@ vi.mock("../lib/notion-client.js", () => ({
   extractNumber: (_prop: NP): undefined => undefined,
 }));
 
-// ── Mock ai-proxy — success path ──────────────────────────────────────────────
+// ── Mock shared image-generation core — success path ─────────────────────────
 // mockGenerateImage is declared inside vi.hoisted() above so it is available when
 // this vi.mock factory runs (vi.mock is hoisted before regular const declarations).
 
-vi.mock("../lib/ai-proxy.js", () => ({
+vi.mock("../lib/worldsmith/image-generation.js", () => ({
   resolveImageGenerationMetadata: (options?: { size?: string; quality?: string }) => ({
     provider: "replit_ai_integrations",
     model: "gpt-image-2",

@@ -411,7 +411,10 @@ export interface CompileRequest {
   production_spec_id?: string;
   /** Legacy Notion Production Specification page ID. */
   notion_production_spec_id?: string;
-  operation: "validate_and_compile" | "preview";
+  operation: "validate_and_compile" | "preview" | "compile_and_generate";
+  generation_settings?: {
+    quality?: "low" | "medium" | "high" | "standard" | "hd";
+  };
   dry_run?: boolean;
 }
 
@@ -419,9 +422,12 @@ export interface CompileAndGenerateRequest {
   production_spec_id?: string;
   notion_production_spec_id?: string;
   operation: "compile_and_generate";
-  provider: string;
-  model: string;
-  generation_settings?: Record<string, unknown>;
+  /** The server resolves the provider and model from trusted image configuration. */
+  provider?: string;
+  model?: string;
+  generation_settings?: {
+    quality?: "low" | "medium" | "high" | "standard" | "hd";
+  };
   dry_run?: boolean;
 }
 
@@ -449,6 +455,31 @@ export interface CompileResponse {
     visual_asset_id: string | null;
     drive_file_id: string | null;
   };
+  production_package?: ProductionPackageResult;
+}
+
+export interface ProductionPackageResult {
+  id: string;
+  status: "dry_run" | "in_progress" | "generation_failed" | "upload_failed" | "uploaded_status_pending" | "success";
+  production_art_status: "not_started" | "artwork_review";
+  idempotent: boolean;
+  filename: string;
+  notion_upload_id?: string;
+  visual_asset_id?: string;
+  provider: string;
+  model: string;
+  model_version?: string;
+  effective_size: string;
+  quality: string;
+  target: {
+    dpi: number;
+    print_width_in: number;
+    print_height_in: number;
+    orientation: "landscape" | "portrait" | "square";
+  };
+  estimated_cost_usd: number | null;
+  estimate_note?: string;
+  error?: string;
 }
 
 // ── Spec Preview ──────────────────────────────────────────────────────────────

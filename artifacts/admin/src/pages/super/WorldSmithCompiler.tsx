@@ -3166,7 +3166,7 @@ function RecommendationsRichPanel() {
         </div>
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
-            <span className="font-medium text-blue-700">Estimated effort:</span> Under two minutes
+            <span className="font-medium text-blue-700">Estimated effort:</span> usually under two minutes; provider time can vary
           </p>
           <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs border-blue-200 text-blue-700 hover:bg-blue-100">
             <ArrowUpRight className="w-3 h-3" />Upgrade Payload

@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, integer, real, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, integer, real, timestamp, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { storesTable } from "./stores";
 
 // ── WorldSmith Run Repository ─────────────────────────────────────────────────
@@ -28,6 +28,8 @@ export const worldsmithRunsTable = pgTable("worldsmith_runs", {
   seed: text("seed"),
   providerRequestId: text("provider_request_id"),
   costUsd: real("cost_usd"),
+  generatedFilename: text("generated_filename"),
+  notionUploadId: text("notion_upload_id"),
   // Drive (populated after successful upload)
   driveFileId: text("drive_file_id"),
   driveFolderId: text("drive_folder_id"),
@@ -53,6 +55,52 @@ export const worldsmithRunsTable = pgTable("worldsmith_runs", {
 
 export type WorldsmithRun = typeof worldsmithRunsTable.$inferSelect;
 export type InsertWorldsmithRun = typeof worldsmithRunsTable.$inferInsert;
+
+// ── WorldSmith Production Packages ────────────────────────────────────────────
+// One durable row per effective generation identity. Individual requests retain
+// their own audit record in worldsmith_runs; this table prevents concurrent
+// requests from billing twice for identical final artwork.
+
+export const worldsmithProductionPackagesTable = pgTable("worldsmith_production_packages", {
+  id: text("id").primaryKey(),
+  productionSpecId: text("production_spec_id").notNull(),
+  promptHash: text("prompt_hash").notNull(),
+  provider: text("provider").notNull(),
+  modelName: text("model_name").notNull(),
+  modelVersion: text("model_version").notNull().default(""),
+  effectiveSize: text("effective_size").notNull(),
+  quality: text("quality").notNull(),
+  filename: text("filename").notNull(),
+  visualAssetNotionId: text("visual_asset_notion_id"),
+  notionUploadId: text("notion_upload_id"),
+  providerRequestId: text("provider_request_id"),
+  estimatedCostUsd: real("estimated_cost_usd"),
+  actualCostUsd: real("actual_cost_usd"),
+  // generating | generation_failed | upload_failed | uploaded_status_pending | success
+  status: text("status").notNull().default("generating"),
+  // Separate from specification-board review state: not_started | artwork_review
+  productionArtStatus: text("production_art_status").notNull().default("not_started"),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+}, (t) => [
+  uniqueIndex("worldsmith_production_packages_identity_idx").on(
+    t.productionSpecId,
+    t.promptHash,
+    t.provider,
+    t.modelName,
+    t.modelVersion,
+    t.effectiveSize,
+    t.quality,
+  ),
+  index("worldsmith_production_packages_spec_idx").on(t.productionSpecId),
+]);
+
+export type WorldsmithProductionPackage = typeof worldsmithProductionPackagesTable.$inferSelect;
+export type InsertWorldsmithProductionPackage = typeof worldsmithProductionPackagesTable.$inferInsert;
 
 // ── WorldSmith Asset Registry (Daybook adapter) ───────────────────────────────
 // Stable asset identity — resolved by Asset ID, not filename.

@@ -286,14 +286,78 @@ router.post("/v1/prompt-compilations", requireAuth, requireSuperAdmin, async (re
 });
 
 // ── POST /api/v1/production-packages ─────────────────────────────────────────
-// compile_and_generate — Phase 2 stub
+// Final artwork is generated only after the same validation and prompt hashing
+// used by compilation. The server owns model/provider selection; callers may
+// choose a supported quality tier but cannot select a billable model directly.
 
-router.post("/v1/production-packages", requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
-  res.status(501).json({
-    error: "compile_and_generate (image generation) is not yet implemented. Use validate_and_compile first.",
-    code: "NOT_IMPLEMENTED",
-    next_action: "POST /api/v1/prompt-compilations with operation: validate_and_compile",
-  });
+router.post("/v1/production-packages", requireAuth, requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const body = req.body as {
+    production_spec_id?: string;
+    notion_production_spec_id?: string;
+    dry_run?: boolean;
+    generation_settings?: { quality?: unknown };
+  };
+
+  if (!body.production_spec_id && !body.notion_production_spec_id) {
+    res.status(400).json({ error: "production_spec_id is required", code: "MISSING_SPEC_ID" });
+    return;
+  }
+  if (
+    body.generation_settings?.quality !== undefined
+    && !["low", "medium", "high", "standard", "hd"].includes(String(body.generation_settings.quality))
+  ) {
+    res.status(400).json({
+      error: "generation_settings.quality must be one of: low, medium, high, standard, hd",
+      code: "INVALID_QUALITY",
+    });
+    return;
+  }
+
+  let production_spec_id: string | undefined;
+  let notion_production_spec_id: string | undefined;
+  if (body.production_spec_id) {
+    production_spec_id = body.production_spec_id.trim();
+  } else {
+    try {
+      notion_production_spec_id = normalizeNotionId(body.notion_production_spec_id!);
+    } catch (err) {
+      res.status(400).json({ error: String(err), code: "INVALID_SPEC_ID" });
+      return;
+    }
+  }
+
+  const resolvedSpecId = production_spec_id ?? notion_production_spec_id!;
+  try {
+    const recovered = await failStaleRunsForSpec(resolvedSpecId);
+    if (recovered > 0) {
+      req.log.warn({ specId: resolvedSpecId, recovered }, "WorldSmith: recovered stale compile before final-art request");
+    }
+
+    const result = await runCompilation(
+      {
+        production_spec_id,
+        notion_production_spec_id,
+        operation: "compile_and_generate",
+        dry_run: body.dry_run === true,
+        generation_settings: body.generation_settings?.quality
+          ? { quality: body.generation_settings.quality as "low" | "medium" | "high" | "standard" | "hd" }
+          : undefined,
+      },
+      (req.user as User | undefined)?.id ?? "anonymous",
+    );
+
+    const httpStatus =
+      result.status === "compiled" ? 200
+      : result.status === "validation_failed" || result.status === "requires_canon_review" ? 422
+      : result.error_code === "UPLOAD_FAILED" || result.error_code === "VISUAL_ASSET_UNAVAILABLE" ? 502
+      : result.status === "failed" && result.retry_safe === false ? 422
+      : result.status === "failed" ? 503
+      : 500;
+    res.status(httpStatus).json(result);
+  } catch (err) {
+    req.log.error({ err, specId: resolvedSpecId }, "WorldSmith production package endpoint error");
+    res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
+  }
 });
 
 // ── GET /api/v1/runs/:run_id ──────────────────────────────────────────────────

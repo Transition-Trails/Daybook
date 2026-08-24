@@ -41,6 +41,7 @@
     "migrate-releases": "tsx ./src/migrate-releases.ts",
     "migrate-release-github-review": "tsx ./src/migrate-release-github-review.ts",
     "migrate-worldsmith-compiled-sections": "tsx ./src/migrate-worldsmith-compiled-sections.ts",
+    "migrate-worldsmith-production-packages": "tsx ./src/migrate-worldsmith-production-packages.ts",
     "migrate-worldsmith-stories": "tsx ./src/migrate-worldsmith-stories.ts",
     "migrate-edition-world": "node ./migrate-edition-world.mjs"
   },

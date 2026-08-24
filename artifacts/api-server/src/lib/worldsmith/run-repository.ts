@@ -47,6 +47,8 @@ export interface RunUpdate {
   seed?: string;
   providerRequestId?: string;
   costUsd?: number;
+  generatedFilename?: string;
+  notionUploadId?: string;
   driveFileId?: string;
   driveFolderId?: string;
   driveUrl?: string;
@@ -81,6 +83,8 @@ export async function updateRun(runId: string, update: RunUpdate): Promise<void>
   if (update.seed !== undefined) patch.seed = update.seed;
   if (update.providerRequestId !== undefined) patch.providerRequestId = update.providerRequestId;
   if (update.costUsd !== undefined) patch.costUsd = update.costUsd;
+  if (update.generatedFilename !== undefined) patch.generatedFilename = update.generatedFilename;
+  if (update.notionUploadId !== undefined) patch.notionUploadId = update.notionUploadId;
   if (update.driveFileId !== undefined) patch.driveFileId = update.driveFileId;
   if (update.driveFolderId !== undefined) patch.driveFolderId = update.driveFolderId;
   if (update.driveUrl !== undefined) patch.driveUrl = update.driveUrl;

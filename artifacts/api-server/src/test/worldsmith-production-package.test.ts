@@ -305,7 +305,7 @@ describe("WorldSmith final production packages", () => {
     expect(mockUpdatePage).not.toHaveBeenCalled();
   });
 
-  it("blocks a failed-generation retry after final-art approval is withdrawn", async () => {
+  it("blocks a failed-generation retry after approval withdrawal, then retries after approval is restored", async () => {
     process.env.USE_LOCAL_RESOLVER = "true";
     process.env.NOTION_VISUAL_ASSETS_DB_ID = "visual-assets-db";
     mockSpecStatus.value = "Approved";
@@ -336,6 +336,22 @@ describe("WorldSmith final production packages", () => {
       ]),
     );
     expect(mockGenerateImage).toHaveBeenCalledTimes(1);
+
+    mockSpecStatus.value = "Approved";
+    const restoredRetry = await request(makeApp())
+      .post("/api/v1/production-packages")
+      .send({ production_spec_id: "spec-1" });
+
+    expect(restoredRetry.status).toBe(200);
+    expect(restoredRetry.body.production_package).toMatchObject({
+      status: "success",
+      production_art_status: "artwork_review",
+      idempotent: false,
+    });
+    expect(packageRows.value).toHaveLength(1);
+    expect(mockGenerateImage).toHaveBeenCalledTimes(2);
+    expect(mockUpload).toHaveBeenCalledTimes(1);
+    expect(mockAttach).toHaveBeenCalledTimes(1);
   });
 
   it("treats an upload failure as fatal and never advances final-art status", async () => {

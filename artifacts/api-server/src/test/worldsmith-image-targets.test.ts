@@ -1,3 +1,4 @@
+import { ORIENTATION_AWARE_TYPES } from "@workspace/api-zod/readiness";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   getWorldsmithImageTarget,
@@ -10,17 +11,54 @@ function dimensions(size: string): [number, number] {
   return size.split("x").map(Number) as [number, number];
 }
 
-const PRINT_SIZES = Object.entries(WORLD_SMITH_PRINT_SIZES_IN).map(
+const ORIENTATIONS = ["portrait", "landscape"] as const;
+
+type PrintSize = {
+  componentType: string;
+  printWidthIn: number;
+  printHeightIn: number;
+  orientationAware: boolean;
+};
+
+const PRINT_SIZES: PrintSize[] = Object.entries(WORLD_SMITH_PRINT_SIZES_IN).map(
   ([componentType, [printWidthIn, printHeightIn]]) => ({
     componentType,
     printWidthIn,
     printHeightIn,
+    orientationAware: ORIENTATION_AWARE_TYPES.has(componentType),
   }),
+);
+type TargetCase = {
+  printSize: PrintSize;
+  requestedOrientation: (typeof ORIENTATIONS)[number] | undefined;
+};
+
+const TARGET_CASES: TargetCase[] = PRINT_SIZES.flatMap((printSize): TargetCase[] =>
+  printSize.orientationAware
+    ? ORIENTATIONS.map((requestedOrientation) => ({ printSize, requestedOrientation }))
+    : [{ printSize, requestedOrientation: undefined }],
 );
 const DPIS = [72, 150, 300] as const;
 const ROUND_TO = 16;
 const NORMAL_PIXEL_BUDGET = 2560 * 1440;
 const EXPERIMENTAL_PIXEL_BUDGET = 3840 * 2160;
+
+function expectedPrintDimensions(
+  printSize: PrintSize,
+  requestedOrientation: (typeof ORIENTATIONS)[number] | undefined,
+): [number, number] {
+  const { printWidthIn, printHeightIn } = printSize;
+  if (!printSize.orientationAware || printWidthIn === printHeightIn) {
+    return [printWidthIn, printHeightIn];
+  }
+  if (
+    (requestedOrientation === "landscape" && printWidthIn < printHeightIn) ||
+    (requestedOrientation === "portrait" && printWidthIn > printHeightIn)
+  ) {
+    return [printHeightIn, printWidthIn];
+  }
+  return [printWidthIn, printHeightIn];
+}
 
 afterEach(() => {
   delete process.env.SPEC_PREVIEW_QUALITY;
@@ -61,33 +99,53 @@ describe("WorldSmith image targets", () => {
 
   it.each(
     [false, true].flatMap((experimental) =>
-      PRINT_SIZES.flatMap(({ componentType, printWidthIn, printHeightIn }) =>
+      TARGET_CASES.flatMap(({ printSize, requestedOrientation }) =>
         DPIS.map((dpi) => ({
-          componentType,
-          printWidthIn,
-          printHeightIn,
+          ...printSize,
+          requestedOrientation,
           dpi,
           experimental,
         })),
       ),
     ),
   )(
-    "keeps $componentType at $dpi DPI within the $experimental pixel budget",
-    ({ componentType, printWidthIn, printHeightIn, dpi, experimental }) => {
+    "keeps $componentType $requestedOrientation at $dpi DPI within the $experimental pixel budget",
+    ({
+      componentType,
+      printWidthIn,
+      printHeightIn,
+      orientationAware,
+      requestedOrientation,
+      dpi,
+      experimental,
+    }) => {
       process.env.WS_IMAGE_TARGET_DPI = String(dpi);
       if (experimental) {
         process.env.WS_IMAGE_ALLOW_EXPERIMENTAL_SIZES = "true";
       }
 
-      const target = getWorldsmithImageTarget(componentType);
+      const target = getWorldsmithImageTarget(componentType, requestedOrientation);
       const [width, height] = dimensions(target.size);
       const maxPixels = experimental ? EXPERIMENTAL_PIXEL_BUDGET : NORMAL_PIXEL_BUDGET;
-      const expectedAspectRatio = printWidthIn / printHeightIn;
+      const [expectedPrintWidthIn, expectedPrintHeightIn] = expectedPrintDimensions(
+        { componentType, printWidthIn, printHeightIn, orientationAware },
+        requestedOrientation,
+      );
+      const expectedAspectRatio = expectedPrintWidthIn / expectedPrintHeightIn;
       const actualAspectRatio = width / height;
-      const maxQuantizationError = ROUND_TO / Math.min(width, height);
+      // Both dimensions can be half a supported-dimension step away from the
+      // ideal target, so account for their combined effect on the ratio.
+      const maxQuantizationError =
+        (ROUND_TO / 2) * (1 / height + expectedAspectRatio / height);
 
-      expect(target).toMatchObject({ printWidthIn, printHeightIn, requestedDpi: dpi });
-      expect(target.dpi).toBe(Math.floor(Math.min(width / printWidthIn, height / printHeightIn)));
+      expect(target).toMatchObject({
+        printWidthIn: expectedPrintWidthIn,
+        printHeightIn: expectedPrintHeightIn,
+        requestedDpi: dpi,
+      });
+      expect(target.dpi).toBe(
+        Math.floor(Math.min(width / expectedPrintWidthIn, height / expectedPrintHeightIn)),
+      );
       expect(width).toBeGreaterThanOrEqual(512);
       expect(height).toBeGreaterThanOrEqual(512);
       expect(width % ROUND_TO).toBe(0);
@@ -96,17 +154,6 @@ describe("WorldSmith image targets", () => {
       expect(Math.abs(actualAspectRatio - expectedAspectRatio)).toBeLessThanOrEqual(maxQuantizationError);
     },
   );
-
-  it("derives a landscape Journal Card target within the normal pixel budget", () => {
-    const target = getWorldsmithImageTarget("Journal Card", "Landscape");
-    const [width, height] = dimensions(target.size);
-
-    expect(target.orientation).toBe("landscape");
-    expect(width).toBeGreaterThan(height);
-    expect(width * height).toBeLessThanOrEqual(2560 * 1440);
-    expect(width % 16).toBe(0);
-    expect(height % 16).toBe(0);
-  });
 
   it("uses the full normal square budget when a 160-DPI target is requested", () => {
     process.env.WS_IMAGE_TARGET_DPI = "160";

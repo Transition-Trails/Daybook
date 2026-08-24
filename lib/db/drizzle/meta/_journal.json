@@ -36,6 +36,20 @@
       "when": 1786202000000,
       "tag": "0004_font_catalog_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786203000000,
+      "tag": "0005_repair_legacy_catalog_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786204000000,
+      "tag": "0006_repair_skipped_legacy_dependencies",
+      "breakpoints": true
     }
   ]
 }

@@ -205,6 +205,7 @@ export async function sendOrderReceipt(opts: {
   currency: string;
   downloadLinks: Array<{ name: string; url: string }>;
   resendToken?: string;
+  attempt?: number;
 }): Promise<void> {
   const storeName = await getStoreName(opts.storeId) ?? "Daybook";
   const editionName = opts.items[0]?.name ?? "your order";
@@ -216,7 +217,7 @@ export async function sendOrderReceipt(opts: {
 
   const tmpl = orderReceipt({ storeName, editionName, downloadUrl, resendUrl });
   await sendEmail({
-    idempotencyKey: `order-receipt:${opts.orderId}`,
+    idempotencyKey: `order-receipt:${opts.orderId}:${opts.attempt ?? 0}`,
     storeId:   opts.storeId,
     storeName,
     to:        opts.buyerEmail,

@@ -21,6 +21,7 @@ import {
   helpContentTable,
   insertsTable,
   ticketsTable,
+  ordersTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { makeApp, USERS } from "./helpers.js";
@@ -47,6 +48,7 @@ const ids = {
   // Per-run IDs ensure no collision with production seed data.
   rbacInsert4:      `rbac-insert-4-${RUN}`,
   rbacInsert5:      `rbac-insert-5-${RUN}`,
+  receiptOrder:     `rbac-order-${RUN}`,
 };
 
 // ── Apps keyed by actor ────────────────────────────────────────────────────────
@@ -112,6 +114,26 @@ beforeAll(async () => {
     .onConflictDoNothing();
   cleanups.push(() =>
     db.delete(themesTable).where(eq(themesTable.id, ids.noGlobalTheme))
+  );
+
+  // 4. Receipt fixture verifies that support responses do not leak the
+  // email-only capability token while still exposing delivery state.
+  await db.insert(ordersTable).values({
+    id: ids.receiptOrder,
+    storeId: "store-alpha",
+    buyerEmail: "receipt-buyer@test.example.com",
+    items: [{ name: "Receipt test", priceCents: 1200 }],
+    totalCents: 1200,
+    currency: "usd",
+    downloadLinks: [{ name: "Download", url: "https://example.com/download" }],
+    resendToken: "must-never-appear-in-json",
+    resendTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    receiptAttempts: 1,
+    receiptLastError: "Test provider failure",
+    receiptLastAttemptAt: new Date(),
+  });
+  cleanups.push(() =>
+    db.delete(ordersTable).where(eq(ordersTable.id, ids.receiptOrder))
   );
 
   // 3. Help articles for visibility tests
@@ -953,9 +975,35 @@ describe("GET /api/store/:storeId/orders — tenant isolation", () => {
     await request(alphaStaff).get("/api/store/store-alpha/orders").expect(200);
   });
 
-  it("reserves the platform orders endpoint for super admins", async () => {
-    await request(alphaOwner).get("/api/store/platform/orders").expect(403);
-    await request(sa).get("/api/store/platform/orders").expect(200);
+  it("reserves the platform house-store orders endpoint for super admins", async () => {
+    await request(alphaOwner).get("/api/store/store-house/orders").expect(403);
+    await request(sa).get("/api/store/store-house/orders").expect(200);
+  });
+
+  it("does not retain the legacy public order-creation endpoint", async () => {
+    await request(noStore)
+      .post("/api/orders")
+      .send({
+        storeId: "store-alpha",
+        buyerEmail: "attacker@example.com",
+        totalCents: 1,
+        downloadLinks: [{ name: "forged", url: "https://example.com" }],
+      })
+      .expect(404);
+  });
+
+  it("redacts receipt tokens while exposing failed-receipt filtering", async () => {
+    const list = await request(alphaStaff)
+      .get("/api/store/store-alpha/orders?receiptStatus=failed")
+      .expect(200);
+    const listed = (list.body.orders as Array<Record<string, unknown>>)
+      .find(order => order.id === ids.receiptOrder);
+    expect(listed).toMatchObject({ receiptLastError: "Test provider failure", receiptAttempts: 1 });
+    expect(listed).not.toHaveProperty("resendToken");
+
+    const detail = await request(sa).get(`/api/orders/${ids.receiptOrder}`).expect(200);
+    expect(detail.body.order).not.toHaveProperty("resendToken");
+    expect(detail.body.order).toMatchObject({ receiptLastError: "Test provider failure" });
   });
 });
 

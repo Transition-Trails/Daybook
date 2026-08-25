@@ -2008,7 +2008,12 @@ export interface SupportOrder {
   totalCents: number;
   currency: string;
   downloadLinks: Array<{ name: string; url: string }>;
+  resendTokenExpiresAt: string;
+  resendCount: number;
   receiptSentAt: string | null;
+  receiptAttempts: number;
+  receiptLastError: string | null;
+  receiptLastAttemptAt: string | null;
   createdAt: string;
 }
 

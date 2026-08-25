@@ -120,6 +120,20 @@
       "when": 1787671800000,
       "tag": "0016_planner_interiors",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1787681000000,
+      "tag": "0017_order_path_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1787681300000,
+      "tag": "0018_order_house_store_safety",
+      "breakpoints": true
     }
   ]
 }

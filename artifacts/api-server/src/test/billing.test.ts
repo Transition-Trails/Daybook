@@ -404,7 +404,7 @@ describe("Stripe webhooks", () => {
     expect(dbState.orders).toEqual([
       expect.objectContaining({
         id: "ord_billing_evt_checkout_ordered",
-        storeId: "platform",
+        storeId: "store-house",
         buyerUserId: "user-renewal",
         totalCents: 12_000,
         items: [{ name: "yearly subscription", priceCents: 12_000 }],

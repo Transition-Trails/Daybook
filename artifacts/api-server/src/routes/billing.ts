@@ -12,6 +12,7 @@ import { requireSuperAdmin } from "../middleware/requireRole";
 import { logger } from "../lib/logger";
 import type { User } from "@workspace/db";
 import { getConfiguredStripePriceId } from "../lib/stripe-price";
+import { sendOrderReceipt } from "../lib/email/senders";
 
 const router: IRouter = Router();
 
@@ -301,9 +302,9 @@ async function recordSuccessfulPayment(
     .insert(ordersTable)
     .values({
       id: orderId,
-      // Platform subscription purchases are orders for the platform rather
-      // than orders sold by one of the seller stores.
-      storeId: "platform",
+      // Platform subscription purchases belong to the seeded house store so
+      // every order keeps a valid seller foreign key.
+      storeId: "store-house",
       buyerUserId: user.id,
       buyerEmail: user.email,
       buyerName: user.name ?? null,
@@ -322,6 +323,39 @@ async function recordSuccessfulPayment(
       .where(eq(ordersTable.id, orderId));
     if (!existingOrder) {
       throw new Error("Billing payment order could not be created");
+    }
+  }
+
+  // Stripe remains authoritative even if email delivery is unavailable. The
+  // order records both success and a queryable failure so support can retry.
+  if (order) {
+    const attemptedAt = new Date();
+    await db.update(ordersTable).set({
+      receiptAttempts: order.receiptAttempts + 1,
+      receiptLastAttemptAt: attemptedAt,
+      receiptLastError: null,
+    }).where(eq(ordersTable.id, order.id));
+    try {
+      await sendOrderReceipt({
+        orderId: order.id,
+        storeId: order.storeId,
+        buyerEmail: order.buyerEmail,
+        buyerName: order.buyerName ?? undefined,
+        items: order.items,
+        totalCents: order.totalCents,
+        currency: order.currency,
+        downloadLinks: order.downloadLinks,
+        resendToken: order.resendToken ?? undefined,
+      });
+      await db.update(ordersTable).set({
+        receiptSentAt: attemptedAt,
+        receiptLastError: null,
+      }).where(eq(ordersTable.id, order.id));
+    } catch (err) {
+      await db.update(ordersTable).set({
+        receiptLastError: err instanceof Error ? err.message : String(err),
+      }).where(eq(ordersTable.id, order.id));
+      logger.warn({ err, orderId: order.id, eventId: event.id }, "Initial order receipt delivery failed");
     }
   }
 

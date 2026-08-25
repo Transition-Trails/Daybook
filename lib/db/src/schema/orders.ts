@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
 import { pgTable, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
+import { storesTable } from "./stores";
 
 export interface OrderItem {
   name: string;
@@ -11,7 +13,9 @@ export const ordersTable = pgTable("orders", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => `ord_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`),
-  storeId: text("store_id").notNull(),
+  storeId: text("store_id")
+    .notNull()
+    .references(() => storesTable.id),
   /** May be null for guest checkouts */
   buyerUserId: text("buyer_user_id").references(() => usersTable.id),
   buyerEmail: text("buyer_email").notNull(),
@@ -28,7 +32,17 @@ export const ordersTable = pgTable("orders", {
   /** Re-send link token — allows unauthenticated receipt re-send */
   resendToken: text("resend_token")
     .$defaultFn(() => crypto.randomUUID()),
+  resendTokenExpiresAt: timestamp("resend_token_expires_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now() + interval '48 hours'`),
+  /** Lifetime resend cap; the hourly window below protects sender reputation. */
+  resendCount: integer("resend_count").notNull().default(0),
+  resendWindowStartedAt: timestamp("resend_window_started_at", { withTimezone: true }),
+  resendWindowCount: integer("resend_window_count").notNull().default(0),
   receiptSentAt: timestamp("receipt_sent_at", { withTimezone: true }),
+  receiptAttempts: integer("receipt_attempts").notNull().default(0),
+  receiptLastError: text("receipt_last_error"),
+  receiptLastAttemptAt: timestamp("receipt_last_attempt_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

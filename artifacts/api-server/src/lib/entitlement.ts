@@ -33,9 +33,9 @@ export interface EntitlementContext {
 
 export interface UserPlanEntitlement {
   /**
-   * Product access is plan-based. The legacy user `owned` ledger is deliberately
-   * excluded because no entitlement path reads it; store-authored item access is
-   * resolved from the item origin instead.
+   * Product access is plan-based. The append-only user `owned` ledger records
+   * purchase history, but item access is resolved from catalog origin and the
+   * store's current subscription state instead.
    */
   plan?: string | null;
   planStatus?: string | null;
@@ -46,8 +46,8 @@ const TERMINAL_PLAN_STATUSES = new Set(["inactive", "refunded"]);
 const RETIRED_PLAN_IDS = new Set(["lifetime"]);
 
 /**
- * Resolve access for a buyer's subscription product. Item ownership is tracked
- * separately in the append-only `owned` ledger; plan access requires a
+ * Resolve access for a buyer's subscription product. The append-only `owned`
+ * ledger remains purchase history; plan access requires a
  * non-terminal status and a future period end. A failed payment remains entitled
  * while Stripe is still within the paid period and retrying collection.
  */

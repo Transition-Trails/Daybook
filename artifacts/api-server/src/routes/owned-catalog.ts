@@ -32,6 +32,7 @@ import {
 } from "@workspace/db";
 import { eq, and, or, ne, inArray, desc, asc } from "drizzle-orm";
 import { requireStoreAccess } from "../middleware/requireRole";
+import { assertStoreScope } from "../lib/auth-middleware";
 import { writeAudit } from "../lib/audit";
 import {
   filterEntitled,
@@ -169,20 +170,6 @@ async function validateProductIds(
   return null;
 }
 
-// ── Helper: cross-store guard (middleware may resolve storeId from header) ──
-
-function assertSameStore(actor: import("../lib/roles").ActorContext, urlStoreId: string, res: Response): boolean {
-  // Only platform super_admins bypass store scoping.
-  // Store owners also have isSuperAdmin=true via roles.ts (role==="owner"), so we
-  // must use platformRole directly to distinguish platform staff from store owners.
-  if (actor.platformRole === "super_admin") return true;
-  if (actor.storeId !== urlStoreId) {
-    res.status(403).json({ error: "Forbidden: cross-store access denied" });
-    return false;
-  }
-  return true;
-}
-
 // ── Helper: assert item is owned by this store ─────────────────────────────
 
 async function getOwnedItem(
@@ -234,7 +221,7 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
     if (!(await assertAiEnabled(storeId, res))) return;
 
     const { name, description, colors, status: reqStatus } = req.body as {
@@ -327,7 +314,7 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
     if (!(await assertAiEnabled(storeId, res))) return;
 
     const { name, tags, price, status: reqStatus, attestation, attestingTool } = req.body as {
@@ -437,7 +424,7 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const {
       name,
@@ -608,7 +595,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
     if (!(await assertAiEnabled(storeId, res))) return;
 
     const ctx = await getStoreCtx(storeId);
@@ -668,7 +655,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const [themes, packs, inserts, editions] = await Promise.all([
       db.select().from(themesTable)
@@ -697,7 +684,7 @@ router.patch(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const row = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
     if (!row) return;
@@ -758,7 +745,7 @@ router.patch(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const row = await getOwnedItem(stickerPacksTable, id, storeId, res, actor.isSuperAdmin);
     if (!row) return;
@@ -822,7 +809,7 @@ router.patch(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const row = await getOwnedItem(insertsTable, id, storeId, res, actor.isSuperAdmin);
     if (!row) return;
@@ -868,7 +855,7 @@ router.patch(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const row = await getOwnedItem(editionsTable, id, storeId, res, actor.isSuperAdmin);
     if (!row) return;
@@ -967,7 +954,7 @@ async function handleOwnedDelete(
 ): Promise<void> {
   const actor = req.actor!;
   const { storeId, id } = req.params as { storeId: string; id: string };
-  if (!assertSameStore(actor, storeId, res)) return;
+  if (!assertStoreScope(actor, storeId, res)) return;
 
   const canDelete = actor.isSuperAdmin || actor.storeRole === "store_owner";
   if (!canDelete) {
@@ -1050,7 +1037,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const rows = await db
       .select()
@@ -1073,7 +1060,7 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const { name, colors, status: reqStatus } = req.body as {
       name: string;
@@ -1143,7 +1130,7 @@ router.patch(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const row = await getOwnedItem(palettesTable, id, storeId, res, actor.isSuperAdmin);
     if (!row) return;
@@ -1190,7 +1177,7 @@ router.delete(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     if (!(actor.isSuperAdmin || actor.storeRole === "store_owner")) {
       res.status(403).json({ error: "Deleting owned items requires store_owner role" }); return;
@@ -1220,7 +1207,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const rows = await db
       .select()
@@ -1241,7 +1228,7 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const { name, type = "color", assetRef, status: reqStatus } = req.body as {
       name: string;
@@ -1306,7 +1293,7 @@ router.patch(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const row = await getOwnedItem(backgroundsTable, id, storeId, res, actor.isSuperAdmin);
     if (!row) return;
@@ -1351,7 +1338,7 @@ router.delete(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     if (!(actor.isSuperAdmin || actor.storeRole === "store_owner")) {
       res.status(403).json({ error: "Deleting owned items requires store_owner role" }); return;
@@ -1382,7 +1369,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const theme = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
     if (!theme) return;
@@ -1407,7 +1394,7 @@ router.put(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const theme = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
     if (!theme) return;
@@ -1451,7 +1438,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const theme = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
     if (!theme) return;
@@ -1475,7 +1462,7 @@ router.put(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const theme = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
     if (!theme) return;
@@ -1517,7 +1504,7 @@ router.put(
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, id } = req.params as { storeId: string; id: string };
-    if (!assertSameStore(actor, storeId, res)) return;
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     const theme = await getOwnedItem(themesTable, id, storeId, res, actor.isSuperAdmin);
     if (!theme) return;

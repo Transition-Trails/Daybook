@@ -8,6 +8,7 @@
 import express, { type Request, type Response, type NextFunction } from "express";
 import type { User } from "@workspace/db";
 import storesRouter from "../routes/stores.js";
+import ownedCatalogRouter from "../routes/owned-catalog.js";
 import platformRouter from "../routes/platform.js";
 
 // ── Known seeded users ────────────────────────────────────────────────────────
@@ -123,7 +124,7 @@ export const USERS = {
  *  - JSON body parsing
  *  - Fake auth middleware (injects `user` into req; sets isAuthenticated())
  *  - Silent req.log shim so pino-http error calls don't throw
- *  - The real stores + platform routers mounted at /api
+ *  - The real stores, owned catalog, and platform routers mounted at /api
  *
  * Pass `null` for an unauthenticated request.
  */
@@ -148,6 +149,7 @@ export function makeApp(user: User | null) {
   });
 
   app.use("/api", storesRouter);
+  app.use("/api", ownedCatalogRouter);
   app.use("/api", platformRouter);
   return app;
 }

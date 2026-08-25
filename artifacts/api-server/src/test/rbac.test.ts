@@ -9,6 +9,7 @@
  * Run: pnpm --filter @workspace/api-server test
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import type { Response } from "express";
 import request from "supertest";
 import { db } from "@workspace/db";
 import {
@@ -22,6 +23,8 @@ import {
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { makeApp, USERS } from "./helpers.js";
+import { assertStoreScope } from "../lib/auth-middleware.js";
+import type { ActorContext } from "../lib/roles.js";
 
 // ── Per-run unique IDs ─────────────────────────────────────────────────────────
 // Prevents collisions when the suite is run multiple times against the same DB.
@@ -700,7 +703,68 @@ describe("authenticated user with no store membership — store routes 403", () 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 11. Catalog curation: globalAvailable=false guard
+// 11. Store scope cannot be overridden by request headers
+// ─────────────────────────────────────────────────────────────────────────────
+describe("store scope guard", () => {
+  it("rejects an actor whose resolved membership does not match the URL store", () => {
+    let statusCode: number | undefined;
+    let responseBody: unknown;
+    const response = {
+      status: (code: number) => {
+        statusCode = code;
+        return response;
+      },
+      json: (body: unknown) => {
+        responseBody = body;
+        return response;
+      },
+    } as unknown as Response;
+    const alphaActor: ActorContext = {
+      userId: USERS.alphaOwner.id,
+      platformRole: null,
+      isSuperAdmin: false,
+      storeId: "store-alpha",
+      storeRole: "store_owner",
+      effectiveRole: "store-alpha:store_owner",
+    };
+
+    expect(assertStoreScope(alphaActor, "store-beta", response)).toBe(false);
+    expect(statusCode).toBe(403);
+    expect(responseBody).toEqual({ error: "Forbidden: cross-store access denied" });
+  });
+
+  it("rejects a store owner's cross-store read when x-store-id points at their own store", async () => {
+    const res = await request(alphaOwner)
+      .get("/api/stores/store-beta")
+      .set("x-store-id", "store-alpha");
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: "Forbidden: cross-store access denied" });
+  });
+
+  it("rejects a cross-store catalog read before it can query the requested store", async () => {
+    const res = await request(alphaOwner)
+      .get("/api/stores/store-beta/owned")
+      .set("x-store-id", "store-alpha");
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/^Forbidden:/);
+  });
+
+  it("allows a platform super admin to inspect any store despite a supplied store ID", async () => {
+    const [store, catalog] = await Promise.all([
+      request(sa).get("/api/stores/store-beta").set("x-store-id", "store-alpha"),
+      request(sa).get("/api/stores/store-beta/owned").set("x-store-id", "store-alpha"),
+    ]);
+
+    expect(store.status).toBe(200);
+    expect(store.body.id).toBe("store-beta");
+    expect(catalog.status).toBe(200);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12. Catalog curation: globalAvailable=false guard
 // ─────────────────────────────────────────────────────────────────────────────
 describe("catalog curation — globalAvailable guard", () => {
   it("store_owner enabling item with globalAvailable=false → 403", async () => {

@@ -25,6 +25,7 @@ import {
   requireStoreAccess,
   resolveStoreActor,
 } from "../middleware/requireRole";
+import { assertStoreScope } from "../lib/auth-middleware";
 import { writeAudit } from "../lib/audit";
 import { annotateWithEntitlement, type EntitlementContext } from "../lib/entitlement";
 
@@ -105,6 +106,7 @@ router.get("/stores/:storeId", resolveStoreActor, async (req: Request, res: Resp
   const actor = req.actor!;
   const storeId = req.params.storeId as string;
 
+  if (!assertStoreScope(actor, storeId, res)) return;
   if (!actor.isSuperAdmin && actor.storeRole !== "store_owner") {
     res.status(403).json({ error: "Forbidden" });
     return;
@@ -128,6 +130,7 @@ router.patch("/stores/:storeId", resolveStoreActor, async (req: Request, res: Re
   const storeId = req.params.storeId as string;
   const body = req.body as Record<string, unknown>;
 
+  if (!assertStoreScope(actor, storeId, res)) return;
   if (!actor.isSuperAdmin && actor.storeRole !== "store_owner") {
     res.status(403).json({ error: "Forbidden" });
     return;
@@ -168,7 +171,9 @@ router.get(
   "/stores/:storeId/members",
   requireStoreAccess("store_owner"),
   async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
     const storeId = req.params.storeId as string;
+    if (!assertStoreScope(actor, storeId, res)) return;
     const members = await db
       .select()
       .from(storeMembersTable)
@@ -188,6 +193,7 @@ router.post(
     const storeId = req.params.storeId as string;
     const { userId, role } = req.body as { userId: string; role: string };
 
+    if (!assertStoreScope(actor, storeId, res)) return;
     if (!userId || !role) {
       res.status(400).json({ error: "userId and role are required" });
       return;
@@ -239,6 +245,7 @@ router.delete(
     const storeId = req.params.storeId as string;
     const userId = req.params.userId as string;
 
+    if (!assertStoreScope(actor, storeId, res)) return;
     const deleted = await db
       .delete(storeMembersTable)
       .where(and(eq(storeMembersTable.storeId, storeId), eq(storeMembersTable.userId, userId)))
@@ -269,6 +276,7 @@ router.get(
     const actor = req.actor!;
     const storeId = req.params.storeId as string;
 
+    if (!assertStoreScope(actor, storeId, res)) return;
     const [store] = await db.select().from(storesTable).where(eq(storesTable.id, storeId));
     if (!store) { res.status(404).json({ error: "Store not found" }); return; }
 
@@ -333,6 +341,7 @@ router.post(
     const storeId = req.params.storeId as string;
     const { itemType, itemId } = req.body as { itemType: string; itemId: string };
 
+    if (!assertStoreScope(actor, storeId, res)) return;
     if (!itemType || !itemId) {
       res.status(400).json({ error: "itemType and itemId are required" });
       return;
@@ -393,6 +402,7 @@ router.delete(
     const itemType = req.params.itemType as string;
     const itemId = req.params.itemId as string;
 
+    if (!assertStoreScope(actor, storeId, res)) return;
     const deleted = await db
       .delete(storeCatalogTable)
       .where(
@@ -434,6 +444,7 @@ router.patch(
       defaultMode?: "curated" | "independent";
     };
 
+    if (!assertStoreScope(actor, storeId, res)) return;
     if (subscriptionActive === undefined && defaultMode === undefined) {
       res.status(400).json({ error: "Provide subscriptionActive and/or defaultMode" });
       return;
@@ -478,7 +489,9 @@ router.get(
   "/stores/:storeId/flags",
   requireStoreAccess("store_staff"),
   async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
     const storeId = req.params.storeId as string;
+    if (!assertStoreScope(actor, storeId, res)) return;
     const rows = await db.select().from(storeFlagsTable).where(eq(storeFlagsTable.storeId, storeId));
     res.json(rows[0] ?? { storeId, aiEnabled: false, customDomain: false, editionsCap: 5, storageQuota: 1024, inkEnabled: false, worldsmithEnabled: false });
   },
@@ -501,6 +514,7 @@ router.put(
       worldsmithEnabled?: boolean;
     };
 
+    if (!assertStoreScope(actor, storeId, res)) return;
     const patch: Partial<typeof storeFlagsTable.$inferInsert> = {};
     if (aiEnabled !== undefined) patch.aiEnabled = aiEnabled;
     if (customDomain !== undefined) patch.customDomain = customDomain;

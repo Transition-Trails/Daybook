@@ -65,6 +65,20 @@ Support data is scoped by the API, not by client-side filtering:
 These boundaries are covered by the API RBAC integration suite in
 `artifacts/api-server/src/test/rbac.test.ts`.
 
+## Planner interiors and image safety
+
+Authored planner interiors are immutable, store-scoped revisions. Version
+creation allocates the next number inside its database transaction and retries a
+unique conflict once, so concurrent saves cannot create ambiguous revisions.
+An edition can pin its own store's interior or a platform house-store interior;
+cross-store pins are rejected by the API.
+
+Image and PDF color handling use one strict hexadecimal parser. Shorthand
+`#RGB`, full `#RRGGBB`, and SVG `none` are supported where appropriate; invalid
+color input is returned as a field validation error rather than silently
+rendered. Sticker processing also rejects sources above the decoded-pixel
+budget before allocating raw RGBA buffers.
+
 ## WorldSmith local workflow
 
 WorldSmith lets editorial teams author production specifications, compile

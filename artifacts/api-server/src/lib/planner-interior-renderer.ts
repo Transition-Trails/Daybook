@@ -13,9 +13,9 @@ import {
   SvgContractError,
   type SvgLinkZone,
   type ValidatedSvgTemplate,
-  parseSvgColor,
   validateInteriorDefinition,
 } from "./svg-contract";
+import { parseHexColor } from "./color";
 import { addGoToAnnotation } from "./pdf-template";
 import { resolvePlannerInteriorFont } from "./pdf-generator";
 import { getEinkPreset } from "./eink-presets";
@@ -185,7 +185,7 @@ function number(attrsMap: Record<string, string>, name: string, fallback = 0): n
 }
 
 function paint(value: string | undefined, fallback: string): ReturnType<typeof rgb> | undefined {
-  const color = parseSvgColor(value, fallback);
+  const color = parseHexColor(value, fallback);
   if (color === "none") return undefined;
   return rgb(parseInt(color.slice(1, 3), 16) / 255, parseInt(color.slice(3, 5), 16) / 255, parseInt(color.slice(5, 7), 16) / 255);
 }
@@ -193,7 +193,7 @@ function paint(value: string | undefined, fallback: string): ReturnType<typeof r
 function renderPaint(value: string | undefined, fallback: string, inkFriendly: boolean): ReturnType<typeof rgb> | undefined {
   const color = paint(value, fallback);
   if (!inkFriendly || !color) return color;
-  const hex = parseSvgColor(value, fallback);
+  const hex = parseHexColor(value, fallback);
   if (hex === "none") return undefined;
   const red = parseInt(hex.slice(1, 3), 16);
   const green = parseInt(hex.slice(3, 5), 16);

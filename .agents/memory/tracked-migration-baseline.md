@@ -64,6 +64,20 @@ is diagnosis and restoration to the checked-in journal order, followed by the
 normal `@workspace/db migrate` command and verification; never prescribe
 hand-editing the Drizzle ledger.
 
+Planner interiors may already be physically present in a legacy shared
+development database while their tracked migration row is absent. The
+preparation step may record that migration only after it verifies the complete
+contract: both tables, every required column and foreign key, all indexes, and
+the immutable-version trigger. Any partial state must remain blocked.
+
+**Why:** Replaying a non-idempotent historical migration against an existing
+interior schema fails, while inserting a ledger row based on a table-name check
+could hide missing ownership or immutability guarantees.
+
+**How to apply:** Keep this recognition path specific to the exact historic
+contract. For new migrations, add normal checked-in SQL and let Drizzle apply
+it; do not broaden the recovery to infer partially applied work.
+
 WorldSmith schema additions must be recorded in the Drizzle ledger and deployed
 through `@workspace/db migrate`; standalone WorldSmith scripts are compatibility
 repairs, not deployment prerequisites. The migration verifier checks the full

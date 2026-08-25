@@ -35,6 +35,8 @@ import {
   removeBackground,
   applyBorderAndSize,
   generateCutlineSvg,
+  assertDecodedPixelBudget,
+  MAX_DECODED_IMAGE_PIXELS,
 } from "../lib/imageProcessing.js";
 
 // ── Per-run unique IDs ─────────────────────────────────────────────────────────
@@ -333,6 +335,19 @@ describe("0. Direct function diagnostics", () => {
     expect(height).toBe(94);
     expect(transparent).toBeGreaterThan(0);
     expect(opaque).toBeGreaterThan(0);
+  });
+
+  it("parses #fff as a white border rather than padding it into yellow", async () => {
+    const src = await makeWhiteBackgroundImage(64, 64);
+    const bgRemoved = await removeBackground(src);
+    const bordered = await applyBorderAndSize(bgRemoved, "thin", 2, "#fff", null);
+    const { pixels } = await decodeProcessedImage(bordered);
+    expect([...pixels.slice(0, 4)]).toEqual([255, 255, 255, 255]);
+  });
+
+  it("rejects a 12,000px source before allocating raw flood-fill buffers", () => {
+    expect(() => assertDecodedPixelBudget(12_000, 12_000)).toThrow("decoded pixels");
+    expect(12_000 * 12_000).toBeGreaterThan(MAX_DECODED_IMAGE_PIXELS);
   });
 
   it("generateCutlineSvg produces a path for an opaque circle on transparent bg", async () => {
@@ -707,6 +722,21 @@ describe("5. Error paths", () => {
       .send({ name: `FT Error ${RUN}`, functionType: "invalid-type", imageBase64 });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/functionType/i);
+  });
+
+  it("invalid borderColor → 400 with a field-specific validation message", async () => {
+    const imageBase64 = await makeWhiteBackgroundImage();
+    const res = await request(ownerApp)
+      .post(`/api/stores/${STORE_ID}/stickers`)
+      .send({
+        name: `Bad Border ${RUN}`,
+        functionType: "tab",
+        imageBase64,
+        borderStyle: "thin",
+        borderColor: "orange",
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/borderColor/);
   });
 });
 

@@ -1,119 +1,5 @@
-/**
- * Store-Scoped Sticker Library Routes
- *
- * Auth model: same as owned-catalog.ts
- *   - starter / licensed stickers → read-only to stores; only super_admin can mutate
- *   - owned stickers → authoring store + super_admin can mutate; staff draft-only
- *
- * Route list
- * ──────────
- * POST   /stores/:storeId/stickers/bulk/function-type  bulk set functionType
- * POST   /stores/:storeId/stickers/bulk/add-to-pack    bulk add to a pack
- * POST   /stores/:storeId/stickers/bulk/publish        bulk publish/unpublish (owner)
- * DELETE /stores/:storeId/stickers/bulk                bulk soft-delete (owner)
- *
- * GET    /stores/:storeId/stickers                     list + search/filter
- * POST   /stores/:storeId/stickers                     create (runs pipeline)
- *
- * GET    /stores/:storeId/stickers/:id                 get one
- * PATCH  /stores/:storeId/stickers/:id                 edit (re-runs pipeline)
- * POST   /stores/:storeId/stickers/:id/duplicate       clone as draft
- * GET    /stores/:storeId/stickers/:id/usage           which packs reference it
- * DELETE /stores/:storeId/stickers/:id                 soft-delete with pack guard
- *
- * NOTE: bulk routes are declared BEFORE /:id to prevent param capture.
- */
-import { Router, type IRouter, type Request, type Response } from "express";
-import sharp from "sharp";
-import { db } from "@workspace/db";
-import {
-  stickersLibraryTable,
-  packStickersTable,
-  stickerPacksTable,
-  stylePresetsTable,
-  editionsTable,
-  STICKER_FUNCTION_TYPES,
-  type StickerFunctionType,
-} from "@workspace/db";
-import {
-  eq,
-  and,
-  or,
-  ne,
-  inArray,
-  notInArray,
-  desc,
-  ilike,
-  sql,
-} from "drizzle-orm";
-import { requireStoreAccess } from "../middleware/requireRole";
-import { writeAudit } from "../lib/audit";
-import {
-  removeBackground,
-  applyBorderAndSize,
-  generateCutlineSvg,
-  adjustCutlineSvgForShadow,
-  edgeFeather,
-  addDropShadow,
-  UserImageError,
-} from "../lib/imageProcessing";
-import { callAi, generateImage } from "../lib/ai-proxy";
-import { buildProfileGrounding } from "../lib/profile-grounding";
-import { renderLabelPng } from "../lib/labelImageGen";
-import { storeProfilesTable, storeFlagsTable } from "@workspace/db";
-import type { ActorContext } from "../lib/roles";
-
-const router: IRouter = Router();
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function genId(): string {
-  return `stk_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-}
-
-/** Reject cross-store access. Super_admin bypasses. */
-function assertSameStore(
-  actor: ActorContext,
-  urlStoreId: string,
-  res: Response,
-): boolean {
-  if (actor.platformRole === "super_admin") return true;
-  if (actor.storeId !== urlStoreId) {
-    res.status(403).json({ error: "Forbidden: cross-store access denied" });
-    return false;
-  }
-  return true;
-}
-
-function isValidFunctionType(v: unknown): v is StickerFunctionType {
+nctionType {
   return STICKER_FUNCTION_TYPES.includes(v as StickerFunctionType);
-}
-
-/** Normalize a name for duplicate detection: trim, collapse whitespace, lowercase. */
-function normalizeName(n: string): string {
-  return n.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-/**
- * Find any non-deleted owned sticker for this store with the same normalized name.
- * Used by the create route to prevent duplicate drafts.
- */
-async function findStoreStickerDup(
-  storeId: string,
-  name: string,
-): Promise<{ id: string; name: string; status: string } | null> {
-  const rows = (await db
-    .select({ id: stickersLibraryTable.id, name: stickersLibraryTable.name, status: stickersLibraryTable.status })
-    .from(stickersLibraryTable)
-    .where(
-      and(
-        eq(stickersLibraryTable.authoredByStoreId, storeId),
-        eq(stickersLibraryTable.origin, "owned"),
-        ne(stickersLibraryTable.status, "deleted"),
-      ),
-    )) as { id: string; name: string; status: string }[];
-  const norm = normalizeName(name);
-  return rows.find((r) => normalizeName(r.name) === norm) ?? null;
 }
 
 /** Fetch a single owned sticker, enforcing origin=owned and store ownership. */
@@ -670,7 +556,7 @@ router.post(
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
     // ── Dedup guard — check before the expensive pipeline ──────────────────
-    const dup = await findStoreStickerDup(storeId, name);
+    const dup = await findSameStoreName(stickersLibraryTable, storeId, name);
     if (dup && dup.status === "live") {
       res.status(409).json({
         error: `A live sticker named "${name}" already exists for this store — open it to edit instead.`,
@@ -852,6 +738,16 @@ router.post(
         results.push({ name, status: "failed", reason: `functionType must be one of: ${STICKER_FUNCTION_TYPES.join(", ")}` });
         continue;
       }
+      const duplicate = await findSameStoreName(stickersLibraryTable, storeId, name);
+      if (duplicate) {
+        results.push({
+          name,
+          id: duplicate.id,
+          status: "failed",
+          reason: `A non-deleted sticker named "${name}" already exists for this store`,
+        });
+        continue;
+      }
 
       // Size guard
       const b64 = item.imageBase64.replace(/^data:image\/[a-z+]+;base64,/, "");
@@ -951,6 +847,14 @@ router.post(
     }
 
     const stickerName = name ?? `${functionType}${label ? ` — ${label}` : ""}`;
+    const existing = await findSameStoreName(stickersLibraryTable, storeId, stickerName);
+    if (existing) {
+      res.status(409).json({
+        error: `A non-deleted sticker named "${stickerName}" already exists for this store`,
+        existingId: existing.id,
+      });
+      return;
+    }
     const resolvedSize = sizeInMm ?? (functionType === "tab" ? 24 : functionType === "banner" ? 60 : functionType === "date" ? 12 : 20);
     const primaryColor = paletteColors?.[0] ?? "#2D3748";
     const accentColor = paletteColors?.[1] ?? primaryColor;
@@ -1140,6 +1044,20 @@ router.post(
 
     for (const { label, functionType, defaultSizeMm } of labelsAndTypes) {
       const resolvedSize = sizeInMm ?? defaultSizeMm;
+      const name = `${setType} — ${label}`;
+      const existing = await findSameStoreName(stickersLibraryTable, storeId, name);
+      if (existing) {
+        createdIds.push(existing.id);
+        if (packId) {
+          const [posRow] = await db
+            .select({ maxPos: sql<number>`max(${packStickersTable.position})` })
+            .from(packStickersTable)
+            .where(eq(packStickersTable.packId, packId));
+          const nextPos = (posRow?.maxPos ?? -1) + 1 + createdIds.length - 1;
+          await db.insert(packStickersTable).values({ packId, stickerId: existing.id, position: nextPos }).onConflictDoNothing();
+        }
+        continue;
+      }
 
       // Render label using bundled Google Fonts via resvg (same path as Planner Studio)
       const processedImageData = await renderLabelPng({
@@ -1155,7 +1073,7 @@ router.post(
         .insert(stickersLibraryTable)
         .values({
           id,
-          name: `${setType} — ${label}`,
+          name,
           tags: [setType],
           functionType,
           status: "draft",
@@ -1374,8 +1292,12 @@ router.post(
 
       res.json({ processedImageData, cutlineSvg, prompt: prompt.trim() });
     } catch (err) {
-      req.log?.error({ err }, "illustrative image generation failed");
-      res.status(500).json({ error: "Image generation failed. Please try again." });
+      if (err instanceof UserImageError) {
+        res.status(400).json({ error: err.message });
+      } else {
+        req.log?.error({ err }, "illustrative image generation failed");
+        res.status(500).json({ error: "Image generation failed. Please try again." });
+      }
     }
   },
 );

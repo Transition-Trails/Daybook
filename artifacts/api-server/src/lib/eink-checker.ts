@@ -18,14 +18,14 @@
  *     Budget: 10 MB. Backgrounds are stripped in ink-friendly mode, so this
  *     is a safety net for unusually complex vector content.
  */
+import { parseHexColor } from "./color";
 
-/** Minimal hex → rgb converter (duplicated to keep this module self-contained). */
 function hexBrightness(hex: string): number {
-  const h = hex.replace("#", "");
-  if (h.length !== 6) return 0;
-  const r = parseInt(h.slice(0, 2), 16) / 255;
-  const g = parseInt(h.slice(2, 4), 16) / 255;
-  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const parsed = parseHexColor(hex);
+  if (parsed === "none") return 0;
+  const r = parseInt(parsed.slice(1, 3), 16) / 255;
+  const g = parseInt(parsed.slice(3, 5), 16) / 255;
+  const b = parseInt(parsed.slice(5, 7), 16) / 255;
   // Perceived brightness (WCAG-adjacent luma)
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }

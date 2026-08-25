@@ -34,6 +34,7 @@ import { eq, and, or, ne, inArray, desc, asc } from "drizzle-orm";
 import { requireStoreAccess } from "../middleware/requireRole";
 import { assertStoreScope } from "../lib/auth-middleware";
 import { writeAudit } from "../lib/audit";
+import { findSameStoreName } from "../lib/store-name-dedup";
 import {
   filterEntitled,
   resolveEntitlement,
@@ -61,34 +62,6 @@ async function assertAiEnabled(storeId: string, res: Response): Promise<boolean>
 
 function genId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-}
-
-// ── Dedup helpers ──────────────────────────────────────────────────────────
-
-/** Normalize a name for duplicate detection: trim, collapse whitespace, lowercase. */
-function normalizeName(n: string): string {
-  return n.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-/**
- * Find any non-deleted owned row for this store with the same normalized name.
- * Returns the first match (id, name, status) or null.
- * Used by every owned POST route to prevent creating a second identical draft.
- */
-async function findOwnedDup(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  table: any,
-  storeId: string,
-  name: string,
-): Promise<{ id: string; name: string; status: string } | null> {
-  const rows = (await db
-    .select({ id: table.id, name: table.name, status: table.status })
-    .from(table)
-    .where(
-      and(eq(table.authoredByStoreId, storeId), eq(table.origin, "owned"), ne(table.status, "deleted")),
-    )) as { id: string; name: string; status: string }[];
-  const norm = normalizeName(name);
-  return rows.find((r) => normalizeName(r.name) === norm) ?? null;
 }
 
 // ── Helper: resolve store subscriptionActive ───────────────────────────────
@@ -247,7 +220,7 @@ router.post(
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
     // ── Dedup guard ──────────────────────────────────────────────────────────
-    const dupTheme = await findOwnedDup(themesTable, storeId, name);
+    const dupTheme = await findSameStoreName(themesTable, storeId, name);
     if (dupTheme) {
       if (dupTheme.status === "live") {
         res.status(409).json({
@@ -351,7 +324,7 @@ router.post(
     }
 
     // ── Dedup guard ──────────────────────────────────────────────────────────
-    const dupPack = await findOwnedDup(stickerPacksTable, storeId, name);
+    const dupPack = await findSameStoreName(stickerPacksTable, storeId, name);
     if (dupPack) {
       if (dupPack.status === "live") {
         res.status(409).json({
@@ -480,7 +453,7 @@ router.post(
     if (productErr) { res.status(403).json({ error: productErr }); return; }
 
     // ── Dedup guard ──────────────────────────────────────────────────────────
-    const dupEdition = await findOwnedDup(editionsTable, storeId, name);
+    const dupEdition = await findSameStoreName(editionsTable, storeId, name);
     if (dupEdition) {
       if (dupEdition.status === "live") {
         res.status(409).json({
@@ -1081,7 +1054,7 @@ router.post(
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
     // ── Dedup guard ──────────────────────────────────────────────────────────
-    const dupPalette = await findOwnedDup(palettesTable, storeId, name);
+    const dupPalette = await findSameStoreName(palettesTable, storeId, name);
     if (dupPalette) {
       if (dupPalette.status === "live") {
         res.status(409).json({
@@ -1249,7 +1222,7 @@ router.post(
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
     // ── Dedup guard ──────────────────────────────────────────────────────────
-    const dupBg = await findOwnedDup(backgroundsTable, storeId, name);
+    const dupBg = await findSameStoreName(backgroundsTable, storeId, name);
     if (dupBg) {
       if (dupBg.status === "live") {
         res.status(409).json({

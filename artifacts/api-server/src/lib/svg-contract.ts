@@ -3,6 +3,7 @@ import type {
   PlannerInteriorManifest,
   PlannerInteriorTrim,
 } from "@workspace/db";
+import { parseHexColor } from "./color";
 
 const ALLOWED_ELEMENTS = new Set([
   "svg", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text",
@@ -207,7 +208,13 @@ function assertSafeSvg(svg: string, elements: SvgElement[]): void {
     assertRendererSupportedAttributes(element);
     const styles = styleAttributes(element.attrs);
     for (const paint of [element.attrs.fill, element.attrs.stroke, styles.fill, styles.stroke]) {
-      if (paint != null) parseSvgColor(paint);
+      if (paint != null) {
+        try {
+          parseHexColor(paint);
+        } catch (error) {
+          throw new SvgContractError((error as Error).message.replace(/^Unsupported colour/, "Unsupported SVG colour"));
+        }
+      }
     }
     const fontStyle = styles["font-style"] ?? element.attrs["font-style"];
     if (fontStyle && fontStyle !== "normal") throw new SvgContractError("Only normal SVG font-style is supported");
@@ -238,15 +245,6 @@ export function sanitizeSvg(svg: string): string {
     .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/\s+(?:(?:xlink:)?href|src)\s*=\s*(?:(["'])(?!#)[\s\S]*?\1|(?!(?:#)[^\s>]*)([^\s>]+))/gi, "")
     .replace(/url\(\s*(['"]?)(?!#)[^)]+\1\s*\)/gi, "none");
-}
-
-export function parseSvgColor(value: string | undefined, fallback = "#000000"): string {
-  const color = (value ?? fallback).trim();
-  const short = /^#([0-9a-f]{3})$/i.exec(color);
-  if (short) return `#${short[1].split("").map((part) => part + part).join("")}`.toUpperCase();
-  if (/^#[0-9a-f]{6}$/i.test(color)) return color.toUpperCase();
-  if (color === "none") return color;
-  throw new SvgContractError(`Unsupported SVG colour "${color}"; use #RGB, #RRGGBB, or none`);
 }
 
 export function validateSvgTemplate(svg: string, trim: PlannerInteriorTrim): ValidatedSvgTemplate {

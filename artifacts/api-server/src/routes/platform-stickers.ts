@@ -46,6 +46,7 @@ import {
   removeBackground,
   applyBorderAndSize,
   generateCutlineSvg,
+  UserImageError,
 } from "../lib/imageProcessing";
 import { getSetLabels, renderLabelPng } from "../lib/labelImageGen";
 
@@ -578,8 +579,12 @@ router.post(
       processedImageData = result.processedImageData;
       cutlineSvg = result.cutlineSvg;
     } catch (pipelineErr) {
-      req.log.error({ err: pipelineErr }, "platform sticker pipeline failed");
-      res.status(500).json({ error: "Image processing failed" });
+      if (pipelineErr instanceof UserImageError) {
+        res.status(400).json({ error: pipelineErr.message });
+      } else {
+        req.log.error({ err: pipelineErr }, "platform sticker pipeline failed");
+        res.status(500).json({ error: "Image processing failed" });
+      }
       return;
     }
 
@@ -743,8 +748,12 @@ router.patch(
         updateData.processedImageData = result.processedImageData;
         updateData.cutlineSvg = result.cutlineSvg;
       } catch (pipelineErr) {
-        req.log.error({ err: pipelineErr }, "platform sticker pipeline re-run failed");
-        res.status(500).json({ error: "Image processing failed" });
+        if (pipelineErr instanceof UserImageError) {
+          res.status(400).json({ error: pipelineErr.message });
+        } else {
+          req.log.error({ err: pipelineErr }, "platform sticker pipeline re-run failed");
+          res.status(500).json({ error: "Image processing failed" });
+        }
         return;
       }
     }

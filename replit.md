@@ -195,6 +195,20 @@ known consolidated schema before later migrations are applied.
 Deployment startup verifies the migration ledger before the API starts. Unknown
 or damaged ledger histories are rejected without writes; use the recovery
 runbook rather than editing ledger rows manually.
+The migration preparer can also recognize the complete pre-ledger planner
+interior contract and record its existing tracked migration. It refuses a
+partial planner-interior schema, so do not add ledger rows by hand.
+
+**Shared color and image safety.** Use `lib/color.ts` for all hex parsing; it
+normalizes `#RGB` and `#RRGGBB`, permits `none` only for paint contexts, and
+rejects malformed input. Do not add local hex helpers. Sticker source images
+are limited by decoded pixels before flood-fill processing; keep that check
+ahead of any raw-RGBA allocation.
+
+**Planner interior ownership.** Interior revisions are immutable and versioned
+inside a transaction. Edition pins must use an interior authored by the same
+store or by `store-house`; cross-seller reuse needs an explicit future
+permission, never a relaxed default.
 
 **isSuperAdmin legacy bug (fixed).** `roles.ts` previously had a `role === "owner"` fallback making all store owners bypass store scoping. Fixed to check `platformRole === "super_admin"` only. Never reintroduce the owner bypass.
 

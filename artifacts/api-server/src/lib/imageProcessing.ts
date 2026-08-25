@@ -13,6 +13,10 @@
  * available.
  */
 import sharp, { type OutputInfo } from "sharp";
+import { hexToRgba } from "./color";
+
+/** A conservative cap for raw RGBA processing and flood-fill bookkeeping. */
+export const MAX_DECODED_IMAGE_PIXELS = 24_000_000;
 
 /**
  * Thrown when the source image has a user-fixable problem (corrupt bytes,
@@ -43,14 +47,16 @@ function colourDist(
   return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
 }
 
-function hexToRgba(hex: string): { r: number; g: number; b: number; alpha: number } {
-  const h = hex.replace("#", "").padEnd(6, "0");
-  return {
-    r: parseInt(h.slice(0, 2), 16),
-    g: parseInt(h.slice(2, 4), 16),
-    b: parseInt(h.slice(4, 6), 16),
-    alpha: 1,
-  };
+export function assertDecodedPixelBudget(width: number | undefined, height: number | undefined): void {
+  if (!width || !height || width < 1 || height < 1) {
+    throw new UserImageError("Image could not be decoded — its dimensions are invalid.");
+  }
+  const pixels = width * height;
+  if (pixels > MAX_DECODED_IMAGE_PIXELS) {
+    throw new UserImageError(
+      `Image dimensions are too large — maximum is ${MAX_DECODED_IMAGE_PIXELS.toLocaleString()} decoded pixels.`,
+    );
+  }
 }
 
 // ── Background removal ────────────────────────────────────────────────────────
@@ -68,6 +74,17 @@ export async function removeBackground(
 ): Promise<string> {
   const input = b64ToBuffer(imageBase64);
 
+  let width: number | undefined;
+  let height: number | undefined;
+  try {
+    ({ width, height } = await sharp(input).metadata());
+  } catch {
+    throw new UserImageError(
+      "Image could not be decoded — ensure you are sending a valid PNG, JPEG, or WebP.",
+    );
+  }
+  assertDecodedPixelBudget(width, height);
+
   let data: Buffer;
   let info: OutputInfo;
   try {
@@ -81,12 +98,17 @@ export async function removeBackground(
     );
   }
 
-  const { width, height } = info;
+  const { width: decodedWidth, height: decodedHeight } = info;
   const px = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  const total = width * height;
+  const total = decodedWidth * decodedHeight;
 
   // Sample background colour from the four corners (average)
-  const cornerPixels = [0, width - 1, (height - 1) * width, (height - 1) * width + width - 1];
+  const cornerPixels = [
+    0,
+    decodedWidth - 1,
+    (decodedHeight - 1) * decodedWidth,
+    (decodedHeight - 1) * decodedWidth + decodedWidth - 1,
+  ];
   let rSum = 0, gSum = 0, bSum = 0;
   for (const p of cornerPixels) {
     rSum += px[p * 4];
@@ -109,13 +131,13 @@ export async function removeBackground(
     }
   };
 
-  for (let x = 0; x < width; x++) {
+  for (let x = 0; x < decodedWidth; x++) {
     seedEdge(x);
-    seedEdge((height - 1) * width + x);
+    seedEdge((decodedHeight - 1) * decodedWidth + x);
   }
-  for (let y = 1; y < height - 1; y++) {
-    seedEdge(y * width);
-    seedEdge(y * width + width - 1);
+  for (let y = 1; y < decodedHeight - 1; y++) {
+    seedEdge(y * decodedWidth);
+    seedEdge(y * decodedWidth + decodedWidth - 1);
   }
 
   // Guard: if no edge pixels matched the sampled background colour, there is
@@ -134,14 +156,14 @@ export async function removeBackground(
     const p = queue[head++];
     px[p * 4 + 3] = 0; // make transparent
 
-    const x = p % width;
-    const y = Math.floor(p / width);
+    const x = p % decodedWidth;
+    const y = Math.floor(p / decodedWidth);
 
     const neighbours = [
-      y > 0 ? p - width : -1,
-      y < height - 1 ? p + width : -1,
+      y > 0 ? p - decodedWidth : -1,
+      y < decodedHeight - 1 ? p + decodedWidth : -1,
       x > 0 ? p - 1 : -1,
-      x < width - 1 ? p + 1 : -1,
+      x < decodedWidth - 1 ? p + 1 : -1,
     ];
 
     for (const n of neighbours) {
@@ -153,8 +175,8 @@ export async function removeBackground(
     }
   }
 
-  const out = await sharp(Buffer.from(px.buffer), {
-    raw: { width, height, channels: 4 },
+  const out = await sharp(Buffer.from(px.buffer, px.byteOffset, px.byteLength), {
+    raw: { width: decodedWidth, height: decodedHeight, channels: 4 },
   })
     .png()
     .toBuffer();
@@ -191,12 +213,18 @@ export async function applyBorderAndSize(
     const newW = w + bw * 2;
     const newH = h + bw * 2;
 
+    let background;
+    try {
+      background = { ...hexToRgba(bc), alpha: 255 };
+    } catch {
+      throw new UserImageError("borderColor must be a valid #RGB or #RRGGBB colour");
+    }
     const bgBuf = await sharp({
       create: {
         width: newW,
         height: newH,
         channels: 4,
-        background: { ...hexToRgba(bc), alpha: 255 },
+        background,
       },
     })
       .png()

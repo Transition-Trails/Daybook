@@ -136,6 +136,7 @@ import {
   StorylineEditor,
   StoryConnections,
   WorldBibleStudio,
+  ImageTargets,
 } from "@/pages/super/worldsmith-editorial";
 
 const queryClient = new QueryClient({
@@ -342,6 +343,11 @@ function RootRouter() {
       <Route path="/super/worldsmith/editorial/modules">
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="modules"><PromptModules /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/image-targets">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="image-targets"><ImageTargets /></EditorialShell>
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/board">

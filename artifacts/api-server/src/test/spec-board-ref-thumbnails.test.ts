@@ -146,14 +146,19 @@ vi.mock("drizzle-orm", async (importOriginal) => {
 
 vi.mock("@workspace/db", () => ({
   db: {
-    select: vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          orderBy: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([]),
+    select: vi.fn((fields: unknown) => {
+      const isCatalogQuery = !!fields && typeof fields === "object" && "printWidthIn" in fields;
+      const limit = vi.fn().mockResolvedValue(
+        isCatalogQuery ? [{ printWidthIn: 3, printHeightIn: 4 }] : [],
+      );
+      return {
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            orderBy: vi.fn().mockReturnValue({ limit }),
+            limit,
           }),
         }),
-      }),
+      };
     }),
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockResolvedValue(undefined),
@@ -167,6 +172,7 @@ vi.mock("@workspace/db", () => ({
     dryRun:           "dryRun",
     createdAt:        "createdAt",
   },
+  worldsmithImageTargetsTable: { componentType: {}, printWidthIn: {}, printHeightIn: {} },
 }));
 
 // ── Mock logger ───────────────────────────────────────────────────────────────

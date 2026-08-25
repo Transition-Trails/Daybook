@@ -10,12 +10,15 @@ import {
 } from "../ai-proxy";
 import {
   getWorldsmithImageTarget,
+  getManagedWorldsmithImageTarget,
   type WorldsmithImageTarget,
 } from "./image-generation-service";
 
 export {
   getWorldsmithImageTarget,
   getWorldsmithPreviewGeneration,
+  getManagedWorldsmithImageTarget,
+  getManagedWorldsmithPreviewGeneration,
   validateWorldsmithPreviewGenerationConfiguration,
   WORLD_SMITH_PRINT_SIZES_IN,
 } from "./image-generation-service";
@@ -37,12 +40,12 @@ function configuredProductionQuality(requestedQuality?: ImageGenerationQuality):
  * The target stays print-derived, while a caller can request a supported
  * quality tier without selecting a provider or model directly.
  */
-export function getWorldsmithProductionGeneration(
+export async function getWorldsmithProductionGeneration(
   componentType: string | undefined,
   orientation?: string | null,
   requestedQuality?: ImageGenerationQuality,
-): { target: WorldsmithImageTarget; metadata: ImageGenerationMetadata } {
-  const target = getWorldsmithImageTarget(componentType, orientation);
+): Promise<{ target: WorldsmithImageTarget; metadata: ImageGenerationMetadata }> {
+  const target = await getManagedWorldsmithImageTarget(componentType, orientation);
   return {
     target,
     metadata: resolveImageGenerationMetadata({

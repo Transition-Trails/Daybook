@@ -54,6 +54,7 @@ import {
   wsEncountersTable,
   wsJournalPromptsTable,
   wsCanonRecordStoryLinksTable,
+  worldsmithImageTargetsTable,
   type InsertWsProductionSpec,
   type InsertWsCanonRecord,
 } from "@workspace/db";
@@ -65,6 +66,7 @@ import { callAi } from "../lib/ai-proxy";
 import { generateImage } from "../lib/worldsmith/image-generation";
 import { isPromptModuleSection } from "../lib/worldsmith/types";
 import { resolveTypographyChoices, TypographyValidationError } from "../lib/worldsmith/typography";
+import { ORIENTATION_AWARE_TYPES } from "@workspace/api-zod/readiness";
 import {
   updatePage,
   createPage,
@@ -181,6 +183,85 @@ export function derivePipelineStatus(spec: Partial<InsertWsProductionSpec>, _rea
   if (payloadReady(checks)) return "payload_ready";
   return "draft";
 }
+
+// ── Worlds ────────────────────────────────────────────────────────────────────
+
+// ── Image target catalog ──────────────────────────────────────────────────────
+// Print dimensions are platform-owned configuration. Generation reads the
+// same managed catalog through image-generation-service.
+
+router.get("/v1/editorial/image-targets", async (_req: Request, res: Response) => {
+  try {
+    const rows = await db
+      .select()
+      .from(worldsmithImageTargetsTable)
+      .orderBy(worldsmithImageTargetsTable.componentType);
+    const byType = new Map(rows.map((row) => [row.componentType, row]));
+    res.json({
+      image_targets: [...ORIENTATION_AWARE_TYPES].map((componentType) => {
+        const row = byType.get(componentType);
+        return {
+          component_type: componentType,
+          print_width_in: row?.printWidthIn ?? null,
+          print_height_in: row?.printHeightIn ?? null,
+          updated_at: row?.updatedAt ?? null,
+        };
+      }),
+    });
+  } catch (err) {
+    logger.error({ err }, "editorial: list image targets");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/v1/editorial/image-targets/:componentType", async (req: Request, res: Response) => {
+  const componentType = decodeURIComponent(req.params.componentType as string).trim();
+  if (!ORIENTATION_AWARE_TYPES.has(componentType)) {
+    res.status(400).json({ error: "component_type must be an orientation-aware WorldSmith component type" });
+    return;
+  }
+
+  const printWidthIn = Number(req.body?.print_width_in);
+  const printHeightIn = Number(req.body?.print_height_in);
+  if (
+    !Number.isFinite(printWidthIn) ||
+    !Number.isFinite(printHeightIn) ||
+    printWidthIn <= 0 ||
+    printHeightIn <= 0 ||
+    printWidthIn > 1000 ||
+    printHeightIn > 1000
+  ) {
+    res.status(400).json({
+      error: "print_width_in and print_height_in must be positive dimensions no larger than 1000 inches",
+    });
+    return;
+  }
+
+  try {
+    const [row] = await db
+      .insert(worldsmithImageTargetsTable)
+      .values({ componentType, printWidthIn, printHeightIn })
+      .onConflictDoUpdate({
+        target: worldsmithImageTargetsTable.componentType,
+        set: { printWidthIn, printHeightIn, updatedAt: new Date() },
+      })
+      .returning();
+    if (!row) {
+      res.status(500).json({ error: "Could not save image target" });
+      return;
+    }
+    res.json({
+      image_target: {
+        component_type: row.componentType,
+        print_width_in: row.printWidthIn,
+        print_height_in: row.printHeightIn,
+        updated_at: row.updatedAt,
+      },
+    });
+  } catch (err) {
+    editorialDbError(err, res, "update image target");
+  }
+});
 
 // ── Worlds ────────────────────────────────────────────────────────────────────
 

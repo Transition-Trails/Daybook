@@ -139,6 +139,20 @@ export const worldsmithAssetsTable = pgTable("worldsmith_assets", {
 export type WorldsmithAsset = typeof worldsmithAssetsTable.$inferSelect;
 export type InsertWorldsmithAsset = typeof worldsmithAssetsTable.$inferInsert;
 
+// ── WorldSmith Image Target Catalog ───────────────────────────────────────────
+// Platform-managed print dimensions used to derive provider-safe image sizes.
+
+export const worldsmithImageTargetsTable = pgTable("worldsmith_image_targets", {
+  componentType: text("component_type").primaryKey(),
+  printWidthIn: real("print_width_in").notNull(),
+  printHeightIn: real("print_height_in").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type WorldsmithImageTargetCatalogEntry = typeof worldsmithImageTargetsTable.$inferSelect;
+export type InsertWorldsmithImageTargetCatalogEntry = typeof worldsmithImageTargetsTable.$inferInsert;
+
 // Inline types used in jsonb columns (not table row types)
 
 /** A single labeled section in the structured compiled prompt (mirrored from worldsmith/types.ts). */

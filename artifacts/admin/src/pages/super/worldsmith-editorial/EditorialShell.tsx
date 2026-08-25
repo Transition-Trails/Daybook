@@ -9,6 +9,7 @@ import {
   LayoutDashboard, FileText, BookOpen, Puzzle, Layers, GitBranch, ScrollText,
   ChevronDown, Globe, Plus, ArrowLeft, CheckCircle2,
   Loader2, RefreshCw, Sparkles, Network, PanelLeftClose, PanelLeftOpen, SlidersHorizontal,
+  Ruler,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { EditorialProvider, useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
@@ -18,7 +19,7 @@ import { worldsmithStorage } from "@/lib/worldsmith/storage";
 
 interface EditorialShellProps {
   children: ReactNode;
-  activePage?: "board" | "bible" | "stories" | "connections" | "specs" | "canon" | "style-guides" | "modules";
+  activePage?: "board" | "bible" | "stories" | "connections" | "specs" | "canon" | "style-guides" | "modules" | "image-targets";
 }
 
 export interface EditorialPageFilters {
@@ -62,6 +63,7 @@ const PAGE_LABELS: Record<string, string> = {
   canon: "Canon Records",
   "style-guides": "Style Guides",
   modules: "Prompt Modules",
+  "image-targets": "Print Targets",
 };
 
 function EditorialCopilot({
@@ -671,6 +673,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
           {navItem("Production Specs", FileText, "/super/worldsmith/editorial/specs", "specs")}
           {navItem("Style Guides", Layers, "/super/worldsmith/editorial/style-guides", "style-guides")}
           {navItem("Prompt Modules", Puzzle, "/super/worldsmith/editorial/modules", "modules")}
+          {navItem("Print Targets", Ruler, "/super/worldsmith/editorial/image-targets", "image-targets")}
         </nav>
 
         {/* Sync status footer */}

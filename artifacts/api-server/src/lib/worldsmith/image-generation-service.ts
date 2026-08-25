@@ -12,7 +12,13 @@ import {
   missingOrientationAwarePrintSizes,
   ORIENTATION_AWARE_TYPES,
 } from "@workspace/api-zod/readiness";
-import { db, worldsmithSpecPreviewsTable, type SpecPreviewOutputMetadata } from "@workspace/db";
+import {
+  db,
+  worldsmithImageTargetsTable,
+  worldsmithSpecPreviewsTable,
+  type SpecPreviewOutputMetadata,
+} from "@workspace/db";
+import { eq } from "drizzle-orm";
 import {
   attachUploadToPageProperty,
   uploadFileToNotion,
@@ -90,14 +96,13 @@ function clampRoundedTargetToPixelBudget(
   return [width, height];
 }
 
-/** Resolve a safe production render target from the component's print dimensions. */
-export function getWorldsmithImageTarget(
+function resolveWorldsmithImageTarget(
   componentType: string | undefined,
   requestedOrientation?: string | null,
+  printSize?: readonly [number, number],
 ): WorldsmithImageTarget {
   const type = componentType?.trim() ?? "";
   const orientationAware = ORIENTATION_AWARE_TYPES.has(type);
-  const printSize = WORLD_SMITH_PRINT_SIZES_IN[type];
   if (orientationAware && !printSize) {
     throw new Error(
       `WorldSmith print-size catalog is missing explicit dimensions for orientation-aware component type "${type}".`,
@@ -141,6 +146,43 @@ export function getWorldsmithImageTarget(
   };
 }
 
+/** Backwards-compatible target resolver using the bundled baseline dimensions. */
+export function getWorldsmithImageTarget(
+  componentType: string | undefined,
+  requestedOrientation?: string | null,
+): WorldsmithImageTarget {
+  const type = componentType?.trim() ?? "";
+  return resolveWorldsmithImageTarget(componentType, requestedOrientation, WORLD_SMITH_PRINT_SIZES_IN[type]);
+}
+
+/**
+ * Resolve the print target from the managed catalog. This intentionally reads
+ * the database at generation time so an admin edit takes effect across every
+ * API instance immediately, rather than waiting on process-local cache state.
+ */
+export async function getManagedWorldsmithImageTarget(
+  componentType: string | undefined,
+  requestedOrientation?: string | null,
+): Promise<WorldsmithImageTarget> {
+  const type = componentType?.trim() ?? "";
+  if (!ORIENTATION_AWARE_TYPES.has(type)) {
+    return resolveWorldsmithImageTarget(componentType, requestedOrientation);
+  }
+  const [row] = await db
+    .select({
+      printWidthIn: worldsmithImageTargetsTable.printWidthIn,
+      printHeightIn: worldsmithImageTargetsTable.printHeightIn,
+    })
+    .from(worldsmithImageTargetsTable)
+    .where(eq(worldsmithImageTargetsTable.componentType, type))
+    .limit(1);
+  return resolveWorldsmithImageTarget(
+    componentType,
+    requestedOrientation,
+    row ? [row.printWidthIn, row.printHeightIn] : undefined,
+  );
+}
+
 function configuredPreviewQuality(): ImageGenerationQuality {
   const quality = (process.env.SPEC_PREVIEW_QUALITY ?? "medium").trim() as ImageGenerationQuality;
   if (!ALLOWED_QUALITY.has(quality)) {
@@ -155,6 +197,20 @@ export function getWorldsmithPreviewGeneration(
   orientation?: string | null,
 ) {
   const target = getWorldsmithImageTarget(componentType, orientation);
+  return {
+    target,
+    metadata: resolveImageGenerationMetadata({
+      size: target.size,
+      quality: configuredPreviewQuality(),
+    }),
+  };
+}
+
+export async function getManagedWorldsmithPreviewGeneration(
+  componentType: string | undefined,
+  orientation?: string | null,
+) {
+  const target = await getManagedWorldsmithImageTarget(componentType, orientation);
   return {
     target,
     metadata: resolveImageGenerationMetadata({
@@ -189,11 +245,11 @@ export interface GenerateWorldsmithImageInput {
 }
 
 /** Resolve the shared target and effective model settings without making a model call. */
-export function resolveWorldsmithImageGeneration(
+export async function resolveWorldsmithImageGeneration(
   componentType?: string,
   orientation?: string | null,
 ) {
-  return getWorldsmithPreviewGeneration(componentType, orientation);
+  return getManagedWorldsmithPreviewGeneration(componentType, orientation);
 }
 
 /**
@@ -205,7 +261,7 @@ export function resolveWorldsmithImageGeneration(
 export async function generateWorldsmithImage(
   input: GenerateWorldsmithImageInput,
 ): Promise<WorldsmithImageGeneration> {
-  const generation = resolveWorldsmithImageGeneration(input.componentType, input.orientation);
+  const generation = await resolveWorldsmithImageGeneration(input.componentType, input.orientation);
   const context = input.logContext ?? {};
 
   if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY && !process.env.OPENAI_API_KEY) {

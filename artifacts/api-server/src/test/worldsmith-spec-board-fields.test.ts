@@ -96,6 +96,7 @@ vi.mock("@workspace/db", () => ({
     insert: mockDbInsert,
   },
   worldsmithSpecPreviewsTable: {},
+  worldsmithImageTargetsTable: { componentType: {}, printWidthIn: {}, printHeightIn: {} },
 }));
 
 vi.mock("../lib/worldsmith/spec-board-template.js", async (importOriginal) => {
@@ -211,14 +212,19 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   // Default DB mock: no existing preview (forces a fresh run)
-  mockDbSelect.mockReturnValue({
-    from: vi.fn().mockReturnValue({
-      where: vi.fn().mockReturnValue({
-        orderBy: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue([]),
+  mockDbSelect.mockImplementation((fields: unknown) => {
+    const isCatalogQuery = !!fields && typeof fields === "object" && "printWidthIn" in fields;
+    const limit = vi.fn().mockResolvedValue(
+      isCatalogQuery ? [{ printWidthIn: 3, printHeightIn: 4 }] : [],
+    );
+    return {
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          orderBy: vi.fn().mockReturnValue({ limit }),
+          limit,
         }),
       }),
-    }),
+    };
   });
   mockDbInsert.mockReturnValue({
     values: vi.fn().mockResolvedValue(undefined),

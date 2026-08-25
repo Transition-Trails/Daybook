@@ -21,3 +21,4 @@ export { default as StoriesStudio } from "./StoriesStudio";
 export { default as StorylineEditor } from "./StorylineEditor";
 export { default as StoryConnections } from "./StoryConnections";
 export { default as WorldBibleStudio } from "./WorldBibleStudio";
+export { default as ImageTargets } from "./ImageTargets";

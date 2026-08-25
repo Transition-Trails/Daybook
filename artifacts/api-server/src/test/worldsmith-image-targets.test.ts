@@ -2,9 +2,12 @@ import {
   missingOrientationAwarePrintSizes,
   ORIENTATION_AWARE_TYPES,
 } from "@workspace/api-zod/readiness";
+import { db, worldsmithImageTargetsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   getWorldsmithImageTarget,
+  getManagedWorldsmithImageTarget,
   getWorldsmithPreviewGeneration,
   validateWorldsmithPreviewGenerationConfiguration,
   WORLD_SMITH_PRINT_SIZES_IN,
@@ -195,6 +198,34 @@ describe("WorldSmith image targets", () => {
 
     expect(width).toBeGreaterThan(height);
     expect(preview.metadata.settings.quality).toBe("high");
+  });
+
+  it("reads managed catalog values at generation time", async () => {
+    const [original] = await db
+      .select()
+      .from(worldsmithImageTargetsTable)
+      .where(eq(worldsmithImageTargetsTable.componentType, "Journal Card"));
+    expect(original).toBeDefined();
+
+    try {
+      await db.update(worldsmithImageTargetsTable)
+        .set({ printWidthIn: 5, printHeightIn: 7 })
+        .where(eq(worldsmithImageTargetsTable.componentType, "Journal Card"));
+
+      await expect(getManagedWorldsmithImageTarget("Journal Card", "landscape"))
+        .resolves.toMatchObject({
+          printWidthIn: 7,
+          printHeightIn: 5,
+          orientation: "landscape",
+        });
+    } finally {
+      await db.update(worldsmithImageTargetsTable)
+        .set({
+          printWidthIn: original!.printWidthIn,
+          printHeightIn: original!.printHeightIn,
+        })
+        .where(eq(worldsmithImageTargetsTable.componentType, "Journal Card"));
+    }
   });
 
   it("rejects unsupported preview quality before the server starts", () => {

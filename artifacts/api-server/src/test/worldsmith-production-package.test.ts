@@ -46,6 +46,11 @@ vi.mock("@workspace/db", () => {
     error: "error",
     updatedAt: "updated_at",
   };
+  const imageTargetsTable = {
+    componentType: "component_type",
+    printWidthIn: "print_width_in",
+    printHeightIn: "print_height_in",
+  };
 
   const firstRow = () => packageRows.value[0] ?? null;
   const chunkText = (chunk: unknown): string | undefined => {
@@ -95,6 +100,7 @@ vi.mock("@workspace/db", () => {
 
   return {
     worldsmithProductionPackagesTable: table,
+    worldsmithImageTargetsTable: imageTargetsTable,
     worldsmithWorldsTable: { id: "world-id", name: "world-name" },
     storeMembersTable: { storeId: "store-id", userId: "user-id", role: "role" },
     fontsTable: {},
@@ -126,10 +132,16 @@ vi.mock("@workspace/db", () => {
           }),
         }),
       })),
-      select: vi.fn(() => ({
+      select: vi.fn((fields: unknown) => ({
         from: () => ({
           where: () => ({
             limit: async () => {
+              const isCatalogQuery = !!fields
+                && typeof fields === "object"
+                && "printWidthIn" in fields;
+              if (isCatalogQuery) {
+                return [{ printWidthIn: 12, printHeightIn: 12 }];
+              }
               const row = firstRow();
               return row ? [{ ...row }] : [];
             },

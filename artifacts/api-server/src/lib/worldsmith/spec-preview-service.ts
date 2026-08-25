@@ -579,7 +579,7 @@ async function runLocalSpecPreview(
   }
 
   const localBoardData = extractLocalBoardData(context, specPageId, promptHash, sectionRecords);
-  const localPreviewGeneration = resolveWorldsmithImageGeneration(
+  const localPreviewGeneration = await resolveWorldsmithImageGeneration(
     localBoardData.componentType,
     localBoardData.orientation,
   );
@@ -878,7 +878,7 @@ export async function runSpecPreview(
   }
 
   // ── 5. Generate spec board PNG ────────────────────────────────────────────
-  const previewGeneration = resolveWorldsmithImageGeneration(
+  const previewGeneration = await resolveWorldsmithImageGeneration(
     finalBoardData.componentType,
     finalBoardData.orientation,
   );

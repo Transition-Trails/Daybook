@@ -40,6 +40,7 @@ vi.mock("@workspace/db", () => ({
   db: { select: mockDbSelect, insert: mockDbInsert },
   worldsmithRunsTable: {},
   worldsmithSpecPreviewsTable: {},
+  worldsmithImageTargetsTable: { componentType: {}, printWidthIn: {}, printHeightIn: {} },
 }));
 
 vi.mock("../lib/worldsmith/inheritance-resolver.js", () => ({
@@ -153,14 +154,20 @@ beforeEach(() => {
   delete process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
   mockLocalResolver.mockResolvedValue(localChain);
-  mockDbSelect.mockReturnValue({
-    from: vi.fn().mockReturnValue({
-      where: vi.fn().mockReturnValue({
-        orderBy: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue([{ compiledSections }]),
+  mockDbSelect.mockImplementation((fields: unknown) => {
+    const isCatalogQuery = !!fields && typeof fields === "object" && "printWidthIn" in fields;
+    const rows = isCatalogQuery
+      ? [{ printWidthIn: 12, printHeightIn: 12 }]
+      : [{ compiledSections }];
+    const limit = vi.fn().mockResolvedValue(rows);
+    return {
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          orderBy: vi.fn().mockReturnValue({ limit }),
+          limit,
         }),
       }),
-    }),
+    };
   });
   mockDbInsert.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
   mockRenderBoard.mockResolvedValue(Buffer.from("PNG"));

@@ -341,14 +341,15 @@ export async function runCompilation(
     const compiled = compilePrompt(chainWithBible, payload as Parameters<typeof compilePrompt>[1]);
 
     // ── Stage 10: Calculate Prompt Hash ──────────────────────────────────
-    const { target: generationTarget, metadata: generationMetadata } =
+    const { target: generationTarget, metadata: generationMetadata } = await (
       req.operation === "compile_and_generate"
         ? getWorldsmithProductionGeneration(
             spec.componentType,
             spec.orientation,
             req.generation_settings?.quality,
           )
-        : getWorldsmithPreviewGeneration(spec.componentType, spec.orientation);
+        : getWorldsmithPreviewGeneration(spec.componentType, spec.orientation)
+    );
     const promptHash = computePromptHash({
       payload_version: spec.payloadVersion,
       compiled_prompt: compiled.fullPrompt,

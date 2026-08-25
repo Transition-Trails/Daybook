@@ -11,6 +11,7 @@ import storesRouter from "../routes/stores.js";
 import ownedCatalogRouter from "../routes/owned-catalog.js";
 import platformRouter from "../routes/platform.js";
 import ordersRouter from "../routes/orders.js";
+import supportRouter from "../routes/support.js";
 
 // ── Known seeded users ────────────────────────────────────────────────────────
 // These IDs match scripts/src/seed.ts exactly.
@@ -125,7 +126,7 @@ export const USERS = {
  *  - JSON body parsing
  *  - Fake auth middleware (injects `user` into req; sets isAuthenticated())
  *  - Silent req.log shim so pino-http error calls don't throw
- *  - The real stores, owned catalog, platform, and orders routers mounted at /api
+ *  - The real stores, owned catalog, platform, orders, and support routers mounted at /api
  *
  * Pass `null` for an unauthenticated request.
  */
@@ -153,5 +154,6 @@ export function makeApp(user: User | null) {
   app.use("/api", ownedCatalogRouter);
   app.use("/api", platformRouter);
   app.use("/api", ordersRouter);
+  app.use("/api", supportRouter);
   return app;
 }

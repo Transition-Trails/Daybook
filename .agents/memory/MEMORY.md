@@ -34,6 +34,7 @@
 - [Product Recipe Engine](product-recipe-engine.md) — `product_recipes` table; full CRUD at `/api/platform/recipes`; 11 seed records via `seed-recipes` script; ProductRecipes page at `/super/recipes` with drawer, stat tiles, and status badges
 - [Progressive recipe builder](progressive-recipe-builder.md) — `/super/recipes/new` full-page 3-step build center; gating pattern, sticky-rail layout, typeConfig narrowing gotcha
 - [Support system](support-system.md) — two-tier ticket system; area arrays in support-areas.ts (separate file, Fast Refresh); DB tables via migrate-tickets.mjs; 3 surfaces: /s/:slug/support, /super/support, /store/:id/support-inbox
+- [Support matcher test isolation](support-matcher-test-isolation.md) — assert store authorization outcomes, not exact ranked article IDs from shared-data matching
 - [Transactional email layer](email-layer.md) — Resend provider; adapter pattern; identity resolver (tier-1/tier-2); per-store rate limiting; webhook handler; 3 DB tables via migrate-email.mjs
 - [Ink feature flag](ink-feature-flag.md) — inkEnabled in store_flags; super_admin bypasses; API guard + InkGate component; annotation data is NEVER deleted on flag toggle
 - [WOFF subset corruption](woff-subset-corruption.md) — bundled Playfair Display + Lato WOFFs crash at TTFGlyph._getCBox during save(); full-round-trip probe in resolveEmbeddedFont catches it; test script uses FONT_OVERRIDE to bypass

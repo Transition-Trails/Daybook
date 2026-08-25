@@ -21,6 +21,7 @@ import {
   plannerConfigsTable,
   generationJobsTable,
   helpContentTable,
+  storeMembersTable,
   editionsTable,
   themesTable,
 } from "@workspace/db";
@@ -37,6 +38,18 @@ import {
 } from "../lib/email/senders";
 
 const router: IRouter = Router();
+
+async function hasStoreMembership(userId: string, storeId: string): Promise<boolean> {
+  const [membership] = await db
+    .select({ storeId: storeMembersTable.storeId })
+    .from(storeMembersTable)
+    .where(and(
+      eq(storeMembersTable.userId, userId),
+      eq(storeMembersTable.storeId, storeId),
+    ))
+    .limit(1);
+  return Boolean(membership);
+}
 
 // ── Area → keyword mapping for article relevance scoring ─────────────────────
 const AREA_KEYWORDS: Record<string, string[]> = {
@@ -95,6 +108,7 @@ router.get(
   "/support/articles",
   resolveStoreActorOptional,
   async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor;
     const { area = "", symptoms = "", scope = "platform" } = req.query as {
       area?: string;
       symptoms?: string;
@@ -102,6 +116,17 @@ router.get(
     };
 
     try {
+      if (scope !== "platform") {
+        if (!actor?.userId) {
+          res.status(403).json({ error: "Store-scoped help requires store membership" });
+          return;
+        }
+        if (!actor.isSuperAdmin && !(await hasStoreMembership(actor.userId, scope))) {
+          res.status(403).json({ error: "Forbidden: no membership in this store" });
+          return;
+        }
+      }
+
       const areaTerms = AREA_KEYWORDS[area] ?? [];
       const symptomTerms = symptoms
         .split(",")
@@ -187,10 +212,18 @@ router.get(
     const { storeId } = req.query as { storeId?: string };
 
     try {
-      const whereClause = storeId
+      const requestedStoreId = storeId?.trim() || undefined;
+      if (requestedStoreId && !actor.isSuperAdmin) {
+        if (!(await hasStoreMembership(actor.userId, requestedStoreId))) {
+          res.status(403).json({ error: "Forbidden: no membership in this store" });
+          return;
+        }
+      }
+
+      const whereClause = requestedStoreId
         ? and(
             eq(plannerConfigsTable.userId, actor.userId),
-            eq(plannerConfigsTable.storeId, storeId),
+            eq(plannerConfigsTable.storeId, requestedStoreId),
           )
         : eq(plannerConfigsTable.userId, actor.userId);
 
@@ -453,6 +486,16 @@ router.post(
     }
 
     try {
+      const requestedStoreId = storeId?.trim() || undefined;
+      let verifiedStoreId = requestedStoreId;
+      if (!actor.isSuperAdmin) {
+        verifiedStoreId ??= actor.storeId ?? undefined;
+        if (!verifiedStoreId || !(await hasStoreMembership(actor.userId, verifiedStoreId))) {
+          res.status(403).json({ error: "A verified store membership is required" });
+          return;
+        }
+      }
+
       const isOwnerTier =
         actor.isSuperAdmin ||
         actor.storeRole === "store_owner" ||
@@ -464,7 +507,7 @@ router.post(
 
       const recipientScope = isOwnerTier
         ? "platform"
-        : (storeId ?? actor.storeId ?? "platform");
+        : (verifiedStoreId ?? "platform");
 
       // Assemble diagnostics from the selected build
       let diagnostics: Record<string, unknown> = { ...extraDiagnostics };
@@ -535,7 +578,7 @@ router.post(
           reporterUserId: actor.userId,
           reporterRole,
           recipientScope,
-          storeId: storeId ?? actor.storeId ?? null,
+          storeId: verifiedStoreId ?? null,
           area,
           symptoms,
           body: body?.trim() || null,

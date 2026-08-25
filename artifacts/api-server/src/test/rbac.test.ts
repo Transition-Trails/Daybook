@@ -8,7 +8,7 @@
  *
  * Run: pnpm --filter @workspace/api-server test
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import type { Response } from "express";
 import request from "supertest";
 import { db } from "@workspace/db";
@@ -20,11 +20,18 @@ import {
   themesTable,
   helpContentTable,
   insertsTable,
+  ticketsTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { makeApp, USERS } from "./helpers.js";
 import { assertStoreScope } from "../lib/auth-middleware.js";
 import type { ActorContext } from "../lib/roles.js";
+
+vi.mock("../lib/email/senders", () => ({
+  onTicketCreated: () => undefined,
+  onTicketReplied: () => undefined,
+  onTicketClosed: () => undefined,
+}));
 
 // ── Per-run unique IDs ─────────────────────────────────────────────────────────
 // Prevents collisions when the suite is run multiple times against the same DB.
@@ -50,6 +57,7 @@ const betaOwner   = makeApp(USERS.betaOwner);
 const betaSupport = makeApp(USERS.betaSupport);
 const gammaOwner  = makeApp(USERS.gammaOwner);
 const noStore     = makeApp(USERS.noStore);       // authenticated, no store membership
+const alphaCustomer = makeApp(USERS.alphaCustomer);
 const unauth      = makeApp(null);                // unauthenticated
 
 // ── Global setup / teardown ───────────────────────────────────────────────────
@@ -891,6 +899,26 @@ describe("GET /api/help — visibility rules", () => {
     await request(alphaOwner).get("/api/help?scope=store-beta").expect(403);
   });
 
+  it("support article matching enforces the requested store scope", async () => {
+    const ownScope = await request(alphaOwner)
+      .get("/api/support/articles?area=building-planner&symptoms=Test&scope=store-alpha");
+    expect(ownScope.status).toBe(200);
+    expect(Array.isArray(ownScope.body.articles)).toBe(true);
+
+    await request(alphaOwner)
+      .get("/api/support/articles?area=building-planner&symptoms=Test&scope=store-beta")
+      .expect(403);
+  });
+
+  it("rejects unauthenticated and non-member support article scopes", async () => {
+    await request(unauth)
+      .get("/api/support/articles?area=building-planner&symptoms=Test&scope=store-alpha")
+      .expect(403);
+    await request(noStore)
+      .get("/api/support/articles?area=building-planner&symptoms=Test&scope=store-alpha")
+      .expect(403);
+  });
+
   it("store-gamma owner: sees platform articles but NOT alpha or beta store articles", async () => {
     const res = await request(gammaOwner).get("/api/help");
     expect(res.status).toBe(200);
@@ -932,7 +960,46 @@ describe("GET /api/store/:storeId/orders — tenant isolation", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 14. Audit log written on mutations
+// 14. Support activity and ticket tenant isolation
+// ─────────────────────────────────────────────────────────────────────────────
+describe("support activity and ticket tenant isolation", () => {
+  it("returns recent activity for a member's store", async () => {
+    const res = await request(alphaCustomer)
+      .get("/api/support/recent-activity?storeId=store-alpha");
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.builds)).toBe(true);
+  });
+
+  it("rejects recent activity queries for a non-member store", async () => {
+    await request(noStore)
+      .get("/api/support/recent-activity?storeId=store-alpha")
+      .expect(403);
+  });
+
+  it("rejects cross-store ticket routing and stores a verified store context", async () => {
+    await request(alphaCustomer)
+      .post("/api/support/tickets")
+      .send({ area: "something-else", body: "wrong store", storeId: "store-beta" })
+      .expect(403);
+
+    const res = await request(alphaCustomer)
+      .post("/api/support/tickets")
+      .send({ area: "something-else", body: "right store", storeId: "store-alpha" })
+      .expect(201);
+
+    expect(res.body.ticket).toMatchObject({
+      storeId: "store-alpha",
+      recipientScope: "store-alpha",
+      reporterUserId: USERS.alphaCustomer.id,
+    });
+    cleanups.push(() =>
+      db.delete(ticketsTable).where(eq(ticketsTable.id, res.body.ticket.id))
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 15. Audit log written on mutations
 // ─────────────────────────────────────────────────────────────────────────────
 describe("audit log — written on admin mutations", () => {
   it("POST /api/stores (super_admin) writes audit entry: actorRole=super_admin, scope=platform", async () => {

@@ -5,7 +5,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { usersTable, plansTable } from "@workspace/db";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import { requireAuth } from "../lib/auth-middleware";
 import { logger } from "../lib/logger";
@@ -161,10 +161,6 @@ async function processSuccessfulPayment(
     throw new Error("Stripe webhook has no subscription period end");
   }
 
-  // `owned` is a permanent-purchase ledger. Yearly access is intentionally
-  // represented only by the active subscription fields below.
-  const owned = [...(user.owned ?? [])];
-  if (plan === "lifetime" && !owned.includes(plan)) owned.push(plan);
   const paymentIntentId = getStripeId(payload.payment_intent);
 
   // Make the correlation and ordering check part of the UPDATE itself. Two
@@ -202,7 +198,17 @@ async function processSuccessfulPayment(
     .update(usersTable)
     .set({
       plan,
-      owned,
+      // Yearly lifecycle updates must never write this append-only ownership
+      // ledger. Lifetime appends happen inside PostgreSQL so concurrent yearly
+      // webhooks cannot overwrite a newly granted permanent entitlement.
+      ...(plan === "lifetime"
+        ? {
+            owned: sql`CASE
+              WHEN ${usersTable.owned} @> '["lifetime"]'::jsonb THEN ${usersTable.owned}
+              ELSE ${usersTable.owned} || '["lifetime"]'::jsonb
+            END`,
+          }
+        : {}),
       stripeCustomerId: customerId ?? user.stripeCustomerId,
       planStatus: plan === "yearly" ? "active" : "lifetime",
       planCurrentPeriodEnd: periodEnd,

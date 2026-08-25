@@ -93,10 +93,20 @@ vi.mock("@workspace/db", () => {
           returning: async () => {
             await dbState.beforeUpdate?.(patch);
             const matchingUsers = dbState.users.filter(user => matches(user, condition));
-            for (const user of matchingUsers) Object.assign(user, patch);
+            let recordedPatch = patch;
+            for (const user of matchingUsers) {
+              const appliedPatch = { ...patch };
+              if (appliedPatch.owned && !Array.isArray(appliedPatch.owned)) {
+                appliedPatch.owned = user.owned?.includes("lifetime")
+                  ? user.owned
+                  : [...(user.owned ?? []), "lifetime"];
+              }
+              Object.assign(user, appliedPatch);
+              recordedPatch = appliedPatch;
+            }
             if (matchingUsers.length > 0) {
               dbState.updates.push({
-                patch,
+                patch: recordedPatch,
                 condition: condition as unknown as { column: string; value: string },
               });
             }
@@ -120,6 +130,7 @@ vi.mock("drizzle-orm", () => ({
   lt: (column: string, value: Date) => ({ kind: "lt", column, value }),
   and: (...conditions: Array<Record<string, unknown>>) => ({ kind: "and", conditions }),
   or: (...conditions: Array<Record<string, unknown>>) => ({ kind: "or", conditions }),
+  sql: () => ({ kind: "sql" }),
 }));
 
 vi.mock("../lib/auth-middleware.js", () => ({
@@ -346,7 +357,7 @@ describe("Stripe webhooks", () => {
       planCurrentPeriodEnd: new Date("2030-03-17T17:46:40.000Z"),
       stripeSubscriptionId: "sub_active",
     });
-    expect(dbState.updates[0].patch.owned).toEqual([]);
+    expect(dbState.updates[0].patch).not.toHaveProperty("owned");
   });
 
   it("returns 500 instead of silently dropping a payment for an unknown customer", async () => {
@@ -704,6 +715,58 @@ describe("Stripe webhooks", () => {
       stripeSubscriptionEventCreatedAt: new Date(1_900_000_001 * 1000),
     });
     expect(dbState.updates).toHaveLength(1);
+  });
+
+  it("keeps a concurrent lifetime ownership grant when a yearly renewal finishes later", async () => {
+    dbState.users = [knownUser({
+      owned: [],
+      stripeSubscriptionId: "sub_active",
+      stripeSubscriptionEventCreatedAt: new Date(1_800_000_000 * 1000),
+    })];
+    let releaseYearly: (() => void) | undefined;
+    const yearlyPaused = new Promise<void>(resolve => {
+      dbState.beforeUpdate = async patch => {
+        if (patch.plan === "yearly") {
+          await new Promise<void>(resume => {
+            releaseYearly = resume;
+            resolve();
+          });
+        }
+      };
+    });
+    successEvent("invoice.payment_succeeded", {
+      metadata: {},
+      customer: "cus_known",
+      parent: { subscription_details: { subscription: "sub_active" } },
+      lines: { data: [{ period: { end: 1_950_000_000 } }] },
+    }, { id: "evt_yearly", created: 1_900_000_000 });
+    const yearly = request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .then(response => {
+        expect(response.status).toBe(200);
+      });
+    await yearlyPaused;
+
+    successEvent("checkout.session.completed", {
+      metadata: { userId: "user-renewal", plan: "lifetime" },
+      customer: "cus_known",
+      payment_intent: "pi_lifetime",
+      payment_status: "paid",
+    }, { id: "evt_lifetime", created: 1_900_000_001 });
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+    releaseYearly?.();
+    await yearly;
+
+    expect(dbState.users[0].owned).toEqual(["lifetime"]);
+    expect(dbState.users[0].planStatus).toBe("active");
   });
 });
 

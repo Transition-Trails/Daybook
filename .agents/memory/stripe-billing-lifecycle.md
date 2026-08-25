@@ -6,6 +6,7 @@ description: Durable fulfillment and entitlement rules for Daybook's yearly and 
 Yearly and lifetime purchases have different persistence and entitlement rules:
 
 - A lifetime purchase is an append-only ownership grant and remains valid after subscription cancellation, failed payments, or refunds.
+- Yearly lifecycle mutations must never write the ownership ledger. Lifetime grants append in the database so they survive concurrent yearly webhook updates.
 - Yearly access is valid only while its subscription state is active and its current period has not expired; it must never be added to the permanent ownership ledger.
 - Only fulfill Checkout after Stripe confirms payment. Asynchronous Checkout requires the separate success event.
 - Lifecycle events must match the currently stored Stripe subscription or payment identity before they can change status. Ignore unmatched/late events rather than revoking a newer entitlement.

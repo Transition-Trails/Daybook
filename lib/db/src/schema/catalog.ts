@@ -55,6 +55,7 @@ export interface ThemeBackgroundRoles {
 export const themesTable = pgTable("themes", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  normalizedName: text("normalized_name"),
   desc: text("desc"),
   colors: jsonb("colors").notNull().$type<string[]>(),
   price: real("price").notNull().default(0),
@@ -89,6 +90,7 @@ export type InsertTheme = typeof themesTable.$inferInsert;
 export const stickerPacksTable = pgTable("sticker_packs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  normalizedName: text("normalized_name"),
   tags: text("tags").array().notNull().default([]),
   price: real("price").notNull().default(0),
   status: text("status").notNull().default("draft"), // draft | live
@@ -188,6 +190,7 @@ export const stickersLibraryTable = pgTable("stickers_library", {
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
+  normalizedName: text("normalized_name"),
   tags: text("tags").array().notNull().default([]),
   // Validated against STICKER_FUNCTION_TYPES on write — reject unknown values.
   functionType: text("function_type").notNull(),
@@ -276,6 +279,7 @@ export type InsertPackSticker = typeof packStickersTable.$inferInsert;
 export const palettesTable = pgTable("palettes", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  normalizedName: text("normalized_name"),
   colors: jsonb("colors").notNull().$type<string[]>(),
   status: text("status").notNull().default("draft"),
   globalAvailable: boolean("global_available").notNull().default(true),
@@ -300,6 +304,7 @@ export type InsertPalette = typeof palettesTable.$inferInsert;
 export const backgroundsTable = pgTable("backgrounds", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  normalizedName: text("normalized_name"),
   type: text("type").notNull().default("color"), // color | texture | image
   assetRef: text("asset_ref"),                   // hex, texture key, or file ref
   status: text("status").notNull().default("draft"),

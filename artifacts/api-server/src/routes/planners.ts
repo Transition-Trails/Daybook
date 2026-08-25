@@ -21,7 +21,7 @@ import { eq, and, desc, asc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
 import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
-import { getValidGoogleToken, GoogleAuthError } from "../lib/google-auth";
+import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
 import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
 import { buildInteriorPdf } from "../lib/planner-interior-renderer";
 import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } from "@workspace/db";
@@ -239,8 +239,9 @@ export async function runGeneration(
   try {
     googleAccessToken = await getValidGoogleToken(config.userId);
   } catch (err) {
-    if (!(err instanceof GoogleAuthError)) throw err;
-    // No Google connection or token revoked — Drive upload is skipped below.
+    if (!(err instanceof GoogleAuthError || err instanceof GoogleTokenTemporaryError)) throw err;
+    // No Google connection, revoked token, or temporary Google outage — Drive
+    // upload is skipped below so PDF generation remains available.
   }
 
   // Upload PDF + config to Google Drive when the user has a valid token.
@@ -251,10 +252,10 @@ export async function runGeneration(
   let inkFriendlyPdfFileId: string | null = null;
   try {
     pdfFileId =
-      (await uploadPlannerPdf(googleAccessToken, config.id as string, buffer)) ??
+      (await uploadPlannerPdf(config.userId, googleAccessToken, config.id as string, buffer)) ??
       `pdf-${config.id}-${Date.now()}`;
     configFileId =
-      (await uploadPlannerConfig(googleAccessToken, config.id as string, {
+      (await uploadPlannerConfig(config.userId, googleAccessToken, config.id as string, {
         setup: config.setup,
         style: config.style,
         output: config.output,
@@ -263,7 +264,7 @@ export async function runGeneration(
       })) ?? `cfg-${config.id}-${Date.now()}`;
     if (inkFriendlyBuffer) {
       inkFriendlyPdfFileId =
-        (await uploadPlannerPdf(googleAccessToken, `${config.id as string}-inkfriendly`, inkFriendlyBuffer)) ??
+        (await uploadPlannerPdf(config.userId, googleAccessToken, `${config.id as string}-inkfriendly`, inkFriendlyBuffer)) ??
         `pdf-${config.id}-inkfriendly-${Date.now()}`;
     }
   } catch {

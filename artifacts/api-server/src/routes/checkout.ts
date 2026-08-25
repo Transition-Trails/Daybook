@@ -106,6 +106,9 @@ async function loadResolvedItem(
   if (!name || priceCents === null) {
     throw new Error(`Item "${requested.itemId}" has no server price`);
   }
+  if (priceCents <= 0) {
+    throw new Error(`Item "${requested.itemId}" is not available for paid checkout`);
+  }
   assertEntitled(requested.itemId, requested.itemType, origin, authoredByStoreId, ctx);
   return {
     itemType: requested.itemType,
@@ -148,7 +151,7 @@ function parseResolvedItems(value: unknown): ResolvedItem[] {
       item.itemType !== "edition"
       || typeof item.itemId !== "string" || !item.itemId
       || typeof item.name !== "string" || !item.name
-      || typeof item.priceCents !== "number" || !Number.isInteger(item.priceCents) || item.priceCents < 0
+      || typeof item.priceCents !== "number" || !Number.isInteger(item.priceCents) || item.priceCents <= 0
       || typeof item.quantity !== "number" || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 20
     ) {
       throw new Error("Checkout intent has invalid items");

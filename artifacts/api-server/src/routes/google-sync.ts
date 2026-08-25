@@ -9,13 +9,11 @@
  * POST /docs                 — create a Google Doc from note content
  * GET  /drive/status
  * POST /drive/backup
- * POST /drive/art
  */
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
   usersTable,
-  assetsTable,
   calendarPushMappingsTable,
   googleTaskSyncTable,
   googleDocLinksTable,
@@ -23,7 +21,8 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
 import { uploadPlannerConfig, getOrCreateDaybookFolder, uploadFileToDrive } from "../lib/drive-upload";
-import { getValidGoogleToken, GoogleAuthError } from "../lib/google-auth";
+import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
+import { stampGoogleSync } from "../lib/google-connection-state";
 import { writeAudit } from "../lib/audit";
 import type { User } from "@workspace/db";
 
@@ -55,6 +54,22 @@ interface GTaskItem {
   completed?: string;
 }
 
+function parseAllDayDate(value: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const timestamp = Date.UTC(year, month - 1, day);
+  const parsed = new Date(timestamp);
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day
+    ? timestamp
+    : null;
+}
+
 /** Resolve a valid Google access token or write a 401 reconnect response. */
 async function resolveToken(user: User, res: import("express").Response): Promise<string | null> {
   try {
@@ -66,6 +81,13 @@ async function resolveToken(user: User, res: import("express").Response): Promis
         reason: err.reason,
         message: err.message,
         reconnectUrl: "/api/auth/google",
+      });
+      return null;
+    }
+    if (err instanceof GoogleTokenTemporaryError) {
+      res.status(503).json({
+        error: "google_temporarily_unavailable",
+        message: "Google is temporarily unavailable. Your connection is still active; please retry shortly.",
       });
       return null;
     }
@@ -107,19 +129,6 @@ function replyIfScopeError(
   return true;
 }
 
-/** Stamp a named last-synced timestamp into user.connections. */
-async function stampSynced(userId: string, existing: Record<string, unknown>, key: string): Promise<void> {
-  await db
-    .update(usersTable)
-    .set({
-      connections: {
-        ...existing,
-        [key]: new Date().toISOString(),
-      } as unknown as typeof usersTable.$inferInsert["connections"],
-    })
-    .where(eq(usersTable.id, userId));
-}
-
 // ── GET /calendar/events ──────────────────────────────────────────────────────
 
 router.get("/calendar/events", requireAuth, async (req, res): Promise<void> => {
@@ -156,8 +165,7 @@ router.get("/calendar/events", requireAuth, async (req, res): Promise<void> => {
     };
   });
 
-  const conn = { ...(user.connections as Record<string, unknown>), calendarLastSynced: new Date().toISOString() };
-  await db.update(usersTable).set({ connections: conn as unknown as typeof usersTable.$inferInsert["connections"] }).where(eq(usersTable.id, user.id));
+  await stampGoogleSync(user.id, "calendarLastSynced");
 
   res.json({ events });
 });
@@ -168,10 +176,6 @@ router.get("/calendar/events", requireAuth, async (req, res): Promise<void> => {
 // patches the existing Google Calendar event instead of creating a duplicate.
 
 router.post("/calendar/push", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as User;
-  const accessToken = await resolveToken(user, res);
-  if (!accessToken) return;
-
   type Block = { title: string; startDate: string; endDate: string; description?: string };
   const body = req.body as { plannerConfigId?: string; blocks?: Block[] };
 
@@ -183,6 +187,22 @@ router.post("/calendar/push", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: "blocks[] must be a non-empty array" });
     return;
   }
+  if (body.blocks.some((block) => {
+    const start = parseAllDayDate(block.startDate ?? "");
+    const end = parseAllDayDate(block.endDate ?? "");
+    return !block.title?.trim() || start === null || end === null || end <= start;
+  })) {
+    res.status(400).json({
+      error: "Each calendar block needs a title and an end-exclusive date range (YYYY-MM-DD, endDate after startDate)",
+    });
+    return;
+  }
+
+  // Planner blocks contain dates but no time or timezone fields. They are
+  // intentionally sent as Google all-day events; do not invent a timezone.
+  const user = req.user as User;
+  const accessToken = await resolveToken(user, res);
+  if (!accessToken) return;
 
   const results: { localBlockKey: string; googleEventId: string; action: "created" | "updated" }[] = [];
   const plannerConfigId = String(body.plannerConfigId);
@@ -270,7 +290,7 @@ router.post("/calendar/push", requireAuth, async (req, res): Promise<void> => {
   }
 
   const now = new Date();
-  await stampSynced(user.id, user.connections as Record<string, unknown>, "calendarLastSynced");
+  await stampGoogleSync(user.id, "calendarLastSynced");
 
   await writeAudit(db, {
     actorUserId: user.id,
@@ -339,7 +359,7 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
       });
   }
 
-  await stampSynced(user.id, user.connections as Record<string, unknown>, "tasksLastSynced");
+  await stampGoogleSync(user.id, "tasksLastSynced");
 
   const tasks = items.map((item) => ({
     googleTaskId: item.id,
@@ -406,7 +426,7 @@ router.post("/tasks", requireAuth, async (req, res): Promise<void> => {
     set: { title: created.title ?? body.title.trim(), syncedAt: new Date() },
   });
 
-  await stampSynced(user.id, user.connections as Record<string, unknown>, "tasksLastSynced");
+  await stampGoogleSync(user.id, "tasksLastSynced");
 
   await writeAudit(db, {
     actorUserId: user.id,
@@ -581,7 +601,7 @@ router.post("/docs", requireAuth, async (req, res): Promise<void> => {
   // Get or create the Daybook Drive folder
   let folderId: string;
   try {
-    folderId = await getOrCreateDaybookFolder(accessToken);
+    folderId = await getOrCreateDaybookFolder(user.id, accessToken);
   } catch (err) {
     res.status(500).json({ error: `Drive folder error: ${String(err)}` });
     return;
@@ -635,7 +655,7 @@ router.post("/docs", requireAuth, async (req, res): Promise<void> => {
     docUrl:  docData.webViewLink,
   });
 
-  await stampSynced(user.id, { ...(user.connections as Record<string, unknown>), googleDocs: true }, "docsLastSynced");
+  await stampGoogleSync(user.id, "docsLastSynced");
 
   await writeAudit(db, {
     actorUserId: user.id,
@@ -677,20 +697,36 @@ router.get("/calendar/pushes", requireAuth, async (req, res): Promise<void> => {
 // ── GET /drive/status ─────────────────────────────────────────────────────────
 
 router.get("/drive/status", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as User;
+  const requestUser = req.user as User;
+  let retrying = false;
+  try {
+    await getValidGoogleToken(requestUser.id);
+  } catch (err) {
+    if (err instanceof GoogleTokenTemporaryError) {
+      retrying = true;
+    } else if (!(err instanceof GoogleAuthError)) {
+      throw err;
+    }
+  }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, requestUser.id));
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
   const conn = (user.connections ?? {}) as Record<string, boolean | string | null>;
-  const connected = !!user.googleAccessToken;
-  const expiry = user.googleTokenExpiry;
-  const tokenExpired = expiry ? expiry.getTime() - Date.now() <= 0 : null;
-  res.json({
+  const connected = Boolean(user.googleAccessToken || user.googleRefreshToken) && !user.googleDisconnectedAt;
+  res.status(retrying ? 503 : 200).json({
     connected,
-    tokenExpired: connected ? tokenExpired : null,
-    reconnectUrl: connected && tokenExpired ? "/api/auth/google" : null,
+    retrying,
+    disconnectedAt: user.googleDisconnectedAt?.toISOString() ?? null,
+    disconnectReason: user.googleDisconnectReason ?? null,
+    reconnectUrl: connected ? null : "/api/auth/google",
     calendarLastSynced: (conn.calendarLastSynced as string | null) ?? null,
     tasksLastSynced:    (conn.tasksLastSynced    as string | null) ?? null,
     docsLastSynced:     (conn.docsLastSynced     as string | null) ?? null,
     driveLastSynced:    (conn.driveLastSynced    as string | null) ?? null,
-    driveFolder:        (conn.driveFolderId      as string | null) ?? null,
+    driveFolder:        user.googleDriveFolderId ?? null,
   });
 });
 
@@ -708,43 +744,12 @@ router.post("/drive/backup", requireAuth, async (req, res): Promise<void> => {
   }
 
   try {
-    const configFileId = await uploadPlannerConfig(accessToken, body.plannerId, body.config ?? {});
-    await stampSynced(user.id, { ...user.connections as Record<string, unknown>, googleDrive: true }, "driveLastSynced");
+    const configFileId = await uploadPlannerConfig(user.id, accessToken, body.plannerId, body.config ?? {});
+    await stampGoogleSync(user.id, "driveLastSynced");
     res.json({ success: true, configFileId });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
-});
-
-// ── POST /drive/art ───────────────────────────────────────────────────────────
-
-router.post("/drive/art", requireAuth, async (req, res): Promise<void> => {
-  const user = req.user as User;
-  const body = req.body as {
-    driveFileId?: string;
-    canvaFileId?: string;
-    kind?: "png" | "pdf";
-    transparent?: boolean;
-    tags?: string[];
-  };
-
-  if (!body.driveFileId && !body.canvaFileId) {
-    res.status(400).json({ error: "driveFileId or canvaFileId required" });
-    return;
-  }
-
-  const driveFileId = body.driveFileId ?? `canva-import-${Date.now()}`;
-  const source = body.canvaFileId ? "canva" : "upload";
-
-  const [asset] = await db.insert(assetsTable).values({
-    driveFileId,
-    kind:        body.kind ?? "png",
-    transparent: body.transparent ?? true,
-    tags:        body.tags ?? [],
-    source,
-  }).returning();
-
-  res.json(asset);
 });
 
 export default router;

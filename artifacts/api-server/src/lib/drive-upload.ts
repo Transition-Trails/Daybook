@@ -2,14 +2,17 @@
  * Google Drive upload helpers.
  * Uses the Drive REST API v3 directly (no googleapis package needed).
  */
+import { db, usersTable } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 
 const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
 
-/** Find or create the top-level "Daybook" folder in the user's Drive. */
-export async function getOrCreateDaybookFolder(accessToken: string): Promise<string> {
+async function findRootOwnedDaybookFolder(accessToken: string): Promise<string | null> {
   const query = new URLSearchParams({
-    q: "name='Daybook' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+    // Never adopt a shared folder or an identically named folder below another
+    // parent. Daybook owns a single folder at the user's Drive root.
+    q: "'me' in owners and 'root' in parents and name='Daybook' and mimeType='application/vnd.google-apps.folder' and trashed=false",
     fields: "files(id,name)",
     pageSize: "1",
   });
@@ -27,8 +30,10 @@ export async function getOrCreateDaybookFolder(accessToken: string): Promise<str
   if (searchData.files?.length > 0) {
     return searchData.files[0].id;
   }
+  return null;
+}
 
-  // Create the folder
+async function createDaybookFolder(accessToken: string): Promise<string> {
   const createRes = await fetch(DRIVE_FILES_URL, {
     method: "POST",
     headers: {
@@ -48,6 +53,34 @@ export async function getOrCreateDaybookFolder(accessToken: string): Promise<str
 
   const folder = (await createRes.json()) as { id: string };
   return folder.id;
+}
+
+/**
+ * Resolve the user's root-level Daybook folder. A user-scoped advisory lock
+ * serializes the first search/create/cache operation across web workers so two
+ * simultaneous uploads cannot create competing folders.
+ */
+export async function getOrCreateDaybookFolder(userId: string, accessToken: string): Promise<string> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`daybook-drive-folder:${userId}`}))`);
+
+    const [user] = await tx
+      .select({ googleDriveFolderId: usersTable.googleDriveFolderId })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId));
+    if (!user) throw new Error("Cannot resolve a Drive folder for an unknown user");
+    if (user.googleDriveFolderId) return user.googleDriveFolderId;
+
+    const folderId =
+      (await findRootOwnedDaybookFolder(accessToken)) ??
+      (await createDaybookFolder(accessToken));
+
+    await tx
+      .update(usersTable)
+      .set({ googleDriveFolderId: folderId })
+      .where(eq(usersTable.id, userId));
+    return folderId;
+  });
 }
 
 /**
@@ -107,12 +140,13 @@ export async function uploadFileToDrive(
  * Returns the Drive file ID, or null if the user has no Google token.
  */
 export async function uploadPlannerPdf(
+  userId: string,
   accessToken: string | null | undefined,
   plannerId: string,
   pdfBuffer: Buffer | Uint8Array,
 ): Promise<string | null> {
   if (!accessToken) return null;
-  const folderId = await getOrCreateDaybookFolder(accessToken);
+  const folderId = await getOrCreateDaybookFolder(userId, accessToken);
   const fileName = `daybook-planner-${plannerId}.pdf`;
   return uploadFileToDrive(accessToken, folderId, fileName, "application/pdf", pdfBuffer);
 }
@@ -122,12 +156,13 @@ export async function uploadPlannerPdf(
  * Returns the Drive file ID, or null if the user has no Google token.
  */
 export async function uploadPlannerConfig(
+  userId: string,
   accessToken: string | null | undefined,
   plannerId: string,
   config: unknown,
 ): Promise<string | null> {
   if (!accessToken) return null;
-  const folderId = await getOrCreateDaybookFolder(accessToken);
+  const folderId = await getOrCreateDaybookFolder(userId, accessToken);
   const fileName = `daybook-config-${plannerId}.json`;
   const json = JSON.stringify(config, null, 2);
   return uploadFileToDrive(accessToken, folderId, fileName, "application/json", json);

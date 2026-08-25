@@ -44,6 +44,16 @@ import {
 
 const router: IRouter = Router();
 
+function isNormalizedStoreNameConflict(err: unknown): boolean {
+  const dbError = err as { code?: string; constraint?: string } | null;
+  return dbError?.code === "23505"
+    && typeof dbError.constraint === "string"
+    && (
+      dbError.constraint.endsWith("_owned_normalized_name_uq")
+      || dbError.constraint === "planner_interiors_store_normalized_name_uq"
+    );
+}
+
 // ── Helper: check aiEnabled for this store ─────────────────────────────────
 
 async function assertAiEnabled(storeId: string, res: Response): Promise<boolean> {
@@ -273,6 +283,10 @@ router.post(
 
       res.status(201).json(row);
     } catch (err) {
+      if (isNormalizedStoreNameConflict(err)) {
+        res.status(409).json({ error: `An item named "${name}" already exists for this store.` });
+        return;
+      }
       req.log.error({ err }, "owned theme create failed");
       res.status(500).json({ error: "Create failed" });
     }
@@ -383,6 +397,10 @@ router.post(
 
       res.status(201).json(row);
     } catch (err) {
+      if (isNormalizedStoreNameConflict(err)) {
+        res.status(409).json({ error: `An item named "${name}" already exists for this store.` });
+        return;
+      }
       req.log.error({ err }, "owned sticker-pack create failed");
       res.status(500).json({ error: "Create failed" });
     }
@@ -558,6 +576,10 @@ router.post(
 
       res.status(201).json({ ...row, autoThemeId });
     } catch (err) {
+      if (isNormalizedStoreNameConflict(err)) {
+        res.status(409).json({ error: `An item named "${name}" already exists for this store.` });
+        return;
+      }
       req.log.error({ err }, "owned edition create failed");
       res.status(500).json({ error: "Create failed" });
     }

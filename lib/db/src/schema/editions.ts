@@ -42,6 +42,7 @@ export type EditionBinding = {
 export const editionsTable = pgTable("editions", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  normalizedName: text("normalized_name"),
   status: text("status").notNull().default("draft"), // draft | live
   tier: text("tier").notNull().default("basic"), // basic | advanced
   sections: text("sections").array().notNull().default([]),

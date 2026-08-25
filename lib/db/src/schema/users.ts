@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, jsonb, integer } from "drizzle-orm/pg-core";
 
 export type UserConnections = {
   googleDrive: boolean;
@@ -6,6 +6,10 @@ export type UserConnections = {
   googleTasks: boolean;
   googleDocs: boolean;
   notion: boolean;
+  calendarLastSynced?: string;
+  tasksLastSynced?: string;
+  docsLastSynced?: string;
+  driveLastSynced?: string;
 };
 
 export const usersTable = pgTable("users", {
@@ -35,6 +39,13 @@ export const usersTable = pgTable("users", {
   googleAccessToken: text("google_access_token"),
   googleRefreshToken: text("google_refresh_token"),
   googleTokenExpiry: timestamp("google_token_expiry", { withTimezone: true }),
+  /** Advances on each fresh OAuth consent to fence stale refresh responses. */
+  googleTokenVersion: integer("google_token_version").notNull().default(0),
+  /** Set only when Google explicitly rejects the refresh grant. */
+  googleDisconnectedAt: timestamp("google_disconnected_at", { withTimezone: true }),
+  googleDisconnectReason: text("google_disconnect_reason"),
+  /** Stable, user-owned root-level Daybook folder resolved on first Drive use. */
+  googleDriveFolderId: text("google_drive_folder_id"),
   notionToken: text("notion_token"),
   passwordHash: text("password_hash"),
   // Platform-level role. null = no platform privilege.
@@ -56,5 +67,18 @@ export const usersTable = pgTable("users", {
     .$onUpdate(() => new Date()),
 });
 
-export type User = typeof usersTable.$inferSelect;
+/**
+ * The runtime row always includes these nullable columns. Keep them optional in
+ * the app-facing type while older focused tests and session fixtures migrate
+ * without unrelated boilerplate.
+ */
+export type User = Omit<
+  typeof usersTable.$inferSelect,
+  "googleTokenVersion" | "googleDisconnectedAt" | "googleDisconnectReason" | "googleDriveFolderId"
+> & {
+  googleTokenVersion?: number;
+  googleDisconnectedAt?: Date | null;
+  googleDisconnectReason?: string | null;
+  googleDriveFolderId?: string | null;
+};
 export type InsertUser = typeof usersTable.$inferInsert;

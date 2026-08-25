@@ -477,7 +477,7 @@ router.post("/planners/:id/export", requireAuth, async (req, res): Promise<void>
 
   // 5. Upload flattened PDF to Drive
   const flatBytes = await pdfDoc.save();
-  const folderId  = await getOrCreateDaybookFolder(token);
+  const folderId  = await getOrCreateDaybookFolder(user.id, token);
   const fileName  = `daybook-ink-${plannerId}-${Date.now()}.pdf`;
   const fileId    = await uploadFileToDrive(token, folderId, fileName, "application/pdf", Buffer.from(flatBytes));
 

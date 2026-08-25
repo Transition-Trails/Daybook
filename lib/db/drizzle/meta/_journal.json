@@ -148,6 +148,20 @@
       "when": 1787683000000,
       "tag": "0020_wave9_cart_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1787695000000,
+      "tag": "0021_wave11_google_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1787695600000,
+      "tag": "0022_wave11_token_version",
+      "breakpoints": true
     }
   ]
 }

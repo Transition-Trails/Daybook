@@ -38,6 +38,7 @@ export const plannerInteriorsTable = pgTable(
     id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
     storeId: text("store_id").notNull().references(() => storesTable.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    normalizedName: text("normalized_name"),
     currentVersionId: text("current_version_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

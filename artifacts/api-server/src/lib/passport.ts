@@ -2,7 +2,7 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { db } from "@workspace/db";
 import { usersTable, type UserConnections } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { logger } from "./logger";
 
 passport.serializeUser((user: Express.User, done) => {
@@ -61,14 +61,20 @@ if (googleClientId && googleClientSecret) {
                 googleAccessToken: accessToken,
                 googleRefreshToken: refreshToken ?? undefined,
                 googleTokenExpiry: tokenExpiry,
+                googleDisconnectedAt: null,
+                googleDisconnectReason: null,
                 avatarUrl,
-                connections: {
-                  notion: (existing.connections as { notion?: boolean }).notion ?? false,
-                  googleDrive: true,
-                  googleCalendar: true,
-                  googleTasks: true,
-                  googleDocs: true,
-                } as UserConnections,
+                googleTokenVersion: sql`${usersTable.googleTokenVersion} + 1`,
+                connections: sql<UserConnections>`jsonb_set(
+                  jsonb_set(
+                    jsonb_set(
+                      jsonb_set(coalesce(${usersTable.connections}, '{}'::jsonb), '{googleDrive}', 'true'::jsonb, true),
+                      '{googleCalendar}', 'true'::jsonb, true
+                    ),
+                    '{googleTasks}', 'true'::jsonb, true
+                  ),
+                  '{googleDocs}', 'true'::jsonb, true
+                )`,
               })
               .where(eq(usersTable.id, existing.id));
             const [updated] = await db
@@ -88,6 +94,8 @@ if (googleClientId && googleClientSecret) {
                 googleAccessToken: accessToken,
                 googleRefreshToken: refreshToken ?? null,
                 googleTokenExpiry: tokenExpiry,
+                googleDisconnectedAt: null,
+                googleDisconnectReason: null,
                 connections: {
                   googleDrive: true,
                   googleCalendar: true,

@@ -25,5 +25,7 @@ export function isPurchasableCatalogItem(
   return isPurchasableItemType(itemType)
     && typeof price === "number"
     && Number.isInteger(price)
-    && price >= 0;
+    // A free edition needs a claim/fulfillment path rather than a Stripe
+    // checkout session. Until that exists, show it as browse-only everywhere.
+    && price > 0;
 }

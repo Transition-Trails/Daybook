@@ -22,6 +22,7 @@ import {
   insertsTable,
   ticketsTable,
   ordersTable,
+  plannerConfigsTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { makeApp, USERS } from "./helpers.js";
@@ -49,6 +50,7 @@ const ids = {
   rbacInsert4:      `rbac-insert-4-${RUN}`,
   rbacInsert5:      `rbac-insert-5-${RUN}`,
   receiptOrder:     `rbac-order-${RUN}`,
+  supportPlanner:   `rbac-support-planner-${RUN}`,
 };
 
 // ── Apps keyed by actor ────────────────────────────────────────────────────────
@@ -154,6 +156,26 @@ beforeAll(async () => {
   );
   cleanups.push(() =>
     db.delete(helpContentTable).where(eq(helpContentTable.id, ids.betaHelp))
+  );
+
+  await db.insert(plannerConfigsTable).values({
+    id: ids.supportPlanner,
+    userId: USERS.alphaOwner.id,
+    storeId: "store-alpha",
+    year: 2026,
+    setup: {
+      weekStart: "mon",
+      orientation: "vertical",
+      startMonth: 0,
+      startYear: 2026,
+      monthCount: 1,
+    },
+    style: { size: "A5" },
+    output: { calMode: "none", eventMins: 60, aiInPdf: false },
+    drive: { pdfFileId: null, configFileId: null },
+  });
+  cleanups.push(() =>
+    db.delete(plannerConfigsTable).where(eq(plannerConfigsTable.id, ids.supportPlanner))
   );
 });
 
@@ -270,6 +292,12 @@ describe("super_admin — allow", () => {
     }
   });
 
+  it("GET /api/support/recent-activity?storeId=store-beta → 200 (super_admin may inspect any store)", async () => {
+    const res = await request(sa)
+      .get("/api/support/recent-activity?storeId=store-beta");
+    expect(res.status).toBe(200);
+  });
+
   it("POST /api/help (platform scope) → 201", async () => {
     const hId = `${ids.platformLiveHelp}-sa`;
     const res = await request(sa)
@@ -301,6 +329,15 @@ describe("super_admin — allow", () => {
 // 2. store_owner (alpha) — allow
 // ─────────────────────────────────────────────────────────────────────────────
 describe("store_owner (store-alpha) — allow", () => {
+  it("GET /api/support/recent-activity?storeId=store-alpha → 200 with own activity", async () => {
+    const res = await request(alphaOwner)
+      .get("/api/support/recent-activity?storeId=store-alpha");
+    expect(res.status).toBe(200);
+    expect(res.body.builds).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: ids.supportPlanner, storeId: "store-alpha" })]),
+    );
+  });
+
   it("GET /api/stores/store-alpha → 200 (own store)", async () => {
     const res = await request(alphaOwner).get("/api/stores/store-alpha");
     expect(res.status).toBe(200);
@@ -442,6 +479,13 @@ describe("store_owner (store-alpha) — allow", () => {
 // 3. store_owner (alpha) — deny
 // ─────────────────────────────────────────────────────────────────────────────
 describe("store_owner (store-alpha) — deny", () => {
+  it("GET /api/support/recent-activity?storeId=store-beta → 403", async () => {
+    const res = await request(alphaOwner)
+      .get("/api/support/recent-activity?storeId=store-beta");
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/^Forbidden/);
+  });
+
   it("GET /api/platform/stats → 403 (not super_admin)", async () => {
     const res = await request(alphaOwner).get("/api/platform/stats");
     expect(res.status).toBe(403);
@@ -940,7 +984,6 @@ describe("GET /api/help — visibility rules", () => {
       .get("/api/support/articles?area=building-planner&symptoms=Test&scope=store-alpha")
       .expect(403);
   });
-
   it("store-gamma owner: sees platform articles but NOT alpha or beta store articles", async () => {
     const res = await request(gammaOwner).get("/api/help");
     expect(res.status).toBe(200);

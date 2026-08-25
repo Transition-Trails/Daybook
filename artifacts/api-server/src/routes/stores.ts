@@ -52,6 +52,7 @@ const CATALOG_TABLES: Record<string, { table: any; label: string }> = {
   theme:   { table: themesTable,          label: "Theme" },
   pack:    { table: stickerPacksTable,    label: "StickerPack" },
   insert:  { table: insertsTable,         label: "Insert" },
+  product: { table: editionsTable,        label: "Edition" },
   edition: { table: editionsTable,        label: "Edition" },
 };
 

@@ -693,7 +693,7 @@ router.post("/checkout", requireAuth, async (req, res): Promise<void> => {
   }
 
   try {
-    const stripe = getStripe();
+  const stripe = getStripe();
     const appUrl = process.env.APP_URL ?? "http://localhost:5000";
 
     const session = await stripe.checkout.sessions.create({

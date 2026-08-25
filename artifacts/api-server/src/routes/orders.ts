@@ -462,6 +462,7 @@ router.get(
   resolveStoreActor,
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
+
     const { storeId } = req.params as { storeId: string };
     const receiptStatus = req.query.receiptStatus;
     if (!assertStoreScope(actor, storeId, res)) return;

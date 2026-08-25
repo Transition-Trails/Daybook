@@ -18,10 +18,10 @@ import { db } from "@workspace/db";
 import {
   ticketsTable,
   ticketRepliesTable,
+  storeMembersTable,
   plannerConfigsTable,
   generationJobsTable,
   helpContentTable,
-  storeMembersTable,
   editionsTable,
   themesTable,
 } from "@workspace/db";
@@ -108,7 +108,7 @@ router.get(
   "/support/articles",
   resolveStoreActorOptional,
   async (req: Request, res: Response): Promise<void> => {
-    const actor = req.actor;
+    const actor = req.actor!;
     const { area = "", symptoms = "", scope = "platform" } = req.query as {
       area?: string;
       symptoms?: string;
@@ -352,12 +352,11 @@ router.get(
     };
 
     try {
-      let scope: string;
-
-      if (actor.isSuperAdmin && !storeId) {
-        scope = "platform";
-      } else {
-        const sid = storeId ?? actor.storeId;
+    let scope: string;
+    if (actor.isSuperAdmin && !storeId) {
+      scope = "platform";
+    } else {
+      const sid = storeId ?? actor.storeId;
         if (!sid) {
           res.status(400).json({ error: "storeId required" });
           return;

@@ -33,12 +33,14 @@ export interface EntitlementContext {
 
 export interface UserPlanEntitlement {
   /**
-   * Product access is plan-based. The append-only user `owned` ledger records
-   * purchase history, but item access is resolved from catalog origin and the
-   * store's current subscription state instead.
+   * Product access is plan-based. The append-only user `owned` ledger remains
+   * purchase history; store-authored item access resolves from catalog origin
+   * and the store's current subscription state instead.
    */
   plan?: string | null;
+
   planStatus?: string | null;
+
   planCurrentPeriodEnd?: Date | null;
 }
 

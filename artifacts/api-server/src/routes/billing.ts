@@ -5,14 +5,14 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { usersTable, plansTable } from "@workspace/db";
-import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import Stripe from "stripe";
 import { requireAuth } from "../lib/auth-middleware";
 import { logger } from "../lib/logger";
 import type { User } from "@workspace/db";
 
 const router: IRouter = Router();
-const BILLABLE_PLANS = ["yearly", "lifetime"] as const;
+const BILLABLE_PLANS = ["yearly"] as const;
 
 type BillablePlan = (typeof BILLABLE_PLANS)[number];
 type SuccessfulPaymentSource = "checkout" | "async_checkout" | "invoice";
@@ -94,6 +94,25 @@ async function resolveSubscriptionPeriodEnd(
   );
 }
 
+async function resolvePaymentIntentId(
+  stripe: Stripe,
+  payload: StripePayload,
+  source: SuccessfulPaymentSource,
+): Promise<string | undefined> {
+  const directPaymentIntentId = getStripeId(payload.payment_intent);
+  if (directPaymentIntentId || source !== "invoice" || !payload.id) {
+    return directPaymentIntentId;
+  }
+
+  const payments = await stripe.invoicePayments.list({
+    invoice: payload.id,
+    status: "paid",
+    payment: { type: "payment_intent" },
+    limit: 1,
+  });
+  return getStripeId(payments.data[0]?.payment.payment_intent);
+}
+
 async function resolveWebhookUser(
   metadataUserId: string | undefined,
   customerId: string | undefined,
@@ -135,89 +154,67 @@ async function processSuccessfulPayment(
     throw new Error("Stripe webhook could not resolve a user");
   }
 
-  const plan = isBillablePlan(metadata.plan)
-    ? metadata.plan
-    : (user.plan as BillablePlan | null);
+  const subscriptionId = getPayloadSubscriptionId(payload);
+  const plan = subscriptionId
+    ? "yearly"
+    : isBillablePlan(metadata.plan)
+      ? metadata.plan
+      : (user.plan as BillablePlan | null);
   if (!isBillablePlan(plan)) {
     logger.error({ eventId: event.id, userId: user.id }, "Stripe webhook could not resolve a billable plan");
     throw new Error("Stripe webhook could not resolve a billable plan");
   }
 
-  const subscriptionId = getPayloadSubscriptionId(payload);
   const eventCreatedAt = unixSecondsToDate(event.created);
-  if (plan === "yearly") {
-    if (!subscriptionId || !eventCreatedAt) {
-      logger.error({ eventId: event.id, userId: user.id }, "Stripe webhook is missing yearly subscription correlation");
-      throw new Error("Stripe webhook is missing yearly subscription correlation");
-    }
-
+  if (!subscriptionId || !eventCreatedAt) {
+    logger.error({ eventId: event.id, userId: user.id }, "Stripe webhook is missing yearly subscription correlation");
+    throw new Error("Stripe webhook is missing yearly subscription correlation");
   }
 
-  const periodEnd = plan === "yearly"
-    ? await resolveSubscriptionPeriodEnd(stripe, payload)
-    : null;
-  if (plan === "yearly" && !periodEnd) {
+  const periodEnd = await resolveSubscriptionPeriodEnd(stripe, payload);
+  if (!periodEnd) {
     logger.error({ eventId: event.id, userId: user.id }, "Stripe webhook has no subscription period end");
     throw new Error("Stripe webhook has no subscription period end");
   }
 
-  const paymentIntentId = getStripeId(payload.payment_intent);
+  const paymentIntentId = await resolvePaymentIntentId(stripe, payload, source);
 
   // Make the correlation and ordering check part of the UPDATE itself. Two
   // concurrent deliveries can both read a stale user row, but only the update
   // whose predicate still matches the database row may change entitlement.
   // Stripe event timestamps are second-granularity, so equality is not treated
   // as newer: the first accepted delivery for that second wins deterministically.
-  const yearlyUpdateGuard = plan === "yearly"
-    ? (
-      source === "checkout" || source === "async_checkout"
-        ? or(
-            isNull(usersTable.stripeSubscriptionId),
-            and(
+  const updateCondition = and(
+    eq(usersTable.id, user.id),
+    source === "checkout" || source === "async_checkout"
+      ? or(
+          isNull(usersTable.stripeSubscriptionId),
+          and(
+            isNull(usersTable.stripeSubscriptionEventCreatedAt),
+            eq(usersTable.stripeSubscriptionId, subscriptionId),
+          ),
+          lt(usersTable.stripeSubscriptionEventCreatedAt, eventCreatedAt),
+        )
+      : or(
+          isNull(usersTable.stripeSubscriptionId),
+          and(
+            eq(usersTable.stripeSubscriptionId, subscriptionId),
+            or(
               isNull(usersTable.stripeSubscriptionEventCreatedAt),
-              eq(usersTable.stripeSubscriptionId, subscriptionId!),
+              lt(usersTable.stripeSubscriptionEventCreatedAt, eventCreatedAt),
             ),
-            lt(usersTable.stripeSubscriptionEventCreatedAt, eventCreatedAt!),
-          )
-        : or(
-            isNull(usersTable.stripeSubscriptionId),
-            and(
-              eq(usersTable.stripeSubscriptionId, subscriptionId!),
-              or(
-                isNull(usersTable.stripeSubscriptionEventCreatedAt),
-                lt(usersTable.stripeSubscriptionEventCreatedAt, eventCreatedAt!),
-              ),
-            ),
-          )
-    )
-    : undefined;
-  const updateCondition = yearlyUpdateGuard
-    ? and(eq(usersTable.id, user.id), yearlyUpdateGuard)
-    : eq(usersTable.id, user.id);
+          ),
+        ),
+  );
   const [updated] = await db
     .update(usersTable)
     .set({
       plan,
-      // Yearly lifecycle updates must never write this append-only ownership
-      // ledger. Lifetime appends happen inside PostgreSQL so concurrent yearly
-      // webhooks cannot overwrite a newly granted permanent entitlement.
-      ...(plan === "lifetime"
-        ? {
-            owned: sql`CASE
-              WHEN ${usersTable.owned} @> '["lifetime"]'::jsonb THEN ${usersTable.owned}
-              ELSE ${usersTable.owned} || '["lifetime"]'::jsonb
-            END`,
-          }
-        : {}),
       stripeCustomerId: customerId ?? user.stripeCustomerId,
-      planStatus: plan === "yearly" ? "active" : "lifetime",
+      planStatus: "active",
       planCurrentPeriodEnd: periodEnd,
-      ...(plan === "yearly"
-        ? {
-            stripeSubscriptionId: subscriptionId,
-            stripeSubscriptionEventCreatedAt: eventCreatedAt,
-          }
-        : {}),
+      stripeSubscriptionId: subscriptionId,
+      stripeSubscriptionEventCreatedAt: eventCreatedAt,
       ...(paymentIntentId
         ? { stripePaymentIntentId: paymentIntentId }
         : {}),
@@ -322,7 +319,7 @@ router.post("/checkout", requireAuth, async (req, res): Promise<void> => {
   const { plan } = req.body as { plan?: string };
 
   if (!isBillablePlan(plan)) {
-    res.status(400).json({ error: 'plan must be "yearly" or "lifetime"' });
+    res.status(400).json({ error: 'plan must be "yearly"' });
     return;
   }
 
@@ -337,10 +334,9 @@ router.post("/checkout", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const isYearly = plan === "yearly";
-  const amount = isYearly ? planRow.yearlyPrice : planRow.oneTimePrice;
-  if (amount == null || amount <= 0) {
-    logger.error({ plan, amount }, "Plan has no usable price for this checkout mode");
+  const priceId = planRow.stripePriceId;
+  if (!priceId) {
+    logger.error({ plan }, "Plan has no Stripe price id — not purchasable");
     res.status(500).json({ error: "Plan is not purchasable — contact support" });
     return;
   }
@@ -350,19 +346,12 @@ router.post("/checkout", requireAuth, async (req, res): Promise<void> => {
     const appUrl = process.env.APP_URL ?? "http://localhost:5000";
 
     const session = await stripe.checkout.sessions.create({
-      mode: isYearly ? "subscription" : "payment",
+      mode: "subscription",
       customer_email: user.email,
       metadata: { userId: user.id, plan },
       line_items: [
         {
-          price_data: {
-            currency: "usd",
-            unit_amount: Math.round(amount * 100),
-            product_data: { name: planRow.name },
-            ...(isYearly
-              ? { recurring: { interval: "year" } }
-              : {}),
-          },
+          price: priceId,
           quantity: 1,
         },
       ],
@@ -377,7 +366,7 @@ router.post("/checkout", requireAuth, async (req, res): Promise<void> => {
   }
 });
 
-// POST /webhooks/stripe — grants owned ids / sets plan
+// POST /webhooks/stripe — advances the yearly subscription lifecycle
 router.post("/webhooks/stripe", async (req, res): Promise<void> => {
   const rawSignature = req.headers["stripe-signature"];
   const sig = Array.isArray(rawSignature) ? rawSignature[0] : rawSignature;

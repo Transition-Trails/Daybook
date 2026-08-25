@@ -99,6 +99,13 @@
       "when": 1787622400000,
       "tag": "0013_billing_subscription_event_order",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1787623000000,
+      "tag": "0014_billing_stripe_price_id",
+      "breakpoints": true
     }
   ]
 }

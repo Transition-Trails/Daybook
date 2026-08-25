@@ -15,7 +15,7 @@ export default function PlansList() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-display font-bold tracking-tight">Plans</h1>
-          <p className="text-muted-foreground mt-1">Subscription plans are defined at the seed level and cannot be modified here.</p>
+          <p className="text-muted-foreground mt-1">Subscription plans are configured in Stripe.</p>
         </div>
       </div>
 
@@ -35,22 +35,8 @@ export default function PlansList() {
               )}
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-4">
-                {plan.oneTimePrice != null && (
-                  <div className="bg-muted/50 rounded-md p-3 text-center">
-                    <div className="text-2xl font-bold font-mono">${plan.oneTimePrice.toFixed(2)}</div>
-                    <div className="text-xs text-muted-foreground mt-1">One-time</div>
-                  </div>
-                )}
-                {plan.yearlyPrice != null && (
-                  <div className="bg-muted/50 rounded-md p-3 text-center">
-                    <div className="text-2xl font-bold font-mono">${plan.yearlyPrice.toFixed(2)}</div>
-                    <div className="text-xs text-muted-foreground mt-1">Yearly</div>
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground text-center pt-2">
-                Plans are seeded constants — create or delete via the database seed script.
+              <p className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
+                Checkout pricing is managed in Stripe. This screen does not set or display checkout prices.
               </p>
             </CardContent>
           </Card>

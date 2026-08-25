@@ -39,16 +39,14 @@ export interface UserPlanEntitlement {
 }
 
 /**
- * Resolve access for a buyer's subscription product. Permanent purchases are
- * represented by the append-only `owned` ledger; yearly access requires both
- * an active status and a future period end.
+ * Resolve access for a buyer's yearly subscription product. Item ownership is
+ * tracked separately in the append-only `owned` ledger; plan access requires
+ * both an active status and a future period end.
  */
 export function hasUserPlanEntitlement(
   user: UserPlanEntitlement,
   now: Date = new Date(),
 ): boolean {
-  if (user.owned?.includes("lifetime")) return true;
-
   return user.plan === "yearly"
     && user.planStatus === "active"
     && user.planCurrentPeriodEnd instanceof Date

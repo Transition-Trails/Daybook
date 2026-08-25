@@ -44,17 +44,10 @@ async function main() {
     .values([
       {
         id: "yearly",
-        name: "One-time + maintenance",
-        description: "Pay once for the current year, then a small yearly fee to keep getting updates.",
+        name: "Yearly",
+        description: "An annual subscription that keeps your planner updates active.",
         oneTimePrice: 49,
         yearlyPrice: 15,
-      },
-      {
-        id: "lifetime",
-        name: "Lifetime (all upgrades)",
-        description: "One payment, every future upgrade included forever.",
-        oneTimePrice: 149,
-        yearlyPrice: null,
       },
     ])
     .onConflictDoNothing();
@@ -307,10 +300,10 @@ async function main() {
     { id: "h-google-drive", title: "Connect Google Drive & Calendar", body: `## Why connect Google?\n\nConnecting your Google account lets Daybook:\n- **Back up** generated PDFs directly to a Drive folder.\n- **Pull calendar events** into day/week views inside the admin.\n- **Push planner schedules** to Google Calendar so your plan lives where you work.\n\n## How to connect\n1. Go to **Google Sync** in the sidebar.\n2. Click **Connect Google** — you'll be redirected to Google's OAuth screen.\n3. Grant the requested permissions (Drive, Calendar).\n4. You'll be redirected back; the Sync dashboard will show green status badges.\n\n## Reconnecting after token expiry\nGoogle tokens expire after roughly 1 hour. If you see a yellow banner saying "Your Google connection expired", click **Reconnect Google** to refresh silently.`, category: "Integrations", kind: "article", scope: "platform", status: "live" },
     { id: "h-ai-assistant", title: "Using the AI assistant", body: `## What the AI assistant does\n\nThe AI assistant helps you research trends, generate copy, and brainstorm edition themes.`, category: "Features", kind: "article", scope: "platform", status: "live" },
     { id: "h-stickers-inserts", title: "Adding stickers & inserts", body: `## Sticker packs\n\nSticker packs are collections of decorative or functional PNG assets.\n\n## Inserts\n\nInserts are full-page PDF pages inserted between planner sections.`, category: "Content management", kind: "article", scope: "platform", status: "live" },
-    { id: "h-account-plans", title: "Account & plans", body: `## Plan types\n\n| Plan | Price | What you get |\n|------|-------|-------------|\n| One-time + maintenance | $49/yr | Current year's planner + yearly update fee |\n| Lifetime | $149 one-time | Every future upgrade, forever |`, category: "Account", kind: "article", scope: "platform", status: "live" },
+    { id: "h-account-plans", title: "Account & plans", body: `## Plan types\n\nDaybook uses a yearly subscription. Your current checkout price and renewal terms are shown securely in Stripe checkout.`, category: "Account", kind: "article", scope: "platform", status: "live" },
     { id: "h-faq-goodnotes", title: "Links broken in GoodNotes — how to fix", body: `**Q:** GoodNotes requires interactive links to be within the visible page area. **Fix:** Re-generate with Portrait orientation and A4 or Letter page size.`, category: "Troubleshooting", kind: "faq", scope: "platform", status: "live" },
     { id: "h-faq-regen",     title: "Can I change a planner after generating?", body: `**Q:** Yes — load the saved config, change settings, and click Generate again. Each generation creates a new PDF version.`, category: "Usage", kind: "faq", scope: "platform", status: "live" },
-    { id: "h-faq-lifetime",  title: "One-time purchase vs lifetime — what's the difference?", body: `**Q:** One-time + maintenance ($49/yr) covers the current year. Lifetime ($149) covers all future editions forever.`, category: "Plans & pricing", kind: "faq", scope: "platform", status: "live" },
+    { id: "h-faq-lifetime",  title: "How does the yearly subscription work?", body: `**A:** Your yearly subscription keeps your planner updates active. Stripe shows the current price and renewal terms before you confirm checkout.`, category: "Plans & pricing", kind: "faq", scope: "platform", status: "live" },
     { id: "h-alpha-welcome", title: "Welcome to Alpha Planners", body: `## Welcome!\n\nThank you for joining the Alpha Planners store. Browse our curated collection in the Shop.`, category: "Getting started", kind: "article", scope: "store-alpha", status: "live" },
   ]).onConflictDoNothing();
   console.log("  ✓ help content");

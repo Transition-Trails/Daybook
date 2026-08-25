@@ -57,4 +57,4 @@
 - [WorldSmith typography migration](worldsmith-typography-migration.md) — legacy font prose is preserved for review but never reaches compiled image prompts
 - [GPT Image 2 proxy compatibility](gpt-image-2-proxy.md) — Replit’s OpenAI image endpoint accepts GPT Image 2 generation requests without response_format
 - [WorldSmith production route tests](worldsmith-production-route-tests.md) — route-level final-art tests need provider metadata mocked before approval gating runs
-- [Stripe billing lifecycle](stripe-billing-lifecycle.md) — yearly access is revocable and period-bound; lifetime is append-only; correlate lifecycle events to active Stripe objects
+- [Stripe billing lifecycle](stripe-billing-lifecycle.md) — yearly access is Price-ID-backed and event-ordered; invoice payment records supply refund correlation

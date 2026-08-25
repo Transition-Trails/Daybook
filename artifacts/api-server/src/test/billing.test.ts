@@ -21,9 +21,8 @@ const { dbState, stripeState, loggerState, tables } = vi.hoisted(() => {
     dbState: {
       users: [] as Array<Partial<User>>,
       plans: {
-        yearly: { id: "yearly", name: "Yearly", oneTimePrice: 49, yearlyPrice: 15 },
-        lifetime: { id: "lifetime", name: "Lifetime", oneTimePrice: 149, yearlyPrice: null },
-      } as Record<string, { id: string; name: string; oneTimePrice: number | null; yearlyPrice: number | null }>,
+        yearly: { id: "yearly", name: "Yearly", stripePriceId: "price_yearly_test" },
+      } as Record<string, { id: string; name: string; stripePriceId: string | null }>,
       updates: [] as Array<{ patch: Record<string, unknown>; condition: { column: string; value: string } }>,
       selectError: null as Error | null,
       beforeUpdate: null as ((patch: Record<string, unknown>) => Promise<void>) | null,
@@ -34,6 +33,9 @@ const { dbState, stripeState, loggerState, tables } = vi.hoisted(() => {
       signatureError: null as Error | null,
       sessionCalls: [] as Array<Record<string, unknown>>,
       subscription: { current_period_end: 1_900_000_000 },
+      invoicePayments: {
+        data: [{ payment: { type: "payment_intent", payment_intent: "pi_invoice_payment" } }],
+      },
     },
     loggerState: {
       error: vi.fn(),
@@ -96,11 +98,6 @@ vi.mock("@workspace/db", () => {
             let recordedPatch = patch;
             for (const user of matchingUsers) {
               const appliedPatch = { ...patch };
-              if (appliedPatch.owned && !Array.isArray(appliedPatch.owned)) {
-                appliedPatch.owned = user.owned?.includes("lifetime")
-                  ? user.owned
-                  : [...(user.owned ?? []), "lifetime"];
-              }
               Object.assign(user, appliedPatch);
               recordedPatch = appliedPatch;
             }
@@ -130,7 +127,6 @@ vi.mock("drizzle-orm", () => ({
   lt: (column: string, value: Date) => ({ kind: "lt", column, value }),
   and: (...conditions: Array<Record<string, unknown>>) => ({ kind: "and", conditions }),
   or: (...conditions: Array<Record<string, unknown>>) => ({ kind: "or", conditions }),
-  sql: () => ({ kind: "sql" }),
 }));
 
 vi.mock("../lib/auth-middleware.js", () => ({
@@ -163,6 +159,9 @@ vi.mock("stripe", () => {
       },
       subscriptions: {
         retrieve: async () => stripeState.subscription,
+      },
+      invoicePayments: {
+        list: async () => stripeState.invoicePayments,
       },
     };
   }
@@ -229,8 +228,7 @@ beforeEach(() => {
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_billing";
   dbState.users = [];
   dbState.plans = {
-    yearly: { id: "yearly", name: "Yearly", oneTimePrice: 49, yearlyPrice: 15 },
-    lifetime: { id: "lifetime", name: "Lifetime", oneTimePrice: 149, yearlyPrice: null },
+    yearly: { id: "yearly", name: "Yearly", stripePriceId: "price_yearly_test" },
   };
   dbState.updates = [];
   dbState.selectError = null;
@@ -240,6 +238,9 @@ beforeEach(() => {
   stripeState.signatureError = null;
   stripeState.sessionCalls = [];
   stripeState.subscription = { current_period_end: 1_900_000_000 };
+  stripeState.invoicePayments = {
+    data: [{ payment: { type: "payment_intent", payment_intent: "pi_invoice_payment" } }],
+  };
   loggerState.error.mockReset();
   loggerState.warn.mockReset();
 });
@@ -252,18 +253,27 @@ afterEach(() => {
 });
 
 describe("Daybook billing checkout", () => {
-  it("uses the recurring yearly price and the lifetime one-time price", async () => {
+  it("uses the configured Stripe Price ID for yearly subscriptions", async () => {
     await request(app).post("/checkout").send({ plan: "yearly" }).expect(200);
-    await request(app).post("/checkout").send({ plan: "lifetime" }).expect(200);
 
-    const yearly = stripeState.sessionCalls[0].line_items as Array<{ price_data: { unit_amount: number } }>;
-    const lifetime = stripeState.sessionCalls[1].line_items as Array<{ price_data: { unit_amount: number } }>;
-    expect(yearly[0].price_data.unit_amount).toBe(1500);
-    expect(lifetime[0].price_data.unit_amount).toBe(14900);
+    expect(stripeState.sessionCalls).toEqual([
+      expect.objectContaining({
+        mode: "subscription",
+        line_items: [{ price: "price_yearly_test", quantity: 1 }],
+      }),
+    ]);
+    expect(stripeState.sessionCalls[0]).not.toHaveProperty("line_items.0.price_data");
   });
 
-  it("refuses a checkout session when the requested mode has no usable price", async () => {
-    dbState.plans.yearly = { ...dbState.plans.yearly, yearlyPrice: null };
+  it("rejects removed and unknown plans", async () => {
+    await request(app).post("/checkout").send({ plan: "lifetime" }).expect(400);
+    await request(app).post("/checkout").send({ plan: "unknown" }).expect(400);
+
+    expect(stripeState.sessionCalls).toHaveLength(0);
+  });
+
+  it("refuses checkout when the yearly plan has no Stripe Price ID", async () => {
+    dbState.plans.yearly = { ...dbState.plans.yearly, stripePriceId: null };
 
     const response = await request(app).post("/checkout").send({ plan: "yearly" });
 
@@ -271,8 +281,8 @@ describe("Daybook billing checkout", () => {
     expect(response.body.error).toContain("not purchasable");
     expect(stripeState.sessionCalls).toHaveLength(0);
     expect(loggerState.error).toHaveBeenCalledWith(
-      { plan: "yearly", amount: null },
-      expect.stringContaining("no usable price"),
+      { plan: "yearly" },
+      expect.stringContaining("no Stripe price id"),
     );
   });
 });
@@ -333,8 +343,8 @@ describe("Stripe webhooks", () => {
     );
   });
 
-  it("resolves a metadata-free renewal through the Stripe customer and records expiry", async () => {
-    dbState.users = [knownUser({ stripeSubscriptionId: null })];
+  it("resolves a metadata-free renewal from its subscription payload and records expiry", async () => {
+    dbState.users = [knownUser({ plan: null, stripeSubscriptionId: null })];
     successEvent("invoice.payment_succeeded", {
       metadata: {},
       customer: "cus_known",
@@ -415,36 +425,11 @@ describe("Stripe webhooks", () => {
     });
   });
 
-  it("grants a confirmed lifetime checkout without making annual access permanent", async () => {
-    dbState.users = [knownUser({ plan: null, owned: [], stripeSubscriptionId: null })];
-    successEvent("checkout.session.completed", {
-      metadata: { userId: "user-renewal", plan: "lifetime" },
-      customer: "cus_known",
-      payment_intent: "pi_lifetime",
-      payment_status: "paid",
-    });
-
-    await request(app)
-      .post("/webhooks/stripe")
-      .set("stripe-signature", "valid")
-      .set("content-type", "application/json")
-      .send("{}")
-      .expect(200);
-
-    expect(dbState.updates[0].patch).toMatchObject({
-      plan: "lifetime",
-      owned: ["lifetime"],
-      planStatus: "lifetime",
-      stripePaymentIntentId: "pi_lifetime",
-    });
-  });
-
   it.each([
     ["customer.subscription.deleted", "inactive", { id: "sub_active" }],
     ["invoice.payment_failed", "payment_failed", { parent: { subscription_details: { subscription: "sub_active" } } }],
-    ["charge.refunded", "refunded", { payment_intent: "pi_active" }],
-  ])("records %s without removing lifetime ownership", async (type, expectedStatus, correlation) => {
-    dbState.users = [knownUser({ plan: "lifetime", owned: ["lifetime"] })];
+  ])("records %s without changing item ownership", async (type, expectedStatus, correlation) => {
+    dbState.users = [knownUser({ owned: ["edition_owned"] })];
     successEvent(type, { customer: "cus_known", current_period_end: 1_900_000_000, ...correlation });
 
     const response = await request(app)
@@ -457,6 +442,41 @@ describe("Stripe webhooks", () => {
     expect(dbState.updates).toHaveLength(1);
     expect(dbState.updates[0].patch).toMatchObject({ planStatus: expectedStatus });
     expect(dbState.updates[0].patch).not.toHaveProperty("owned");
+  });
+
+  it("correlates a subscription invoice refund through its stored payment intent", async () => {
+    dbState.users = [knownUser({ stripeSubscriptionId: null, stripePaymentIntentId: null })];
+    stripeState.invoicePayments = {
+      data: [{ payment: { type: "payment_intent", payment_intent: "pi_subscription_invoice" } }],
+    };
+    successEvent("invoice.payment_succeeded", {
+      id: "in_subscription_paid",
+      metadata: {},
+      customer: "cus_known",
+      parent: { subscription_details: { subscription: "sub_active" } },
+      lines: { data: [{ period: { end: 1_950_000_000 } }] },
+    }, { id: "evt_subscription_paid", created: 1_900_000_000 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+    expect(dbState.users[0].stripePaymentIntentId).toBe("pi_subscription_invoice");
+
+    successEvent("charge.refunded", {
+      customer: "cus_known",
+      payment_intent: "pi_subscription_invoice",
+    }, { id: "evt_subscription_refunded", created: 1_900_000_001 });
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.users[0].planStatus).toBe("refunded");
   });
 
   it("ignores an old subscription deletion after a customer has a new active subscription", async () => {
@@ -717,69 +737,18 @@ describe("Stripe webhooks", () => {
     expect(dbState.updates).toHaveLength(1);
   });
 
-  it("keeps a concurrent lifetime ownership grant when a yearly renewal finishes later", async () => {
-    dbState.users = [knownUser({
-      owned: [],
-      stripeSubscriptionId: "sub_active",
-      stripeSubscriptionEventCreatedAt: new Date(1_800_000_000 * 1000),
-    })];
-    let releaseYearly: (() => void) | undefined;
-    const yearlyPaused = new Promise<void>(resolve => {
-      dbState.beforeUpdate = async patch => {
-        if (patch.plan === "yearly") {
-          await new Promise<void>(resume => {
-            releaseYearly = resume;
-            resolve();
-          });
-        }
-      };
-    });
-    successEvent("invoice.payment_succeeded", {
-      metadata: {},
-      customer: "cus_known",
-      parent: { subscription_details: { subscription: "sub_active" } },
-      lines: { data: [{ period: { end: 1_950_000_000 } }] },
-    }, { id: "evt_yearly", created: 1_900_000_000 });
-    const yearly = request(app)
-      .post("/webhooks/stripe")
-      .set("stripe-signature", "valid")
-      .set("content-type", "application/json")
-      .send("{}")
-      .then(response => {
-        expect(response.status).toBe(200);
-      });
-    await yearlyPaused;
-
-    successEvent("checkout.session.completed", {
-      metadata: { userId: "user-renewal", plan: "lifetime" },
-      customer: "cus_known",
-      payment_intent: "pi_lifetime",
-      payment_status: "paid",
-    }, { id: "evt_lifetime", created: 1_900_000_001 });
-    await request(app)
-      .post("/webhooks/stripe")
-      .set("stripe-signature", "valid")
-      .set("content-type", "application/json")
-      .send("{}")
-      .expect(200);
-    releaseYearly?.();
-    await yearly;
-
-    expect(dbState.users[0].owned).toEqual(["lifetime"]);
-    expect(dbState.users[0].planStatus).toBe("active");
-  });
 });
 
 describe("buyer plan entitlement", () => {
-  it("keeps lifetime access while requiring an active, unexpired yearly plan", () => {
+  it("requires an active, unexpired yearly plan", () => {
     const now = new Date("2030-01-01T00:00:00.000Z");
 
     expect(hasUserPlanEntitlement({
-      owned: ["lifetime"],
-      plan: "lifetime",
+      owned: ["edition_owned"],
+      plan: "yearly",
       planStatus: "refunded",
       planCurrentPeriodEnd: null,
-    }, now)).toBe(true);
+    }, now)).toBe(false);
     expect(hasUserPlanEntitlement({
       owned: [],
       plan: "yearly",

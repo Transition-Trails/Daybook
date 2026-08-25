@@ -17,7 +17,7 @@ export const usersTable = pgTable("users", {
   name: text("name").notNull(),
   avatarUrl: text("avatar_url"),
   role: text("role").notNull().default("user"), // user | staff | owner
-  plan: text("plan"), // "yearly" | "lifetime" | null
+  plan: text("plan"), // "yearly" | null
   owned: jsonb("owned").notNull().default([]).$type<string[]>(),
   aiEnabled: boolean("ai_enabled").notNull().default(true),
   aiProvider: text("ai_provider").notNull().default("claude"), // claude | chatgpt | gemini
@@ -41,10 +41,9 @@ export const usersTable = pgTable("users", {
   // super_admin: full platform access, bypasses all store scoping.
   platformRole: text("platform_role"), // "super_admin" | null
   stripeCustomerId: text("stripe_customer_id"),
-  // Lifetime purchases remain in `owned`; these fields represent only the
-  // revocable subscription lifecycle.
+  // These fields represent the revocable subscription lifecycle.
   planCurrentPeriodEnd: timestamp("plan_current_period_end", { withTimezone: true }),
-  planStatus: text("plan_status"), // active | inactive | payment_failed | refunded | lifetime
+  planStatus: text("plan_status"), // active | inactive | payment_failed | refunded
   stripeSubscriptionId: text("stripe_subscription_id"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   stripeSubscriptionEventCreatedAt: timestamp("stripe_subscription_event_created_at", { withTimezone: true }),

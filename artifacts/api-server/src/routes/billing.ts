@@ -8,6 +8,7 @@ import { ordersTable, paymentsTable, usersTable, plansTable } from "@workspace/d
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 import Stripe from "stripe";
 import { requireAuth } from "../lib/auth-middleware";
+import { requireSuperAdmin } from "../middleware/requireRole";
 import { logger } from "../lib/logger";
 import type { User } from "@workspace/db";
 import { getConfiguredStripePriceId } from "../lib/stripe-price";
@@ -38,6 +39,92 @@ type StripePayload = {
     }>;
   };
 };
+
+// GET /billing/users/:userId/payments — complete subscription payment history
+// Support access is deliberately super-admin-only and every row is filtered by
+// the requested user before it is joined to its order and plan.
+router.get(
+  "/billing/users/:userId/payments",
+  requireSuperAdmin,
+  async (req, res): Promise<void> => {
+    const userId = req.params.userId as string;
+
+    try {
+      const [user] = await db
+        .select({ id: usersTable.id })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1);
+
+      if (!user) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+
+      const rows = await db
+        .select({
+          id: paymentsTable.id,
+          orderId: paymentsTable.orderId,
+          orderStoreId: ordersTable.storeId,
+          orderCreatedAt: ordersTable.createdAt,
+          orderTotalCents: ordersTable.totalCents,
+          orderCurrency: ordersTable.currency,
+          planId: paymentsTable.planId,
+          planName: plansTable.name,
+          source: paymentsTable.source,
+          status: paymentsTable.status,
+          amountCents: paymentsTable.amountCents,
+          currency: paymentsTable.currency,
+          stripePaymentIntentId: paymentsTable.stripePaymentIntentId,
+          stripeSubscriptionId: paymentsTable.stripeSubscriptionId,
+          stripeInvoiceId: paymentsTable.stripeInvoiceId,
+          lifecycleEventId: paymentsTable.lastLifecycleEventId,
+          lifecycleEventType: paymentsTable.lastLifecycleEventType,
+          lifecycleEventAt: paymentsTable.lastLifecycleEventAt,
+          createdAt: paymentsTable.createdAt,
+          updatedAt: paymentsTable.updatedAt,
+        })
+        .from(paymentsTable)
+        .innerJoin(ordersTable, eq(ordersTable.id, paymentsTable.orderId))
+        .innerJoin(plansTable, eq(plansTable.id, paymentsTable.planId))
+        .where(eq(paymentsTable.userId, userId))
+        .orderBy(paymentsTable.createdAt);
+
+      res.json({
+        payments: rows.map((row) => ({
+          id: row.id,
+          order: {
+            id: row.orderId,
+            storeId: row.orderStoreId,
+            createdAt: row.orderCreatedAt,
+            totalCents: row.orderTotalCents,
+            currency: row.orderCurrency,
+          },
+          plan: { id: row.planId, name: row.planName },
+          source: row.source,
+          status: row.status,
+          amountCents: row.amountCents,
+          currency: row.currency,
+          stripe: {
+            paymentIntentId: row.stripePaymentIntentId,
+            subscriptionId: row.stripeSubscriptionId,
+            invoiceId: row.stripeInvoiceId,
+          },
+          lifecycleEvent: {
+            id: row.lifecycleEventId,
+            type: row.lifecycleEventType,
+            at: row.lifecycleEventAt,
+          },
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        })),
+      });
+    } catch (err) {
+      logger.error({ err, userId }, "Could not load customer payment history");
+      res.status(500).json({ error: "Could not load payment history" });
+    }
+  },
+);
 
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY;

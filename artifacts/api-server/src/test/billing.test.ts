@@ -183,6 +183,10 @@ vi.mock("../lib/auth-middleware.js", () => ({
   requireAuth: (_req: Request, _res: Response, next: NextFunction) => next(),
 }));
 
+vi.mock("../middleware/requireRole.js", () => ({
+  requireSuperAdmin: (_req: Request, _res: Response, next: NextFunction) => next(),
+}));
+
 vi.mock("../lib/logger.js", () => ({
   logger: {
     error: loggerState.error,

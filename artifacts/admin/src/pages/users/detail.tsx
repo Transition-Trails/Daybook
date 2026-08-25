@@ -1,9 +1,27 @@
 import { useParams, Link } from 'wouter';
 import { useGetUser, getGetUserQueryKey } from '@workspace/api-client-react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, ArrowLeft } from 'lucide-react';
+import { billingApi, type CustomerPaymentHistoryEntry } from '@/lib/api';
+import { EmptyState, ErrorState } from '@/components/shared';
+import { Loader2, ArrowLeft, CreditCard, ExternalLink } from 'lucide-react';
+
+function formatMoney(amountCents: number | null, currency: string | null): string {
+  if (amountCents === null) return '—';
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: (currency ?? 'usd').toUpperCase(),
+  }).format(amountCents / 100);
+}
+
+function lifecycleLabel(payment: CustomerPaymentHistoryEntry): string {
+  if (payment.lifecycleEvent.type === 'charge.refunded') return 'Refunded';
+  if (payment.lifecycleEvent.type === 'customer.subscription.deleted') return 'Cancelled';
+  if (payment.lifecycleEvent.type === 'invoice.payment_failed') return 'Payment failed';
+  return payment.lifecycleEvent.type ?? '';
+}
 
 export default function UserDetail() {
   const params = useParams();
@@ -11,6 +29,16 @@ export default function UserDetail() {
 
   const { data: userData, isLoading } = useGetUser(id as any, { query: { enabled: !!id, queryKey: getGetUserQueryKey(id as any) } });
   const user = userData as any;
+  const {
+    data: paymentData,
+    isLoading: paymentsLoading,
+    error: paymentsError,
+    refetch: refetchPayments,
+  } = useQuery({
+    queryKey: ['customer-payment-history', id],
+    queryFn: () => billingApi.customerPayments(id),
+    enabled: !!id && !!user,
+  });
 
   if (isLoading) {
     return <div className="flex h-64 items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
@@ -109,6 +137,106 @@ export default function UserDetail() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-muted-foreground" />
+              Subscription payment history
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Every Stripe payment recorded for this customer, including lifecycle changes.
+            </p>
+          </div>
+          {paymentData && (
+            <Badge variant="outline">
+              {paymentData.payments.length} {paymentData.payments.length === 1 ? 'payment' : 'payments'}
+            </Badge>
+          )}
+        </CardHeader>
+        <CardContent>
+          {paymentsLoading ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading payment history…
+            </div>
+          ) : paymentsError ? (
+            <ErrorState
+              message="Couldn’t load this customer’s payment history."
+              onRetry={() => refetchPayments()}
+            />
+          ) : !paymentData?.payments.length ? (
+            <EmptyState
+              icon={CreditCard}
+              title="No subscription payments"
+              description="Payments recorded by Stripe will appear here."
+            />
+          ) : (
+            <div className="overflow-x-auto -mx-2">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="px-2 py-3 font-medium">Order / date</th>
+                    <th className="px-2 py-3 font-medium">Plan</th>
+                    <th className="px-2 py-3 font-medium">Amount</th>
+                    <th className="px-2 py-3 font-medium">Stripe status</th>
+                    <th className="px-2 py-3 font-medium">Lifecycle event</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {paymentData.payments.map((payment) => {
+                    const eventLabel = lifecycleLabel(payment);
+                    return (
+                      <tr key={payment.id} className="align-top hover:bg-muted/20 transition-colors">
+                        <td className="px-2 py-3">
+                          <Link
+                            href={`/orders/${payment.order.id}`}
+                            className="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
+                          >
+                            {payment.order.id}
+                            <ExternalLink className="w-3 h-3" />
+                          </Link>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {new Date(payment.createdAt).toLocaleDateString()}
+                          </div>
+                        </td>
+                        <td className="px-2 py-3">
+                          <div className="font-medium">{payment.plan.name}</div>
+                          <div className="text-xs text-muted-foreground capitalize">{payment.source.replace('_', ' ')}</div>
+                        </td>
+                        <td className="px-2 py-3 font-medium tabular-nums">
+                          {formatMoney(payment.amountCents, payment.currency ?? payment.order.currency)}
+                        </td>
+                        <td className="px-2 py-3">
+                          <Badge
+                            variant={payment.status === 'succeeded' ? 'default' : 'destructive'}
+                            className="capitalize"
+                          >
+                            {payment.status}
+                          </Badge>
+                        </td>
+                        <td className="px-2 py-3 text-xs">
+                          {eventLabel ? (
+                            <>
+                              <div className="font-medium">{eventLabel}</div>
+                              <div className="text-muted-foreground mt-1">
+                                {payment.lifecycleEvent.id ?? 'Event recorded'}
+                                {payment.lifecycleEvent.at && ` · ${new Date(payment.lifecycleEvent.at).toLocaleDateString()}`}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">No refund or cancellation event</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

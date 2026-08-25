@@ -1905,6 +1905,58 @@ export const supportApi = {
   },
 };
 
+export interface CustomerPaymentHistoryEntry {
+  id: string;
+  order: {
+    id: string;
+    storeId: string;
+    createdAt: string;
+    totalCents: number;
+    currency: string;
+  };
+  plan: { id: string; name: string };
+  source: string;
+  status: string;
+  amountCents: number | null;
+  currency: string | null;
+  stripe: {
+    paymentIntentId: string | null;
+    subscriptionId: string | null;
+    invoiceId: string | null;
+  };
+  lifecycleEvent: {
+    id: string | null;
+    type: string | null;
+    at: string | null;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const billingApi = {
+  customerPayments: (userId: string) =>
+    apiFetch<{ payments: CustomerPaymentHistoryEntry[] }>(
+      `/billing/users/${encodeURIComponent(userId)}/payments`,
+    ),
+};
+
+export interface SupportOrder {
+  id: string;
+  storeId: string;
+  buyerEmail: string;
+  buyerName: string | null;
+  items: Array<{ name: string; priceCents: number; downloadUrl?: string }>;
+  totalCents: number;
+  currency: string;
+  downloadLinks: Array<{ name: string; url: string }>;
+  receiptSentAt: string | null;
+  createdAt: string;
+}
+
+export const ordersApi = {
+  get: (id: string) => apiFetch<{ order: SupportOrder }>(`/orders/${encodeURIComponent(id)}`),
+};
+
 // ── Releases ───────────────────────────────────────────────────────────────────
 
 export interface ReleaseNote {

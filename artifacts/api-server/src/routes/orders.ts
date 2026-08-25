@@ -10,9 +10,38 @@ import { db } from "@workspace/db";
 import { ordersTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { resolveStoreActor, resolveStoreActorOptional } from "../middleware/requireRole";
+import { requireSuperAdmin } from "../middleware/requireRole";
 import { sendOrderReceipt } from "../lib/email/senders";
 
 const router: IRouter = Router();
+
+// ── GET /orders/:id — support order detail ───────────────────────────────────
+// Orders contain customer billing information, so this support destination is
+// restricted to the same platform role as the payment-history view.
+router.get(
+  "/orders/:id",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params as { id: string };
+
+    try {
+      const [order] = await db
+        .select()
+        .from(ordersTable)
+        .where(eq(ordersTable.id, id))
+        .limit(1);
+
+      if (!order) {
+        res.status(404).json({ error: "Order not found" });
+        return;
+      }
+
+      res.json({ order });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  },
+);
 
 // ── POST /orders ──────────────────────────────────────────────────────────────
 router.post(

@@ -41,6 +41,8 @@ import { FontSpecimenCard } from "@/components/FontSpecimenCard";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+import { isStoreOwnerRole, isSuperAdminRole } from "@/lib/permissions";
+
 interface Props {
   storeId: string;
   role: string;
@@ -117,7 +119,7 @@ function EditionList({
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const isOwner = role === "store_owner";
+  const isOwner = isStoreOwnerRole(role);
 
   const { data: owned, isLoading, error, refetch } = useQuery<OwnedList>({
     queryKey: ["store-owned-list", storeId],
@@ -595,7 +597,7 @@ function EditionCreate({
       {/* Two-path cards — equal height */}
       <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 1fr", alignItems: "start" }}>
         <BlankCreateCard storeId={storeId} onCreated={onCreated} />
-        <ClaudeCreateCard storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={role === "super_admin"} onCreated={onCreated} />
+        <ClaudeCreateCard storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={isSuperAdminRole(role)} onCreated={onCreated} />
       </div>
     </div>
   );
@@ -624,7 +626,7 @@ function EditionEdit({
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const isOwner = role === "store_owner";
+  const isOwner = isStoreOwnerRole(role);
 
   const [prompt, setPrompt]           = useState("");
   const [showRevise, setShowRevise]   = useState(false);

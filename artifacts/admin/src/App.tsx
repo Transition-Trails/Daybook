@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { isSuperAdminRole } from "@/lib/permissions";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   Route,
@@ -511,7 +512,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={isSuperAdminRole(store.role)}>
                   {(aiEnabled) => <StoreThemeStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -524,7 +525,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={isSuperAdminRole(store.role)}>
                   {(aiEnabled) => <StoreStudioPage storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -538,7 +539,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={isSuperAdminRole(store.role)}>
                   {(aiEnabled) => <StoreStudioPage storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -551,7 +552,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={isSuperAdminRole(store.role)}>
                   {(aiEnabled) => <StoreEditionStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -564,7 +565,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={isSuperAdminRole(store.role)}>
                   {(aiEnabled) => <StoreTrendResearch storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>
@@ -577,7 +578,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={isSuperAdminRole(store.role)}>
                   {(aiEnabled) => (
                     <MarketingStudio
                       storeId={p.storeId!}
@@ -596,7 +597,7 @@ function RootRouter() {
           <RequireStore state={state} storeId={p.storeId}>
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
-                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={store.role === "super_admin"}>
+                <StoreStudioLoader storeId={p.storeId!} isSuperAdmin={isSuperAdminRole(store.role)}>
                   {(aiEnabled) => <PlannerStudio storeId={p.storeId!} role={store.role as string} aiEnabled={aiEnabled} />}
                 </StoreStudioLoader>
               </StoreAdminShell>

@@ -120,7 +120,6 @@ const superAdminUser: User = {
   id: "u-sa",
   email: "superadmin@daybook.app",
   name: "Platform Super Admin",
-  role: "owner",
   platformRole: "super_admin",
   provider: "google",
   avatarUrl: null,

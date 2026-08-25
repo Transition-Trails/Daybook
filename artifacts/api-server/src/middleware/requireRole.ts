@@ -100,7 +100,7 @@ export async function resolveStoreActorOptional(
 }
 
 /**
- * Requires the caller to be a platform-wide super_admin (or legacy role=owner).
+ * Requires the caller to be a platform-wide super_admin.
  * No store context needed.
  */
 export async function requireSuperAdmin(

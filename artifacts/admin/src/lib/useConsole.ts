@@ -12,6 +12,7 @@
 import { useGetMe } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { meApi, type MeStore, resolveStoreId } from "./api";
+import { isStaffRole } from "./permissions";
 
 export type ConsoleKind =
   | "loading"
@@ -35,10 +36,7 @@ export function useConsole(): ConsoleState {
     error: userError,
   } = useGetMe();
 
-  // Mirror backend isSuperAdmin(): platformRole === "super_admin" OR legacy role === "owner"
-  const isSuper =
-    (user as any)?.platformRole === "super_admin" ||
-    (user as any)?.role === "owner";
+  const isSuper = (user as any)?.platformRole === "super_admin";
 
   const {
     data: stores = [],
@@ -63,7 +61,7 @@ export function useConsole(): ConsoleState {
   }
 
   // Store members: find their first non-customer store
-  const adminStores = stores.filter(s => s.role !== "customer");
+  const adminStores = stores.filter(s => isStaffRole(s.role));
 
   if (adminStores.length > 0) {
     return {

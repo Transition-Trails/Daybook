@@ -64,3 +64,4 @@
 - [Seller checkout model](seller-checkout-model.md) — seller sales are direct Stripe Connect charges; delivery uses short-lived, order-scoped links, never stored URLs
 - [Sticker cutline physical scale](sticker-cutline-physical-scale.md) — cutline SVGs must carry the pipeline’s effective DPI so legacy unsized art stays 96-DPI while mm-sized art exports at 300 DPI
 - [Google OAuth lifecycle fencing](google-oauth-lifecycle-fencing.md) — consent, refresh, and terminal revocation need a shared monotonic version to prevent stale requests restoring old credentials
+- [Orval Zod compatibility](orval-zod-compatibility.md) — force Zod 3 generation while the workspace remains on Zod 3; auto-detection can default to Zod 4 output

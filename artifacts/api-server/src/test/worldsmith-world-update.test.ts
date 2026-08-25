@@ -54,7 +54,6 @@ import worldsmithRouter from "../routes/worldsmith.js";
 
 const superAdminUser = {
   id: "world-update-admin",
-  role: "owner",
   platformRole: "super_admin",
 } as User;
 

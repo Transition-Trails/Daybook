@@ -92,6 +92,19 @@ could hide missing ownership or immutability guarantees.
 contract. For new migrations, add normal checked-in SQL and let Drizzle apply
 it; do not broaden the recovery to infer partially applied work.
 
+Pre-ledger databases may be missing `public.users.role` after the authorization
+unification migration. The preparation step recognizes that one intentional
+difference, but still rejects any additional baseline mismatch.
+
+**Why:** The legacy authority column was deliberately removed before some
+environments had a tracked Drizzle ledger. Treating its absence as an unknown
+partial schema made post-merge setup fail even when the rest of the consolidated
+schema was complete.
+
+**How to apply:** Keep the missing-column exception alongside the other exact
+legacy fingerprint exceptions. Never broaden it to an arbitrary missing user
+column or skip the complete fingerprint check.
+
 WorldSmith schema additions must be recorded in the Drizzle ledger and deployed
 through `@workspace/db migrate`; standalone WorldSmith scripts are compatibility
 repairs, not deployment prerequisites. The migration verifier checks the full

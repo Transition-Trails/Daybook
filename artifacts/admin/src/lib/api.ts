@@ -970,6 +970,10 @@ export const catalogApi = {
   // The query version avoids reusing pre-commerce-policy browser cache entries
   // that do not include the server-owned `purchasable` field.
   editions: () => apiFetch<CatalogItem[]>("/editions?commercePolicy=v1"),
+  themesForStore:   (storeId: string) => apiFetch<CatalogItem[]>("/themes", { headers: { "x-store-id": storeId } }),
+  packsForStore:    (storeId: string) => apiFetch<CatalogItem[]>("/sticker-packs", { headers: { "x-store-id": storeId } }),
+  insertsForStore:  (storeId: string) => apiFetch<CatalogItem[]>("/inserts", { headers: { "x-store-id": storeId } }),
+  editionsForStore: (storeId: string) => apiFetch<CatalogItem[]>("/editions?commercePolicy=v1", { headers: { "x-store-id": storeId } }),
 
   updateTheme:   (id: string, data: Partial<CatalogItem>) => apiFetch<CatalogItem>(`/themes/${id}`,          { method: "PATCH", body: JSON.stringify(data) }),
   updatePack:    (id: string, data: Partial<CatalogItem>) => apiFetch<CatalogItem>(`/sticker-packs/${id}`,   { method: "PATCH", body: JSON.stringify(data) }),

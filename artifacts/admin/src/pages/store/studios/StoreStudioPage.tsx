@@ -37,6 +37,8 @@ import { AiDisabledState, SuperAdminAiBanner } from "./AiDisabledState";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+import { canPublish as mayPublish, isSuperAdminRole } from "@/lib/permissions";
+
 interface Props {
   storeId: string;
   role: string;
@@ -707,7 +709,7 @@ function IllustrativeTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string
 function AssembleMode({ storeId, role, aiEnabled }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const isOwner = role === "store_owner" || role === "super_admin";
+  const isOwner = mayPublish(role);
 
   const [prompt, setPrompt] = useState(() => {
     const idea = sessionStorage.getItem(`studioIdea:${storeId}`) ?? "";
@@ -940,13 +942,13 @@ export default function StoreStudioPage({ storeId, role, aiEnabled }: Props) {
               <UploadTab storeId={storeId} />
             </TabsContent>
             <TabsContent value="functional">
-              <FunctionalTab storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={role === "super_admin"} />
+              <FunctionalTab storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={isSuperAdminRole(role)} />
             </TabsContent>
             <TabsContent value="textset">
               <TextSetTab storeId={storeId} />
             </TabsContent>
             <TabsContent value="prompt">
-              <IllustrativeTab storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={role === "super_admin"} />
+              <IllustrativeTab storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={isSuperAdminRole(role)} />
             </TabsContent>
           </Tabs>
         </div>

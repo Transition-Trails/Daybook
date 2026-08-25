@@ -23,6 +23,8 @@ interface TrendCard {
   idea: string;
 }
 
+import { isSuperAdminRole } from "@/lib/permissions";
+
 interface Props {
   storeId: string;
   role: string;
@@ -52,7 +54,7 @@ export default function StoreTrendResearch({ storeId, role, aiEnabled }: Props) 
   });
 
   // All hooks declared above — safe to return early now.
-  if (!aiEnabled) return role === "super_admin" ? <SuperAdminAiBanner /> : <AiDisabledState />;
+  if (!aiEnabled) return isSuperAdminRole(role) ? <SuperAdminAiBanner /> : <AiDisabledState />;
 
   // Write idea to store-scoped sessionStorage key, then navigate to the studio
   const goToTheme = (idea: string) => {

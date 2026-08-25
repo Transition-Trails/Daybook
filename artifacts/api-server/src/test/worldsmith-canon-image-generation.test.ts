@@ -15,7 +15,6 @@ import editorialRouter from "../routes/worldsmith-editorial.js";
 
 const superAdmin = {
   id: "canon-image-test-admin",
-  role: "owner",
   platformRole: "super_admin",
 } as User;
 

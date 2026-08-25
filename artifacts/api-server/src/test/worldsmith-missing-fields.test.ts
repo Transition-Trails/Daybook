@@ -151,7 +151,6 @@ const superAdminUser: User = {
   id: "u-test-sa",
   email: "test@daybook.app",
   name: "Test Super Admin",
-  role: "owner",
   platformRole: "super_admin",
   provider: "google",
   avatarUrl: null,

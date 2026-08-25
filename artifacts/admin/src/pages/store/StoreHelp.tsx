@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Globe } from "lucide-react";
+import { canWrite as canWriteRole } from "@/lib/permissions";
 
 interface Props {
   storeId: string;
@@ -47,7 +48,7 @@ export default function StoreHelp({ storeId, role }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const canWrite = role === "store_owner" || role === "store_staff" || role === "super_admin";
+  const canWrite = canWriteRole(role);
 
   const { data: articles = [], isLoading, error, refetch } = useQuery({
     queryKey: ["help/store", storeId],

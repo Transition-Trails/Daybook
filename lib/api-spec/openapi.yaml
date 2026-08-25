@@ -987,13 +987,8 @@ paths:
     get:
       operationId: listUsers
       tags: [users]
-      summary: List users (admin)
+      summary: List users (platform admin)
       parameters:
-        - in: query
-          name: role
-          schema:
-            type: string
-            enum: [user, staff, owner]
         - in: query
           name: planId
           schema: { type: integer }
@@ -1027,7 +1022,7 @@ paths:
     patch:
       operationId: updateUser
       tags: [users]
-      summary: "Update user (admin: role, planId)"
+      summary: "Update permitted user profile fields (platform admin)"
       parameters:
         - in: path
           name: id
@@ -1508,17 +1503,18 @@ components:
     # ── USER ──────────────────────────────────────────────────────────────────
     User:
       type: object
-      required: [id, email, name, role, createdAt]
+      required: [id, email, name, createdAt]
       properties:
         id:           { type: integer }
         googleId:     { type: ["string", "null"] }
         email:        { type: string }
         name:         { type: string }
         avatarUrl:    { type: ["string", "null"] }
-        role:
+        platformRole:
           type: string
-          enum: [user, staff, owner]
-        planId:       { type: ["integer", "null"] }
+          enum: [super_admin]
+          nullable: true
+        plan:         { type: ["string", "null"] }
         stripeCustomerId: { type: ["string", "null"] }
         notionToken:  { type: ["string", "null"] }
         createdAt:    { type: string, format: date-time }
@@ -1527,11 +1523,11 @@ components:
     UserUpdate:
       type: object
       properties:
-        role:
-          type: string
-          enum: [user, staff, owner]
-        planId:       { type: ["integer", "null"] }
+        plan:         { type: ["string", "null"] }
         name:         { type: string }
+        avatarUrl:     { type: ["string", "null"] }
+        aiEnabled:     { type: boolean }
+        aiProvider:    { type: string }
 
     UserPurchases:
       type: object
@@ -2043,9 +2039,13 @@ components:
     # ── GOOGLE SYNC ──────────────────────────────────────────────────────────
     SyncStatus:
       type: object
-      required: [connected]
+      required: [connected, retrying]
       properties:
         connected:         { type: boolean }
+        retrying:          { type: boolean, description: True when Google token refresh is temporarily unavailable; the connection remains active. }
+        disconnectedAt:    { type: ["string", "null"], format: date-time }
+        disconnectReason:  { type: ["string", "null"] }
+        reconnectUrl:      { type: ["string", "null"] }
         calendarLastSynced: { type: ["string", "null"], format: date-time }
         tasksLastSynced:   { type: ["string", "null"], format: date-time }
         docsLastSynced:    { type: ["string", "null"], format: date-time }

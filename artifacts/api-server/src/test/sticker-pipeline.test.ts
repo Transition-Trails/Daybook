@@ -50,7 +50,6 @@ const ALPHA_OWNER: User = {
   id: "u-alpha-owner",
   email: "owner@store-alpha.com",
   name: "Alpha Owner",
-  role: "user",
   platformRole: null,
   provider: "google",
   avatarUrl: null,

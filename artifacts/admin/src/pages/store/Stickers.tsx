@@ -865,6 +865,8 @@ function StickerRow({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+import { canPublish } from "@/lib/permissions";
+
 interface Props {
   storeId: string;
   role: string;
@@ -874,7 +876,7 @@ export default function Stickers({ storeId, role }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [, setLocation] = useLocation();
-  const isOwner = role === "store_owner" || role === "super_admin";
+  const isOwner = canPublish(role);
 
   const { data: flags } = useQuery({
     queryKey: ["store-flags", storeId],

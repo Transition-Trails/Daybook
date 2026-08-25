@@ -80,8 +80,10 @@ export default function UserDetail() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <div className="flex justify-between border-b pb-2">
-              <span className="text-muted-foreground">Role</span>
-              <Badge variant="outline" className="capitalize">{user.role}</Badge>
+              <span className="text-muted-foreground">Platform access</span>
+              <Badge variant="outline" className="capitalize">
+                {user.platformRole === 'super_admin' ? 'Super admin' : 'Store access via membership'}
+              </Badge>
             </div>
             <div className="flex justify-between border-b pb-2">
               <span className="text-muted-foreground">Joined</span>

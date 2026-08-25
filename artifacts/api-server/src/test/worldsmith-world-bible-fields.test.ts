@@ -82,7 +82,6 @@ import type { AssetCountRow } from "../routes/worldsmith.js";
 
 const superAdminUser = {
   id: "bible-test-admin",
-  role: "owner",
   platformRole: "super_admin",
 } as User;
 

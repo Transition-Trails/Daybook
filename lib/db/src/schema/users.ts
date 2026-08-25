@@ -20,7 +20,6 @@ export const usersTable = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   avatarUrl: text("avatar_url"),
-  role: text("role").notNull().default("user"), // user | staff | owner
   plan: text("plan"), // "yearly" | null
   owned: jsonb("owned").notNull().default([]).$type<string[]>(),
   aiEnabled: boolean("ai_enabled").notNull().default(true),

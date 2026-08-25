@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, Info } from "lucide-react";
+import { canPublish, isStaffRole } from "@/lib/permissions";
 
 interface Props {
   storeId: string;
@@ -47,14 +48,14 @@ export default function StoreStaff({ storeId, role }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const isOwner = role === "store_owner" || role === "super_admin";
+  const isOwner = canPublish(role);
 
   const { data: members = [], isLoading, error, refetch } = useQuery({
     queryKey: ["store-members", storeId],
     queryFn: () => storesApi.members.list(storeId),
   });
 
-  const staffMembers = members.filter((m) => m.role !== "customer");
+  const staffMembers = members.filter((m) => isStaffRole(m.role));
 
   const removeMutation = useMutation({
     mutationFn: (userId: string) => storesApi.members.remove(storeId, userId),
@@ -131,7 +132,7 @@ export default function StoreStaff({ storeId, role }: Props) {
                   </td>
                   {isOwner && (
                     <td className="px-4 py-3 text-right">
-                      {m.role !== "store_owner" && (
+                      {!canPublish(m.role) && (
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <button className="p-1 rounded hover:bg-red-50 transition-colors text-muted-foreground hover:text-destructive">

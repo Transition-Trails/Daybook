@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import express, { type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
-import { editionsTable } from "@workspace/db";
+import { editionsTable, storeMembersTable, usersTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import catalogRouter from "../routes/catalog.js";
 import type { User } from "@workspace/db";
@@ -52,18 +52,17 @@ const baseUser = {
   updatedAt: new Date(),
 } satisfies Partial<User>;
 
-function makeUser(id: string, role: User["role"], platformRole: User["platformRole"] = null): User {
+function makeUser(id: string, platformRole: User["platformRole"] = null): User {
   return {
     ...baseUser,
     id,
     email: `${id}@example.com`,
     name: id,
-    role,
     platformRole,
   } as User;
 }
 
-function makeApp(user: User | null) {
+function makeApp(user: User | null, storeId?: string) {
   const app = express();
   app.use(express.json());
   app.use((_req: Request, _res: Response, next: NextFunction) => {
@@ -76,6 +75,7 @@ function makeApp(user: User | null) {
     const r = req as any;
     r.isAuthenticated = () => user !== null;
     r.user = user ?? undefined;
+    if (storeId) r.headers["x-store-id"] = storeId;
     next();
   });
   app.use("/api", catalogRouter);
@@ -83,12 +83,20 @@ function makeApp(user: User | null) {
 }
 
 const publicApp = makeApp(null);
-const regularUserApp = makeApp(makeUser(`catalog-user-${RUN}`, "user"));
-const staffApp = makeApp(makeUser(`catalog-staff-${RUN}`, "staff"));
-const ownerApp = makeApp(makeUser(`catalog-owner-${RUN}`, "owner"));
-const superAdminApp = makeApp(makeUser(`catalog-super-admin-${RUN}`, "user", "super_admin"));
+const regularUser = makeUser(`catalog-user-${RUN}`);
+const staffUser = makeUser(`catalog-staff-${RUN}`);
+const unknownRoleUser = makeUser(`catalog-unknown-${RUN}`);
+const regularUserApp = makeApp(regularUser);
+const staffApp = makeApp(staffUser, "store-alpha");
+const unknownRoleApp = makeApp(unknownRoleUser, "store-alpha");
+const superAdminApp = makeApp(makeUser(`catalog-super-admin-${RUN}`, "super_admin"));
 
 beforeAll(async () => {
+  await db.insert(usersTable).values([regularUser, staffUser, unknownRoleUser]);
+  await db.insert(storeMembersTable).values([
+    { storeId: "store-alpha", userId: staffUser.id, role: "store_staff" },
+    { storeId: "store-alpha", userId: unknownRoleUser.id, role: "unrecognized_role" },
+  ]);
   await db.insert(editionsTable).values([
     {
       id: ids.live,
@@ -112,6 +120,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(storeMembersTable).where(inArray(storeMembersTable.userId, [staffUser.id, unknownRoleUser.id]));
+  await db.delete(usersTable).where(inArray(usersTable.id, [regularUser.id, staffUser.id, unknownRoleUser.id]));
   await db.delete(editionsTable).where(inArray(editionsTable.id, Object.values(ids)));
 });
 
@@ -119,6 +129,7 @@ describe("GET /editions visibility", () => {
   it.each([
     ["unauthenticated visitors", publicApp],
     ["regular authenticated users", regularUserApp],
+    ["legacy-only and unknown membership callers", unknownRoleApp],
   ])("%s see live rows only", async (_label, app) => {
     const res = await request(app).get("/api/editions");
 
@@ -130,8 +141,7 @@ describe("GET /editions visibility", () => {
   });
 
   it.each([
-    ["staff admins", staffApp],
-    ["owner admins", ownerApp],
+    ["scoped staff members", staffApp],
     ["platform super admins", superAdminApp],
   ])("%s see draft and live rows but not deleted rows", async (_label, app) => {
     const res = await request(app).get("/api/editions");
@@ -154,8 +164,7 @@ describe("GET /editions/:id visibility", () => {
   });
 
   it.each([
-    ["staff admins", staffApp],
-    ["owner admins", ownerApp],
+    ["scoped staff members", staffApp],
     ["platform super admins", superAdminApp],
   ])("%s can retrieve a draft row", async (_label, app) => {
     const res = await request(app).get(`/api/editions/${ids.draft}`);
@@ -166,8 +175,7 @@ describe("GET /editions/:id visibility", () => {
   it.each([
     ["unauthenticated visitors", publicApp],
     ["regular authenticated users", regularUserApp],
-    ["staff admins", staffApp],
-    ["owner admins", ownerApp],
+    ["scoped staff members", staffApp],
     ["platform super admins", superAdminApp],
   ])("%s cannot retrieve a deleted row", async (_label, app) => {
     const res = await request(app).get(`/api/editions/${ids.deleted}`);

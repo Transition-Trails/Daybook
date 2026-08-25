@@ -18,6 +18,7 @@ import { ErrorState } from "@/components/shared";
 import { isValidHex, PALETTE_LABELS } from "@/lib/ai";
 import { storeStudiosApi, studioGenerateApi } from "@/lib/api";
 import { AiDisabledState, SuperAdminAiBanner } from "./AiDisabledState";
+import { canPublish, isSuperAdminRole } from "@/lib/permissions";
 
 interface ThemeAiResult {
   name: string;
@@ -34,7 +35,7 @@ interface Props {
 export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const isOwner = role === "store_owner" || role === "super_admin";
+  const isOwner = canPublish(role);
 
   const [prompt, setPrompt] = useState(() => {
     const idea = sessionStorage.getItem(`studioIdea:${storeId}`) ?? "";
@@ -175,7 +176,7 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   }, [savedId, bgLinkThemeId, ownedThemes.data]);
 
   // All hooks declared above — safe to return early now.
-  if (!aiEnabled) return role === "super_admin" ? <SuperAdminAiBanner /> : <AiDisabledState />;
+  if (!aiEnabled) return isSuperAdminRole(role) ? <SuperAdminAiBanner /> : <AiDisabledState />;
 
   return (
     <div className="max-w-3xl mx-auto space-y-0 animate-in fade-in duration-300">

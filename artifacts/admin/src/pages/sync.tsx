@@ -73,8 +73,9 @@ export default function SyncDashboard() {
   const backupDrive = useDriveBackup();
 
   const needsReconnect = isReconnectRequired(statusError);
-  const tokenExpired   = (status as unknown as Record<string, unknown>)?.tokenExpired === true;
-  const disconnected   = !status?.connected || tokenExpired;
+  const retrying = status?.retrying === true;
+  const disconnected = !status?.connected;
+  const syncPaused = disconnected || retrying;
 
   const invalidateStatus = () => queryClient.invalidateQueries({ queryKey: getGetSyncStatusQueryKey() });
 
@@ -88,7 +89,7 @@ export default function SyncDashboard() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
-      <GoogleReconnectBanner visible={needsReconnect || tokenExpired} />
+      <GoogleReconnectBanner visible={needsReconnect} />
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -97,14 +98,23 @@ export default function SyncDashboard() {
           <p className="text-muted-foreground mt-1">Manage Workspace integrations and system backups.</p>
         </div>
         <Badge
-          variant={status?.connected && !tokenExpired ? 'default' : 'destructive'}
+          variant={retrying ? 'secondary' : status?.connected ? 'default' : 'destructive'}
           className="text-sm py-1 px-3"
         >
-          {status?.connected && !tokenExpired
-            ? <><CheckCircle2 className="w-4 h-4 mr-2" />Connected</>
-            : <><AlertCircle   className="w-4 h-4 mr-2" />{tokenExpired ? 'Token expired' : 'Disconnected'}</>}
+          {retrying
+            ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Retrying Google</>
+            : status?.connected
+              ? <><CheckCircle2 className="w-4 h-4 mr-2" />Connected</>
+              : <><AlertCircle className="w-4 h-4 mr-2" />Disconnected</>}
         </Badge>
       </div>
+
+      {retrying && (
+        <div role="status" className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+          Google is temporarily unavailable. Your account is still connected; sync actions will resume when Google responds.
+        </div>
+      )}
 
       {/* Not-connected empty state */}
       {!status?.connected && (
@@ -129,26 +139,26 @@ export default function SyncDashboard() {
           {/* Calendar card */}
           <CalendarPushCard
             lastSync={status.calendarLastSynced}
-            disabled={disconnected}
+            disabled={syncPaused}
             onInvalidate={invalidateStatus}
           />
 
           {/* Tasks card */}
           <TasksCard
             lastSync={status.tasksLastSynced}
-            disabled={disconnected}
+            disabled={syncPaused}
             onInvalidate={invalidateStatus}
           />
 
           {/* Docs card */}
           <DocsCard
             lastSync={status.docsLastSynced}
-            disabled={disconnected}
+            disabled={syncPaused}
             onInvalidate={invalidateStatus}
           />
 
           {/* Drive backup card */}
-          <Card className={disconnected ? 'opacity-60' : ''}>
+          <Card className={syncPaused ? 'opacity-60' : ''}>
             <CardHeader className="pb-3 border-b border-border/50">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <HardDrive className="w-5 h-5 text-primary" /> Google Drive Backup
@@ -163,7 +173,7 @@ export default function SyncDashboard() {
               <LastSynced ts={status.driveLastSynced} />
               <Button
                 variant="outline"
-                disabled={backupDrive.isPending || disconnected}
+                disabled={backupDrive.isPending || syncPaused}
                 onClick={() => {
                   backupDrive.mutate(undefined, {
                     onSuccess: () => {

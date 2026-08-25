@@ -57,7 +57,6 @@ const user: User = {
   email: `seller-checkout-${RUN}@example.test`,
   name: "Seller Checkout Owner",
   avatarUrl: null,
-  role: "user",
   platformRole: null,
   plan: null,
   planStatus: null,

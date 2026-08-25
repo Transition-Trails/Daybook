@@ -20,6 +20,7 @@ import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
+import { canPublish, isSuperAdminRole } from "@/lib/permissions";
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -84,7 +85,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
   // role === "super_admin" only when RequireStore synthesised a store object for a
   // non-member store.  When the super admin IS a store_owner of the house store
   // their role comes back as "store_owner", so isHouseStoreView handles that case.
-  const isSuperAdminBrowsing = role === "super_admin" && !isHouseStore;
+  const isSuperAdminBrowsing = isSuperAdminRole(role) && !isHouseStore;
 
   // Fetch flags to determine if AI studios should be shown.
   // Uses shared flagsQueryOptions: 8 s AbortController + retry:1/retryDelay:1 s.
@@ -483,7 +484,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
             >
               ✦ AI
             </button>
-            {role !== "store_owner" && (
+            {!canPublish(role) && (
               <span
                 className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium"
                 style={{

@@ -85,7 +85,6 @@ const migrationIds = {
 function actor(id: string): User {
   return {
     id,
-    role: "user",
     platformRole: null,
   } as User;
 }
@@ -116,7 +115,6 @@ const betaApp = makeApp(actor(ids.betaUser));
 const disabledApp = makeApp(actor(ids.disabledUser));
 const superAdminApp = makeApp({
   id: "worldsmith-scope-super-admin",
-  role: "owner",
   platformRole: "super_admin",
 } as User);
 function scoped(

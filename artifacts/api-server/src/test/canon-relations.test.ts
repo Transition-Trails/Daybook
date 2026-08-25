@@ -33,7 +33,6 @@ const SUPER_ADMIN: User = {
   provider: "google",
   email: "rel-test@daybook.app",
   name: "Relations Test Admin",
-  role: "owner",
   platformRole: "super_admin",
   avatarUrl: null,
   plan: null,

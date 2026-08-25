@@ -57,6 +57,9 @@ export default defineConfig({
       prettier: true,
       override: {
         zod: {
+          // The workspace deliberately stays on Zod 3; otherwise Orval 8.23
+          // defaults to Zod 4 syntax when it cannot infer the output package.
+          version: 3,
           coerce: {
             query: ['boolean', 'number', 'string'],
             param: ['boolean', 'number', 'string'],

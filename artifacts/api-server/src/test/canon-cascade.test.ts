@@ -30,7 +30,6 @@ const SUPER_ADMIN: User = {
   provider: "google",
   email: "cascade-test@daybook.app",
   name: "Cascade Test Admin",
-  role: "owner",
   platformRole: "super_admin",
   avatarUrl: null,
   plan: null,

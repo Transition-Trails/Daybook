@@ -12,6 +12,7 @@ import ownedCatalogRouter from "../routes/owned-catalog.js";
 import platformRouter from "../routes/platform.js";
 import ordersRouter from "../routes/orders.js";
 import supportRouter from "../routes/support.js";
+import usersRouter from "../routes/users.js";
 
 // ── Known seeded users ────────────────────────────────────────────────────────
 // These IDs match scripts/src/seed.ts exactly.
@@ -41,7 +42,6 @@ export const USERS = {
     id: "u-sa",
     email: "superadmin@daybook.app",
     name: "Platform Super Admin",
-    role: "owner",
     platformRole: "super_admin",
   } as User,
 
@@ -50,7 +50,6 @@ export const USERS = {
     id: "u-alpha-owner",
     email: "owner@store-alpha.com",
     name: "Alpha Owner",
-    role: "user",
     platformRole: null,
   } as User,
 
@@ -59,7 +58,6 @@ export const USERS = {
     id: "u-alpha-staff",
     email: "staff@store-alpha.com",
     name: "Alpha Staff",
-    role: "user",
     platformRole: null,
   } as User,
 
@@ -68,7 +66,6 @@ export const USERS = {
     id: "u-beta-owner",
     email: "owner@store-beta.com",
     name: "Beta Owner",
-    role: "user",
     platformRole: null,
   } as User,
 
@@ -77,7 +74,6 @@ export const USERS = {
     id: "u-beta-support",
     email: "support@store-beta.com",
     name: "Beta Support",
-    role: "user",
     platformRole: null,
   } as User,
 
@@ -86,7 +82,6 @@ export const USERS = {
     id: "u-gamma-owner",
     email: "owner@store-gamma.com",
     name: "Gamma Owner",
-    role: "user",
     platformRole: null,
   } as User,
 
@@ -100,7 +95,6 @@ export const USERS = {
     id: "u-no-store",
     email: "nobody@example.com",
     name: "No-Store User",
-    role: "user",
     platformRole: null,
   } as User,
 
@@ -114,7 +108,6 @@ export const USERS = {
     id: "u-test-customer",
     email: "customer@test.example.com",
     name: "Test Customer",
-    role: "user",
     platformRole: null,
   } as User,
 } as const;
@@ -155,5 +148,6 @@ export function makeApp(user: User | null) {
   app.use("/api", platformRouter);
   app.use("/api", ordersRouter);
   app.use("/api", supportRouter);
+  app.use("/api", usersRouter);
   return app;
 }

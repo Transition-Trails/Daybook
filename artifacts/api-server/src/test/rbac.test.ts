@@ -77,7 +77,6 @@ beforeAll(async () => {
       provider: "google",
       email: "customer@test.example.com",
       name: "Test Customer",
-      role: "user",
       platformRole: null,
       owned: [],
       aiEnabled: false,
@@ -196,6 +195,17 @@ afterAll(async () => {
 // 1. super_admin — allow
 // ─────────────────────────────────────────────────────────────────────────────
 describe("super_admin — allow", () => {
+  it("GET /api/users → 200 (global user console is platform-only)", async () => {
+    expect((await request(sa).get("/api/users")).status).toBe(200);
+  });
+
+  it("PATCH /api/users cannot mutate platformRole through profile updates", async () => {
+    const res = await request(sa)
+      .patch(`/api/users/${USERS.alphaStaff.id}`)
+      .send({ platformRole: "super_admin" });
+    expect(res.status).toBe(400);
+  });
+
   it("GET /api/platform/stats → 200", async () => {
     const res = await request(sa).get("/api/platform/stats");
     expect(res.status).toBe(200);
@@ -600,6 +610,10 @@ describe("store_staff (store-alpha) — allow", () => {
 // 5. store_staff (alpha) — deny
 // ─────────────────────────────────────────────────────────────────────────────
 describe("store_staff (store-alpha) — deny", () => {
+  it("GET /api/users → 403 (store staff cannot access global user records)", async () => {
+    expect((await request(alphaStaff).get("/api/users")).status).toBe(403);
+  });
+
   it("GET /api/stores/store-alpha → 403 (store_owner required in handler)", async () => {
     const res = await request(alphaStaff).get("/api/stores/store-alpha");
     expect(res.status).toBe(403);

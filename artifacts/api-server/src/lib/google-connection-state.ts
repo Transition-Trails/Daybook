@@ -28,6 +28,44 @@ export async function setGoogleConnectionValue(
     .where(eq(usersTable.id, userId));
 }
 
+/**
+ * Store a fresh OAuth consent result as one atomic lifecycle transition.
+ * Incrementing the version in the database fences refreshes that read the
+ * previous credentials while preserving unrelated connection metadata.
+ */
+export async function recordGoogleConsent(
+  userId: string,
+  accessToken: string,
+  refreshToken: string | null,
+  tokenExpiry: Date,
+  avatarUrl: string | null,
+): Promise<void> {
+  await db
+    .update(usersTable)
+    .set({
+      googleAccessToken: accessToken,
+      // Google may omit a refresh token on a subsequent consent. In that
+      // case, leave the existing long-lived grant in place.
+      googleRefreshToken: refreshToken ?? undefined,
+      googleTokenExpiry: tokenExpiry,
+      googleDisconnectedAt: null,
+      googleDisconnectReason: null,
+      googleTokenVersion: sql`${usersTable.googleTokenVersion} + 1`,
+      avatarUrl,
+      connections: sql<UserConnections>`jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            jsonb_set(coalesce(${usersTable.connections}, '{}'::jsonb), '{googleDrive}', 'true'::jsonb, true),
+            '{googleCalendar}', 'true'::jsonb, true
+          ),
+          '{googleTasks}', 'true'::jsonb, true
+        ),
+        '{googleDocs}', 'true'::jsonb, true
+      )`,
+    })
+    .where(eq(usersTable.id, userId));
+}
+
 export async function stampGoogleSync(userId: string, key: GoogleSyncStamp): Promise<string> {
   const stampedAt = new Date().toISOString();
   await setGoogleConnectionValue(userId, key, stampedAt);

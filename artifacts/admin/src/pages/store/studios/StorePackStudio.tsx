@@ -17,6 +17,7 @@ import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
 import { storeStudiosApi, studioGenerateApi } from "@/lib/api";
 import { AiDisabledState } from "./AiDisabledState";
+import { canPublish } from "@/lib/permissions";
 
 interface PackAiResult {
   name: string;
@@ -33,7 +34,7 @@ interface Props {
 export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const isOwner = role === "store_owner" || role === "super_admin";
+  const isOwner = canPublish(role);
 
   const [prompt, setPrompt] = useState(() => {
     const idea = sessionStorage.getItem(`studioIdea:${storeId}`) ?? "";

@@ -81,7 +81,6 @@ const SUPER_ADMIN: User = {
   provider: "google",
   email: "sync-rel-test@daybook.app",
   name: "Sync Relations Test Admin",
-  role: "owner",
   platformRole: "super_admin",
   avatarUrl: null,
   plan: null,

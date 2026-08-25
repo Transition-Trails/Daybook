@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import passport from "passport";
 import bcrypt from "bcryptjs";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db";
+import { storeMembersTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { User } from "@workspace/db";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -81,7 +81,7 @@ router.post("/auth/logout", (req, res): void => {
   });
 });
 
-// ── Staff / owner password login (for admin console) ─────────────────────────
+// ── Store-member password login (for admin console) ──────────────────────────
 
 router.post("/auth/staff/login", async (req, res): Promise<void> => {
   const { email, password } = req.body as { email?: string; password?: string };
@@ -91,7 +91,7 @@ router.post("/auth/staff/login", async (req, res): Promise<void> => {
   }
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
-  if (!user || (user.role !== "staff" && user.role !== "owner")) {
+  if (!user) {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
@@ -105,10 +105,19 @@ router.post("/auth/staff/login", async (req, res): Promise<void> => {
     return;
   }
 
+  const memberships = await db
+    .select()
+    .from(storeMembersTable)
+    .where(eq(storeMembersTable.userId, user.id));
+  if (user.platformRole !== "super_admin" && memberships.length === 0) {
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+
   req.login(user, (err) => {
     if (err) { res.status(500).json({ error: "Login failed" }); return; }
     const { passwordHash, googleAccessToken, googleRefreshToken, notionToken, ...safe } = user;
-    res.json(safe);
+    res.json({ ...safe, memberships });
   });
 });
 

@@ -26,6 +26,8 @@ import {
 } from "@/lib/api";
 import { Link } from "wouter";
 
+import { canPublish } from "@/lib/permissions";
+
 interface Props {
   storeId: string;
   role: string;
@@ -55,7 +57,7 @@ function completionScore(facts: StoreProfileFacts, voice: StoreProfileVoice): nu
 export default function StoreProfile({ storeId, role }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const isOwner = role === "store_owner" || role === "super_admin";
+  const isOwner = canPublish(role);
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ["store-profile", storeId],

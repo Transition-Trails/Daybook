@@ -1,29 +1,15 @@
-import { useListUsers, useUpdateUser, getListUsersQueryKey } from '@workspace/api-client-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useListUsers } from '@workspace/api-client-react';
 import { Link } from 'wouter';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Users, ExternalLink } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 
 export default function UsersList() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
   const { data: users, isLoading } = useListUsers();
-  const updateUser = useUpdateUser();
-
-  const handleRoleChange = (id: string, role: 'user' | 'staff' | 'owner') => {
-    updateUser.mutate({ id: id as any, data: { role } }, {
-      onSuccess: () => {
-        toast({ title: 'Role updated' });
-        queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
-      }
-    });
-  };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -39,7 +25,7 @@ export default function UsersList() {
           <TableHeader>
             <TableRow>
               <TableHead>User</TableHead>
-              <TableHead>Role</TableHead>
+              <TableHead>Platform access</TableHead>
               <TableHead>Plan</TableHead>
               <TableHead>Joined</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -69,16 +55,9 @@ export default function UsersList() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Select value={user.role} onValueChange={(val: any) => handleRoleChange(user.id, val)}>
-                      <SelectTrigger className="w-[120px] h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="user">User</SelectItem>
-                        <SelectItem value="staff">Staff</SelectItem>
-                        <SelectItem value="owner">Owner</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Badge variant={user.platformRole === 'super_admin' ? 'default' : 'secondary'}>
+                      {user.platformRole === 'super_admin' ? 'Super admin' : 'Store access via membership'}
+                    </Badge>
                   </TableCell>
                   <TableCell>
                     {user.plan ? <Badge variant="secondary" className="capitalize">{user.plan}</Badge> : <span className="text-muted-foreground text-sm">Free</span>}

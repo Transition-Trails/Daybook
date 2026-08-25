@@ -56,6 +56,8 @@ import {
   type OwnedBackground,
 } from "@/lib/api";
 
+import { canPublish } from "@/lib/permissions";
+
 interface Props {
   storeId: string;
   role: string;
@@ -927,7 +929,7 @@ export default function MyContent({ storeId, role }: Props) {
   const qc = useQueryClient();
   const [location, setLocation] = useLocation();
 
-  const isOwner = role === "store_owner" || role === "super_admin";
+  const isOwner = canPublish(role);
 
   // Modals
   const [editTheme, setEditTheme] = useState<OwnedTheme | null>(null);

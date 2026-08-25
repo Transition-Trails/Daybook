@@ -1,9 +1,9 @@
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
-import { db } from "@workspace/db";
-import { usersTable, type UserConnections } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { db, usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { recordGoogleConsent } from "./google-connection-state";
 
 passport.serializeUser((user: Express.User, done) => {
   done(null, (user as { id: string }).id);
@@ -55,28 +55,7 @@ if (googleClientId && googleClientSecret) {
           const tokenExpiry = new Date(Date.now() + 3600 * 1000);
 
           if (existing) {
-            await db
-              .update(usersTable)
-              .set({
-                googleAccessToken: accessToken,
-                googleRefreshToken: refreshToken ?? undefined,
-                googleTokenExpiry: tokenExpiry,
-                googleDisconnectedAt: null,
-                googleDisconnectReason: null,
-                avatarUrl,
-                googleTokenVersion: sql`${usersTable.googleTokenVersion} + 1`,
-                connections: sql<UserConnections>`jsonb_set(
-                  jsonb_set(
-                    jsonb_set(
-                      jsonb_set(coalesce(${usersTable.connections}, '{}'::jsonb), '{googleDrive}', 'true'::jsonb, true),
-                      '{googleCalendar}', 'true'::jsonb, true
-                    ),
-                    '{googleTasks}', 'true'::jsonb, true
-                  ),
-                  '{googleDocs}', 'true'::jsonb, true
-                )`,
-              })
-              .where(eq(usersTable.id, existing.id));
+            await recordGoogleConsent(existing.id, accessToken, refreshToken ?? null, tokenExpiry, avatarUrl);
             const [updated] = await db
               .select()
               .from(usersTable)

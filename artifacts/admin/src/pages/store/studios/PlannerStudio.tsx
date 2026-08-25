@@ -54,6 +54,7 @@ import {
 } from "@/lib/api";
 import { FontSpecimenCard } from "@/components/FontSpecimenCard";
 import { PLANNER_FONT_FAMILIES } from "@/pages/studios/PlannerStudioHub";
+import { isSuperAdminRole } from "@/lib/permissions";
 
 // ── Types & constants ─────────────────────────────────────────────────────────
 
@@ -1872,7 +1873,7 @@ export default function PlannerStudio({ storeId, role, aiEnabled }: Props) {
           {mode === "paper"    && <PaperMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
           {mode === "quality"  && <QualityMode  planner={activePlanner} />}
           {mode === "dividers" && <DividersMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
-          {mode === "inserts"  && <InsertsMode  storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={role === "super_admin"} />}
+          {mode === "inserts"  && <InsertsMode  storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={isSuperAdminRole(role)} />}
           {mode === "editions" && <EditionsMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
           {mode === "hotspots" && <HotspotEditor storeId={storeId} />}
         </main>

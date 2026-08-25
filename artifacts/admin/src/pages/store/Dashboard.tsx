@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Users, ShoppingBag, Clock, BookCopy, ShieldCheck, AlertTriangle, Sparkles, ArrowRight } from "lucide-react";
 import { Link } from "wouter";
+import { isStaffRole, isSuperAdminRole } from "@/lib/permissions";
 
 interface Props {
   storeId: string;
@@ -150,7 +151,7 @@ function ProfileSetupBanner({ storeId }: { storeId: string }) {
 // ── Main dashboard ──────────────────────────────────────────────────────────
 
 export default function StoreDashboard({ storeId, role }: Props) {
-  const isSuperAdmin = role === "super_admin";
+  const isSuperAdmin = isSuperAdminRole(role);
 
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ["store-members", storeId],
@@ -187,7 +188,7 @@ export default function StoreDashboard({ storeId, role }: Props) {
         <div className="grid gap-4 md:grid-cols-3">
           <StatTile
             label="Staff members"
-            value={members.filter((m) => m.role !== "customer").length}
+            value={members.filter((m) => isStaffRole(m.role)).length}
             sub={`${members.filter((m) => m.role === "customer").length} customers`}
             icon={Users}
           />

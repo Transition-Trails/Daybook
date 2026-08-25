@@ -7,13 +7,14 @@
  * PATCH /tasks/:googleTaskId — update / complete a task
  * DELETE /tasks/:googleTaskId
  * POST /docs                 — create a Google Doc from note content
- * GET  /drive/status
+ * GET  /status              — Google connection state (legacy: /drive/status)
  * POST /drive/backup
  */
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
   usersTable,
+  storeMembersTable,
   calendarPushMappingsTable,
   googleTaskSyncTable,
   googleDocLinksTable,
@@ -24,6 +25,7 @@ import { uploadPlannerConfig, getOrCreateDaybookFolder, uploadFileToDrive } from
 import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
 import { stampGoogleSync } from "../lib/google-connection-state";
 import { writeAudit } from "../lib/audit";
+import { resolveGoogleAuditActor } from "../lib/google-audit-actor";
 import type { User } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -52,6 +54,39 @@ interface GTaskItem {
   due?: string;
   status?: string;
   completed?: string;
+}
+
+type GoogleAuditEntry = Omit<Parameters<typeof writeAudit>[1], "actorUserId" | "actorRole" | "scope">;
+
+/**
+ * Google sync is personal to the authenticated user, but audit history must
+ * identify the store context when the user is a store member. Prefer the
+ * explicit selected-store header; otherwise use a deterministic membership.
+ */
+async function writeGoogleAudit(
+  req: import("express").Request,
+  user: User,
+  entry: GoogleAuditEntry,
+): Promise<void> {
+  const requestedStoreId = typeof req.headers["x-store-id"] === "string"
+    ? req.headers["x-store-id"]
+    : undefined;
+  const memberships = await db
+    .select({ storeId: storeMembersTable.storeId, role: storeMembersTable.role })
+    .from(storeMembersTable)
+    .where(eq(storeMembersTable.userId, user.id))
+    .orderBy(storeMembersTable.storeId);
+  const actor = resolveGoogleAuditActor({
+    platformRole: user.platformRole,
+    selectedStoreId: requestedStoreId,
+    memberships,
+  });
+
+  await writeAudit(db, {
+    ...entry,
+    actorUserId: user.id,
+    ...actor,
+  });
 }
 
 function parseAllDayDate(value: string): number | null {
@@ -292,10 +327,7 @@ router.post("/calendar/push", requireAuth, async (req, res): Promise<void> => {
   const now = new Date();
   await stampGoogleSync(user.id, "calendarLastSynced");
 
-  await writeAudit(db, {
-    actorUserId: user.id,
-    actorRole:   user.role,
-    scope:       "platform",
+  await writeGoogleAudit(req, user, {
     action:      "calendar.push",
     metadata:    { plannerConfigId, itemCount: results.length },
   });
@@ -428,10 +460,7 @@ router.post("/tasks", requireAuth, async (req, res): Promise<void> => {
 
   await stampGoogleSync(user.id, "tasksLastSynced");
 
-  await writeAudit(db, {
-    actorUserId: user.id,
-    actorRole:   user.role,
-    scope:       "platform",
+  await writeGoogleAudit(req, user, {
     action:      "tasks.create",
     targetId:    created.id,
     metadata:    { title: body.title },
@@ -501,10 +530,7 @@ router.patch("/tasks/:googleTaskId", requireAuth, async (req, res): Promise<void
       ),
     );
 
-  await writeAudit(db, {
-    actorUserId: user.id,
-    actorRole:   user.role,
-    scope:       "platform",
+  await writeGoogleAudit(req, user, {
     action:      body.completed ? "tasks.complete" : "tasks.update",
     targetId:    googleTaskId,
     metadata:    patch,
@@ -549,10 +575,7 @@ router.delete("/tasks/:googleTaskId", requireAuth, async (req, res): Promise<voi
       ),
     );
 
-  await writeAudit(db, {
-    actorUserId: user.id,
-    actorRole:   user.role,
-    scope:       "platform",
+  await writeGoogleAudit(req, user, {
     action:      "tasks.delete",
     targetId:    googleTaskId,
   });
@@ -657,10 +680,7 @@ router.post("/docs", requireAuth, async (req, res): Promise<void> => {
 
   await stampGoogleSync(user.id, "docsLastSynced");
 
-  await writeAudit(db, {
-    actorUserId: user.id,
-    actorRole:   user.role,
-    scope:       "platform",
+  await writeGoogleAudit(req, user, {
     action:      "docs.create",
     targetId:    docData.id,
     metadata:    { title: body.title, noteKey },
@@ -694,9 +714,9 @@ router.get("/calendar/pushes", requireAuth, async (req, res): Promise<void> => {
   res.json({ pushes });
 });
 
-// ── GET /drive/status ─────────────────────────────────────────────────────────
+// ── GET /status (legacy alias: /drive/status) ──────────────────────────────────
 
-router.get("/drive/status", requireAuth, async (req, res): Promise<void> => {
+async function getGoogleSyncStatus(req: import("express").Request, res: import("express").Response): Promise<void> {
   const requestUser = req.user as User;
   let retrying = false;
   try {
@@ -716,7 +736,10 @@ router.get("/drive/status", requireAuth, async (req, res): Promise<void> => {
   }
   const conn = (user.connections ?? {}) as Record<string, boolean | string | null>;
   const connected = Boolean(user.googleAccessToken || user.googleRefreshToken) && !user.googleDisconnectedAt;
-  res.status(retrying ? 503 : 200).json({
+  // A temporary refresh outage is not a failed status lookup. Return the
+  // current connection state as 200 so generated clients retain the payload
+  // and can pause actions without incorrectly sending the user to reconnect.
+  res.json({
     connected,
     retrying,
     disconnectedAt: user.googleDisconnectedAt?.toISOString() ?? null,
@@ -728,7 +751,12 @@ router.get("/drive/status", requireAuth, async (req, res): Promise<void> => {
     driveLastSynced:    (conn.driveLastSynced    as string | null) ?? null,
     driveFolder:        user.googleDriveFolderId ?? null,
   });
-});
+}
+
+router.get("/status", requireAuth, getGoogleSyncStatus);
+// Existing callers can transition to the canonical /sync/status endpoint
+// without a breaking change.
+router.get("/drive/status", requireAuth, getGoogleSyncStatus);
 
 // ── POST /drive/backup ────────────────────────────────────────────────────────
 

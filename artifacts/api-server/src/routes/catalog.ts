@@ -40,16 +40,16 @@ import {
   fontsTable,
 } from "@workspace/db";
 import { eq, ne, and, inArray, asc, sql } from "drizzle-orm";
-import { requireSuperAdmin, requireStoreAccess } from "../middleware/requireRole";
-import { isAdmin } from "../lib/auth-middleware";
-import { isSuperAdmin, type ActorContext } from "../lib/roles";
+import { requireSuperAdmin, requireStoreAccess, resolveStoreActorOptional } from "../middleware/requireRole";
+import { type ActorContext } from "../lib/roles";
+import type { User } from "@workspace/db";
 import { writeAudit } from "../lib/audit";
 import { callAi, generateImage } from "../lib/ai-proxy";
 import { KNOWN_TEXTURE_SLUGS } from "../lib/texture-registry";
-import type { User } from "@workspace/db";
 import { isPurchasableCatalogItem } from "../lib/catalog-commerce";
 
 const router: IRouter = Router();
+router.use(resolveStoreActorOptional);
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -62,9 +62,12 @@ const router: IRouter = Router();
  * Writes remain restricted to platform super admins below.
  */
 function isPublicCaller(req: Request): boolean {
-  if (!req.isAuthenticated()) return true;
-  const user = req.user as User;
-  return !isSuperAdmin(user) && !isAdmin(req);
+  const storeRole = req.actor?.storeRole;
+  const hasCatalogPreviewAccess =
+    storeRole === "store_owner" ||
+    storeRole === "store_staff" ||
+    storeRole === "support";
+  return !req.actor?.isSuperAdmin && !hasCatalogPreviewAccess;
 }
 
 // ── Theme enrichment helpers ───────────────────────────────────────────────

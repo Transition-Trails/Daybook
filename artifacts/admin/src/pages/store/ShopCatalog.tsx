@@ -5,6 +5,7 @@ import { PageHeader, StatusPill, SkeletonRows, ErrorState, EmptyState } from "@/
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Lock, AlertTriangle } from "lucide-react";
+import { canWrite } from "@/lib/permissions";
 
 interface Props {
   storeId: string;
@@ -13,11 +14,11 @@ interface Props {
 
 type Tab = "themes" | "packs" | "inserts" | "editions";
 
-const TABS: { key: Tab; label: string; type: string; fetcher: () => Promise<CatalogItem[]> }[] = [
-  { key: "themes",   label: "Themes",          type: "theme",   fetcher: catalogApi.themes },
-  { key: "packs",    label: "Sticker packs",   type: "pack",    fetcher: catalogApi.packs },
-  { key: "inserts",  label: "Inserts",          type: "insert",  fetcher: catalogApi.inserts },
-  { key: "editions", label: "Editions",         type: "edition", fetcher: catalogApi.editions },
+const TABS: { key: Tab; label: string; type: string; fetcher: (storeId?: string) => Promise<CatalogItem[]> }[] = [
+  { key: "themes",   label: "Themes",          type: "theme",   fetcher: catalogApi.themesForStore },
+  { key: "packs",    label: "Sticker packs",   type: "pack",    fetcher: catalogApi.packsForStore },
+  { key: "inserts",  label: "Inserts",          type: "insert",  fetcher: catalogApi.insertsForStore },
+  { key: "editions", label: "Editions",         type: "edition", fetcher: catalogApi.editionsForStore },
 ];
 
 // ── Origin badge ────────────────────────────────────────────────────────────
@@ -61,12 +62,12 @@ export default function StoreShopCatalog({ storeId, role }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const isReadOnly = role === "support";
+  const isReadOnly = !canWrite(role);
   const current = TABS.find((t) => t.key === tab)!;
 
   const { data: globalItems = [], isLoading: globalLoading, error: globalError } = useQuery({
-    queryKey: ["catalog", tab],
-    queryFn: current.fetcher,
+    queryKey: ["catalog", storeId, tab],
+    queryFn: () => current.fetcher(storeId),
   });
 
   const { data: enabled = [], isLoading: enabledLoading } = useQuery({

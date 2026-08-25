@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { widgetsApi, type Widget } from "@/lib/api";
+import { canPublish } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -172,7 +173,7 @@ export default function StoreWidgets({ storeId, role }: { storeId: string; role:
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
-  const canEdit = role === "store_owner" || role === "super_admin";
+  const canEdit = canPublish(role);
 
   if (isLoading) return <div className="p-8 text-muted-foreground">Loading widgets…</div>;
   if (error) return <div className="p-8 text-destructive">Failed to load widgets.</div>;

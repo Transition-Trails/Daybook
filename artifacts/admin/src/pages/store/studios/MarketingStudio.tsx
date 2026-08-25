@@ -87,6 +87,8 @@ const VOICE_PRESETS: { value: string; label: string; override: Partial<StoreProf
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+import { canPublish, isSuperAdminRole } from "@/lib/permissions";
+
 interface Props {
   storeId: string;
   role: string;
@@ -96,9 +98,9 @@ interface Props {
 export default function MarketingStudio({ storeId, role, aiEnabled }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const isOwner = role === "store_owner" || role === "super_admin";
+  const isOwner = canPublish(role);
 
-  if (!aiEnabled) return role === "super_admin" ? <SuperAdminAiBanner /> : <AiDisabledState />;
+  if (!aiEnabled) return isSuperAdminRole(role) ? <SuperAdminAiBanner /> : <AiDisabledState />;
 
   // ── Global state ────────────────────────────────────────────────────────────
   const [activeTool,    setActiveTool]    = useState<Tool>("listing");

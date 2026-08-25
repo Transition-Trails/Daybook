@@ -10,15 +10,16 @@ import {
   insertsTable,
   editionsTable,
   usersTable,
+  storeMembersTable,
   generationJobsTable,
   plansTable,
 } from "@workspace/db";
 import { count, sql, inArray } from "drizzle-orm";
-import { requireStaff } from "../lib/auth-middleware";
+import { requireSuperAdmin } from "../middleware/requireRole";
 
 const router: IRouter = Router();
 
-router.get("/admin/stats", requireStaff, async (req, res): Promise<void> => {
+router.get("/admin/stats", requireSuperAdmin, async (_req, res): Promise<void> => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async function countByStatus(table: any) {
     const rows = await db
@@ -52,13 +53,15 @@ router.get("/admin/stats", requireStaff, async (req, res): Promise<void> => {
     db.select({ cnt: count() }).from(plansTable).then(r => Number(r[0]?.cnt ?? 0)),
   ]);
 
-  const userRows = await db
-    .select({ role: usersTable.role, cnt: count() })
-    .from(usersTable)
-    .groupBy(usersTable.role);
-  const totalUsers = userRows.reduce((s, r) => s + Number(r.cnt), 0);
-  const staff = Number(userRows.find((r) => r.role === "staff")?.cnt ?? 0);
-  const owner = Number(userRows.find((r) => r.role === "owner")?.cnt ?? 0);
+  const [userCount, memberRows] = await Promise.all([
+    db.select({ cnt: count() }).from(usersTable),
+    db.select({ role: storeMembersTable.role, cnt: count() })
+      .from(storeMembersTable)
+      .groupBy(storeMembersTable.role),
+  ]);
+  const totalUsers = Number(userCount[0]?.cnt ?? 0);
+  const staff = Number(memberRows.find((r) => r.role === "store_staff")?.cnt ?? 0);
+  const owner = Number(memberRows.find((r) => r.role === "store_owner")?.cnt ?? 0);
 
   const genRows = await db
     .select({ status: generationJobsTable.status, cnt: count() })

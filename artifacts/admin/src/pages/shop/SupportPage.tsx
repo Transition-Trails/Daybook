@@ -24,6 +24,7 @@ import {
   supportApi, storageApi,
   type RecentBuild, type HelpArticleMatch, type SupportTicket,
 } from "@/lib/api";
+import { canWrite } from "@/lib/permissions";
 import { OWNER_AREAS, BUYER_AREAS } from "./support-areas";
 
 // ── Design tokens (matches StorefrontHome) ────────────────────────────────────
@@ -120,8 +121,7 @@ export default function SupportPage() {
   );
   const isOwnerTier =
     authData?.platformRole === "super_admin" ||
-    myStoreEntry?.role === "store_owner" ||
-    myStoreEntry?.role === "store_staff";
+    canWrite(myStoreEntry?.role);
   const tier: "owner" | "buyer" = isOwnerTier ? "owner" : "buyer";
   const areas = tier === "owner" ? OWNER_AREAS : BUYER_AREAS;
   const areaDef = areas.find((a) => a.key === area) ?? null;

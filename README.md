@@ -40,13 +40,30 @@ refund correlation but do not turn a successful renewal into a failed request.
 
 Each accepted subscription payment is recorded in the payment ledger and
 linked to a billing order. Super admins can view a customer's complete history
-from the admin user detail page. The support API endpoints are:
+from the admin user detail page. The billing detail endpoints are:
 
 - `GET /api/billing/users/:userId/payments`
 - `GET /api/orders/:id`
 
 The second endpoint is restricted to super admins because order details contain
 customer billing information.
+
+### Support tenant isolation
+
+Support data is scoped by the API, not by client-side filtering:
+
+- `GET /api/support/articles` returns public platform help by default. A
+  `scope=storeId` request requires an authenticated member of that store;
+  cross-store and unauthenticated scoped requests return `403`. Super admins
+  may inspect any store scope.
+- `GET /api/support/recent-activity?storeId=...` requires membership in the
+  requested store before querying planner builds or tickets.
+- `POST /api/support/tickets` derives the ticket's store and recipient scope
+  from verified membership. A client cannot route a ticket to another store;
+  such requests return `403`.
+
+These boundaries are covered by the API RBAC integration suite in
+`artifacts/api-server/src/test/rbac.test.ts`.
 
 ## WorldSmith local workflow
 

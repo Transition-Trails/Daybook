@@ -122,7 +122,7 @@ A theme carries: palettes (several — one is_primary), backgrounds, a font pair
 Origin is `starter | licensed | owned`. Starter and licensed items are read-only; owned items are mutable by the store that created them.
 
 **6. Store isolation is API-enforced, not UI-enforced.**
-All owned-catalog routes (`/api/stores/:storeId/owned/...`) call `assertSameStore(actor, storeId, res)` before any DB write. A store owner whose `storeId` doesn't match the URL param gets 403 even if the button is visible. Super admins bypass this check. The Playwright invariant suite hits these routes directly to verify — a UI-only check would pass while the API is wide open.
+All owned-catalog routes (`/api/stores/:storeId/owned/...`) call `assertSameStore(actor, storeId, res)` before any DB write. A store owner whose `storeId` doesn't match the URL param gets 403 even if the button is visible. Super admins bypass this check. Support articles, recent activity, and ticket creation apply the same principle: store scope is checked against verified membership on the server, and ticket recipient scope is derived from that membership rather than trusted from the request body. The Playwright invariant suite and API RBAC integration suite hit these routes directly to verify — a UI-only check would pass while the API is wide open.
 
 **7. Audit every mutation.**
 `writeAudit()` is called in every route that creates, modifies, publishes, or deletes a resource. It records actor, store scope, action, target type, and target ID. Audit failures are logged and swallowed (never block the primary request) but the invariant test suite uses the audit log as a secondary oracle for all permission tests.

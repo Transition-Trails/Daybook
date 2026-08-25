@@ -1,8 +1,5 @@
 import { logger } from "./logger";
-import {
-  generateImage,
-  type ImageGenerationOptions,
-} from "./worldsmith/image-generation";
+import { generateImage } from "./worldsmith/image-generation";
 
 export {
   generateImage,
@@ -322,12 +319,6 @@ async function callGemini(
     usage: data.usageMetadata,
   };
 }
-
-// ── Legacy image-generation compatibility ───────────────────────────────────
-
-/** @deprecated WorldSmith callers must use the audited image-generation core. */
-export const callDallE = async (prompt: string, options: ImageGenerationOptions = {}): Promise<string> =>
-  (await generateImage(prompt, options)).dataUrl;
 
 // Structured AI helpers for admin studio features
 export async function aiDraftTheme(concept: string, season?: string, audience?: string): Promise<Record<string, unknown>> {

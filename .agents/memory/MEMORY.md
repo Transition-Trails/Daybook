@@ -37,7 +37,7 @@
 - [Transactional email layer](email-layer.md) — Resend provider; adapter pattern; identity resolver (tier-1/tier-2); per-store rate limiting; webhook handler; 3 DB tables via migrate-email.mjs
 - [Ink feature flag](ink-feature-flag.md) — inkEnabled in store_flags; super_admin bypasses; API guard + InkGate component; annotation data is NEVER deleted on flag toggle
 - [WOFF subset corruption](woff-subset-corruption.md) — bundled Playfair Display + Lato WOFFs crash at TTFGlyph._getCBox during save(); full-round-trip probe in resolveEmbeddedFont catches it; test script uses FONT_OVERRIDE to bypass
-- [DALL-E image generation](dalle-image-generation.md) — callDallE() in ai-proxy.ts; 60s AbortController timeout; b64_json format; ItemOrigin has no "platform" value — use "licensed" for platform content, "owned" for store-generated
+- [GPT image generation](image-generation.md) — generateImage() returns data plus effective metadata; GPT Image 2 is default via WS_IMAGE_MODEL; ItemOrigin excludes "platform"
 - [VGJ kit catalog](vgj-kit-catalog.md) — 8 Victorian Garden Journal kits seeded (vgj_ prefix); 24 backgrounds have assetRef: null (status: draft) until images generated via POST /stores/:storeId/backgrounds/generate
 - [IllustrativeTab hooks fix](illustrative-tab-hooks.md) — original IllustrativeTab had useMutation declared after an early return (hooks violation); fixed by moving all hooks before the if(!aiEnabled) guard
 - [WorldSmith Prompt Compiler](worldsmith-compiler.md) — Phase 1 compile-only pipeline; orchestrator + Notion client + 8 core modules; `worldsmith_runs`+`worldsmith_assets` tables; admin UI at /super/worldsmith

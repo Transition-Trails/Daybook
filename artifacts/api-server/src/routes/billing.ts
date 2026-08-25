@@ -5,7 +5,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { usersTable, plansTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import Stripe from "stripe";
 import { requireAuth } from "../lib/auth-middleware";
 import { logger } from "../lib/logger";
@@ -151,29 +151,6 @@ async function processSuccessfulPayment(
       throw new Error("Stripe webhook is missing yearly subscription correlation");
     }
 
-    const isCurrentSubscription = user.stripeSubscriptionId === subscriptionId;
-    const isOlderThanCurrent = user.stripeSubscriptionEventCreatedAt != null
-      && eventCreatedAt.getTime() < user.stripeSubscriptionEventCreatedAt.getTime();
-    const canReplaceWithCheckout = (
-      source === "checkout" || source === "async_checkout"
-    ) && !isOlderThanCurrent;
-    if (
-      (user.stripeSubscriptionId && !isCurrentSubscription && !canReplaceWithCheckout)
-      || (isCurrentSubscription && isOlderThanCurrent)
-    ) {
-      logger.warn(
-        {
-          eventId: event.id,
-          source,
-          subscriptionId,
-          activeSubscriptionId: user.stripeSubscriptionId,
-          eventCreatedAt,
-          activeSubscriptionEventCreatedAt: user.stripeSubscriptionEventCreatedAt,
-        },
-        "Stripe successful payment does not advance the active subscription; ignoring it",
-      );
-      return;
-    }
   }
 
   const periodEnd = plan === "yearly"
@@ -190,7 +167,38 @@ async function processSuccessfulPayment(
   if (plan === "lifetime" && !owned.includes(plan)) owned.push(plan);
   const paymentIntentId = getStripeId(payload.payment_intent);
 
-  await db
+  // Make the correlation and ordering check part of the UPDATE itself. Two
+  // concurrent deliveries can both read a stale user row, but only the update
+  // whose predicate still matches the database row may change entitlement.
+  // Stripe event timestamps are second-granularity, so equality is not treated
+  // as newer: the first accepted delivery for that second wins deterministically.
+  const yearlyUpdateGuard = plan === "yearly"
+    ? (
+      source === "checkout" || source === "async_checkout"
+        ? or(
+            isNull(usersTable.stripeSubscriptionId),
+            and(
+              isNull(usersTable.stripeSubscriptionEventCreatedAt),
+              eq(usersTable.stripeSubscriptionId, subscriptionId!),
+            ),
+            lt(usersTable.stripeSubscriptionEventCreatedAt, eventCreatedAt!),
+          )
+        : or(
+            isNull(usersTable.stripeSubscriptionId),
+            and(
+              eq(usersTable.stripeSubscriptionId, subscriptionId!),
+              or(
+                isNull(usersTable.stripeSubscriptionEventCreatedAt),
+                lt(usersTable.stripeSubscriptionEventCreatedAt, eventCreatedAt!),
+              ),
+            ),
+          )
+    )
+    : undefined;
+  const updateCondition = yearlyUpdateGuard
+    ? and(eq(usersTable.id, user.id), yearlyUpdateGuard)
+    : eq(usersTable.id, user.id);
+  const [updated] = await db
     .update(usersTable)
     .set({
       plan,
@@ -208,7 +216,20 @@ async function processSuccessfulPayment(
         ? { stripePaymentIntentId: paymentIntentId }
         : {}),
     })
-    .where(eq(usersTable.id, user.id));
+    .where(updateCondition)
+    .returning({ id: usersTable.id });
+
+  if (!updated) {
+    logger.warn(
+      {
+        eventId: event.id,
+        source,
+        subscriptionId,
+        eventCreatedAt,
+      },
+      "Stripe successful payment did not atomically advance the active subscription; ignoring it",
+    );
+  }
 }
 
 async function processNegativeSubscriptionEvent(
@@ -230,13 +251,12 @@ async function processNegativeSubscriptionEvent(
     throw new Error("Stripe lifecycle webhook could not resolve a user");
   }
 
-  const hasSubscriptionMatch = correlation.subscriptionId
-    ? user.stripeSubscriptionId === correlation.subscriptionId
-    : false;
-  const hasPaymentMatch = correlation.paymentIntentId
-    ? user.stripePaymentIntentId === correlation.paymentIntentId
-    : false;
-  if (!hasSubscriptionMatch && !hasPaymentMatch) {
+  const correlationCondition = correlation.subscriptionId
+    ? eq(usersTable.stripeSubscriptionId, correlation.subscriptionId)
+    : correlation.paymentIntentId
+      ? eq(usersTable.stripePaymentIntentId, correlation.paymentIntentId)
+      : undefined;
+  if (!correlationCondition) {
     logger.warn(
       {
         eventId: event.id,
@@ -246,41 +266,48 @@ async function processNegativeSubscriptionEvent(
         activeSubscriptionId: user.stripeSubscriptionId,
         activePaymentIntentId: user.stripePaymentIntentId,
       },
-      "Stripe lifecycle webhook did not match the user's active billing record; ignoring it",
+      "Stripe lifecycle webhook has no usable active billing correlation; ignoring it",
     );
     return;
   }
 
   const eventCreatedAt = unixSecondsToDate(event.created);
-  const isOlderThanActiveSuccess = (
-    user.plan === "yearly"
-    && eventCreatedAt != null
-    && user.stripeSubscriptionEventCreatedAt != null
-    && eventCreatedAt.getTime() < user.stripeSubscriptionEventCreatedAt.getTime()
-  );
-  if (isOlderThanActiveSuccess) {
+  if (!eventCreatedAt) {
+    throw new Error("Stripe lifecycle webhook is missing an event timestamp");
+  }
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({
+      planStatus,
+      stripeSubscriptionEventCreatedAt: eventCreatedAt,
+      ...(planStatus === "inactive"
+        ? { planCurrentPeriodEnd: unixSecondsToDate(payload.current_period_end) ?? user.planCurrentPeriodEnd }
+        : {}),
+    })
+    .where(and(
+      eq(usersTable.id, user.id),
+      correlationCondition,
+      // Preserve the same first-delivery-wins policy for events that share a
+      // Stripe-created second with the latest successful subscription event.
+      or(
+        isNull(usersTable.stripeSubscriptionEventCreatedAt),
+        lt(usersTable.stripeSubscriptionEventCreatedAt, eventCreatedAt),
+      ),
+    ))
+    .returning({ id: usersTable.id });
+
+  if (!updated) {
     logger.warn(
       {
         eventId: event.id,
         subscriptionId: correlation.subscriptionId,
         paymentIntentId: correlation.paymentIntentId,
         eventCreatedAt,
-        activeSubscriptionEventCreatedAt: user.stripeSubscriptionEventCreatedAt,
       },
-      "Stripe lifecycle webhook predates the active successful subscription event; ignoring it",
+      "Stripe lifecycle webhook did not atomically advance the active billing record; ignoring it",
     );
-    return;
   }
-
-  await db
-    .update(usersTable)
-    .set({
-      planStatus,
-      ...(planStatus === "inactive"
-        ? { planCurrentPeriodEnd: unixSecondsToDate(payload.current_period_end) ?? user.planCurrentPeriodEnd }
-        : {}),
-    })
-    .where(eq(usersTable.id, user.id));
 }
 
 // POST /checkout {plan} → Stripe session

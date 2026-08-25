@@ -6,7 +6,13 @@ import { hasUserPlanEntitlement } from "../lib/entitlement.js";
 
 const { dbState, stripeState, loggerState, tables } = vi.hoisted(() => {
   const tables = {
-    users: { id: "users.id", stripeCustomerId: "users.stripe_customer_id" },
+    users: {
+      id: "users.id",
+      stripeCustomerId: "users.stripe_customer_id",
+      stripeSubscriptionId: "users.stripe_subscription_id",
+      stripePaymentIntentId: "users.stripe_payment_intent_id",
+      stripeSubscriptionEventCreatedAt: "users.stripe_subscription_event_created_at",
+    },
     plans: { id: "plans.id" },
   };
 
@@ -20,9 +26,11 @@ const { dbState, stripeState, loggerState, tables } = vi.hoisted(() => {
       } as Record<string, { id: string; name: string; oneTimePrice: number | null; yearlyPrice: number | null }>,
       updates: [] as Array<{ patch: Record<string, unknown>; condition: { column: string; value: string } }>,
       selectError: null as Error | null,
+      beforeUpdate: null as ((patch: Record<string, unknown>) => Promise<void>) | null,
     },
     stripeState: {
       event: null as Record<string, unknown> | null,
+      eventsBySignature: {} as Record<string, Record<string, unknown>>,
       signatureError: null as Error | null,
       sessionCalls: [] as Array<Record<string, unknown>>,
       subscription: { current_period_end: 1_900_000_000 },
@@ -35,6 +43,33 @@ const { dbState, stripeState, loggerState, tables } = vi.hoisted(() => {
 });
 
 vi.mock("@workspace/db", () => {
+  type Condition =
+    | { kind: "eq"; column: string; value: unknown }
+    | { kind: "isNull"; column: string }
+    | { kind: "lt"; column: string; value: Date }
+    | { kind: "and" | "or"; conditions: Condition[] };
+
+  const getField = (user: Partial<User>, column: string) => {
+    const key = column.replace("users.", "").replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+    return user[key as keyof User];
+  };
+  const matches = (user: Partial<User>, condition: Condition): boolean => {
+    switch (condition.kind) {
+      case "eq":
+        return getField(user, condition.column) === condition.value;
+      case "isNull":
+        return getField(user, condition.column) == null;
+      case "lt": {
+        const value = getField(user, condition.column);
+        return value instanceof Date && value.getTime() < condition.value.getTime();
+      }
+      case "and":
+        return condition.conditions.every(item => matches(user, item));
+      case "or":
+        return condition.conditions.some(item => matches(user, item));
+    }
+  };
+
   const db = {
     select: () => ({
       from: (table: unknown) => ({
@@ -54,10 +89,20 @@ vi.mock("@workspace/db", () => {
     }),
     update: () => ({
       set: (patch: Record<string, unknown>) => ({
-        where: (condition: { column: string; value: string }) => {
-          dbState.updates.push({ patch, condition });
-          return Promise.resolve();
-        },
+        where: (condition: Condition) => ({
+          returning: async () => {
+            await dbState.beforeUpdate?.(patch);
+            const matchingUsers = dbState.users.filter(user => matches(user, condition));
+            for (const user of matchingUsers) Object.assign(user, patch);
+            if (matchingUsers.length > 0) {
+              dbState.updates.push({
+                patch,
+                condition: condition as unknown as { column: string; value: string },
+              });
+            }
+            return matchingUsers.map(user => ({ id: user.id }));
+          },
+        }),
       }),
     }),
   };
@@ -70,7 +115,11 @@ vi.mock("@workspace/db", () => {
 });
 
 vi.mock("drizzle-orm", () => ({
-  eq: (column: string, value: string) => ({ column, value }),
+  eq: (column: string, value: unknown) => ({ kind: "eq", column, value }),
+  isNull: (column: string) => ({ kind: "isNull", column }),
+  lt: (column: string, value: Date) => ({ kind: "lt", column, value }),
+  and: (...conditions: Array<Record<string, unknown>>) => ({ kind: "and", conditions }),
+  or: (...conditions: Array<Record<string, unknown>>) => ({ kind: "or", conditions }),
 }));
 
 vi.mock("../lib/auth-middleware.js", () => ({
@@ -96,9 +145,9 @@ vi.mock("stripe", () => {
         },
       },
       webhooks: {
-        constructEvent: () => {
+        constructEvent: (_body: unknown, signature: string) => {
           if (stripeState.signatureError) throw stripeState.signatureError;
-          return stripeState.event;
+          return stripeState.eventsBySignature[signature] ?? stripeState.event;
         },
       },
       subscriptions: {
@@ -174,7 +223,9 @@ beforeEach(() => {
   };
   dbState.updates = [];
   dbState.selectError = null;
+  dbState.beforeUpdate = null;
   stripeState.event = null;
+  stripeState.eventsBySignature = {};
   stripeState.signatureError = null;
   stripeState.sessionCalls = [];
   stripeState.subscription = { current_period_end: 1_900_000_000 };
@@ -413,8 +464,8 @@ describe("Stripe webhooks", () => {
 
     expect(dbState.updates).toHaveLength(0);
     expect(loggerState.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ activeSubscriptionId: "sub_current", subscriptionId: "sub_old" }),
-      expect.stringContaining("did not match"),
+      expect.objectContaining({ subscriptionId: "sub_old" }),
+      expect.stringContaining("did not atomically"),
     );
   });
 
@@ -522,8 +573,137 @@ describe("Stripe webhooks", () => {
     expect(dbState.updates).toHaveLength(0);
     expect(loggerState.warn).toHaveBeenCalledWith(
       expect.objectContaining({ eventId: "evt_old_payment_failure" }),
-      expect.stringContaining("predates"),
+      expect.stringContaining("did not atomically"),
     );
+  });
+
+  it("keeps the first accepted lifecycle state when Stripe events share the same created second", async () => {
+    dbState.users = [knownUser({
+      stripeSubscriptionId: "sub_active",
+      stripeSubscriptionEventCreatedAt: new Date(1_900_000_000 * 1000),
+    })];
+    successEvent("invoice.payment_failed", {
+      customer: "cus_known",
+      parent: { subscription_details: { subscription: "sub_active" } },
+    }, { id: "evt_same_second_failure", created: 1_900_000_000 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.updates).toHaveLength(0);
+  });
+
+  it.each([
+    ["failure first", ["failure", "success"], "payment_failed"],
+    ["success first", ["success", "failure"], "active"],
+  ])("keeps the first accepted state for same-second success and failure (%s)", async (_label, order, expectedStatus) => {
+    dbState.users = [knownUser({
+      stripeSubscriptionId: "sub_active",
+      stripeSubscriptionEventCreatedAt: new Date(1_800_000_000 * 1000),
+    })];
+    const deliver = async (kind: string) => {
+      if (kind === "failure") {
+        successEvent("invoice.payment_failed", {
+          customer: "cus_known",
+          parent: { subscription_details: { subscription: "sub_active" } },
+        }, { id: "evt_same_second_failure", created: 1_900_000_000 });
+      } else {
+        successEvent("invoice.payment_succeeded", {
+          metadata: {},
+          customer: "cus_known",
+          parent: { subscription_details: { subscription: "sub_active" } },
+          lines: { data: [{ period: { end: 1_950_000_000 } }] },
+        }, { id: "evt_same_second_success", created: 1_900_000_000 });
+      }
+      await request(app)
+        .post("/webhooks/stripe")
+        .set("stripe-signature", "valid")
+        .set("content-type", "application/json")
+        .send("{}")
+        .expect(200);
+    };
+
+    await deliver(order[0]);
+    await deliver(order[1]);
+
+    expect(dbState.users[0]).toMatchObject({
+      planStatus: expectedStatus,
+      stripeSubscriptionEventCreatedAt: new Date(1_900_000_000 * 1000),
+    });
+    expect(dbState.updates).toHaveLength(1);
+  });
+
+  it("atomically keeps a newer renewal when an older matching failure finishes later", async () => {
+    dbState.users = [knownUser({
+      stripeSubscriptionId: "sub_active",
+      stripeSubscriptionEventCreatedAt: new Date(1_800_000_000 * 1000),
+    })];
+    let releaseOldFailure: (() => void) | undefined;
+    const oldFailurePaused = new Promise<void>(resolve => {
+      dbState.beforeUpdate = async patch => {
+        if (patch.planStatus === "payment_failed") {
+          await new Promise<void>(resume => {
+            releaseOldFailure = resume;
+            resolve();
+          });
+        }
+      };
+    });
+    stripeState.eventsBySignature = {
+      old_failure: {
+        id: "evt_old_failure",
+        created: 1_900_000_000,
+        type: "invoice.payment_failed",
+        data: {
+          object: {
+            customer: "cus_known",
+            parent: { subscription_details: { subscription: "sub_active" } },
+          },
+        },
+      },
+      newer_success: {
+        id: "evt_new_success",
+        created: 1_900_000_001,
+        type: "invoice.payment_succeeded",
+        data: {
+          object: {
+            metadata: {},
+            customer: "cus_known",
+            parent: { subscription_details: { subscription: "sub_active" } },
+            lines: { data: [{ period: { end: 1_950_000_000 } }] },
+          },
+        },
+      },
+    };
+
+    const oldFailure = request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "old_failure")
+      .set("content-type", "application/json")
+      .send("{}")
+      .then(response => {
+        expect(response.status).toBe(200);
+      });
+    await oldFailurePaused;
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "newer_success")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+    releaseOldFailure?.();
+    await oldFailure;
+
+    expect(dbState.users[0]).toMatchObject({
+      planStatus: "active",
+      stripeSubscriptionEventCreatedAt: new Date(1_900_000_001 * 1000),
+    });
+    expect(dbState.updates).toHaveLength(1);
   });
 });
 

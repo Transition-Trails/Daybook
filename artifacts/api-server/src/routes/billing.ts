@@ -10,11 +10,10 @@ import Stripe from "stripe";
 import { requireAuth } from "../lib/auth-middleware";
 import { logger } from "../lib/logger";
 import type { User } from "@workspace/db";
+import { getConfiguredStripePriceId } from "../lib/stripe-price";
 
 const router: IRouter = Router();
-const BILLABLE_PLANS = ["yearly"] as const;
 
-type BillablePlan = (typeof BILLABLE_PLANS)[number];
 type SuccessfulPaymentSource = "checkout" | "async_checkout" | "invoice";
 type StripePayload = {
   id?: string;
@@ -22,6 +21,7 @@ type StripePayload = {
   customer?: string | { id?: string } | null;
   subscription?: string | { id?: string; current_period_end?: number } | null;
   payment_intent?: string | { id?: string } | null;
+  invoice?: string | { id?: string } | null;
   payment_status?: "paid" | "unpaid" | "no_payment_required" | string;
   parent?: {
     subscription_details?: {
@@ -44,10 +44,6 @@ function getStripe() {
     // generated types to remain forward-compatible.
     apiVersion: "2025-06-30.basil" as Stripe.LatestApiVersion,
   });
-}
-
-function isBillablePlan(value: string | null | undefined): value is BillablePlan {
-  return value != null && (BILLABLE_PLANS as readonly string[]).includes(value);
 }
 
 function getStripeId(value: string | { id?: string } | null | undefined): string | undefined {
@@ -104,13 +100,32 @@ async function resolvePaymentIntentId(
     return directPaymentIntentId;
   }
 
-  const payments = await stripe.invoicePayments.list({
-    invoice: payload.id,
-    status: "paid",
-    payment: { type: "payment_intent" },
-    limit: 1,
-  });
-  return getStripeId(payments.data[0]?.payment.payment_intent);
+  try {
+    const payments = await stripe.invoicePayments.list({
+      invoice: payload.id,
+      status: "paid",
+      payment: { type: "payment_intent" },
+      limit: 1,
+    });
+    return getStripeId(payments.data[0]?.payment.payment_intent);
+  } catch (err) {
+    logger.warn(
+      { err, invoice: payload.id },
+      "Could not resolve the invoice payment intent",
+    );
+    return undefined;
+  }
+}
+
+async function resolveRefundSubscriptionId(
+  stripe: Stripe,
+  payload: StripePayload,
+): Promise<string | undefined> {
+  const invoiceId = getStripeId(payload.invoice);
+  if (!invoiceId) return undefined;
+
+  const invoice = await stripe.invoices.retrieve(invoiceId);
+  return getPayloadSubscriptionId(invoice as unknown as StripePayload);
 }
 
 async function resolveWebhookUser(
@@ -155,12 +170,12 @@ async function processSuccessfulPayment(
   }
 
   const subscriptionId = getPayloadSubscriptionId(payload);
-  const plan = subscriptionId
-    ? "yearly"
-    : isBillablePlan(metadata.plan)
-      ? metadata.plan
-      : (user.plan as BillablePlan | null);
-  if (!isBillablePlan(plan)) {
+  const plan = typeof metadata.plan === "string" && metadata.plan.trim()
+    ? metadata.plan
+    : typeof user.plan === "string" && user.plan.trim()
+      ? user.plan
+      : undefined;
+  if (!plan) {
     logger.error({ eventId: event.id, userId: user.id }, "Stripe webhook could not resolve a billable plan");
     throw new Error("Stripe webhook could not resolve a billable plan");
   }
@@ -254,11 +269,33 @@ async function processNegativeSubscriptionEvent(
     throw new Error("Stripe lifecycle webhook could not resolve a user");
   }
 
-  const correlationCondition = correlation.subscriptionId
-    ? eq(usersTable.stripeSubscriptionId, correlation.subscriptionId)
-    : correlation.paymentIntentId
+  const correlationConditions = [
+    correlation.subscriptionId
+      ? eq(usersTable.stripeSubscriptionId, correlation.subscriptionId)
+      : undefined,
+    correlation.paymentIntentId
       ? eq(usersTable.stripePaymentIntentId, correlation.paymentIntentId)
-      : undefined;
+      : undefined,
+  ].filter((condition): condition is ReturnType<typeof eq> => Boolean(condition));
+  const correlationCondition = correlationConditions.length === 0
+    ? undefined
+    : correlationConditions.length === 1
+      ? correlationConditions[0]
+      : or(...correlationConditions);
+
+  if (!user.stripeSubscriptionId && !user.stripePaymentIntentId) {
+    logger.warn(
+      {
+        eventId: event.id,
+        customer: customerId,
+        subscriptionId: correlation.subscriptionId,
+        paymentIntentId: correlation.paymentIntentId,
+      },
+      "Stripe lifecycle event arrived before checkout correlation; retrying",
+    );
+    throw new Error("Stripe lifecycle event arrived before checkout correlation");
+  }
+
   if (!correlationCondition) {
     logger.warn(
       {
@@ -269,7 +306,28 @@ async function processNegativeSubscriptionEvent(
         activeSubscriptionId: user.stripeSubscriptionId,
         activePaymentIntentId: user.stripePaymentIntentId,
       },
-      "Stripe lifecycle webhook has no usable active billing correlation; ignoring it",
+      "Stripe lifecycle event has no usable correlation for the known billing record; ignoring it",
+    );
+    return;
+  }
+
+  const matchesStoredSubscription =
+    correlation.subscriptionId !== undefined
+    && user.stripeSubscriptionId === correlation.subscriptionId;
+  const matchesStoredPaymentIntent =
+    correlation.paymentIntentId !== undefined
+    && user.stripePaymentIntentId === correlation.paymentIntentId;
+  if (!matchesStoredSubscription && !matchesStoredPaymentIntent) {
+    logger.warn(
+      {
+        eventId: event.id,
+        customer: customerId,
+        subscriptionId: correlation.subscriptionId,
+        paymentIntentId: correlation.paymentIntentId,
+        activeSubscriptionId: user.stripeSubscriptionId,
+        activePaymentIntentId: user.stripePaymentIntentId,
+      },
+      "Stripe lifecycle event belongs to a different subscription or payment; ignoring it",
     );
     return;
   }
@@ -318,8 +376,8 @@ router.post("/checkout", requireAuth, async (req, res): Promise<void> => {
   const user = req.user as User;
   const { plan } = req.body as { plan?: string };
 
-  if (!isBillablePlan(plan)) {
-    res.status(400).json({ error: 'plan must be "yearly"' });
+  if (typeof plan !== "string" || !plan.trim()) {
+    res.status(400).json({ error: "plan is required" });
     return;
   }
 
@@ -334,7 +392,7 @@ router.post("/checkout", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const priceId = planRow.stripePriceId;
+  const priceId = getConfiguredStripePriceId(planRow.stripePriceId);
   if (!priceId) {
     logger.error({ plan }, "Plan has no Stripe price id — not purchasable");
     res.status(500).json({ error: "Plan is not purchasable — contact support" });
@@ -424,7 +482,11 @@ router.post("/webhooks/stripe", async (req, res): Promise<void> => {
         });
         break;
       case "charge.refunded":
+        // A successful invoice can still activate access if payment-intent
+        // enrichment is temporarily unavailable. A refund for that charge must
+        // then correlate through the charge's invoice/subscription instead.
         await processNegativeSubscriptionEvent(event, payload, "refunded", {
+          subscriptionId: await resolveRefundSubscriptionId(stripe, payload),
           paymentIntentId: getStripeId(payload.payment_intent),
         });
         break;

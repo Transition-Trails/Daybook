@@ -38,17 +38,26 @@ export interface UserPlanEntitlement {
   planCurrentPeriodEnd?: Date | null;
 }
 
+const TERMINAL_PLAN_STATUSES = new Set(["inactive", "refunded"]);
+const RETIRED_PLAN_IDS = new Set(["lifetime"]);
+
 /**
- * Resolve access for a buyer's yearly subscription product. Item ownership is
- * tracked separately in the append-only `owned` ledger; plan access requires
- * both an active status and a future period end.
+ * Resolve access for a buyer's subscription product. Item ownership is tracked
+ * separately in the append-only `owned` ledger; plan access requires a
+ * non-terminal status and a future period end. A failed payment remains entitled
+ * while Stripe is still within the paid period and retrying collection.
  */
 export function hasUserPlanEntitlement(
   user: UserPlanEntitlement,
   now: Date = new Date(),
 ): boolean {
-  return user.plan === "yearly"
-    && user.planStatus === "active"
+  return typeof user.plan === "string"
+    && user.plan.trim() !== ""
+    && !RETIRED_PLAN_IDS.has(user.plan)
+    && user.planStatus !== null
+    && user.planStatus !== undefined
+    && user.planStatus !== ""
+    && !TERMINAL_PLAN_STATUSES.has(user.planStatus)
     && user.planCurrentPeriodEnd instanceof Date
     && user.planCurrentPeriodEnd.getTime() > now.getTime();
 }

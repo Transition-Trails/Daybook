@@ -5,6 +5,7 @@ import { validateWorldsmithPreviewGenerationConfiguration } from "./lib/worldsmi
 import { warmFontCache } from "./lib/font-warmup";
 import { schedulePeriodicDomainVerify } from "./lib/email/domain-recheck";
 import { recoverStaleRuns } from "./lib/worldsmith/run-repository";
+import { checkBillingConfiguration } from "./lib/billing-config";
 
 const rawPort = process.env["PORT"];
 
@@ -30,6 +31,10 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  // Report a missing Stripe Price ID immediately, but never block the API from
+  // serving health checks or accepting a later configuration fix.
+  void checkBillingConfiguration();
 
   // Pre-fetch Google Font binaries for all live-theme font families so that
   // the very first planner export on a fresh container pays zero network latency.

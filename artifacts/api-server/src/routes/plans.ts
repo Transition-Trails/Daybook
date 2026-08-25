@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, plansTable } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
+import { getConfiguredStripePriceId } from "../lib/stripe-price";
 
 const router: IRouter = Router();
 
@@ -11,10 +12,13 @@ router.get("/plans", async (_req, res): Promise<void> => {
       id: plansTable.id,
       name: plansTable.name,
       description: plansTable.description,
+      stripePriceId: plansTable.stripePriceId,
     })
     .from(plansTable)
-    .where(eq(plansTable.id, "yearly"));
-  res.json(plans);
+    .where(isNotNull(plansTable.stripePriceId));
+  res.json(plans
+    .filter(plan => getConfiguredStripePriceId(plan.stripePriceId))
+    .map(({ stripePriceId: _stripePriceId, ...plan }) => plan));
 });
 
 router.get("/plans/:id", async (req, res): Promise<void> => {
@@ -23,14 +27,16 @@ router.get("/plans/:id", async (req, res): Promise<void> => {
       id: plansTable.id,
       name: plansTable.name,
       description: plansTable.description,
+      stripePriceId: plansTable.stripePriceId,
     })
     .from(plansTable)
-    .where(and(eq(plansTable.id, req.params.id), eq(plansTable.id, "yearly")));
-  if (!plan) {
+    .where(eq(plansTable.id, req.params.id));
+  if (!plan || !getConfiguredStripePriceId(plan.stripePriceId)) {
     res.status(404).json({ error: "Plan not found" });
     return;
   }
-  res.json(plan);
+  const { stripePriceId: _stripePriceId, ...safePlan } = plan;
+  res.json(safePlan);
 });
 
 export default router;

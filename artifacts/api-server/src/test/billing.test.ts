@@ -33,6 +33,9 @@ const { dbState, stripeState, loggerState, tables } = vi.hoisted(() => {
       signatureError: null as Error | null,
       sessionCalls: [] as Array<Record<string, unknown>>,
       subscription: { current_period_end: 1_900_000_000 },
+      invoice: null as Record<string, unknown> | null,
+      invoicePaymentsError: null as Error | null,
+      apiVersion: undefined as string | undefined,
       invoicePayments: {
         data: [{ payment: { type: "payment_intent", payment_intent: "pi_invoice_payment" } }],
       },
@@ -141,7 +144,8 @@ vi.mock("../lib/logger.js", () => ({
 }));
 
 vi.mock("stripe", () => {
-  function StripeMock() {
+  function StripeMock(_key: string, options: { apiVersion?: string }) {
+    stripeState.apiVersion = options.apiVersion;
     return {
       checkout: {
         sessions: {
@@ -160,8 +164,14 @@ vi.mock("stripe", () => {
       subscriptions: {
         retrieve: async () => stripeState.subscription,
       },
+      invoices: {
+        retrieve: async () => stripeState.invoice,
+      },
       invoicePayments: {
-        list: async () => stripeState.invoicePayments,
+        list: async () => {
+          if (stripeState.invoicePaymentsError) throw stripeState.invoicePaymentsError;
+          return stripeState.invoicePayments;
+        },
       },
     };
   }
@@ -238,6 +248,9 @@ beforeEach(() => {
   stripeState.signatureError = null;
   stripeState.sessionCalls = [];
   stripeState.subscription = { current_period_end: 1_900_000_000 };
+  stripeState.invoice = null;
+  stripeState.invoicePaymentsError = null;
+  stripeState.apiVersion = undefined;
   stripeState.invoicePayments = {
     data: [{ payment: { type: "payment_intent", payment_intent: "pi_invoice_payment" } }],
   };
@@ -265,9 +278,26 @@ describe("Daybook billing checkout", () => {
     expect(stripeState.sessionCalls[0]).not.toHaveProperty("line_items.0.price_data");
   });
 
+  it("uses any configured plan row without a hardcoded plan allow-list", async () => {
+    dbState.plans.pro = {
+      id: "pro",
+      name: "Pro",
+      stripePriceId: "price_pro_test",
+    };
+
+    await request(app).post("/checkout").send({ plan: "pro" }).expect(200);
+
+    expect(stripeState.sessionCalls).toEqual([
+      expect.objectContaining({
+        metadata: { userId: "user-checkout", plan: "pro" },
+        line_items: [{ price: "price_pro_test", quantity: 1 }],
+      }),
+    ]);
+  });
+
   it("rejects removed and unknown plans", async () => {
-    await request(app).post("/checkout").send({ plan: "lifetime" }).expect(400);
-    await request(app).post("/checkout").send({ plan: "unknown" }).expect(400);
+    await request(app).post("/checkout").send({ plan: "lifetime" }).expect(404);
+    await request(app).post("/checkout").send({ plan: "unknown" }).expect(404);
 
     expect(stripeState.sessionCalls).toHaveLength(0);
   });
@@ -284,6 +314,16 @@ describe("Daybook billing checkout", () => {
       { plan: "yearly" },
       expect.stringContaining("no Stripe price id"),
     );
+  });
+
+  it("refuses blank and whitespace-only Stripe Price IDs", async () => {
+    dbState.plans.blank = { id: "blank", name: "Blank", stripePriceId: "" };
+    dbState.plans.space = { id: "space", name: "Space", stripePriceId: "   " };
+
+    await request(app).post("/checkout").send({ plan: "blank" }).expect(500);
+    await request(app).post("/checkout").send({ plan: "space" }).expect(500);
+
+    expect(stripeState.sessionCalls).toHaveLength(0);
   });
 });
 
@@ -344,7 +384,7 @@ describe("Stripe webhooks", () => {
   });
 
   it("resolves a metadata-free renewal from its subscription payload and records expiry", async () => {
-    dbState.users = [knownUser({ plan: null, stripeSubscriptionId: null })];
+    dbState.users = [knownUser({ stripeSubscriptionId: null })];
     successEvent("invoice.payment_succeeded", {
       metadata: {},
       customer: "cus_known",
@@ -425,6 +465,34 @@ describe("Stripe webhooks", () => {
     });
   });
 
+  it("activates and entitles a configured non-yearly subscription plan", async () => {
+    dbState.users = [knownUser({
+      plan: null,
+      stripeSubscriptionId: null,
+      stripePaymentIntentId: null,
+    })];
+    successEvent("checkout.session.completed", {
+      metadata: { userId: "user-renewal", plan: "pro" },
+      customer: "cus_known",
+      subscription: { id: "sub_pro", current_period_end: 1_950_000_000 },
+      payment_status: "paid",
+    });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.users[0]).toMatchObject({
+      plan: "pro",
+      planStatus: "active",
+      stripeSubscriptionId: "sub_pro",
+    });
+    expect(hasUserPlanEntitlement(dbState.users[0])).toBe(true);
+  });
+
   it.each([
     ["customer.subscription.deleted", "inactive", { id: "sub_active" }],
     ["invoice.payment_failed", "payment_failed", { parent: { subscription_details: { subscription: "sub_active" } } }],
@@ -477,6 +545,121 @@ describe("Stripe webhooks", () => {
       .expect(200);
 
     expect(dbState.users[0].planStatus).toBe("refunded");
+    expect(stripeState.apiVersion).toBe("2025-06-30.basil");
+  });
+
+  it("still activates a paid invoice when payment-intent enrichment fails", async () => {
+    dbState.users = [knownUser({ stripeSubscriptionId: null, stripePaymentIntentId: null })];
+    stripeState.invoicePaymentsError = new Error("Invoice Payments API unavailable");
+    successEvent("invoice.payment_succeeded", {
+      id: "in_payment_lookup_failed",
+      metadata: {},
+      customer: "cus_known",
+      parent: { subscription_details: { subscription: "sub_active" } },
+      lines: { data: [{ period: { end: 1_950_000_000 } }] },
+    });
+
+    const response = await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}");
+
+    expect(response.status).toBe(200);
+    expect(dbState.updates[0].patch).toMatchObject({
+      plan: "yearly",
+      planStatus: "active",
+      stripeSubscriptionId: "sub_active",
+    });
+    expect(dbState.updates[0].patch).not.toHaveProperty("stripePaymentIntentId");
+    expect(loggerState.warn).toHaveBeenCalledWith(
+      { err: stripeState.invoicePaymentsError, invoice: "in_payment_lookup_failed" },
+      "Could not resolve the invoice payment intent",
+    );
+  });
+
+  it("revokes entitlement when that invoice is later refunded", async () => {
+    dbState.users = [knownUser({ stripeSubscriptionId: null, stripePaymentIntentId: null })];
+    stripeState.invoicePaymentsError = new Error("Invoice Payments API unavailable");
+    successEvent("invoice.payment_succeeded", {
+      id: "in_refunded_payment",
+      metadata: {},
+      customer: "cus_known",
+      parent: { subscription_details: { subscription: "sub_active" } },
+      lines: { data: [{ period: { end: 1_950_000_000 } }] },
+    }, { id: "evt_paid_before_refund", created: 1_900_000_000 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+    expect(dbState.users[0].stripePaymentIntentId).toBeNull();
+
+    stripeState.invoice = {
+      parent: { subscription_details: { subscription: "sub_active" } },
+    };
+    successEvent("charge.refunded", {
+      customer: "cus_known",
+      payment_intent: "pi_unavailable",
+      invoice: "in_refunded_payment",
+    }, { id: "evt_refund_after_lookup_failure", created: 1_900_000_001 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.users[0].planStatus).toBe("refunded");
+    expect(hasUserPlanEntitlement(dbState.users[0])).toBe(false);
+  });
+
+  it("retries an early payment failure before checkout correlation exists", async () => {
+    dbState.users = [knownUser({ stripeSubscriptionId: null, stripePaymentIntentId: null })];
+    successEvent("invoice.payment_failed", {
+      customer: "cus_known",
+      parent: { subscription_details: { subscription: "sub_early" } },
+    });
+
+    const response = await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}");
+
+    expect(response.status).toBe(500);
+    expect(dbState.updates).toHaveLength(0);
+    expect(loggerState.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ subscriptionId: "sub_early" }),
+      "Stripe lifecycle event arrived before checkout correlation; retrying",
+    );
+  });
+
+  it("ignores a payment failure for a different known subscription", async () => {
+    dbState.users = [knownUser({ stripeSubscriptionId: "sub_current" })];
+    successEvent("invoice.payment_failed", {
+      customer: "cus_known",
+      parent: { subscription_details: { subscription: "sub_old" } },
+    });
+
+    const response = await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}");
+
+    expect(response.status).toBe(200);
+    expect(dbState.updates).toHaveLength(0);
+    expect(loggerState.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subscriptionId: "sub_old",
+        activeSubscriptionId: "sub_current",
+      }),
+      "Stripe lifecycle event belongs to a different subscription or payment; ignoring it",
+    );
   });
 
   it("ignores an old subscription deletion after a customer has a new active subscription", async () => {
@@ -496,7 +679,7 @@ describe("Stripe webhooks", () => {
     expect(dbState.updates).toHaveLength(0);
     expect(loggerState.warn).toHaveBeenCalledWith(
       expect.objectContaining({ subscriptionId: "sub_old" }),
-      expect.stringContaining("did not atomically"),
+      "Stripe lifecycle event belongs to a different subscription or payment; ignoring it",
     );
   });
 
@@ -740,7 +923,7 @@ describe("Stripe webhooks", () => {
 });
 
 describe("buyer plan entitlement", () => {
-  it("requires an active, unexpired yearly plan", () => {
+  it("requires a non-terminal, unexpired yearly plan", () => {
     const now = new Date("2030-01-01T00:00:00.000Z");
 
     expect(hasUserPlanEntitlement({
@@ -765,6 +948,36 @@ describe("buyer plan entitlement", () => {
       owned: [],
       plan: "yearly",
       planStatus: "payment_failed",
+      planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),
+    }, now)).toBe(true);
+    expect(hasUserPlanEntitlement({
+      owned: [],
+      plan: "yearly",
+      planStatus: "payment_failed",
+      planCurrentPeriodEnd: new Date("2029-12-31T00:00:00.000Z"),
+    }, now)).toBe(false);
+    expect(hasUserPlanEntitlement({
+      owned: [],
+      plan: "yearly",
+      planStatus: "inactive",
+      planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),
+    }, now)).toBe(false);
+    expect(hasUserPlanEntitlement({
+      owned: [],
+      plan: "yearly",
+      planStatus: "refunded",
+      planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),
+    }, now)).toBe(false);
+    expect(hasUserPlanEntitlement({
+      owned: [],
+      plan: "pro",
+      planStatus: "active",
+      planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),
+    }, now)).toBe(true);
+    expect(hasUserPlanEntitlement({
+      owned: [],
+      plan: "lifetime",
+      planStatus: "active",
       planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),
     }, now)).toBe(false);
   });

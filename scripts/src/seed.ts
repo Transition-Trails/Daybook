@@ -39,6 +39,11 @@ async function main() {
   console.log("🌱 Seeding Daybook database…");
 
   // ── Plans ──────────────────────────────────────────────────────────────────
+  const yearlyPriceId = process.env.STRIPE_YEARLY_PRICE_ID?.trim() || null;
+  if (!yearlyPriceId) {
+    console.warn("  ! STRIPE_YEARLY_PRICE_ID is not set — the yearly plan will not be purchasable");
+  }
+
   await db
     .insert(plansTable)
     .values([
@@ -46,11 +51,17 @@ async function main() {
         id: "yearly",
         name: "Yearly",
         description: "An annual subscription that keeps your planner updates active.",
-        oneTimePrice: 49,
-        yearlyPrice: 15,
+        stripePriceId: yearlyPriceId,
       },
     ])
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: plansTable.id,
+      set: {
+        name: "Yearly",
+        description: "An annual subscription that keeps your planner updates active.",
+        stripePriceId: yearlyPriceId,
+      },
+    });
   console.log("  ✓ plans");
 
   // ── Themes ─────────────────────────────────────────────────────────────────

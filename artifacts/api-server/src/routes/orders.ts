@@ -11,6 +11,7 @@ import { ordersTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { resolveStoreActor, resolveStoreActorOptional } from "../middleware/requireRole";
 import { requireSuperAdmin } from "../middleware/requireRole";
+import { assertStoreScope } from "../lib/auth-middleware";
 import { sendOrderReceipt } from "../lib/email/senders";
 
 const router: IRouter = Router();
@@ -135,7 +136,14 @@ router.post(
       const actor = req.actor;
       const canResend =
         (token && order.resendToken === token) ||
-        (actor && (actor.userId === order.buyerUserId || actor.storeId === order.storeId || actor.isSuperAdmin));
+        Boolean(
+          actor
+          && (
+            actor.userId === order.buyerUserId
+            || actor.isSuperAdmin
+            || (actor.storeId === order.storeId && actor.storeRole)
+          ),
+        );
 
       if (!canResend) { res.status(403).json({ error: "Forbidden" }); return; }
 
@@ -167,9 +175,7 @@ router.get(
     const actor = req.actor!;
     const { storeId } = req.params as { storeId: string };
 
-    if (!actor.isSuperAdmin && actor.storeId !== storeId) {
-      res.status(403).json({ error: "Forbidden" }); return;
-    }
+    if (!assertStoreScope(actor, storeId, res)) return;
 
     try {
       const orders = await db

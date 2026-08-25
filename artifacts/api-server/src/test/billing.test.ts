@@ -470,6 +470,40 @@ describe("Stripe webhooks", () => {
     });
   });
 
+  it("does not rewrite historical renewals for a refund carrying only a subscription id", async () => {
+    dbState.users = [knownUser()];
+    dbState.payments = [
+      { id: "payment-renewal-1", stripeSubscriptionId: "sub_active", status: "succeeded" },
+      { id: "payment-renewal-2", stripeSubscriptionId: "sub_active", status: "succeeded" },
+      { id: "payment-renewal-3", stripeSubscriptionId: "sub_active", status: "succeeded" },
+    ];
+    successEvent("charge.refunded", {
+      customer: "cus_known",
+      subscription: "sub_active",
+    }, { id: "evt_subscription_only_refund", created: 1_900_000_001 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.payments.map(payment => payment.status)).toEqual([
+      "succeeded",
+      "succeeded",
+      "succeeded",
+    ]);
+    expect(dbState.paymentUpdates).toHaveLength(0);
+    expect(loggerState.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventId: "evt_subscription_only_refund",
+        subscriptionId: "sub_active",
+      }),
+      "Stripe lifecycle payment event has only a subscription id; leaving ledger rows unchanged",
+    );
+  });
+
   it("does not add a duplicate order when Stripe redelivers the successful event", async () => {
     dbState.users = [knownUser({ stripeSubscriptionId: null, stripePaymentIntentId: null })];
     successEvent("checkout.session.completed", {
@@ -1099,55 +1133,46 @@ describe("buyer plan entitlement", () => {
     const now = new Date("2030-01-01T00:00:00.000Z");
 
     expect(hasUserPlanEntitlement({
-      owned: ["edition_owned"],
       plan: "yearly",
       planStatus: "refunded",
       planCurrentPeriodEnd: null,
     }, now)).toBe(false);
     expect(hasUserPlanEntitlement({
-      owned: [],
       plan: "yearly",
       planStatus: "active",
       planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),
     }, now)).toBe(true);
     expect(hasUserPlanEntitlement({
-      owned: [],
       plan: "yearly",
       planStatus: "active",
       planCurrentPeriodEnd: new Date("2029-12-31T00:00:00.000Z"),
     }, now)).toBe(false);
     expect(hasUserPlanEntitlement({
-      owned: [],
       plan: "yearly",
       planStatus: "payment_failed",
       planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),
     }, now)).toBe(true);
     expect(hasUserPlanEntitlement({
-      owned: [],
       plan: "yearly",
       planStatus: "payment_failed",
       planCurrentPeriodEnd: new Date("2029-12-31T00:00:00.000Z"),
     }, now)).toBe(false);
     expect(hasUserPlanEntitlement({
-      owned: [],
       plan: "yearly",
       planStatus: "inactive",
       planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),
     }, now)).toBe(false);
     expect(hasUserPlanEntitlement({
-      owned: [],
       plan: "yearly",
       planStatus: "refunded",
       planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),
     }, now)).toBe(false);
     expect(hasUserPlanEntitlement({
-      owned: [],
       plan: "pro",
       planStatus: "active",
       planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),
     }, now)).toBe(true);
     expect(hasUserPlanEntitlement({
-      owned: [],
       plan: "lifetime",
       planStatus: "active",
       planCurrentPeriodEnd: new Date("2030-01-02T00:00:00.000Z"),

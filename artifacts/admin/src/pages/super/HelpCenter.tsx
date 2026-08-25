@@ -1,15 +1,10 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { helpApi, type HelpArticle } from "@/lib/api";
+import { HelpArticleForm } from "@/components/help/HelpArticleForm";
 import { PageHeader, StatusPill, SkeletonRows, ErrorState, EmptyState } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from "@/components/ui/sheet";
@@ -20,10 +15,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2 } from "lucide-react";
-
-function makeId(prefix: string) {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 type Kind = "article" | "faq";
 
@@ -100,7 +91,9 @@ export default function SuperHelpCenter() {
               <SheetHeader>
                 <SheetTitle>{editing ? "Edit article" : "New article"}</SheetTitle>
               </SheetHeader>
-              <HelpForm
+              <HelpArticleForm
+                scope="platform"
+                idPrefix="h"
                 initial={editing ?? undefined}
                 prefill={editing ? undefined : prefill ?? undefined}
                 onDone={() => {
@@ -210,83 +203,5 @@ export default function SuperHelpCenter() {
         </div>
       )}
     </div>
-  );
-}
-
-function HelpForm({
-  initial,
-  prefill,
-  onDone,
-}: {
-  initial?: HelpArticle;
-  prefill?: { category: string; title: string };
-  onDone: () => void;
-}) {
-  const { toast } = useToast();
-  const [form, setForm] = useState({
-    id:       initial?.id ?? makeId("h"),
-    title:    initial?.title ?? prefill?.title ?? "",
-    body:     initial?.body ?? "",
-    category: initial?.category ?? prefill?.category ?? "general",
-    kind:     initial?.kind ?? "article",
-    scope:    "platform",
-    status:   initial?.status ?? "draft",
-  });
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      if (initial) {
-        await helpApi.update(initial.id, form);
-        toast({ title: "Article updated" });
-      } else {
-        await helpApi.create(form);
-        toast({ title: "Article created" });
-      }
-      onDone();
-    } catch (err: any) {
-      toast({ title: "Failed", description: err.message, variant: "destructive" });
-    }
-  }
-
-  const field = (key: keyof typeof form, label: string, multiline?: boolean) => (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      {multiline ? (
-        <Textarea
-          required
-          rows={5}
-          value={form[key] as string}
-          onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))}
-        />
-      ) : (
-        <Input
-          required
-          value={form[key] as string}
-          onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))}
-        />
-      )}
-    </div>
-  );
-
-  return (
-    <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-      {field("title", "Title")}
-      {field("body", "Body", true)}
-      {field("category", "Category")}
-      <div className="space-y-1.5">
-        <Label>Kind</Label>
-        <Select value={form.kind} onValueChange={(v) => setForm((p) => ({ ...p, kind: v as any }))}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="article">Article</SelectItem>
-            <SelectItem value="faq">FAQ</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <Button type="submit" className="w-full" style={{ background: "hsl(12 49% 58%)", color: "#fff" }}>
-        {initial ? "Save changes" : "Create article"}
-      </Button>
-    </form>
   );
 }

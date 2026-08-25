@@ -115,7 +115,44 @@ router.get("/help", resolveStoreActorOptional, async (req: Request, res: Respons
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let rows: any[];
 
-  if (actor?.isSuperAdmin) {
+  if (scopeFilter && scopeFilter !== "platform") {
+    if (!actor?.userId) {
+      res.status(403).json({ error: "Forbidden: store membership required for this help scope" });
+      return;
+    }
+
+    if (!actor.isSuperAdmin) {
+      const [membership] = await db
+        .select({ storeId: storeMembersTable.storeId })
+        .from(storeMembersTable)
+        .where(and(
+          eq(storeMembersTable.storeId, scopeFilter),
+          eq(storeMembersTable.userId, actor.userId),
+        ));
+      if (!membership) {
+        res.status(403).json({ error: "Forbidden: no membership in this help scope" });
+        return;
+      }
+    }
+
+    rows = await db
+      .select()
+      .from(helpContentTable)
+      .where(or(
+        eq(helpContentTable.scope, "platform"),
+        eq(helpContentTable.scope, scopeFilter),
+      ))
+      .orderBy(helpContentTable.createdAt);
+  } else if (scopeFilter === "platform") {
+    const platformCondition = actor?.userId
+      ? eq(helpContentTable.scope, "platform")
+      : and(eq(helpContentTable.scope, "platform"), eq(helpContentTable.status, "live"));
+    rows = await db
+      .select()
+      .from(helpContentTable)
+      .where(platformCondition)
+      .orderBy(helpContentTable.createdAt);
+  } else if (actor?.isSuperAdmin) {
     rows = await db.select().from(helpContentTable).orderBy(helpContentTable.createdAt);
   } else if (actor?.userId) {
     // Authenticated user: platform-scoped + scopes for stores they belong to
@@ -146,7 +183,6 @@ router.get("/help", resolveStoreActorOptional, async (req: Request, res: Respons
 
   if (kind) rows = rows.filter((r: { kind: string }) => r.kind === kind);
   if (category) rows = rows.filter((r: { category: string }) => r.category === category);
-  if (scopeFilter) rows = rows.filter((r: { scope: string }) => r.scope === scopeFilter);
   if (statusFilter) rows = rows.filter((r: { status: string }) => r.status === statusFilter);
 
   res.json(rows);

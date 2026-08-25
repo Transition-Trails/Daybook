@@ -211,6 +211,9 @@ async function resolveRefundSubscriptionId(
   stripe: Stripe,
   payload: StripePayload,
 ): Promise<string | undefined> {
+  const directSubscriptionId = getPayloadSubscriptionId(payload);
+  if (directSubscriptionId) return directSubscriptionId;
+
   const invoiceId = getStripeId(payload.invoice);
   if (!invoiceId) return undefined;
 
@@ -351,17 +354,14 @@ async function recordLifecyclePaymentEvent(
   // Prefer the narrowest Stripe identity. A subscription can have many
   // renewal orders, so a refund carrying a payment intent or invoice must not
   // annotate every historical payment for that subscription.
-  const conditions = [
+  const narrowConditions = [
     correlation.paymentIntentId
       ? eq(paymentsTable.stripePaymentIntentId, correlation.paymentIntentId)
       : undefined,
     correlation.invoiceId ? eq(paymentsTable.stripeInvoiceId, correlation.invoiceId) : undefined,
-    correlation.subscriptionId
-      ? eq(paymentsTable.stripeSubscriptionId, correlation.subscriptionId)
-      : undefined,
   ].filter((condition): condition is ReturnType<typeof eq> => Boolean(condition));
 
-  for (const condition of conditions) {
+  for (const condition of narrowConditions) {
     const updated = await db
       .update(paymentsTable)
       .set({
@@ -373,6 +373,18 @@ async function recordLifecyclePaymentEvent(
       .where(condition)
       .returning({ id: paymentsTable.id });
     if (updated.length) return;
+  }
+
+  if (correlation.subscriptionId) {
+    logger.warn(
+      {
+        eventId: event.id,
+        eventType,
+        status,
+        subscriptionId: correlation.subscriptionId,
+      },
+      "Stripe lifecycle payment event has only a subscription id; leaving ledger rows unchanged",
+    );
   }
 }
 

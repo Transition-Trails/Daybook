@@ -196,6 +196,13 @@ describe("super_admin — allow", () => {
     await request(sa).patch("/api/stores/store-alpha").send({ domain: null });
   });
 
+  it("PATCH /api/stores/store-alpha/entitlement → 200 (can manage entitlement)", async () => {
+    const res = await request(sa)
+      .patch("/api/stores/store-alpha/entitlement")
+      .send({ subscriptionActive: true });
+    expect(res.status).toBe(200);
+  });
+
   it("GET /api/stores/store-alpha/members → 200", async () => {
     const res = await request(sa).get("/api/stores/store-alpha/members");
     expect(res.status).toBe(200);
@@ -270,12 +277,57 @@ describe("store_owner (store-alpha) — allow", () => {
     expect(res.body.id).toBe("store-alpha");
   });
 
-  it("PATCH /api/stores/store-alpha → 200 (update own store)", async () => {
+  it("PATCH /api/stores/store-alpha → 200 (owner may update only presentation settings)", async () => {
+    const original = (await request(alphaOwner).get("/api/stores/store-alpha")).body;
+    const defaultMode = original.defaultMode === "curated" ? "independent" : "curated";
     const res = await request(alphaOwner)
       .patch("/api/stores/store-alpha")
-      .send({ domain: `owner-test-${RUN}.example.com` });
+      .send({
+        name: `Owner Test ${RUN}`,
+        domain: `owner-test-${RUN}.example.com`,
+        defaultMode,
+      });
     expect(res.status).toBe(200);
-    await request(sa).patch("/api/stores/store-alpha").send({ domain: null });
+    expect(res.body).toMatchObject({
+      name: `Owner Test ${RUN}`,
+      domain: `owner-test-${RUN}.example.com`,
+      defaultMode,
+    });
+    await request(sa).patch("/api/stores/store-alpha").send({
+      name: original.name,
+      domain: original.domain,
+      defaultMode: original.defaultMode,
+    });
+  });
+
+  it("PATCH /api/stores/store-alpha → 400 (owner cannot change protected or unknown fields)", async () => {
+    const before = (await request(alphaOwner).get("/api/stores/store-alpha")).body;
+    const forbiddenPatches = [
+      { slug: `renamed-${RUN}` },
+      { ownerUserId: "u-beta-owner" },
+      { status: "suspended" },
+      { plan: "enterprise" },
+      { subscriptionActive: false },
+      { createdAt: "2000-01-01T00:00:00.000Z" },
+      { unrecognizedSetting: true },
+    ];
+
+    for (const body of forbiddenPatches) {
+      await request(alphaOwner)
+        .patch("/api/stores/store-alpha")
+        .send(body)
+        .expect(400);
+    }
+
+    const after = (await request(alphaOwner).get("/api/stores/store-alpha")).body;
+    expect(after).toMatchObject({
+      slug: before.slug,
+      ownerUserId: before.ownerUserId,
+      status: before.status,
+      plan: before.plan,
+      subscriptionActive: before.subscriptionActive,
+      createdAt: before.createdAt,
+    });
   });
 
   it("GET /api/stores/store-alpha/members → 200", async () => {
@@ -821,6 +873,24 @@ describe("GET /api/help — visibility rules", () => {
     expect(returnedIds).not.toContain(ids.betaHelp);       // other store → hidden
   });
 
+  it("store scope returns platform plus the requested member store, never another store", async () => {
+    const res = await request(alphaOwner).get("/api/help?scope=store-alpha");
+    expect(res.status).toBe(200);
+    const returned = res.body as Array<{ id: string; scope: string }>;
+
+    expect(returned.map(article => article.id)).toEqual(expect.arrayContaining([
+      ids.platformLiveHelp,
+      ids.platformDraftHelp,
+      ids.alphaHelp,
+    ]));
+    expect(returned.map(article => article.id)).not.toContain(ids.betaHelp);
+    expect(returned.every(article => ["platform", "store-alpha"].includes(article.scope))).toBe(true);
+  });
+
+  it("rejects a cross-store help scope request", async () => {
+    await request(alphaOwner).get("/api/help?scope=store-beta").expect(403);
+  });
+
   it("store-gamma owner: sees platform articles but NOT alpha or beta store articles", async () => {
     const res = await request(gammaOwner).get("/api/help");
     expect(res.status).toBe(200);
@@ -844,7 +914,25 @@ describe("GET /api/help — visibility rules", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 13. Audit log written on mutations
+// 13. Store order tenant isolation
+// ─────────────────────────────────────────────────────────────────────────────
+describe("GET /api/store/:storeId/orders — tenant isolation", () => {
+  it("returns 403 when a non-member requests another store's orders", async () => {
+    await request(noStore).get("/api/store/store-alpha/orders").expect(403);
+  });
+
+  it("returns 200 for a store staff member", async () => {
+    await request(alphaStaff).get("/api/store/store-alpha/orders").expect(200);
+  });
+
+  it("reserves the platform orders endpoint for super admins", async () => {
+    await request(alphaOwner).get("/api/store/platform/orders").expect(403);
+    await request(sa).get("/api/store/platform/orders").expect(200);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14. Audit log written on mutations
 // ─────────────────────────────────────────────────────────────────────────────
 describe("audit log — written on admin mutations", () => {
   it("POST /api/stores (super_admin) writes audit entry: actorRole=super_admin, scope=platform", async () => {

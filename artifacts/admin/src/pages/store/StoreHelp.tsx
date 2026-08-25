@@ -1,15 +1,10 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { helpApi, type HelpArticle } from "@/lib/api";
+import { HelpArticleForm } from "@/components/help/HelpArticleForm";
 import { PageHeader, StatusPill, SkeletonRows, ErrorState, EmptyState } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from "@/components/ui/sheet";
@@ -24,10 +19,6 @@ import { Plus, Pencil, Trash2, Globe } from "lucide-react";
 interface Props {
   storeId: string;
   role: string;
-}
-
-function makeId(prefix: string) {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export default function StoreHelp({ storeId, role }: Props) {
@@ -60,7 +51,7 @@ export default function StoreHelp({ storeId, role }: Props) {
 
   const { data: articles = [], isLoading, error, refetch } = useQuery({
     queryKey: ["help/store", storeId],
-    queryFn: () => helpApi.list(),
+    queryFn: () => helpApi.list({ scope: storeId }),
   });
 
   const platformArticles = articles.filter((a) => a.scope === "platform");
@@ -183,8 +174,9 @@ export default function StoreHelp({ storeId, role }: Props) {
                 <SheetHeader>
                   <SheetTitle>{editing ? "Edit article" : "New article"}</SheetTitle>
                 </SheetHeader>
-                <StoreHelpForm
-                  storeId={storeId}
+                <HelpArticleForm
+                  scope={storeId}
+                  idPrefix="sh"
                   initial={editing ?? undefined}
                   prefill={editing ? undefined : prefill ?? undefined}
                   onDone={() => {
@@ -234,86 +226,5 @@ export default function StoreHelp({ storeId, role }: Props) {
         </>
       )}
     </div>
-  );
-}
-
-function StoreHelpForm({
-  storeId,
-  initial,
-  prefill,
-  onDone,
-}: {
-  storeId: string;
-  initial?: HelpArticle;
-  prefill?: { category: string; title: string };
-  onDone: () => void;
-}) {
-  const { toast } = useToast();
-  const [form, setForm] = useState({
-    id:       initial?.id ?? makeId("sh"),
-    title:    initial?.title ?? prefill?.title ?? "",
-    body:     initial?.body ?? "",
-    category: initial?.category ?? prefill?.category ?? "general",
-    kind:     initial?.kind ?? ("article" as "article" | "faq"),
-    scope:    storeId,
-    status:   initial?.status ?? ("draft" as "draft" | "live"),
-  });
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      if (initial) {
-        await helpApi.update(initial.id, form);
-        toast({ title: "Article updated" });
-      } else {
-        await helpApi.create(form);
-        toast({ title: "Article created" });
-      }
-      onDone();
-    } catch (err: any) {
-      toast({ title: "Failed", description: err.message, variant: "destructive" });
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-      <div className="space-y-1.5">
-        <Label>Title</Label>
-        <Input
-          required
-          value={form.title}
-          onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
-        />
-      </div>
-      <div className="space-y-1.5">
-        <Label>Body</Label>
-        <Textarea
-          required
-          rows={6}
-          value={form.body}
-          onChange={(e) => setForm((p) => ({ ...p, body: e.target.value }))}
-        />
-      </div>
-      <div className="space-y-1.5">
-        <Label>Category</Label>
-        <Input
-          value={form.category}
-          onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
-        />
-      </div>
-      <div className="space-y-1.5">
-        <Label>Kind</Label>
-        <Select value={form.kind} onValueChange={(v) => setForm((p) => ({ ...p, kind: v as any }))}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="article">Article</SelectItem>
-            <SelectItem value="faq">FAQ</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <Button type="submit" className="w-full" style={{ background: "hsl(12 49% 58%)", color: "#fff" }}>
-        {initial ? "Save changes" : "Create article"}
-      </Button>
-    </form>
   );
 }

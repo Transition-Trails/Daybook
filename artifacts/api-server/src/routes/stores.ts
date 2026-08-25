@@ -30,6 +30,8 @@ import { writeAudit } from "../lib/audit";
 import { annotateWithEntitlement, type EntitlementContext } from "../lib/entitlement";
 
 const router: IRouter = Router();
+const OWNER_EDITABLE = ["name", "domain", "defaultMode"] as const;
+type OwnerEditableField = (typeof OWNER_EDITABLE)[number];
 
 // ── Catalog table registry ─────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -136,17 +138,31 @@ router.patch("/stores/:storeId", resolveStoreActor, async (req: Request, res: Re
     return;
   }
 
-  // Store owners cannot change sensitive fields
-  if (!actor.isSuperAdmin) {
-    delete body.status;
-    delete body.ownerUserId;
-    delete body.plan;
+  let patch: Record<string, unknown>;
+  if (actor.isSuperAdmin) {
+    patch = { ...body };
+    delete patch.id;
+  } else {
+    const unknownFields = Object.keys(body).filter(
+      (key) => !OWNER_EDITABLE.includes(key as OwnerEditableField),
+    );
+    if (unknownFields.length > 0) {
+      res.status(400).json({
+        error: `Only ${OWNER_EDITABLE.join(", ")} may be updated by a store owner`,
+        fields: unknownFields,
+      });
+      return;
+    }
+    patch = Object.fromEntries(
+      OWNER_EDITABLE
+        .filter((field) => field in body)
+        .map((field) => [field, body[field]]),
+    );
   }
-  delete body.id;
 
   const [updated] = await db
     .update(storesTable)
-    .set(body)
+    .set(patch)
     .where(eq(storesTable.id, storeId))
     .returning();
   if (!updated) { res.status(404).json({ error: "Store not found" }); return; }
@@ -158,7 +174,7 @@ router.patch("/stores/:storeId", resolveStoreActor, async (req: Request, res: Re
     action: "store.update",
     targetType: "store",
     targetId: storeId,
-    metadata: body as Record<string, unknown>,
+    metadata: patch,
   });
 
   res.json(updated);

@@ -32,8 +32,12 @@ export interface EntitlementContext {
 }
 
 export interface UserPlanEntitlement {
+  /**
+   * Product access is plan-based. The legacy user `owned` ledger is deliberately
+   * excluded because no entitlement path reads it; store-authored item access is
+   * resolved from the item origin instead.
+   */
   plan?: string | null;
-  owned?: string[] | null;
   planStatus?: string | null;
   planCurrentPeriodEnd?: Date | null;
 }

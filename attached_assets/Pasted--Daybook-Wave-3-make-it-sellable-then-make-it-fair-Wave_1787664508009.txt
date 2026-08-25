@@ -1,0 +1,230 @@
+# Daybook — Wave 3: make it sellable, then make it fair
+
+Wave 2 moved the price into Stripe correctly. The consequence is that **Daybook currently cannot take
+a payment in any environment** — the plan row has no price id and nothing in the repo can give it one.
+That is step 1, and it is the only step here that blocks launch.
+
+The rest is the lifecycle being harsher than it should be: a single declined card revokes access on the
+spot, and one new Stripe call can turn a successful renewal into an infinite retry.
+
+**Order matters.** Step 1 first — until a checkout can complete, none of the webhook work below can be
+tested end to end.
+
+---
+
+## Step 1 — Give the plan a price id through a supported path
+
+**The defect.** The seed writes the only sellable plan with no `stripe_price_id`:
+
+```ts
+await db.insert(plansTable).values([
+  { id: "yearly", name: "Yearly", description: "…", oneTimePrice: 49, yearlyPrice: 15 },
+]).onConflictDoNothing();
+```
+
+The column is nullable, so the row is valid and Wave 2's guard fires exactly as designed: every
+checkout returns 500, *plan is not purchasable*. The right failure — but there is no supported way out
+of it. `onConflictDoNothing` means re-seeding never adds the id, there is no environment variable, no
+admin field (that screen now states it does not set prices), and no script. The only route to a
+sellable Daybook is hand-written SQL against each environment.
+
+The two float columns are the second half of the problem: they are retired, they still hold 49 and 15,
+and the next person to read this file will reasonably conclude pricing is configured.
+
+**The fix.**
+
+```ts
+const yearlyPriceId = process.env.STRIPE_YEARLY_PRICE_ID ?? null;
+if (!yearlyPriceId) {
+  console.warn("  ! STRIPE_YEARLY_PRICE_ID is not set — the yearly plan will not be purchasable");
+}
+
+await db.insert(plansTable).values([
+  {
+    id: "yearly",
+    name: "Yearly",
+    description: "An annual subscription that keeps your planner updates active.",
+    stripePriceId: yearlyPriceId,
+  },
+]).onConflictDoUpdate({
+  target: plansTable.id,
+  set: { stripePriceId: yearlyPriceId, description: … },
+});
+```
+
+`onConflictDoUpdate` is the point: setting the variable and re-running the seed is now the documented
+way to configure pricing in a new environment. Drop `oneTimePrice` and `yearlyPrice` from the seed
+values entirely — the columns stay for rollback, but nothing should write numbers to them.
+
+**Also add a boot-time check.** In the API server's startup path, log an error when no plan has a price
+id. A misconfigured environment should announce itself in the first ten lines of the log, not in a
+support ticket.
+
+**Done when:** `STRIPE_YEARLY_PRICE_ID` set + seed run produces a working checkout in a fresh
+environment; unset, the seed warns and the server logs an error at boot; and no seed row writes
+`one_time_price` or `yearly_price`.
+
+---
+
+## Step 2 — Stop a Stripe lookup from failing a successful payment
+
+**The defect.** Wave 2 correctly gave refunds something to correlate against, but put the lookup on
+the renewal path:
+
+```ts
+const payments = await stripe.invoicePayments.list({ invoice: payload.id, … });
+```
+
+This runs inside `processSuccessfulPayment` on every invoice-sourced event. Invoice payments is a
+recent API addition and the runtime version is pinned to `2025-06-30.basil`. If the endpoint or its
+`payment` filter is not available on that pin, the call throws, the handler answers 500, and Stripe
+retries the renewal forever. A convenience for a refund that may never happen would then block the
+payment it accompanies.
+
+**The fix — two parts.** First, confirm the call against the pinned version in a test rather than
+assuming it. Second, make it unable to fail the payment either way:
+
+```ts
+try {
+  // … invoicePayments.list
+} catch (err) {
+  logger.warn({ err, invoice: payload.id }, "Could not resolve the invoice payment intent");
+  return undefined;
+}
+```
+
+Entitlement does not depend on the payment intent; only refund correlation does, and a refund can
+resolve it from the subscription id already on the row. Nothing that is merely useful later should be
+able to fail something that succeeded now.
+
+**Done when:** a forced failure of the payment-intent lookup still grants entitlement and still
+returns 200, and a test pins the call against `2025-06-30.basil`.
+
+---
+
+## Step 3 — Let the paid period decide, not the first declined card
+
+**The defect.** Entitlement requires an active status:
+
+```ts
+return user.plan === "yearly"
+  && user.planStatus === "active"
+  && user.planCurrentPeriodEnd instanceof Date
+  && user.planCurrentPeriodEnd.getTime() > now.getTime();
+```
+
+`invoice.payment_failed` fires on the **first** dunning attempt, and Stripe then retries the invoice
+over the following days. So a customer whose card is briefly declined on renewal day is locked out
+immediately, while the period they already paid for is still running and the retry may well succeed.
+Before Wave 1 nothing could downgrade anyone; this is the same mistake pointing the other way, and it
+generates support mail from people who have in fact paid.
+
+**The fix.** Terminal states end access; a payment problem does not, until the paid period lapses:
+
+```ts
+const TERMINAL_PLAN_STATUSES = new Set(["inactive", "refunded"]);
+
+export function hasUserPlanEntitlement(user, now = new Date()): boolean {
+  if (user.plan !== "yearly") return false;
+  if (!user.planStatus || TERMINAL_PLAN_STATUSES.has(user.planStatus)) return false;
+  return user.planCurrentPeriodEnd instanceof Date
+    && user.planCurrentPeriodEnd.getTime() > now.getTime();
+}
+```
+
+`payment_failed` then means "in dunning, still entitled until the period ends", which is what the
+period end field was for. Cancellation (`customer.subscription.deleted` → `inactive`) and refunds still
+cut access immediately.
+
+**Done when:** a `payment_failed` user with a future period end is entitled; the same user past their
+period end is not; a cancelled or refunded user is not entitled regardless of period end.
+
+---
+
+## Step 4 — Make a payment failure that arrives early retryable
+
+**The defect (D71).** The negative path is asymmetric with the success path by construction. A success
+event that cannot resolve its user throws, so Stripe retries. A negative event with no usable
+correlation returns early and the webhook answers 200 — and Stripe never retries it:
+
+```ts
+if (!correlationCondition) {
+  logger.warn({ … }, "Stripe lifecycle webhook has no usable active billing correlation; ignoring it");
+  return;
+}
+```
+
+The ordinary case this protects against is real: an event for a subscription this user never had is a
+genuine no-op. But a *first-invoice failure racing the checkout event* looks identical, and losing it
+leaves the customer marked active with no record that their payment failed.
+
+**The fix.** The two cases are distinguishable with what is already in scope — whether the user row has
+any billing correlation at all yet:
+
+```ts
+if (!correlationCondition) {
+  if (!user.stripeSubscriptionId && !user.stripePaymentIntentId) {
+    throw new Error("Lifecycle event arrived before its checkout; retry");   // → 500, Stripe retries
+  }
+  logger.warn({ … }, "…belongs to a different subscription; ignoring it");   // → 200, real no-op
+  return;
+}
+```
+
+**Done when:** a `payment_failed` for a user with no stored subscription id returns 500, the same event
+for a user whose stored subscription is a different one returns 200 and changes nothing, and both log
+distinguishably.
+
+---
+
+## Step 5 — Retire the last hardcoded plan id
+
+**The defect.** D73 asked for the plan catalog to become data. The literal left `billing.ts` and
+reappeared twice in `routes/plans.ts`:
+
+```ts
+.where(eq(plansTable.id, "yearly"));
+.where(and(eq(plansTable.id, req.params.id), eq(plansTable.id, "yearly")));
+```
+
+The second makes the path parameter decorative — every other id 404s regardless of what the table
+holds. Adding a monthly tier is now a code change in three files instead of a row.
+
+**The fix.** Sellability is a property of the row, not a name: a plan with a `stripe_price_id` is
+purchasable.
+
+```ts
+.where(isNotNull(plansTable.stripePriceId));
+.where(and(eq(plansTable.id, req.params.id), isNotNull(plansTable.stripePriceId)));
+```
+
+In `billing.ts`, `BILLABLE_PLANS` can then go too: validate the requested plan by looking it up and
+checking it has a price id, which the route already does two lines later.
+
+**One thing to check while you are here.** These responses no longer return a price at all. That is
+right for the admin screen, but if any public pricing surface reads `/plans`, it now has nothing to
+display. A plan card with no number is a conversion problem rather than a bug report — find out what
+the marketing page renders before this ships.
+
+**Done when:** a plan row with a price id is listed and purchasable, one without is neither, and adding
+a second priced plan row requires no code change.
+
+---
+
+## Two things not to do
+
+**Do not put the price amount back in the database** to fix the empty pricing card. If a public surface
+needs a number, read it from the Stripe Price and cache it — one source of truth was the entire point
+of Wave 2.
+
+**Do not let step 3 strip `owned`.** Terminal statuses end *plan* access; the ownership ledger is
+separate and stays append-only.
+
+---
+
+## After this
+
+**D35** is the last structural gap in commerce: orders and payments have no correlation column between
+them, so no query can answer whether a payment produced an order — or whether an order was ever paid
+for. It is also what would have caught the original dropped-webhook defect. Worth its own pass once
+this one is verified.

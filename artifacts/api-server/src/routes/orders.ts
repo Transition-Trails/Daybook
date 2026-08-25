@@ -379,8 +379,7 @@ router.get(
       return;
     }
     const item = order.items[itemIndex];
-    const canonicalType = item.itemType === "product" ? "edition" : item.itemType;
-    if (canonicalType !== "edition" || !item.itemId) {
+    if (item.itemType !== "edition" || !item.itemId) {
       res.status(409).json({
         error: "This catalog item does not have a downloadable file yet",
         recovery: recoveryUrl(order.id),

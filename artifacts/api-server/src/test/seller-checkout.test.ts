@@ -4,6 +4,7 @@ import request from "supertest";
 import { and, eq } from "drizzle-orm";
 import {
   db,
+  checkoutIntentsTable,
   ordersTable,
   paymentsTable,
   storeCatalogTable,
@@ -46,6 +47,8 @@ const ids = {
   edition: `seller-checkout-edition-${RUN}`,
   editionTwo: `seller-checkout-edition-two-${RUN}`,
   order: `ord_seller_cs_${RUN}`,
+  delayedOrder: `ord_seller_cs_delayed_${RUN}`,
+  intent: `ci_seller_${RUN}`,
 };
 
 const user: User = {
@@ -121,6 +124,7 @@ describe("seller checkout", () => {
       id: ids.edition,
       name: "Server Priced Edition",
       priceLow: 12.34,
+      digitalPriceCents: 1234,
       status: "live",
       globalAvailable: true,
       origin: "licensed",
@@ -129,6 +133,7 @@ describe("seller checkout", () => {
       id: ids.editionTwo,
       name: "Second Server Priced Edition",
       priceLow: 7.89,
+      digitalPriceCents: 789,
       status: "live",
       globalAvailable: true,
       origin: "licensed",
@@ -140,6 +145,9 @@ describe("seller checkout", () => {
   afterAll(async () => {
     await db.delete(paymentsTable).where(eq(paymentsTable.orderId, ids.order));
     await db.delete(ordersTable).where(eq(ordersTable.id, ids.order));
+    await db.delete(paymentsTable).where(eq(paymentsTable.orderId, ids.delayedOrder));
+    await db.delete(ordersTable).where(eq(ordersTable.id, ids.delayedOrder));
+    await db.delete(checkoutIntentsTable).where(eq(checkoutIntentsTable.storeId, ids.store));
     await db.delete(storeCatalogTable).where(and(eq(storeCatalogTable.storeId, ids.store), eq(storeCatalogTable.itemId, ids.edition)));
     await db.delete(storeCatalogTable).where(and(eq(storeCatalogTable.storeId, ids.store), eq(storeCatalogTable.itemId, ids.editionTwo)));
     await db.delete(storeMembersTable).where(eq(storeMembersTable.storeId, ids.store));
@@ -167,7 +175,32 @@ describe("seller checkout", () => {
     expect(params.line_items[0].price_data.unit_amount).toBe(1234);
     expect(params.line_items[0].quantity).toBe(2);
     expect(params.line_items[0].price_data.currency).toBe("usd");
+    expect(params.metadata.intentId).toMatch(/^ci_/);
+    expect(params.metadata.items).toBeUndefined();
+    expect(params.expires_at).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    expect(params.expires_at).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 60 * 60);
     expect(requestOptions).toEqual({ stripeAccount: "acct_seller_test" });
+  });
+
+  it("creates a Stripe session for a twenty-line cart without putting the cart in metadata", async () => {
+    const response = await request(authenticatedApp)
+      .post(`/api/store/${ids.store}/checkout`)
+      .send({
+        items: Array.from({ length: 20 }, () => ({
+          itemType: "edition",
+          itemId: ids.edition,
+          quantity: 1,
+        })),
+      })
+      .expect(200);
+    expect(response.body.url).toBe("https://checkout.stripe.test/session");
+    const [params] = stripeMocks.createSession.mock.calls.at(-1)!;
+    expect(params.line_items).toHaveLength(20);
+    expect(params.metadata.items).toBeUndefined();
+    const [intent] = await db.select().from(checkoutIntentsTable)
+      .where(eq(checkoutIntentsTable.id, params.metadata.intentId)).limit(1);
+    expect(intent?.items).toHaveLength(20);
+    expect(intent?.amountCents).toBe(20 * 1234);
   });
 
   it("allows guest checkout but denies a seller whose live Connect account cannot charge", async () => {
@@ -208,6 +241,27 @@ describe("seller checkout", () => {
   it("writes one seller order/payment on replay without changing the buyer subscription", async () => {
     emailMocks.sendOrderReceipt.mockClear();
     const sessionId = `cs_${RUN}`;
+    await db.insert(checkoutIntentsTable).values({
+      id: ids.intent,
+      storeId: ids.store,
+      buyerUserId: ids.user,
+      items: [{
+        itemType: "edition",
+        itemId: ids.edition,
+        name: "Server Priced Edition",
+        priceCents: 1234,
+        quantity: 2,
+      }, {
+        itemType: "edition",
+        itemId: ids.editionTwo,
+        name: "Second Server Priced Edition",
+        priceCents: 789,
+        quantity: 1,
+      }],
+      amountCents: 3257,
+      currency: "usd",
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    });
     const payload = {
       id: sessionId,
       amount_total: 3257,
@@ -217,19 +271,7 @@ describe("seller checkout", () => {
         commerce: "seller",
         storeId: ids.store,
         userId: ids.user,
-        items: JSON.stringify([{
-          itemType: "edition",
-          itemId: ids.edition,
-          name: "Server Priced Edition",
-          priceCents: 1234,
-          quantity: 2,
-        }, {
-          itemType: "edition",
-          itemId: ids.editionTwo,
-          name: "Second Server Priced Edition",
-          priceCents: 789,
-          quantity: 1,
-        }]),
+        intentId: ids.intent,
       },
     };
     await processSellerCheckoutPayment({ id: `evt_${RUN}_1`, account: "acct_seller_test" }, payload);
@@ -246,6 +288,49 @@ describe("seller checkout", () => {
     expect(buyer?.planStatus).toBeNull();
     expect(emailMocks.sendOrderReceipt).toHaveBeenCalledTimes(1);
     expect(emailMocks.sendOrderReceipt.mock.calls[0]?.[0].downloadLinks).toHaveLength(2);
+  });
+
+  it("refuses a missing intent ID before creating an order", async () => {
+    const missingPayload = {
+      id: `cs_missing_${RUN}`,
+      amount_total: 1234,
+      currency: "usd",
+      customer_details: { email: user.email },
+      metadata: { commerce: "seller", storeId: ids.store, userId: ids.user, intentId: "missing-intent" },
+    };
+    await expect(processSellerCheckoutPayment(
+      { id: `evt_missing_${RUN}`, account: "acct_seller_test" },
+      missingPayload,
+    )).rejects.toThrow("not found");
+
+  });
+
+  it("fulfills a verified delayed asynchronous payment after its session window closes", async () => {
+    const expiredIntent = `ci_delayed_${RUN}`;
+    await db.insert(checkoutIntentsTable).values({
+      id: expiredIntent,
+      storeId: ids.store,
+      buyerUserId: ids.user,
+      items: [{ itemType: "edition", itemId: ids.edition, name: "Server Priced Edition", priceCents: 1234, quantity: 1 }],
+      amountCents: 1234,
+      currency: "usd",
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+    const delayedPayload = {
+      id: `cs_delayed_${RUN}`,
+      amount_total: 1234,
+      currency: "usd",
+      customer_details: { email: user.email },
+      metadata: { commerce: "seller", storeId: ids.store, userId: ids.user, intentId: expiredIntent },
+    };
+    await expect(processSellerCheckoutPayment(
+      { id: `evt_async_${RUN}`, account: "acct_seller_test" },
+      delayedPayload,
+    )).resolves.toBeUndefined();
+    const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, ids.delayedOrder)).limit(1);
+    expect(order?.items).toMatchObject([{ itemType: "edition", itemId: ids.edition, priceCents: 1234 }]);
+    await db.delete(paymentsTable).where(eq(paymentsTable.orderId, ids.delayedOrder));
+    await db.delete(ordersTable).where(eq(ordersTable.id, ids.delayedOrder));
   });
 
   it("rejects an expired signed download without exposing receipt ownership", () => {

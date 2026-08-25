@@ -301,6 +301,8 @@ export interface Edition {
     sections: string[];
     /** @nullable */
     priceLow?: number | null;
+    /** Authoritative USD price in cents for the downloadable edition. */
+    digitalPriceCents?: number | null;
     /** @nullable */
     priceHigh?: number | null;
     themes: string[];
@@ -330,6 +332,7 @@ export interface EditionInput {
     tier: EditionInputTier;
     sections?: string[];
     priceLow?: number;
+    digitalPriceCents?: number;
     priceHigh?: number;
     themes?: string[];
     packs?: string[];
@@ -355,6 +358,7 @@ export interface EditionUpdate {
     tier?: EditionUpdateTier;
     sections?: string[];
     priceLow?: number | null;
+    digitalPriceCents?: number | null;
     priceHigh?: number | null;
     themes?: string[];
     packs?: string[];

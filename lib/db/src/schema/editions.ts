@@ -47,6 +47,8 @@ export const editionsTable = pgTable("editions", {
   sections: text("sections").array().notNull().default([]),
   priceLow: real("price_low"),
   priceHigh: real("price_high"),
+  /** Authoritative USD price for the downloadable edition at checkout. */
+  digitalPriceCents: integer("digital_price_cents"),
   themes: jsonb("themes").notNull().default([]).$type<string[]>(),
   packs: jsonb("packs").notNull().default([]).$type<string[]>(),
   inserts: jsonb("inserts").notNull().default([]).$type<string[]>(),

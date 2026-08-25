@@ -141,6 +141,13 @@
       "when": 1787682000000,
       "tag": "0019_seller_checkout",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1787683000000,
+      "tag": "0020_wave9_cart_integrity",
+      "breakpoints": true
     }
   ]
 }

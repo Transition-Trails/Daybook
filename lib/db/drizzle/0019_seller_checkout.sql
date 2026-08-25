@@ -45,9 +45,12 @@ ON CONFLICT ("id") DO NOTHING;
 UPDATE "stores"
 SET
   "name" = 'Pixel Perfect Plans',
-  "slug" = 'pixel-perfect-plans',
-  "owner_user_id" = 'user-platform-system'
+  "slug" = 'pixel-perfect-plans'
 WHERE "id" = 'store-house';
+--> statement-breakpoint
+UPDATE "stores"
+SET "owner_user_id" = 'user-platform-system'
+WHERE "id" = 'store-house' AND "owner_user_id" IS NULL;
 --> statement-breakpoint
 INSERT INTO "stores" (
   "id", "name", "slug", "owner_user_id", "plan", "status",

@@ -122,10 +122,10 @@ async function main() {
   await db
     .insert(editionsTable)
     .values([
-      { id: "r1", name: "Notes-only Notebook", status: "live",  tier: "basic", sections: [], priceLow: 9,  priceHigh: 9,  themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "notebook",  binding: { type: "coil", finish: "silver" } },
-      { id: "r2", name: "To-Do Notebook",      status: "live",  tier: "basic", sections: [], priceLow: 9,  priceHigh: 9,  themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "notebook",  binding: { type: "coil", finish: "silver" } },
-      { id: "r3", name: "Meeting Notes Pad",   status: "draft", tier: "basic", sections: [], priceLow: 7,  priceHigh: 7,  themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "notebook",  binding: { type: "coil", finish: "silver" } },
-      { id: "r4", name: "Habit Journal",       status: "draft", tier: "basic", sections: [], priceLow: 8,  priceHigh: 8,  themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "journal",   binding: { type: "coil", finish: "silver" } },
+      { id: "r1", name: "Notes-only Notebook", status: "live",  tier: "basic", sections: [], priceLow: 9,  priceHigh: 9, digitalPriceCents: 900, themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "notebook",  binding: { type: "coil", finish: "silver" } },
+      { id: "r2", name: "To-Do Notebook",      status: "live",  tier: "basic", sections: [], priceLow: 9,  priceHigh: 9, digitalPriceCents: 900, themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "notebook",  binding: { type: "coil", finish: "silver" } },
+      { id: "r3", name: "Meeting Notes Pad",   status: "draft", tier: "basic", sections: [], priceLow: 7,  priceHigh: 7, digitalPriceCents: 700, themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "notebook",  binding: { type: "coil", finish: "silver" } },
+      { id: "r4", name: "Habit Journal",       status: "draft", tier: "basic", sections: [], priceLow: 8,  priceHigh: 8, digitalPriceCents: 800, themes: [], packs: [], inserts: [], products: [], art: defaultArt, origin: "licensed", productType: "journal",   binding: { type: "coil", finish: "silver" } },
     ])
     .onConflictDoNothing();
   console.log("  ✓ notebook/journal editions (4): r1–r4 licensed");
@@ -135,10 +135,10 @@ async function main() {
   await db
     .insert(editionsTable)
     .values([
-      { id: "e1", name: "Classic 2026",     status: "live",  tier: "advanced", year: 2026, sections: ["Ideas","Projects","Meetings","Goals","Health"],  priceLow: 29, priceHigh: 39, themes: ["t1","t2"], packs: ["p1","p2"], inserts: ["i1","i2","i3"], products: ["r1","r2"], art: defaultArt, revisionOf: null, origin: "licensed" },
-      { id: "e2", name: "ADHD Edition",     status: "live",  tier: "advanced", year: 2026, sections: ["Brain dump","Today's 3","Wins","Habits"],        priceLow: 34, priceHigh: 44, themes: ["t1"],      packs: ["p3"],      inserts: ["i5"],          products: ["r4"],      art: defaultArt, revisionOf: null, origin: "licensed" },
-      { id: "e3", name: "90-Day Framework", status: "draft", tier: "advanced", year: 2026, sections: ["Vision","Milestones","Weekly review"],           priceLow: 49, priceHigh: 79, themes: [],          packs: [],          inserts: [],              products: ["r3"],      art: defaultArt, revisionOf: null, origin: "licensed" },
-      { id: "e4", name: "Basic 2026",       status: "live",  tier: "basic",    year: 2026, sections: ["Notes"],                                        priceLow: 12, priceHigh: 19, themes: [],          packs: ["p1"],      inserts: ["i1"],          products: [],          art: defaultArt, revisionOf: null, origin: "starter" },
+      { id: "e1", name: "Classic 2026",     status: "live",  tier: "advanced", year: 2026, sections: ["Ideas","Projects","Meetings","Goals","Health"],  priceLow: 29, priceHigh: 39, digitalPriceCents: 2900, themes: ["t1","t2"], packs: ["p1","p2"], inserts: ["i1","i2","i3"], products: ["r1","r2"], art: defaultArt, revisionOf: null, origin: "licensed" },
+      { id: "e2", name: "ADHD Edition",     status: "live",  tier: "advanced", year: 2026, sections: ["Brain dump","Today's 3","Wins","Habits"],        priceLow: 34, priceHigh: 44, digitalPriceCents: 3400, themes: ["t1"],      packs: ["p3"],      inserts: ["i5"],          products: ["r4"],      art: defaultArt, revisionOf: null, origin: "licensed" },
+      { id: "e3", name: "90-Day Framework", status: "draft", tier: "advanced", year: 2026, sections: ["Vision","Milestones","Weekly review"],           priceLow: 49, priceHigh: 79, digitalPriceCents: 4900, themes: [],          packs: [],          inserts: [],              products: ["r3"],      art: defaultArt, revisionOf: null, origin: "licensed" },
+      { id: "e4", name: "Basic 2026",       status: "live",  tier: "basic",    year: 2026, sections: ["Notes"],                                        priceLow: 12, priceHigh: 19, digitalPriceCents: 1200, themes: [],          packs: ["p1"],      inserts: ["i1"],          products: [],          art: defaultArt, revisionOf: null, origin: "starter" },
     ])
     .onConflictDoUpdate({
       target: editionsTable.id,
@@ -242,8 +242,8 @@ async function main() {
     { storeId: "store-alpha", itemType: "insert",  itemId: "i1" },
     { storeId: "store-alpha", itemType: "insert",  itemId: "i2" },
     { storeId: "store-alpha", itemType: "insert",  itemId: "i3" },
-    { storeId: "store-alpha", itemType: "product", itemId: "r1" },
-    { storeId: "store-alpha", itemType: "product", itemId: "r2" },
+    { storeId: "store-alpha", itemType: "edition", itemId: "r1" },
+    { storeId: "store-alpha", itemType: "edition", itemId: "r2" },
     { storeId: "store-alpha", itemType: "edition", itemId: "e1" },
     // Beta — moderate curated set
     { storeId: "store-beta", itemType: "theme",   itemId: "t1" },
@@ -282,10 +282,10 @@ async function main() {
     { storeId: "store-house", itemType: "edition", itemId: "e2" },
     { storeId: "store-house", itemType: "edition", itemId: "e3" },
     { storeId: "store-house", itemType: "edition", itemId: "e4" },
-    { storeId: "store-house", itemType: "product", itemId: "r1" },
-    { storeId: "store-house", itemType: "product", itemId: "r2" },
-    { storeId: "store-house", itemType: "product", itemId: "r3" },
-    { storeId: "store-house", itemType: "product", itemId: "r4" },
+    { storeId: "store-house", itemType: "edition", itemId: "r1" },
+    { storeId: "store-house", itemType: "edition", itemId: "r2" },
+    { storeId: "store-house", itemType: "edition", itemId: "r3" },
+    { storeId: "store-house", itemType: "edition", itemId: "r4" },
   ]).onConflictDoNothing();
   console.log("  ✓ store catalog selections");
 

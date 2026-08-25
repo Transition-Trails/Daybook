@@ -14,7 +14,7 @@ import { inkApi } from "@/lib/api";
 interface EditionDetail {
   id: string; name: string; tier: string; status: string;
   sections: string[]; themes: string[]; packs: string[]; inserts: string[];
-  priceLow?: number | null; priceHigh?: number | null;
+  digitalPriceCents?: number | null; priceLow?: number | null; priceHigh?: number | null;
 }
 interface ShopTheme  { id: string; name: string; colors: string[]; price: number; desc?: string | null; }
 interface ShopPack   { id: string; name: string; tags: string[]; price: number; }
@@ -48,11 +48,9 @@ async function fetchEdition(storeSlug: string, editionId: string): Promise<Editi
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function PriceRange({ low, high }: { low?: number | null; high?: number | null }) {
-  if (!low && !high) return <span style={{ color: T.muted, fontSize: 15 }}>Price on request</span>;
-  if (low === high || !high)
-    return <span style={{ color: T.clay, fontWeight: 700, fontSize: 20 }}>${low?.toFixed(2)}</span>;
-  return <span style={{ color: T.clay, fontWeight: 700, fontSize: 20 }}>${low?.toFixed(2)} – ${high?.toFixed(2)}</span>;
+function DigitalPrice({ cents }: { cents?: number | null }) {
+  if (cents == null) return <span style={{ color: T.muted, fontSize: 15 }}>Unavailable</span>;
+  return <span style={{ color: T.clay, fontWeight: 700, fontSize: 20 }}>${(cents / 100).toFixed(2)}</span>;
 }
 
 function ThemeSwatch({ colors }: { colors: string[] }) {
@@ -174,7 +172,7 @@ export default function EditionDetail() {
           }}>
             {edition.name}
           </h1>
-          <PriceRange low={edition.priceLow} high={edition.priceHigh} />
+           <DigitalPrice cents={edition.digitalPriceCents} />
         </div>
       </header>
 
@@ -290,8 +288,8 @@ export default function EditionDetail() {
 
               <div style={{ padding: "20px" }}>
                 <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: `1px solid ${T.border}` }}>
-                  <PriceRange low={edition.priceLow} high={edition.priceHigh} />
-                  <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>Final price shown at checkout</p>
+                  <DigitalPrice cents={edition.digitalPriceCents} />
+                  <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>Exact price at checkout</p>
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>

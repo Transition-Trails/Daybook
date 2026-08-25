@@ -27,6 +27,20 @@ consolidated base migration or its replacement. Before recording an existing
 legacy migration, confirm that it cannot cause earlier unapplied migrations to
 be skipped.
 
+When a checked-in migration must be corrected after it has reached shared
+development, the preparation step may repair only its exact old checksum after
+verifying the complete post-migration contract, then replace the ledger hash
+with the revised journal hash.
+
+**Why:** Editing a historical SQL migration otherwise makes a healthy
+long-lived database appear drifted, while blindly accepting a prior checksum
+could conceal a partial or unrelated schema state.
+
+**How to apply:** Keep each checksum repair opt-in, narrowly keyed to one known
+old hash and migration timestamp, and prove every relevant table, column, and
+data-normalization invariant before rewriting the ledger row. Never use this
+mechanism as a general drift bypass.
+
 The legacy WorldSmith baseline can lack the final-art run audit fields even
 when the application schema expects them. The tracked production-package repair
 migration now adds those fields and its table/indexes automatically; its

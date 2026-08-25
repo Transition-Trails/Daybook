@@ -10,6 +10,7 @@ import Stripe from "stripe";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   db,
+  checkoutIntentsTable,
   editionsTable,
   ordersTable,
   paymentsTable,
@@ -24,11 +25,15 @@ import { createSignedDownloadLinks } from "../lib/order-delivery";
 import { sendOrderReceipt } from "../lib/email/senders";
 import { logger } from "../lib/logger";
 import type { User } from "@workspace/db";
+import { isPurchasableItemType } from "../lib/catalog-commerce";
 
 const router: IRouter = Router();
 const GUEST_WINDOW_MS = 60 * 60 * 1000;
 const MAX_GUEST_CHECKOUTS_PER_WINDOW = 10;
+const CHECKOUT_INTENT_TTL_MS = 60 * 60 * 1000;
 const guestAttempts = new Map<string, { startedAt: number; count: number }>();
+// Process-local by design; move this to a shared store before running more
+// than one API instance so guest allowances apply consistently.
 
 type RequestedItem = { itemType?: unknown; itemId?: unknown; quantity?: unknown };
 type ResolvedItem = OrderItem & { itemType: string; itemId: string; quantity: number };
@@ -56,23 +61,12 @@ function allowGuestCheckout(req: Request): boolean {
   return true;
 }
 
-function centsFromDollars(value: number | null | undefined): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
-  const cents = Math.round(value * 100);
-  return Number.isSafeInteger(cents) ? cents : null;
-}
-
-function canonicalType(itemType: string): string {
-  return itemType === "product" ? "edition" : itemType;
-}
-
 async function loadResolvedItem(
   storeId: string,
   requested: { itemType: string; itemId: string; quantity: number },
   ctx: EntitlementContext,
 ): Promise<ResolvedItem> {
-  const canonical = canonicalType(requested.itemType);
-  if (canonical !== "edition") {
+  if (!isPurchasableItemType(requested.itemType)) {
     // Only editions currently resolve to seller-owned generated PDFs. Refuse
     // any catalog reference without a concrete, secure delivery implementation.
     throw new Error("Only downloadable planner editions are available for checkout");
@@ -82,7 +76,7 @@ async function loadResolvedItem(
     .from(storeCatalogTable)
     .where(and(
       eq(storeCatalogTable.storeId, storeId),
-      inArray(storeCatalogTable.itemType, [requested.itemType, canonical]),
+      eq(storeCatalogTable.itemType, requested.itemType),
       eq(storeCatalogTable.itemId, requested.itemId),
     ))
     .limit(1);
@@ -95,16 +89,14 @@ async function loadResolvedItem(
   let origin: "starter" | "licensed" | "owned" = "licensed";
   let authoredByStoreId: string | null = null;
 
-  if (canonical === "edition") {
+  if (requested.itemType === "edition") {
     const [row] = await db.select().from(editionsTable).where(and(
       eq(editionsTable.id, requested.itemId),
       eq(editionsTable.status, "live"),
     ));
     if (!row) throw new Error(`Edition "${requested.itemId}" is not available for purchase`);
     name = row.name;
-    // Editions currently expose a retail range, not variants. The lower
-    // bound is the canonical digital checkout price until variants exist.
-    priceCents = centsFromDollars(row.priceLow);
+    priceCents = row.digitalPriceCents;
     origin = (row.origin ?? "licensed") as typeof origin;
     authoredByStoreId = row.authoredByStoreId;
   } else {
@@ -142,6 +134,32 @@ function parseRequestedItems(body: unknown): Array<{ itemType: string; itemId: s
       throw new Error("quantity must be an integer from 1 to 20");
     }
     return { itemType: item.itemType.trim(), itemId: item.itemId.trim(), quantity: item.quantity };
+  });
+}
+
+function parseResolvedItems(value: unknown): ResolvedItem[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 20) {
+    throw new Error("Checkout intent has an invalid item list");
+  }
+  return value.map((raw) => {
+    if (!raw || typeof raw !== "object") throw new Error("Checkout intent has invalid items");
+    const item = raw as Record<string, unknown>;
+    if (
+      item.itemType !== "edition"
+      || typeof item.itemId !== "string" || !item.itemId
+      || typeof item.name !== "string" || !item.name
+      || typeof item.priceCents !== "number" || !Number.isInteger(item.priceCents) || item.priceCents < 0
+      || typeof item.quantity !== "number" || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 20
+    ) {
+      throw new Error("Checkout intent has invalid items");
+    }
+    return {
+      itemType: item.itemType,
+      itemId: item.itemId,
+      name: item.name,
+      priceCents: item.priceCents,
+      quantity: item.quantity,
+    };
   });
 }
 
@@ -232,8 +250,26 @@ router.post(
       return;
     }
 
+    const intentId = `ci_${crypto.randomUUID().replace(/-/g, "")}`;
+    const amountCents = resolvedItems.reduce(
+      (sum, item) => sum + item.priceCents * item.quantity,
+      0,
+    );
+    const createdAt = new Date();
+    const expiresAt = new Date(createdAt.getTime() + CHECKOUT_INTENT_TTL_MS);
+    const user = authenticated ? req.user as User : undefined;
+
     try {
-      const user = authenticated ? req.user as User : undefined;
+      await db.insert(checkoutIntentsTable).values({
+        id: intentId,
+        storeId,
+        buyerUserId: user?.id ?? null,
+        items: resolvedItems,
+        amountCents,
+        currency: "usd",
+        createdAt,
+        expiresAt,
+      });
       const session = await stripe.checkout.sessions.create(
         {
           mode: "payment",
@@ -250,10 +286,12 @@ router.post(
             commerce: "seller",
             storeId,
             ...(user ? { userId: user.id } : {}),
-            items: JSON.stringify(resolvedItems.map(({ itemType, itemId, name, priceCents, quantity }) => ({
-              itemType, itemId, name, priceCents, quantity,
-            }))),
+            intentId,
           },
+          // A paid session must never outlive the authoritative cart snapshot.
+          // Stripe requires this Unix timestamp to be 30 minutes–24 hours away;
+          // the one-hour intent TTL satisfies that contract.
+          expires_at: Math.floor(expiresAt.getTime() / 1000),
           success_url: checkoutSuccessUrl(),
           cancel_url: checkoutCancelUrl(),
         },
@@ -286,23 +324,33 @@ export async function processSellerCheckoutPayment(
   const metadata = payload.metadata ?? {};
   const storeId = metadata.storeId;
   const sessionId = payload.id;
-  if (!storeId || !sessionId) throw new Error("Seller checkout webhook is missing store/session metadata");
-  let metadataItems: ResolvedItem[];
-  try {
-    const parsed = JSON.parse(metadata.items ?? "[]") as unknown;
-    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("empty items");
-    metadataItems = parsed as ResolvedItem[];
-    if (metadataItems.some((item) => !item.itemId || !item.itemType || !item.name
-      || !Number.isInteger(item.priceCents) || !Number.isInteger(item.quantity)
-      || item.quantity < 1)) throw new Error("invalid items");
-  } catch {
-    throw new Error("Seller checkout webhook has invalid item metadata");
+  const intentId = metadata.intentId;
+  if (!storeId || !sessionId || !intentId) {
+    throw new Error("Seller checkout webhook is missing store/session intent metadata");
   }
 
   const [store] = await db.select().from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
   if (!store || !store.stripeAccountId) throw new Error("Seller checkout store is missing its connected account");
   if (event.account && event.account !== store.stripeAccountId) {
     throw new Error("Seller checkout webhook account does not match the store");
+  }
+
+  const [intent] = await db.select().from(checkoutIntentsTable)
+    .where(eq(checkoutIntentsTable.id, intentId)).limit(1);
+  if (!intent) throw new Error("Seller checkout intent was not found");
+  if (intent.storeId !== storeId) throw new Error("Seller checkout intent belongs to a different store");
+  // Intent expiry limits the Checkout Session's payment window (`expires_at` is
+  // set when it is created). Do not reject a verified Stripe success event just
+  // because its delivery is delayed: async payment methods and webhook retries
+  // can legitimately arrive after that window has closed.
+  if (metadata.userId && metadata.userId !== intent.buyerUserId) {
+    throw new Error("Seller checkout intent buyer does not match the webhook");
+  }
+  let intentItems: ResolvedItem[];
+  try {
+    intentItems = parseResolvedItems(intent.items);
+  } catch {
+    throw new Error("Seller checkout intent has invalid item data");
   }
 
   const metadataUserId = metadata.userId;
@@ -312,7 +360,7 @@ export async function processSellerCheckoutPayment(
   const buyerEmail = payload.customer_details?.email ?? payload.customer_email ?? buyer?.email;
   if (!buyerEmail) throw new Error("Seller checkout webhook has no buyer email");
 
-  const orderItems: OrderItem[] = metadataItems.map((item) => ({
+  const orderItems: OrderItem[] = intentItems.map((item) => ({
     itemType: item.itemType,
     itemId: item.itemId,
     name: item.name,
@@ -320,10 +368,14 @@ export async function processSellerCheckoutPayment(
     quantity: item.quantity,
   }));
   const orderId = `ord_seller_${sessionId.replace(/[^a-zA-Z0-9_]/g, "_")}`;
-  const amountCents = typeof payload.amount_total === "number" && Number.isFinite(payload.amount_total)
-    ? payload.amount_total
-    : orderItems.reduce((sum, item) => sum + item.priceCents * (item.quantity ?? 1), 0);
-  const currency = payload.currency?.trim() || "usd";
+  const amountCents = intent.amountCents;
+  const currency = intent.currency;
+  if (typeof payload.amount_total === "number" && payload.amount_total !== amountCents) {
+    throw new Error("Seller checkout payment amount does not match the checkout intent");
+  }
+  if (payload.currency && payload.currency.toLowerCase() !== currency.toLowerCase()) {
+    throw new Error("Seller checkout payment currency does not match the checkout intent");
+  }
 
   const result = await db.transaction(async (tx) => {
     // Stripe can retry and can emit both completed/async-succeeded events for

@@ -23,7 +23,7 @@ import { inkApi } from "@/lib/api";
 
 interface ShopEdition {
   id: string; name: string; tier: string;
-  priceLow?: number | null; priceHigh?: number | null;
+  digitalPriceCents?: number | null; priceLow?: number | null; priceHigh?: number | null;
   sections: string[];
 }
 interface ThemePalette    { id: string; name: string; colors: string[]; }

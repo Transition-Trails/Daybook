@@ -26,6 +26,7 @@ import {
 import { eq, and, inArray, asc } from "drizzle-orm";
 import { filterEntitled, type EntitlementContext } from "../lib/entitlement";
 import type { Theme, Palette, Background } from "@workspace/db";
+import { isPurchasableCatalogItem } from "../lib/catalog-commerce";
 
 // ── Palette join helper ────────────────────────────────────────────────────────
 async function loadThemePalettes(themeIds: string[]): Promise<Record<string, Palette[]>> {
@@ -126,10 +127,14 @@ router.get("/shop/:storeSlug", async (req: Request, res: Response): Promise<void
   ]);
 
   // Filter 1: in the store's enabled set. Filter 2: entitled for this store.
-  const editions = filterEntitled(allEditions.filter(e => enabled.edition.has(e.id)), ctx);
-  const themes   = filterEntitled(allThemes.filter(t => enabled.theme.has(t.id)), ctx);
-  const packs    = filterEntitled(allPacks.filter(p => enabled.pack.has(p.id)), ctx);
-  const inserts  = filterEntitled(allInserts.filter(i => enabled.insert.has(i.id)), ctx);
+  const editions = filterEntitled(allEditions.filter(e => enabled.edition.has(e.id)), ctx)
+    .map((edition) => ({ ...edition, purchasable: isPurchasableCatalogItem("edition", edition) }));
+  const themes   = filterEntitled(allThemes.filter(t => enabled.theme.has(t.id)), ctx)
+    .map((theme) => ({ ...theme, purchasable: isPurchasableCatalogItem("theme", theme) }));
+  const packs    = filterEntitled(allPacks.filter(p => enabled.pack.has(p.id)), ctx)
+    .map((pack) => ({ ...pack, purchasable: isPurchasableCatalogItem("pack", pack) }));
+  const inserts  = filterEntitled(allInserts.filter(i => enabled.insert.has(i.id)), ctx)
+    .map((insert) => ({ ...insert, purchasable: isPurchasableCatalogItem("insert", insert) }));
 
   const [palettesMap, backgroundsMap] = await Promise.all([
     loadThemePalettes(themes.map(t => t.id)),
@@ -200,10 +205,13 @@ router.get("/shop/:storeSlug/editions/:editionId", async (req: Request, res: Res
 
   res.json({
     store: { id: store.id, name: store.name, slug: store.slug },
-    edition,
-    themes:  withBackgrounds(withPalettes(entitledThemes, palettesMap), backgroundsMap),
-    packs:   filterEntitled(allPacks.filter(p   => editionPackIds.has(p.id)   && enabled.pack.has(p.id)),   ctx),
-    inserts: filterEntitled(allInserts.filter(i  => editionInsertIds.has(i.id) && enabled.insert.has(i.id)), ctx),
+    edition: { ...edition, purchasable: isPurchasableCatalogItem("edition", edition) },
+    themes:  withBackgrounds(withPalettes(entitledThemes, palettesMap), backgroundsMap)
+      .map((theme) => ({ ...theme, purchasable: isPurchasableCatalogItem("theme", theme) })),
+    packs:   filterEntitled(allPacks.filter(p => editionPackIds.has(p.id) && enabled.pack.has(p.id)), ctx)
+      .map((pack) => ({ ...pack, purchasable: isPurchasableCatalogItem("pack", pack) })),
+    inserts: filterEntitled(allInserts.filter(i => editionInsertIds.has(i.id) && enabled.insert.has(i.id)), ctx)
+      .map((insert) => ({ ...insert, purchasable: isPurchasableCatalogItem("insert", insert) })),
   });
 });
 

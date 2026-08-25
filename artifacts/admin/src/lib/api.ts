@@ -163,6 +163,8 @@ export interface CatalogItem {
   name: string;
   status: string;
   globalAvailable: boolean;
+  digitalPriceCents?: number | null;
+  purchasable?: boolean;
   origin?: ItemOrigin;
   authoredByStoreId?: string | null;
   [key: string]: unknown;
@@ -734,6 +736,7 @@ export const storeStudiosApi = {
         sections?: string[];
         priceLow?: number;
         priceHigh?: number;
+        digitalPriceCents?: number;
         themeIds?: string[];
         packIds?: string[];
         insertIds?: string[];
@@ -754,6 +757,7 @@ export const storeStudiosApi = {
         sections?: string[];
         priceLow?: number;
         priceHigh?: number;
+        digitalPriceCents?: number;
         themeIds?: string[];
         packIds?: string[];
         insertIds?: string[];
@@ -952,7 +956,9 @@ export const catalogApi = {
   packs:    () => apiFetch<CatalogItem[]>("/sticker-packs"),
   inserts:  () => apiFetch<CatalogItem[]>("/inserts"),
   products: () => apiFetch<CatalogItem[]>("/related-products"),
-  editions: () => apiFetch<CatalogItem[]>("/editions"),
+  // The query version avoids reusing pre-commerce-policy browser cache entries
+  // that do not include the server-owned `purchasable` field.
+  editions: () => apiFetch<CatalogItem[]>("/editions?commercePolicy=v1"),
 
   updateTheme:   (id: string, data: Partial<CatalogItem>) => apiFetch<CatalogItem>(`/themes/${id}`,          { method: "PATCH", body: JSON.stringify(data) }),
   updatePack:    (id: string, data: Partial<CatalogItem>) => apiFetch<CatalogItem>(`/sticker-packs/${id}`,   { method: "PATCH", body: JSON.stringify(data) }),

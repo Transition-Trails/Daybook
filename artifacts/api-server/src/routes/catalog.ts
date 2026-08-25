@@ -47,6 +47,7 @@ import { writeAudit } from "../lib/audit";
 import { callAi, generateImage } from "../lib/ai-proxy";
 import { KNOWN_TEXTURE_SLUGS } from "../lib/texture-registry";
 import type { User } from "@workspace/db";
+import { isPurchasableCatalogItem } from "../lib/catalog-commerce";
 
 const router: IRouter = Router();
 
@@ -333,7 +334,7 @@ function buildCatalogRoutes(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   table: any,
   entityLabel: string,
-  options: { dedupByName?: boolean } = {},
+  options: { dedupByName?: boolean; itemType?: string } = {},
 ) {
   // GET /{entity} — public: live only; admin: all non-deleted
   // NOTE: for /themes this is shadowed by the enriched handler above.
@@ -345,7 +346,9 @@ function buildCatalogRoutes(
     } else {
       rows = await db.select().from(table).where(ne(table.status, "deleted")).orderBy(table.createdAt);
     }
-    res.json(rows);
+    res.json(options.itemType
+      ? rows.map((row) => ({ ...row, purchasable: isPurchasableCatalogItem(options.itemType!, row) }))
+      : rows);
   });
 
   // GET /{entity}/:id — NOTE: for /themes/:id shadowed by enriched handler above.
@@ -361,7 +364,9 @@ function buildCatalogRoutes(
       res.status(404).json({ error: `${entityLabel} not found` });
       return;
     }
-    res.json(row);
+    res.json(options.itemType
+      ? { ...row, purchasable: isPurchasableCatalogItem(options.itemType, row) }
+      : row);
   });
 
   // POST /{entity} — super_admin only
@@ -444,11 +449,11 @@ function buildCatalogRoutes(
 // NOTE: The GET /themes and GET /themes/:id are already handled by the enriched
 // routes above; these registrations add POST / PATCH / DELETE for themes.
 
-buildCatalogRoutes(router, "/themes",      themesTable,          "Theme");
+buildCatalogRoutes(router, "/themes",      themesTable,          "Theme", { itemType: "theme" });
 buildCatalogRoutes(router, "/palettes",   palettesTable,        "Palette");
 buildCatalogRoutes(router, "/backgrounds",backgroundsTable,     "Background");
-buildCatalogRoutes(router, "/packs",      stickerPacksTable,    "StickerPack");
-buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert",       { dedupByName: true });
+buildCatalogRoutes(router, "/packs",      stickerPacksTable,    "StickerPack", { itemType: "pack" });
+buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert", { dedupByName: true, itemType: "insert" });
 // /products — legacy read-only view of notebook/journal/memory-keeping editions.
 // Writes go through /editions. /related-products is the old URL; both 301-redirect
 // to the same data so existing bookmarks and API clients keep working.
@@ -459,7 +464,7 @@ router.get("/products", async (req: Request, res: Response): Promise<void> => {
       inArray(editionsTable.productType, ["notebook", "journal", "memory-keeping"]),
     ),
   );
-  res.json(rows);
+  res.json(rows.map((row) => ({ ...row, purchasable: isPurchasableCatalogItem("edition", row) })));
 });
 router.get("/products/:id", async (req: Request, res: Response): Promise<void> => {
   const [row] = await db.select().from(editionsTable).where(
@@ -469,7 +474,7 @@ router.get("/products/:id", async (req: Request, res: Response): Promise<void> =
     ),
   );
   if (!row || row.status === "deleted") { res.status(404).json({ error: "Product not found" }); return; }
-  res.json(row);
+  res.json({ ...row, purchasable: isPurchasableCatalogItem("edition", row) });
 });
 router.get("/related-products",     (_req: Request, res: Response) => res.redirect(301, "/products"));
 router.get("/related-products/:id", (req: Request,  res: Response) => res.redirect(301, `/products/${req.params.id as string}`));
@@ -481,14 +486,14 @@ router.get("/hardware", async (req: Request, res: Response): Promise<void> => {
   const rows = isPublicCaller(req)
     ? await db.select().from(hardwareTable).where(eq(hardwareTable.status, "live")).orderBy(hardwareTable.createdAt)
     : await db.select().from(hardwareTable).where(ne(hardwareTable.status, "deleted")).orderBy(hardwareTable.createdAt);
-  res.json(rows);
+  res.json(rows.map((row) => ({ ...row, purchasable: isPurchasableCatalogItem("hardware", row) })));
 });
 
 router.get("/hardware/:id", async (req: Request, res: Response): Promise<void> => {
   const [row] = await db.select().from(hardwareTable).where(eq(hardwareTable.id, req.params.id as string)) as (typeof hardwareTable.$inferSelect | undefined)[];
   if (!row || row.status === "deleted") { res.status(404).json({ error: "Hardware not found" }); return; }
   if (isPublicCaller(req) && row.status !== "live") { res.status(404).json({ error: "Hardware not found" }); return; }
-  res.json(row);
+  res.json({ ...row, purchasable: isPurchasableCatalogItem("hardware", row) });
 });
 
 router.post("/hardware", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
@@ -524,7 +529,7 @@ router.get("/accessories", async (req: Request, res: Response): Promise<void> =>
   const rows = isPublicCaller(req)
     ? await db.select().from(accessoriesTable).where(eq(accessoriesTable.status, "live")).orderBy(accessoriesTable.createdAt)
     : await db.select().from(accessoriesTable).where(ne(accessoriesTable.status, "deleted")).orderBy(accessoriesTable.createdAt);
-  res.json(rows);
+  res.json(rows.map((row) => ({ ...row, purchasable: isPurchasableCatalogItem("accessory", row) })));
 });
 
 router.get("/accessories/:id", async (req: Request, res: Response): Promise<void> => {
@@ -860,10 +865,10 @@ router.get("/editions", async (req: Request, res: Response): Promise<void> => {
       filter = and(filter, sql`UPPER(${editionsTable.world}) = ${worldCode.toUpperCase()}`)!;
     rows = await db.select().from(editionsTable).where(filter).orderBy(editionsTable.createdAt);
   }
-  res.json(rows);
+  res.json(rows.map((row) => ({ ...row, purchasable: isPurchasableCatalogItem("edition", row) })));
 });
 
-buildCatalogRoutes(router, "/editions",   editionsTable,        "Edition");
+buildCatalogRoutes(router, "/editions",   editionsTable,        "Edition", { itemType: "edition" });
 
 // ── Edition-specific: duplicate ───────────────────────────────────────────────
 
@@ -907,6 +912,7 @@ router.post(
         sections:        (src.sections ?? []) as string[],
         priceLow:        src.priceLow ?? null,
         priceHigh:       src.priceHigh ?? null,
+        digitalPriceCents: src.digitalPriceCents ?? null,
         themes:          (src.themes ?? []) as string[],
         packs:           (src.packs ?? []) as string[],
         inserts:         (src.inserts ?? []) as string[],

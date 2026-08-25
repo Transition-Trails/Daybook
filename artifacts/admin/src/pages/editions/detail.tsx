@@ -30,6 +30,10 @@ const PRODUCT_TYPES = ['planner', 'notebook', 'journal', 'memory-keeping'] as co
 const BINDING_TYPES   = ['', 'coil', 'twin-loop', 'discs', '3-ring', 'none'] as const;
 const BINDING_FINISHES = ['', 'gold', 'rose gold', 'silver', 'matte black', 'white'] as const;
 const NO_WORLD_VALUE = '__no-world__';
+const optionalMoney = z.preprocess(
+  (value) => value === '' || value === null || value === undefined ? undefined : Number(value),
+  z.number().finite().min(0).optional(),
+);
 
 const editionSchema = z.object({
   id: z.string().min(1, 'ID is required'),
@@ -39,6 +43,7 @@ const editionSchema = z.object({
   sections: z.string().default(''),
   bindingType:   z.string().default(''),
   bindingFinish: z.string().default(''),
+  digitalPriceDollars: optionalMoney,
   priceLow: z.coerce.number().optional(),
   priceHigh: z.coerce.number().optional(),
   world: z.string().default(''),
@@ -146,7 +151,7 @@ export default function EditionDetail() {
 
   const form = useForm<EditionFormValues>({
     resolver: zodResolver(editionSchema),
-    defaultValues: { id: '', name: '', tier: 'basic', productType: 'planner', sections: '', bindingType: '', bindingFinish: '', priceLow: 0, priceHigh: 0, world: '' }
+    defaultValues: { id: '', name: '', tier: 'basic', productType: 'planner', sections: '', bindingType: '', bindingFinish: '', digitalPriceDollars: undefined, priceLow: 0, priceHigh: 0, world: '' }
   });
 
   const initializedForId = useRef<string | null>(null);
@@ -163,6 +168,7 @@ export default function EditionDetail() {
         sections: (edition.sections || []).join(', '),
         bindingType:   binding?.type   ?? '',
         bindingFinish: binding?.finish ?? '',
+        digitalPriceDollars: edition.digitalPriceCents == null ? undefined : edition.digitalPriceCents / 100,
         priceLow: edition.priceLow ?? 0,
         priceHigh: edition.priceHigh ?? 0,
         world: ((edition as any).world ?? '') as string,
@@ -186,6 +192,9 @@ export default function EditionDetail() {
         name: data.name,
         tier,
         sections,
+        ...(data.digitalPriceDollars === undefined
+          ? {}
+          : { digitalPriceCents: Math.round(data.digitalPriceDollars * 100) }),
         priceLow: data.priceLow || undefined,
         priceHigh: data.priceHigh || undefined,
       };
@@ -206,6 +215,9 @@ export default function EditionDetail() {
         name: data.name,
         tier,
         sections,
+        ...(data.digitalPriceDollars === undefined
+          ? {}
+          : { digitalPriceCents: Math.round(data.digitalPriceDollars * 100) }),
         priceLow: data.priceLow ?? null,
         priceHigh: data.priceHigh ?? null,
         ...(data.productType ? { productType: data.productType } : {}),
@@ -438,21 +450,31 @@ export default function EditionDetail() {
               <Card>
                 <CardHeader><CardTitle>Pricing (USD)</CardTitle></CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-6">
+                    <FormField control={form.control} name="digitalPriceDollars" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Digital download price</FormLabel>
+                        <FormControl><Input type="number" step="0.01" min="0" {...field} value={field.value ?? ''} /></FormControl>
+                        <FormDescription>Set an exact USD price to enable checkout; leave blank to keep this edition unavailable for purchase.</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <div className="grid grid-cols-2 gap-6">
                     <FormField control={form.control} name="priceLow" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Price Low</FormLabel>
+                        <FormLabel>Marketing range low</FormLabel>
                         <FormControl><Input type="number" step="0.01" min="0" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
                     <FormField control={form.control} name="priceHigh" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Price High</FormLabel>
+                        <FormLabel>Marketing range high</FormLabel>
                         <FormControl><Input type="number" step="0.01" min="0" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
+                    </div>
                   </div>
                 </CardContent>
               </Card>

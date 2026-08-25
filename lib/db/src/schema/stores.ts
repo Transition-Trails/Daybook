@@ -84,7 +84,7 @@ export const storeCatalogTable = pgTable(
     storeId: text("store_id")
       .notNull()
       .references(() => storesTable.id, { onDelete: "cascade" }),
-    itemType: text("item_type").notNull(), // theme | pack | insert | product | edition
+    itemType: text("item_type").notNull(), // theme | pack | insert | edition
     itemId: text("item_id").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

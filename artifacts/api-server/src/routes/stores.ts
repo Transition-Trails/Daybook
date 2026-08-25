@@ -30,6 +30,7 @@ import {
 import { assertStoreScope } from "../lib/auth-middleware";
 import { writeAudit } from "../lib/audit";
 import { annotateWithEntitlement, type EntitlementContext } from "../lib/entitlement";
+import { isPurchasableCatalogItem } from "../lib/catalog-commerce";
 
 const router: IRouter = Router();
 const OWNER_EDITABLE = ["name", "domain", "defaultMode"] as const;
@@ -51,7 +52,6 @@ const CATALOG_TABLES: Record<string, { table: any; label: string }> = {
   theme:   { table: themesTable,          label: "Theme" },
   pack:    { table: stickerPacksTable,    label: "StickerPack" },
   insert:  { table: insertsTable,         label: "Insert" },
-  product: { table: editionsTable, label: "Edition" },
   edition: { table: editionsTable,        label: "Edition" },
 };
 
@@ -422,12 +422,15 @@ router.get(
     }
 
     // Fetch origin for each type where the store has enabled items.
-    const originMaps: Record<string, Record<string, { origin: string; authoredByStoreId: string | null }>> = {};
+    const originMaps: Record<string, Record<string, {
+      origin: string;
+      authoredByStoreId: string | null;
+      digitalPriceCents?: number | null;
+    }>> = {};
     const fetchBatch = [
       { type: "theme",   table: themesTable },
       { type: "pack",    table: stickerPacksTable },
       { type: "insert",  table: insertsTable },
-      { type: "product", table: editionsTable },
       { type: "edition", table: editionsTable },
     ];
     await Promise.all(
@@ -437,7 +440,11 @@ router.get(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const catalogRows = await db.select().from(table as any).where(inArray((table as any).id, ids));
         originMaps[type] = Object.fromEntries(
-          catalogRows.map((r: any) => [r.id, { origin: r.origin ?? "licensed", authoredByStoreId: r.authoredByStoreId ?? null }]),
+          catalogRows.map((r: any) => [r.id, {
+            origin: r.origin ?? "licensed",
+            authoredByStoreId: r.authoredByStoreId ?? null,
+            digitalPriceCents: r.digitalPriceCents ?? null,
+          }]),
         );
       }),
     );
@@ -453,7 +460,12 @@ router.get(
       const origin = (meta?.origin ?? "licensed") as "starter" | "licensed" | "owned";
       const authoredByStoreId = meta?.authoredByStoreId ?? null;
       const [annotated] = annotateWithEntitlement([{ origin, authoredByStoreId }], ctx);
-      return { ...row, origin: annotated.origin, entitlementStatus: annotated.entitlementStatus };
+      return {
+        ...row,
+        origin: annotated.origin,
+        entitlementStatus: annotated.entitlementStatus,
+        purchasable: isPurchasableCatalogItem(row.itemType, meta),
+      };
     });
 
     res.json(enriched);

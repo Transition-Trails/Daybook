@@ -405,6 +405,7 @@ router.post(
       sections,
       priceLow,
       priceHigh,
+      digitalPriceCents,
       themeIds,
       packIds,
       insertIds,
@@ -418,6 +419,7 @@ router.post(
       sections?: string[];
       priceLow?: number;
       priceHigh?: number;
+      digitalPriceCents?: number;
       themeIds?: string[];
       packIds?: string[];
       insertIds?: string[];
@@ -470,6 +472,7 @@ router.post(
           sections: (sections ?? []) as string[],
           priceLow: priceLow ?? 0,
           priceHigh: priceHigh ?? 0,
+          digitalPriceCents: digitalPriceCents ?? Math.round((priceLow ?? 0) * 100),
           themes: (themeIds ?? []) as string[],
           packs: (packIds ?? []) as string[],
           inserts: (insertIds ?? []) as string[],
@@ -529,6 +532,7 @@ router.post(
           sections: (sections ?? []) as string[],
           priceLow: priceLow ?? 0,
           priceHigh: priceHigh ?? 0,
+          digitalPriceCents: digitalPriceCents ?? Math.round((priceLow ?? 0) * 100),
           themes: allThemeIds as string[],
           packs: (packIds ?? []) as string[],
           inserts: (insertIds ?? []) as string[],
@@ -839,12 +843,13 @@ router.patch(
       res.status(403).json({ error: "Staff can only edit draft items" }); return;
     }
 
-    const { name, sections, priceLow, priceHigh, themeIds, packIds, insertIds, productIds, status, productType, binding } =
+    const { name, sections, priceLow, priceHigh, digitalPriceCents, themeIds, packIds, insertIds, productIds, status, productType, binding } =
       req.body as {
         name?: string;
         sections?: string[];
         priceLow?: number;
         priceHigh?: number;
+        digitalPriceCents?: number;
         themeIds?: string[];
         packIds?: string[];
         insertIds?: string[];
@@ -888,6 +893,7 @@ router.patch(
     if (sections !== undefined) updateData.sections = sections as string[];
     if (priceLow !== undefined) updateData.priceLow = priceLow;
     if (priceHigh !== undefined) updateData.priceHigh = priceHigh;
+    if (digitalPriceCents !== undefined) updateData.digitalPriceCents = digitalPriceCents;
     if (themeIds !== undefined) updateData.themes = themeIds as string[];
     if (packIds !== undefined) updateData.packs = packIds as string[];
     if (insertIds !== undefined) updateData.inserts = insertIds as string[];

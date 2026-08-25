@@ -15,7 +15,7 @@ import { BookMarked, Sparkles, ChevronRight, Package, Palette } from "lucide-rea
 
 interface ShopEdition {
   id: string; name: string; tier: string;
-  priceLow?: number | null; priceHigh?: number | null;
+  digitalPriceCents?: number | null; priceLow?: number | null; priceHigh?: number | null;
   sections: string[]; themes: string[]; packs: string[]; inserts: string[];
 }
 interface ShopTheme  { id: string; name: string; colors: string[]; price: number; }
@@ -50,10 +50,9 @@ async function fetchShop(slug: string): Promise<ShopData> {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function PriceRange({ low, high }: { low?: number | null; high?: number | null }) {
-  if (!low && !high) return <span style={{ color: T.muted, fontSize: 13 }}>Price on request</span>;
-  if (low === high || !high) return <span style={{ color: T.clay, fontWeight: 600, fontSize: 14 }}>${low?.toFixed(2)}</span>;
-  return <span style={{ color: T.clay, fontWeight: 600, fontSize: 14 }}>${low?.toFixed(2)} – ${high?.toFixed(2)}</span>;
+function DigitalPrice({ cents }: { cents?: number | null }) {
+  if (cents == null) return <span style={{ color: T.muted, fontSize: 13 }}>Unavailable</span>;
+  return <span style={{ color: T.clay, fontWeight: 600, fontSize: 14 }}>${(cents / 100).toFixed(2)}</span>;
 }
 
 function TierBadge({ tier }: { tier: string }) {
@@ -224,7 +223,7 @@ export default function StorefrontHome() {
                         : "Classic planner edition"}
                     </p>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <PriceRange low={ed.priceLow} high={ed.priceHigh} />
+                      <DigitalPrice cents={ed.digitalPriceCents} />
                       <span style={{ fontSize: 11, color: T.muted }}>
                         {ed.themes.length} {ed.themes.length === 1 ? "theme" : "themes"}
                       </span>

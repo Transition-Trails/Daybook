@@ -11,13 +11,12 @@ interface Props {
   role: string;
 }
 
-type Tab = "themes" | "packs" | "inserts" | "products" | "editions";
+type Tab = "themes" | "packs" | "inserts" | "editions";
 
 const TABS: { key: Tab; label: string; type: string; fetcher: () => Promise<CatalogItem[]> }[] = [
   { key: "themes",   label: "Themes",          type: "theme",   fetcher: catalogApi.themes },
   { key: "packs",    label: "Sticker packs",   type: "pack",    fetcher: catalogApi.packs },
   { key: "inserts",  label: "Inserts",          type: "insert",  fetcher: catalogApi.inserts },
-  { key: "products", label: "Related products", type: "product", fetcher: catalogApi.products },
   { key: "editions", label: "Editions",         type: "edition", fetcher: catalogApi.editions },
 ];
 
@@ -164,6 +163,7 @@ export default function StoreShopCatalog({ storeId, role }: Props) {
                 <th className="px-4 py-3 font-medium">Origin</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Availability</th>
+                 <th className="px-4 py-3 font-medium">Selling</th>
                 {!isReadOnly && (
                   <th className="px-4 py-3 font-medium text-right">Enabled for store</th>
                 )}
@@ -201,6 +201,13 @@ export default function StoreShopCatalog({ storeId, role }: Props) {
                         </span>
                       ) : (
                         <span className="text-xs text-emerald-700">Available</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {item.purchasable ? (
+                        <span className="text-xs text-emerald-700">Sold as a download</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Not sold separately</span>
                       )}
                     </td>
                     {!isReadOnly && (

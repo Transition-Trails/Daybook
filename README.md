@@ -37,3 +37,23 @@ worked on before they are published to Notion:
 
 The legacy Notion resolver remains in place during this transition, so existing
 published WorldSmith records continue to compile and preview normally.
+
+### WorldSmith image generation
+
+WorldSmith uses GPT Image 2 through the Replit AI proxy by default
+(`WS_IMAGE_MODEL=gpt-image-2`); `gpt-image-1` is the supported fallback. Image
+requests are validated before they reach the provider:
+
+- dimensions must be multiples of 16;
+- the aspect ratio must stay between 1:3 and 3:1;
+- normal requests must stay within a 3,686,400-pixel budget (the equivalent of
+  2560 × 1440), while experimental sizes use the 8,294,400-pixel
+  3840 × 2160 budget;
+- effective provider, model, version, size, quality, and request metadata are
+  persisted for auditability and included in generation identity hashes.
+
+WorldSmith print targets come from the managed catalog, with separate
+orientation-specific dimensions. Platform admins can update those dimensions
+in the WorldSmith settings surface without a code change. Specification boards
+show the resolved pixel target and physical print reference; they do not claim
+that a capped render was produced at the requested print DPI.

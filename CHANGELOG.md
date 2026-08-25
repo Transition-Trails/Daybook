@@ -2,6 +2,30 @@
 
 All notable changes to Daybook are documented in this file.
 
+## 2026-08-24 — WorldSmith generation and deployment safety
+
+### Added
+
+- Added GPT Image 2 provider-safe image generation through the Replit AI proxy,
+  with audited effective settings, legacy-size/quality mappings, and
+  `gpt-image-1` fallback support.
+- Added pixel-budget validation for normal and experimental image requests,
+  including 16-pixel alignment and 1:3–3:1 aspect-ratio checks.
+- Added managed, orientation-specific WorldSmith print targets that platform
+  admins can update without a code deployment.
+- Added tracked WorldSmith production-package schema migration coverage and
+  deployment-time migration verification with safe legacy-ledger handling and
+  explicit recovery for damaged metadata.
+
+### Changed
+
+- WorldSmith specification boards now report their resolved pixel dimensions
+  and physical print reference without claiming a potentially inaccurate DPI
+  after resolution capping.
+- Internal WorldSmith image-generation terminology no longer describes the
+  configured provider as DALL-E; public `dalle_skipped` and `dalle_error`
+  compatibility fields remain unchanged.
+
 ## 2026-08-21 — WorldSmith editorial updates
 
 ### Added

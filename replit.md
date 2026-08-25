@@ -110,6 +110,16 @@ Notion. Store their preview boards in protected App Storage. Preserve the
 legacy Notion resolver and writeback behavior for records that have a real
 `notionPageId`.
 
+**9. WorldSmith image targets are provider-safe and catalog-driven.**
+GPT Image 2 is the default model through the Replit AI proxy, with
+`gpt-image-1` as the supported fallback. Requests use a pixel budget rather
+than independent long- and short-side caps: 3,686,400 pixels normally and
+8,294,400 pixels when experimental sizes are enabled. Dimensions remain
+16-aligned and within a 1:3–3:1 aspect ratio. Effective provider settings are
+part of the audit record and generation identity hash. Print dimensions are
+managed per component and orientation in the catalog, so a platform admin can
+change them without a code deployment.
+
 ## Product
 
 Daybook Studio is a white-label digital-planner platform with three user tiers:
@@ -147,6 +157,9 @@ differences do not block a catalog migration. `push` is reserved for local
 schema exploration and is not the deployment or CI update path.
 Databases created before tracked migrations are safely baselined from the
 known consolidated schema before later migrations are applied.
+Deployment startup verifies the migration ledger before the API starts. Unknown
+or damaged ledger histories are rejected without writes; use the recovery
+runbook rather than editing ledger rows manually.
 
 **isSuperAdmin legacy bug (fixed).** `roles.ts` previously had a `role === "owner"` fallback making all store owners bypass store scoping. Fixed to check `platformRole === "super_admin"` only. Never reintroduce the owner bypass.
 

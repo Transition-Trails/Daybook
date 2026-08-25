@@ -1098,6 +1098,43 @@ describe("support activity and ticket tenant isolation", () => {
     expect(Array.isArray(res.body.builds)).toBe(true);
   });
 
+  it("blocks recent activity immediately after a member is removed", async () => {
+    const memberBeforeRemoval = await db
+      .select({ role: storeMembersTable.role })
+      .from(storeMembersTable)
+      .where(and(
+        eq(storeMembersTable.storeId, "store-alpha"),
+        eq(storeMembersTable.userId, USERS.alphaCustomer.id),
+      ))
+      .limit(1);
+    expect(memberBeforeRemoval).toHaveLength(1);
+
+    // A remaining member and a super admin retain access to the store.
+    await request(alphaOwner)
+      .get("/api/support/recent-activity?storeId=store-alpha")
+      .expect(200);
+    await request(sa)
+      .get("/api/support/recent-activity?storeId=store-alpha")
+      .expect(200);
+
+    await db.delete(storeMembersTable).where(and(
+      eq(storeMembersTable.storeId, "store-alpha"),
+      eq(storeMembersTable.userId, USERS.alphaCustomer.id),
+    ));
+
+    try {
+      await request(alphaCustomer)
+        .get("/api/support/recent-activity?storeId=store-alpha")
+        .expect(403);
+    } finally {
+      await db.insert(storeMembersTable).values({
+        storeId: "store-alpha",
+        userId: USERS.alphaCustomer.id,
+        role: memberBeforeRemoval[0].role,
+      });
+    }
+  });
+
   it("rejects recent activity queries for a non-member store", async () => {
     await request(noStore)
       .get("/api/support/recent-activity?storeId=store-alpha")

@@ -41,6 +41,7 @@ import {
 } from "@workspace/db";
 import { eq, ne, and, inArray, asc, sql } from "drizzle-orm";
 import { requireSuperAdmin, requireStoreAccess } from "../middleware/requireRole";
+import { isAdmin } from "../lib/auth-middleware";
 import { isSuperAdmin, type ActorContext } from "../lib/roles";
 import { writeAudit } from "../lib/audit";
 import { callAi, generateImage } from "../lib/ai-proxy";
@@ -51,11 +52,18 @@ const router: IRouter = Router();
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
-/** True when the request comes from a non-admin caller (public visibility rules). */
+/**
+ * Catalog visibility policy:
+ *   - unauthenticated callers and authenticated end users see live rows only
+ *   - staff and owner admins see draft and live rows, but never deleted rows
+ *   - platform super admins see draft and live rows, but never deleted rows
+ *
+ * Writes remain restricted to platform super admins below.
+ */
 function isPublicCaller(req: Request): boolean {
   if (!req.isAuthenticated()) return true;
   const user = req.user as User;
-  return !isSuperAdmin(user) && user.role !== "staff";
+  return !isSuperAdmin(user) && !isAdmin(req);
 }
 
 // ── Theme enrichment helpers ───────────────────────────────────────────────

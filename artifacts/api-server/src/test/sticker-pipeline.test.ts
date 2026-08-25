@@ -20,6 +20,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import express, { type Request, type Response, type NextFunction } from "express";
 import sharp from "sharp";
+import { readFile } from "node:fs/promises";
 import { db } from "@workspace/db";
 import {
   stickersLibraryTable,
@@ -37,6 +38,8 @@ import {
   generateCutlineSvg,
   assertDecodedPixelBudget,
   MAX_DECODED_IMAGE_PIXELS,
+  STICKER_OUTPUT_DPI,
+  resolveBorderWidthMm,
 } from "../lib/imageProcessing.js";
 
 // ── Per-run unique IDs ─────────────────────────────────────────────────────────
@@ -187,6 +190,13 @@ async function makeMultiCornerImage(): Promise<string> {
   return `data:image/png;base64,${png.toString("base64")}`;
 }
 
+/** Rasterize a checked-in SVG geometry fixture with its transparent canvas intact. */
+async function fixtureAsDataUrl(name: "plain" | "bordered" | "two-part" | "holed"): Promise<string> {
+  const svg = await readFile(new URL(`./fixtures/stickers/${name}.svg`, import.meta.url));
+  const png = await sharp(svg).png().toBuffer();
+  return `data:image/png;base64,${png.toString("base64")}`;
+}
+
 /** Decode a processedImageData data-URL and return the raw RGBA pixel buffer + metadata. */
 async function decodeProcessedImage(
   dataUrl: string,
@@ -247,6 +257,20 @@ function parseSvgPathPoints(svg: string): Array<[number, number]> {
     }
   }
   return points;
+}
+
+function countSvgMoveCommands(svg: string): number {
+  const dMatch = svg.match(/\s+d="([^"]+)"/);
+  return dMatch ? (dMatch[1].match(/\bM\s/g) ?? []).length : 0;
+}
+
+function boundingBox(points: Array<[number, number]>): { width: number; height: number } {
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  return {
+    width: Math.max(...xs) - Math.min(...xs),
+    height: Math.max(...ys) - Math.min(...ys),
+  };
 }
 
 /** Extract viewBox "0 0 w h" from an SVG string → { width, height }. */
@@ -331,18 +355,32 @@ describe("0. Direct function diagnostics", () => {
     const { pixels, width, height } = await decodeProcessedImage(resized);
     const transparent = countTransparent(pixels);
     const opaque = countOpaque(pixels);
-    expect(width).toBe(94); // Math.round((25/25.4)*96) = 94
-    expect(height).toBe(94);
+    expect(width).toBe(Math.round((25 / 25.4) * STICKER_OUTPUT_DPI));
+    expect(height).toBe(Math.round((25 / 25.4) * STICKER_OUTPUT_DPI));
     expect(transparent).toBeGreaterThan(0);
     expect(opaque).toBeGreaterThan(0);
   });
 
-  it("parses #fff as a white border rather than padding it into yellow", async () => {
+  it("converts a legacy 96-DPI border only when no physical width is supplied", () => {
+    expect(resolveBorderWidthMm(null, 2)).toBeCloseTo((2 * 25.4) / 96);
+    expect(resolveBorderWidthMm(0.6, 2)).toBe(0.6);
+  });
+
+  it("creates a white silhouette border while preserving transparent corners", async () => {
     const src = await makeWhiteBackgroundImage(64, 64);
     const bgRemoved = await removeBackground(src);
-    const bordered = await applyBorderAndSize(bgRemoved, "thin", 2, "#fff", null);
+    const bordered = await applyBorderAndSize(bgRemoved, "thin", null, "#fff", 25, 0.6);
     const { pixels } = await decodeProcessedImage(bordered);
-    expect([...pixels.slice(0, 4)]).toEqual([255, 255, 255, 255]);
+    expect([...pixels.slice(0, 4)]).toEqual([0, 0, 0, 0]);
+    const hasWhiteMatte = pixels.some(
+      (value, index) =>
+        index % 4 === 0 &&
+        value === 255 &&
+        pixels[index + 1] === 255 &&
+        pixels[index + 2] === 255 &&
+        pixels[index + 3] > 0,
+    );
+    expect(hasWhiteMatte).toBe(true);
   });
 
   it("rejects a 12,000px source before allocating raw flood-fill buffers", () => {
@@ -350,12 +388,11 @@ describe("0. Direct function diagnostics", () => {
     expect(12_000 * 12_000).toBeGreaterThan(MAX_DECODED_IMAGE_PIXELS);
   });
 
-  it("generateCutlineSvg produces a path for an opaque circle on transparent bg", async () => {
-    const src = await makeWhiteBackgroundImage(96, 96);
-    const bgRemoved = await removeBackground(src);
-    // Test cutline directly on bg-removed image (no resize)
-    const svg = await generateCutlineSvg(bgRemoved);
+  it("traces the plain checked-in artwork fixture", async () => {
+    const svg = await generateCutlineSvg(await fixtureAsDataUrl("plain"));
     expect(svg).toContain("<path");
+    // Unsized source artwork remains in legacy 96-DPI CSS dimensions.
+    expect(svg).toContain('width="120px" height="120px"');
     const points = parseSvgPathPoints(svg);
     expect(points.length).toBeGreaterThan(3);
   });
@@ -364,10 +401,34 @@ describe("0. Direct function diagnostics", () => {
     const src = await makeWhiteBackgroundImage(96, 96);
     const bgRemoved = await removeBackground(src);
     const resized = await applyBorderAndSize(bgRemoved, "none", null, null, 25);
-    const svg = await generateCutlineSvg(resized);
+    const svg = await generateCutlineSvg(resized, STICKER_OUTPUT_DPI);
     expect(svg).toContain("<path");
+    expect(svg).toContain('width="94.4px" height="94.4px"');
     const points = parseSvgPathPoints(svg);
     expect(points.length).toBeGreaterThan(3);
+  });
+
+  it("traces the bordered fixture as a non-rectangular path inside transparent corners", async () => {
+    const svg = await generateCutlineSvg(await fixtureAsDataUrl("bordered"));
+    const points = parseSvgPathPoints(svg);
+    const viewBox = parseSvgViewBox(svg);
+    const box = boundingBox(points);
+
+    expect(points.length).toBeGreaterThan(5);
+    expect(viewBox).not.toBeNull();
+    expect(box.width).toBeLessThan(viewBox!.width);
+    expect(box.height).toBeLessThan(viewBox!.height);
+  });
+
+  it("traces two disjoint artwork components as two cutline subpaths", async () => {
+    const svg = await generateCutlineSvg(await fixtureAsDataUrl("two-part"));
+    expect(countSvgMoveCommands(svg)).toBe(2);
+  });
+
+  it("traces the interior contour of a ring as a hole", async () => {
+    const svg = await generateCutlineSvg(await fixtureAsDataUrl("holed"));
+    expect(countSvgMoveCommands(svg)).toBe(2);
+    expect(svg).toContain('fill-rule="evenodd"');
   });
 });
 
@@ -386,6 +447,7 @@ describe("1. Happy path — create → pipeline → verify", () => {
         functionType: "checkbox",
         imageBase64,
         borderStyle: "none",
+        borderWidthMm: 0.6,
         status: "draft",
         exportTargets: { goodnotes: true, ink: true, cricut: false },
       });
@@ -450,6 +512,7 @@ describe("1. Happy path — create → pipeline → verify", () => {
     expect(row!.authoredByStoreId).toBe(STORE_ID);
     expect(row!.functionType).toBe("checkbox");
     expect(row!.status).toBe("draft");
+    expect(row!.borderWidthMm).toBe(0.6);
   });
 });
 
@@ -506,8 +569,9 @@ describe("2. Cricut cut-line — SVG path assertions", () => {
     const vb = parseSvgViewBox(row!.cutlineSvg!);
     expect(vb).not.toBeNull();
 
-    // 25 mm at 96 DPI = Math.round((25 / 25.4) * 96) = 94 px
-    const expectedPx = Math.round((25 / 25.4) * 96);
+    // The viewBox uses print-quality output pixels, while CSS dimensions retain
+    // the requested physical size for Design Space at 96 CSS px/inch.
+    const expectedPx = Math.round((25 / 25.4) * STICKER_OUTPUT_DPI);
     expect(vb!.width).toBe(expectedPx);
     expect(vb!.height).toBe(expectedPx);
   });

@@ -8,9 +8,11 @@
  * disagree in Cricut Design Space and the machine cuts offset.
  */
 import { describe, it, expect } from "vitest";
+import sharp from "sharp";
 import {
   shadowExpansionPad,
   adjustCutlineSvgForShadow,
+  addDropShadow,
 } from "../lib/imageProcessing.js";
 
 // ── Helper: build a minimal cutline SVG matching generateCutlineSvg output ───
@@ -50,6 +52,26 @@ describe("shadowExpansionPad", () => {
     expect(shadowExpansionPad("lifted", 10)).toBeGreaterThan(
       shadowExpansionPad("flat", 10),
     );
+  });
+
+  it.each(STYLES)("matches the final PNG dimensions for style=%s", async (style) => {
+    const origW = 100, origH = 80, liftPx = 6;
+    const source = await sharp({
+      create: { width: origW, height: origH, channels: 4, background: { r: 20, g: 60, b: 120, alpha: 255 } },
+    })
+      .png()
+      .toBuffer();
+    const shadowed = await addDropShadow(
+      `data:image/png;base64,${source.toString("base64")}`,
+      style,
+      liftPx,
+    );
+    const png = Buffer.from(shadowed.replace(/^data:image\/[a-z+]+;base64,/, ""), "base64");
+    const metadata = await sharp(png).metadata();
+    const pad = shadowExpansionPad(style, liftPx);
+
+    expect(metadata.width).toBe(origW + pad * 2);
+    expect(metadata.height).toBe(origH + pad * 2);
   });
 });
 

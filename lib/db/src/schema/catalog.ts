@@ -200,7 +200,10 @@ export const stickersLibraryTable = pgTable("stickers_library", {
   ),
   // ── Creation-pipeline fields ───────────────────────────────────────────
   borderStyle: text("border_style").notNull().default("none"), // none | thin | white
+  /** Legacy 96-DPI pixel width. New writes use borderWidthMm. */
   borderWidth: real("border_width"),
+  /** Physical border width for resolution-independent sticker exports. */
+  borderWidthMm: real("border_width_mm"),
   borderColor: text("border_color"),
   sizeInMm: real("size_in_mm"),
   exportTargets: jsonb("export_targets")
@@ -402,7 +405,10 @@ export const stylePresetsTable = pgTable("style_presets", {
     .references(() => storesTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   borderStyle: text("border_style").notNull().default("none"), // none | thin | white
+  /** Legacy 96-DPI pixel width. New writes use borderWidthMm. */
   borderWidth: real("border_width"),
+  /** Physical border width for resolution-independent sticker exports. */
+  borderWidthMm: real("border_width_mm"),
   borderColor: text("border_color"),
   sizeInMm: real("size_in_mm"),
   shadowStyle: text("shadow_style"), // flat | soft | lifted | cut-paper

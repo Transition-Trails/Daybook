@@ -52,6 +52,7 @@ import {
   removeBackground,
   applyBorderAndSize,
   generateCutlineSvg,
+  STICKER_OUTPUT_DPI,
   adjustCutlineSvgForShadow,
   edgeFeather,
   addDropShadow,
@@ -121,7 +122,9 @@ async function getOwnedSticker(
 async function runPipeline(params: {
   imageBase64: string;
   borderStyle?: string;
+  /** Legacy 96-DPI pixel value, preserved for older rows. */
   borderWidth?: number | null;
+  borderWidthMm?: number | null;
   borderColor?: string | null;
   sizeInMm?: number | null;
   exportTargets?: { goodnotes: boolean; ink: boolean; cricut: boolean };
@@ -133,6 +136,7 @@ async function runPipeline(params: {
     imageBase64,
     borderStyle = "none",
     borderWidth,
+    borderWidthMm,
     borderColor,
     sizeInMm,
     exportTargets = { goodnotes: true, ink: true, cricut: false },
@@ -157,13 +161,14 @@ async function runPipeline(params: {
       borderWidth ?? null,
       borderColor ?? null,
       sizeInMm ?? null,
+      borderWidthMm ?? null,
     );
   }
 
   // Step 4: trace cutline from the PRE-shadow image
   // (shadow halo must not inflate the cut path)
   let cutlineSvg = exportTargets.cricut
-    ? await generateCutlineSvg(processed)
+    ? await generateCutlineSvg(processed, sizeInMm ? STICKER_OUTPUT_DPI : undefined)
     : null;
 
   // Step 5: bake drop shadow (expands the canvas — must come AFTER cutline tracing)
@@ -589,6 +594,7 @@ router.post(
       imageBase64,
       borderStyle,
       borderWidth,
+      borderWidthMm,
       borderColor,
       sizeInMm,
       exportTargets,
@@ -600,6 +606,7 @@ router.post(
       imageBase64?: string;
       borderStyle?: string;
       borderWidth?: number;
+      borderWidthMm?: number;
       borderColor?: string;
       sizeInMm?: number;
       exportTargets?: { goodnotes: boolean; ink: boolean; cricut: boolean };
@@ -665,6 +672,7 @@ router.post(
         imageBase64,
         borderStyle: resolvedBorderStyle,
         borderWidth,
+        borderWidthMm,
         borderColor,
         sizeInMm,
         exportTargets: resolvedExportTargets,
@@ -688,6 +696,7 @@ router.post(
       status,
       borderStyle: resolvedBorderStyle,
       borderWidth: borderWidth ?? null,
+      borderWidthMm: borderWidthMm ?? null,
       borderColor: borderColor ?? null,
       sizeInMm: sizeInMm ?? null,
       exportTargets: resolvedExportTargets,
@@ -788,6 +797,7 @@ router.post(
         functionType?: string;
         borderStyle?: string;
         borderWidth?: number;
+        borderWidthMm?: number;
         borderColor?: string;
         sizeInMm?: number;
         shadowStyle?: string;
@@ -849,6 +859,7 @@ router.post(
           imageBase64: item.imageBase64,
           borderStyle: item.borderStyle ?? "none",
           borderWidth: item.borderWidth,
+          borderWidthMm: item.borderWidthMm,
           borderColor: item.borderColor,
           sizeInMm: item.sizeInMm,
           exportTargets: item.exportTargets ?? { goodnotes: true, ink: true, cricut: false },
@@ -870,6 +881,7 @@ router.post(
             authoredByStoreId: storeId,
             borderStyle: item.borderStyle ?? "none",
             borderWidth: item.borderWidth ?? null,
+            borderWidthMm: item.borderWidthMm ?? null,
             borderColor: item.borderColor ?? null,
             sizeInMm: item.sizeInMm ?? null,
             exportTargets: item.exportTargets ?? { goodnotes: true, ink: true, cricut: false },
@@ -1459,6 +1471,7 @@ router.patch(
       imageBase64,
       borderStyle,
       borderWidth,
+      borderWidthMm,
       borderColor,
       sizeInMm,
       exportTargets,
@@ -1470,6 +1483,7 @@ router.patch(
       imageBase64?: string;
       borderStyle?: string;
       borderWidth?: number | null;
+      borderWidthMm?: number | null;
       borderColor?: string | null;
       sizeInMm?: number | null;
       exportTargets?: { goodnotes: boolean; ink: boolean; cricut: boolean };
@@ -1488,7 +1502,7 @@ router.patch(
     }
 
     // Re-run pipeline if image or pipeline fields change
-    const pipelineFields = [imageBase64, borderStyle, borderWidth, borderColor, sizeInMm, exportTargets];
+    const pipelineFields = [imageBase64, borderStyle, borderWidth, borderWidthMm, borderColor, sizeInMm, exportTargets];
     const pipelineChanged = pipelineFields.some((f) => f !== undefined);
 
     type UpdateData = Partial<typeof stickersLibraryTable.$inferInsert>;
@@ -1499,6 +1513,7 @@ router.patch(
     if (status !== undefined) updateData.status = status;
     if (borderStyle !== undefined) updateData.borderStyle = borderStyle;
     if (borderWidth !== undefined) updateData.borderWidth = borderWidth;
+    if (borderWidthMm !== undefined) updateData.borderWidthMm = borderWidthMm;
     if (borderColor !== undefined) updateData.borderColor = borderColor;
     if (sizeInMm !== undefined) updateData.sizeInMm = sizeInMm;
     if (exportTargets !== undefined) updateData.exportTargets = exportTargets;
@@ -1515,6 +1530,7 @@ router.patch(
           imageBase64: effectiveImage,
           borderStyle: borderStyle ?? row.borderStyle,
           borderWidth: borderWidth ?? row.borderWidth,
+          borderWidthMm: borderWidthMm ?? row.borderWidthMm,
           borderColor: borderColor ?? row.borderColor,
           sizeInMm: sizeInMm ?? row.sizeInMm,
           exportTargets: exportTargets ?? (row.exportTargets as { goodnotes: boolean; ink: boolean; cricut: boolean }),
@@ -1591,6 +1607,7 @@ router.post(
         authoredByStoreId: storeId,
         borderStyle: row.borderStyle,
         borderWidth: row.borderWidth,
+        borderWidthMm: row.borderWidthMm,
         borderColor: row.borderColor,
         sizeInMm: row.sizeInMm,
         exportTargets: row.exportTargets as { goodnotes: boolean; ink: boolean; cricut: boolean },

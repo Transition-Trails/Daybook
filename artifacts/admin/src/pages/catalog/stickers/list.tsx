@@ -215,7 +215,7 @@ function defaultForm(sticker?: LibrarySticker | null): StickerFormValues {
     functionType: (sticker?.functionType as StickerFunctionType) ?? "decorative",
     imageBase64: sticker?.processedImageData ?? "",
     borderStyle: sticker?.borderStyle ?? "none",
-    borderWidth: String(sticker?.borderWidth ?? 2),
+    borderWidth: String(sticker?.borderWidthMm ?? ((sticker?.borderWidth ?? 2) * 25.4) / 96),
     borderColor: sticker?.borderColor ?? "#000000",
     sizeInMm: String(sticker?.sizeInMm ?? ""),
     exportGoodnotes: sticker?.exportTargets?.goodnotes ?? true,
@@ -298,9 +298,9 @@ function StickerFormFields({
           {form.borderStyle !== "none" && (
             <>
               <div className="space-y-1.5">
-                <Label className="text-xs">Border width (px)</Label>
+                <Label className="text-xs">Border width (mm)</Label>
                 <Input
-                  type="number" min="1" max="20" className="h-8 text-xs"
+                  type="number" min="0.1" max="10" step="0.1" className="h-8 text-xs"
                   value={form.borderWidth}
                   onChange={(e) => setForm((f) => ({ ...f, borderWidth: e.target.value }))}
                 />
@@ -377,7 +377,7 @@ function CreateModal({ onClose }: { onClose: () => void }) {
         functionType: form.functionType,
         imageBase64: form.imageBase64,
         borderStyle: form.borderStyle,
-        borderWidth: form.borderWidth ? parseFloat(form.borderWidth) : undefined,
+        borderWidthMm: form.borderWidth ? parseFloat(form.borderWidth) : undefined,
         borderColor: form.borderColor || undefined,
         sizeInMm: form.sizeInMm ? parseFloat(form.sizeInMm) : undefined,
         exportTargets: {
@@ -456,7 +456,7 @@ function EditModal({
           ? { imageBase64: form.imageBase64 }
           : {}),
         borderStyle: form.borderStyle,
-        borderWidth: form.borderWidth ? parseFloat(form.borderWidth) : null,
+        borderWidthMm: form.borderWidth ? parseFloat(form.borderWidth) : null,
         borderColor: form.borderColor || null,
         sizeInMm: form.sizeInMm ? parseFloat(form.sizeInMm) : null,
         exportTargets: {

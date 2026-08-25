@@ -214,7 +214,9 @@ export const platformStickersApi = {
     functionType: string;
     imageBase64: string;
     borderStyle?: string;
+    /** Legacy 96-DPI pixel value, accepted for existing records only. */
     borderWidth?: number;
+    borderWidthMm?: number;
     borderColor?: string;
     sizeInMm?: number;
     exportTargets?: StickerExportTargets;
@@ -233,7 +235,9 @@ export const platformStickersApi = {
       functionType?: string;
       imageBase64?: string;
       borderStyle?: string;
+      /** Legacy 96-DPI pixel value, accepted for existing records only. */
       borderWidth?: number | null;
+      borderWidthMm?: number | null;
       borderColor?: string | null;
       sizeInMm?: number | null;
       exportTargets?: StickerExportTargets;
@@ -303,6 +307,7 @@ export const platformStickersApi = {
     sizeInMm?:    number | null;
     borderStyle?: string;
     borderWidth?: number | null;
+    borderWidthMm?: number | null;
     borderColor?: string | null;
     shadowStyle?: string;
   }) =>
@@ -811,7 +816,9 @@ export interface LibrarySticker {
   origin: ItemOrigin;
   authoredByStoreId: string | null;
   borderStyle: string;
+  /** Legacy 96-DPI pixel value. New records use borderWidthMm. */
   borderWidth: number | null;
+  borderWidthMm: number | null;
   borderColor: string | null;
   sizeInMm: number | null;
   exportTargets: StickerExportTargets;
@@ -867,7 +874,9 @@ export const stickersApi = {
       functionType: string;
       imageBase64: string;
       borderStyle?: string;
+      /** Legacy 96-DPI pixel value, accepted for existing records only. */
       borderWidth?: number;
+      borderWidthMm?: number;
       borderColor?: string;
       sizeInMm?: number;
       exportTargets?: StickerExportTargets;
@@ -889,7 +898,9 @@ export const stickersApi = {
       functionType?: string;
       imageBase64?: string;
       borderStyle?: string;
+      /** Legacy 96-DPI pixel value, accepted for existing records only. */
       borderWidth?: number | null;
+      borderWidthMm?: number | null;
       borderColor?: string | null;
       sizeInMm?: number | null;
       exportTargets?: StickerExportTargets;

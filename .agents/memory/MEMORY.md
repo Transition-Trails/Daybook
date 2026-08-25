@@ -62,3 +62,4 @@
 - [Stripe billing lifecycle](stripe-billing-lifecycle.md) — yearly access is Price-ID-backed and event-ordered; invoice payment records supply refund correlation
 - [Authored planner interiors](planner-authored-interiors.md) — editions pin immutable, vector-only SVG versions; unsupported SVG fails closed to preserve preview/export fidelity
 - [Seller checkout model](seller-checkout-model.md) — seller sales are direct Stripe Connect charges; delivery uses short-lived, order-scoped links, never stored URLs
+- [Sticker cutline physical scale](sticker-cutline-physical-scale.md) — cutline SVGs must carry the pipeline’s effective DPI so legacy unsized art stays 96-DPI while mm-sized art exports at 300 DPI

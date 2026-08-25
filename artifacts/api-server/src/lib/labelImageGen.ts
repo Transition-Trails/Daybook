@@ -97,7 +97,9 @@ export async function renderLabelPng(params: {
   color:        string;
   sizeInMm?:    number | null;
   borderStyle?: string;
+  /** Legacy 96-DPI pixel value; new callers should send borderWidthMm. */
   borderWidth?: number | null;
+  borderWidthMm?: number | null;
   borderColor?: string | null;
   shadowStyle?: string;
 }): Promise<string> {
@@ -105,7 +107,7 @@ export async function renderLabelPng(params: {
 
   const {
     label, fontKey, color,
-    sizeInMm, borderStyle = "none", borderWidth, borderColor, shadowStyle = "none",
+    sizeInMm, borderStyle = "none", borderWidth, borderWidthMm, borderColor, shadowStyle = "none",
   } = params;
 
   const spec      = FONT_MAP[fontKey] ?? FONT_MAP["sans-bold"];
@@ -146,6 +148,7 @@ export async function renderLabelPng(params: {
       borderWidth ?? null,
       borderColor ?? null,
       sizeInMm ?? null,
+      borderWidthMm ?? null,
     );
   } else if (sizeInMm) {
     dataUrl = await applyBorderAndSize(dataUrl, "none", null, null, sizeInMm);

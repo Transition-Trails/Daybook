@@ -186,6 +186,73 @@ export async function removeBackground(
 
 // ── Border + size pipeline ────────────────────────────────────────────────────
 
+/** Render at print-friendly resolution; SVG CSS dimensions preserve the requested physical size. */
+export const STICKER_OUTPUT_DPI = 300;
+const LEGACY_BORDER_DPI = 96;
+const MM_PER_INCH = 25.4;
+
+function mmToOutputPixels(mm: number): number {
+  return Math.max(0, Math.round((mm / MM_PER_INCH) * STICKER_OUTPUT_DPI));
+}
+
+/**
+ * Stored `border_width` predates physical sizing and is measured in 96-DPI
+ * pixels. New rows use `border_width_mm`; retaining this conversion keeps an
+ * older sticker's outline physically stable if it is ever reprocessed.
+ */
+export function resolveBorderWidthMm(
+  borderWidthMm: number | null | undefined,
+  legacyBorderWidthPx: number | null | undefined,
+): number {
+  if (borderWidthMm != null && borderWidthMm >= 0) return borderWidthMm;
+  return Math.max(0, legacyBorderWidthPx ?? 2) * (MM_PER_INCH / LEGACY_BORDER_DPI);
+}
+
+/**
+ * Square dilation through two sliding-window maximum passes. It is deliberately
+ * implemented over raw alpha bytes rather than sharp.extractChannel("alpha"):
+ * some sharp builds silently return zeroes for that channel.
+ */
+function dilateAlpha(alpha: Uint8Array, width: number, height: number, radius: number): Uint8Array {
+  if (radius <= 0) return Uint8Array.from(alpha);
+
+  const expandedWidth = width + radius * 2;
+  const expandedHeight = height + radius * 2;
+  const padded = new Uint8Array(expandedWidth * expandedHeight);
+  for (let y = 0; y < height; y++) {
+    padded.set(alpha.subarray(y * width, (y + 1) * width), (y + radius) * expandedWidth + radius);
+  }
+
+  const horizontal = new Uint8Array(padded.length);
+  const window = radius * 2 + 1;
+  for (let y = 0; y < expandedHeight; y++) {
+    const deque: number[] = [];
+    const row = y * expandedWidth;
+    for (let x = 0; x < expandedWidth; x++) {
+      while (deque.length && deque[0] < x - window + 1) deque.shift();
+      while (deque.length && padded[row + deque[deque.length - 1]] <= padded[row + x]) deque.pop();
+      deque.push(x);
+      horizontal[row + x] = padded[row + deque[0]];
+    }
+  }
+
+  const out = new Uint8Array(padded.length);
+  for (let x = 0; x < expandedWidth; x++) {
+    const deque: number[] = [];
+    for (let y = 0; y < expandedHeight; y++) {
+      while (deque.length && deque[0] < y - window + 1) deque.shift();
+      while (
+        deque.length &&
+        horizontal[deque[deque.length - 1] * expandedWidth + x] <= horizontal[y * expandedWidth + x]
+      ) deque.pop();
+      deque.push(y);
+      out[y * expandedWidth + x] = horizontal[deque[0] * expandedWidth + x];
+    }
+  }
+
+  return out;
+}
+
 /**
  * Applies an optional border and resizes the processed cutout.
  *
@@ -199,81 +266,246 @@ export async function applyBorderAndSize(
   borderWidth: number | null | undefined,
   borderColor: string | null | undefined,
   sizeInMm: number | null | undefined,
+  borderWidthMm?: number | null,
 ): Promise<string> {
   const input = b64ToBuffer(processedBase64);
-  let img = sharp(input).ensureAlpha();
+  const source = sharp(input).ensureAlpha();
+  const meta = await source.metadata();
+  const sourceWidth = meta.width ?? 512;
+  const sourceHeight = meta.height ?? 512;
+  const isBordered = borderStyle !== "none";
+  const resolvedBorderMm = isBordered
+    ? resolveBorderWidthMm(borderWidthMm, borderWidth)
+    : 0;
+  const borderPx = isBordered ? Math.max(1, mmToOutputPixels(resolvedBorderMm)) : 0;
 
-  if (borderStyle !== "none") {
-    const bw = Math.max(1, Math.round(borderWidth ?? 2));
-    const bc = borderColor ?? (borderStyle === "white" ? "#ffffff" : "#000000");
-
-    const meta = await img.metadata();
-    const w = meta.width ?? 512;
-    const h = meta.height ?? 512;
-    const newW = w + bw * 2;
-    const newH = h + bw * 2;
-
-    let background;
-    try {
-      background = { ...hexToRgba(bc), alpha: 255 };
-    } catch {
-      throw new UserImageError("borderColor must be a valid #RGB or #RRGGBB colour");
-    }
-    const bgBuf = await sharp({
-      create: {
-        width: newW,
-        height: newH,
-        channels: 4,
-        background,
-      },
-    })
-      .png()
-      .toBuffer();
-
-    const inputBuf = await img.toBuffer();
-    const composed = await sharp(bgBuf)
-      .composite([{ input: inputBuf, top: bw, left: bw }])
-      .png()
-      .toBuffer();
-
-    img = sharp(composed);
-  }
-
+  let targetWidth = sourceWidth;
+  let targetHeight = sourceHeight;
   if (sizeInMm && sizeInMm > 0) {
-    // 96 DPI (screen-friendly); Cricut/Silhouette use the SVG viewBox for actual cut size
-    const pxSize = Math.max(32, Math.round((sizeInMm / 25.4) * 96));
-    // Materialize to PNG before resize so sharp starts with a concrete RGBA buffer.
-    // Keeping the lazy pipeline across ensureAlpha → resize loses the alpha channel
-    // in some sharp versions, resulting in a fully-opaque output.
-    const intermediate = await img.png().toBuffer();
-    img = sharp(intermediate)
-      .ensureAlpha()
-      .resize(pxSize, pxSize, {
-        fit: "contain",
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-      });
+    const targetLongEdge = mmToOutputPixels(sizeInMm);
+    const interiorLongEdge = targetLongEdge - borderPx * 2;
+    if (interiorLongEdge < 1) {
+      throw new UserImageError("borderWidthMm is too large for the requested sticker size");
+    }
+    if (sourceWidth >= sourceHeight) {
+      targetWidth = interiorLongEdge;
+      targetHeight = Math.max(1, Math.round((sourceHeight / sourceWidth) * interiorLongEdge));
+    } else {
+      targetHeight = interiorLongEdge;
+      targetWidth = Math.max(1, Math.round((sourceWidth / sourceHeight) * interiorLongEdge));
+    }
   }
 
-  const out = await img.png().toBuffer();
+  // Materialize before resize. Keeping a lazy ensureAlpha → resize pipeline loses
+  // alpha in some sharp versions, resulting in a fully-opaque output.
+  const intermediate = await source.png().toBuffer();
+  const resized = await sharp(intermediate)
+    .ensureAlpha()
+    .resize(targetWidth, targetHeight, { fit: "fill" })
+    .png()
+    .toBuffer();
+
+  if (!isBordered) return bufferToDataUrl(resized);
+
+  const { data, info } = await sharp(resized)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const rgba = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  const alpha = new Uint8Array(info.width * info.height);
+  for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3];
+
+  const dilatedAlpha = dilateAlpha(alpha, info.width, info.height, borderPx);
+  const bc = borderColor ?? (borderStyle === "white" ? "#ffffff" : "#000000");
+  let borderRgb: { r: number; g: number; b: number };
+  try {
+    borderRgb = hexToRgba(bc);
+  } catch {
+    throw new UserImageError("borderColor must be a valid #RGB or #RRGGBB colour");
+  }
+
+  const matte = Buffer.alloc((info.width + borderPx * 2) * (info.height + borderPx * 2) * 4, 0);
+  for (let i = 0; i < dilatedAlpha.length; i++) {
+    const a = dilatedAlpha[i];
+    if (!a) continue;
+    const idx = i * 4;
+    matte[idx] = borderRgb.r;
+    matte[idx + 1] = borderRgb.g;
+    matte[idx + 2] = borderRgb.b;
+    matte[idx + 3] = a;
+  }
+
+  // The matte is derived from the silhouette rather than a filled rectangle, so
+  // transparent corners remain transparent for the cut-line tracer.
+  const out = await sharp(matte, {
+    raw: { width: info.width + borderPx * 2, height: info.height + borderPx * 2, channels: 4 },
+  })
+    .composite([{ input: resized, top: borderPx, left: borderPx }])
+    .png()
+    .toBuffer();
   return bufferToDataUrl(out);
 }
 
 // ── Cricut / Silhouette SVG cut-path ─────────────────────────────────────────
 
+const CUTLINE_ALPHA_THRESHOLD = 128;
+const CUTLINE_MIN_COMPONENT_AREA_MM2 = 0.1;
+const CUTLINE_SIMPLIFY_MM = 0.12;
+
+type Point = [number, number];
+type DirectedEdge = { from: Point; to: Point };
+
+function pointKey([x, y]: Point): string {
+  return `${x},${y}`;
+}
+
+function signedArea(points: Point[]): number {
+  return points.reduce(
+    (sum, [x, y], index) => {
+      const [nextX, nextY] = points[(index + 1) % points.length];
+      return sum + x * nextY - nextX * y;
+    },
+    0,
+  ) / 2;
+}
+
+function simplifyClosedContour(points: Point[], epsilon: number): Point[] {
+  if (points.length < 4) return points;
+  const split = Math.floor(points.length / 2);
+  const first = rdp(points.slice(0, split + 1), epsilon);
+  const second = rdp([...points.slice(split), points[0]], epsilon);
+  return [...first.slice(0, -1), ...second.slice(0, -1)];
+}
+
 /**
- * Generates a Cricut/Silhouette-compatible SVG file with a single closed cut-path.
- *
- * Algorithm:
- *   1. Extract alpha channel as a binary mask (threshold 128).
- *   2. Find the outer boundary pixel using Moore neighbourhood tracing
- *      (Jacob's stopping criterion).
- *   3. Simplify the contour with Ramer-Douglas-Peucker (ε = 1.5 px).
- *   4. Emit an SVG <path> whose viewBox matches the image in pixels at 96 DPI.
- *      Cricut Design Space interprets the SVG viewBox dimensions; 96 px = 1 inch.
- *
- * Returns an SVG string.
+ * Treat diagonally touching pixels as part of one visible component while
+ * keeping the boundary extraction on pixel faces. Components smaller than a
+ * physical cutting threshold are discarded before their edges are emitted.
  */
-export async function generateCutlineSvg(processedBase64: string): Promise<string> {
+function filterTinyComponents(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  outputDpi: number,
+): Uint8Array {
+  const filtered = new Uint8Array(mask.length);
+  const seen = new Uint8Array(mask.length);
+  const minAreaPixels = Math.max(
+    1,
+    Math.round(CUTLINE_MIN_COMPONENT_AREA_MM2 * (outputDpi / MM_PER_INCH) ** 2),
+  );
+  const neighbours = [
+    [-1, -1], [0, -1], [1, -1],
+    [-1, 0],             [1, 0],
+    [-1, 1],  [0, 1],  [1, 1],
+  ];
+
+  for (let start = 0; start < mask.length; start++) {
+    if (!mask[start] || seen[start]) continue;
+    const component: number[] = [];
+    const queue = [start];
+    seen[start] = 1;
+    for (let head = 0; head < queue.length; head++) {
+      const current = queue[head];
+      component.push(current);
+      const x = current % width;
+      const y = Math.floor(current / width);
+      for (const [dx, dy] of neighbours) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+        const next = ny * width + nx;
+        if (!mask[next] || seen[next]) continue;
+        seen[next] = 1;
+        queue.push(next);
+      }
+    }
+    if (component.length >= minAreaPixels) {
+      for (const pixel of component) filtered[pixel] = 1;
+    }
+  }
+  return filtered;
+}
+
+/**
+ * Build directed pixel-face boundaries with the filled region on the right.
+ * That makes exterior and interior contours naturally wind in opposite
+ * directions, and captures every component plus every genuine hole.
+ */
+function traceMaskBoundaries(mask: Uint8Array, width: number, height: number): Point[][] {
+  const filled = (x: number, y: number): boolean =>
+    x >= 0 && x < width && y >= 0 && y < height && mask[y * width + x] === 1;
+  const edges: DirectedEdge[] = [];
+  const add = (from: Point, to: Point) => edges.push({ from, to });
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!filled(x, y)) continue;
+      if (!filled(x, y - 1)) add([x, y], [x + 1, y]);
+      if (!filled(x + 1, y)) add([x + 1, y], [x + 1, y + 1]);
+      if (!filled(x, y + 1)) add([x + 1, y + 1], [x, y + 1]);
+      if (!filled(x - 1, y)) add([x, y + 1], [x, y]);
+    }
+  }
+
+  const edgesFrom = new Map<string, number[]>();
+  edges.forEach((edge, index) => {
+    const key = pointKey(edge.from);
+    edgesFrom.set(key, [...(edgesFrom.get(key) ?? []), index]);
+  });
+  const used = new Uint8Array(edges.length);
+  const direction = (edge: DirectedEdge): number => {
+    const dx = edge.to[0] - edge.from[0];
+    const dy = edge.to[1] - edge.from[1];
+    return dx > 0 ? 0 : dy > 0 ? 1 : dx < 0 ? 2 : 3;
+  };
+  const turnRank = (previous: number, candidate: number): number => {
+    const turn = (candidate - previous + 4) % 4;
+    return turn === 1 ? 0 : turn === 0 ? 1 : turn === 3 ? 2 : 3;
+  };
+  const loops: Point[][] = [];
+
+  for (let startIndex = 0; startIndex < edges.length; startIndex++) {
+    if (used[startIndex]) continue;
+    const first = edges[startIndex];
+    const start = first.from;
+    const loop: Point[] = [start];
+    let currentIndex = startIndex;
+    let closed = false;
+    for (let steps = 0; steps <= edges.length; steps++) {
+      const current = edges[currentIndex];
+      used[currentIndex] = 1;
+      const at = current.to;
+      if (pointKey(at) === pointKey(start)) {
+        closed = true;
+        break;
+      }
+      loop.push(at);
+      const options = (edgesFrom.get(pointKey(at)) ?? []).filter((index) => !used[index]);
+      if (!options.length) break;
+      const previousDirection = direction(current);
+      currentIndex = options.sort(
+        (a, b) => turnRank(previousDirection, direction(edges[a])) - turnRank(previousDirection, direction(edges[b])),
+      )[0];
+    }
+    if (closed && loop.length >= 3) loops.push(loop);
+  }
+  return loops;
+}
+
+function formatSvgNumber(value: number): string {
+  return Number(value.toFixed(3)).toString();
+}
+
+/**
+ * Generates a Cricut/Silhouette-compatible SVG file with one closed subpath per
+ * outer component and interior hole. Contours are simplified after sizing, so
+ * their physical detail does not depend on the uploaded image resolution.
+ */
+export async function generateCutlineSvg(
+  processedBase64: string,
+  outputDpi = LEGACY_BORDER_DPI,
+): Promise<string> {
   const input = b64ToBuffer(processedBase64);
 
   // Decode the image as raw RGBA (4 channels) to guarantee the alpha channel
@@ -293,76 +525,45 @@ export async function generateCutlineSvg(processedBase64: string): Promise<strin
     alpha[i] = rgba[i * 4 + 3]; // A is the 4th byte of each RGBA pixel
   }
 
-  const filled = (x: number, y: number): boolean => {
-    if (x < 0 || x >= width || y < 0 || y >= height) return false;
-    return alpha[y * width + x] > 128;
-  };
-
-  // Find first filled pixel (top-to-bottom scan)
-  let startX = -1, startY = -1;
-  scan: for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (filled(x, y)) { startX = x; startY = y; break scan; }
-    }
+  const mask = new Uint8Array(width * height);
+  for (let i = 0; i < alpha.length; i++) {
+    mask[i] = alpha[i] > CUTLINE_ALPHA_THRESHOLD ? 1 : 0;
   }
+  const filteredMask = filterTinyComponents(mask, width, height, outputDpi);
+  const loops = traceMaskBoundaries(filteredMask, width, height);
 
-  if (startX === -1) {
+  if (!loops.length) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"></svg>`;
   }
 
-  // Moore neighbourhood — clockwise from NW
-  const dx = [-1, 0, 1, 1, 1, 0, -1, -1];
-  const dy = [-1, -1, -1, 0, 1, 1, 1, 0];
+  const epsilon = (CUTLINE_SIMPLIFY_MM / MM_PER_INCH) * outputDpi;
+  const d = loops
+    .map((loop) => {
+      const simplified = simplifyClosedContour(loop, epsilon);
+      if (simplified.length < 3 || Math.abs(signedArea(simplified)) < 0.5) return "";
+      return [
+        ...simplified.map(([x, y], index) =>
+          `${index === 0 ? "M" : "L"} ${formatSvgNumber(x)} ${formatSvgNumber(y)}`,
+        ),
+        "Z",
+      ].join(" ");
+    })
+    .filter(Boolean)
+    .join(" ");
 
-  const contour: [number, number][] = [[startX, startY]];
-  let cx = startX, cy = startY;
-  // dir = direction of the imaginary step that brought us to startX,startY —
-  // we treat it as if we stepped East (dir=3) from a hypothetical West neighbor.
-  // This makes lookFrom = (3+6)%8 = 1 (North), so the first neighbor checked is
-  // North, then clockwise: N, NE, E, SE, S, SW, W, NW.
-  // That correctly traces the top boundary of a blob whose topmost pixel was found
-  // by a top-to-bottom, left-to-right scan.
-  let dir = 3;
-  const maxSteps = width * height * 2;
+  if (!d) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"></svg>`;
 
-  for (let step = 0; step < maxSteps; step++) {
-    const lookFrom = (dir + 6) % 8;
-    let moved = false;
-
-    for (let i = 0; i < 8; i++) {
-      const d = (lookFrom + i) % 8;
-      const nx = cx + dx[d];
-      const ny = cy + dy[d];
-      if (filled(nx, ny)) {
-        dir = d;
-        cx = nx;
-        cy = ny;
-        moved = true;
-        break;
-      }
-    }
-
-    if (!moved) break;
-    if (cx === startX && cy === startY && contour.length > 2) break;
-    contour.push([cx, cy]);
-  }
-
-  const simplified = rdp(contour, 1.5);
-
-  if (simplified.length < 3) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"></svg>`;
-  }
-
-  const pathParts = simplified.map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x} ${y}`);
-  pathParts.push("Z");
-  const d = pathParts.join(" ");
-
-  // viewBox in pixels; Cricut reads this as physical size at 96 DPI
+  // CSS pixels retain exact physical size at 96 DPI while the high-resolution
+  // viewBox preserves detail for tiny stickers (for example, 6 mm). Unsized
+  // legacy artwork remains a 96-DPI image, so it deliberately keeps its
+  // original CSS pixel dimensions instead of being reinterpreted at 300 DPI.
+  const cssWidth = (width / outputDpi) * LEGACY_BORDER_DPI;
+  const cssHeight = (height / outputDpi) * LEGACY_BORDER_DPI;
   return [
     `<svg xmlns="http://www.w3.org/2000/svg"`,
     `  viewBox="0 0 ${width} ${height}"`,
-    `  width="${width}px" height="${height}px">`,
-    `  <path d="${d}" fill="none" stroke="#000000" stroke-width="1"/>`,
+    `  width="${formatSvgNumber(cssWidth)}px" height="${formatSvgNumber(cssHeight)}px">`,
+    `  <path d="${d}" fill="none" fill-rule="evenodd" stroke="#000000" stroke-width="1"/>`,
     `</svg>`,
   ].join("\n");
 }
@@ -419,6 +620,17 @@ export async function edgeFeather(
 
 // ── Drop shadow ───────────────────────────────────────────────────────────────
 
+function shadowSettings(style: string, liftPx: number) {
+  const blurRadius =
+    style === "flat" ? 2 : style === "soft" ? 8 : style === "lifted" ? 12 : 3;
+  const offX =
+    style === "flat" ? 1 : style === "soft" ? liftPx : style === "lifted" ? Math.round(liftPx * 1.5) : 2;
+  const offY = offX; // uniform for now
+  const shadowOpacity =
+    style === "flat" ? 0.3 : style === "soft" ? 0.4 : style === "lifted" ? 0.5 : 0.8;
+  return { blurRadius, offX, offY, shadowOpacity };
+}
+
 /**
  * Bakes an alpha-based drop shadow into the PNG.
  *
@@ -438,13 +650,7 @@ export async function addDropShadow(
   style: string,
   liftPx = 4,
 ): Promise<string> {
-  const blurRadius =
-    style === "flat" ? 2 : style === "soft" ? 8 : style === "lifted" ? 12 : 3;
-  const offX =
-    style === "flat" ? 1 : style === "soft" ? liftPx : style === "lifted" ? Math.round(liftPx * 1.5) : 2;
-  const offY = offX; // uniform for now
-  const shadowOpacity =
-    style === "flat" ? 0.3 : style === "soft" ? 0.4 : style === "lifted" ? 0.5 : 0.8;
+  const { blurRadius, offX, offY, shadowOpacity } = shadowSettings(style, liftPx);
 
   const input = b64ToBuffer(processedBase64);
   const { data, info } = await sharp(input)
@@ -455,7 +661,7 @@ export async function addDropShadow(
   const rgba = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 
   // Expanded canvas dimensions
-  const pad = blurRadius * 2 + Math.max(Math.abs(offX), Math.abs(offY)) + 4;
+  const pad = shadowExpansionPad(style, liftPx);
   const newW = width + pad * 2;
   const newH = height + pad * 2;
 
@@ -510,17 +716,8 @@ export async function addDropShadow(
  * formula inside addDropShadow so callers can predict the final PNG size.
  */
 export function shadowExpansionPad(style: string, liftPx = 4): number {
-  const blurRadius =
-    style === "flat" ? 2 : style === "soft" ? 8 : style === "lifted" ? 12 : 3;
-  const offX =
-    style === "flat"
-      ? 1
-      : style === "soft"
-        ? liftPx
-        : style === "lifted"
-          ? Math.round(liftPx * 1.5)
-          : 2;
-  return blurRadius * 2 + Math.max(Math.abs(offX), Math.abs(offX)) + 4;
+  const { blurRadius, offX, offY } = shadowSettings(style, liftPx);
+  return blurRadius * 2 + Math.max(Math.abs(offX), Math.abs(offY)) + 4;
 }
 
 /**
@@ -552,6 +749,10 @@ export function adjustCutlineSvgForShadow(
   const origH = parseFloat(vbMatch[2]);
   const newW  = origW + pad * 2;
   const newH  = origH + pad * 2;
+  const widthMatch = svg.match(/width="(\d+(?:\.\d+)?)px"/);
+  const heightMatch = svg.match(/height="(\d+(?:\.\d+)?)px"/);
+  const cssScaleX = widthMatch ? parseFloat(widthMatch[1]) / origW : 1;
+  const cssScaleY = heightMatch ? parseFloat(heightMatch[1]) / origH : 1;
 
   return svg
     // Expand the viewBox
@@ -560,8 +761,8 @@ export function adjustCutlineSvgForShadow(
       `viewBox="0 0 ${newW} ${newH}"`,
     )
     // Expand the px size attributes
-    .replace(/width="\d+(?:\.\d+)?px"/, `width="${newW}px"`)
-    .replace(/height="\d+(?:\.\d+)?px"/, `height="${newH}px"`)
+    .replace(/width="\d+(?:\.\d+)?px"/, `width="${formatSvgNumber(newW * cssScaleX)}px"`)
+    .replace(/height="\d+(?:\.\d+)?px"/, `height="${formatSvgNumber(newH * cssScaleY)}px"`)
     // Translate the path so the cut contour sits over the artwork
     .replace(/<path /, `<g transform="translate(${pad},${pad})"><path `)
     .replace(/<\/svg>/, `</g>\n</svg>`);

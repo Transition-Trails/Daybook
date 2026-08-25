@@ -60,6 +60,7 @@ router.post(
       name,
       borderStyle = "none",
       borderWidth,
+      borderWidthMm,
       borderColor,
       sizeInMm,
       shadowStyle,
@@ -68,7 +69,9 @@ router.post(
     } = req.body as {
       name?: string;
       borderStyle?: string;
+      /** Legacy 96-DPI pixel value. */
       borderWidth?: number;
+      borderWidthMm?: number;
       borderColor?: string;
       sizeInMm?: number;
       shadowStyle?: string;
@@ -88,6 +91,7 @@ router.post(
         name: name.trim(),
         borderStyle,
         borderWidth: borderWidth ?? null,
+        borderWidthMm: borderWidthMm ?? null,
         borderColor: borderColor ?? null,
         sizeInMm: sizeInMm ?? null,
         shadowStyle: shadowStyle ?? null,
@@ -147,6 +151,7 @@ router.patch(
       name,
       borderStyle,
       borderWidth,
+      borderWidthMm,
       borderColor,
       sizeInMm,
       shadowStyle,
@@ -156,6 +161,7 @@ router.patch(
       name: string;
       borderStyle: string;
       borderWidth: number;
+      borderWidthMm: number;
       borderColor: string;
       sizeInMm: number;
       shadowStyle: string;
@@ -167,6 +173,7 @@ router.patch(
     if (name !== undefined) updateData.name = name.trim();
     if (borderStyle !== undefined) updateData.borderStyle = borderStyle;
     if (borderWidth !== undefined) updateData.borderWidth = borderWidth;
+    if (borderWidthMm !== undefined) updateData.borderWidthMm = borderWidthMm;
     if (borderColor !== undefined) updateData.borderColor = borderColor;
     if (sizeInMm !== undefined) updateData.sizeInMm = sizeInMm;
     if (shadowStyle !== undefined) updateData.shadowStyle = shadowStyle;

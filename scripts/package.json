@@ -23,6 +23,7 @@
     "migrate-font-ownership": "tsx ./src/migrate-font-ownership.ts",
     "seed-theme-assets": "tsx ./src/seed-theme-assets.ts",
     "migrate-sticker-set-id": "tsx ./src/migrate-sticker-set-id.ts",
+    "migrate-sticker-border-width-mm": "tsx ./src/migrate-sticker-border-width-mm.ts",
     "migrate-related-products": "tsx ./src/migrate-related-products.ts",
     "seed-theme-catalog": "tsx ./src/seed-theme-catalog.ts",
     "seed:ci": "tsx ./src/seed-ci.ts",

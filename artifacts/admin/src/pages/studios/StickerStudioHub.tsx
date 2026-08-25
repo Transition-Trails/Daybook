@@ -284,7 +284,7 @@ function defaultForm(s?: LibrarySticker | null): StickerFormValues {
     functionType: (s?.functionType as StickerFunctionType) ?? "decorative",
     imageBase64: s?.processedImageData ?? "",
     borderStyle: s?.borderStyle ?? "none",
-    borderWidth: String(s?.borderWidth ?? 2),
+    borderWidth: String(s?.borderWidthMm ?? ((s?.borderWidth ?? 2) * 25.4) / 96),
     borderColor: s?.borderColor ?? "#000000",
     sizeInMm: String(s?.sizeInMm ?? ""),
     exportGoodnotes: s?.exportTargets?.goodnotes ?? true,
@@ -348,8 +348,8 @@ function StickerFormFields({
         {form.borderStyle !== "none" && (
           <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <div className="space-y-1.5">
-              <Label className="text-[11.5px]">Border width (px)</Label>
-              <Input type="number" min="1" max="20" className="h-8 text-xs"
+              <Label className="text-[11.5px]">Border width (mm)</Label>
+              <Input type="number" min="0.1" max="10" step="0.1" className="h-8 text-xs"
                 value={form.borderWidth} onChange={(e) => set("borderWidth", e.target.value)} />
             </div>
             <div className="space-y-1.5">
@@ -409,7 +409,7 @@ function StickerFormModal({
       functionType: form.functionType,
       imageBase64: form.imageBase64,
       borderStyle: form.borderStyle,
-      borderWidth: form.borderWidth ? parseFloat(form.borderWidth) : undefined,
+      borderWidthMm: form.borderWidth ? parseFloat(form.borderWidth) : undefined,
       borderColor: form.borderColor || undefined,
       sizeInMm: form.sizeInMm ? parseFloat(form.sizeInMm) : undefined,
       exportTargets: { goodnotes: form.exportGoodnotes, ink: form.exportInk, cricut: form.exportCricut },
@@ -427,7 +427,7 @@ function StickerFormModal({
         functionType: form.functionType,
         ...(form.imageBase64 !== sticker?.processedImageData ? { imageBase64: form.imageBase64 } : {}),
         borderStyle: form.borderStyle,
-        borderWidth: form.borderWidth ? parseFloat(form.borderWidth) : null,
+        borderWidthMm: form.borderWidth ? parseFloat(form.borderWidth) : null,
         borderColor: form.borderColor || null,
         sizeInMm: form.sizeInMm ? parseFloat(form.sizeInMm) : null,
         exportTargets: { goodnotes: form.exportGoodnotes, ink: form.exportInk, cricut: form.exportCricut },
@@ -1709,7 +1709,7 @@ function CreateCenter({
       functionType: uploadForm.functionType,
       imageBase64: uploadForm.imageBase64,
       borderStyle: uploadForm.borderStyle,
-      borderWidth: uploadForm.borderWidth ? parseFloat(uploadForm.borderWidth) : undefined,
+      borderWidthMm: uploadForm.borderWidth ? parseFloat(uploadForm.borderWidth) : undefined,
       borderColor: uploadForm.borderColor || undefined,
       sizeInMm: uploadForm.sizeInMm ? parseFloat(uploadForm.sizeInMm) : undefined,
       exportTargets: { goodnotes: uploadForm.exportGoodnotes, ink: uploadForm.exportInk, cricut: uploadForm.exportCricut },
@@ -1769,7 +1769,7 @@ function CreateCenter({
   const [color,       setColor]       = useState<string>("#1B2A4A");
   const [sizeInMm,    setSizeInMm]    = useState<string>("20");
   const [borderStyle, setBorderStyle] = useState<string>("none");
-  const [borderWidth, setBorderWidth] = useState<string>("2");
+  const [borderWidth, setBorderWidth] = useState<string>("0.5");
   const [borderColor, setBorderColor] = useState<string>("#000000");
   const [shadowStyle, setShadowStyle] = useState<string>("none");
   const [genResult,   setGenResult]   = useState<Array<{ name: string; imageBase64: string; selected: boolean }>>([]);
@@ -1791,7 +1791,7 @@ function CreateCenter({
         setType, labelStyle, fontKey, color,
         sizeInMm:    sizeInMm ? parseFloat(sizeInMm) : null,
         borderStyle,
-        borderWidth: borderStyle !== "none" ? (parseFloat(borderWidth) || null) : null,
+        borderWidthMm: borderStyle !== "none" ? (parseFloat(borderWidth) || null) : null,
         borderColor: borderStyle !== "none" ? (borderColor || null) : null,
         shadowStyle,
       });
@@ -2065,8 +2065,8 @@ function CreateCenter({
           {borderStyle !== "none" && (
             <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
               <div className="space-y-1.5">
-                <Label className="text-[11.5px]">Width (px)</Label>
-                <Input type="number" min="1" max="20" className="h-8 text-xs"
+                <Label className="text-[11.5px]">Width (mm)</Label>
+                <Input type="number" min="0.1" max="10" step="0.1" className="h-8 text-xs"
                   value={borderWidth} onChange={(e) => setBorderWidth(e.target.value)} />
               </div>
               <div className="space-y-1.5">

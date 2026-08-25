@@ -39,6 +39,7 @@ import {
   removeBackground,
   applyBorderAndSize,
   generateCutlineSvg,
+  STICKER_OUTPUT_DPI,
 } from "../lib/imageProcessing";
 
 const router: IRouter = Router();
@@ -428,6 +429,7 @@ router.get("/platform/stickers", requireSuperAdmin, async (req: Request, res: Re
       authoredByStoreId: stickersLibraryTable.authoredByStoreId,
       borderStyle: stickersLibraryTable.borderStyle,
       borderWidth: stickersLibraryTable.borderWidth,
+      borderWidthMm: stickersLibraryTable.borderWidthMm,
       borderColor: stickersLibraryTable.borderColor,
       sizeInMm: stickersLibraryTable.sizeInMm,
       exportTargets: stickersLibraryTable.exportTargets,
@@ -464,7 +466,9 @@ function isValidStickerFunctionType(v: unknown): v is StickerFunctionType {
 async function runStickerPipeline(params: {
   imageBase64: string;
   borderStyle?: string;
+  /** Legacy 96-DPI pixel value, preserved for older rows. */
   borderWidth?: number | null;
+  borderWidthMm?: number | null;
   borderColor?: string | null;
   sizeInMm?: number | null;
   exportTargets?: { goodnotes: boolean; ink: boolean; cricut: boolean };
@@ -473,6 +477,7 @@ async function runStickerPipeline(params: {
     imageBase64,
     borderStyle = "none",
     borderWidth,
+    borderWidthMm,
     borderColor,
     sizeInMm,
     exportTargets = { goodnotes: true, ink: true, cricut: false },
@@ -482,11 +487,13 @@ async function runStickerPipeline(params: {
 
   if (borderStyle !== "none" || sizeInMm) {
     processed = await applyBorderAndSize(
-      processed, borderStyle, borderWidth ?? null, borderColor ?? null, sizeInMm ?? null,
+      processed, borderStyle, borderWidth ?? null, borderColor ?? null, sizeInMm ?? null, borderWidthMm ?? null,
     );
   }
 
-  const cutlineSvg = exportTargets.cricut ? await generateCutlineSvg(processed) : null;
+  const cutlineSvg = exportTargets.cricut
+    ? await generateCutlineSvg(processed, sizeInMm ? STICKER_OUTPUT_DPI : undefined)
+    : null;
   return { processedImageData: processed, cutlineSvg };
 }
 
@@ -615,11 +622,11 @@ router.post(
     const actor = req.actor!;
     const {
       name, tags, functionType, imageBase64,
-      borderStyle, borderWidth, borderColor, sizeInMm, exportTargets,
+      borderStyle, borderWidth, borderWidthMm, borderColor, sizeInMm, exportTargets,
       status: reqStatus,
     } = req.body as {
       name?: string; tags?: string[]; functionType?: string; imageBase64?: string;
-      borderStyle?: string; borderWidth?: number; borderColor?: string; sizeInMm?: number;
+      borderStyle?: string; borderWidth?: number; borderWidthMm?: number; borderColor?: string; sizeInMm?: number;
       exportTargets?: { goodnotes: boolean; ink: boolean; cricut: boolean };
       status?: "draft" | "live";
     };
@@ -643,7 +650,7 @@ router.post(
 
     try {
       const pipeline = await runStickerPipeline({
-        imageBase64, borderStyle: resolvedBorderStyle, borderWidth, borderColor, sizeInMm,
+        imageBase64, borderStyle: resolvedBorderStyle, borderWidth, borderWidthMm, borderColor, sizeInMm,
         exportTargets: resolvedExportTargets,
       });
 
@@ -659,6 +666,7 @@ router.post(
           authoredByStoreId: null,
           borderStyle: resolvedBorderStyle,
           borderWidth: borderWidth ?? null,
+          borderWidthMm: borderWidthMm ?? null,
           borderColor: borderColor ?? null,
           sizeInMm: sizeInMm ?? null,
           exportTargets: resolvedExportTargets,
@@ -700,10 +708,10 @@ router.patch(
 
     const {
       name, tags, functionType, imageBase64,
-      borderStyle, borderWidth, borderColor, sizeInMm, exportTargets, status,
+      borderStyle, borderWidth, borderWidthMm, borderColor, sizeInMm, exportTargets, status,
     } = req.body as {
       name?: string; tags?: string[]; functionType?: string; imageBase64?: string;
-      borderStyle?: string; borderWidth?: number | null; borderColor?: string | null;
+      borderStyle?: string; borderWidth?: number | null; borderWidthMm?: number | null; borderColor?: string | null;
       sizeInMm?: number | null; exportTargets?: { goodnotes: boolean; ink: boolean; cricut: boolean };
       status?: "draft" | "live";
     };
@@ -720,11 +728,12 @@ router.patch(
     if (status !== undefined)       updateData.status = status;
     if (borderStyle !== undefined)  updateData.borderStyle = borderStyle;
     if (borderWidth !== undefined)  updateData.borderWidth = borderWidth;
+    if (borderWidthMm !== undefined) updateData.borderWidthMm = borderWidthMm;
     if (borderColor !== undefined)  updateData.borderColor = borderColor;
     if (sizeInMm !== undefined)     updateData.sizeInMm = sizeInMm;
     if (exportTargets !== undefined) updateData.exportTargets = exportTargets;
 
-    const pipelineChanged = [imageBase64, borderStyle, borderWidth, borderColor, sizeInMm, exportTargets].some(
+    const pipelineChanged = [imageBase64, borderStyle, borderWidth, borderWidthMm, borderColor, sizeInMm, exportTargets].some(
       (f) => f !== undefined,
     );
 
@@ -738,6 +747,7 @@ router.patch(
           imageBase64: effectiveImage,
           borderStyle: borderStyle ?? row.borderStyle,
           borderWidth: borderWidth ?? row.borderWidth,
+          borderWidthMm: borderWidthMm ?? row.borderWidthMm,
           borderColor: borderColor ?? row.borderColor,
           sizeInMm: sizeInMm ?? row.sizeInMm,
           exportTargets: exportTargets ?? (row.exportTargets as { goodnotes: boolean; ink: boolean; cricut: boolean }),
@@ -802,6 +812,7 @@ router.post(
         authoredByStoreId: null,
         borderStyle: row.borderStyle,
         borderWidth: row.borderWidth,
+        borderWidthMm: row.borderWidthMm,
         borderColor: row.borderColor,
         sizeInMm: row.sizeInMm,
         exportTargets: row.exportTargets as { goodnotes: boolean; ink: boolean; cricut: boolean },

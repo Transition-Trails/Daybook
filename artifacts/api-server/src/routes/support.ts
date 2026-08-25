@@ -18,10 +18,10 @@ import { db } from "@workspace/db";
 import {
   ticketsTable,
   ticketRepliesTable,
-  storeMembersTable,
   plannerConfigsTable,
   generationJobsTable,
   helpContentTable,
+  storeMembersTable,
   editionsTable,
   themesTable,
 } from "@workspace/db";
@@ -103,12 +103,11 @@ const AREA_LABELS_MAP: Record<string, string> = {
 
 // ── GET /support/articles ─────────────────────────────────────────────────────
 // Live article matching — called as area + symptoms change.
-// No auth required; scope param narrows to store articles when supplied.
+// No auth required for platform articles; store scope requires membership.
 router.get(
   "/support/articles",
   resolveStoreActorOptional,
   async (req: Request, res: Response): Promise<void> => {
-    const actor = req.actor!;
     const { area = "", symptoms = "", scope = "platform" } = req.query as {
       area?: string;
       symptoms?: string;
@@ -117,12 +116,13 @@ router.get(
 
     try {
       if (scope !== "platform") {
+        const actor = req.actor;
         if (!actor?.userId) {
-          res.status(403).json({ error: "Store-scoped help requires store membership" });
+          res.status(403).json({ error: "Forbidden: store membership required for this help scope" });
           return;
         }
         if (!actor.isSuperAdmin && !(await hasStoreMembership(actor.userId, scope))) {
-          res.status(403).json({ error: "Forbidden: no membership in this store" });
+          res.status(403).json({ error: "Forbidden: no membership in this help scope" });
           return;
         }
       }

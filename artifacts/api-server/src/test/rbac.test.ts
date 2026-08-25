@@ -964,26 +964,6 @@ describe("GET /api/help — visibility rules", () => {
   it("rejects a cross-store help scope request", async () => {
     await request(alphaOwner).get("/api/help?scope=store-beta").expect(403);
   });
-
-  it("support article matching enforces the requested store scope", async () => {
-    const ownScope = await request(alphaOwner)
-      .get("/api/support/articles?area=building-planner&symptoms=Test&scope=store-alpha");
-    expect(ownScope.status).toBe(200);
-    expect(Array.isArray(ownScope.body.articles)).toBe(true);
-
-    await request(alphaOwner)
-      .get("/api/support/articles?area=building-planner&symptoms=Test&scope=store-beta")
-      .expect(403);
-  });
-
-  it("rejects unauthenticated and non-member support article scopes", async () => {
-    await request(unauth)
-      .get("/api/support/articles?area=building-planner&symptoms=Test&scope=store-alpha")
-      .expect(403);
-    await request(noStore)
-      .get("/api/support/articles?area=building-planner&symptoms=Test&scope=store-alpha")
-      .expect(403);
-  });
   it("store-gamma owner: sees platform articles but NOT alpha or beta store articles", async () => {
     const res = await request(gammaOwner).get("/api/help");
     expect(res.status).toBe(200);
@@ -1007,7 +987,64 @@ describe("GET /api/help — visibility rules", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 13. Store order tenant isolation
+// 13. GET /api/support/articles — store scope authorization
+// ─────────────────────────────────────────────────────────────────────────────
+describe("GET /api/support/articles — store scope authorization", () => {
+  it("allows public live platform article matching", async () => {
+    const res = await request(unauth)
+      .get("/api/support/articles?area=something-else&symptoms=platform");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("articles");
+  });
+
+  it("rejects unauthenticated store-scoped article requests", async () => {
+    const res = await request(unauth)
+      .get("/api/support/articles?scope=store-alpha&area=something-else&symptoms=alpha");
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({
+      error: "Forbidden: store membership required for this help scope",
+    });
+
+    await request(noStore)
+      .get("/api/support/articles?scope=store-alpha&area=something-else&symptoms=alpha")
+      .expect(403);
+  });
+
+  it("rejects a member requesting another store's articles", async () => {
+    const res = await request(alphaOwner)
+      .get("/api/support/articles?scope=store-beta&area=something-else&symptoms=beta");
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({
+      error: "Forbidden: no membership in this help scope",
+    });
+  });
+
+  it("allows a store member to request that store's articles", async () => {
+    const res = await request(alphaOwner)
+      .get("/api/support/articles?scope=store-alpha&area=something-else&symptoms=alpha");
+
+    expect(res.status).toBe(200);
+    expect(res.body.articles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "Test Alpha Help" }),
+    ]));
+  });
+
+  it("allows a super admin to request any store's articles", async () => {
+    const res = await request(sa)
+      .get("/api/support/articles?scope=store-beta&area=something-else&symptoms=beta");
+
+    expect(res.status).toBe(200);
+    expect(res.body.articles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "Test Beta Help" }),
+    ]));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14. Store order tenant isolation
 // ─────────────────────────────────────────────────────────────────────────────
 describe("GET /api/store/:storeId/orders — tenant isolation", () => {
   it("returns 403 when a non-member requests another store's orders", async () => {
@@ -1018,7 +1055,7 @@ describe("GET /api/store/:storeId/orders — tenant isolation", () => {
     await request(alphaStaff).get("/api/store/store-alpha/orders").expect(200);
   });
 
-  it("reserves the platform house-store orders endpoint for super admins", async () => {
+  it("reserves the platform orders endpoint for super admins", async () => {
     await request(alphaOwner).get("/api/store/store-house/orders").expect(403);
     await request(sa).get("/api/store/store-house/orders").expect(200);
   });
@@ -1051,7 +1088,7 @@ describe("GET /api/store/:storeId/orders — tenant isolation", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 14. Support activity and ticket tenant isolation
+// 15. Support activity and ticket tenant isolation
 // ─────────────────────────────────────────────────────────────────────────────
 describe("support activity and ticket tenant isolation", () => {
   it("returns recent activity for a member's store", async () => {
@@ -1090,7 +1127,7 @@ describe("support activity and ticket tenant isolation", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 15. Audit log written on mutations
+// 16. Audit log written on mutations
 // ─────────────────────────────────────────────────────────────────────────────
 describe("audit log — written on admin mutations", () => {
   it("POST /api/stores (super_admin) writes audit entry: actorRole=super_admin, scope=platform", async () => {

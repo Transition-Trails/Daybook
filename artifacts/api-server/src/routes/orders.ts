@@ -163,11 +163,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params as { id: string };
     try {
-      const [order] = await db
-        .select(orderResponseFields)
-        .from(ordersTable)
-        .where(eq(ordersTable.id, id))
-        .limit(1);
+    const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
       if (!order) {
         res.status(404).json({ error: "Order not found" });
         return;
@@ -192,11 +188,7 @@ router.post(
     const now = new Date();
 
     try {
-      const [order] = await db
-        .select()
-        .from(ordersTable)
-        .where(eq(ordersTable.id, id))
-        .limit(1);
+    const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
       if (!order) {
         res.status(404).json({ error: "Order not found" });
         return;
@@ -205,7 +197,7 @@ router.post(
       const tokenExpired = !order.resendTokenExpiresAt
         || order.resendTokenExpiresAt.getTime() <= now.getTime();
       const validToken = !tokenExpired && tokenMatches(order.resendToken, token);
-      const actor = req.actor;
+    const actor = req.actor!;
       const actorCanResend = Boolean(
         actor
         && (
@@ -256,21 +248,17 @@ router.post(
           ),
           eq(ordersTable.resendWindowCount, order.resendWindowCount),
         );
-      const [reserved] = await db
-        .update(ordersTable)
-        .set({
-          receiptAttempts: sql`${ordersTable.receiptAttempts} + 1`,
-          receiptLastAttemptAt: now,
-          receiptLastError: null,
-          resendWindowStartedAt: activeWindow ? order.resendWindowStartedAt : now,
-          resendWindowCount: hourlyCount + 1,
-        })
-        .where(and(
-          eq(ordersTable.id, id),
-          lt(ordersTable.resendCount, MAX_RESENDS_PER_ORDER),
-          reservationWindowCondition,
-        ))
-        .returning({ id: ordersTable.id });
+      const [reserved] = await db.update(ordersTable).set({
+        receiptAttempts: sql`${ordersTable.receiptAttempts} + 1`,
+        receiptLastAttemptAt: now,
+        receiptLastError: null,
+        resendWindowStartedAt: activeWindow ? order.resendWindowStartedAt : now,
+        resendWindowCount: hourlyCount + 1,
+      }).where(and(
+        eq(ordersTable.id, order.id),
+        lt(ordersTable.resendCount, MAX_RESENDS_PER_ORDER),
+        eq(ordersTable.resendWindowCount, order.resendWindowCount),
+      )).returning({ id: ordersTable.id });
       if (!reserved) {
         res.status(429).json({ error: "Another receipt resend request is already being processed" });
         return;
@@ -321,7 +309,9 @@ router.post("/orders/recovery", async (req: Request, res: Response): Promise<voi
   }
 
   try {
-    const orders = await db.select().from(ordersTable)
+    const orders = await db
+      .select()
+      .from(ordersTable)
       .where(sql`lower(${ordersTable.buyerEmail}) = ${email}`)
       .orderBy(desc(ordersTable.createdAt))
       .limit(MAX_RESENDS_PER_ORDER);

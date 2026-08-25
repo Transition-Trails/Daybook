@@ -30,6 +30,10 @@ export const storesTable = pgTable("stores", {
   // License gate for licensed-origin items. Starter + owned items are never gated.
   // Stripe will flip this on subscription events (wired later); togglable by super_admin now.
   subscriptionActive: boolean("subscription_active").notNull().default(true),
+  /** Connected Stripe account used for direct seller charges. */
+  stripeAccountId: text("stripe_account_id"),
+  /** Cached from Stripe Account.charges_enabled; account ID alone is not sell readiness. */
+  stripeChargesEnabled: boolean("stripe_charges_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

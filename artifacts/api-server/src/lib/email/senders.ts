@@ -200,7 +200,7 @@ export async function sendOrderReceipt(opts: {
   storeId: string;
   buyerEmail: string;
   buyerName?: string;
-  items: Array<{ name: string; priceCents: number; downloadUrl?: string }>;
+  items: Array<{ name: string; priceCents: number; itemType?: string; itemId?: string; quantity?: number }>;
   totalCents: number;
   currency: string;
   downloadLinks: Array<{ name: string; url: string }>;
@@ -208,14 +208,10 @@ export async function sendOrderReceipt(opts: {
   attempt?: number;
 }): Promise<void> {
   const storeName = await getStoreName(opts.storeId) ?? "Daybook";
-  const editionName = opts.items[0]?.name ?? "your order";
-  const downloadUrl  = opts.downloadLinks[0]?.url ?? "#";
   const APP_URL      = process.env["APP_URL"] ?? "https://app.daybook.com";
-  const resendUrl    = opts.resendToken
-    ? `${APP_URL}/api/orders/${opts.orderId}/resend-receipt?token=${opts.resendToken}`
-    : `${APP_URL}/api/orders/${opts.orderId}/resend-receipt`;
+  const recoveryUrl  = `${APP_URL.replace(/\/+$/, "")}/api/orders/recovery`;
 
-  const tmpl = orderReceipt({ storeName, editionName, downloadUrl, resendUrl });
+  const tmpl = orderReceipt({ storeName, downloads: opts.downloadLinks, recoveryUrl });
   await sendEmail({
     idempotencyKey: `order-receipt:${opts.orderId}:${opts.attempt ?? 0}`,
     storeId:   opts.storeId,

@@ -38,12 +38,16 @@ import worldsmithRouter from "./worldsmith";
 import worldsmithEditorialRouter from "./worldsmith-editorial";
 import releasesRouter from "./releases";
 import plannerInteriorsRouter from "./planner-interiors";
+import checkoutRouter from "./checkout";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(storageRouter);
 router.use(authRouter);
+// Guest checkout is intentionally public. It must be mounted before the
+// Editorial router's router-wide authentication guard below.
+router.use(checkoutRouter);
 router.use(adminRouter);
 router.use(catalogRouter);
 router.use(plannersRouter);

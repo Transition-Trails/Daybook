@@ -199,7 +199,7 @@ async function main() {
   // delta: independent mode + subscriptionActive=false (demonstrates the gated state)
   await db.insert(storesTable).values([
     // House store — this is the platform's own shop. super admins build here.
-    { id: "store-house", name: "Pixel Perfect Plans", slug: "pixel-perfect-plans", ownerUserId: houseOwnerUserId, plan: "pro", status: "active", defaultMode: "curated", subscriptionActive: true },
+    { id: "store-house", name: "Pixel Perfect Plans", slug: "pixel-perfect-plans", ownerUserId: "user-platform-system", plan: "pro", status: "active", defaultMode: "curated", subscriptionActive: true },
     { id: "store-alpha", name: "Alpha Planners", slug: "store-alpha", ownerUserId: "u-alpha-owner", plan: "pro",     status: "active",    defaultMode: "curated",      subscriptionActive: true },
     { id: "store-beta",  name: "Beta Studio",    slug: "store-beta",  ownerUserId: "u-beta-owner",  plan: "pro",     status: "active",    defaultMode: "curated",      subscriptionActive: true },
     { id: "store-gamma", name: "Gamma Designs",  slug: "store-gamma", ownerUserId: "u-gamma-owner", plan: "starter", status: "trial",     defaultMode: "curated",      subscriptionActive: true },
@@ -209,6 +209,9 @@ async function main() {
     set: {
       defaultMode: storesTable.defaultMode,
       subscriptionActive: storesTable.subscriptionActive,
+      name: storesTable.name,
+      slug: storesTable.slug,
+      ownerUserId: storesTable.ownerUserId,
     },
   });
   console.log("  ✓ stores (5): store-house=pro+curated  alpha/beta/gamma=curated+active  delta=independent+inactive");

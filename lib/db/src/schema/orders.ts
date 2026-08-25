@@ -4,9 +4,11 @@ import { usersTable } from "./users";
 import { storesTable } from "./stores";
 
 export interface OrderItem {
+  itemType?: string;
+  itemId?: string;
   name: string;
   priceCents: number;
-  downloadUrl?: string;
+  quantity?: number;
 }
 
 export const ordersTable = pgTable("orders", {
@@ -20,11 +22,14 @@ export const ordersTable = pgTable("orders", {
   buyerUserId: text("buyer_user_id").references(() => usersTable.id),
   buyerEmail: text("buyer_email").notNull(),
   buyerName: text("buyer_name"),
-  /** Line items with price and optional download URL per item */
+  /** Line items with server-resolved catalog references and prices. */
   items: jsonb("items").$type<OrderItem[]>().notNull().default([]),
   totalCents: integer("total_cents").notNull().default(0),
   currency: text("currency").notNull().default("usd"),
-  /** Ordered array of { name, url } for the download bundle */
+  /**
+   * Legacy delivery column retained for old billing rows. New orders never
+   * persist URLs here; links are signed and generated on demand.
+   */
   downloadLinks: jsonb("download_links")
     .$type<Array<{ name: string; url: string }>>()
     .notNull()

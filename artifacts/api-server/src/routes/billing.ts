@@ -302,9 +302,9 @@ async function recordSuccessfulPayment(
     .insert(ordersTable)
     .values({
       id: orderId,
-      // Platform subscription purchases belong to the seeded house store so
-      // every order keeps a valid seller foreign key.
-      storeId: "store-house",
+      // Platform subscriptions are intentionally separate from the house
+      // storefront's product revenue.
+      storeId: "store-platform",
       buyerUserId: user.id,
       buyerEmail: user.email,
       buyerName: user.name ?? null,
@@ -749,6 +749,18 @@ router.post("/webhooks/stripe", async (req, res): Promise<void> => {
     const payload = event.data.object as StripePayload;
     switch (event.type) {
       case "checkout.session.completed":
+        if (payload.metadata?.commerce === "seller") {
+          if (!isConfirmedCheckoutPayment(payload)) {
+            logger.warn(
+              { eventId: event.id, paymentStatus: payload.payment_status },
+              "Seller checkout completed before payment confirmation; awaiting asynchronous payment success",
+            );
+            break;
+          }
+          const { processSellerCheckoutPayment } = await import("./checkout");
+          await processSellerCheckoutPayment(event, payload);
+          break;
+        }
         if (!isConfirmedCheckoutPayment(payload)) {
           logger.warn(
             { eventId: event.id, paymentStatus: payload.payment_status },
@@ -759,6 +771,11 @@ router.post("/webhooks/stripe", async (req, res): Promise<void> => {
         await processSuccessfulPayment(stripe, event, payload, "checkout");
         break;
       case "checkout.session.async_payment_succeeded":
+        if (payload.metadata?.commerce === "seller") {
+          const { processSellerCheckoutPayment } = await import("./checkout");
+          await processSellerCheckoutPayment(event, payload);
+          break;
+        }
         await processSuccessfulPayment(stripe, event, payload, "async_checkout");
         break;
       case "invoice.payment_succeeded":

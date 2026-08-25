@@ -17,17 +17,17 @@ export const paymentsTable = pgTable(
       .notNull()
       .references(() => ordersTable.id, { onDelete: "cascade" }),
     userId: text("user_id")
-      .notNull()
       .references(() => usersTable.id),
     planId: text("plan_id")
-      .notNull()
       .references(() => plansTable.id),
-    source: text("source").notNull(), // checkout | async_checkout | invoice
+    source: text("source").notNull(), // checkout | async_checkout | invoice | seller_checkout
     status: text("status").notNull().default("succeeded"), // succeeded | failed | refunded | cancelled
     stripeEventId: text("stripe_event_id").notNull(),
     stripePaymentIntentId: text("stripe_payment_intent_id"),
     stripeSubscriptionId: text("stripe_subscription_id"),
     stripeInvoiceId: text("stripe_invoice_id"),
+    stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+    stripeConnectedAccountId: text("stripe_connected_account_id"),
     amountCents: integer("amount_cents"),
     currency: text("currency"),
     lastLifecycleEventId: text("last_lifecycle_event_id"),
@@ -46,6 +46,8 @@ export const paymentsTable = pgTable(
     index("payments_user_id_idx").on(t.userId),
     index("payments_subscription_id_idx").on(t.stripeSubscriptionId),
     index("payments_invoice_id_idx").on(t.stripeInvoiceId),
+    unique("payments_stripe_checkout_session_id_uq").on(t.stripeCheckoutSessionId),
+    index("payments_connected_account_id_idx").on(t.stripeConnectedAccountId),
   ],
 );
 

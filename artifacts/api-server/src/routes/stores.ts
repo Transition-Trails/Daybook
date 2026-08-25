@@ -8,6 +8,7 @@
  * /stores/:storeId/flags               — get (store_owner+) / put (super_admin only)
  */
 import { Router, type IRouter, type Request, type Response } from "express";
+import Stripe from "stripe";
 import { db } from "@workspace/db";
 import {
   storesTable,
@@ -18,8 +19,9 @@ import {
   stickerPacksTable,
   insertsTable,
   editionsTable,
+  usersTable,
 } from "@workspace/db";
-import { eq, and, count, inArray } from "drizzle-orm";
+import { eq, and, count, inArray, sql } from "drizzle-orm";
 import {
   requireSuperAdmin,
   requireStoreAccess,
@@ -32,6 +34,16 @@ import { annotateWithEntitlement, type EntitlementContext } from "../lib/entitle
 const router: IRouter = Router();
 const OWNER_EDITABLE = ["name", "domain", "defaultMode"] as const;
 type OwnerEditableField = (typeof OWNER_EDITABLE)[number];
+
+function getStripe() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) throw new Error("STRIPE_SECRET_KEY not configured");
+  return new Stripe(key, { apiVersion: "2025-06-30.basil" as Stripe.LatestApiVersion });
+}
+
+function appUrl(): string {
+  return (process.env.APP_URL ?? "http://localhost:5000").replace(/\/+$/, "");
+}
 
 // ── Catalog table registry ─────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -142,6 +154,10 @@ router.patch("/stores/:storeId", resolveStoreActor, async (req: Request, res: Re
   if (actor.isSuperAdmin) {
     patch = { ...body };
     delete patch.id;
+    // Connect identity and readiness must come from Stripe's API only. A
+    // general store PATCH must never make an arbitrary account sellable.
+    delete patch.stripeAccountId;
+    delete patch.stripeChargesEnabled;
   } else {
     const unknownFields = Object.keys(body).filter(
       (key) => !OWNER_EDITABLE.includes(key as OwnerEditableField),
@@ -179,6 +195,103 @@ router.patch("/stores/:storeId", resolveStoreActor, async (req: Request, res: Re
 
   res.json(updated);
 });
+
+// ── Stripe Connect seller onboarding ─────────────────────────────────────────
+// Readiness is refreshed from Stripe rather than inferred from account ID
+// presence. Only the store owner or a platform super-admin may initiate it.
+router.get(
+  "/stores/:storeId/stripe/status",
+  requireStoreAccess("store_owner"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const storeId = req.params.storeId as string;
+    if (!assertStoreScope(actor, storeId, res)) return;
+    if (!process.env.STRIPE_SECRET_KEY) {
+      res.status(501).json({ error: "Stripe is not configured" });
+      return;
+    }
+    const [store] = await db.select().from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+    if (!store) { res.status(404).json({ error: "Store not found" }); return; }
+    if (!store.stripeAccountId) {
+      res.json({ stripeAccountId: null, chargesEnabled: false, readyToSell: false });
+      return;
+    }
+    try {
+      const account = await getStripe().accounts.retrieve(store.stripeAccountId);
+      const chargesEnabled = account.charges_enabled === true;
+      const [updated] = await db.update(storesTable)
+        .set({ stripeChargesEnabled: chargesEnabled })
+        .where(eq(storesTable.id, storeId))
+        .returning();
+      res.json({
+        stripeAccountId: updated?.stripeAccountId ?? store.stripeAccountId,
+        chargesEnabled,
+        readyToSell: chargesEnabled,
+        detailsSubmitted: account.details_submitted === true,
+      });
+    } catch (err) {
+      req.log.error({ err, storeId }, "Stripe Connect status lookup failed");
+      res.status(502).json({ error: "Could not refresh Stripe seller status" });
+    }
+  },
+);
+
+router.post(
+  "/stores/:storeId/stripe/onboarding",
+  requireStoreAccess("store_owner"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const storeId = req.params.storeId as string;
+    if (!assertStoreScope(actor, storeId, res)) return;
+    if (!process.env.STRIPE_SECRET_KEY) {
+      res.status(501).json({ error: "Stripe is not configured" });
+      return;
+    }
+    try {
+      const stripe = getStripe();
+      const connected = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`stripe-connect:${storeId}`}))`);
+        const [lockedStore] = await tx.select().from(storesTable)
+          .where(eq(storesTable.id, storeId)).limit(1);
+        if (!lockedStore) throw new Error("Store not found");
+        if (lockedStore.stripeAccountId) {
+          return {
+            accountId: lockedStore.stripeAccountId,
+            chargesEnabled: lockedStore.stripeChargesEnabled,
+          };
+        }
+        const [owner] = await tx.select({ email: usersTable.email })
+          .from(usersTable).where(eq(usersTable.id, lockedStore.ownerUserId)).limit(1);
+        const account = await stripe.accounts.create({
+          type: "express",
+          email: owner?.email,
+          metadata: { storeId },
+        });
+        await tx.update(storesTable).set({
+          stripeAccountId: account.id,
+          stripeChargesEnabled: account.charges_enabled === true,
+        }).where(eq(storesTable.id, storeId));
+        return { accountId: account.id, chargesEnabled: account.charges_enabled === true };
+      });
+      const link = await stripe.accountLinks.create({
+        account: connected.accountId,
+        refresh_url: `${appUrl()}/store/${encodeURIComponent(storeId)}/settings/payments?refresh=1`,
+        return_url: `${appUrl()}/store/${encodeURIComponent(storeId)}/settings/payments?complete=1`,
+        type: "account_onboarding",
+      });
+      res.json({
+        stripeAccountId: connected.accountId,
+        chargesEnabled: connected.chargesEnabled,
+        readyToSell: connected.chargesEnabled,
+        url: link.url,
+        expiresAt: link.expires_at,
+      });
+    } catch (err) {
+      req.log.error({ err, storeId }, "Stripe Connect onboarding link creation failed");
+      res.status(502).json({ error: "Could not start Stripe seller onboarding" });
+    }
+  },
+);
 
 // ── GET /stores/:storeId/members ──────────────────────────────────────────────
 // Only store owners (and super-admins) may view the member list.

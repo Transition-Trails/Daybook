@@ -17,6 +17,37 @@ The project is a pnpm TypeScript monorepo:
 See [replit.md](replit.md) for setup, required secrets, commands, architecture
 decisions, and contributor guardrails.
 
+## Billing and support operations
+
+Daybook subscriptions are configured through Stripe rather than numeric prices
+in application code:
+
+1. Add `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and
+   `STRIPE_YEARLY_PRICE_ID` to the environment used by the API and seed script.
+2. Run `pnpm --filter @workspace/scripts run seed`. The yearly plan is
+   upserted with the configured Stripe Price ID; if the ID is absent, the seed
+   warns and leaves the plan unavailable for purchase.
+3. Configure Stripe to deliver events to `POST /api/webhooks/stripe`.
+4. Confirm the API startup log does not report missing billing configuration.
+
+Only plans with a nonblank Stripe Price ID appear in the public plan catalog or
+checkout. Stripe lifecycle events are retry-safe: confirmed payments activate
+access, a failed payment retains access through the paid period, and
+`inactive` or `refunded` states terminate access. Events that arrive before
+checkout correlation return a retryable error; events belonging to an older or
+different known payment are safely ignored. Invoice Payment lookups enrich
+refund correlation but do not turn a successful renewal into a failed request.
+
+Each accepted subscription payment is recorded in the payment ledger and
+linked to a billing order. Super admins can view a customer's complete history
+from the admin user detail page. The support API endpoints are:
+
+- `GET /api/billing/users/:userId/payments`
+- `GET /api/orders/:id`
+
+The second endpoint is restricted to super admins because order details contain
+customer billing information.
+
 ## WorldSmith local workflow
 
 WorldSmith lets editorial teams author production specifications, compile

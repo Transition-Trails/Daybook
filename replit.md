@@ -15,6 +15,9 @@ White-label SaaS for digital planner creators. Platform admins author the constr
 | `DEFAULT_OBJECT_STORAGE_BUCKET_ID` | Already set | Object storage for uploaded assets |
 | `PRIVATE_OBJECT_DIR` | Already set | Object storage private-directory prefix |
 | `PUBLIC_OBJECT_SEARCH_PATHS` | Already set | Object storage public-path patterns |
+| `STRIPE_SECRET_KEY` | Add to activate | Stripe checkout and API access |
+| `STRIPE_WEBHOOK_SECRET` | Add to activate | Verified Stripe lifecycle webhooks |
+| `STRIPE_YEARLY_PRICE_ID` | Add to activate | Sellable yearly subscription Price ID |
 
 Register this callback URL in Google Cloud Console (logged at server startup):
 ```
@@ -38,6 +41,26 @@ pnpm --filter @workspace/scripts run seed-stickers
 pnpm --filter @workspace/scripts run seed-recipes
 pnpm --filter @workspace/scripts run seed-theme-catalog
 ```
+
+### Stripe billing setup
+
+The seed script reads `STRIPE_YEARLY_PRICE_ID` from the environment and
+upserts the yearly plan. It no longer writes numeric legacy price fields. If
+the variable is missing, the seed completes with a warning and the plan is not
+sellable. The API also performs a non-blocking startup check and logs a billing
+configuration error when no plan has a nonblank Stripe Price ID.
+
+Configure Stripe's webhook destination as:
+
+```text
+POST /api/webhooks/stripe
+```
+
+The webhook must receive the raw request body for signature verification. A
+successful invoice remains valid even if Stripe's Invoice Payments enrichment
+is temporarily unavailable; a later invoice-linked refund resolves through the
+invoice subscription when necessary. Payment failures retain access until the
+paid period ends, while `inactive` and `refunded` are terminal states.
 
 ## Stack
 
@@ -66,6 +89,10 @@ pnpm --filter @workspace/scripts run seed-theme-catalog
 | E-ink safety checker | `artifacts/api-server/src/lib/eink-checker.ts` |
 | Font warmup + coverage | `artifacts/api-server/src/lib/font-warmup.ts` |
 | Transactional email | `artifacts/api-server/src/lib/email/` |
+| Billing checkout and Stripe webhooks | `artifacts/api-server/src/routes/billing.ts` |
+| Billing configuration and Price ID normalization | `artifacts/api-server/src/lib/billing-config.ts`, `artifacts/api-server/src/lib/stripe-price.ts` |
+| Billing payment ledger schema | `lib/db/src/schema/payments.ts` |
+| Customer payment history and order detail | `artifacts/admin/src/pages/users/detail.tsx`, `artifacts/admin/src/pages/orders/detail.tsx` |
 | Owned-catalog routes (store-scoped) | `artifacts/api-server/src/routes/owned-catalog.ts` |
 | Platform recipe routes | `artifacts/api-server/src/routes/platform-recipes.ts` |
 | Support ticket routes | `artifacts/api-server/src/routes/support.ts` |
@@ -119,6 +146,14 @@ than independent long- and short-side caps: 3,686,400 pixels normally and
 part of the audit record and generation identity hash. Print dimensions are
 managed per component and orientation in the catalog, so a platform admin can
 change them without a code deployment.
+
+**10. Stripe is the billing price authority.**
+Subscription plans are sellable only when their database row has a nonblank
+Stripe Price ID. Checkout and the public catalog use that same predicate, and
+the seed script updates the environment-specific ID without restoring numeric
+price arithmetic. Webhook processing records accepted payments and their
+orders idempotently, compares Stripe identities before lifecycle mutation, and
+keeps dunning access through the paid period.
 
 ## Product
 
@@ -180,3 +215,10 @@ runbook rather than editing ledger rows manually.
 **Studio active-chip contrast.** `--primary` is clay `#C87560` (~3.5:1 on white, fails WCAG AA). Always use Ink Navy `#1B2A4A` for active chip/pill fills. Constants `CHIP_ACTIVE_BG` and `CHIP_ACTIVE_CLS` are defined in the studio primitives file.
 
 **E-ink export profiles.** `buildPdf` takes `inkFriendly` (8th param) and `einkDevice` (9th param). These force minimum 0.75pt lines, suppress backgrounds, and enforce a contrast floor. Preview and export must use identical params — they share one helper call path; do not branch them.
+
+**Stripe billing configuration.** `STRIPE_YEARLY_PRICE_ID` is required for a
+sellable seeded plan, while `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are
+required for checkout and verified webhook processing. The API intentionally
+continues serving when the Price ID is absent, but checkout returns an explicit
+configuration error and startup logs the missing configuration. Do not expose
+Stripe Price IDs in public plan responses.

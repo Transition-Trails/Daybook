@@ -1,5 +1,46 @@
 # Deployment runbook
 
+## Stripe billing configuration
+
+Before enabling subscription sales in a deployment, add these environment
+secrets to the API and seed execution environment:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_YEARLY_PRICE_ID`
+
+`STRIPE_YEARLY_PRICE_ID` must be the Stripe Price ID for the yearly
+subscription. Run the idempotent seed after setting it:
+
+```bash
+pnpm --filter @workspace/scripts run seed
+```
+
+The seed updates the yearly plan's Stripe Price ID and does not write the
+retired numeric price fields. Without the variable, it warns and leaves the
+plan unavailable for purchase. API startup performs a non-blocking check and
+logs an error if no plan has a nonblank Stripe Price ID; this does not prevent
+the API from serving.
+
+Set the Stripe webhook destination to `POST /api/webhooks/stripe` and preserve
+the raw request body so Stripe signature verification can run. Lifecycle
+behavior is intentionally conservative:
+
+- successful confirmed payments activate the subscription;
+- `payment_failed` retains access until the current paid period ends;
+- `inactive` and `refunded` are terminal access states;
+- events before billing correlation return a retryable 500;
+- events for a different known subscription or payment are acknowledged and
+  logged without changing the active record.
+
+Invoice Payment API lookup enriches payment-intent correlation. If that
+enrichment fails, a successful invoice remains non-fatal, and a later
+invoice-linked refund can correlate through the invoice's subscription.
+
+Accepted subscription payments create idempotent local payment-ledger rows
+linked to billing orders. Super admins can inspect the complete payment history
+from a customer record in the admin console and open the linked order detail.
+
 ## Database migrations
 
 Run the tracked database migrations against the same database used by the

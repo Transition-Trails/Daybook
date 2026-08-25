@@ -2,6 +2,29 @@
 
 All notable changes to Daybook are documented in this file.
 
+## 2026-08-25 — Stripe billing and support history
+
+### Added
+
+- Added environment-driven Stripe sellability through `STRIPE_YEARLY_PRICE_ID`;
+  configured plans now power checkout and the public plan catalog without
+  numeric price arithmetic.
+- Added a non-blocking startup diagnostic and seed warning when no nonblank
+  Stripe Price ID is configured.
+- Added retry-safe Stripe lifecycle handling for early events, late events,
+  dunning, cancellations, and refunds, including the modern Invoice Payments
+  API and invoice-subscription refund fallback.
+- Added an idempotent payment ledger linked to billing orders.
+- Added super-admin customer payment history and linked order detail views.
+
+### Changed
+
+- Subscription access now remains available during a future paid period after
+  `payment_failed`, while `inactive` and `refunded` states terminate access.
+- Payment and order support data is restricted to the appropriate
+  super-admin/support surfaces and public plan responses never expose Stripe
+  Price IDs.
+
 ## 2026-08-24 — WorldSmith generation and deployment safety
 
 ### Added

@@ -81,6 +81,7 @@ export async function markGoogleConnectionDisconnected(
   userId: string,
   reason: string,
   expectedTokenVersion: number,
+  expectedAccessToken?: string,
 ): Promise<boolean> {
   const falseGoogleFlags = sql<UserConnections>`jsonb_set(
     jsonb_set(
@@ -108,10 +109,19 @@ export async function markGoogleConnectionDisconnected(
       googleDisconnectReason: reason,
       connections: falseGoogleFlags,
     })
-    .where(and(
-      eq(usersTable.id, userId),
-      eq(usersTable.googleTokenVersion, expectedTokenVersion),
-    ))
+    .where(expectedAccessToken === undefined
+      ? and(
+          eq(usersTable.id, userId),
+          eq(usersTable.googleTokenVersion, expectedTokenVersion),
+        )
+      : and(
+          eq(usersTable.id, userId),
+          eq(usersTable.googleTokenVersion, expectedTokenVersion),
+          // A concurrent refresh can replace an access token without advancing
+          // the lifecycle version. Never let a late API 401 clear that newer
+          // credential.
+          eq(usersTable.googleAccessToken, expectedAccessToken),
+        ))
     .returning({ id: usersTable.id });
   return updated.length > 0;
 }

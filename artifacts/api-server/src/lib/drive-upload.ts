@@ -8,6 +8,17 @@ import { eq, sql } from "drizzle-orm";
 const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
 
+export class GoogleDriveApiError extends Error {
+  constructor(
+    operation: string,
+    public readonly status: number,
+    public readonly providerMessage: string,
+  ) {
+    super(`${operation} failed (${status}): ${providerMessage}`);
+    this.name = "GoogleDriveApiError";
+  }
+}
+
 async function findRootOwnedDaybookFolder(accessToken: string): Promise<string | null> {
   const query = new URLSearchParams({
     // Never adopt a shared folder or an identically named folder below another
@@ -23,7 +34,7 @@ async function findRootOwnedDaybookFolder(accessToken: string): Promise<string |
 
   if (!searchRes.ok) {
     const err = await searchRes.text();
-    throw new Error(`Drive folder search failed (${searchRes.status}): ${err}`);
+    throw new GoogleDriveApiError("Drive folder search", searchRes.status, err);
   }
 
   const searchData = (await searchRes.json()) as { files: Array<{ id: string }> };
@@ -48,7 +59,7 @@ async function createDaybookFolder(accessToken: string): Promise<string> {
 
   if (!createRes.ok) {
     const err = await createRes.text();
-    throw new Error(`Drive folder creation failed (${createRes.status}): ${err}`);
+    throw new GoogleDriveApiError("Drive folder creation", createRes.status, err);
   }
 
   const folder = (await createRes.json()) as { id: string };
@@ -125,7 +136,7 @@ export async function uploadFileToDrive(
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Drive upload failed (${res.status}): ${err}`);
+    throw new GoogleDriveApiError("Drive upload", res.status, err);
   }
 
   const data = (await res.json()) as { id?: string; error?: unknown };

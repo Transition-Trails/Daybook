@@ -21,9 +21,14 @@ import {
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
-import { uploadPlannerConfig, getOrCreateDaybookFolder, uploadFileToDrive } from "../lib/drive-upload";
+import {
+  GoogleDriveApiError,
+  uploadPlannerConfig,
+  getOrCreateDaybookFolder,
+  uploadFileToDrive,
+} from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
-import { stampGoogleSync } from "../lib/google-connection-state";
+import { markGoogleConnectionDisconnected, stampGoogleSync } from "../lib/google-connection-state";
 import { writeAudit } from "../lib/audit";
 import { resolveGoogleAuditActor } from "../lib/google-audit-actor";
 import type { User } from "@workspace/db";
@@ -164,6 +169,37 @@ function replyIfScopeError(
   return true;
 }
 
+/**
+ * A Google API 401 can arrive before an otherwise-valid access token reaches
+ * its refresh window, for example immediately after the user revokes consent.
+ * Treat it as terminal only if the exact token and lifecycle version that made
+ * the request are still current; a newer consent or refresh must win.
+ */
+async function replyIfCredentialError(
+  user: User,
+  accessToken: string,
+  res: import("express").Response,
+  status: number,
+): Promise<boolean> {
+  if (status !== 401 || user.googleTokenVersion === undefined) return false;
+
+  const disconnected = await markGoogleConnectionDisconnected(
+    user.id,
+    "Google API rejected the access token",
+    user.googleTokenVersion,
+    accessToken,
+  );
+  if (!disconnected) return false;
+
+  res.status(401).json({
+    error: "reconnect_required",
+    reason: "disconnected",
+    message: "Google access was revoked or expired — reconnect Google to continue",
+    reconnectUrl: "/api/auth/google",
+  });
+  return true;
+}
+
 // ── GET /calendar/events ──────────────────────────────────────────────────────
 
 router.get("/calendar/events", requireAuth, async (req, res): Promise<void> => {
@@ -182,6 +218,7 @@ router.get("/calendar/events", requireAuth, async (req, res): Promise<void> => {
 
   if (!gcRes.ok) {
     const errText = await gcRes.text().catch(() => "");
+    if (await replyIfCredentialError(user, accessToken, res, gcRes.status)) return;
     if (replyIfScopeError(res, gcRes.status, errText)) return;
     res.status(gcRes.status).json({ error: `Google Calendar error: ${errText}` });
     return;
@@ -278,6 +315,7 @@ router.post("/calendar/push", requireAuth, async (req, res): Promise<void> => {
         const errText = await patchRes.text().catch(() => "");
         // If event was deleted on Google's side, fall through and recreate below
         if (patchRes.status !== 410 && patchRes.status !== 404) {
+          if (await replyIfCredentialError(user, accessToken, res, patchRes.status)) return;
           if (replyIfScopeError(res, patchRes.status, errText)) return;
           res.status(patchRes.status).json({ error: `Calendar PATCH failed: ${errText}` });
           return;
@@ -305,6 +343,7 @@ router.post("/calendar/push", requireAuth, async (req, res): Promise<void> => {
     });
     if (!createRes.ok) {
       const errText = await createRes.text().catch(() => "");
+      if (await replyIfCredentialError(user, accessToken, res, createRes.status)) return;
       if (replyIfScopeError(res, createRes.status, errText)) return;
       res.status(createRes.status).json({ error: `Calendar INSERT failed: ${errText}` });
       return;
@@ -356,6 +395,7 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
 
   if (!gtRes.ok) {
     const errText = await gtRes.text().catch(() => "");
+    if (await replyIfCredentialError(user, accessToken, res, gtRes.status)) return;
     if (replyIfScopeError(res, gtRes.status, errText)) return;
     res.status(gtRes.status).json({ error: `Google Tasks error: ${errText}` });
     return;
@@ -437,6 +477,7 @@ router.post("/tasks", requireAuth, async (req, res): Promise<void> => {
 
   if (!createRes.ok) {
     const errText = await createRes.text().catch(() => "");
+    if (await replyIfCredentialError(user, accessToken, res, createRes.status)) return;
     if (replyIfScopeError(res, createRes.status, errText)) return;
     res.status(createRes.status).json({ error: `Google Tasks create failed: ${errText}` });
     return;
@@ -506,6 +547,7 @@ router.patch("/tasks/:googleTaskId", requireAuth, async (req, res): Promise<void
 
   if (!patchRes.ok) {
     const errText = await patchRes.text().catch(() => "");
+    if (await replyIfCredentialError(user, accessToken, res, patchRes.status)) return;
     if (replyIfScopeError(res, patchRes.status, errText)) return;
     res.status(patchRes.status).json({ error: `Google Tasks update failed: ${errText}` });
     return;
@@ -561,6 +603,7 @@ router.delete("/tasks/:googleTaskId", requireAuth, async (req, res): Promise<voi
 
   if (!deleteRes.ok && deleteRes.status !== 404) {
     const errText = await deleteRes.text().catch(() => "");
+    if (await replyIfCredentialError(user, accessToken, res, deleteRes.status)) return;
     if (replyIfScopeError(res, deleteRes.status, errText)) return;
     res.status(deleteRes.status).json({ error: `Google Tasks delete failed: ${errText}` });
     return;
@@ -626,6 +669,12 @@ router.post("/docs", requireAuth, async (req, res): Promise<void> => {
   try {
     folderId = await getOrCreateDaybookFolder(user.id, accessToken);
   } catch (err) {
+    if (
+      err instanceof GoogleDriveApiError &&
+      await replyIfCredentialError(user, accessToken, res, err.status)
+    ) {
+      return;
+    }
     res.status(500).json({ error: `Drive folder error: ${String(err)}` });
     return;
   }
@@ -658,6 +707,7 @@ router.post("/docs", requireAuth, async (req, res): Promise<void> => {
 
   if (!uploadRes.ok) {
     const errText = await uploadRes.text().catch(() => "");
+    if (await replyIfCredentialError(user, accessToken, res, uploadRes.status)) return;
     if (replyIfScopeError(res, uploadRes.status, errText)) return;
     res.status(uploadRes.status).json({ error: `Google Docs create failed: ${errText}` });
     return;
@@ -776,6 +826,12 @@ router.post("/drive/backup", requireAuth, async (req, res): Promise<void> => {
     await stampGoogleSync(user.id, "driveLastSynced");
     res.json({ success: true, configFileId });
   } catch (err) {
+    if (
+      err instanceof GoogleDriveApiError &&
+      await replyIfCredentialError(user, accessToken, res, err.status)
+    ) {
+      return;
+    }
     res.status(500).json({ error: String(err) });
   }
 });

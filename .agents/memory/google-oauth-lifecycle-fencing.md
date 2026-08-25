@@ -16,3 +16,14 @@ success can restore credentials after a terminal revocation, or an old
 connection version (fresh consent/disconnect) or condition its update on the
 version it read (refresh). Preserve other connection metadata with database-side
 JSONB key updates rather than session-snapshot replacement.
+
+A Google API 401 for an access token that is still within its normal expiry is
+also terminal: provider-side revocation can invalidate that token before the
+next refresh attempt.
+
+**Why:** Waiting for expiry leaves a revoked user with a generic Drive or
+Calendar failure instead of the reconnect state.
+
+**How to apply:** Fence the disconnect by both lifecycle version and the exact
+rejected access token, so a late 401 cannot clear a token supplied by a newer
+refresh or consent.

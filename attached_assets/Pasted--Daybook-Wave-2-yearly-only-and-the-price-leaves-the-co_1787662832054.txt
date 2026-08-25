@@ -1,0 +1,171 @@
+# Daybook — Wave 2: yearly only, and the price leaves the code
+
+Two decisions, one pass: **the lifetime purchase is removed**, and **the price stops living in the
+repo**. Neither is a defect fix — Wave 1 closed those. This is the shape change that makes the next
+pricing decision a dashboard edit instead of a deploy.
+
+Nothing is live, so there are no lifetime holders to migrate and no prices to reconcile. That is the
+only reason this is a small job, and it will not be true again.
+
+**Order matters.** Step 4 last. The refund handler must be re-correlated *before* lifetime is removed,
+or the removal leaves a handler that still receives events and can never match a row.
+
+---
+
+## Step 1 — Give plans a Stripe Price id
+
+**Why.** Today the server composes the money: it reads a float out of `plans`, multiplies by a
+hundred, rounds it, and asserts a currency.
+
+```ts
+unit_amount: Math.round(amount * 100),
+...(isYearly ? { recurring: { interval: "year" } } : {}),
+```
+
+Every part of that is a decision baked into a deploy. The amount is a column, the currency is a string
+literal, the interval is a string literal, and the plans table has one price column per purchase model
+— which is why Wave 1 step 2 needed code to choose between two columns at all.
+
+A Stripe Price object already holds the amount, the currency **and** the interval. Passing its id
+means the server never computes an amount.
+
+**The migration.** New numbered migration, additive, following the existing convention:
+
+```sql
+-- lib/db/drizzle/0014_billing_stripe_price_id.sql
+ALTER TABLE "plans"
+  ADD COLUMN IF NOT EXISTS "stripe_price_id" text;
+```
+
+Add the journal entry at `idx: 14` with a `when` greater than 0013's `1787622400000`. **No backfill in
+the migration** — the ids are configuration, not data; set them from the Stripe dashboard per
+environment. Then `pnpm --filter @workspace/db run verify-migration` should report 15 tracked
+migrations.
+
+**Done when:** `migrate` then `verify-migration` both pass, and `plans.stripe_price_id` exists on a
+fresh database and on the existing one.
+
+---
+
+## Step 2 — Hand Stripe the price id and delete the arithmetic
+
+**The fix.** In `POST /checkout`:
+
+```ts
+const priceId = planRow.stripePriceId;
+if (!priceId) {
+  logger.error({ plan }, "Plan has no Stripe price id — not purchasable");
+  res.status(500).json({ error: "Plan is not purchasable — contact support" });
+  return;
+}
+
+const session = await stripe.checkout.sessions.create({
+  mode: "subscription",
+  customer_email: user.email,
+  metadata: { userId: user.id, plan },
+  line_items: [{ price: priceId, quantity: 1 }],
+  success_url: `${appUrl}/?checkout=success&plan=${plan}`,
+  cancel_url: `${appUrl}/?checkout=cancelled`,
+});
+```
+
+`price_data`, `unit_amount`, `currency`, `product_data` and the `recurring` spread all go. So does the
+`amount == null || amount <= 0` guard — one guard on the price id replaces it.
+
+Keep `metadata`. Step 3 of Wave 1 depends on `userId` being there for the first payment, and the
+customer-id fallback covers the renewals.
+
+**What this deletes rather than guards.** The $0.00 session from a null price, the one-time figure
+attached to a recurring line, and the two-columns-one-formula ambiguity all stop being expressible.
+Test mode has its own price ids, so no environment branch is needed.
+
+**Retire the old columns.** `one_time_price` and `yearly_price` become display-only or go entirely.
+`admin/src/pages/plans/index.tsx` reads `yearlyPrice` for its price card — either drop that card or
+read the amount from Stripe. Do not leave a number in the admin UI that no longer decides anything;
+that is worse than showing nothing.
+
+**Done when:** a plan with no price id returns 500 instead of a checkout URL, a plan with one produces
+a subscription session whose amount matches the Stripe Price, and changing the price in the Stripe
+dashboard changes what a new checkout charges **with no deploy**.
+
+---
+
+## Step 3 — Re-correlate refunds before removing anything
+
+**The defect this prevents.** `charge.refunded` has exactly one correlation:
+
+```ts
+case "charge.refunded":
+  await processNegativeSubscriptionEvent(event, payload, "refunded", {
+    paymentIntentId: getStripeId(payload.payment_intent),
+  });
+```
+
+`stripe_payment_intent_id` is written from the **checkout session** payload — in practice the one-time
+purchase. Remove lifetime first and this case still compiles, still receives events, and can never
+match a row: every subscription refund falls into the "no usable active billing correlation; ignoring
+it" branch and answers 200.
+
+**The fix.** Give subscription payments a payment intent worth correlating against. In
+`processSuccessfulPayment`, `payload.payment_intent` is absent on invoices, so take it from the
+invoice and store it on every successful subscription payment — then the refund lookup resolves. If
+you would rather not store it, correlate the refund through its charge's invoice to the
+`stripe_subscription_id` you already keep; either works, but pick one and delete the other path.
+
+**Done when:** a `charge.refunded` event for a subscription invoice sets `plan_status` to `refunded` on
+the right user, and the "ignoring it" warning appears only for events that genuinely belong to a
+different subscription.
+
+---
+
+## Step 4 — Remove lifetime
+
+Only now. In `billing.ts`:
+
+- `BILLABLE_PLANS` drops `"lifetime"` — and with one member left, the tuple is a plan-catalog query
+  waiting to happen (see *After this*).
+- `processSuccessfulPayment` loses the lifetime branch: the `owned` `jsonb` CASE write, the
+  `planStatus: plan === "yearly" ? "active" : "lifetime"` ternary (now just `"active"`), and the
+  `periodEnd` conditional (a subscription always has one — keep the throw when it is missing).
+- The `plan` fallback to `user.plan` stays, but resolve from the payload first: an invoice carrying a
+  subscription id is a yearly payment regardless of what the user row says. This is D70, and it costs
+  two lines here.
+
+In `entitlement.ts`: remove the lifetime origin from the read. It becomes "an active plan whose period
+has not ended", plus whatever `owned` grants for individual items.
+
+**Keep the `owned` column.** It is the per-item ownership ledger, not a lifetime flag. Stop writing the
+plan id into it; do not drop it and do not clear it.
+
+**Done when:** `POST /checkout {plan:"lifetime"}` returns 400, no code path writes `plan_status:
+"lifetime"`, an active subscriber is entitled, an expired one is not, and no test references a lifetime
+plan.
+
+---
+
+## Two things not to do
+
+**Do not edit `0000` or any applied migration to add a column.** The baseline has already run against
+the existing database; editing it changes only fresh installs and silently diverges the two. New
+numbered migration, every time. And do not run `drizzle push` — `push` and `push-force` are still in
+`lib/db/package.json`, and every error string in the migration tooling tells you not to use them.
+
+**Do not delete `plans.one_time_price` in the same commit as step 2.** Ship the price-id path, confirm
+a real checkout, then remove the columns. A rollback that needs a migration is not a rollback.
+
+---
+
+## After this
+
+Two follow-ons this pass makes cheap but does not include:
+
+- **D71** — the negative-event path returns 200 when it cannot correlate, so an
+  `invoice.payment_failed` arriving before its checkout is lost permanently. Step 3 touches the same
+  function: distinguish "correlation not set yet" (500, retry) from "names a different subscription"
+  (real no-op).
+- **D73, the rest of it** — with one plan left, `BILLABLE_PLANS` should be a query against `plans`
+  rather than a literal in the route file. Then adding a monthly tier is a row, not a deploy, which is
+  the same argument as step 2 one level up.
+
+Still open from pass 3, unrelated to pricing but adjacent: **D35** — orders and payments have no
+correlation column between them, so no query can answer whether a payment produced an order.

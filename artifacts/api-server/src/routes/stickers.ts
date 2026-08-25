@@ -1,4 +1,92 @@
-nctionType {
+/**
+ * Store-Scoped Sticker Library Routes
+ *
+ * Auth model: same as owned-catalog.ts
+ *   - starter / licensed stickers → read-only to stores; only super_admin can mutate
+ *   - owned stickers → authoring store + super_admin can mutate; staff draft-only
+ *
+ * Route list
+ * ──────────
+ * POST   /stores/:storeId/stickers/bulk/function-type  bulk set functionType
+ * POST   /stores/:storeId/stickers/bulk/add-to-pack    bulk add to a pack
+ * POST   /stores/:storeId/stickers/bulk/publish        bulk publish/unpublish (owner)
+ * DELETE /stores/:storeId/stickers/bulk                bulk soft-delete (owner)
+ *
+ * GET    /stores/:storeId/stickers                     list + search/filter
+ * POST   /stores/:storeId/stickers                     create (runs pipeline)
+ *
+ * GET    /stores/:storeId/stickers/:id                 get one
+ * PATCH  /stores/:storeId/stickers/:id                 edit (re-runs pipeline)
+ * POST   /stores/:storeId/stickers/:id/duplicate       clone as draft
+ * GET    /stores/:storeId/stickers/:id/usage           which packs reference it
+ * DELETE /stores/:storeId/stickers/:id                 soft-delete with pack guard
+ *
+ * NOTE: bulk routes are declared BEFORE /:id to prevent param capture.
+ */
+import { Router, type IRouter, type Request, type Response } from "express";
+import sharp from "sharp";
+import { db } from "@workspace/db";
+import {
+  stickersLibraryTable,
+  packStickersTable,
+  stickerPacksTable,
+  stylePresetsTable,
+  editionsTable,
+  STICKER_FUNCTION_TYPES,
+  type StickerFunctionType,
+} from "@workspace/db";
+import {
+  eq,
+  and,
+  or,
+  ne,
+  inArray,
+  notInArray,
+  desc,
+  ilike,
+  sql,
+} from "drizzle-orm";
+import { requireStoreAccess } from "../middleware/requireRole";
+import { writeAudit } from "../lib/audit";
+import {
+  removeBackground,
+  applyBorderAndSize,
+  generateCutlineSvg,
+  adjustCutlineSvgForShadow,
+  edgeFeather,
+  addDropShadow,
+  UserImageError,
+} from "../lib/imageProcessing";
+import { callAi, generateImage } from "../lib/ai-proxy";
+import { buildProfileGrounding } from "../lib/profile-grounding";
+import { renderLabelPng } from "../lib/labelImageGen";
+import { storeProfilesTable, storeFlagsTable } from "@workspace/db";
+import type { ActorContext } from "../lib/roles";
+import { findSameStoreName } from "../lib/store-name-dedup";
+
+const router: IRouter = Router();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function genId(): string {
+  return `stk_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
+
+/** Reject cross-store access. Super_admin bypasses. */
+function assertSameStore(
+  actor: ActorContext,
+  urlStoreId: string,
+  res: Response,
+): boolean {
+  if (actor.platformRole === "super_admin") return true;
+  if (actor.storeId !== urlStoreId) {
+    res.status(403).json({ error: "Forbidden: cross-store access denied" });
+    return false;
+  }
+  return true;
+}
+
+function isValidFunctionType(v: unknown): v is StickerFunctionType {
   return STICKER_FUNCTION_TYPES.includes(v as StickerFunctionType);
 }
 

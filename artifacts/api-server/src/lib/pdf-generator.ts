@@ -1,4 +1,466 @@
-completely independent of network availability.
+/**
+ * Daybook PDF Generator
+ * Implements spec/LINK-SCHEME.md — deterministic page IDs, all cross-links resolved,
+ * CI determinism check before every export.
+ *
+ * Link annotation placement is fully data-driven via PlannerTemplate.
+ * See pdf-template.ts for the type system, DEFAULT_TEMPLATE, and stampPageZones.
+ */
+import {
+  PDFDocument,
+  PDFPage,
+  PDFRef,
+  rgb,
+  StandardFonts,
+  degrees,
+  PDFName,
+  PDFArray,
+  PDFDict,
+  PDFNumber,
+  type PDFFont,
+} from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
+import { Buffer } from "node:buffer";
+import { promises as fsPromises } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import sharp from "sharp";
+import { getEinkPreset } from "./eink-presets";
+import { parseHexColor } from "./color";
+import type { PlannerSetup, PlannerStyle, PlannerOutput, ThemeFontPairing } from "@workspace/db";
+import {
+  type PageIdMap,
+  type PageRole,
+  type PlannerTemplate,
+  type StampContext,
+  type UserHotspot,
+  DEFAULT_TEMPLATE,
+  addGoToAnnotation,
+  addUriAnnotation,
+  stampPageZones,
+  stampUserHotspots,
+  validateTemplate,
+} from "./pdf-template";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export type { PageIdMap, UserHotspot } from "./pdf-template";
+
+/**
+ * Resolved background to render as the page base layer.
+ * Fetched from backgroundsTable before calling buildPdf/buildPreviewPdf.
+ * color  → assetRef is a hex string (#RRGGBB)
+ * image  → assetRef is a base64 PNG/JPG data URL
+ * texture→ assetRef is a base64 PNG/JPG data URL (tiled patterns handled as full-cover image)
+ */
+export interface BackgroundSpec {
+  type: string;      // "color" | "texture" | "image"
+  assetRef?: string | null;
+}
+
+export interface GeneratorConfig {
+  setup: PlannerSetup;
+  style: PlannerStyle;
+  output: PlannerOutput;
+  sections: string[];
+  editionId?: string;
+  userId?: string;
+}
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+
+function getISOWeekId(date: Date): string {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNum = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `w${d.getUTCFullYear()}W${String(weekNum).padStart(2, "0")}`;
+}
+
+function yyyymmdd(date: Date): string {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("");
+}
+
+function addMonths(year: number, month: number, delta: number): { year: number; month: number } {
+  const total = month + delta;
+  return { year: year + Math.floor(total / 12), month: ((total % 12) + 12) % 12 };
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+// ── Page ID generation ────────────────────────────────────────────────────────
+
+export function generatePageIds(config: GeneratorConfig): PageIdMap {
+  const { setup, style, sections } = config;
+  const { startMonth, startYear, monthCount, weekStart } = setup;
+  const tabPos = style.tabPos ?? "right";
+  const notePaper = style.notePaper ?? "dot";
+
+  const map: PageIdMap = {
+    cover: "cover",
+    home: "home",
+    year: "year",
+    monthDividers: [],
+    monthCalendars: [],
+    weeklies: [],
+    dailies: [],
+    todo: "todo",
+    notes: "notes",
+    sectionDividers: [],
+    notePaper: [],
+  };
+
+  for (let i = 0; i < monthCount; i++) {
+    map.monthDividers.push(`mdiv${i}`);
+    map.monthCalendars.push(`m${i}`);
+  }
+
+  const seen = new Set<string>();
+  for (let i = 0; i < monthCount; i++) {
+    const { year, month } = addMonths(startYear, startMonth, i);
+    const days = daysInMonth(year, month);
+    for (let d = 1; d <= days; d++) {
+      const date = new Date(year, month, d);
+      const id = `d${yyyymmdd(date)}`;
+      if (!seen.has(id)) { seen.add(id); map.dailies.push(id); }
+    }
+  }
+
+  const startDate = new Date(startYear, startMonth, 1);
+  const { year: endYear, month: endMonth } = addMonths(startYear, startMonth, monthCount - 1);
+  const endDate = new Date(endYear, endMonth, daysInMonth(endYear, endMonth));
+
+  const weeksSeen = new Set<string>();
+  const cursor = new Date(startDate);
+  const wdOffset = weekStart === "mon" ? 1 : 0;
+  while ((cursor.getDay() !== wdOffset) && cursor.getTime() >= startDate.getTime()) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  while (cursor.getTime() <= endDate.getTime()) {
+    const weekId = getISOWeekId(cursor);
+    if (!weeksSeen.has(weekId)) { weeksSeen.add(weekId); map.weeklies.push(weekId); }
+    cursor.setDate(cursor.getDate() + 7);
+  }
+
+  for (let i = 1; i <= sections.length; i++) {
+    map.sectionDividers.push(`ns${i}`);
+  }
+
+  const paperCount = notePaper === "mixed" ? 3 : 1;
+  for (let i = 0; i < paperCount; i++) {
+    map.notePaper.push(`notes-p${i}`);
+  }
+
+  return map;
+}
+
+export function flattenPageIds(map: PageIdMap): string[] {
+  const ids: string[] = [map.cover, map.home, map.year];
+  for (let i = 0; i < map.monthDividers.length; i++) {
+    ids.push(map.monthDividers[i]);
+    ids.push(map.monthCalendars[i]);
+  }
+  ids.push(...map.weeklies);
+  ids.push(...map.dailies);
+  ids.push(map.todo);
+  ids.push(map.notes);
+  ids.push(...map.sectionDividers);
+  ids.push(...map.notePaper);
+  return ids;
+}
+
+// ── CI determinism check ──────────────────────────────────────────────────────
+
+export function validatePageIds(map: PageIdMap, sections: string[]): void {
+  const flat = flattenPageIds(map);
+  const idSet = new Set<string>();
+
+  for (const id of flat) {
+    if (idSet.has(id)) throw new Error(`CI FAIL: Duplicate page id "${id}"`);
+    idSet.add(id);
+  }
+  if (!idSet.has("home")) throw new Error("CI FAIL: Missing required page id 'home'");
+  if (!idSet.has("year")) throw new Error("CI FAIL: Missing required page id 'year'");
+  if (map.sectionDividers.length !== sections.length) {
+    throw new Error(
+      `CI FAIL: ns* count (${map.sectionDividers.length}) != sections.length (${sections.length})`,
+    );
+  }
+
+  const crossLinks: Array<[string, string]> = [
+    ["cover", "home"], ["home", "year"], ["home", "todo"], ["home", "notes"],
+    ...map.sectionDividers.map((ns): [string, string] => ["home", ns]),
+    ...map.monthDividers.map((mdiv, i): [string, string] => [mdiv, `m${i}`]),
+    ...map.monthCalendars.map((m, i): [string, string] => [m, map.monthDividers[i]]),
+    ...map.sectionDividers.map((ns): [string, string] => [ns, "notes"]),
+  ];
+  for (const [src, tgt] of crossLinks) {
+    if (!idSet.has(tgt)) throw new Error(`CI FAIL: Page "${src}" links to missing target "${tgt}"`);
+  }
+
+  // Calendar URL format check
+  for (const w of map.weeklies) {
+    if (!/^w\d{4}W\d{2}$/.test(w)) throw new Error(`CI FAIL: Weekly id "${w}" does not match w{year}W{ww}`);
+  }
+  for (const d of map.dailies) {
+    if (!/^d\d{8}$/.test(d)) throw new Error(`CI FAIL: Daily id "${d}" does not match d{YYYYMMDD}`);
+  }
+}
+
+// ── Calendar link helpers ─────────────────────────────────────────────────────
+
+function googleCalendarLink(start: string, end: string): string {
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&dates=${start}/${end}`;
+}
+
+function icsDataUri(startDate: Date, endDate: Date, title: string): string {
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(".000Z", "Z");
+  const ics = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT",
+    `DTSTART:${fmt(startDate)}`, `DTEND:${fmt(endDate)}`, `SUMMARY:${title}`,
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
+}
+
+// ── PDF builder ───────────────────────────────────────────────────────────────
+
+/** Page dimensions in PDF points (1pt = 1/72 in) for each supported size key. */
+const PAGE_SIZES: Record<string, { w: number; h: number }> = {
+  "a4":          { w: 595, h: 842 },
+  "a5":          { w: 420, h: 595 },
+  "b6":          { w: 354, h: 499 },
+  "personal":    { w: 270, h: 485 },   // Filofax Personal 95×171mm
+  "half-letter": { w: 396, h: 612 },   // 5.5×8.5in
+  "letter":      { w: 612, h: 792 },   // 8.5×11in
+  "ipad-4-3":    { w: 576, h: 768 },   // 8×10.67in (iPad 4:3)
+};
+const PAGE_WIDTH  = 595;  // A4 default — kept for buildPreviewPdf fallback
+const PAGE_HEIGHT = 842;
+const MARGIN = 40;
+
+/** Finish colour lookup for binding hardware. */
+const BINDING_FINISH_RGB: Record<string, [number, number, number]> = {
+  gold:         [0.83, 0.69, 0.22],
+  "rose-gold":  [0.86, 0.66, 0.66],
+  silver:       [0.75, 0.75, 0.75],
+  bronze:       [0.55, 0.40, 0.27],
+  white:        [0.96, 0.96, 0.96],
+  "matte-black":[0.15, 0.15, 0.15],
+};
+
+/**
+ * Draw binding hardware on a page using pdf-lib vector primitives.
+ * Placement: left edge for portrait/single-page, centre gutter for landscape.
+ * bindingType: 'coil' | 'twin-loop' | 'disc' | '3-ring'
+ * bindingFinish: key in BINDING_FINISH_RGB
+ */
+function drawBindingHardware(
+  page: PDFPage,
+  pageWidth: number,
+  pageHeight: number,
+  bindingType: string,
+  bindingFinish: string,
+  isLandscape: boolean,
+): void {
+  const [fr, fg, fb] = BINDING_FINISH_RGB[bindingFinish] ?? BINDING_FINISH_RGB.silver!;
+  const hardwareColor = rgb(fr, fg, fb);
+  const shadowColor   = rgb(fr * 0.6, fg * 0.6, fb * 0.6);
+
+  // For portrait: hardware runs down the left edge.
+  // For landscape: hardware runs down the centre gutter.
+  const edgeX = isLandscape ? pageWidth / 2 : 0;
+
+  if (bindingType === "coil") {
+    // Spiral coil: series of ovals, alternating fore/aft pass.
+    const count   = Math.floor(pageHeight / 22);
+    const ovalW   = 14;
+    const ovalH   = 10;
+    for (let i = 0; i < count; i++) {
+      const cy = pageHeight - 10 - i * 22;
+      const cx = isLandscape ? edgeX : ovalW / 2 + 1;
+      // Shadow oval
+      page.drawEllipse({ x: cx + 1, y: cy - 1, xScale: ovalW / 2 + 1, yScale: ovalH / 2, color: shadowColor, opacity: 0.4 });
+      // Fore pass
+      page.drawEllipse({ x: cx, y: cy, xScale: ovalW / 2, yScale: ovalH / 2, color: hardwareColor, opacity: 0.9 });
+    }
+
+  } else if (bindingType === "twin-loop") {
+    // Twin-loop (double-O wire): pairs of small linked ovals.
+    const count = Math.floor(pageHeight / 16);
+    const ow = 10;
+    const oh = 6;
+    for (let i = 0; i < count; i++) {
+      const cy = pageHeight - 8 - i * 16;
+      const cx = isLandscape ? edgeX : ow / 2 + 2;
+      page.drawEllipse({ x: cx, y: cy + 3, xScale: ow / 2, yScale: oh / 2, color: hardwareColor, opacity: 0.85 });
+      page.drawEllipse({ x: cx, y: cy - 3, xScale: ow / 2, yScale: oh / 2, color: hardwareColor, opacity: 0.85 });
+    }
+
+  } else if (bindingType === "disc") {
+    // Disc binding: large circles with centre holes.
+    const count  = Math.min(12, Math.floor(pageHeight / 55));
+    const outerR = 14;
+    const innerR = 6;
+    const spacing = pageHeight / (count + 1);
+    for (let i = 1; i <= count; i++) {
+      const cy = pageHeight - i * spacing;
+      const cx = isLandscape ? edgeX : outerR + 3;
+      page.drawEllipse({ x: cx + 1, y: cy - 1, xScale: outerR + 1, yScale: outerR, color: shadowColor, opacity: 0.35 });
+      page.drawEllipse({ x: cx, y: cy, xScale: outerR, yScale: outerR, color: hardwareColor, opacity: 0.9 });
+      page.drawEllipse({ x: cx, y: cy, xScale: innerR, yScale: innerR, color: rgb(0.88, 0.88, 0.88), opacity: 1 });
+    }
+
+  } else {
+    // 3-ring (default for unknown types): 3 large rings.
+    const positions = [0.25, 0.5, 0.75];
+    const outerR = 18;
+    const innerR = 8;
+    for (const frac of positions) {
+      const cy = pageHeight * frac;
+      const cx = isLandscape ? edgeX : outerR + 4;
+      page.drawEllipse({ x: cx + 1, y: cy - 1, xScale: outerR + 1, yScale: outerR, color: shadowColor, opacity: 0.35 });
+      page.drawEllipse({ x: cx, y: cy, xScale: outerR, yScale: outerR, color: hardwareColor, opacity: 0.9 });
+      page.drawEllipse({ x: cx, y: cy, xScale: innerR, yScale: innerR, color: rgb(0.88, 0.88, 0.88), opacity: 1 });
+    }
+  }
+}
+
+interface PageWithId {
+  id: string;
+  page: PDFPage;
+  pageRef: PDFRef;
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const clean = parseHexColor(hex);
+  if (clean === "none") throw new Error('Background colour cannot be "none"');
+  return {
+    r: parseInt(clean.slice(1, 3), 16) / 255,
+    g: parseInt(clean.slice(3, 5), 16) / 255,
+    b: parseInt(clean.slice(5, 7), 16) / 255,
+  };
+}
+
+/**
+ * Google Font families that map to the PDF Times Roman standard font.
+ * All others fall back to Helvetica (sans default).
+ * Used only as the offline/error fallback path when real font fetch fails.
+ */
+const SERIF_PDF_FAMILIES = new Set([
+  "Playfair Display",
+  "Lora",
+  "Cormorant Garamond",
+  "DM Serif Display",
+  "Spectral",
+  "Merriweather",
+  "EB Garamond",
+]);
+
+/**
+ * Every Google Font family reachable from a UI picker (Theme Studio suggested
+ * pairings, fonts-catalog seed rows, Planner Studio theme font slots).
+ *
+ * Used by:
+ *   • font-warmup — cross-checks that every family here has a bundled WOFF file.
+ *   • Generation routes — distinguish "expected gap still un-bundled" from
+ *     "network failure on a family that should be offline-ready".
+ */
+export const UI_REACHABLE_FAMILIES = new Set([
+  // ── Theme Studio SUGGESTED_PAIRS (both slots of every preset) ────────────
+  "Playfair Display",   "Lato",
+  "Cormorant Garamond", "Source Sans Pro",
+  "Spectral",           "Work Sans",
+  "Crimson Pro",        "Instrument Sans",
+  "DM Serif Display",   "DM Sans",
+  "EB Garamond",        "Inter",
+  // ── Fonts-catalog seed (theme_fonts → PDF generation) ───────────────────
+  "Lora",
+  "Space Grotesk",
+  "Nunito Sans",
+  // ── SC variants used directly by the planner generator ──────────────────
+  "Playfair Display SC",
+  "Cormorant SC",
+]);
+
+/**
+ * Font families that ship only a single weight (400) upstream.
+ * When a bold role (heading) resolves to one of these, the generator uses 400
+ * rather than requesting a 700 file that does not exist.
+ * No 700 WOFF should exist on disk for any family in this set.
+ */
+export const SINGLE_WEIGHT_FAMILIES = new Set([
+  "DM Serif Display",
+]);
+
+/**
+ * Resolve the nearest StandardFont for a given font family name.
+ * Serif families → Times Roman / Times Bold Roman.
+ * Everything else → Helvetica / Helvetica Bold (sans default).
+ * Used as fallback when Google Fonts fetch fails or family is undefined.
+ */
+export function resolveStandardFont(familyName: string | undefined, bold: boolean): StandardFonts {
+  if (familyName && SERIF_PDF_FAMILIES.has(familyName)) {
+    return bold ? StandardFonts.TimesRomanBold : StandardFonts.TimesRoman;
+  }
+  return bold ? StandardFonts.HelveticaBold : StandardFonts.Helvetica;
+}
+
+// ── Google Fonts embedding ─────────────────────────────────────────────────────
+
+/**
+ * In-process cache of downloaded font binaries.
+ * Key: `${familyName}:${weight}` — e.g. "Lora:400", "Playfair Display:700"
+ * Persists for the lifetime of the process, so repeated generation calls for the
+ * same family skip the network round-trip entirely.
+ */
+// Exported for test access only — do not import from production code paths.
+export const _googleFontCache = new Map<string, Uint8Array>();
+
+// ── Disk font cache ────────────────────────────────────────────────────────────
+
+/**
+ * Root directory for the disk-based font cache.
+ * /tmp survives across hot-reloads in the same container but is cleared on
+ * a full machine restart — still far cheaper than a cold download per request.
+ */
+const GFONT_DISK_DIR = "/tmp/gfont-cache";
+
+/**
+ * Convert a font cache key ("Playfair Display:700") into a safe filesystem path.
+ * Spaces → underscore, colon → hyphen, everything else non-alphanumeric → removed.
+ */
+// Exported for test access only — allows tests to compute the expected disk path.
+export function _diskCachePath(familyName: string, weight: 400 | 700): string {
+  const safe = `${familyName.replace(/\s+/g, "_")}-${weight}.ttf`
+    .replace(/[^A-Za-z0-9_\-.]/g, "");
+  return path.join(GFONT_DISK_DIR, safe);
+}
+
+/**
+ * Fire-and-forget: write font bytes to disk.
+ * Any I/O error (EROFS, ENOSPC, EPERM …) is swallowed so it never delays or
+ * fails the current PDF generation request.
+ */
+function _writeDiskFontCache(filePath: string, bytes: Uint8Array): void {
+  fsPromises.mkdir(path.dirname(filePath), { recursive: true })
+    .then(() => fsPromises.writeFile(filePath, bytes))
+    .catch((err: Error) =>
+      console.warn("[pdf-generator] Disk font cache write failed:", err.message),
+    );
+}
+
+// ── Bundled font assets ─────────────────────────────────────────────────────
+// build.mjs copies src/lib/fonts → dist/fonts so these are co-located with
+// the compiled bundle.  Loading from disk here means font rendering is
+// completely independent of network availability.
 // import.meta.url works in both tsx (ESM source) and the esbuild bundle
 // (where the banner also provides globalThis.__dirname for compat).
 const BUNDLED_FONT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fonts");

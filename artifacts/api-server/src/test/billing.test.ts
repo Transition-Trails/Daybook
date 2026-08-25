@@ -14,6 +14,14 @@ const { dbState, stripeState, loggerState, tables } = vi.hoisted(() => {
       stripeSubscriptionEventCreatedAt: "users.stripe_subscription_event_created_at",
     },
     plans: { id: "plans.id" },
+    orders: { id: "orders.id" },
+    payments: {
+      id: "payments.id",
+      stripeEventId: "payments.stripe_event_id",
+      stripePaymentIntentId: "payments.stripe_payment_intent_id",
+      stripeSubscriptionId: "payments.stripe_subscription_id",
+      stripeInvoiceId: "payments.stripe_invoice_id",
+    },
   };
 
   return {
@@ -24,6 +32,9 @@ const { dbState, stripeState, loggerState, tables } = vi.hoisted(() => {
         yearly: { id: "yearly", name: "Yearly", stripePriceId: "price_yearly_test" },
       } as Record<string, { id: string; name: string; stripePriceId: string | null }>,
       updates: [] as Array<{ patch: Record<string, unknown>; condition: { column: string; value: string } }>,
+      orders: [] as Array<Record<string, unknown>>,
+      payments: [] as Array<Record<string, unknown>>,
+      paymentUpdates: [] as Array<Record<string, unknown>>,
       selectError: null as Error | null,
       beforeUpdate: null as ((patch: Record<string, unknown>) => Promise<void>) | null,
     },
@@ -54,24 +65,26 @@ vi.mock("@workspace/db", () => {
     | { kind: "lt"; column: string; value: Date }
     | { kind: "and" | "or"; conditions: Condition[] };
 
-  const getField = (user: Partial<User>, column: string) => {
-    const key = column.replace("users.", "").replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
-    return user[key as keyof User];
+  const getField = (row: Record<string, unknown>, column: string) => {
+    const key = column
+      .replace(/^(users|orders|payments)\./, "")
+      .replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+    return row[key];
   };
-  const matches = (user: Partial<User>, condition: Condition): boolean => {
+  const matches = (row: Record<string, unknown>, condition: Condition): boolean => {
     switch (condition.kind) {
       case "eq":
-        return getField(user, condition.column) === condition.value;
+        return getField(row, condition.column) === condition.value;
       case "isNull":
-        return getField(user, condition.column) == null;
+        return getField(row, condition.column) == null;
       case "lt": {
-        const value = getField(user, condition.column);
+        const value = getField(row, condition.column);
         return value instanceof Date && value.getTime() < condition.value.getTime();
       }
       case "and":
-        return condition.conditions.every(item => matches(user, item));
+        return condition.conditions.every(item => matches(row, item));
       case "or":
-        return condition.conditions.some(item => matches(user, item));
+        return condition.conditions.some(item => matches(row, item));
     }
   };
 
@@ -85,6 +98,12 @@ vi.mock("@workspace/db", () => {
             return plan ? [plan] : [];
           }
 
+          if (table === tables.payments) {
+            return dbState.payments.filter(payment => matches(payment, condition as Condition));
+          }
+          if (table === tables.orders) {
+            return dbState.orders.filter(order => matches(order, condition as Condition));
+          }
           if (condition.column === tables.users.id) {
             return dbState.users.filter(user => user.id === condition.value);
           }
@@ -92,12 +111,38 @@ vi.mock("@workspace/db", () => {
         },
       }),
     }),
-    update: () => ({
+    insert: (table: unknown) => ({
+      values: (value: Record<string, unknown>) => ({
+        onConflictDoNothing: () => ({
+          returning: async () => {
+            const rows = table === tables.orders ? dbState.orders : dbState.payments;
+            const duplicate = rows.some(row => (
+              row.id === value.id
+              || (table === tables.payments
+                && value.stripePaymentIntentId != null
+                && row.stripePaymentIntentId === value.stripePaymentIntentId)
+              || (table === tables.payments && row.stripeEventId === value.stripeEventId)
+            ));
+            if (duplicate) return [];
+            rows.push({ ...value });
+            return [{ ...value }];
+          },
+        }),
+      }),
+    }),
+    update: (table: unknown) => ({
       set: (patch: Record<string, unknown>) => ({
         where: (condition: Condition) => ({
           returning: async () => {
             await dbState.beforeUpdate?.(patch);
-            const matchingUsers = dbState.users.filter(user => matches(user, condition));
+            if (table === tables.payments) {
+              const matchingPayments = dbState.payments.filter(payment => matches(payment, condition));
+              for (const payment of matchingPayments) Object.assign(payment, patch);
+              if (matchingPayments.length) dbState.paymentUpdates.push(patch);
+              return matchingPayments.map(payment => ({ id: payment.id }));
+            }
+
+            const matchingUsers = dbState.users.filter(user => matches(user as Record<string, unknown>, condition));
             let recordedPatch = patch;
             for (const user of matchingUsers) {
               const appliedPatch = { ...patch };
@@ -121,6 +166,8 @@ vi.mock("@workspace/db", () => {
     db,
     usersTable: tables.users,
     plansTable: tables.plans,
+    ordersTable: tables.orders,
+    paymentsTable: tables.payments,
   };
 });
 
@@ -241,6 +288,9 @@ beforeEach(() => {
     yearly: { id: "yearly", name: "Yearly", stripePriceId: "price_yearly_test" },
   };
   dbState.updates = [];
+  dbState.orders = [];
+  dbState.payments = [];
+  dbState.paymentUpdates = [];
   dbState.selectError = null;
   dbState.beforeUpdate = null;
   stripeState.event = null;
@@ -328,6 +378,118 @@ describe("Daybook billing checkout", () => {
 });
 
 describe("Stripe webhooks", () => {
+  it("creates one platform order and payment ledger row for a successful checkout", async () => {
+    dbState.users = [knownUser({ stripeSubscriptionId: null, stripePaymentIntentId: null })];
+    successEvent("checkout.session.completed", {
+      metadata: { userId: "user-renewal", plan: "yearly" },
+      customer: "cus_known",
+      subscription: { id: "sub_ordered", current_period_end: 1_950_000_000 },
+      payment_intent: "pi_ordered",
+      payment_status: "paid",
+      amount_total: 12_000,
+      currency: "usd",
+    }, { id: "evt_checkout_ordered" });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.orders).toEqual([
+      expect.objectContaining({
+        id: "ord_billing_evt_checkout_ordered",
+        storeId: "platform",
+        buyerUserId: "user-renewal",
+        totalCents: 12_000,
+        items: [{ name: "yearly subscription", priceCents: 12_000 }],
+      }),
+    ]);
+    expect(dbState.payments).toEqual([
+      expect.objectContaining({
+        orderId: "ord_billing_evt_checkout_ordered",
+        userId: "user-renewal",
+        planId: "yearly",
+        stripeEventId: "evt_checkout_ordered",
+        stripePaymentIntentId: "pi_ordered",
+        stripeSubscriptionId: "sub_ordered",
+        status: "succeeded",
+      }),
+    ]);
+  });
+
+  it("keeps an invoice refund traceable to the exact payment order", async () => {
+    dbState.users = [knownUser({ stripeSubscriptionId: null, stripePaymentIntentId: null })];
+    successEvent("invoice.payment_succeeded", {
+      id: "in_refundable",
+      metadata: {},
+      customer: "cus_known",
+      parent: { subscription_details: { subscription: "sub_refundable" } },
+      lines: { data: [{ period: { end: 1_950_000_000 } }] },
+      amount_paid: 12_000,
+      currency: "usd",
+    }, { id: "evt_invoice_paid", created: 1_900_000_000 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.payments).toHaveLength(1);
+    const orderId = dbState.payments[0].orderId;
+    expect(dbState.orders.some(order => order.id === orderId)).toBe(true);
+
+    stripeState.invoice = {
+      parent: { subscription_details: { subscription: "sub_refundable" } },
+    };
+    successEvent("charge.refunded", {
+      customer: "cus_known",
+      payment_intent: "pi_invoice_payment",
+      invoice: "in_refundable",
+    }, { id: "evt_invoice_refund", created: 1_900_000_001 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.payments[0]).toMatchObject({
+      orderId,
+      status: "refunded",
+      lastLifecycleEventId: "evt_invoice_refund",
+      lastLifecycleEventType: "charge.refunded",
+    });
+  });
+
+  it("does not add a duplicate order when Stripe redelivers the successful event", async () => {
+    dbState.users = [knownUser({ stripeSubscriptionId: null, stripePaymentIntentId: null })];
+    successEvent("checkout.session.completed", {
+      metadata: { userId: "user-renewal", plan: "yearly" },
+      customer: "cus_known",
+      subscription: { id: "sub_redelivered", current_period_end: 1_950_000_000 },
+      payment_intent: "pi_redelivered",
+      payment_status: "paid",
+    }, { id: "evt_redelivered" });
+
+    const deliver = () => request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    await deliver();
+    await deliver();
+
+    expect(dbState.orders).toHaveLength(1);
+    expect(dbState.payments).toHaveLength(1);
+  });
+
   it("returns 503 when billing configuration is missing so Stripe retries", async () => {
     delete process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -615,6 +777,12 @@ describe("Stripe webhooks", () => {
 
     expect(dbState.users[0].planStatus).toBe("refunded");
     expect(hasUserPlanEntitlement(dbState.users[0])).toBe(false);
+    expect(dbState.payments).toHaveLength(1);
+    expect(dbState.payments[0]).toMatchObject({
+      stripeInvoiceId: "in_refunded_payment",
+      status: "refunded",
+      lastLifecycleEventId: "evt_refund_after_lookup_failure",
+    });
   });
 
   it("retries an early payment failure before checkout correlation exists", async () => {

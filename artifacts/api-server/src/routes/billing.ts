@@ -4,7 +4,7 @@
  */
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { usersTable, plansTable } from "@workspace/db";
+import { ordersTable, paymentsTable, usersTable, plansTable } from "@workspace/db";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 import Stripe from "stripe";
 import { requireAuth } from "../lib/auth-middleware";
@@ -23,6 +23,9 @@ type StripePayload = {
   payment_intent?: string | { id?: string } | null;
   invoice?: string | { id?: string } | null;
   payment_status?: "paid" | "unpaid" | "no_payment_required" | string;
+  amount_total?: number | null;
+  amount_paid?: number | null;
+  currency?: string | null;
   parent?: {
     subscription_details?: {
       subscription?: string | { id?: string } | null;
@@ -151,6 +154,141 @@ async function resolveWebhookUser(
   return undefined;
 }
 
+function getPaymentAmountCents(payload: StripePayload): number | null {
+  const amount = payload.amount_total ?? payload.amount_paid;
+  return typeof amount === "number" && Number.isFinite(amount) ? amount : null;
+}
+
+function getPaymentInvoiceId(payload: StripePayload, source: SuccessfulPaymentSource): string | undefined {
+  return source === "invoice" ? payload.id : getStripeId(payload.invoice);
+}
+
+function billingOrderId(eventId: string): string {
+  return `ord_billing_${eventId.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+}
+
+/**
+ * Write the local payment ledger after the entitlement update has been
+ * accepted. The lookup makes retries idempotent across checkout and invoice
+ * events for the same Stripe payment intent. A failed write is allowed to
+ * surface to Stripe as a 500, so a retry can repair an order that was inserted
+ * immediately before the payment row.
+ */
+async function recordSuccessfulPayment(
+  event: Pick<Stripe.Event, "id">,
+  payload: StripePayload,
+  source: SuccessfulPaymentSource,
+  user: User,
+  plan: string,
+  paymentIntentId: string | undefined,
+  shouldCreateOrRepair: boolean,
+): Promise<void> {
+  const invoiceId = getPaymentInvoiceId(payload, source);
+  // Subscription checkout often precedes the invoice that carries the durable
+  // payment identity. Wait for that invoice instead of creating a second,
+  // checkout-event-only order for the same subscription payment.
+  if ((source === "checkout" || source === "async_checkout") && !paymentIntentId && !invoiceId) {
+    return;
+  }
+  const identityConditions = [
+    paymentIntentId ? eq(paymentsTable.stripePaymentIntentId, paymentIntentId) : undefined,
+    invoiceId ? eq(paymentsTable.stripeInvoiceId, invoiceId) : undefined,
+    eq(paymentsTable.stripeEventId, event.id),
+  ].filter((condition): condition is ReturnType<typeof eq> => Boolean(condition));
+  const [existingPayment] = await db
+    .select()
+    .from(paymentsTable)
+    .where(or(...identityConditions));
+
+  if (existingPayment || !shouldCreateOrRepair) return;
+
+  const amountCents = getPaymentAmountCents(payload);
+  const currency = typeof payload.currency === "string" && payload.currency.trim()
+    ? payload.currency
+    : null;
+  const orderId = billingOrderId(event.id);
+  const [order] = await db
+    .insert(ordersTable)
+    .values({
+      id: orderId,
+      // Platform subscription purchases are orders for the platform rather
+      // than orders sold by one of the seller stores.
+      storeId: "platform",
+      buyerUserId: user.id,
+      buyerEmail: user.email,
+      buyerName: user.name ?? null,
+      items: [{ name: `${plan} subscription`, priceCents: amountCents ?? 0 }],
+      totalCents: amountCents ?? 0,
+      currency: currency ?? "usd",
+      downloadLinks: [],
+    })
+    .onConflictDoNothing()
+    .returning();
+
+  if (!order) {
+    const [existingOrder] = await db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.id, orderId));
+    if (!existingOrder) {
+      throw new Error("Billing payment order could not be created");
+    }
+  }
+
+  await db
+    .insert(paymentsTable)
+    .values({
+      id: `payment_${event.id.replace(/[^a-zA-Z0-9_]/g, "_")}`,
+      orderId,
+      userId: user.id,
+      planId: plan,
+      source,
+      status: "succeeded",
+      stripeEventId: event.id,
+      stripePaymentIntentId: paymentIntentId ?? null,
+      stripeSubscriptionId: getPayloadSubscriptionId(payload) ?? null,
+      stripeInvoiceId: invoiceId ?? null,
+      amountCents,
+      currency,
+    })
+    .onConflictDoNothing()
+    .returning({ id: paymentsTable.id });
+}
+
+async function recordLifecyclePaymentEvent(
+  event: Pick<Stripe.Event, "id" | "created">,
+  status: "failed" | "refunded" | "cancelled",
+  correlation: { paymentIntentId?: string; subscriptionId?: string; invoiceId?: string },
+  eventType: string,
+): Promise<void> {
+  // Prefer the narrowest Stripe identity. A subscription can have many
+  // renewal orders, so a refund carrying a payment intent or invoice must not
+  // annotate every historical payment for that subscription.
+  const conditions = [
+    correlation.paymentIntentId
+      ? eq(paymentsTable.stripePaymentIntentId, correlation.paymentIntentId)
+      : undefined,
+    correlation.invoiceId ? eq(paymentsTable.stripeInvoiceId, correlation.invoiceId) : undefined,
+    correlation.subscriptionId
+      ? eq(paymentsTable.stripeSubscriptionId, correlation.subscriptionId)
+      : undefined,
+  ].filter((condition): condition is ReturnType<typeof eq> => Boolean(condition));
+
+  for (const condition of conditions) {
+    const updated = await db
+      .update(paymentsTable)
+      .set({
+        status,
+        lastLifecycleEventId: event.id,
+        lastLifecycleEventType: eventType,
+        lastLifecycleEventAt: unixSecondsToDate(event.created),
+      })
+      .where(condition)
+      .returning({ id: paymentsTable.id });
+    if (updated.length) return;
+  }
+}
+
 async function processSuccessfulPayment(
   stripe: Stripe,
   event: Pick<Stripe.Event, "id" | "created">,
@@ -193,6 +331,9 @@ async function processSuccessfulPayment(
   }
 
   const paymentIntentId = await resolvePaymentIntentId(stripe, payload, source);
+  const retryingAcceptedEvent =
+    user.stripeSubscriptionId === subscriptionId
+    && user.stripeSubscriptionEventCreatedAt?.getTime() === eventCreatedAt.getTime();
 
   // Make the correlation and ordering check part of the UPDATE itself. Two
   // concurrent deliveries can both read a stale user row, but only the update
@@ -248,6 +389,16 @@ async function processSuccessfulPayment(
       "Stripe successful payment did not atomically advance the active subscription; ignoring it",
     );
   }
+
+  await recordSuccessfulPayment(
+    event,
+    payload,
+    source,
+    user,
+    plan,
+    paymentIntentId,
+    Boolean(updated) || retryingAcceptedEvent,
+  );
 }
 
 async function processNegativeSubscriptionEvent(
@@ -257,7 +408,9 @@ async function processNegativeSubscriptionEvent(
   correlation: {
     subscriptionId?: string;
     paymentIntentId?: string;
+    invoiceId?: string;
   },
+  eventType: string,
 ): Promise<void> {
   const customerId = getStripeId(payload.customer);
   const user = await resolveWebhookUser(undefined, customerId);
@@ -368,7 +521,14 @@ async function processNegativeSubscriptionEvent(
       },
       "Stripe lifecycle webhook did not atomically advance the active billing record; ignoring it",
     );
+    return;
   }
+
+  await recordLifecyclePaymentEvent(event, planStatus === "inactive"
+    ? "cancelled"
+    : planStatus === "payment_failed"
+      ? "failed"
+      : "refunded", correlation, eventType);
 }
 
 // POST /checkout {plan} → Stripe session
@@ -474,12 +634,13 @@ router.post("/webhooks/stripe", async (req, res): Promise<void> => {
       case "customer.subscription.deleted":
         await processNegativeSubscriptionEvent(event, payload, "inactive", {
           subscriptionId: payload.id,
-        });
+        }, event.type);
         break;
       case "invoice.payment_failed":
         await processNegativeSubscriptionEvent(event, payload, "payment_failed", {
           subscriptionId: getPayloadSubscriptionId(payload),
-        });
+          invoiceId: payload.id,
+        }, event.type);
         break;
       case "charge.refunded":
         // A successful invoice can still activate access if payment-intent
@@ -488,7 +649,8 @@ router.post("/webhooks/stripe", async (req, res): Promise<void> => {
         await processNegativeSubscriptionEvent(event, payload, "refunded", {
           subscriptionId: await resolveRefundSubscriptionId(stripe, payload),
           paymentIntentId: getStripeId(payload.payment_intent),
-        });
+          invoiceId: getStripeId(payload.invoice),
+        }, event.type);
         break;
       default:
         break;

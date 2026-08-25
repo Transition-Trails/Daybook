@@ -11,6 +11,7 @@ export * from "./recipes";
 export * from "./tickets";
 export * from "./email";
 export * from "./orders";
+export * from "./payments";
 export * from "./worldsmith";
 export * from "./worldsmith-editorial";
 export * from "./releases";

@@ -135,8 +135,17 @@ const savedEnv = {
   webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
 };
 
-function successEvent(type: string, payload: Record<string, unknown>) {
-  stripeState.event = { id: "evt_123", type, data: { object: payload } };
+function successEvent(
+  type: string,
+  payload: Record<string, unknown>,
+  details: { id?: string; created?: number } = {},
+) {
+  stripeState.event = {
+    id: details.id ?? "evt_123",
+    created: details.created ?? 1_900_000_000,
+    type,
+    data: { object: payload },
+  };
 }
 
 function knownUser(overrides: Partial<User> = {}): Partial<User> {
@@ -150,6 +159,7 @@ function knownUser(overrides: Partial<User> = {}): Partial<User> {
     planCurrentPeriodEnd: new Date("2028-01-01T00:00:00.000Z"),
     stripeSubscriptionId: "sub_active",
     stripePaymentIntentId: "pi_active",
+    stripeSubscriptionEventCreatedAt: new Date("2028-01-01T00:00:00.000Z"),
     ...overrides,
   };
 }
@@ -405,6 +415,114 @@ describe("Stripe webhooks", () => {
     expect(loggerState.warn).toHaveBeenCalledWith(
       expect.objectContaining({ activeSubscriptionId: "sub_current", subscriptionId: "sub_old" }),
       expect.stringContaining("did not match"),
+    );
+  });
+
+  it("ignores a late successful renewal from an old subscription and its later cancellation", async () => {
+    dbState.users = [knownUser({
+      stripeSubscriptionId: "sub_new",
+      stripeSubscriptionEventCreatedAt: new Date(1_900_000_000 * 1000),
+    })];
+    successEvent("invoice.payment_succeeded", {
+      metadata: {},
+      customer: "cus_known",
+      parent: { subscription_details: { subscription: "sub_old" } },
+      lines: { data: [{ period: { end: 1_850_000_000 } }] },
+    }, { id: "evt_old_success", created: 1_800_000_000 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    successEvent("customer.subscription.deleted", {
+      id: "sub_old",
+      customer: "cus_known",
+    }, { id: "evt_old_cancellation", created: 1_850_000_000 });
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.updates).toHaveLength(0);
+  });
+
+  it("allows a newer confirmed checkout to replace an active yearly subscription", async () => {
+    dbState.users = [knownUser({
+      stripeSubscriptionId: "sub_old",
+      stripeSubscriptionEventCreatedAt: new Date(1_800_000_000 * 1000),
+    })];
+    successEvent("checkout.session.completed", {
+      metadata: { userId: "user-renewal", plan: "yearly" },
+      customer: "cus_known",
+      subscription: { id: "sub_new", current_period_end: 1_950_000_000 },
+      payment_status: "paid",
+    }, { id: "evt_new_checkout", created: 1_900_000_000 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.updates[0].patch).toMatchObject({
+      stripeSubscriptionId: "sub_new",
+      stripeSubscriptionEventCreatedAt: new Date(1_900_000_000 * 1000),
+      planStatus: "active",
+    });
+  });
+
+  it("allows a newer asynchronous checkout success to replace an active yearly subscription", async () => {
+    dbState.users = [knownUser({
+      stripeSubscriptionId: "sub_old",
+      stripeSubscriptionEventCreatedAt: new Date(1_800_000_000 * 1000),
+    })];
+    successEvent("checkout.session.async_payment_succeeded", {
+      metadata: { userId: "user-renewal", plan: "yearly" },
+      customer: "cus_known",
+      subscription: { id: "sub_new", current_period_end: 1_950_000_000 },
+    }, { id: "evt_new_async_checkout", created: 1_900_000_000 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.updates[0].patch).toMatchObject({
+      stripeSubscriptionId: "sub_new",
+      stripeSubscriptionEventCreatedAt: new Date(1_900_000_000 * 1000),
+      planStatus: "active",
+    });
+  });
+
+  it("ignores a matching failed invoice that predates the current successful renewal", async () => {
+    dbState.users = [knownUser({
+      stripeSubscriptionId: "sub_active",
+      stripeSubscriptionEventCreatedAt: new Date(1_900_000_000 * 1000),
+    })];
+    successEvent("invoice.payment_failed", {
+      customer: "cus_known",
+      parent: { subscription_details: { subscription: "sub_active" } },
+    }, { id: "evt_old_payment_failure", created: 1_800_000_000 });
+
+    await request(app)
+      .post("/webhooks/stripe")
+      .set("stripe-signature", "valid")
+      .set("content-type", "application/json")
+      .send("{}")
+      .expect(200);
+
+    expect(dbState.updates).toHaveLength(0);
+    expect(loggerState.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "evt_old_payment_failure" }),
+      expect.stringContaining("predates"),
     );
   });
 });

@@ -71,6 +71,7 @@ const ALPHA_OWNER: User = {
   planStatus: null,
   stripeSubscriptionId: null,
   stripePaymentIntentId: null,
+  stripeSubscriptionEventCreatedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

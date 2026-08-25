@@ -47,6 +47,7 @@ export const usersTable = pgTable("users", {
   planStatus: text("plan_status"), // active | inactive | payment_failed | refunded | lifetime
   stripeSubscriptionId: text("stripe_subscription_id"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
+  stripeSubscriptionEventCreatedAt: timestamp("stripe_subscription_event_created_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

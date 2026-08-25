@@ -15,6 +15,7 @@ const router: IRouter = Router();
 const BILLABLE_PLANS = ["yearly", "lifetime"] as const;
 
 type BillablePlan = (typeof BILLABLE_PLANS)[number];
+type SuccessfulPaymentSource = "checkout" | "async_checkout" | "invoice";
 type StripePayload = {
   id?: string;
   metadata?: Record<string, string>;
@@ -118,8 +119,9 @@ async function resolveWebhookUser(
 
 async function processSuccessfulPayment(
   stripe: Stripe,
-  eventId: string,
+  event: Pick<Stripe.Event, "id" | "created">,
   payload: StripePayload,
+  source: SuccessfulPaymentSource,
 ): Promise<void> {
   const metadata = payload.metadata ?? {};
   const customerId = getStripeId(payload.customer);
@@ -127,7 +129,7 @@ async function processSuccessfulPayment(
 
   if (!user) {
     logger.error(
-      { eventId, customer: customerId, metadataUserId: metadata.userId },
+      { eventId: event.id, customer: customerId, metadataUserId: metadata.userId },
       "Stripe webhook could not resolve a user",
     );
     throw new Error("Stripe webhook could not resolve a user");
@@ -137,15 +139,48 @@ async function processSuccessfulPayment(
     ? metadata.plan
     : (user.plan as BillablePlan | null);
   if (!isBillablePlan(plan)) {
-    logger.error({ eventId, userId: user.id }, "Stripe webhook could not resolve a billable plan");
+    logger.error({ eventId: event.id, userId: user.id }, "Stripe webhook could not resolve a billable plan");
     throw new Error("Stripe webhook could not resolve a billable plan");
+  }
+
+  const subscriptionId = getPayloadSubscriptionId(payload);
+  const eventCreatedAt = unixSecondsToDate(event.created);
+  if (plan === "yearly") {
+    if (!subscriptionId || !eventCreatedAt) {
+      logger.error({ eventId: event.id, userId: user.id }, "Stripe webhook is missing yearly subscription correlation");
+      throw new Error("Stripe webhook is missing yearly subscription correlation");
+    }
+
+    const isCurrentSubscription = user.stripeSubscriptionId === subscriptionId;
+    const isOlderThanCurrent = user.stripeSubscriptionEventCreatedAt != null
+      && eventCreatedAt.getTime() < user.stripeSubscriptionEventCreatedAt.getTime();
+    const canReplaceWithCheckout = (
+      source === "checkout" || source === "async_checkout"
+    ) && !isOlderThanCurrent;
+    if (
+      (user.stripeSubscriptionId && !isCurrentSubscription && !canReplaceWithCheckout)
+      || (isCurrentSubscription && isOlderThanCurrent)
+    ) {
+      logger.warn(
+        {
+          eventId: event.id,
+          source,
+          subscriptionId,
+          activeSubscriptionId: user.stripeSubscriptionId,
+          eventCreatedAt,
+          activeSubscriptionEventCreatedAt: user.stripeSubscriptionEventCreatedAt,
+        },
+        "Stripe successful payment does not advance the active subscription; ignoring it",
+      );
+      return;
+    }
   }
 
   const periodEnd = plan === "yearly"
     ? await resolveSubscriptionPeriodEnd(stripe, payload)
     : null;
   if (plan === "yearly" && !periodEnd) {
-    logger.error({ eventId, userId: user.id }, "Stripe webhook has no subscription period end");
+    logger.error({ eventId: event.id, userId: user.id }, "Stripe webhook has no subscription period end");
     throw new Error("Stripe webhook has no subscription period end");
   }
 
@@ -153,7 +188,6 @@ async function processSuccessfulPayment(
   // represented only by the active subscription fields below.
   const owned = [...(user.owned ?? [])];
   if (plan === "lifetime" && !owned.includes(plan)) owned.push(plan);
-  const subscriptionId = getPayloadSubscriptionId(payload);
   const paymentIntentId = getStripeId(payload.payment_intent);
 
   await db
@@ -165,7 +199,10 @@ async function processSuccessfulPayment(
       planStatus: plan === "yearly" ? "active" : "lifetime",
       planCurrentPeriodEnd: periodEnd,
       ...(plan === "yearly"
-        ? { stripeSubscriptionId: subscriptionId ?? user.stripeSubscriptionId }
+        ? {
+            stripeSubscriptionId: subscriptionId,
+            stripeSubscriptionEventCreatedAt: eventCreatedAt,
+          }
         : {}),
       ...(paymentIntentId
         ? { stripePaymentIntentId: paymentIntentId }
@@ -175,7 +212,7 @@ async function processSuccessfulPayment(
 }
 
 async function processNegativeSubscriptionEvent(
-  eventId: string,
+  event: Pick<Stripe.Event, "id" | "created">,
   payload: StripePayload,
   planStatus: "inactive" | "payment_failed" | "refunded",
   correlation: {
@@ -187,7 +224,7 @@ async function processNegativeSubscriptionEvent(
   const user = await resolveWebhookUser(undefined, customerId);
   if (!user) {
     logger.error(
-      { eventId, customer: customerId },
+      { eventId: event.id, customer: customerId },
       "Stripe lifecycle webhook could not resolve a user",
     );
     throw new Error("Stripe lifecycle webhook could not resolve a user");
@@ -202,7 +239,7 @@ async function processNegativeSubscriptionEvent(
   if (!hasSubscriptionMatch && !hasPaymentMatch) {
     logger.warn(
       {
-        eventId,
+        eventId: event.id,
         customer: customerId,
         subscriptionId: correlation.subscriptionId,
         paymentIntentId: correlation.paymentIntentId,
@@ -210,6 +247,27 @@ async function processNegativeSubscriptionEvent(
         activePaymentIntentId: user.stripePaymentIntentId,
       },
       "Stripe lifecycle webhook did not match the user's active billing record; ignoring it",
+    );
+    return;
+  }
+
+  const eventCreatedAt = unixSecondsToDate(event.created);
+  const isOlderThanActiveSuccess = (
+    user.plan === "yearly"
+    && eventCreatedAt != null
+    && user.stripeSubscriptionEventCreatedAt != null
+    && eventCreatedAt.getTime() < user.stripeSubscriptionEventCreatedAt.getTime()
+  );
+  if (isOlderThanActiveSuccess) {
+    logger.warn(
+      {
+        eventId: event.id,
+        subscriptionId: correlation.subscriptionId,
+        paymentIntentId: correlation.paymentIntentId,
+        eventCreatedAt,
+        activeSubscriptionEventCreatedAt: user.stripeSubscriptionEventCreatedAt,
+      },
+      "Stripe lifecycle webhook predates the active successful subscription event; ignoring it",
     );
     return;
   }
@@ -325,24 +383,26 @@ router.post("/webhooks/stripe", async (req, res): Promise<void> => {
           );
           break;
         }
-        await processSuccessfulPayment(stripe, event.id, payload);
+        await processSuccessfulPayment(stripe, event, payload, "checkout");
         break;
       case "checkout.session.async_payment_succeeded":
+        await processSuccessfulPayment(stripe, event, payload, "async_checkout");
+        break;
       case "invoice.payment_succeeded":
-        await processSuccessfulPayment(stripe, event.id, payload);
+        await processSuccessfulPayment(stripe, event, payload, "invoice");
         break;
       case "customer.subscription.deleted":
-        await processNegativeSubscriptionEvent(event.id, payload, "inactive", {
+        await processNegativeSubscriptionEvent(event, payload, "inactive", {
           subscriptionId: payload.id,
         });
         break;
       case "invoice.payment_failed":
-        await processNegativeSubscriptionEvent(event.id, payload, "payment_failed", {
+        await processNegativeSubscriptionEvent(event, payload, "payment_failed", {
           subscriptionId: getPayloadSubscriptionId(payload),
         });
         break;
       case "charge.refunded":
-        await processNegativeSubscriptionEvent(event.id, payload, "refunded", {
+        await processNegativeSubscriptionEvent(event, payload, "refunded", {
           paymentIntentId: getStripeId(payload.payment_intent),
         });
         break;

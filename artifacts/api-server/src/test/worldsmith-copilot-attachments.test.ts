@@ -83,6 +83,7 @@ const superAdminUser: User = {
   googleTokenExpiry: null, notionToken: null, passwordHash: null,
   stripeCustomerId: null, planCurrentPeriodEnd: null, planStatus: null,
   stripeSubscriptionId: null, stripePaymentIntentId: null,
+  stripeSubscriptionEventCreatedAt: null,
   createdAt: new Date(), updatedAt: new Date(),
 };
 

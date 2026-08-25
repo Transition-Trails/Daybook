@@ -41,6 +41,12 @@ export const usersTable = pgTable("users", {
   // super_admin: full platform access, bypasses all store scoping.
   platformRole: text("platform_role"), // "super_admin" | null
   stripeCustomerId: text("stripe_customer_id"),
+  // Lifetime purchases remain in `owned`; these fields represent only the
+  // revocable subscription lifecycle.
+  planCurrentPeriodEnd: timestamp("plan_current_period_end", { withTimezone: true }),
+  planStatus: text("plan_status"), // active | inactive | payment_failed | refunded | lifetime
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

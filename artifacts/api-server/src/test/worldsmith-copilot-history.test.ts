@@ -92,6 +92,10 @@ const superAdminUser: User = {
   notionToken: null,
   passwordHash: null,
   stripeCustomerId: null,
+  planCurrentPeriodEnd: null,
+  planStatus: null,
+  stripeSubscriptionId: null,
+  stripePaymentIntentId: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

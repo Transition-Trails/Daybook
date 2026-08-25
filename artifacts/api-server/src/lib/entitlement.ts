@@ -31,6 +31,30 @@ export interface EntitlementContext {
   isSuperAdmin?: boolean;
 }
 
+export interface UserPlanEntitlement {
+  plan?: string | null;
+  owned?: string[] | null;
+  planStatus?: string | null;
+  planCurrentPeriodEnd?: Date | null;
+}
+
+/**
+ * Resolve access for a buyer's subscription product. Permanent purchases are
+ * represented by the append-only `owned` ledger; yearly access requires both
+ * an active status and a future period end.
+ */
+export function hasUserPlanEntitlement(
+  user: UserPlanEntitlement,
+  now: Date = new Date(),
+): boolean {
+  if (user.owned?.includes("lifetime")) return true;
+
+  return user.plan === "yearly"
+    && user.planStatus === "active"
+    && user.planCurrentPeriodEnd instanceof Date
+    && user.planCurrentPeriodEnd.getTime() > now.getTime();
+}
+
 /**
  * Resolve the entitlement status for a single catalog item.
  */

@@ -81,7 +81,9 @@ const superAdminUser: User = {
   },
   googleId: null, googleAccessToken: null, googleRefreshToken: null,
   googleTokenExpiry: null, notionToken: null, passwordHash: null,
-  stripeCustomerId: null, createdAt: new Date(), updatedAt: new Date(),
+  stripeCustomerId: null, planCurrentPeriodEnd: null, planStatus: null,
+  stripeSubscriptionId: null, stripePaymentIntentId: null,
+  createdAt: new Date(), updatedAt: new Date(),
 };
 
 function makeApp() {

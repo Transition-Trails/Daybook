@@ -11,7 +11,6 @@ import { db } from "@workspace/db";
 import { ordersTable, plannerConfigsTable, storesTable } from "@workspace/db";
 import { and, desc, eq, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { resolveStoreActor, resolveStoreActorOptional, requireSuperAdmin } from "../middleware/requireRole";
-import { assertStoreScope } from "../lib/auth-middleware";
 import { sendOrderReceipt } from "../lib/email/senders";
 import { logger } from "../lib/logger";
 import { createSignedDownloadLinks, recoveryUrl, verifySignedDownload } from "../lib/order-delivery";
@@ -156,16 +155,26 @@ async function recordReceiptFailure(orderId: string, err: unknown): Promise<void
   }
 }
 
-// ── GET /orders/:id — support order detail ───────────────────────────────────
+// ── GET /orders/:id — support/store operator order detail ─────────────────────
 router.get(
   "/orders/:id",
-  requireSuperAdmin,
+  resolveStoreActor,
   async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params as { id: string };
     try {
-    const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+      const [order] = await db
+        .select(orderResponseFields)
+        .from(ordersTable)
+        .where(eq(ordersTable.id, id))
+        .limit(1);
       if (!order) {
         res.status(404).json({ error: "Order not found" });
+        return;
+      }
+      const actor = req.actor!;
+      const isStoreOperator = actor.storeRole === "store_owner" || actor.storeRole === "store_staff";
+      if (!actor.isSuperAdmin && (actor.storeId !== order.storeId || !isStoreOperator)) {
+        res.status(403).json({ error: "Forbidden: store operator access required" });
         return;
       }
       res.json({ order });
@@ -188,7 +197,11 @@ router.post(
     const now = new Date();
 
     try {
-    const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+      const [order] = await db
+        .select()
+        .from(ordersTable)
+        .where(eq(ordersTable.id, id))
+        .limit(1);
       if (!order) {
         res.status(404).json({ error: "Order not found" });
         return;
@@ -197,13 +210,16 @@ router.post(
       const tokenExpired = !order.resendTokenExpiresAt
         || order.resendTokenExpiresAt.getTime() <= now.getTime();
       const validToken = !tokenExpired && tokenMatches(order.resendToken, token);
-    const actor = req.actor!;
+      const actor = req.actor;
       const actorCanResend = Boolean(
         actor
         && (
           actor.userId === order.buyerUserId
           || actor.isSuperAdmin
-          || (actor.storeId === order.storeId && actor.storeRole)
+          || (
+            actor.storeId === order.storeId
+            && (actor.storeRole === "store_owner" || actor.storeRole === "store_staff")
+          )
         ),
       );
       if (!validToken && !actorCanResend) {
@@ -233,9 +249,6 @@ router.post(
         return;
       }
 
-      // Reservation is conditional on the values we just read. A concurrent
-      // caller changes the window marker/count first, causing this request to
-      // fail closed instead of sending an eleventh email.
       const reservationWindowCondition = activeWindow
         ? and(
           eq(ordersTable.resendWindowStartedAt, order.resendWindowStartedAt!),
@@ -248,17 +261,21 @@ router.post(
           ),
           eq(ordersTable.resendWindowCount, order.resendWindowCount),
         );
-      const [reserved] = await db.update(ordersTable).set({
-        receiptAttempts: sql`${ordersTable.receiptAttempts} + 1`,
-        receiptLastAttemptAt: now,
-        receiptLastError: null,
-        resendWindowStartedAt: activeWindow ? order.resendWindowStartedAt : now,
-        resendWindowCount: hourlyCount + 1,
-      }).where(and(
-        eq(ordersTable.id, order.id),
-        lt(ordersTable.resendCount, MAX_RESENDS_PER_ORDER),
-        eq(ordersTable.resendWindowCount, order.resendWindowCount),
-      )).returning({ id: ordersTable.id });
+      const [reserved] = await db
+        .update(ordersTable)
+        .set({
+          receiptAttempts: sql`${ordersTable.receiptAttempts} + 1`,
+          receiptLastAttemptAt: now,
+          receiptLastError: null,
+          resendWindowStartedAt: activeWindow ? order.resendWindowStartedAt : now,
+          resendWindowCount: hourlyCount + 1,
+        })
+        .where(and(
+          eq(ordersTable.id, id),
+          lt(ordersTable.resendCount, MAX_RESENDS_PER_ORDER),
+          reservationWindowCondition,
+        ))
+        .returning({ id: ordersTable.id });
       if (!reserved) {
         res.status(429).json({ error: "Another receipt resend request is already being processed" });
         return;
@@ -270,9 +287,6 @@ router.post(
       }
 
       try {
-        // deliverReceipt has already persisted sent state and the
-        // successful-send-only resend count. Re-read only to ensure the
-        // order was not concurrently deleted.
         const [persisted] = await db.select({ id: ordersTable.id })
           .from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
         if (!persisted) throw new Error("Order disappeared after receipt send");
@@ -309,9 +323,7 @@ router.post("/orders/recovery", async (req: Request, res: Response): Promise<voi
   }
 
   try {
-    const orders = await db
-      .select()
-      .from(ordersTable)
+    const orders = await db.select().from(ordersTable)
       .where(sql`lower(${ordersTable.buyerEmail}) = ${email}`)
       .orderBy(desc(ordersTable.createdAt))
       .limit(MAX_RESENDS_PER_ORDER);
@@ -455,7 +467,11 @@ router.get(
 
     const { storeId } = req.params as { storeId: string };
     const receiptStatus = req.query.receiptStatus;
-    if (!assertStoreScope(actor, storeId, res)) return;
+    const isStoreOperator = actor.storeRole === "store_owner" || actor.storeRole === "store_staff";
+    if (!actor.isSuperAdmin && (actor.storeId !== storeId || !isStoreOperator)) {
+      res.status(403).json({ error: "Forbidden: store operator access required" });
+      return;
+    }
     if (receiptStatus && !["failed", "pending", "sent"].includes(String(receiptStatus))) {
       res.status(400).json({ error: "receiptStatus must be failed, pending, or sent" });
       return;

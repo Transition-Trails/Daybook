@@ -84,6 +84,8 @@ import StoreDashboard from "@/pages/store/Dashboard";
 import StoreShopCatalog from "@/pages/store/ShopCatalog";
 import StorePlannerBuilds from "@/pages/store/PlannerBuilds";
 import StoreCustomers from "@/pages/store/Customers";
+import StoreOrders from "@/pages/orders/list";
+import OrderDetail from "@/pages/orders/detail";
 import StoreStaff from "@/pages/store/StaffRoles";
 import StoreHelp from "@/pages/store/StoreHelp";
 
@@ -427,6 +429,28 @@ function RootRouter() {
             {(store) => (
               <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
                 <StoreCustomers storeId={p.storeId!} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/orders/:id">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <OrderDetail />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+      <Route path="/store/:storeId/orders">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreOrders storeId={p.storeId!} />
               </StoreAdminShell>
             )}
           </RequireStore>

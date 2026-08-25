@@ -33,6 +33,7 @@ vi.mock("../lib/email/senders", () => ({
   onTicketCreated: () => undefined,
   onTicketReplied: () => undefined,
   onTicketClosed: () => undefined,
+  sendOrderReceipt: vi.fn().mockResolvedValue(undefined),
 }));
 
 // ── Per-run unique IDs ─────────────────────────────────────────────────────────
@@ -1055,6 +1056,19 @@ describe("GET /api/store/:storeId/orders — tenant isolation", () => {
     await request(alphaStaff).get("/api/store/store-alpha/orders").expect(200);
   });
 
+  it("does not expose store orders to customer or support memberships", async () => {
+    await request(alphaCustomer)
+      .get("/api/store/store-alpha/orders")
+      .expect(403);
+    await request(alphaCustomer)
+      .get(`/api/orders/${ids.receiptOrder}`)
+      .set("x-store-id", "store-alpha")
+      .expect(403);
+    await request(betaSupport)
+      .get("/api/store/store-beta/orders")
+      .expect(403);
+  });
+
   it("reserves the platform orders endpoint for super admins", async () => {
     await request(alphaOwner).get("/api/store/store-house/orders").expect(403);
     await request(sa).get("/api/store/store-house/orders").expect(200);
@@ -1084,6 +1098,36 @@ describe("GET /api/store/:storeId/orders — tenant isolation", () => {
     const detail = await request(sa).get(`/api/orders/${ids.receiptOrder}`).expect(200);
     expect(detail.body.order).not.toHaveProperty("resendToken");
     expect(detail.body.order).toMatchObject({ receiptLastError: "Test provider failure" });
+  });
+
+  it("allows store staff to load their own order detail but blocks another store", async () => {
+    const ownStoreDetail = await request(alphaStaff)
+      .get(`/api/orders/${ids.receiptOrder}`)
+      .set("x-store-id", "store-alpha")
+      .expect(200);
+    expect(ownStoreDetail.body.order).toMatchObject({
+      id: ids.receiptOrder,
+      storeId: "store-alpha",
+      receiptLastError: "Test provider failure",
+    });
+
+    await request(betaOwner)
+      .get(`/api/orders/${ids.receiptOrder}`)
+      .set("x-store-id", "store-beta")
+      .expect(403);
+  });
+
+  it("allows store staff to use the bounded receipt resend action", async () => {
+    await db
+      .update(ordersTable)
+      .set({ receiptLastAttemptAt: new Date(Date.now() - 61_000) })
+      .where(eq(ordersTable.id, ids.receiptOrder));
+
+    const res = await request(alphaStaff)
+      .post(`/api/orders/${ids.receiptOrder}/resend-receipt`)
+      .set("x-store-id", "store-alpha")
+      .expect(200);
+    expect(res.body).toEqual({ ok: true });
   });
 });
 

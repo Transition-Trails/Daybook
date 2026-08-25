@@ -48,6 +48,7 @@ import {
   RotateCcw,
   X,
   Hammer,
+  Receipt,
 } from "lucide-react";
 import { resolveStoreId, storesApi, flagsQueryOptions, type MeStore } from "@/lib/api";
 
@@ -120,6 +121,7 @@ export function StoreAdminShell({ children, store, role, allStores = [] }: Store
     { label: "Sticker library", icon: Sticker,         href: `${base}/stickers` },
     { label: "Widgets",         icon: Shapes,          href: `${base}/widgets` },
     { label: "Customers",       icon: Users,           href: `${base}/customers` },
+    { label: "Orders",           icon: Receipt,         href: `${base}/orders` },
     { label: "Staff & roles",   icon: UserCog,         href: `${base}/staff` },
     { label: "Help",            icon: HelpCircle,      href: `${base}/help` },
   ];

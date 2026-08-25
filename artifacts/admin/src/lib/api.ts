@@ -2023,8 +2023,25 @@ export interface SupportOrder {
   createdAt: string;
 }
 
+export type ReceiptStatus = "sent" | "pending" | "failed";
 export const ordersApi = {
-  get: (id: string) => apiFetch<{ order: SupportOrder }>(`/orders/${encodeURIComponent(id)}`),
+  list: (storeId: string, receiptStatus?: ReceiptStatus) => {
+    const query = receiptStatus ? `?receiptStatus=${encodeURIComponent(receiptStatus)}` : "";
+    return apiFetch<{ orders: SupportOrder[] }>(`/store/${encodeURIComponent(storeId)}/orders${query}`, {
+      headers: { "x-store-id": storeId },
+    });
+  },
+  get: (id: string, storeId?: string) => apiFetch<{ order: SupportOrder }>(
+    `/orders/${encodeURIComponent(id)}`,
+    storeId ? { headers: { "x-store-id": storeId } } : undefined,
+  ),
+  resendReceipt: (id: string, storeId?: string) => apiFetch<{ ok: boolean }>(
+    `/orders/${encodeURIComponent(id)}/resend-receipt`,
+    {
+      method: "POST",
+      ...(storeId ? { headers: { "x-store-id": storeId } } : {}),
+    },
+  ),
 };
 
 // ── Releases ───────────────────────────────────────────────────────────────────

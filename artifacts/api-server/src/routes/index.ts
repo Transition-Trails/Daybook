@@ -37,6 +37,7 @@ import promoteRouter from "./promote";
 import worldsmithRouter from "./worldsmith";
 import worldsmithEditorialRouter from "./worldsmith-editorial";
 import releasesRouter from "./releases";
+import plannerInteriorsRouter from "./planner-interiors";
 
 const router: IRouter = Router();
 
@@ -67,6 +68,7 @@ router.use(widgetsRouter);
 router.use(storePlannersRouter);
 router.use(plannerHotspotsRouter);
 router.use(platformPlannersRouter);
+router.use(plannerInteriorsRouter);
 router.use(platformRecipesRouter);
 router.use(supportRouter);
 router.use(emailSettingsRouter);

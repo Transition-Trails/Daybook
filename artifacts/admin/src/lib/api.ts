@@ -1405,6 +1405,65 @@ export const platformPlannersApi = {
     apiFetch<void>(`/platform/planners/${id}`, { method: "DELETE" }),
 };
 
+// ── Immutable authored planner interiors ──────────────────────────────────────
+
+export type PlannerInteriorManifest = {
+  trim: { w: number; h: number; unit: "mm" };
+  pages: Array<{
+    template: string;
+    once?: true;
+    repeat?: { over: "months" | "days"; from: string; to: string };
+  }>;
+};
+
+export type PlannerInteriorAssets = Record<string, string>;
+
+export interface PlannerInterior {
+  id: string;
+  storeId: string;
+  name: string;
+  currentVersionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlannerInteriorVersion {
+  id: string;
+  interiorId: string;
+  version: number;
+  manifest: PlannerInteriorManifest;
+  assets: PlannerInteriorAssets;
+  createdAt: string;
+}
+
+export const plannerInteriorsApi = {
+  list: () => apiFetch<PlannerInterior[]>("/v1/planner-interiors"),
+
+  get: (id: string) =>
+    apiFetch<{ interior: PlannerInterior; versions: PlannerInteriorVersion[] }>(`/v1/planner-interiors/${id}`),
+
+  create: (data: { storeId: string; name: string; manifest: PlannerInteriorManifest; assets: PlannerInteriorAssets }) =>
+    apiFetch<{ interior: PlannerInterior; version: PlannerInteriorVersion }>("/v1/planner-interiors", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  createVersion: (id: string, data: { manifest: PlannerInteriorManifest; assets: PlannerInteriorAssets }) =>
+    apiFetch<{ interior: PlannerInterior; version: PlannerInteriorVersion }>(`/v1/planner-interiors/${id}/versions`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  previewUrl: (id: string, versionId?: string) =>
+    `/api/v1/planner-interiors/${id}/preview${versionId ? `?versionId=${encodeURIComponent(versionId)}` : ""}`,
+
+  pinEdition: (editionId: string, versionId: string) =>
+    apiFetch(`/v1/editions/${editionId}/pin-interior`, {
+      method: "POST",
+      body: JSON.stringify({ versionId }),
+    }),
+};
+
 // ── Widgets ───────────────────────────────────────────────────────────────────
 
 export interface Widget {

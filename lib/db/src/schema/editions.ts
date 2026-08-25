@@ -82,6 +82,11 @@ export const editionsTable = pgTable("editions", {
    * Null = no binding decoration.
    */
   binding: jsonb("binding").$type<EditionBinding>(),
+  /**
+   * Optional immutable authored-interior revision used when generating this
+   * sellable edition. Existing editions continue on the legacy generator.
+   */
+  interiorVersionId: text("interior_version_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

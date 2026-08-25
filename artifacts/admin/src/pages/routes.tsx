@@ -78,6 +78,7 @@ import PlannerLibrary from '@/pages/ink/PlannerLibrary';
 
 // Backward-compat standalone pages (no nav entry, routes kept so bookmarks work)
 import PlannerBuilder from '@/pages/planners/builder';
+import PlannerInteriorsPage from '@/pages/planners/interiors';
 import ThemeStudio from '@/pages/studios/ThemeStudio';
 import EditionStudio from '@/pages/studios/EditionStudio';
 import EditionNew from '@/pages/editions/new';
@@ -118,6 +119,7 @@ export const routes = [
 
   // ── Super admin ────────────────────────────────────────────────────────────
   { path: "/super/releases",           component: ReleasesPage },
+  { path: "/super/planner-interiors",  component: PlannerInteriorsPage },
 
   // ── Platform ───────────────────────────────────────────────────────────────
   { path: "/plans",                    component: PlansList },

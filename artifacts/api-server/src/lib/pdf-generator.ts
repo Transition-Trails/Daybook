@@ -17,6 +17,7 @@ import {
   PDFArray,
   PDFDict,
   PDFNumber,
+  type PDFFont,
 } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { Buffer } from "node:buffer";
@@ -778,6 +779,16 @@ async function resolveEmbeddedFont(
     fallbackLog?.add(familyName);
   }
   return pdfDoc.embedFont(resolveStandardFont(familyName, bold));
+}
+
+/** Shared embedded-font resolver for SVG-authored planner interiors. */
+export async function resolvePlannerInteriorFont(
+  pdfDoc: PDFDocument,
+  familyName: string | undefined,
+  bold: boolean,
+): Promise<PDFFont> {
+  pdfDoc.registerFontkit(fontkit);
+  return resolveEmbeddedFont(pdfDoc, familyName, bold);
 }
 
 // ── Shared e-ink helper factory ──────────────────────────────────────────────

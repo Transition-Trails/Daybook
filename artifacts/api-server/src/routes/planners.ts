@@ -14,6 +14,7 @@ import {
   themeFontsTable,
   fontsTable,
   storesTable,
+  plannerInteriorVersionsTable,
   type ThemeFontPairing,
 } from "@workspace/db";
 import { eq, and, desc, asc } from "drizzle-orm";
@@ -22,6 +23,7 @@ import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type Backg
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError } from "../lib/google-auth";
 import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
+import { buildInteriorPdf } from "../lib/planner-interior-renderer";
 import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -38,6 +40,14 @@ export async function runGeneration(
   // Priority 3: first theme on the edition → theme.colors
   let themeColors: string[] | undefined;
   const style = config.style as PlannerStyle & { themeId?: string; paletteId?: string; backgroundId?: string };
+  let editionRecord: typeof editionsTable.$inferSelect | undefined;
+
+  if (config.editionId) {
+    [editionRecord] = await db
+      .select()
+      .from(editionsTable)
+      .where(eq(editionsTable.id, config.editionId));
+  }
 
   if (style.paletteId) {
     const [pal] = await db
@@ -55,13 +65,8 @@ export async function runGeneration(
     if (theme) themeColors = theme.colors as string[];
   }
 
-  if (!themeColors && config.editionId) {
-    const [edition] = await db
-      .select()
-      .from(editionsTable)
-      .where(eq(editionsTable.id, config.editionId));
-    if (edition) {
-      const firstThemeId = (edition.themes as string[])?.[0];
+  if (!themeColors && editionRecord) {
+      const firstThemeId = (editionRecord.themes as string[])?.[0];
       if (firstThemeId) {
         const [theme] = await db
           .select()
@@ -69,7 +74,6 @@ export async function runGeneration(
           .where(eq(themesTable.id, firstThemeId));
         if (theme) themeColors = theme.colors as string[];
       }
-    }
   }
 
   // Background resolution: priority chain
@@ -160,23 +164,47 @@ export async function runGeneration(
   const diagnosticEnabled = (output as Record<string, unknown>).diagnosticPage === true;
 
   // Main build: always colour at standard trim (einkDevice not passed here)
-  const { buffer, pageCount, fontSubstitutions, totalLinkAnnotations } = await buildPdf(
-    generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
-    /* inkFriendly */ false,
-    /* einkDevice  */ undefined,
-    /* diagnosticPage */ diagnosticEnabled,
-  );
+  let interiorVersion: typeof plannerInteriorVersionsTable.$inferSelect | undefined;
+  if (editionRecord?.interiorVersionId) {
+    [interiorVersion] = await db
+      .select()
+      .from(plannerInteriorVersionsTable)
+      .where(eq(plannerInteriorVersionsTable.id, editionRecord.interiorVersionId));
+    if (!interiorVersion) throw new Error(`Pinned planner interior version "${editionRecord.interiorVersionId}" was not found`);
+  }
+  const generated = interiorVersion
+    ? await buildInteriorPdf(interiorVersion.manifest, interiorVersion.assets, {
+        themeColors,
+        title: editionRecord?.name,
+        year: config.year ?? undefined,
+      })
+    : await buildPdf(
+        generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
+        /* inkFriendly */ false,
+        /* einkDevice  */ undefined,
+        /* diagnosticPage */ diagnosticEnabled,
+      );
+  const { buffer, pageCount, totalLinkAnnotations } = generated;
+  const fontSubstitutions = "fontSubstitutions" in generated ? generated.fontSubstitutions : [];
 
   // B&W / e-ink variant: inkFriendly=true + optional device trim
   // Per spec: "the B&W asset from Part 2 IS the e-ink asset — do not build a second pipeline."
   let inkFriendlyBuffer: Uint8Array | null = null;
   if (shouldGenerateEinkVariant) {
     try {
-      const result = await buildPdf(
-        generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
-        /* inkFriendly */ true,
-        /* einkDevice */ einkDeviceKey ?? undefined,
-      );
+      const result = interiorVersion
+        ? await buildInteriorPdf(interiorVersion.manifest, interiorVersion.assets, {
+            themeColors,
+            title: editionRecord?.name,
+            year: config.year ?? undefined,
+            inkFriendly: true,
+            einkDevice: einkDeviceKey,
+          })
+        : await buildPdf(
+            generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
+            /* inkFriendly */ true,
+            /* einkDevice */ einkDeviceKey ?? undefined,
+          );
       inkFriendlyBuffer = result.buffer;
       console.log(
         `[pdf-generator] E-ink/ink-friendly variant produced` +
@@ -289,10 +317,11 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
       const [theme] = await db.select().from(themesTable).where(eq(themesTable.id, previewStyle.themeId));
       if (theme) themeColors = theme.colors as string[];
     }
-    if (!themeColors && body.editionId) {
-      const [edition] = await db.select().from(editionsTable).where(eq(editionsTable.id, body.editionId));
-      if (edition) {
-        const firstThemeId = (edition.themes as string[])?.[0];
+    let previewEdition: typeof editionsTable.$inferSelect | undefined;
+    if (body.editionId) {
+      [previewEdition] = await db.select().from(editionsTable).where(eq(editionsTable.id, body.editionId));
+      if (!themeColors && previewEdition) {
+        const firstThemeId = (previewEdition.themes as string[])?.[0];
         if (firstThemeId) {
           const [theme] = await db.select().from(themesTable).where(eq(themesTable.id, firstThemeId));
           if (theme) themeColors = theme.colors as string[];
@@ -359,21 +388,47 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
       if (previewStyleFonts.accent)     previewFontPairing.accent     = previewStyleFonts.accent;
     }
 
-    const sections = (body.style as PlannerStyle | undefined)?.sections ?? [];
-    const { buffer, pageCount, fontSubstitutions: pvSubs } = await buildPreviewPdf(
-      {
-        setup: body.setup,
-        style: body.style ?? {},
-        output: body.output ?? { calMode: "none", eventMins: 60, aiInPdf: false },
-        sections,
-        editionId: body.editionId,
-      },
-      themeColors,
-      undefined,          // use DEFAULT_TEMPLATE
-      previewBackground,
-      previewFontPairing,
-      body.einkDevice ?? undefined,
-    );
+    let buffer: Uint8Array;
+    let pageCount: number;
+    let pvSubs: string[] = [];
+    const previewOutput = (body.output ?? {}) as PlannerOutput;
+    const previewEinkDevice = body.einkDevice ?? previewOutput.einkDevice ?? undefined;
+    const previewInkFriendly = !!previewOutput.inkFriendly || !!previewEinkDevice;
+    if (previewEdition?.interiorVersionId) {
+      const [interiorVersion] = await db
+        .select()
+        .from(plannerInteriorVersionsTable)
+        .where(eq(plannerInteriorVersionsTable.id, previewEdition.interiorVersionId));
+      if (!interiorVersion) throw new Error(`Pinned planner interior version "${previewEdition.interiorVersionId}" was not found`);
+      const authoredPreview = await buildInteriorPdf(interiorVersion.manifest, interiorVersion.assets, {
+        themeColors,
+        title: previewEdition.name,
+        year: body.setup.startYear,
+        inkFriendly: previewInkFriendly,
+        einkDevice: previewEinkDevice,
+      });
+      buffer = authoredPreview.buffer;
+      pageCount = authoredPreview.pageCount;
+    } else {
+      const sections = (body.style as PlannerStyle | undefined)?.sections ?? [];
+      const legacyPreview = await buildPreviewPdf(
+        {
+          setup: body.setup,
+          style: body.style ?? {},
+          output: body.output ?? { calMode: "none", eventMins: 60, aiInPdf: false },
+          sections,
+          editionId: body.editionId,
+        },
+        themeColors,
+        undefined,          // use DEFAULT_TEMPLATE
+        previewBackground,
+        previewFontPairing,
+        previewEinkDevice,
+      );
+      buffer = legacyPreview.buffer;
+      pageCount = legacyPreview.pageCount;
+      pvSubs = legacyPreview.fontSubstitutions;
+    }
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "inline; filename=preview.pdf");

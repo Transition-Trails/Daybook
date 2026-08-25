@@ -21,6 +21,7 @@ import { requireStoreAccess } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
 import { callAi } from "../lib/ai-proxy";
 import { buildProfileGrounding } from "../lib/profile-grounding";
+import { sanitizeSvg } from "../lib/svg-contract";
 
 const router: IRouter = Router();
 
@@ -367,24 +368,6 @@ router.post(
   },
 );
 
-// ── SVG sanitisation helper ───────────────────────────────────────────────────
-// Strips script tags, event handlers, foreignObject and javascript: URIs from
-// AI-generated SVG before it leaves the server. Defence-in-depth alongside
-// client-side sanitisation in the admin UI.
-
-function sanitizeSvgServerSide(svg: string): string {
-  // Remove <script> blocks (including async / type variants)
-  svg = svg.replace(/<script[\s\S]*?<\/script\s*>/gi, "");
-  // Remove <foreignObject> blocks (can embed arbitrary HTML)
-  svg = svg.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "");
-  svg = svg.replace(/<foreignObject[^>]*\/>/gi, "");
-  // Remove inline event handlers (on*= attributes)
-  svg = svg.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  // Replace javascript: URIs in href / xlink:href / src
-  svg = svg.replace(/((?:xlink:)?href|src)\s*=\s*["']javascript:[^"']*["']/gi, '$1="#"');
-  return svg;
-}
-
 // ── POST /stores/:storeId/studios/insert/generate ─────────────────────────────
 // Claude generates a recolourable vector SVG insert page in the store's palette.
 // Optionally accepts an exampleImageBase64 (vision) to rebuild as clean vector.
@@ -445,7 +428,7 @@ router.post(
         res.status(502).json({ error: "Claude did not return a valid SVG", raw: result.content?.slice(0, 300) });
         return;
       }
-      const svgData = sanitizeSvgServerSide(svgMatch[0]);
+      const svgData = sanitizeSvg(svgMatch[0]);
 
       // Extract hotspot map from comment if present
       let hotspotMap: unknown = null;
@@ -515,7 +498,7 @@ router.post(
         res.status(502).json({ error: "Claude did not return a valid SVG", raw: result.content?.slice(0, 300) });
         return;
       }
-      const svgData = sanitizeSvgServerSide(svgMatch[0]);
+      const svgData = sanitizeSvg(svgMatch[0]);
 
       let hotspotMap: unknown = null;
       const hotspotMatch = svgData.match(/<!--\s*HOTSPOT_MAP:\s*(\{[\s\S]*?\})\s*-->/);

@@ -58,3 +58,4 @@
 - [GPT Image 2 proxy compatibility](gpt-image-2-proxy.md) — Replit’s OpenAI image endpoint accepts GPT Image 2 generation requests without response_format
 - [WorldSmith production route tests](worldsmith-production-route-tests.md) — route-level final-art tests need provider metadata mocked before approval gating runs
 - [Stripe billing lifecycle](stripe-billing-lifecycle.md) — yearly access is Price-ID-backed and event-ordered; invoice payment records supply refund correlation
+- [Authored planner interiors](planner-authored-interiors.md) — editions pin immutable, vector-only SVG versions; unsupported SVG fails closed to preserve preview/export fidelity

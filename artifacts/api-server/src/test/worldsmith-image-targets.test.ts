@@ -4,7 +4,7 @@ import {
 } from "@workspace/api-zod/readiness";
 import { db, worldsmithImageTargetsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getWorldsmithImageTarget,
   getManagedWorldsmithImageTarget,
@@ -12,6 +12,8 @@ import {
   validateWorldsmithPreviewGenerationConfiguration,
   WORLD_SMITH_PRINT_SIZES_IN,
 } from "../lib/worldsmith/image-targets.js";
+import { generateWorldsmithImage } from "../lib/worldsmith/image-generation-service.js";
+import { logger } from "../lib/logger.js";
 
 function dimensions(size: string): [number, number] {
   return size.split("x").map(Number) as [number, number];
@@ -225,6 +227,94 @@ describe("WorldSmith image targets", () => {
           printHeightIn: original!.printHeightIn,
         })
         .where(eq(worldsmithImageTargetsTable.componentType, "Journal Card"));
+    }
+  });
+
+  it("falls back to bundled dimensions when the managed row is absent", async () => {
+    const [original] = await db
+      .select()
+      .from(worldsmithImageTargetsTable)
+      .where(eq(worldsmithImageTargetsTable.componentType, "Journal Card"));
+    expect(original).toBeDefined();
+
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    try {
+      await db.delete(worldsmithImageTargetsTable)
+        .where(eq(worldsmithImageTargetsTable.componentType, "Journal Card"));
+
+      await expect(getManagedWorldsmithImageTarget("Journal Card", "portrait"))
+        .resolves.toMatchObject({
+          size: "512x688",
+          printWidthIn: 3,
+          printHeightIn: 4,
+          orientation: "portrait",
+        });
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ componentType: "Journal Card" }),
+        expect.stringContaining("missing"),
+      );
+    } finally {
+      await db.insert(worldsmithImageTargetsTable).values({
+        componentType: "Journal Card",
+        printWidthIn: original!.printWidthIn,
+        printHeightIn: original!.printHeightIn,
+      });
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("falls back to bundled dimensions when the managed lookup fails", async () => {
+    const selectSpy = vi.spyOn(db, "select").mockImplementation(() => {
+      throw new Error("database unavailable");
+    });
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+
+    try {
+      await expect(getManagedWorldsmithImageTarget("Journal Card", "landscape"))
+        .resolves.toMatchObject({
+          size: "688x512",
+          printWidthIn: 4,
+          printHeightIn: 3,
+          orientation: "landscape",
+        });
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ componentType: "Journal Card" }),
+        expect.stringContaining("lookup failed"),
+      );
+    } finally {
+      selectSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("keeps a catalog lookup outage inside the non-fatal generation path", async () => {
+    const selectSpy = vi.spyOn(db, "select").mockImplementation(() => {
+      throw new Error("database unavailable");
+    });
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    process.env.AI_INTEGRATIONS_OPENAI_API_KEY = "test-key";
+    process.env.AI_INTEGRATIONS_OPENAI_BASE_URL = "https://openai.example/v1";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("provider unavailable")));
+
+    try {
+      await expect(generateWorldsmithImage({
+        prompt: "A safe fallback preview",
+        componentType: "Journal Card",
+        orientation: "portrait",
+      })).resolves.toMatchObject({
+        target: {
+          size: "512x688",
+          printWidthIn: 3,
+          printHeightIn: 4,
+        },
+        error: expect.stringContaining("provider unavailable"),
+      });
+    } finally {
+      selectSpy.mockRestore();
+      warnSpy.mockRestore();
+      vi.unstubAllGlobals();
+      delete process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+      delete process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
     }
   });
 

@@ -168,19 +168,37 @@ export async function getManagedWorldsmithImageTarget(
   if (!ORIENTATION_AWARE_TYPES.has(type)) {
     return resolveWorldsmithImageTarget(componentType, requestedOrientation);
   }
-  const [row] = await db
-    .select({
-      printWidthIn: worldsmithImageTargetsTable.printWidthIn,
-      printHeightIn: worldsmithImageTargetsTable.printHeightIn,
-    })
-    .from(worldsmithImageTargetsTable)
-    .where(eq(worldsmithImageTargetsTable.componentType, type))
-    .limit(1);
-  return resolveWorldsmithImageTarget(
-    componentType,
-    requestedOrientation,
-    row ? [row.printWidthIn, row.printHeightIn] : undefined,
-  );
+  const fallback = WORLD_SMITH_PRINT_SIZES_IN[type];
+
+  try {
+    const [row] = await db
+      .select({
+        printWidthIn: worldsmithImageTargetsTable.printWidthIn,
+        printHeightIn: worldsmithImageTargetsTable.printHeightIn,
+      })
+      .from(worldsmithImageTargetsTable)
+      .where(eq(worldsmithImageTargetsTable.componentType, type))
+      .limit(1);
+
+    if (!row) {
+      logger.warn(
+        { componentType: type, fallbackPrintSize: fallback },
+        "WorldSmith managed image target is missing — using bundled print-size catalog",
+      );
+    }
+
+    return resolveWorldsmithImageTarget(
+      componentType,
+      requestedOrientation,
+      row ? [row.printWidthIn, row.printHeightIn] : fallback,
+    );
+  } catch (err) {
+    logger.warn(
+      { componentType: type, fallbackPrintSize: fallback, err },
+      "WorldSmith managed image target lookup failed — using bundled print-size catalog",
+    );
+    return resolveWorldsmithImageTarget(componentType, requestedOrientation, fallback);
+  }
 }
 
 function configuredPreviewQuality(): ImageGenerationQuality {
@@ -261,16 +279,19 @@ export async function resolveWorldsmithImageGeneration(
 export async function generateWorldsmithImage(
   input: GenerateWorldsmithImageInput,
 ): Promise<WorldsmithImageGeneration> {
-  const generation = await resolveWorldsmithImageGeneration(input.componentType, input.orientation);
   const context = input.logContext ?? {};
-
-  if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY && !process.env.OPENAI_API_KEY) {
-    const error = "No OpenAI API key configured — set OPENAI_API_KEY or run the Replit AI integration setup.";
-    logger.warn(context, error);
-    return { target: generation.target, error };
-  }
+  let target: WorldsmithImageTarget | undefined;
 
   try {
+    const generation = await resolveWorldsmithImageGeneration(input.componentType, input.orientation);
+    target = generation.target;
+
+    if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY && !process.env.OPENAI_API_KEY) {
+      const error = "No OpenAI API key configured — set OPENAI_API_KEY or run the Replit AI integration setup.";
+      logger.warn(context, error);
+      return { target, error };
+    }
+
     logger.info(
       { ...context, promptLength: input.prompt.length },
       "Calling configured image model for concept visual",
@@ -290,9 +311,12 @@ export async function generateWorldsmithImage(
     const error = String(err);
     logger.warn(
       { ...context, err },
-      "Concept image generation failed — using the caller's placeholder",
+      "WorldSmith image generation failed — using the caller's placeholder",
     );
-    return { target: generation.target, error };
+    return {
+      target: target ?? getWorldsmithImageTarget(input.componentType, input.orientation),
+      error,
+    };
   }
 }
 

@@ -1,0 +1,129 @@
+# Daybook — sticker shape recipes: repeatable, predictable functional shapes
+
+**The goal.** Adding a new banner kind — ribbon, pennant, scalloped, flat — should be a row an author
+fills in, not a code change. And the same recipe rendered twice should produce byte-identical output,
+because these shapes get cut on a machine.
+
+**What is wrong today.** Three separate limits, all in code:
+
+1. `STICKER_FUNCTION_TYPES` is a fixed enum, so every banner variant collapses into one type "banner".
+2. The default size is a hardcoded ternary in `routes/stickers.ts` —
+   `functionType === "tab" ? 24 : functionType === "banner" ? 60 : functionType === "date" ? 12 : 20`.
+3. `POST /stores/:storeId/stickers/generate/functional` asks Claude to draw the SVG freehand from a
+   prompt that never describes the shape. The word "banner" is the whole specification, so Claude
+   improvises differently every call. Then the cut path is taken by regex-matching the **first**
+   `<path d="…">` in the response — a banner drawn as a body plus two tails silently loses the tails.
+
+**The decision this implements:** functional shapes render from **authored templates**, deterministically,
+with **no AI call in the render path**. Claude assists at authoring time only — proposing a template a
+person then accepts. Freehand generation stays where it belongs, on illustrative stickers.
+
+**Do not add a second shape path.** Wave 14 just deleted five duplicate studio files to kill exactly
+this class of drift. When the recipe renderer works, mark the AI-freehand *functional* route deprecated
+in the same commit and point it at the renderer.
+
+---
+
+## Step 1 — the recipe table
+
+New table `sticker_shape_recipes`, in a new numbered Drizzle migration. Mirror the ownership model
+`stickers_library` already uses — `origin` of `starter` (platform, read-only to stores) or `owned`
+(authored by a store) — so platform recipes ship as starters and a store can author its own.
+
+| Column | Notes |
+| --- | --- |
+| `id` | `shr_` prefix, same generator style as `stk_` |
+| `origin` | `starter` \| `owned` |
+| `authored_by_store_id` | null for starters |
+| `name` | "Ribbon banner", author-facing |
+| `slug` | stable machine key, unique per origin+store |
+| `function_type` | must be a member of `STICKER_FUNCTION_TYPES` — the recipe refines a type, it does not replace it |
+| `svg_template` | the authored SVG, with the placeholder vocabulary below |
+| `aspect_ratio` | width ÷ height, numeric — must agree with the template viewBox |
+| `default_size_mm` | replaces the hardcoded ternary for anything rendered from a recipe |
+| `takes_label` | boolean — does this shape carry text |
+| `status` | `draft` \| `live` |
+
+Do **not** widen `STICKER_FUNCTION_TYPES`. A recipe is a shape *within* a function type; keeping the
+enum fixed is what stops the type list growing unbounded with every visual variant.
+
+## Step 2 — the placeholder vocabulary, and the cut line as a first-class field
+
+The template is a real SVG. Exactly four substitutions are legal, and nothing else is interpreted:
+
+- `{{primary}}` — primary palette color
+- `{{accent}}` — accent palette color
+- `{{label}}` — the text, only when `takes_label` is true
+- `{{labelFontSize}}` — resolved by the existing heuristic in `labelImageGen.ts`, not reinvented
+
+**The cut path is authored, not traced.** Every template must contain exactly one
+`<path data-name="cutline">` giving the silhouette the blade follows. This is the heart of the change:
+a multi-part banner declares its own outline, so the tails cannot be lost, and no contour tracing runs
+at all for functional shapes. Tracing stays where it is needed — uploaded and illustrative artwork.
+
+## Step 3 — validate on save, so a bad recipe never renders
+
+Reuse `lib/svg-contract.ts` — it already whitelists elements and attributes; do not write a second
+sanitizer. On create and on update, reject with a 400 that names the problem when any of these fail:
+
+1. The template parses as SVG.
+2. `viewBox`, `width` and `height` are present, and width/height are declared in **mm**.
+3. Exactly one `<path data-name="cutline">` exists, and its `d` closes with `Z`.
+4. No `<image>` element and no raster fill anywhere.
+5. The viewBox aspect ratio matches `aspect_ratio` within 0.01.
+6. Every placeholder in the template is from the vocabulary above — an unknown `{{…}}` is an error,
+   not something to leave in the output. A typo'd placeholder must never reach a printed sheet.
+7. `{{label}}` appears if and only if `takes_label` is true.
+
+## Step 4 — the render endpoint
+
+`POST /stores/:storeId/stickers/render/from-recipe`, taking `recipeId`, `label`, `paletteColors`,
+`sizeInMm`, `name`, and optional `packId`. Behaviour:
+
+- Resolve the recipe, enforcing the same scope rule as sticker reads: own `owned` recipes plus all
+  `starter` recipes.
+- Substitute the four placeholders. Size from `sizeInMm ?? recipe.default_size_mm`.
+- Run through `svg-contract` again on the *rendered* output, not just the template.
+- Take the cut line from the authored `data-name="cutline"` path. Keep the existing shadow adjustment
+  (`adjustCutlineSvgForShadow`) — the cut still has to follow the art when the canvas expands.
+- Persist with `generationType: "shape-recipe"` and the recipe id in metadata, so any sticker can be
+  traced back to the recipe that made it.
+- **No `callAi` in this handler.** That is the guarantee the whole task exists to provide.
+
+Determinism test, and treat it as the acceptance criterion: render the same recipe with the same inputs
+twice and assert the two `processedImageData` values are **identical strings**. If they are not, the
+handler has a nondeterministic step in it and the task is not done.
+
+## Step 5 — four seeded banner recipes
+
+Ship as `starter` recipes so the shape of the feature is visible immediately: **classic ribbon** (body
+with two notched tails), **pennant** (single triangular tail), **scalloped** (curved lower edge), and
+**flat** (plain rectangle with soft corners). All `function_type: "banner"`, all `takes_label: true`,
+`default_size_mm: 60`. Author each cut path deliberately — these become the reference for anyone adding
+a fifth.
+
+## Step 6 — authoring UI, in the Sticker Studio hub
+
+One hub, `StickerStudioHub.tsx` — do not add a page. A recipe list plus a create/edit form with a live
+preview rendered from the same endpoint the render path uses, so the preview cannot disagree with the
+output. Surface validation failures inline, quoting the rule that failed.
+
+Where Claude belongs, and nowhere else: an "✦ Ask Claude" assist on the *authoring* form that proposes
+a template for a described shape. It fills the editor for a person to inspect, adjust and save. It does
+not save on its own and it is never called at render time.
+
+---
+
+## Definition of done
+
+- The migration applies additively, with no backfill.
+- Rendering the same recipe twice with identical inputs produces identical bytes — asserted by a test.
+- All seven step-3 validations have a test that fails a bad template for the right reason.
+- The four starter recipes render, and their cut paths include every part of the shape (the ribbon's
+  tails are in the cut line — assert the cut path's bounding box spans the full artwork width).
+- `generate/functional` is deprecated in this same commit for functional types, with no second
+  rendering implementation left behind.
+
+Report back: the determinism test output, the ribbon's cut-path bounding box against its artwork width,
+and any step-3 rule that a seeded recipe initially failed — that tells us the validation is real rather
+than decorative.

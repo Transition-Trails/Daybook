@@ -11,6 +11,7 @@ import {
 import {
   buildPdf,
   buildPreviewPdf,
+  flattenPageIds,
   generatePageIds,
   getMonthGridOffset,
   getPlannerWeekStart,
@@ -92,6 +93,10 @@ describe("planner calendar correctness", () => {
     // August 1, 2027 is Sunday.
     expect(getMonthGridOffset(2027, 7, "sun")).toBe(0);
     expect(getMonthGridOffset(2027, 7, "mon")).toBe(6);
+
+    // February 1, 2028 is Tuesday (and 2028 is a leap year).
+    expect(getMonthGridOffset(2028, 1, "sun")).toBe(2);
+    expect(getMonthGridOffset(2028, 1, "mon")).toBe(1);
   });
 
   it("walks backward to the selected week start instead of stopping at the month boundary", () => {
@@ -191,6 +196,39 @@ describe("planner calendar correctness", () => {
 
       expect(firstPreviewUri).toContain(`dates=${expectedStart}`);
       expect(firstFullUri).toContain(`dates=${expectedStart}`);
+    },
+    60_000,
+  );
+
+  it.each([
+    ["sun", 2],
+    ["mon", 1],
+  ] as const)(
+    "places leap day in the correct generated February 2028 grid for a %s start",
+    async (weekStart, expectedColumn) => {
+      const config = makeConfig(weekStart, 2028, 1);
+      config.style.renderStyle = "flat";
+      const result = await buildPdf(config);
+      const doc = await PDFDocument.load(result.buffer);
+      const flat = flattenPageIds(generatePageIds(config));
+      const leapDayIndex = flat.indexOf("d20280229");
+      expect(leapDayIndex).toBeGreaterThanOrEqual(0);
+
+      const leapDayPage = doc.getPage(leapDayIndex);
+      const leapDayLink = linkAnnotations(doc, flat.indexOf("m0")).find(
+        (link) => link.destination?.objectNumber === leapDayPage.ref.objectNumber,
+      );
+      expect(leapDayLink).toBeDefined();
+
+      const monthPage = doc.getPage(flat.indexOf("m0"));
+      const { width, height } = monthPage.getSize();
+      const dayCells = DEFAULT_TEMPLATE.pages["month-calendar"]!.dayCells!;
+      const expectedX =
+        ((dayCells.x_origin_pct + expectedColumn * dayCells.col_w_pct) / 100) * width;
+      const expectedY =
+        ((dayCells.y_origin_pct + 4 * dayCells.row_h_pct) / 100) * height - 2;
+      expect(leapDayLink!.rect[0]).toBeCloseTo(expectedX, 4);
+      expect(leapDayLink!.rect[1]).toBeCloseTo(expectedY, 4);
     },
     60_000,
   );

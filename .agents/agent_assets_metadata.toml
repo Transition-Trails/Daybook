@@ -6,3 +6,31 @@ id = "DRT1Fbs9sxQgVd6cQfUqB"
 uri = "file://.local/outputs/Daybook-App.pdf"
 type = "pdf"
 title = "Daybook App.pdf"
+
+[[outputs]]
+id = "EovsQvLK7aaM6kriGE6HF"
+uri = "file://proof/2027-monday-vertical.pdf"
+type = "pdf"
+title = "2027 Monday Vertical Planner"
+description = "Verified 452-page Terracotta proof PDF; 7,774 links and zero dead internal links."
+
+[[outputs]]
+id = "AMNOQpKeTj4jAtB-kgJJb"
+uri = "file://proof/2027-sunday-vertical.pdf"
+type = "pdf"
+title = "2027 Sunday Vertical Planner"
+description = "Verified 452-page Terracotta proof PDF with Sunday-start weekly and month calendars."
+
+[[outputs]]
+id = "BjGLCdMwWMijgSHKxfG5u"
+uri = "file://proof/2027-monday-landscape.pdf"
+type = "pdf"
+title = "2027 Monday Landscape Planner"
+description = "Verified 452-page landscape Terracotta proof PDF."
+
+[[outputs]]
+id = "zvRXRXwRUoNLu1y3QtSQR"
+uri = "file://proof/2027-13month-monday.pdf"
+type = "pdf"
+title = "2027–January 2028 Planner"
+description = "Verified 490-page, 13-month Terracotta proof PDF spanning through January 2028."

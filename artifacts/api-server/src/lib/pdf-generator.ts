@@ -958,6 +958,7 @@ export async function buildPdf(
   let realisticGrainImg: any = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let realisticRingImg: any = null; // landscape + binding only
+  let realisticOverlaySourceBytes = 0;
 
   if (renderStyle === "realistic") {
     try {
@@ -967,6 +968,7 @@ export async function buildPdf(
         create: { width: gutterW, height: pageHeight, channels: 4,
           background: { r: 0, g: 0, b: 0, alpha: 0.12 } },
       }).png().toBuffer();
+      realisticOverlaySourceBytes += gutterBuf.byteLength;
       realisticGutterImg = await pdfDoc.embedPng(gutterBuf);
 
       // 2. Paper grain: tileable 128×128 noise overlay (subtle texture)
@@ -982,6 +984,7 @@ export async function buildPdf(
       const grainBuf = await sharp(grainPixels, {
         raw: { width: grainSz, height: grainSz, channels: 4 },
       }).png().toBuffer();
+      realisticOverlaySourceBytes += grainBuf.byteLength;
       realisticGrainImg = await pdfDoc.embedPng(grainBuf);
 
       // 3. Binding ring art: circles pattern (landscape only)
@@ -1010,11 +1013,12 @@ export async function buildPdf(
           }
           return sharp(pixels, { raw: { width: ringW, height: ringH, channels: 4 } }).png().toBuffer();
         })();
+        realisticOverlaySourceBytes += ringBuf.byteLength;
         realisticRingImg = await pdfDoc.embedPng(ringBuf);
       }
 
-      const flatSzKb = Math.round(await pdfDoc.save().then((b) => b.byteLength / 1024));
-      console.log(`[pdf-generator] Realistic overlays embedded; PDF pre-pages size: ~${flatSzKb}KB`);
+      const sourceSzKb = Math.round(realisticOverlaySourceBytes / 1024);
+      console.log(`[pdf-generator] Realistic overlays embedded; source assets: ~${sourceSzKb}KB`);
     } catch (err) {
       console.warn("[pdf-generator] Realistic overlay gen failed, falling back to flat:", (err as Error).message);
       realisticGutterImg = null; realisticGrainImg = null; realisticRingImg = null;

@@ -95,6 +95,42 @@ function daysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
 
+export function getMonthGridOffset(
+  year: number,
+  month: number,
+  weekStart: PlannerSetup["weekStart"],
+): number {
+  const firstDay = new Date(year, month, 1).getDay();
+  const weekStartDay = weekStart === "mon" ? 1 : 0;
+  return (firstDay - weekStartDay + 7) % 7;
+}
+
+export function getPlannerWeekStart(
+  date: Date,
+  weekStart: PlannerSetup["weekStart"],
+): Date {
+  const result = new Date(date);
+  const weekStartDay = weekStart === "mon" ? 1 : 0;
+  const daysBack = (result.getDay() - weekStartDay + 7) % 7;
+  result.setDate(result.getDate() - daysBack);
+  return result;
+}
+
+export function getWeekStartDate(
+  weekId: string,
+  weekStart: PlannerSetup["weekStart"],
+): Date | null {
+  const match = weekId.match(/^w(\d{4})W(\d{2})$/);
+  if (!match) return null;
+  const weekYear = Number(match[1]);
+  const weekNum = Number(match[2]);
+  const jan4 = new Date(weekYear, 0, 4);
+  const isoMonday = new Date(jan4);
+  isoMonday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (weekNum - 1) * 7);
+  if (weekStart === "sun") isoMonday.setDate(isoMonday.getDate() + 6);
+  return isoMonday;
+}
+
 // ── Page ID generation ────────────────────────────────────────────────────────
 
 export function generatePageIds(config: GeneratorConfig): PageIdMap {
@@ -138,11 +174,7 @@ export function generatePageIds(config: GeneratorConfig): PageIdMap {
   const endDate = new Date(endYear, endMonth, daysInMonth(endYear, endMonth));
 
   const weeksSeen = new Set<string>();
-  const cursor = new Date(startDate);
-  const wdOffset = weekStart === "mon" ? 1 : 0;
-  while ((cursor.getDay() !== wdOffset) && cursor.getTime() >= startDate.getTime()) {
-    cursor.setDate(cursor.getDate() - 1);
-  }
+  const cursor = getPlannerWeekStart(startDate, weekStart);
   while (cursor.getTime() <= endDate.getTime()) {
     const weekId = getISOWeekId(cursor);
     if (!weeksSeen.has(weekId)) { weeksSeen.add(weekId); map.weeklies.push(weekId); }
@@ -1154,7 +1186,7 @@ export async function buildPdf(
     // Month calendar: links + user hotspots
     const mCtx = makeCtx(mId, "month-calendar", {
       monthIndex: i,
-      dayOfMonthContext: { year, month, weekStartOffset: 0 },
+      dayOfMonthContext: { year, month, weekStartOffset: getMonthGridOffset(year, month, weekStart) },
     });
     stampPageZones(mCtx);
     stampUserHotspots(mCtx, hs("month-calendar"));
@@ -1170,23 +1202,22 @@ export async function buildPdf(
     const weekYear = parseInt(weekMatch[1]);
     const weekNum  = parseInt(weekMatch[2]);
 
-    const jan4 = new Date(weekYear, 0, 4);
-    const monday = new Date(jan4);
-    monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (weekNum - 1) * 7);
+    const weekStartDate = getWeekStartDate(weekId, weekStart);
+    if (!weekStartDate) continue;
 
     // Heading adapts to datingMode
     const weekHeading = datingMode === "undated"
       ? `Week ${weeklyIndex + 1}`
       : datingMode === "perpetual"
-        ? `Week ${weekNum}  ·  ${monday.toLocaleString("en-US", { weekday: "short" })}–${new Date(monday.getTime() + 6 * 86400000).toLocaleString("en-US", { weekday: "short" })}`
+        ? `Week ${weekNum}  ·  ${weekStartDate.toLocaleString("en-US", { weekday: "short" })}–${new Date(weekStartDate.getTime() + 6 * 86400000).toLocaleString("en-US", { weekday: "short" })}`
         : `Week ${weekNum} — ${weekYear}`;
     wPage.drawText(weekHeading, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
 
     // Calendar links per day — suppressed on Kindle Scribe (links unreliable via Send)
     if (!skipLinks) {
       for (let d = 0; d < 7; d++) {
-        const date = new Date(monday);
-        date.setDate(monday.getDate() + d);
+        const date = new Date(weekStartDate);
+        date.setDate(weekStartDate.getDate() + d);
         if (calMode === "link" || calMode === "overlay") {
           const nextDay = new Date(date);
           nextDay.setDate(date.getDate() + 1);
@@ -1218,7 +1249,7 @@ export async function buildPdf(
     const monthIdx = (() => {
       for (let i = 0; i < monthCount; i++) {
         const { year, month } = addMonths(startYear, startMonth, i);
-        if (monday.getFullYear() === year && monday.getMonth() === month) return i;
+        if (weekStartDate.getFullYear() === year && weekStartDate.getMonth() === month) return i;
       }
       return 0;
     })();
@@ -1227,7 +1258,7 @@ export async function buildPdf(
     const wCtx = makeCtx(weekId, "weekly", {
       weeklyMonthIndex: monthIdx,
       weeklyIndex,
-      weekMonday: monday,
+      weekStartDate,
       includeTabRail: true,
     });
     stampPageZones(wCtx);
@@ -1494,7 +1525,7 @@ export async function buildPreviewPdf(
 
   const firstDate     = new Date(startYear, startMonth, 1);
   const firstDayId    = `d${yyyymmdd(firstDate)}`;
-  const firstWeeklyId = getISOWeekId(firstDate);
+  const firstWeeklyId = getISOWeekId(getPlannerWeekStart(firstDate, weekStart));
   const monthNameFull  = firstDate.toLocaleString("en-US", { month: "long" });
   const monthNameShort = firstDate.toLocaleString("en-US", { month: "short" });
 
@@ -1628,20 +1659,28 @@ export async function buildPreviewPdf(
     }
     // Draw day number text (links are handled by template dayCells)
     const days = daysInMonth(startYear, startMonth);
-    const firstDow = new Date(startYear, startMonth, 1).getDay();
-    // weekStartOffset=0 keeps consistency with main buildPdf's (d-1)%7 grid layout
+    const weekStartOffset = getMonthGridOffset(startYear, startMonth, weekStart);
+    const dayCells = template.pages["month-calendar"]?.dayCells;
     for (let d = 1; d <= days; d++) {
-      const slot = d - 1; // weekStartOffset=0
+      const slot = d - 1 + weekStartOffset;
       const col = slot % 7;
       const row = Math.floor(slot / 7);
-      const cx = MARGIN + col * 72;
-      const cy = pageHeight - 80 - row * 50;
+      const cx = dayCells
+        ? ((dayCells.x_origin_pct + col * dayCells.col_w_pct) / 100) * pageWidth
+        : MARGIN + col * 72;
+      const cy = dayCells
+        ? ((dayCells.y_origin_pct + row * dayCells.row_h_pct) / 100) * pageHeight
+        : pageHeight - 80 - row * 50;
       mcp.drawText(String(d), { x: cx + 6, y: cy + 4, size: 9, font, color: rgb(ink.r, ink.g, ink.b) });
     }
   }
   stampPageZones(makePreviewCtx("m0", "month-calendar", {
     monthIndex: 0,
-    dayOfMonthContext: { year: startYear, month: startMonth, weekStartOffset: 0 },
+    dayOfMonthContext: {
+      year: startYear,
+      month: startMonth,
+      weekStartOffset: getMonthGridOffset(startYear, startMonth, weekStart),
+    },
   }));
 
   // ── WEEKLY ──
@@ -1652,14 +1691,13 @@ export async function buildPreviewPdf(
     const weekNum  = parseInt(weekMatch[2]);
     wp.drawText(`Week ${weekNum} — ${weekYear}`, { x: MARGIN, y: pageHeight - 50, size: 16, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
 
-    const jan4 = new Date(weekYear, 0, 4);
-    const monday = new Date(jan4);
-    monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (weekNum - 1) * 7);
+    const weekStartDate = getWeekStartDate(firstWeeklyId, weekStart);
+    if (!weekStartDate) throw new Error(`Invalid preview week ID: ${firstWeeklyId}`);
 
     const colW = (pageWidth - 2 * MARGIN) / 7;
     for (let d = 0; d < 7; d++) {
-      const date = new Date(monday);
-      date.setDate(monday.getDate() + d);
+      const date = new Date(weekStartDate);
+      date.setDate(weekStartDate.getDate() + d);
       const label = date.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric" });
       const cx = MARGIN + d * colW;
       const isFirstDay = yyyymmdd(date) === yyyymmdd(firstDate);
@@ -1683,8 +1721,8 @@ export async function buildPreviewPdf(
     const previewCalMode = output.calMode ?? "none";
     if (previewCalMode === "link" || previewCalMode === "overlay") {
       for (let d = 0; d < 7; d++) {
-        const date = new Date(monday);
-        date.setDate(monday.getDate() + d);
+        const date = new Date(weekStartDate);
+        date.setDate(weekStartDate.getDate() + d);
         const nextDay = new Date(date);
         nextDay.setDate(date.getDate() + 1);
         const cx = MARGIN + d * colW;
@@ -1702,7 +1740,7 @@ export async function buildPreviewPdf(
     // Links via template (month-for-week + week-day columns; tab rail)
     stampPageZones(makePreviewCtx(firstWeeklyId, "weekly", {
       weeklyMonthIndex: 0,
-      weekMonday: monday,
+      weekStartDate,
       includeTabRail: true,
     }));
   }

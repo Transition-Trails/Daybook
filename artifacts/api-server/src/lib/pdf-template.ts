@@ -797,7 +797,7 @@ export interface StampContext {
   };
 
   // For weekly day-column repeating zones
-  weekMonday?: Date;
+  weekStartDate?: Date;
 
   // Tab rail config
   tabPos: "right" | "top" | "none";
@@ -901,11 +901,12 @@ export function stampPageZones(ctx: StampContext): void {
         label: rz.label_token === "section-name" ? s : rz.label_token,
       }));
     } else if (rz.collection === "week-days") {
-      if (!ctx.weekMonday) { items = []; }
+      const weekStartDate = ctx.weekStartDate;
+      if (!weekStartDate) { items = []; }
       else {
         items = Array.from({ length: 7 }, (_, d) => {
-          const date = new Date(ctx.weekMonday!);
-          date.setDate(ctx.weekMonday!.getDate() + d);
+          const date = new Date(weekStartDate);
+          date.setDate(weekStartDate.getDate() + d);
           const label =
             rz.label_token === "week-day-label"
               ? date.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric" })

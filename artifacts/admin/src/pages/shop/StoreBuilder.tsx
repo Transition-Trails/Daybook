@@ -39,7 +39,7 @@ interface ShopEditionData {
   packs: ShopPack[];
   inserts: ShopInsert[];
 }
-interface GenerateResult { id: string; pageCount: number; drive: { pdfFileId: string; configFileId: string }; }
+interface GenerateResult { id: string; pageCount: number; downloadUrl?: string | null; drive: { pdfFileId: string | null; configFileId: string | null }; }
 type CalMode = "none" | "overlay" | "link";
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -122,7 +122,7 @@ function SignInPrompt({ editionName, storeName }: { editionName: string; storeNa
           You're building <strong style={{ color: T.navy }}>{editionName}</strong> from <strong style={{ color: T.navy }}>{storeName}</strong>.
         </p>
         <p style={{ color: T.muted, fontSize: 13, lineHeight: 1.6, margin: "0 0 28px" }}>
-          Sign in with Google so we can save your generated planner to your Drive.
+          Sign in with Google to generate your planner. Saving a copy to Drive is optional.
         </p>
         <button
           onClick={handleGoogleSignIn}
@@ -294,6 +294,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
   const [selectedPacks, setSelectedPacks]     = useState<string[]>([]);
   const [selectedInserts, setSelectedInserts] = useState<string[]>([]);
   const [calMode, setCalMode] = useState<CalMode>("none");
+  const [saveToDrive, setSaveToDrive] = useState(false);
 
   // Generate state
   const [isGenerating, setIsGenerating] = useState(false);
@@ -336,7 +337,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
         monthCount: Number(monthCount),
       },
       style: { themeId: themeId || undefined, paletteId: paletteId || undefined, backgroundId: backgroundId || undefined, packs: selectedPacks, inserts: selectedInserts },
-      output: { calMode, eventMins: 60, aiInPdf: false },
+       output: { calMode, eventMins: 60, aiInPdf: false, saveToDrive },
       // storeContext is included on the persisting generate call so the server can
       // enforce entitlement for this store (starter items always pass; licensed items
       // require subscriptionActive=true). Preview is non-persisting — no context needed.
@@ -575,6 +576,21 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
         </div>
 
         {/* Generate button */}
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 9, color: T.slate, fontSize: 13, lineHeight: 1.45, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={saveToDrive}
+            onChange={e => setSaveToDrive(e.target.checked)}
+            style={{ marginTop: 3, accentColor: T.navy }}
+          />
+          <span>
+            <strong style={{ color: T.navy }}>Also save a copy to Google Drive</strong>
+            <span style={{ display: "block", color: T.muted, fontSize: 12 }}>
+              Connecting Drive places the PDF in your private Daybook folder. Leave this off to download the file only.
+            </span>
+          </span>
+        </label>
+
         <button
           onClick={handleGenerate}
           disabled={isGenerating}
@@ -588,7 +604,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
         >
           {isGenerating
             ? <><Loader2 size={16} style={{ animation: "spin 0.9s linear infinite" }} />Generating…</>
-            : <><Wand2 size={16} />Generate &amp; save to Drive</>}
+             : <><Wand2 size={16} />Generate planner</>}
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </button>
 
@@ -599,8 +615,27 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
               <CheckCircle2 size={18} color="#2E7D32" style={{ flexShrink: 0, marginTop: 1 }} />
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: 14, fontWeight: 700, color: "#1B5E20", margin: "0 0 10px" }}>
-                  Planner saved — {result.pageCount} pages
+                   Planner ready — {result.pageCount} pages
                 </p>
+                 {result.downloadUrl && (
+                   <a
+                     href={result.downloadUrl}
+                     download
+                     style={{
+                       display: "inline-flex", alignItems: "center", justifyContent: "center",
+                       background: T.clay, color: "#fff", borderRadius: 8,
+                       padding: "8px 14px", fontSize: 13, fontWeight: 600,
+                       textDecoration: "none", marginBottom: 10,
+                     }}
+                   >
+                     Download PDF
+                   </a>
+                 )}
+                 {saveToDrive && (
+                   <p style={{ fontSize: 12, color: "#2E7D32", margin: "0 0 10px" }}>
+                     A copy was also sent to your Google Drive when available.
+                   </p>
+                 )}
                 <button
                   onClick={() => navigate(`/s/${storeSlug}/ink/${result.id}`)}
                   style={{

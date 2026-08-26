@@ -1,0 +1,88 @@
+# Paste this into Replit — Wave 17 only
+
+Wave 17 of four. This is the whole task; there is nothing to look up. Do not start any later wave.
+
+**What this wave is.** The storefront is the first thing a tester will see, and it currently makes three
+promises it does not keep. All three are front-of-house and none need new infrastructure. This should
+land in one session.
+
+**Out of scope, do not touch:** checkout, order delivery, the order or user schema, and everything under
+`pages/studios/`. Nothing here changes how money moves or what the database holds.
+
+---
+
+## Step 1 — no priced card that cannot be bought
+
+`artifacts/admin/src/pages/shop/StorefrontHome.tsx` renders the **Themes** and **Sticker packs**
+sections as plain `<div>`s carrying a name and a price. Neither is a link — no `href`, no cursor
+affordance, no detail route, no buy action. The **Editions** section directly above wraps every card in
+a `Link`, so the page teaches a buyer that cards are clickable and then breaks that lesson twice. A
+buyer is shown a theme marked `$4.00` and there is nothing to click.
+
+**First, determine which of these is true**, then implement that branch and tell me which:
+
+- **A theme or a sticker pack can be purchased server-side today.** There is a working code path for at
+  least one of them (see finding D118 — the delivery format exists and one path works). If so: give each
+  a detail route and a buy action that reuses **the same cart and checkout flow editions already use**.
+  Do not build a parallel purchase path — one checkout, one cart.
+- **It cannot yet.** If so: remove the price from those cards and render each section as a browsable
+  showcase — name, swatches or tags, what is included — with no purchase affordance at all.
+
+**The non-negotiable:** when this step is done there must be no card anywhere on the storefront that
+displays a price and cannot be acted on. A browsable showcase with no price is honest. A priced dead
+card is not.
+
+## Step 2 — remove the "Sign in" link
+
+The nav in the same file contains `<a href="/login">Sign in</a>`, which sends a customer to the Daybook
+**admin console** login. There is no buyer account concept anywhere in the route tree, so the only
+identity affordance on a public storefront points at a staff door — and a buyer who somehow satisfies it
+has signed in as something they are not meant to be.
+
+Delete the link. Do not replace it with anything, and do not build a buyer login in this wave. Wave 18
+introduces buyer identity and restores this link pointing somewhere real.
+
+## Step 3 — stop promising Drive before asking for it
+
+The hero currently reads:
+
+> Choose an edition, pick your style, and generate a personalised PDF planner — saved directly to your
+> Drive.
+
+That is the first sentence a buyer reads, and it commits the product to a Google Drive integration that
+is never mentioned again and never consented to before purchase. It is also the only thing in that
+sentence that can fail for reasons unrelated to the purchase itself.
+
+1. **Soften the hero** so it promises the planner rather than the delivery mechanism. Drive is a genuine
+   advantage, but it is an upgrade, not the headline.
+2. **Introduce Drive where the buyer is already invested** — inside `shop/StoreBuilder.tsx`, at the point
+   the planner is generated, as an optional "also save to Drive" with a plain one-line explanation of
+   what connecting does. **If the buyer declines, or has no Google account, the purchase must complete
+   normally and they must still get their file.** Drive must never become a step that can block a sale.
+
+Match the copy already on the page: second person, sentence case, calm, concrete, no exclamation marks.
+
+---
+
+## Rules
+
+- **Do not weaken a test to make something pass.** If a test fails, either the change is wrong or the
+  test is wrong — say which in your report.
+- **Do not relax a role guard.** If something here seems to need a change to `middleware/requireRole.ts`
+  or `lib/permissions.ts`, that means this wave found an authorization gap: stop and report it as a
+  finding rather than implementing it.
+- **Stop and report rather than deciding silently** on anything the brief does not settle.
+
+## Definition of done
+
+No priced-but-unclickable card anywhere on the storefront. No "Sign in" link. The hero promises the
+planner, Drive is offered inside the build flow, and declining Drive still completes the purchase and
+delivers the file.
+
+## Report back
+
+1. **Which branch of step 1 you took, and why** — specifically, whether a theme or a sticker pack can be
+   purchased server-side today. That answer tells us how much of D118 is left, so be precise about what
+   exists rather than what could be made to work.
+2. Whether the Drive option in `StoreBuilder` required any change to the generation path, or whether it
+   sits cleanly beside it.

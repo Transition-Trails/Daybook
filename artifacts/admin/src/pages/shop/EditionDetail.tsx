@@ -219,9 +219,7 @@ export default function EditionDetail() {
                         <div style={{ fontSize: 13, fontWeight: 600, color: T.navy }}>{t.name}</div>
                         {t.desc && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{t.desc}</div>}
                       </div>
-                      {t.price > 0 && (
-                        <span style={{ fontSize: 12, color: T.clay, fontWeight: 600 }}>${t.price.toFixed(2)}</span>
-                      )}
+                      <span style={{ fontSize: 12, color: T.muted }}>Colour palette</span>
                     </div>
                   ))}
                 </div>
@@ -297,7 +295,8 @@ export default function EditionDetail() {
                     `${edition.sections.length} planner sections`,
                     `${themes.length} theme${themes.length !== 1 ? "s" : ""}`,
                     `${packs.length} sticker pack${packs.length !== 1 ? "s" : ""}`,
-                    "Saved to your Google Drive",
+                    "Download your planner PDF",
+                    "Optional Google Drive copy",
                     ...(inkEnabled ? ["Annotate with Daybook Ink"] : []),
                   ].map((item, i) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.slate }}>
@@ -323,7 +322,7 @@ export default function EditionDetail() {
                 </Link>
 
                 <p style={{ textAlign: "center", fontSize: 11, color: T.muted, marginTop: 12 }}>
-                  Sign in with Google to build and save
+                  Sign in with Google to build and download
                 </p>
               </div>
             </div>

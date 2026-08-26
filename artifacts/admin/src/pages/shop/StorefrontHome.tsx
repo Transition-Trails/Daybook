@@ -18,8 +18,8 @@ interface ShopEdition {
   digitalPriceCents?: number | null; priceLow?: number | null; priceHigh?: number | null;
   sections: string[]; themes: string[]; packs: string[]; inserts: string[];
 }
-interface ShopTheme  { id: string; name: string; colors: string[]; price: number; }
-interface ShopPack   { id: string; name: string; tags: string[]; price: number; }
+interface ShopTheme  { id: string; name: string; colors: string[]; }
+interface ShopPack   { id: string; name: string; tags: string[]; }
 interface ShopStore  { id: string; name: string; slug: string; plan: string; status: string; }
 interface ShopData {
   store: ShopStore;
@@ -133,12 +133,6 @@ export default function StorefrontHome() {
           {store.name}
         </span>
         <div style={{ flex: 1 }} />
-        <a
-          href="/login"
-          style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textDecoration: "none" }}
-        >
-          Sign in
-        </a>
       </nav>
 
       {/* ── Hero ── */}
@@ -161,7 +155,7 @@ export default function StorefrontHome() {
             Build a planner that fits your life
           </h1>
           <p style={{ color: "rgba(255,255,255,0.65)", fontSize: 17, lineHeight: 1.6, margin: 0 }}>
-            Choose an edition, pick your style, and generate a personalised PDF planner — saved directly to your Drive.
+             Choose an edition, pick your style, and generate a personalised PDF planner for your life.
           </p>
         </div>
       </header>
@@ -252,9 +246,7 @@ export default function StorefrontHome() {
                 }}>
                   <ThemeSwatch colors={t.colors as string[]} />
                   <span style={{ fontSize: 13, color: T.navy, fontWeight: 500 }}>{t.name}</span>
-                  {t.price > 0 && (
-                    <span style={{ fontSize: 11, color: T.clay, fontWeight: 600, marginLeft: 4 }}>${t.price.toFixed(2)}</span>
-                  )}
+                  <span style={{ fontSize: 11, color: T.muted, marginLeft: 4 }}>Colour palette</span>
                 </div>
               ))}
             </div>
@@ -280,6 +272,7 @@ export default function StorefrontHome() {
                   {p.tags?.length > 0 && (
                     <span style={{ fontSize: 11, color: T.muted, marginLeft: 8 }}>{p.tags.slice(0, 2).join(", ")}</span>
                   )}
+                   <span style={{ display: "block", fontSize: 11, color: T.muted, marginTop: 3 }}>Sticker set</span>
                 </div>
               ))}
             </div>

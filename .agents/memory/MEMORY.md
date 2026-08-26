@@ -69,3 +69,4 @@
 - [Orval Zod compatibility](orval-zod-compatibility.md) — force Zod 3 generation while the workspace remains on Zod 3; auto-detection can default to Zod 4 output
 - [Sticker shape recipes](sticker-shape-recipes.md) — functional SVGs render deterministically from authored templates with explicit cutlines; AI is authoring-only
 - [Drizzle error wrapping](drizzle-error-wrapping.md) — PostgreSQL constraint details may live on a Drizzle error or its cause; inspect both before mapping conflicts
+- [Storefront showcase commerce](storefront-showcase-commerce.md) — editions are the only checkout items; themes and sticker packs stay unpriced showcases, and Drive is optional

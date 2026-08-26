@@ -88,6 +88,8 @@ export type PlannerOutput = {
   calMode: "link" | "overlay" | "none";
   eventMins: 30 | 60 | 90;
   aiInPdf: boolean;
+  /** When true, upload a copy to the user's Google Drive. A local download remains available either way. */
+  saveToDrive?: boolean;
   /** When true the generator produces both a colour PDF and an ink-friendly B&W line-art PDF. */
   inkFriendly?: boolean;
   /** Drive file ID for the ink-friendly variant; populated only when inkFriendly=true. */

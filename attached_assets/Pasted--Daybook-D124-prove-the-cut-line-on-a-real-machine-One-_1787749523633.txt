@@ -1,0 +1,109 @@
+# Daybook — D124: prove the cut line on a real machine
+
+**One finding, one deliverable.** Wave 10 closed D41–D44 and shipped four fixtures, so the bytes we
+emit are verified. Nothing proves that Design Space opens the file and the blade follows the art —
+which is the claim the product makes to a seller. This task builds the proof kit so that claim can be
+tested once, on one sheet, and the result written down.
+
+**Scope discipline:** this is a proof harness only. Do **not** modify `lib/imageProcessing.ts`, the
+sticker routes, the schema, or the four checked-in fixtures. If the harness reveals a pipeline defect,
+stop and report it — do not fix it in this task.
+
+---
+
+## Step 1 — one script that builds the proof sheet
+
+Add `scripts/src/build-cutline-proof.ts`, runnable as a package script (`pnpm proof:cutline` or the
+repo's existing convention). It takes no arguments and writes into `proof/` (gitignored).
+
+**It must call the real pipeline.** Import `dilateAlpha`, `resolveBorderWidthMm` and
+`generateCutlineSvg` from `artifacts/api-server/src/lib/imageProcessing.ts` and drive them through the
+same call sequence a sticker route uses. Do not reimplement the tracing, the dilation, or the shadow
+padding — a proof of a reimplementation proves nothing.
+
+**Exercise the 300-DPI path, not the legacy one.** Per `.agents/memory/sticker-cutline-physical-scale.md`,
+96 DPI is for unsized legacy artwork and 300 DPI only applies after a `sizeInMm` render. Sellers get
+sized stickers, so every fixture in this sheet goes through a `sizeInMm` render first and the cutline
+generator receives 300 as its effective DPI. Rasterize the four fixture SVGs with the resvg the repo
+already uses for spec boards — no new dependencies.
+
+**Sizes.** Declare these explicitly in the script as named constants, because they are what gets
+measured with a ruler:
+
+| Fixture | Rendered size | What it proves |
+| --- | --- | --- |
+| `plain.svg` | 38.0 mm wide | one closed cut around one silhouette |
+| `bordered.svg` | 38.0 mm wide | D41 — the cut follows the art, not the page edge |
+| `two-part.svg` | 60.0 mm wide | D42 — two disjoint blobs become **two separate cuts** |
+| `holed.svg` | 38.0 mm wide | D42 — the interior hole is cut as a hole (`fill-rule: evenodd`) |
+
+Border width: 2.0 mm on `bordered.svg`, 0 on the rest. Pass it as millimetres so
+`resolveBorderWidthMm` takes its mm path rather than its 96-DPI legacy conversion.
+
+**Two output files, one shared origin:**
+
+- `proof/cutline-proof-print.png` — US Letter at 300 DPI, exactly 2550 × 3300 px.
+- `proof/cutline-proof-cut.svg` — US Letter declared in **millimetres** (215.9 × 279.4 mm), containing
+  only the cut paths.
+
+The print PNG and the cut SVG must be laid out from the same coordinate origin and the same
+millimetre grid, so a misalignment on the cutting mat is a real finding rather than a harness bug.
+
+**Put a calibration square on the sheet.** A 50.0 mm filled square in the top-left margin, labelled
+`50.0 mm` in printed text, in the PNG only — never in the cut SVG. If the printed square does not
+measure 50 mm, the printer scaled the page and nothing downstream is meaningful. This is the first
+thing measured and it takes ten seconds.
+
+**Label each sticker on the print.** Under each one, print its fixture name and its expected measured
+width (`two-part.svg · 60.0 mm`). The person holding the ruler should not have to consult a document
+to know what the number should be.
+
+## Step 2 — refuse to emit a broken proof sheet
+
+The script fails loudly, with a non-zero exit and a message naming the problem, if any of these do not
+hold. A bad sheet that gets printed and cut wastes the one hour this task is trying to spend well.
+
+1. The PNG is exactly 2550 × 3300 px.
+2. The SVG's `width` / `height` are declared in `mm` and equal 215.9 × 279.4 — not px, not unitless.
+3. `plain`, `bordered` and `holed` each contribute **one** outer closed subpath; `two-part` contributes
+   **two**. `holed` contributes one additional interior subpath and its path carries
+   `fill-rule="evenodd"`.
+4. No cut path intersects the calibration square's area, and no cut path is within 6 mm of the sheet
+   edge.
+5. Every fixture's cut-path bounding box matches its declared width from the table above within
+   ±0.4 mm. This is the assertion that catches a DPI mix-up before it reaches vinyl.
+
+Print a one-screen summary of the measured bounding boxes and subpath counts on success, so the
+numbers are visible without opening the files.
+
+## Step 3 — the record sheet
+
+Add `docs/cutline-proof-verification.md`, following the shape of the existing
+`docs/google-reconnect-verification.md`. It holds the procedure and an empty results table to fill in
+by hand:
+
+- Print `cutline-proof-print.png` at 100% / actual size, scaling off. Note the printer and paper.
+- Measure the calibration square. **If it is not 50.0 mm ±0.5, stop** — fix the print settings and
+  reprint before cutting.
+- Upload `cutline-proof-cut.svg` to Design Space. Record whether it imports as a cut file without
+  manual intervention, and whether the holed sticker's interior appears as a cut rather than a fill.
+- Cut on vinyl. Record: blade offset by more than 0.5 mm anywhere · the two-part sticker cutting as
+  one shape instead of two · the hole not cut · the bordered sticker cut on the art instead of the
+  2 mm border · any measured width off by more than 0.5 mm.
+- A results table with a row per fixture: expected width, measured width, subpaths expected, subpaths
+  cut, pass/fail, notes. Plus fields for date, machine, blade, material and who ran it.
+
+Leave the table empty. Filling it in is the physical step and it is not yours.
+
+---
+
+## Definition of done
+
+`pnpm proof:cutline` produces both files and exits zero with the summary printed; the assertions in
+step 2 all hold; `docs/cutline-proof-verification.md` exists with an empty results table.
+`lib/imageProcessing.ts`, the sticker routes and the four fixtures are untouched — confirm that in
+your report.
+
+Report back: the printed summary of measured bounding boxes and subpath counts, and anything the
+assertions caught along the way. If assertion 5 failed at any point during development, say so and say
+why — a DPI or unit mistake found here is a real finding about the pipeline, not a harness detail.

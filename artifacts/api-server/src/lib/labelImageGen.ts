@@ -79,7 +79,7 @@ export function getSetLabels(setType: string, labelStyle: string): LabelItem[] {
 
 // ── Font-size heuristic ───────────────────────────────────────────────────────
 
-function computeFontSize(label: string): number {
+export function computeLabelFontSize(label: string): number {
   const len = label.length;
   if (len <= 2)  return 210;
   if (len <= 4)  return 155;
@@ -112,7 +112,7 @@ export async function renderLabelPng(params: {
 
   const spec      = FONT_MAP[fontKey] ?? FONT_MAP["sans-bold"];
   const fontPath  = path.join(spec.dir, spec.file);
-  const fontSize  = computeFontSize(label);
+  const fontSize  = computeLabelFontSize(label);
   const canvasSize = 400;
 
   const svg = [

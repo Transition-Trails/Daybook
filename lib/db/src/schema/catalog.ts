@@ -185,6 +185,41 @@ export interface StickerExportTargets {
   cricut: boolean;
 }
 
+export type StickerShapeRecipeOrigin = "starter" | "owned";
+export type StickerShapeRecipeStatus = "draft" | "live";
+
+export const stickerShapeRecipesTable = pgTable(
+  "sticker_shape_recipes",
+  {
+    id: text("id").primaryKey(),
+    origin: text("origin").notNull().$type<StickerShapeRecipeOrigin>(),
+    authoredByStoreId: text("authored_by_store_id").references(
+      () => storesTable.id,
+      { onDelete: "set null" },
+    ),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    functionType: text("function_type").notNull(),
+    svgTemplate: text("svg_template").notNull(),
+    aspectRatio: real("aspect_ratio").notNull(),
+    defaultSizeMm: real("default_size_mm").notNull(),
+    takesLabel: boolean("takes_label").notNull().default(false),
+    status: text("status").notNull().default("draft").$type<StickerShapeRecipeStatus>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => ({
+    scopeSlugUnique: unique("sticker_shape_recipe_scope_slug_uq").on(
+      t.origin,
+      t.authoredByStoreId,
+      t.slug,
+    ),
+  }),
+);
+
+export type StickerShapeRecipe = typeof stickerShapeRecipesTable.$inferSelect;
+export type InsertStickerShapeRecipe = typeof stickerShapeRecipesTable.$inferInsert;
+
 export const stickersLibraryTable = pgTable("stickers_library", {
   id: text("id")
     .primaryKey()
@@ -215,9 +250,11 @@ export const stickersLibraryTable = pgTable("stickers_library", {
     .$type<StickerExportTargets>(),
   // ── Sticker Studio extended fields ────────────────────────────────────
   // How this sticker was created: upload through pipeline, Claude SVG, text render, or AI-prompted art.
-  generationType: text("generation_type"), // upload | functional-svg | text-set | illustrative-prompt
+  generationType: text("generation_type"), // upload | functional-svg | shape-recipe | text-set | illustrative-prompt
   // Nature of the source art; drives export and pipeline decisions.
   sourceType: text("source_type"), // photo | flat-art | generated-text | generated-svg
+  /** Recipe provenance for deterministic functional SVG stickers. */
+  recipeId: text("recipe_id").references(() => stickerShapeRecipesTable.id, { onDelete: "set null" }),
   // Drop shadow baked into the PNG at export time.
   shadowStyle: text("shadow_style"), // flat | soft | lifted | cut-paper
   shadowLiftPx: real("shadow_lift_px"),

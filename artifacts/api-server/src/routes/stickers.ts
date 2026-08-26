@@ -921,8 +921,7 @@ router.post(
 );
 
 // ── POST /stores/:storeId/stickers/generate/functional ───────────────────────
-// Claude generates a real <path>-based SVG for a functional sticker type.
-// The SVG is the sticker — no image pipeline (bg already transparent).
+// Deprecated: deterministic authored recipes are the only functional SVG path.
 
 router.post(
   "/stores/:storeId/stickers/generate/functional",
@@ -931,119 +930,10 @@ router.post(
     const actor = req.actor!;
     const { storeId } = req.params as { storeId: string };
     if (!assertSameStore(actor, storeId, res)) return;
-    if (!(await assertAiEnabled(storeId, res))) return;
-
-    const { functionType, label, paletteColors, sizeInMm, name } = req.body as {
-      functionType?: string;
-      label?: string;
-      paletteColors?: string[];
-      sizeInMm?: number;
-      name?: string;
-    };
-
-    if (!functionType || !isValidFunctionType(functionType)) {
-      res.status(400).json({ error: `functionType must be one of: ${STICKER_FUNCTION_TYPES.join(", ")}` });
-      return;
-    }
-
-    const stickerName = name ?? `${functionType}${label ? ` — ${label}` : ""}`;
-    const existing = await findSameStoreName(stickersLibraryTable, storeId, stickerName);
-    if (existing) {
-      res.status(409).json({
-        error: `A non-deleted sticker named "${stickerName}" already exists for this store`,
-        existingId: existing.id,
-      });
-      return;
-    }
-    const resolvedSize = sizeInMm ?? (functionType === "tab" ? 24 : functionType === "banner" ? 60 : functionType === "date" ? 12 : 20);
-    const primaryColor = paletteColors?.[0] ?? "#2D3748";
-    const accentColor = paletteColors?.[1] ?? primaryColor;
-
-    const grounding = await fetchGrounding(storeId);
-    const systemPrompt = [
-      grounding,
-      "",
-      "## Task — Functional Sticker SVG",
-      `Generate a single SVG for a "${functionType}" digital planner sticker${label ? ` with the label "${label}"` : ""}.`,
-      `Target size: ${resolvedSize} mm × ${resolvedSize} mm. Primary color: ${primaryColor}. Accent color: ${accentColor}.`,
-      "",
-      "## SVG rules (STRICT)",
-      "- Output ONLY the raw SVG — no markdown, no explanation, no code fences.",
-      "- The SVG element must have a viewBox, width, and height in mm (e.g. viewBox='0 0 20 20' width='20mm' height='20mm').",
-      "- Use ONLY <path>, <rect>, <circle>, <ellipse>, <line>, <polyline>, <polygon>, <text>, <g> — NEVER <image> or raster fills.",
-      "- Background must be transparent (no <rect fill='white'/> backdrop).",
-      "- Paths must be closed (Z) where shape is filled.",
-      "- Colors should use the palette colors provided.",
-      "- Keep the design minimal and clean — it must print crisply at the target mm size.",
-    ].join("\n");
-
-    try {
-      const result = await callAi(
-        [{ role: "user", content: `Generate a ${functionType} sticker SVG${label ? ` with label "${label}"` : ""} in ${primaryColor}.` }],
-        "claude",
-        systemPrompt,
-      );
-
-      // Strip markdown fences if Claude wrapped in them
-      const rawSvg = result.content
-        .replace(/```(?:svg|xml)?\s*/gi, "")
-        .replace(/```/g, "")
-        .trim();
-
-      // Validate: must contain an <svg> tag and at least one structural element
-      if (!rawSvg.includes("<svg") || !/<(path|rect|circle|ellipse|polygon|polyline|text)/i.test(rawSvg)) {
-        res.status(502).json({ error: "Claude returned invalid SVG — retrying may help", raw: rawSvg.slice(0, 500) });
-        return;
-      }
-
-      // Store as SVG data URL — no raster pipeline needed
-      const svgBase64 = Buffer.from(rawSvg).toString("base64");
-      const processedImageData = `data:image/svg+xml;base64,${svgBase64}`;
-
-      // Extract the outer <path> for cutline (take the first path element's 'd' attribute)
-      const cutlineMatch = rawSvg.match(/<path[^>]*\bd="([^"]+)"/i);
-      const cutlineSvg = cutlineMatch
-        ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${resolvedSize} ${resolvedSize}"><path d="${cutlineMatch[1]}" fill="none" stroke="#000000" stroke-width="0.5"/></svg>`
-        : null;
-
-      // Persist the sticker
-      const id = genId();
-      const [row] = await db
-        .insert(stickersLibraryTable)
-        .values({
-          id,
-          name: stickerName,
-          tags: [functionType],
-          functionType: functionType as StickerFunctionType,
-          status: "draft",
-          origin: "owned",
-          authoredByStoreId: storeId,
-          borderStyle: "none",
-          exportTargets: { goodnotes: true, ink: true, cricut: !!cutlineMatch },
-          generationType: "functional-svg",
-          sourceType: "generated-svg",
-          sizeInMm: resolvedSize,
-          setLabel: label ?? null,
-          processedImageData,
-          cutlineSvg,
-        })
-        .returning();
-
-      await writeAudit(db, {
-        actorUserId: actor.userId,
-        actorRole: actor.effectiveRole,
-        scope: storeId,
-        action: "sticker.generate.functional",
-        targetType: "sticker",
-        targetId: id,
-        metadata: { storeId, functionType, label, model: result.model },
-      });
-
-      res.status(201).json({ ...row, model: result.model, provider: result.provider });
-    } catch (err) {
-      req.log?.error({ err }, "functional SVG generation failed");
-      res.status(502).json({ error: `AI error: ${String(err)}` });
-    }
+    res.status(410).json({
+      error: "Functional freehand SVG generation is deprecated. Render an authored recipe instead.",
+      endpoint: `/stores/${storeId}/stickers/render/from-recipe`,
+    });
   },
 );
 

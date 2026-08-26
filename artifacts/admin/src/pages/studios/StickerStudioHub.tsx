@@ -57,8 +57,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
-  platformApi, platformStickersApi, STICKER_FUNCTION_TYPES,
+  platformApi, platformStickersApi, shapeRecipesApi, STICKER_FUNCTION_TYPES,
   type LibrarySticker, type StickerFunctionType, type StickerUsage, type PlatformStickerPack,
+  type StickerShapeRecipe, type StickerShapeRecipeInput,
 } from "@/lib/api";
 // useListStickerPacks / useUpdateStickerPack removed — PacksCenter now uses platformStickersApi directly
 import { aiApi, extractJson } from "@/lib/ai";
@@ -107,6 +108,7 @@ const SHADOW_OPTIONS = [
 const MODES = [
   { id: "library", label: "Library" },
   { id: "create",  label: "Create a sticker" },
+  { id: "recipes", label: "Shape recipes" },
   { id: "packs",   label: "Assemble a pack" },
 ] as const;
 
@@ -2526,6 +2528,199 @@ function PacksRail({
   );
 }
 
+const NEW_RECIPE: StickerShapeRecipeInput = {
+  name: "New banner recipe",
+  slug: "new-banner-recipe",
+  functionType: "banner",
+  svgTemplate: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" width="120mm" height="40mm">
+  <rect x="0" y="0" width="120" height="40" fill="{{primary}}"/>
+  <text x="60" y="25" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="{{labelFontSize}}" fill="{{accent}}">{{label}}</text>
+  <path data-name="cutline" d="M0 0 L120 0 L120 40 L0 40 Z" fill="none" stroke="none"/>
+</svg>`,
+  aspectRatio: 3,
+  defaultSizeMm: 60,
+  takesLabel: true,
+  status: "draft",
+};
+
+function RecipeRail() {
+  return (
+    <div className="p-4 space-y-4">
+      <RailCard>
+        <div className="space-y-1">
+          <p className="font-display font-semibold text-[13px]">Authored shapes</p>
+          <p className="text-[11px] text-muted-foreground">
+            Recipes refine the fixed function types. Their authored cutline is used directly—never contour-traced.
+          </p>
+        </div>
+      </RailCard>
+      <div className="space-y-2">
+        <SectionLabel>Template rules</SectionLabel>
+        {["Millimetre dimensions", "One closed cutline", "Vector-only artwork", "Approved placeholders", "Matching aspect ratio"].map((rule) => (
+          <div key={rule} className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <CheckSquare className="w-3.5 h-3.5 text-emerald-700" /> {rule}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RecipeCenter({ createTrigger }: { createTrigger: number }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [selected, setSelected] = useState<StickerShapeRecipe | null>(null);
+  const [form, setForm] = useState<StickerShapeRecipeInput>(NEW_RECIPE);
+  const [description, setDescription] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState("");
+
+  const recipes = useQuery({
+    queryKey: ["sticker-shape-recipes"],
+    queryFn: shapeRecipesApi.listPlatform,
+  });
+
+  const choose = (recipe: StickerShapeRecipe | null) => {
+    setSelected(recipe);
+    setForm(recipe ? {
+      name: recipe.name,
+      slug: recipe.slug,
+      functionType: recipe.functionType,
+      svgTemplate: recipe.svgTemplate,
+      aspectRatio: recipe.aspectRatio,
+      defaultSizeMm: recipe.defaultSizeMm,
+      takesLabel: recipe.takesLabel,
+      status: recipe.status,
+    } : { ...NEW_RECIPE });
+    setValidationError("");
+  };
+
+  useEffect(() => {
+    if (createTrigger > 0) choose(null);
+  }, [createTrigger]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      shapeRecipesApi.previewPlatform({
+        ...form,
+        label: form.takesLabel ? "Preview" : "",
+        paletteColors: ["#1B2A4A", "#C87560"],
+      }).then((result) => {
+        setPreview(result.processedImageData);
+        setValidationError("");
+      }).catch((error: Error) => {
+        setPreview(null);
+        setValidationError(error.message);
+      });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [form]);
+
+  const save = useMutation({
+    mutationFn: () => selected
+      ? shapeRecipesApi.updatePlatform(selected.id, form)
+      : shapeRecipesApi.createPlatform(form),
+    onSuccess: (recipe) => {
+      qc.invalidateQueries({ queryKey: ["sticker-shape-recipes"] });
+      setSelected(recipe);
+      toast({ title: selected ? "Recipe updated" : "Recipe created" });
+    },
+    onError: (error: Error) => setValidationError(error.message),
+  });
+
+  const assist = useMutation({
+    mutationFn: () => aiApi.complete(
+      "You author deterministic vector sticker recipe SVGs. Return only raw SVG. Use width/height in mm, a viewBox, only vector elements, placeholders {{primary}}, {{accent}}, {{label}}, {{labelFontSize}}, and exactly one closed <path data-name=\"cutline\"> covering the full silhouette. Never use image, script, external references, filters, or transforms.",
+      `Create a ${form.functionType} recipe for: ${description}. Aspect ratio ${form.aspectRatio}. It ${form.takesLabel ? "must" : "must not"} contain {{label}}.`,
+    ),
+    onSuccess: (result) => {
+      const svg = result.text.replace(/```(?:svg|xml)?\s*/gi, "").replace(/```/g, "").trim();
+      setForm((current) => ({ ...current, svgTemplate: svg }));
+    },
+    onError: (error: Error) => setValidationError(error.message),
+  });
+
+  const update = <K extends keyof StickerShapeRecipeInput>(key: K, value: StickerShapeRecipeInput[K]) =>
+    setForm((current) => ({ ...current, [key]: value }));
+
+  return (
+    <div className="p-6 space-y-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display font-semibold text-[22px]">Sticker shape recipes</h1>
+          <p className="text-[13px] text-muted-foreground">Repeatable functional SVGs with authored machine cut paths.</p>
+        </div>
+        <Button onClick={() => choose(null)}><Plus className="w-4 h-4 mr-1.5" />New recipe</Button>
+      </div>
+
+      <div className="grid grid-cols-[260px_minmax(0,1fr)] gap-5">
+        <div className="space-y-2">
+          {recipes.isLoading && <SkeletonRows count={4} />}
+          {recipes.data?.map((recipe) => (
+            <button key={recipe.id} onClick={() => choose(recipe)}
+              className={`w-full text-left rounded-xl border p-3 transition-colors ${selected?.id === recipe.id ? "border-primary bg-primary/5" : "hover:bg-muted/40"}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[13px] font-semibold truncate">{recipe.name}</span>
+                <StatusPill label={recipe.status} kind={recipe.status === "live" ? "success" : "neutral"} />
+              </div>
+              <p className="text-[10.5px] text-muted-foreground mt-1">{recipe.slug} · {recipe.functionType}</p>
+            </button>
+          ))}
+          {!recipes.isLoading && !recipes.data?.length && <EmptyState icon={<Layers />} title="No recipes" description="Create the first authored shape." />}
+        </div>
+
+        <div className="rounded-2xl border bg-card p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label>Name</Label><Input value={form.name} onChange={(e) => update("name", e.target.value)} /></div>
+            <div><Label>Slug</Label><Input value={form.slug} onChange={(e) => update("slug", e.target.value)} /></div>
+            <div>
+              <Label>Function type</Label>
+              <select className="w-full h-10 rounded-md border bg-background px-3 text-sm" value={form.functionType}
+                onChange={(e) => update("functionType", e.target.value as StickerFunctionType)}>
+                {STICKER_FUNCTION_TYPES.map((type) => <option key={type} value={type}>{FUNCTION_TYPE_LABELS[type] ?? type}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label>Aspect</Label><Input type="number" step="0.01" value={form.aspectRatio} onChange={(e) => update("aspectRatio", Number(e.target.value))} /></div>
+              <div><Label>Size mm</Label><Input type="number" value={form.defaultSizeMm} onChange={(e) => update("defaultSizeMm", Number(e.target.value))} /></div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-5">
+            <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.takesLabel} onCheckedChange={(v) => update("takesLabel", v === true)} />Takes label</label>
+            <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.status === "live"} onCheckedChange={(v) => update("status", v === true ? "live" : "draft")} />Live</label>
+          </div>
+
+          <div className="grid grid-cols-[minmax(0,1fr)_230px] gap-4">
+            <div>
+              <Label>SVG template</Label>
+              <Textarea className="font-mono text-[11px] min-h-[300px]" value={form.svgTemplate} onChange={(e) => update("svgTemplate", e.target.value)} />
+            </div>
+            <div className="space-y-3">
+              <Label>Contract preview</Label>
+              <div className="h-[180px] rounded-xl border bg-[linear-gradient(45deg,#eee_25%,transparent_25%),linear-gradient(-45deg,#eee_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#eee_75%),linear-gradient(-45deg,transparent_75%,#eee_75%)] bg-[length:16px_16px] flex items-center justify-center p-4">
+                {preview ? <img src={preview} alt="Recipe preview" className="max-w-full max-h-full" /> : <ImageOff className="text-muted-foreground" />}
+              </div>
+              <Textarea placeholder="Describe a shape for Claude to propose…" value={description} onChange={(e) => setDescription(e.target.value)} />
+              <Button type="button" variant="outline" className="w-full" disabled={!description.trim() || assist.isPending} onClick={() => assist.mutate()}>
+                {assist.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Sparkles className="w-4 h-4 mr-1.5" />}Ask Claude
+              </Button>
+              <p className="text-[10.5px] text-muted-foreground">Proposal only. Review and save it yourself.</p>
+            </div>
+          </div>
+
+          {validationError && <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">{validationError}</div>}
+          <div className="flex justify-end">
+            <Button disabled={!!validationError || save.isPending} onClick={() => save.mutate()}>
+              {save.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Save className="w-4 h-4 mr-1.5" />}Save recipe
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── MAIN HUB ──────────────────────────────────────────────────────────────────
 
 export default function StickerStudioHub() {
@@ -2559,6 +2754,7 @@ export default function StickerStudioHub() {
   // Gap 2: counters that fire each child's primary action from the top-bar button
   const [libCreateTrigger, setLibCreateTrigger] = useState(0);
   const [uploadTrigger,    setUploadTrigger]    = useState(0);
+  const [recipeCreateTrigger, setRecipeCreateTrigger] = useState(0);
 
   // Gap 3: in-studio pack composer
   const [showNewPack, setShowNewPack] = useState(false);
@@ -2572,6 +2768,8 @@ export default function StickerStudioHub() {
       return <LibraryRail origin={origin} setOrigin={setOrigin} status={libStatus} setStatus={setLibStatus} filterType={filterType} setFilterType={setFilterType} />;
     if (validMode === "create")
       return <CreateRail batchItems={batchItems} createPath={createPath} />;
+    if (validMode === "recipes")
+      return <RecipeRail />;
     return <PacksRail
       packStatus={packStatus} setPackStatus={setPackStatus}
       packOrigin={packOrigin} setPackOrigin={setPackOrigin}
@@ -2590,12 +2788,16 @@ export default function StickerStudioHub() {
         ? "You are a sticker curation expert. Help the user audit their sticker library, spot gaps, and decide what to create or remove."
         : validMode === "create"
         ? "You are a sticker concept generator. Create specific, visual illustration briefs: subject, style, colour palette, expression, and any text overlay. Give 4 ideas per prompt."
+        : validMode === "recipes"
+        ? "You are a deterministic SVG template author. Help create safe vector-only sticker recipes with one explicit closed cutline."
         : "You are a product packaging expert for digital sticker packs. Help with naming, pricing strategy, tag selection, and edition targeting.";
     const examplePrompts =
       validMode === "library"
         ? ["What sticker types are missing from a productivity planner set?", "Which origin stickers get used least?", "Suggest 5 stickers to round out a minimal theme"]
         : validMode === "create"
         ? ["Generate 4 kawaii food sticker briefs for a meal-planning planner", "Describe 4 botanical stickers for a spring journalling theme", "What makes a good habit-tracker sticker?"]
+        : validMode === "recipes"
+        ? ["How should a ribbon cutline include both tails?", "Review a recipe for deterministic output", "Suggest a new banner silhouette"]
         : ["Suggest a name for a cosy autumn sticker pack", "What's a good price for a 12-sticker premium pack?", "Which edition tiers should a starter pack target?"];
     setAiContext({
       systemPrompt,
@@ -2632,6 +2834,8 @@ export default function StickerStudioHub() {
         initialAiPrompt={handoffPrompt}
         onStickerCreated={(s) => setPreviewSticker(s)}
       />;
+    if (validMode === "recipes")
+      return <RecipeCenter createTrigger={recipeCreateTrigger} />;
     return <PacksCenter
       packStatus={packStatus} packOrigin={packOrigin} packPriceFilter={packPriceFilter}
       onNewPack={() => setShowNewPack(true)}
@@ -2644,6 +2848,8 @@ export default function StickerStudioHub() {
       return { label: "New sticker", icon: <Plus className="w-3.5 h-3.5" />, onClick: () => setLibCreateTrigger((c) => c + 1) };
     if (validMode === "create")
       return { label: "Upload artwork", icon: <Upload className="w-3.5 h-3.5" />, onClick: () => { setCreatePath("upload"); setUploadTrigger((c) => c + 1); } };
+    if (validMode === "recipes")
+      return { label: "New recipe", icon: <Plus className="w-3.5 h-3.5" />, onClick: () => setRecipeCreateTrigger((c) => c + 1) };
     return { label: "New pack", icon: <Plus className="w-3.5 h-3.5" />, onClick: () => setShowNewPack(true) };
   })();
 

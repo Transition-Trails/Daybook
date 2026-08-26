@@ -7,6 +7,7 @@
     "hello": "tsx ./src/hello.ts",
     "seed": "tsx ./src/seed.ts",
     "seed-stickers": "tsx ./src/seed-stickers.ts",
+    "seed-shape-recipes": "tsx ./src/seed-sticker-shape-recipes.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "seed-backgrounds": "tsx ./src/seed-backgrounds.ts",
     "patch-world-notion-db": "tsx ./src/patch-world-notion-db.ts",

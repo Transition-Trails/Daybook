@@ -207,6 +207,72 @@ export interface PlatformStickerPack {
   memberImages?: string[];
 }
 
+export interface StickerShapeRecipe {
+  id: string;
+  origin: "starter" | "owned";
+  authoredByStoreId: string | null;
+  name: string;
+  slug: string;
+  functionType: StickerFunctionType;
+  svgTemplate: string;
+  aspectRatio: number;
+  defaultSizeMm: number;
+  takesLabel: boolean;
+  status: "draft" | "live";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type StickerShapeRecipeInput = Omit<
+  StickerShapeRecipe,
+  "id" | "origin" | "authoredByStoreId" | "createdAt" | "updatedAt"
+>;
+
+export const shapeRecipesApi = {
+  listPlatform: () =>
+    apiFetch<StickerShapeRecipe[]>("/platform/sticker-shape-recipes"),
+  createPlatform: (data: StickerShapeRecipeInput) =>
+    apiFetch<StickerShapeRecipe>("/platform/sticker-shape-recipes", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updatePlatform: (id: string, data: StickerShapeRecipeInput) =>
+    apiFetch<StickerShapeRecipe>(`/platform/sticker-shape-recipes/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  previewPlatform: (data: StickerShapeRecipeInput & {
+    label?: string;
+    paletteColors?: string[];
+  }) =>
+    apiFetch<{ processedImageData: string; cutlineSvg: string }>(
+      "/platform/sticker-shape-recipes/preview",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+  listStore: (storeId: string) =>
+    apiFetch<StickerShapeRecipe[]>(`/stores/${storeId}/sticker-shape-recipes`, {
+      headers: { "x-store-id": storeId },
+    }),
+  render: (storeId: string, data: {
+    recipeId: string;
+    label?: string;
+    paletteColors?: string[];
+    sizeInMm?: number;
+    name?: string;
+    packId?: string;
+    shadowStyle?: string;
+    shadowLiftPx?: number;
+  }) =>
+    apiFetch<{ sticker: LibrarySticker; processedImageData: string; cutlineSvg: string; recipeId: string }>(
+      `/stores/${storeId}/stickers/render/from-recipe`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      },
+    ),
+};
+
 export const platformStickersApi = {
   create: (data: {
     name: string;

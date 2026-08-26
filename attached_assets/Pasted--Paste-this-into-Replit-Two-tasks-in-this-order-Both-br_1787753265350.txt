@@ -1,0 +1,49 @@
+# Paste this into Replit
+
+Two tasks, in this order. Both briefs are in `handoff/`. Do task 1 completely, report, then start task 2 —
+do not interleave them.
+
+---
+
+## Task 1 — the cut-line proof harness
+
+Follow `handoff/DAYBOOK-D124-CUTLINE-PROOF.md` exactly.
+
+Context that changes the framing since that brief was written: **the cut lines are confirmed working in
+practice.** So this is no longer a question being answered for the first time — it is regression cover.
+Build it so the answer can be re-checked cheaply the next time the sticker pipeline changes. Everything
+in the brief still applies, including the assertion that a bad proof sheet must never be emitted.
+
+Small, self-contained, no schema change. Report the printed summary of measured bounding boxes and
+subpath counts before moving on.
+
+---
+
+## Task 2 — sticker shape recipes
+
+Follow `handoff/DAYBOOK-SHAPE-RECIPES.md` exactly.
+
+This is the larger piece: a migration, a new table, a render endpoint, validation, four seeded starter
+recipes, and authoring UI inside the existing Sticker Studio hub.
+
+Three things in that brief are non-negotiable, so re-read them before you start:
+
+1. **No `callAi` in the render path.** The acceptance criterion is that rendering the same recipe twice
+   with identical inputs produces byte-identical output, asserted by a test. If that test cannot pass,
+   stop and report rather than relaxing it.
+2. **The cut path is authored, not traced** — exactly one `<path data-name="cutline">` per template.
+   For the ribbon recipe, assert the cut path's bounding box spans the full artwork width, which is what
+   proves the tails are in the cut.
+3. **Deprecate `generate/functional` for functional types in the same commit.** Do not leave two
+   rendering implementations in the tree. Wave 14 deleted five duplicate studio files for this exact
+   reason and the lesson should not be undone a week later.
+
+Do not widen `STICKER_FUNCTION_TYPES`. A recipe refines a function type; it does not add one.
+
+---
+
+## Reporting
+
+For each task, report what the brief asks for at the end of it. If either task surfaces a defect in
+`lib/imageProcessing.ts` or the sticker routes, **stop and report it rather than fixing it in passing** —
+those files are under review and a silent change to them is worse than a known defect.

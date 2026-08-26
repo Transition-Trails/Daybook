@@ -39,6 +39,7 @@ import worldsmithEditorialRouter from "./worldsmith-editorial";
 import releasesRouter from "./releases";
 import plannerInteriorsRouter from "./planner-interiors";
 import checkoutRouter from "./checkout";
+import shapeRecipesRouter from "./shape-recipes";
 
 const router: IRouter = Router();
 
@@ -60,6 +61,7 @@ router.use(aiSettingsRouter);
 // Multi-tenant store platform
 router.use(storesRouter);
 router.use(ownedCatalogRouter);
+router.use(shapeRecipesRouter);
 router.use(stickersRouter);
 router.use(platformRouter);
 router.use(platformStickersRouter);

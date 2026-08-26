@@ -15,21 +15,23 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2 } from "lucide-react";
+import { helpCategoryLabel, isHelpCategory } from "@workspace/api-zod";
 
 type Kind = "article" | "faq";
 
 export default function SuperHelpCenter() {
-  // Read ?draft=1&area=<area>&areaLabel=<label> from the URL.
+  // SupportPatterns supplies the canonical support-area key in ?area=.
   // Set when arriving via "Draft the article" from SupportPatterns.
   const params       = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   const draftParam   = params.get("draft") === "1";
   const draftArea    = params.get("area") ?? "";
-  const draftAreaLabel = params.get("areaLabel") ?? draftArea;
 
   const [kind, setKind] = useState<Kind>("article");
   const [open, setOpen] = useState(draftParam);
   const [prefill, setPrefill] = useState<{ category: string; title: string } | null>(
-    draftParam ? { category: draftAreaLabel, title: `Guide: ${draftAreaLabel}` } : null,
+    draftParam && isHelpCategory(draftArea)
+      ? { category: draftArea, title: `Guide: ${helpCategoryLabel(draftArea)}` }
+      : null,
   );
   const [editing, setEditing] = useState<HelpArticle | null>(null);
   const { toast } = useToast();

@@ -535,6 +535,7 @@ export interface OwnedPack {
   name: string;
   tags: string[];
   price: number;
+  coverDriveFileId?: string | null;
   status: string;
   origin: "owned";
   authoredByStoreId: string;
@@ -609,7 +610,10 @@ export const storeStudiosApi = {
   packs: {
     create: (
       storeId: string,
-      data: { name: string; tags?: string[]; price?: number; status: "draft" | "live" },
+      data: {
+        name: string; tags?: string[]; price?: number; coverDriveFileId?: string | null;
+        stickerIds?: string[]; status: "draft" | "live";
+      },
     ) =>
       apiFetch<CatalogItem>(`/stores/${storeId}/owned/sticker-packs`, {
         method: "POST",
@@ -619,7 +623,10 @@ export const storeStudiosApi = {
     update: (
       storeId: string,
       id: string,
-      data: { name?: string; tags?: string[]; price?: number; status?: "draft" | "live" },
+      data: {
+        name?: string; tags?: string[]; price?: number; coverDriveFileId?: string | null;
+        stickerIds?: string[]; status?: "draft" | "live";
+      },
     ) =>
       apiFetch<CatalogItem>(`/stores/${storeId}/owned/sticker-packs/${id}`, {
         method: "PATCH",

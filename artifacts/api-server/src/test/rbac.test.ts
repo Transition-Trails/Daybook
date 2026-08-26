@@ -140,10 +140,10 @@ beforeAll(async () => {
 
   // 3. Help articles for visibility tests
   await db.insert(helpContentTable).values([
-    { id: ids.platformLiveHelp,  title: "Test Platform Live",  body: "body", category: "Test", kind: "article", scope: "platform",    status: "live",  createdBy: "u-sa" },
-    { id: ids.platformDraftHelp, title: "Test Platform Draft", body: "body", category: "Test", kind: "article", scope: "platform",    status: "draft", createdBy: "u-sa" },
-    { id: ids.alphaHelp,         title: "Test Alpha Help",     body: "body", category: "Test", kind: "article", scope: "store-alpha", status: "live",  createdBy: "u-alpha-owner" },
-    { id: ids.betaHelp,          title: "Test Beta Help",      body: "body", category: "Test", kind: "article", scope: "store-beta",  status: "live",  createdBy: "u-beta-owner" },
+    { id: ids.platformLiveHelp,  title: "Test Platform Live",  body: "body", category: "something-else", kind: "article", scope: "platform",    status: "live",  createdBy: "u-sa" },
+    { id: ids.platformDraftHelp, title: "Test Platform Draft", body: "body", category: "something-else", kind: "article", scope: "platform",    status: "draft", createdBy: "u-sa" },
+    { id: ids.alphaHelp,         title: "Test Alpha Help",     body: "body", category: "something-else", kind: "article", scope: "store-alpha", status: "live",  createdBy: "u-alpha-owner" },
+    { id: ids.betaHelp,          title: "Test Beta Help",      body: "body", category: "something-else", kind: "article", scope: "store-beta",  status: "live",  createdBy: "u-beta-owner" },
   ]).onConflictDoNothing();
   cleanups.push(() =>
     db.delete(helpContentTable).where(eq(helpContentTable.id, ids.platformLiveHelp))
@@ -313,9 +313,29 @@ describe("super_admin — allow", () => {
     const hId = `${ids.platformLiveHelp}-sa`;
     const res = await request(sa)
       .post("/api/help")
-      .send({ id: hId, title: "SA Help", body: "body", category: "Test", scope: "platform" });
+      .send({ id: hId, title: "SA Help", body: "body", category: "something-else", scope: "platform" });
     expect(res.status).toBe(201);
     cleanups.push(() => db.delete(helpContentTable).where(eq(helpContentTable.id, hId)));
+  });
+
+  it("rejects non-canonical help categories on create and update", async () => {
+    const create = await request(sa)
+      .post("/api/help")
+      .send({
+        id: `${ids.platformLiveHelp}-invalid-category`,
+        title: "Invalid category",
+        body: "body",
+        category: "General",
+        scope: "platform",
+      });
+    expect(create.status).toBe(400);
+    expect(create.body.error).toContain("canonical help category");
+
+    const update = await request(sa)
+      .patch(`/api/help/${ids.platformLiveHelp}`)
+      .send({ category: "General" });
+    expect(update.status).toBe(400);
+    expect(update.body.error).toContain("canonical help category");
   });
 
   it("can enable a catalog item with globalAvailable=false", async () => {
@@ -458,7 +478,7 @@ describe("store_owner (store-alpha) — allow", () => {
     const hId = `${ids.alphaHelp}-owner`;
     const res = await request(alphaOwner)
       .post("/api/help")
-      .send({ id: hId, title: "Alpha Owner Help", body: "body", category: "Test", scope: "store-alpha" });
+      .send({ id: hId, title: "Alpha Owner Help", body: "body", category: "something-else", scope: "store-alpha" });
     expect(res.status).toBe(201);
     cleanups.push(() => db.delete(helpContentTable).where(eq(helpContentTable.id, hId)));
   });
@@ -529,14 +549,14 @@ describe("store_owner (store-alpha) — deny", () => {
   it("POST /api/help with scope=platform → 403 (only super_admin can create platform help)", async () => {
     const res = await request(alphaOwner)
       .post("/api/help")
-      .send({ id: `${ids.platformLiveHelp}-owner-attempt`, title: "Injected", body: "b", category: "Test", scope: "platform" });
+      .send({ id: `${ids.platformLiveHelp}-owner-attempt`, title: "Injected", body: "b", category: "something-else", scope: "platform" });
     expect(res.status).toBe(403);
   });
 
   it("POST /api/help with scope=store-beta → 403 (not a member of beta)", async () => {
     const res = await request(alphaOwner)
       .post("/api/help")
-      .send({ id: `${ids.betaHelp}-owner-attempt`, title: "Injected", body: "b", category: "Test", scope: "store-beta" });
+      .send({ id: `${ids.betaHelp}-owner-attempt`, title: "Injected", body: "b", category: "something-else", scope: "store-beta" });
     expect(res.status).toBe(403);
   });
 
@@ -600,7 +620,7 @@ describe("store_staff (store-alpha) — allow", () => {
     const hId = `${ids.alphaHelp}-staff`;
     const res = await request(alphaStaff)
       .post("/api/help")
-      .send({ id: hId, title: "Staff Help", body: "body", category: "Test", scope: "store-alpha" });
+      .send({ id: hId, title: "Staff Help", body: "body", category: "something-else", scope: "store-alpha" });
     expect(res.status).toBe(201);
     cleanups.push(() => db.delete(helpContentTable).where(eq(helpContentTable.id, hId)));
   });
@@ -658,7 +678,7 @@ describe("store_staff (store-alpha) — deny", () => {
   it("POST /api/help with scope=platform → 403", async () => {
     const res = await request(alphaStaff)
       .post("/api/help")
-      .send({ id: `${ids.platformLiveHelp}-staff`, title: "x", body: "b", category: "Test", scope: "platform" });
+      .send({ id: `${ids.platformLiveHelp}-staff`, title: "x", body: "b", category: "something-else", scope: "platform" });
     expect(res.status).toBe(403);
   });
 });
@@ -723,7 +743,7 @@ describe("support role (store-beta) — deny", () => {
   it("POST /api/help (store-beta scope) → 403 (store_staff required for help mutations)", async () => {
     const res = await request(betaSupport)
       .post("/api/help")
-      .send({ id: `${ids.betaHelp}-support`, title: "x", body: "b", category: "Test", scope: "store-beta" });
+      .send({ id: `${ids.betaHelp}-support`, title: "x", body: "b", category: "something-else", scope: "store-beta" });
     expect(res.status).toBe(403);
   });
 
@@ -1295,7 +1315,7 @@ describe("audit log — written on admin mutations", () => {
     const hId = `${ids.alphaHelp}-audit-test`;
     const res = await request(alphaOwner)
       .post("/api/help")
-      .send({ id: hId, title: "Audit Help", body: "body", category: "Test", scope: "store-alpha" });
+      .send({ id: hId, title: "Audit Help", body: "body", category: "something-else", scope: "store-alpha" });
     expect(res.status).toBe(201);
     cleanups.push(() => db.delete(helpContentTable).where(eq(helpContentTable.id, hId)));
 

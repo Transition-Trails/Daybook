@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { helpApi, type HelpArticle } from "@/lib/api";
+import { HELP_CATEGORIES, isHelpCategory } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,7 +32,11 @@ export function HelpArticleForm({
     id: initial?.id ?? makeHelpId(idPrefix),
     title: initial?.title ?? prefill?.title ?? "",
     body: initial?.body ?? "",
-    category: initial?.category ?? prefill?.category ?? "general",
+    category: isHelpCategory(initial?.category)
+      ? initial.category
+      : isHelpCategory(prefill?.category)
+        ? prefill.category
+        : "something-else",
     kind: initial?.kind ?? ("article" as "article" | "faq"),
     scope,
     status: initial?.status ?? ("draft" as "draft" | "live"),
@@ -78,10 +83,21 @@ export function HelpArticleForm({
       </div>
       <div className="space-y-1.5">
         <Label>Category</Label>
-        <Input
+        <Select
           value={form.category}
-          onChange={(event) => setForm((previous) => ({ ...previous, category: event.target.value }))}
-        />
+          onValueChange={(category) => {
+            if (isHelpCategory(category)) {
+              setForm((previous) => ({ ...previous, category }));
+            }
+          }}
+        >
+          <SelectTrigger><SelectValue placeholder="Select a category" /></SelectTrigger>
+          <SelectContent>
+            {HELP_CATEGORIES.map(({ key, label }) => (
+              <SelectItem key={key} value={key}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-1.5">
         <Label>Kind</Label>

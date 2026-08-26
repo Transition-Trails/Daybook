@@ -169,6 +169,13 @@
       "when": 1787697600000,
       "tag": "0023_wave12_authorization",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787701200000,
+      "tag": "0024_wave13_help_category_keys",
+      "breakpoints": true
     }
   ]
 }

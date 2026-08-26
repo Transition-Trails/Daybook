@@ -35,6 +35,7 @@ import { getBundleCoverageGaps } from "../lib/font-warmup";
 import { UI_REACHABLE_FAMILIES, _bundledFontPath } from "../lib/pdf-generator";
 import { existsSync } from "fs";
 import { writeAudit } from "../lib/audit";
+import { isHelpCategory } from "@workspace/api-zod";
 import {
   removeBackground,
   applyBorderAndSize,
@@ -201,6 +202,10 @@ router.post("/help", resolveStoreActor, async (req: Request, res: Response): Pro
     res.status(400).json({ error: "id, title, body, category, scope are required" });
     return;
   }
+  if (!isHelpCategory(category)) {
+    res.status(400).json({ error: "category must be a canonical help category" });
+    return;
+  }
 
   if (!actor.isSuperAdmin) {
     if (scope === "platform") {
@@ -254,6 +259,11 @@ router.patch("/help/:id", resolveStoreActor, async (req: Request, res: Response)
   const id = req.params.id as string;
   const body = req.body as Record<string, unknown>;
   delete body.id;
+
+  if ("category" in body && !isHelpCategory(body.category)) {
+    res.status(400).json({ error: "category must be a canonical help category" });
+    return;
+  }
 
   const existingRows = await db.select().from(helpContentTable).where(eq(helpContentTable.id, id));
   const existing = existingRows[0];

@@ -31,6 +31,24 @@ interface Props {
   aiEnabled: boolean;
 }
 
+export function parsePackPrice(price: string): number | undefined {
+  const value = price.trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(value)) return undefined;
+  const numericPrice = Number(value);
+  if (!Number.isFinite(numericPrice) || numericPrice <= 0) return undefined;
+  return numericPrice;
+}
+
+export function getPackPriceError(price: string): string | null {
+  if (!price.trim()) return "Enter a price to publish.";
+  if (!/^\d+(?:\.\d{1,2})?$/.test(price.trim())) {
+    return "Price must be in whole cents (for example, 4.99).";
+  }
+  const numericPrice = Number(price);
+  if (!Number.isFinite(numericPrice) || numericPrice <= 0) return "Price must be greater than $0.00.";
+  return null;
+}
+
 export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -51,6 +69,8 @@ export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
   // Track the id of the draft saved in this session so repeated saves update
   // rather than insert. Cleared on unmount (navigate away) automatically.
   const [savedId, setSavedId] = useState<string | null>(null);
+  const priceError = getPackPriceError(price);
+  const parsedPrice = parsePackPrice(price);
 
   const generate = useMutation({
     mutationFn: () => studioGenerateApi.generatePack(storeId, { prompt: prompt.trim() }),
@@ -68,8 +88,8 @@ export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
   const save = useMutation({
     mutationFn: (status: "draft" | "live") =>
       savedId
-        ? storeStudiosApi.packs.update(storeId, savedId, { name, tags, price: parseFloat(price) || 0, status })
-        : storeStudiosApi.packs.create(storeId, { name, tags, price: parseFloat(price) || 0, status }),
+        ? storeStudiosApi.packs.update(storeId, savedId, { name, tags, price: parsedPrice, status })
+        : storeStudiosApi.packs.create(storeId, { name, tags, price: parsedPrice, status }),
     onSuccess: (data, status) => {
       // Capture the id from the first save (or a server-upserted row) so future
       // saves in this session call PATCH instead of POST.
@@ -85,7 +105,10 @@ export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
     },
   });
 
-  const canSave = !!name;
+  const canSave = !!name && !priceError;
+  // Pack Studio creates the pack spec; cover and member sticker assets are
+  // attached through the existing asset workflows.
+  const packAssetsConfigured = false;
 
   // All hooks declared above — safe to return early now.
   if (!aiEnabled) return <AiDisabledState />;
@@ -199,12 +222,15 @@ export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
                   <Input
-                    type="number" min="0" step="0.01"
+                    type="number" min="0.01" step="0.01"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    className="pl-6"
+                    className={`pl-6 ${priceError ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                    aria-invalid={!!priceError}
+                    aria-describedby={priceError ? "pack-price-error" : undefined}
                   />
                 </div>
+                {priceError && <p id="pack-price-error" className="text-xs text-destructive">{priceError}</p>}
               </div>
             </CardContent>
           </Card>
@@ -219,20 +245,27 @@ export default function StorePackStudio({ storeId, role, aiEnabled }: Props) {
               variant="outline" size="sm"
               onClick={() => save.mutate("draft")}
               disabled={!canSave || save.isPending}
+              title={priceError ?? (!name ? "Add a pack name before saving." : undefined)}
             >
               {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-2" />}
               {savedId ? "Update draft" : "Save as draft"}
             </Button>
             {isOwner ? (
-              <Button
-                size="sm"
-                className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
-                onClick={() => save.mutate("live")}
-                disabled={!canSave || save.isPending}
-              >
-                {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Globe className="w-3.5 h-3.5 mr-2" />}
-                Publish
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
+                  onClick={() => save.mutate("live")}
+                  disabled={!canSave || !!priceError || save.isPending || !packAssetsConfigured}
+                  title="Publishing requires a cover asset and at least one sticker asset. Attach them through the existing asset workflow first."
+                >
+                  {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Globe className="w-3.5 h-3.5 mr-2" />}
+                  Publish
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Publish is available after you attach a cover asset and at least one sticker through the existing asset workflow. Live packs also need a positive whole-cent price.
+                </p>
+              </>
             ) : (
               <Button size="sm" disabled className="opacity-50" title="Publishing requires store owner role">
                 <Lock className="w-3.5 h-3.5 mr-2" />Publish (owner only)

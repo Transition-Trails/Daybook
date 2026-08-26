@@ -66,7 +66,7 @@ function NoArticleClusterCard({ cluster, storeId }: { cluster: NoArticleCluster;
         </div>
       </div>
       <a
-        href={`/store/${storeId}/help?draft=1&area=${encodeURIComponent(cluster.area)}&areaLabel=${encodeURIComponent(label)}`}
+        href={`/store/${storeId}/help?draft=1&area=${encodeURIComponent(cluster.area)}`}
         style={{
           display: "flex", alignItems: "center", gap: 6,
           padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 700,

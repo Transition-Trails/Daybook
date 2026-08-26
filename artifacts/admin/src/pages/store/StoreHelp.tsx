@@ -16,6 +16,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Globe } from "lucide-react";
 import { canWrite as canWriteRole } from "@/lib/permissions";
+import { helpCategoryLabel, isHelpCategory } from "@workspace/api-zod";
 
 interface Props {
   storeId: string;
@@ -23,14 +24,16 @@ interface Props {
 }
 
 export default function StoreHelp({ storeId, role }: Props) {
-  // Read ?draft=1&area=<area>&areaLabel=<label> set by "Draft the article" in SupportPatterns.
+  // SupportPatterns supplies the canonical support-area key in ?area=.
   const params         = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   const draftParam     = params.get("draft") === "1";
-  const draftAreaLabel = params.get("areaLabel") ?? params.get("area") ?? "";
+  const draftArea = params.get("area") ?? "";
 
   const [open, setOpen] = useState(draftParam);
   const [prefill, setPrefill] = useState<{ category: string; title: string } | null>(
-    draftParam ? { category: draftAreaLabel, title: `Guide: ${draftAreaLabel}` } : null,
+    draftParam && isHelpCategory(draftArea)
+      ? { category: draftArea, title: `Guide: ${helpCategoryLabel(draftArea)}` }
+      : null,
   );
   const [editing, setEditing] = useState<HelpArticle | null>(null);
   const { toast } = useToast();

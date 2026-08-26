@@ -32,6 +32,18 @@ interface Props {
   aiEnabled: boolean;
 }
 
+export function getThemeSaveBlocker(name: string, colors: string[]): string | null {
+  const invalidColorIndices = colors
+    .map((color, index) => (!isValidHex(color) ? index : -1))
+    .filter((index) => index >= 0);
+  if (!name.trim()) return "Add a theme name before saving.";
+  if (colors.length !== 6) return "A theme palette needs exactly six colours.";
+  if (invalidColorIndices.length > 0) {
+    return `Fix ${invalidColorIndices.map((index) => PALETTE_LABELS[index]).join(", ")} before saving. Use #RGB, #RRGGBB, or none.`;
+  }
+  return null;
+}
+
 export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -164,7 +176,8 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
     onError: (err: Error) => setBgError(err.message),
   });
 
-  const canSave = !!name && colors.length === 6 && colors.every(isValidHex);
+  const saveBlocker = getThemeSaveBlocker(name, colors);
+  const canSave = saveBlocker === null;
 
   // Auto-select the theme saved in this session when the link dropdown first appears.
   // Only runs when bgLinkThemeId is still empty so manual selections are never overridden.
@@ -236,20 +249,26 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
             <div>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Generated palette</p>
               <div className="grid grid-cols-6 gap-2">
-                {colors.map((hex, i) => (
+                {colors.map((hex, i) => {
+                  const isValid = isValidHex(hex);
+                  return (
                   <div key={i} className="flex flex-col items-center gap-1.5">
                     <div
-                      className="w-full aspect-square rounded-lg border border-border shadow-sm"
-                      style={{ backgroundColor: isValidHex(hex) ? hex : "#ccc" }}
+                      className={`w-full aspect-square rounded-lg border shadow-sm ${isValid ? "border-border" : "border-destructive ring-1 ring-destructive/30"}`}
+                      style={{ backgroundColor: isValid ? hex.trim() : "#ccc" }}
                     />
                     <span className="text-[10px] text-muted-foreground text-center leading-tight">{PALETTE_LABELS[i]}</span>
                     <Input
                       value={hex}
                       onChange={(e) => { const next = [...colors]; next[i] = e.target.value; setColors(next); }}
-                      className="h-6 text-[10px] text-center px-1 font-mono"
+                      aria-label={`${PALETTE_LABELS[i]} colour`}
+                      aria-invalid={!isValid}
+                      className={`h-6 text-[10px] text-center px-1 font-mono ${isValid ? "" : "border-destructive focus-visible:ring-destructive"}`}
                     />
+                    {!isValid && <span className="text-[10px] text-destructive text-center leading-tight">Invalid colour</span>}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -276,6 +295,7 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
                 size="sm"
                 onClick={() => save.mutate("draft")}
                 disabled={!canSave || save.isPending}
+                title={saveBlocker ?? undefined}
               >
                 {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-2" />}
                 {savedId ? "Update draft" : "Save as draft"}
@@ -286,6 +306,7 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
                   className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
                   onClick={() => save.mutate("live")}
                   disabled={!canSave || save.isPending}
+                  title={saveBlocker ?? undefined}
                 >
                   {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Globe className="w-3.5 h-3.5 mr-2" />}
                   Publish
@@ -296,6 +317,11 @@ export default function StoreThemeStudio({ storeId, role, aiEnabled }: Props) {
                 </Button>
               )}
             </div>
+            {saveBlocker && (
+              <p role="alert" className="text-xs text-amber-700 -mt-3">
+                {saveBlocker}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

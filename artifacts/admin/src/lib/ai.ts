@@ -81,5 +81,6 @@ export const PALETTE_LABELS = [
 ];
 
 export function isValidHex(s: string) {
-  return /^#[0-9A-Fa-f]{6}$/.test(s);
+  const value = s.trim();
+  return value === "none" || /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(value);
 }

@@ -26,14 +26,17 @@ import {
   themePalettesTable,
   themeBackgroundsTable,
   stickerPacksTable,
+  stickersLibraryTable,
+  packStickersTable,
   themePacksTable,
   insertsTable,
   editionsTable,
 } from "@workspace/db";
-import { eq, and, or, ne, inArray, desc, asc } from "drizzle-orm";
+import { eq, and, or, ne, inArray, desc, asc, sql } from "drizzle-orm";
 import { requireStoreAccess } from "../middleware/requireRole";
 import { assertStoreScope } from "../lib/auth-middleware";
 import { writeAudit } from "../lib/audit";
+import { parseHexColor } from "../lib/color";
 import { findSameStoreName } from "../lib/store-name-dedup";
 import {
   filterEntitled,
@@ -72,6 +75,84 @@ async function assertAiEnabled(storeId: string, res: Response): Promise<boolean>
 
 function genId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
+
+type PackPublishInput = {
+  coverDriveFileId?: string | null;
+  price?: number;
+  stickerIds?: string[];
+};
+
+function isPositiveWholeCentPrice(price: unknown): price is number {
+  return typeof price === "number"
+    && Number.isFinite(price)
+    && price > 0
+    && Math.abs(price * 100 - Math.round(price * 100)) < Number.EPSILON;
+}
+
+function isDriveAssetReference(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{10,}$/.test(value.trim());
+}
+
+function isPackAttestation(value: unknown): value is "own-or-licensed" | "ai-generated" {
+  return value === "own-or-licensed" || value === "ai-generated";
+}
+
+/**
+ * A pack's cover is an existing Drive asset reference and its stickers use the
+ * pack_stickers join table. Keep this validation beside the owned pack write
+ * routes so a client cannot publish an empty shell by bypassing the studio.
+ */
+export async function validatePackPublishReadiness(
+  storeId: string,
+  current: { coverDriveFileId: string | null; price: number } | null,
+  input: PackPublishInput,
+  existingStickerCount?: number,
+): Promise<string | null> {
+  const coverDriveFileId = input.coverDriveFileId !== undefined
+    ? input.coverDriveFileId
+    : current?.coverDriveFileId ?? null;
+  if (!isDriveAssetReference(coverDriveFileId)) {
+    return "A live sticker pack requires a valid cover asset reference.";
+  }
+
+  const price = input.price ?? current?.price;
+  if (!isPositiveWholeCentPrice(price)) {
+    return "A live sticker pack requires a positive price in whole cents.";
+  }
+
+  const stickerCount = input.stickerIds
+    ? input.stickerIds.length
+    : existingStickerCount ?? 0;
+  if (stickerCount < 1) {
+    return "A live sticker pack requires at least one sticker asset.";
+  }
+  return null;
+}
+
+async function validateOwnedStickerIds(storeId: string, stickerIds: string[]): Promise<string | null> {
+  if (!stickerIds.length) return null;
+  if (new Set(stickerIds).size !== stickerIds.length) {
+    return "stickerIds must not contain duplicates";
+  }
+  const stickers = await db
+    .select({
+      id: stickersLibraryTable.id,
+      origin: stickersLibraryTable.origin,
+      authoredByStoreId: stickersLibraryTable.authoredByStoreId,
+      status: stickersLibraryTable.status,
+    })
+    .from(stickersLibraryTable)
+    .where(inArray(stickersLibraryTable.id, stickerIds));
+  if (stickers.length !== stickerIds.length) return "One or more sticker assets were not found.";
+  if (stickers.some((sticker) =>
+    sticker.status === "deleted"
+    || sticker.origin !== "owned"
+    || sticker.authoredByStoreId !== storeId,
+  )) {
+    return "Sticker assets must be owned by this store.";
+  }
+  return null;
 }
 
 // ── Helper: resolve store subscriptionActive ───────────────────────────────
@@ -218,6 +299,13 @@ router.post(
       res.status(400).json({ error: "name and colors are required" });
       return;
     }
+    let normalizedColors: string[];
+    try {
+      normalizedColors = colors.map((color) => parseHexColor(color));
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+      return;
+    }
 
     const canPublish = actor.isSuperAdmin || actor.storeRole === "store_owner";
     if (reqStatus === "live" && !canPublish) {
@@ -242,7 +330,7 @@ router.post(
       // Existing draft — update it in place rather than inserting a second row.
       const [updated] = await db
         .update(themesTable)
-        .set({ name, desc: description ?? `Theme authored by store ${storeId}`, colors: colors as string[], status })
+        .set({ name, desc: description ?? `Theme authored by store ${storeId}`, colors: normalizedColors, status })
         .where(eq(themesTable.id, dupTheme.id))
         .returning();
       await writeAudit(db, {
@@ -263,7 +351,7 @@ router.post(
           id,
           name,
           desc: description ?? `Theme authored by store ${storeId}`,
-          colors: colors as string[],
+          colors: normalizedColors,
           status,
           globalAvailable: false,
           origin: "owned",
@@ -304,17 +392,27 @@ router.post(
     if (!assertStoreScope(actor, storeId, res)) return;
     if (!(await assertAiEnabled(storeId, res))) return;
 
-    const { name, tags, price, status: reqStatus, attestation, attestingTool } = req.body as {
+    const { name, tags, price, status: reqStatus, attestation, attestingTool, coverDriveFileId, stickerIds } = req.body as {
       name: string;
       tags?: string[];
       price?: number;
       status?: "draft" | "live";
       attestation?: "own-or-licensed" | "ai-generated";
       attestingTool?: string;
+      coverDriveFileId?: string | null;
+      stickerIds?: string[];
     };
 
     if (!name) {
       res.status(400).json({ error: "name is required" });
+      return;
+    }
+    if (!isPositiveWholeCentPrice(price)) {
+      res.status(400).json({ error: "price must be a positive amount in whole cents" });
+      return;
+    }
+    if (coverDriveFileId !== undefined && coverDriveFileId !== null && !isDriveAssetReference(coverDriveFileId)) {
+      res.status(400).json({ error: "coverDriveFileId must be a valid cover asset reference" });
       return;
     }
 
@@ -329,14 +427,22 @@ router.post(
     const status: "draft" | "live" = reqStatus === "live" && canPublish ? "live" : "draft";
 
     // ── Attestation gate — required before any publish ───────────────────────
-    if (status === "live" && !attestation) {
+    if (status === "live" && !isPackAttestation(attestation)) {
       res.status(409).json({
         error: "Pack cannot be published without attestation. Confirm intellectual property rights in the request body before publishing.",
         code: "ATTESTATION_REQUIRED",
       });
       return;
     }
-
+    if (stickerIds !== undefined && !Array.isArray(stickerIds)) {
+      res.status(400).json({ error: "stickerIds must be an array" });
+      return;
+    }
+    const stickerError = await validateOwnedStickerIds(storeId, stickerIds ?? []);
+    if (stickerError) {
+      res.status(400).json({ error: stickerError });
+      return;
+    }
     // ── Dedup guard ──────────────────────────────────────────────────────────
     const dupPack = await findSameStoreName(stickerPacksTable, storeId, name);
     if (dupPack) {
@@ -347,9 +453,34 @@ router.post(
         });
         return;
       }
+      if (status === "live") {
+        const [stickerCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(packStickersTable)
+          .where(eq(packStickersTable.packId, dupPack.id));
+        const [existingPack] = await db
+          .select({
+            coverDriveFileId: stickerPacksTable.coverDriveFileId,
+            price: stickerPacksTable.price,
+          })
+          .from(stickerPacksTable)
+          .where(eq(stickerPacksTable.id, dupPack.id));
+        const readinessError = await validatePackPublishReadiness(
+          storeId,
+          existingPack ?? null,
+          { coverDriveFileId, price, stickerIds },
+          stickerCount?.count ?? 0,
+        );
+        if (readinessError) {
+          res.status(422).json({ error: readinessError, code: "PACK_PUBLISH_REQUIREMENTS_NOT_MET" });
+          return;
+        }
+      }
       const upsertData: Partial<typeof stickerPacksTable.$inferInsert> = {
-        name, tags: (tags ?? []) as string[], price: price ?? 0, status,
+        name, tags: (tags ?? []) as string[], status,
       };
+      if (price !== undefined) upsertData.price = price;
+      if (coverDriveFileId !== undefined) upsertData.coverDriveFileId = coverDriveFileId?.trim() || null;
       if (attestation !== undefined) upsertData.attestation = attestation;
       if (attestingTool !== undefined) upsertData.attestingTool = attestingTool;
       const [updated] = await db
@@ -357,6 +488,14 @@ router.post(
         .set(upsertData)
         .where(eq(stickerPacksTable.id, dupPack.id))
         .returning();
+      if (stickerIds !== undefined) {
+        await db.delete(packStickersTable).where(eq(packStickersTable.packId, dupPack.id));
+        if (stickerIds.length) {
+          await db.insert(packStickersTable).values(
+            stickerIds.map((stickerId, position) => ({ packId: dupPack.id, stickerId, position })),
+          );
+        }
+      }
       await writeAudit(db, {
         actorUserId: actor.userId, actorRole: actor.effectiveRole, scope: storeId,
         action: status === "live" ? "owned.pack.publish" : "owned.pack.edit",
@@ -369,21 +508,41 @@ router.post(
 
     try {
       const id = genId("pk");
-      const [row] = await db
-        .insert(stickerPacksTable)
-        .values({
-          id,
-          name,
-          tags: (tags ?? []) as string[],
-          price: price ?? 0,
-          status,
-          globalAvailable: false,
-          origin: "owned",
-          authoredByStoreId: storeId,
-          ...(attestation !== undefined && { attestation }),
-          ...(attestingTool !== undefined && { attestingTool }),
-        })
-        .returning();
+      if (status === "live") {
+        const readinessError = await validatePackPublishReadiness(
+          storeId,
+          null,
+          { coverDriveFileId, price, stickerIds },
+        );
+        if (readinessError) {
+          res.status(422).json({ error: readinessError, code: "PACK_PUBLISH_REQUIREMENTS_NOT_MET" });
+          return;
+        }
+      }
+      const row = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(stickerPacksTable)
+          .values({
+            id,
+            name,
+            tags: (tags ?? []) as string[],
+            ...(price !== undefined && { price }),
+            status,
+            globalAvailable: false,
+            origin: "owned",
+            authoredByStoreId: storeId,
+            ...(coverDriveFileId !== undefined && { coverDriveFileId: coverDriveFileId?.trim() || null }),
+            ...(attestation !== undefined && { attestation }),
+            ...(attestingTool !== undefined && { attestingTool }),
+          })
+          .returning();
+        if (stickerIds?.length) {
+          await tx.insert(packStickersTable).values(
+            stickerIds.map((stickerId, position) => ({ packId: id, stickerId, position })),
+          );
+        }
+        return created;
+      });
 
       await writeAudit(db, {
         actorUserId: actor.userId,
@@ -711,11 +870,20 @@ router.patch(
       res.status(400).json({ error: "colors must be a non-empty array" });
       return;
     }
+    let normalizedColors: string[] | undefined;
+    if (colors !== undefined) {
+      try {
+        normalizedColors = colors.map((color) => parseHexColor(color));
+      } catch (err) {
+        res.status(400).json({ error: (err as Error).message });
+        return;
+      }
+    }
 
     const updateData: Partial<typeof themesTable.$inferInsert> = {};
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.desc = description;
-    if (colors !== undefined) updateData.colors = colors as string[];
+    if (normalizedColors !== undefined) updateData.colors = normalizedColors;
     if (status !== undefined) updateData.status = status;
     if (Object.keys(updateData).length === 0) { res.json(row); return; }
 
@@ -755,35 +923,89 @@ router.patch(
       res.status(403).json({ error: "Staff can only edit draft items" }); return;
     }
 
-    const { name, tags, price, status, attestation, attestingTool } = req.body as {
+    const { name, tags, price, status, attestation, attestingTool, coverDriveFileId, stickerIds } = req.body as {
       name?: string; tags?: string[]; price?: number; status?: "draft" | "live";
-      attestation?: "own-or-licensed" | "ai-generated";
+      attestation?: "own-or-licensed" | "ai-generated" | null;
       attestingTool?: string;
+      coverDriveFileId?: string | null;
+      stickerIds?: string[];
     };
     if (status !== undefined && isStaff) {
       res.status(403).json({ error: "Publishing/unpublishing requires store_owner role" }); return;
     }
 
-    // Attestation gate — a pack cannot go live without IP attestation
-    const resolvedAttestation = attestation ?? row.attestation;
-    if (status === "live" && !resolvedAttestation) {
+    const nextStatus = status ?? row.status;
+    const resolvedAttestation = attestation === undefined ? row.attestation : attestation;
+    if (nextStatus === "live" && !isPackAttestation(resolvedAttestation)) {
       res.status(409).json({
         error: "Pack cannot be published without attestation. Confirm intellectual property rights in the request body before publishing.",
         code: "ATTESTATION_REQUIRED",
       });
       return;
     }
-
+    if (price !== undefined && !isPositiveWholeCentPrice(price)) {
+      res.status(400).json({ error: "price must be a positive amount in whole cents" });
+      return;
+    }
+    if (coverDriveFileId !== undefined && coverDriveFileId !== null && !isDriveAssetReference(coverDriveFileId)) {
+      res.status(400).json({ error: "coverDriveFileId must be a valid cover asset reference" });
+      return;
+    }
+    if (stickerIds !== undefined && !Array.isArray(stickerIds)) {
+      res.status(400).json({ error: "stickerIds must be an array" });
+      return;
+    }
+    const stickerError = await validateOwnedStickerIds(storeId, stickerIds ?? []);
+    if (stickerError) {
+      res.status(400).json({ error: stickerError });
+      return;
+    }
     const updateData: Partial<typeof stickerPacksTable.$inferInsert> = {};
     if (name !== undefined) updateData.name = name;
     if (tags !== undefined) updateData.tags = tags as string[];
     if (price !== undefined) updateData.price = price;
+    if (coverDriveFileId !== undefined) updateData.coverDriveFileId = coverDriveFileId?.trim() || null;
     if (status !== undefined) updateData.status = status;
     if (attestation !== undefined) updateData.attestation = attestation;
     if (attestingTool !== undefined) updateData.attestingTool = attestingTool;
-    if (Object.keys(updateData).length === 0) { res.json(row); return; }
+    if (Object.keys(updateData).length === 0 && stickerIds === undefined) { res.json(row); return; }
 
-    const [updated] = await db.update(stickerPacksTable).set(updateData).where(eq(stickerPacksTable.id, id)).returning();
+    const transactionResult = await db.transaction(async (tx) => {
+      // Check the result state inside the transaction before mutating either
+      // the pack row or its sticker joins, so a live pack can never be edited
+      // into an incomplete shell.
+      if (nextStatus === "live") {
+        const [stickerCount] = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(packStickersTable)
+          .where(eq(packStickersTable.packId, id));
+        const readinessError = await validatePackPublishReadiness(
+          storeId,
+          row as Pick<typeof stickerPacksTable.$inferSelect, "coverDriveFileId" | "price">,
+          { coverDriveFileId, price, stickerIds },
+          stickerCount?.count ?? 0,
+        );
+        if (readinessError) return { pack: null, readinessError };
+      }
+      const [pack] = await tx.update(stickerPacksTable).set(updateData).where(eq(stickerPacksTable.id, id)).returning();
+      if (stickerIds !== undefined) {
+        await tx.delete(packStickersTable).where(eq(packStickersTable.packId, id));
+        if (stickerIds.length) {
+          await tx.insert(packStickersTable).values(
+            stickerIds.map((stickerId, position) => ({ packId: id, stickerId, position })),
+          );
+        }
+      }
+      return { pack, readinessError: null };
+    });
+    if (!transactionResult.pack) {
+      res.status(422).json({
+        error: transactionResult.readinessError ?? "Pack publish requirements are not met.",
+        code: "PACK_PUBLISH_REQUIREMENTS_NOT_MET",
+      });
+      return;
+    }
+    const updated = transactionResult.pack;
 
     const prevStatus = row.status as string;
     const auditAction =

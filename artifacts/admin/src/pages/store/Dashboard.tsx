@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { storesApi, platformApi, storeProfileApi, type DefaultMode } from "@/lib/api";
 import { PageHeader, StatTile, SkeletonRows, ErrorState, EmptyState } from "@/components/shared";
@@ -6,7 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Users, ShoppingBag, Clock, BookCopy, ShieldCheck, AlertTriangle, Sparkles, ArrowRight } from "lucide-react";
 import { Link } from "wouter";
-import { isStaffRole, isSuperAdminRole } from "@/lib/permissions";
+import { isStaffRole, isStoreOwnerRole, isSuperAdminRole } from "@/lib/permissions";
 
 interface Props {
   storeId: string;
@@ -46,8 +45,7 @@ function EntitlementPanel({ storeId }: { storeId: string }) {
 
   if (isLoading || !store) return null;
 
-  const subscriptionActive: boolean = (store as any).subscriptionActive ?? true;
-  const defaultMode: DefaultMode    = (store as any).defaultMode ?? "curated";
+  const { subscriptionActive, defaultMode } = store;
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -108,6 +106,56 @@ function EntitlementPanel({ storeId }: { storeId: string }) {
   );
 }
 
+export function getOwnerEntitlementCopy(subscriptionActive: boolean) {
+  return subscriptionActive
+    ? {
+        status: "active",
+        summary: "Your store can use licensed catalog content for new planner generations.",
+      }
+    : {
+        status: "inactive",
+        summary: "Licensed catalog content is currently gated for new planner generations.",
+      };
+}
+
+function OwnerEntitlementSummary({ storeId }: { storeId: string }) {
+  const { data: store, isLoading } = useQuery({
+    queryKey: ["store", storeId],
+    queryFn: () => storesApi.get(storeId),
+  });
+
+  if (isLoading || !store) return null;
+  const entitlement = getOwnerEntitlementCopy(store.subscriptionActive);
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+        <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+        <h2 className="font-display font-semibold text-sm">License status</h2>
+        <span
+          className={`ml-auto text-[10px] font-medium px-2 py-0.5 rounded-full ${
+            store.subscriptionActive
+              ? "bg-emerald-100 text-emerald-700"
+              : "bg-amber-100 text-amber-700"
+          }`}
+        >
+          {entitlement.status}
+        </span>
+      </div>
+      <div className="px-5 py-5 space-y-3">
+        <p className="text-sm text-foreground">{entitlement.summary}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          If the license lapses, Daybook only blocks new generations that use licensed-origin items.
+          Your existing generated files, store records, and starter or store-authored content remain available.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Content mode: <span className="font-medium text-foreground">{store.defaultMode === "curated" ? "Curated" : "Independent"}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Profile setup banner ─────────────────────────────────────────────────────
 
 function ProfileSetupBanner({ storeId }: { storeId: string }) {
@@ -152,6 +200,7 @@ function ProfileSetupBanner({ storeId }: { storeId: string }) {
 
 export default function StoreDashboard({ storeId, role }: Props) {
   const isSuperAdmin = isSuperAdminRole(role);
+  const isOwner = isStoreOwnerRole(role);
 
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ["store-members", storeId],
@@ -198,7 +247,7 @@ export default function StoreDashboard({ storeId, role }: Props) {
             icon={ShoppingBag}
           />
           <StatTile
-            label="Planner builds"
+            label="Planner editions"
             value={catalog.filter((c) => c.itemType === "edition").length}
             sub="Editions enabled"
             icon={BookCopy}
@@ -206,8 +255,9 @@ export default function StoreDashboard({ storeId, role }: Props) {
         </div>
       )}
 
-      {/* Entitlement panel — super_admin only */}
+      {/* Entitlement panels — controls for platform admins, status for store owners */}
       {isSuperAdmin && <EntitlementPanel storeId={storeId} />}
+      {isOwner && <OwnerEntitlementSummary storeId={storeId} />}
 
       {/* Recent activity */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">

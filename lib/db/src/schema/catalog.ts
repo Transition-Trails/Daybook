@@ -225,6 +225,44 @@ export const stickerShapeRecipesTable = pgTable(
 export type StickerShapeRecipe = typeof stickerShapeRecipesTable.$inferSelect;
 export type InsertStickerShapeRecipe = typeof stickerShapeRecipesTable.$inferInsert;
 
+export type SpineStyleOrigin = "starter" | "owned";
+export type SpineStyleStatus = "draft" | "live";
+export type SpineStyleOrientation = "vertical" | "horizontal";
+
+export const spineStylesTable = pgTable(
+  "spine_styles",
+  {
+    id: text("id").primaryKey(),
+    origin: text("origin").notNull().$type<SpineStyleOrigin>(),
+    authoredByStoreId: text("authored_by_store_id").references(
+      () => storesTable.id,
+      { onDelete: "set null" },
+    ),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    assetRef: text("asset_ref").notNull(),
+    unitAspect: real("unit_aspect").notNull(),
+    gapRatio: real("gap_ratio").notNull().default(0),
+    orientation: text("orientation").notNull().$type<SpineStyleOrientation>(),
+    status: text("status").notNull().default("draft").$type<SpineStyleStatus>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => ({
+    scopeSlugUnique: unique("spine_style_scope_slug_uq").on(
+      t.origin,
+      t.authoredByStoreId,
+      t.slug,
+    ),
+    starterSlugUnique: uniqueIndex("spine_style_starter_slug_uq")
+      .on(t.slug)
+      .where(sql`${t.origin} = 'starter' AND ${t.authoredByStoreId} IS NULL`),
+  }),
+);
+
+export type SpineStyle = typeof spineStylesTable.$inferSelect;
+export type InsertSpineStyle = typeof spineStylesTable.$inferInsert;
+
 export const stickersLibraryTable = pgTable("stickers_library", {
   id: text("id")
     .primaryKey()

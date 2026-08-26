@@ -25,6 +25,7 @@ export interface PlannerBuildState {
   bodyFont: string;
   accentFont: string;
   backgroundId: string;
+  spineStyleId: string;
   bindingType: string;
   bindingFinish: string;
   paperColour: string;
@@ -39,7 +40,7 @@ export const DEFAULT_BUILD: PlannerBuildState = {
   packIds: [], insertIds: [], productIds: [], productType: "planner",
   datingMode: "dated", weekStart: "mon", tabPos: "right", sections: [],
   headingFont: "", subheadingFont: "", bodyFont: "", accentFont: "",
-  backgroundId: "", bindingType: "coil", bindingFinish: "gold", paperColour: "white",
+  backgroundId: "", spineStyleId: "", bindingType: "coil", bindingFinish: "gold", paperColour: "white",
 };
 
 /** Convert a saved platform planner configuration to the build UI state. */
@@ -75,6 +76,7 @@ export function templateToBuildState(t: PlatformPlannerConfig): PlannerBuildStat
     bodyFont: (fonts?.script as string | undefined) ?? "",
     accentFont: (fonts?.accent as string | undefined) ?? "",
     backgroundId: (style.backgroundId as string | undefined) ?? "",
+    spineStyleId: (style.spineStyleId as string | undefined) ?? "",
     bindingType: (binding?.type as string | undefined) ?? "coil",
     bindingFinish: (binding?.finish as string | undefined) ?? "gold",
     paperColour: (style.paperColour as string | undefined) ?? "white",
@@ -104,6 +106,7 @@ export function buildStateToStylePatch(build: PlannerBuildState) {
     insertIds: build.insertIds,
     ...(fonts ? { fonts } : {}),
     backgroundId: build.backgroundId || null,
+    spineStyleId: build.spineStyleId || null,
     ...(binding ? { binding } : {}),
     ...(build.paperColour ? { paperColour: build.paperColour } : {}),
   };

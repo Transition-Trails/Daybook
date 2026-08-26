@@ -170,6 +170,13 @@ export interface CatalogItem {
   [key: string]: unknown;
 }
 
+export interface SpineStyleCatalogItem extends CatalogItem {
+  assetRef: string;
+  unitAspect: number;
+  gapRatio: number;
+  orientation: "vertical" | "horizontal";
+}
+
 // ── Platform endpoints ──────────────────────────────────────────────────────
 
 export const platformApi = {
@@ -1066,6 +1073,7 @@ export const catalogApi = {
   themes:   () => apiFetch<CatalogItem[]>("/themes"),
   packs:    () => apiFetch<CatalogItem[]>("/packs"),
   inserts:  () => apiFetch<CatalogItem[]>("/inserts"),
+  spineStyles: () => apiFetch<SpineStyleCatalogItem[]>("/spine-styles"),
   products: () => apiFetch<CatalogItem[]>("/related-products"),
   // The query version avoids reusing pre-commerce-policy browser cache entries
   // that do not include the server-owned `purchasable` field.

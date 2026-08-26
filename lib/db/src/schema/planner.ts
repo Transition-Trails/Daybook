@@ -49,6 +49,8 @@ export type PlannerStyle = {
   size?: "A5" | "B6" | "Personal" | "Half letter" | "Letter" | "iPad 4:3";
   /** Binding type + finish — only rendered on two-page landscape spreads. */
   binding?: PlannerBinding;
+  /** Catalog-backed raster binding artwork. Null/undefined means no spine art. */
+  spineStyleId?: string | null;
   /** Paper colour key — drives background fill colour. Contrast warning fires for slate/kraft. */
   paperColour?: "cream" | "white" | "ivory" | "kraft" | "slate";
   /** Tab shape — free text slug (e.g. "rounded", "chevron", "square"). */

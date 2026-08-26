@@ -15,11 +15,12 @@ import {
   fontsTable,
   storesTable,
   plannerInteriorVersionsTable,
+  spineStylesTable,
   type ThemeFontPairing,
 } from "@workspace/db";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
-import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec } from "../lib/pdf-generator";
+import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec, type SpineSpec } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
 import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
@@ -40,6 +41,11 @@ export async function runGeneration(
   // Priority 3: first theme on the edition → theme.colors
   let themeColors: string[] | undefined;
   const style = config.style as PlannerStyle & { themeId?: string; paletteId?: string; backgroundId?: string };
+  let spine: SpineSpec | null = null;
+  if (style.spineStyleId) {
+    const [row] = await db.select().from(spineStylesTable).where(eq(spineStylesTable.id, style.spineStyleId));
+    if (row?.status === "live") spine = row;
+  }
   let editionRecord: typeof editionsTable.$inferSelect | undefined;
 
   if (config.editionId) {
@@ -184,6 +190,7 @@ export async function runGeneration(
         /* inkFriendly */ false,
         /* einkDevice  */ undefined,
         /* diagnosticPage */ diagnosticEnabled,
+        spine,
       );
   const { buffer, pageCount, totalLinkAnnotations } = generated;
   const fontSubstitutions = "fontSubstitutions" in generated ? generated.fontSubstitutions : [];
@@ -205,6 +212,8 @@ export async function runGeneration(
             generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
             /* inkFriendly */ true,
             /* einkDevice */ einkDeviceKey ?? undefined,
+            /* diagnosticPage */ false,
+            spine,
           );
       inkFriendlyBuffer = result.buffer;
       console.log(
@@ -317,6 +326,11 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     // Resolve colors — same priority chain as runGeneration (palette > theme.colors > edition fallback).
     let themeColors: string[] | undefined;
     const previewStyle = body.style as (PlannerStyle & { themeId?: string; paletteId?: string; backgroundId?: string }) | undefined;
+    let previewSpine: SpineSpec | null = null;
+    if (previewStyle?.spineStyleId) {
+      const [row] = await db.select().from(spineStylesTable).where(eq(spineStylesTable.id, previewStyle.spineStyleId));
+      if (row?.status === "live") previewSpine = row;
+    }
 
     if (previewStyle?.paletteId) {
       const [pal] = await db.select().from(palettesTable).where(eq(palettesTable.id, previewStyle.paletteId));
@@ -433,6 +447,7 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
         previewBackground,
         previewFontPairing,
         previewEinkDevice,
+        previewSpine,
       );
       buffer = legacyPreview.buffer;
       pageCount = legacyPreview.pageCount;

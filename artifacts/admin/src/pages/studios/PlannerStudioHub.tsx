@@ -2474,39 +2474,51 @@ interface PaperComposeProps {
   initialBindingFinish?: string;
   /** Paper colour key from saved draft. */
   initialPaperColour?:   string;
+  initialSpineStyleId?:  string;
   /** Called immediately when binding type changes so the parent can persist. */
   onBindingTypeChange?:   (value: string) => void;
   /** Called immediately when binding finish changes. */
   onBindingFinishChange?: (value: string) => void;
   /** Called immediately when paper colour changes. */
   onPaperColourChange?:   (value: string) => void;
+  onSpineStyleChange?:    (value: string) => void;
 }
 
 function PaperCompose({
   initialBindingType   = "coil",
   initialBindingFinish = "gold",
   initialPaperColour   = "white",
+  initialSpineStyleId  = "",
   onBindingTypeChange,
   onBindingFinishChange,
   onPaperColourChange,
+  onSpineStyleChange,
 }: PaperComposeProps) {
   const [renderStyle, setRenderStyle] = useState("realistic");
   const [size,        setSize]        = useState("a5");
   const [binding,     setBinding]     = useState(initialBindingType);
   const [hardware,    setHardware]    = useState(initialBindingFinish);
   const [paperColour, setPaperColour] = useState(initialPaperColour);
+  const [spineStyleId, setSpineStyleId] = useState(initialSpineStyleId);
+  const { data: spineStyles = [] } = useQuery({
+    queryKey: ["spine-styles"],
+    queryFn: () => catalogApi.spineStyles(),
+    staleTime: 0,
+  });
+  const selectedSpine = spineStyles.find(s => s.id === spineStyleId);
   const [weight,      setWeight]      = useState("80");
   const [finish,      setFinish]      = useState("matte");
 
   // Re-sync when parent restores from a different template
-  const prevInitRef = useRef({ initialBindingType, initialBindingFinish, initialPaperColour });
+  const prevInitRef = useRef({ initialBindingType, initialBindingFinish, initialPaperColour, initialSpineStyleId });
   useEffect(() => {
     const prev = prevInitRef.current;
     if (prev.initialBindingType   !== initialBindingType)   setBinding(initialBindingType);
     if (prev.initialBindingFinish !== initialBindingFinish) setHardware(initialBindingFinish);
     if (prev.initialPaperColour   !== initialPaperColour)   setPaperColour(initialPaperColour);
-    prevInitRef.current = { initialBindingType, initialBindingFinish, initialPaperColour };
-  }, [initialBindingType, initialBindingFinish, initialPaperColour]);
+    if (prev.initialSpineStyleId  !== initialSpineStyleId)  setSpineStyleId(initialSpineStyleId);
+    prevInitRef.current = { initialBindingType, initialBindingFinish, initialPaperColour, initialSpineStyleId };
+  }, [initialBindingType, initialBindingFinish, initialPaperColour, initialSpineStyleId]);
 
   const SIZE_NOTES: Record<string, string> = {
     a5:           "148 × 210 mm — most popular globally for printed planners.",
@@ -2597,6 +2609,33 @@ function PaperCompose({
           ))}
         </div>
         <p className="text-[12.5px] text-muted-foreground leading-relaxed">{BINDING_DESCRIPTIONS[binding]}</p>
+      </div>
+
+      {/* CATALOG SPINE ART */}
+      <div className="rounded-[16px] border p-5 mb-6 space-y-3" style={{ background: PAPER_TINT }}>
+        <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Spine / ring artwork</p>
+        <div className="grid grid-cols-2 gap-3">
+          {[{ id: "", name: "None", assetRef: "", orientation: "vertical" }, ...spineStyles].map(style => {
+            const active = spineStyleId === style.id;
+            return (
+              <button
+                key={style.id || "none"}
+                onClick={() => { setSpineStyleId(style.id); onSpineStyleChange?.(style.id); }}
+                className="rounded-[12px] border p-3 text-left"
+                style={{ cursor: "pointer", borderColor: active ? CLAY : "#E7DCCB", background: active ? "#FEF0ED" : PAPER_TINT }}
+              >
+                {style.assetRef ? (
+                  <div className="h-20 rounded-md overflow-hidden bg-white mb-2 flex items-center justify-center">
+                    <img src={style.assetRef} alt="" className="max-w-full max-h-full object-contain" />
+                  </div>
+                ) : <div className="h-20 rounded-md border border-dashed mb-2 flex items-center justify-center text-xs text-muted-foreground">No artwork</div>}
+                <p className="text-[12.5px] font-semibold">{style.name}</p>
+                <p className="text-[10.5px] text-muted-foreground capitalize">{style.id ? style.orientation : "flat pages"}</p>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11.5px] text-muted-foreground">Vertical assets render on the left edge. Horizontal assets render on the top edge.</p>
       </div>
 
       {/* HARDWARE ART & FINISH — chip row with colour dot + full label, only when binding has hardware */}
@@ -2706,26 +2745,17 @@ function PaperCompose({
           <div style={{ position: "relative", width: 160, height: 226, borderRadius: 4, overflow: "hidden",
             background: paperHex, border: "1.5px solid #D0C8BE" }}>
             {/* Left-edge binding strip */}
-            {bindingHasHardware && (
-              <div style={{
-                position: "absolute", left: 0, top: 0, bottom: 0, width: 22,
-                background: `linear-gradient(180deg, ${hwHex}22, ${hwHex}55, ${hwHex}22)`,
-                borderRight: `2px solid ${hwHex}88`,
-              }}>
-                {Array.from({ length: 7 }).map((_, i) => (
-                  <div key={i} style={{
-                    position: "absolute", left: 4, top: 20 + i * 28,
-                    width: 14, height: 16,
-                    border: `2px solid ${hwHex}`,
-                    borderRadius: "50% / 40%",
-                    background: "transparent",
-                    opacity: 0.85,
-                  }} />
-                ))}
-              </div>
+            {selectedSpine?.assetRef && (
+              <img
+                src={selectedSpine.assetRef}
+                alt=""
+                style={selectedSpine.orientation === "horizontal"
+                  ? { position: "absolute", left: 0, top: 0, width: "100%", height: 22, objectFit: "cover", objectPosition: "left top" }
+                  : { position: "absolute", left: 0, top: 0, width: 22, height: "100%", objectFit: "cover", objectPosition: "left bottom" }}
+              />
             )}
             {/* Page rules */}
-            <div style={{ marginLeft: bindingHasHardware ? 30 : 12, marginRight: 12, marginTop: 16 }}>
+            <div style={{ marginLeft: selectedSpine?.orientation === "vertical" ? 30 : 12, marginRight: 12, marginTop: selectedSpine?.orientation === "horizontal" ? 30 : 16 }}>
               <div style={{ width: 55, height: 7, background: "#D8D0C6", borderRadius: 2, marginBottom: 14, opacity: 0.7 }} />
               {Array.from({ length: 10 }).map((_, i) => (
                 <div key={i} style={{
@@ -2877,6 +2907,7 @@ export default function PlannerStudioHub() {
   const [paperBindingType,   setPaperBindingType]   = useState("coil");
   const [paperBindingFinish, setPaperBindingFinish] = useState("gold");
   const [paperPaperColour,   setPaperPaperColour]   = useState("white");
+  const [paperSpineStyleId,  setPaperSpineStyleId]  = useState("");
 
   // Sync paper state whenever the selected template changes
   useEffect(() => {
@@ -2885,6 +2916,7 @@ export default function PlannerStudioHub() {
     setPaperBindingType(  (st.binding as any)?.type   ?? "coil");
     setPaperBindingFinish((st.binding as any)?.finish  ?? "gold");
     setPaperPaperColour(  st.paperColour               ?? "white");
+    setPaperSpineStyleId( st.spineStyleId              ?? "");
   }, [selectedTemplate?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const paperStyleMut = useMutation({
@@ -2909,6 +2941,10 @@ export default function PlannerStudioHub() {
   const handlePaperColourChange   = (v: string) => {
     setPaperPaperColour(v);
     paperStyleMut.mutate({ paperColour: v });
+  };
+  const handleSpineStyleChange = (v: string) => {
+    setPaperSpineStyleId(v);
+    paperStyleMut.mutate({ spineStyleId: v || null });
   };
 
   // Editions filters
@@ -3050,9 +3086,11 @@ export default function PlannerStudioHub() {
         initialBindingType={paperBindingType}
         initialBindingFinish={paperBindingFinish}
         initialPaperColour={paperPaperColour}
+        initialSpineStyleId={paperSpineStyleId}
         onBindingTypeChange={handleBindingTypeChange}
         onBindingFinishChange={handleBindingFinishChange}
         onPaperColourChange={handlePaperColourChange}
+        onSpineStyleChange={handleSpineStyleChange}
       />
     );
     if (validMode === "quality")  return <QualityCompose />;

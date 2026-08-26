@@ -27,7 +27,9 @@ import {
   storeCatalogTable,
   storeFlagsTable,
   helpContentTable,
+  spineStylesTable,
 } from "@workspace/db";
+import { readFile } from "node:fs/promises";
 import bcrypt from "bcryptjs";
 import { seedStarterShapeRecipes, STARTER_SHAPE_RECIPES } from "./seed-sticker-shape-recipes";
 
@@ -310,6 +312,42 @@ async function main() {
     },
   });
   console.log("  ✓ store flags");
+
+  // ── Starter spine styles ───────────────────────────────────────────────────
+  const [verticalRings, horizontalRings] = await Promise.all([
+    readFile(new URL("../assets/rings2.png", import.meta.url)),
+    readFile(new URL("../assets/rings1.png", import.meta.url)),
+  ]);
+  await db.insert(spineStylesTable).values([
+    {
+      id: "spine-starter-rings-vertical",
+      origin: "starter",
+      authoredByStoreId: null,
+      name: "Classic Rings — Vertical",
+      slug: "classic-rings-vertical",
+      assetRef: `data:image/png;base64,${verticalRings.toString("base64")}`,
+      unitAspect: 0.1353,
+      gapRatio: 0,
+      orientation: "vertical",
+      status: "live",
+    },
+    {
+      id: "spine-starter-rings-horizontal",
+      origin: "starter",
+      authoredByStoreId: null,
+      name: "Classic Rings — Horizontal",
+      slug: "classic-rings-horizontal",
+      assetRef: `data:image/png;base64,${horizontalRings.toString("base64")}`,
+      unitAspect: 11.9,
+      gapRatio: 0,
+      orientation: "horizontal",
+      status: "live",
+    },
+  ]).onConflictDoUpdate({
+    target: spineStylesTable.id,
+    set: { status: "live" },
+  });
+  console.log("  ✓ starter spine styles");
 
   // ── Help content ───────────────────────────────────────────────────────────
   await db.insert(helpContentTable).values([

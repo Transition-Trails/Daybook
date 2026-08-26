@@ -17,6 +17,11 @@ import {
   PDFArray,
   PDFDict,
   PDFNumber,
+  pushGraphicsState,
+  popGraphicsState,
+  rectangle,
+  clip,
+  endPath,
   type PDFFont,
 } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
@@ -56,6 +61,71 @@ export type { PageIdMap, UserHotspot } from "./pdf-template";
 export interface BackgroundSpec {
   type: string;      // "color" | "texture" | "image"
   assetRef?: string | null;
+}
+
+export interface SpineSpec {
+  id?: string;
+  name: string;
+  assetRef: string;
+  unitAspect: number;
+  gapRatio: number;
+  orientation: "vertical" | "horizontal";
+}
+
+export interface SpineTile {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Binding-edge rule: vertical assets tile up the left edge; horizontal assets
+ * tile across the top edge. The media box clips the final partial tile.
+ */
+export function calculateSpineTiles(
+  pageWidth: number,
+  pageHeight: number,
+  spine?: Pick<SpineSpec, "unitAspect" | "gapRatio" | "orientation"> | null,
+): SpineTile[] {
+  if (!spine || spine.unitAspect <= 0 || pageWidth <= 0 || pageHeight <= 0) return [];
+  const gapRatio = Math.max(0, spine.gapRatio);
+  const tiles: SpineTile[] = [];
+  if (spine.orientation === "horizontal") {
+    const height = Math.min(60, pageHeight * 0.14);
+    const width = height * spine.unitAspect;
+    const step = width * (1 + gapRatio);
+    for (let x = 0; x < pageWidth; x += step) tiles.push({ x, y: pageHeight - height, width, height });
+  } else {
+    const maxWidth = Math.min(60, pageWidth * 0.14);
+    const height = Math.min(pageHeight, maxWidth / spine.unitAspect);
+    const width = height * spine.unitAspect;
+    const step = height * (1 + gapRatio);
+    for (let y = 0; y < pageHeight; y += step) tiles.push({ x: 0, y, width, height });
+  }
+  return tiles;
+}
+
+async function embedSpineImage(pdfDoc: PDFDocument, spine?: SpineSpec | null) {
+  if (!spine?.assetRef?.startsWith("data:image/")) return null;
+  const b64 = spine.assetRef.replace(/^data:image\/[a-z+]+;base64,/, "");
+  const bytes = Buffer.from(b64, "base64");
+  const metadata = await sharp(bytes).metadata();
+  if (!metadata.hasAlpha) {
+    console.warn(`[pdf-generator] Spine style "${spine.name}" has no alpha channel; rendering opaque asset`);
+  }
+  return spine.assetRef.startsWith("data:image/png")
+    ? pdfDoc.embedPng(bytes)
+    : pdfDoc.embedJpg(bytes);
+}
+
+function drawSpineTiles(page: PDFPage, pageWidth: number, pageHeight: number, image: Awaited<ReturnType<typeof embedSpineImage>>, spine?: SpineSpec | null): void {
+  if (!image || !spine) return;
+  page.pushOperators(pushGraphicsState(), rectangle(0, 0, pageWidth, pageHeight), clip(), endPath());
+  for (const tile of calculateSpineTiles(pageWidth, pageHeight, spine)) {
+    page.drawImage(image, tile);
+  }
+  page.pushOperators(popGraphicsState());
 }
 
 export interface GeneratorConfig {
@@ -855,6 +925,7 @@ export async function buildPdf(
   /** When true, append a final diagnostic page carrying build metadata.
    *  Gate this behind a flag — never set it on buyer-facing generations. */
   diagnosticPage = false,
+  spine?: SpineSpec | null,
 ): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[]; totalLinkAnnotations?: number }> {
   const { einkPreset, einkMode, lt, lo, skipLinks } = makeEinkHelpers(einkDevice);
   // E-ink mode forces ink-friendly (grayscale is the e-ink asset)
@@ -866,12 +937,12 @@ export async function buildPdf(
   const calMode     = output.calMode ?? "none";
   // Dating mode + binding + cover — read from JSONB style/setup fields
   const datingMode  = ((setup as Record<string, unknown>).datingMode as string | undefined) ?? "dated";
-  const bindingType = (((style as Record<string, unknown>).binding as Record<string, unknown> | undefined)?.type as string | undefined) ?? "coil";
-  const bindingFinish = (((style as Record<string, unknown>).binding as Record<string, unknown> | undefined)?.finish as string | undefined) ?? "silver";
   const coverTitle    = (style as Record<string, unknown>).coverTitle as string | undefined;
   const coverSubtitle = (style as Record<string, unknown>).coverSubtitle as string | undefined;
   const coverYear     = (style as Record<string, unknown>).coverYear;  // false = suppress year
-  const showCoverYear = coverYear !== false && datingMode === "dated";
+  const showCoverYear = coverYear !== false
+    && datingMode === "dated"
+    && !coverTitle?.includes(String(startYear));
 
   // 1. Generate & validate page IDs + template
   const map = generatePageIds(config);
@@ -899,6 +970,7 @@ export async function buildPdf(
 
   // 3. Create PDF
   const pdfDoc = await PDFDocument.create();
+  const spineImage = inkFriendly ? null : await embedSpineImage(pdfDoc, spine);
   // Register fontkit so pdfDoc.embedFont(bytes) can handle TTF/OTF binaries.
   pdfDoc.registerFontkit(fontkit);
   // Page dimensions: e-ink device preset overrides style.size; fallback to A4.
@@ -950,14 +1022,12 @@ export async function buildPdf(
 
   // 3b. Realistic render style: generate template overlays ONCE, embed as reusable XObjects.
   // Default is "realistic"; pass renderStyle:"flat" to opt out.
-  // Ink-friendly always uses flat — no grain, gutter, or ring overlays.
+  // Ink-friendly always uses flat — no grain or gutter overlays.
   const renderStyle = inkFriendly ? "flat" : ((style as PlannerStyle & { renderStyle?: string }).renderStyle ?? "realistic");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let realisticGutterImg: any = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let realisticGrainImg: any = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let realisticRingImg: any = null; // landscape + binding only
   let realisticOverlaySourceBytes = 0;
 
   if (renderStyle === "realistic") {
@@ -987,41 +1057,11 @@ export async function buildPdf(
       realisticOverlaySourceBytes += grainBuf.byteLength;
       realisticGrainImg = await pdfDoc.embedPng(grainBuf);
 
-      // 3. Binding ring art: circles pattern (landscape only)
-      if (orientation === "landscape") {
-        const ringW = Math.max(20, Math.ceil(pageWidth * 0.05));
-        const ringH = pageHeight;
-        const ringBuf = await (async () => {
-          const pixels = Buffer.alloc(ringW * ringH * 4, 0);
-          const ringCount = 9;
-          const spacing = ringH / ringCount;
-          const cx = Math.floor(ringW / 2);
-          const outerR = Math.floor(spacing * 0.4);
-          const innerR = outerR - 4;
-          for (let ry = 0; ry < ringH; ry++) {
-            for (let rx = 0; rx < ringW; rx++) {
-              for (let ri = 0; ri < ringCount; ri++) {
-                const cy = Math.floor(spacing * ri + spacing / 2);
-                const dist = Math.sqrt((rx - cx) ** 2 + (ry - cy) ** 2);
-                if (dist <= outerR && dist >= innerR) {
-                  const idx = (ry * ringW + rx) * 4;
-                  pixels[idx] = 110; pixels[idx + 1] = 110; pixels[idx + 2] = 110;
-                  pixels[idx + 3] = 180;
-                }
-              }
-            }
-          }
-          return sharp(pixels, { raw: { width: ringW, height: ringH, channels: 4 } }).png().toBuffer();
-        })();
-        realisticOverlaySourceBytes += ringBuf.byteLength;
-        realisticRingImg = await pdfDoc.embedPng(ringBuf);
-      }
-
       const sourceSzKb = Math.round(realisticOverlaySourceBytes / 1024);
       console.log(`[pdf-generator] Realistic overlays embedded; source assets: ~${sourceSzKb}KB`);
     } catch (err) {
       console.warn("[pdf-generator] Realistic overlay gen failed, falling back to flat:", (err as Error).message);
-      realisticGutterImg = null; realisticGrainImg = null; realisticRingImg = null;
+      realisticGutterImg = null; realisticGrainImg = null;
     }
   }
 
@@ -1048,15 +1088,13 @@ export async function buildPdf(
       // Draw grain at page scale (embedded once, XObject reference per page)
       page.drawImage(realisticGrainImg, { x: 0, y: 0, width: pageWidth, height: pageHeight, opacity: 0.45 });
     }
-    if (realisticRingImg && orientation === "landscape") {
-      const ringW = pageWidth * 0.05;
-      page.drawImage(realisticRingImg, { x: 0, y: 0, width: ringW, height: pageHeight });
-    } else if (realisticGutterImg) {
+    if (realisticGutterImg) {
       const gutterW = pageWidth * 0.05;
       page.drawImage(realisticGutterImg, { x: 0, y: 0, width: gutterW, height: pageHeight });
     }
-    // Layer 2c: binding hardware art (vector, rendered per page but is lightweight)
-    drawBindingHardware(page, pageWidth, pageHeight, bindingType, bindingFinish, orientation === "landscape");
+    // Layer 2c: catalog-backed binding artwork. Media-box clipping keeps the
+    // final full-size tile inside the page without distorting its aspect ratio.
+    drawSpineTiles(page, pageWidth, pageHeight, spineImage, spine);
 
     // Layer 3: accent header + page ID
     // Colour: solid accent fill with white text.
@@ -1453,6 +1491,7 @@ export async function buildPreviewPdf(
   background?: BackgroundSpec,
   fontPairing?: ThemeFontPairing,
   einkDevice?: string,
+  spine?: SpineSpec | null,
 ): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[] }> {
   // Shared e-ink helpers — identical logic to buildPdf so the preview is
   // always truthful about what the export will produce.
@@ -1471,6 +1510,7 @@ export async function buildPreviewPdf(
   const paper  = inkFriendly ? { r: 1, g: 1, b: 1 } : hexToRgb(colors[5] ?? "#fafafa");
 
   const pdfDoc = await PDFDocument.create();
+  const previewSpineImage = inkFriendly ? null : await embedSpineImage(pdfDoc, spine);
   // Register fontkit so pdfDoc.embedFont(bytes) can handle TTF/OTF/WOFF binaries.
   pdfDoc.registerFontkit(fontkit);
   // E-ink device preset overrides page trim (always portrait at device native size).
@@ -1551,6 +1591,7 @@ export async function buildPreviewPdf(
     if (previewGrainImg) {
       page.drawImage(previewGrainImg, { x: 0, y: 0, width: pageWidth, height: pageHeight, opacity: 0.45 });
     }
+    drawSpineTiles(page, pageWidth, pageHeight, previewSpineImage, spine);
     page.drawRectangle({ x: 0, y: pageHeight - 20, width: pageWidth, height: 20, color: rgb(accent.r, accent.g, accent.b) });
     page.drawText(id, { x: MARGIN, y: pageHeight - 14, size: 7, font, color: rgb(1, 1, 1) });
   }

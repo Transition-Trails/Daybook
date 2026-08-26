@@ -8,7 +8,7 @@
  * emitted. A failed proof therefore leaves no new partial set for inspection.
  */
 import { createHash } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -42,9 +42,23 @@ type GeneratorModule = {
     themeColors?: string[],
     template?: unknown,
     background?: unknown,
+    fontPairing?: unknown,
+    hotspots?: unknown,
+    inkFriendly?: boolean,
+    einkDevice?: string,
+    diagnosticPage?: boolean,
+    spine?: SpineSpec,
   ): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[] }>;
   generatePageIds(config: ProofConfig): PageIdMap;
   flattenPageIds(map: PageIdMap): string[];
+};
+type SpineSpec = {
+  id: string;
+  name: string;
+  assetRef: string;
+  unitAspect: number;
+  gapRatio: number;
+  orientation: Orientation extends "vertical" ? never : "vertical" | "horizontal";
 };
 type TemplateModule = {
   DEFAULT_TEMPLATE: {
@@ -119,6 +133,24 @@ const THEME = {
   name: "Terracotta (starter theme)",
   colors: ["#b75d3f", "#a04a30", "#c98a2b", "#7d8a6a", "#2c2822", "#f4efe6"],
 } as const;
+const SPINES = {
+  vertical: {
+    id: "spine-starter-rings-vertical",
+    name: "Classic Rings — Vertical",
+    unitAspect: 0.1353,
+    gapRatio: 0,
+    orientation: "vertical",
+    file: "rings2.png",
+  },
+  landscape: {
+    id: "spine-starter-rings-horizontal",
+    name: "Classic Rings — Horizontal",
+    unitAspect: 11.9,
+    gapRatio: 0,
+    orientation: "horizontal",
+    file: "rings1.png",
+  },
+} as const;
 const SECTIONS = ["Work", "Personal", "Health", "Goals"];
 const PROOFS: ProofSpec[] = [
   {
@@ -175,9 +207,10 @@ function makeConfig(spec: ProofSpec): ProofConfig {
       renderStyle: "realistic",
       notePaper: "dot",
       themeId: "t1",
-      coverTitle: "Daybook 2027",
+      coverTitle: "Daybook",
       coverSubtitle: `${spec.label} · ${THEME.name}`,
       coverYear: 2027,
+      spineStyleId: SPINES[spec.orientation].id,
     },
     output: {
       calMode: "link",
@@ -392,9 +425,23 @@ function verifyPlausiblePageCount(spec: ProofSpec, pageCount: number): void {
 
 async function buildAndVerify(spec: ProofSpec): Promise<ProofResult> {
   const config = makeConfig(spec);
+  const spineMeta = SPINES[spec.orientation];
+  const spineBytes = await readFile(path.join(ROOT, "scripts/assets", spineMeta.file));
+  const spine: SpineSpec = {
+    ...spineMeta,
+    assetRef: `data:image/png;base64,${spineBytes.toString("base64")}`,
+  };
   const generated = await buildPdf(
     config,
     [...THEME.colors],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    false,
+    undefined,
+    false,
+    spine,
   );
   const doc = await PDFDocument.load(generated.buffer);
   const map = generatePageIds(config);
@@ -432,6 +479,7 @@ function printSummary(results: ProofResult[]): void {
       .map((slot) => `${slot.label}=${slot.weekday}:c${slot.column + 1}r${slot.row + 1}`)
       .join(" ");
     console.log(`${result.spec.file}`);
+    console.log(`  spine=${SPINES[result.spec.orientation].name}`);
     console.log(
       `  pages=${result.pageCount} links=${result.linkCount} dead-links=${result.deadLinkCount}`,
     );

@@ -38,6 +38,7 @@ import {
   hardwareTable,
   accessoriesTable,
   fontsTable,
+  spineStylesTable,
 } from "@workspace/db";
 import { eq, ne, and, inArray, asc, sql } from "drizzle-orm";
 import { requireSuperAdmin, requireStoreAccess, resolveStoreActorOptional } from "../middleware/requireRole";
@@ -457,6 +458,44 @@ buildCatalogRoutes(router, "/palettes",   palettesTable,        "Palette");
 buildCatalogRoutes(router, "/backgrounds",backgroundsTable,     "Background");
 buildCatalogRoutes(router, "/packs",      stickerPacksTable,    "StickerPack", { itemType: "pack" });
 buildCatalogRoutes(router, "/inserts",    insertsTable,         "Insert", { dedupByName: true, itemType: "insert" });
+
+router.get("/spine-styles", async (req: Request, res: Response): Promise<void> => {
+  const rows = isPublicCaller(req)
+    ? await db.select().from(spineStylesTable).where(eq(spineStylesTable.status, "live")).orderBy(spineStylesTable.name)
+    : await db.select().from(spineStylesTable).where(ne(spineStylesTable.status, "deleted" as any)).orderBy(spineStylesTable.name);
+  res.json(rows);
+});
+
+router.post("/spine-styles", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const body = req.body as Partial<typeof spineStylesTable.$inferInsert>;
+  if (!body.name || !body.slug || !body.assetRef || !body.unitAspect || !["vertical", "horizontal"].includes(String(body.orientation))) {
+    res.status(400).json({ error: "name, slug, assetRef, positive unitAspect, and orientation are required" });
+    return;
+  }
+  const [row] = await db.insert(spineStylesTable).values({
+    ...body,
+    id: body.id ?? `spine-${crypto.randomUUID()}`,
+    origin: body.origin ?? "owned",
+    authoredByStoreId: body.origin === "starter" ? null : body.authoredByStoreId ?? null,
+    gapRatio: Math.max(0, Number(body.gapRatio ?? 0)),
+    status: body.status ?? "draft",
+  } as typeof spineStylesTable.$inferInsert).returning();
+  res.status(201).json(row);
+});
+
+router.patch("/spine-styles/:id", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const body = { ...req.body } as Partial<typeof spineStylesTable.$inferInsert>;
+  delete body.id;
+  const [row] = await db.update(spineStylesTable).set(body).where(eq(spineStylesTable.id, req.params.id as string)).returning();
+  if (!row) { res.status(404).json({ error: "Spine style not found" }); return; }
+  res.json(row);
+});
+
+router.delete("/spine-styles/:id", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const [row] = await db.delete(spineStylesTable).where(eq(spineStylesTable.id, req.params.id as string)).returning();
+  if (!row) { res.status(404).json({ error: "Spine style not found" }); return; }
+  res.sendStatus(204);
+});
 // /products — legacy read-only view of notebook/journal/memory-keeping editions.
 // Writes go through /editions. /related-products is the old URL; both 301-redirect
 // to the same data so existing bookmarks and API clients keep working.

@@ -253,6 +253,30 @@ export const shapeRecipesApi = {
     apiFetch<StickerShapeRecipe[]>(`/stores/${storeId}/sticker-shape-recipes`, {
       headers: { "x-store-id": storeId },
     }),
+  createStore: (storeId: string, data: StickerShapeRecipeInput) =>
+    apiFetch<StickerShapeRecipe>(`/stores/${storeId}/sticker-shape-recipes`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+  updateStore: (storeId: string, id: string, data: StickerShapeRecipeInput) =>
+    apiFetch<StickerShapeRecipe>(`/stores/${storeId}/sticker-shape-recipes/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+  previewStore: (storeId: string, data: StickerShapeRecipeInput & {
+    label?: string;
+    paletteColors?: string[];
+  }) =>
+    apiFetch<{ processedImageData: string; cutlineSvg: string }>(
+      `/stores/${storeId}/sticker-shape-recipes/preview`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "x-store-id": storeId },
+      },
+    ),
   render: (storeId: string, data: {
     recipeId: string;
     label?: string;
@@ -260,8 +284,6 @@ export const shapeRecipesApi = {
     sizeInMm?: number;
     name?: string;
     packId?: string;
-    shadowStyle?: string;
-    shadowLiftPx?: number;
   }) =>
     apiFetch<{ sticker: LibrarySticker; processedImageData: string; cutlineSvg: string; recipeId: string }>(
       `/stores/${storeId}/stickers/render/from-recipe`,

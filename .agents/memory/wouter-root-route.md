@@ -1,6 +1,6 @@
 ---
 name: Wouter root-path routing
-description: regexparam 3 wildcard limitations and the correct catch-all pattern for Wouter v3
+description: Wouter v3 wildcard limitations and query-string handling
 ---
 
 ## Rule
@@ -29,3 +29,10 @@ silently falls through the Switch and renders blank — no error, no warning.
   ```
   Because `/daybook/(.*)` requires the trailing slash, bare `/daybook` needs its own explicit route.
 - **Never use `/:rest*` or `/base/:rest*`** for catch-alls — they silently miss deep paths.
+
+## Query-string rule
+Read query parameters with `useSearch()`, not by splitting the value from `useLocation()`.
+
+**Why:** In this Wouter version, `useLocation()` exposes the pathname while `useSearch()` owns the query string. A control can write `?mode=...` to the browser URL while the component keeps rendering its fallback mode if it parses only the location value.
+
+**How to apply:** Build `URLSearchParams` from `useSearch()`, and use the pathname from `useLocation()` only when constructing the next navigation target.

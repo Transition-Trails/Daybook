@@ -29,6 +29,7 @@ import {
   helpContentTable,
 } from "@workspace/db";
 import bcrypt from "bcryptjs";
+import { seedStarterShapeRecipes, STARTER_SHAPE_RECIPES } from "./seed-sticker-shape-recipes";
 
 const OWNER_EMAIL    = "owner@daybook.app";
 const OWNER_PASSWORD = "daybook-owner-2025";
@@ -96,6 +97,9 @@ async function main() {
       set: { origin: stickerPacksTable.origin },
     });
   console.log("  ✓ packs (3): all licensed");
+
+  await seedStarterShapeRecipes();
+  console.log(`  ✓ starter shape recipes (${STARTER_SHAPE_RECIPES.length})`);
 
   // ── Inserts ────────────────────────────────────────────────────────────────
   // Starter collection items → origin='starter'; others → 'licensed'

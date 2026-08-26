@@ -183,6 +183,13 @@
       "when": 1787704800000,
       "tag": "0025_sticker_shape_recipes",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1787755200000,
+      "tag": "0026_sticker_shape_recipe_starter_uniqueness",
+      "breakpoints": true
     }
   ]
 }

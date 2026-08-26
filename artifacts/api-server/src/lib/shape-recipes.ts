@@ -1,5 +1,6 @@
 import { parseHexColor } from "./color";
 import { validateSvgTemplate, SvgContractError } from "./svg-contract";
+import { SVGPathData } from "svg-pathdata";
 import type {
   StickerFunctionType,
   StickerShapeRecipe,
@@ -32,6 +33,9 @@ export type ValidatedShapeRecipe = {
   cutlinePath: string;
 };
 
+const SHAPE_RECIPE_OUTPUT_DPI = 300;
+const MM_PER_INCH = 25.4;
+
 function rootAttributes(svg: string): Record<string, string> {
   const match = /^\s*<svg\b([^>]*)>/i.exec(svg);
   if (!match) throw new SvgContractError("Rule 1 failed: template must start with an SVG root element");
@@ -50,6 +54,17 @@ function parseMm(raw: string | undefined, name: string): number {
     throw new SvgContractError(`Rule 2 failed: SVG ${name} must be a positive millimetre value`);
   }
   return value;
+}
+
+function assertQuotedRootDimensions(svg: string): void {
+  const rootMatch = /^\s*<svg\b([^>]*)>/i.exec(svg);
+  if (!rootMatch) return;
+  for (const name of ["width", "height"]) {
+    const quoted = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"[^"]*"|'[^']*')`, "i").test(rootMatch[1]);
+    if (!quoted) {
+      throw new SvgContractError(`Rule 2 failed: SVG ${name} must be a quoted positive millimetre value`);
+    }
+  }
 }
 
 function parseViewBox(raw: string | undefined): { x: number; y: number; width: number; height: number } {
@@ -81,6 +96,52 @@ function cutlineFromTemplate(svg: string): string {
     throw new SvgContractError("Rule 3 failed: the cutline path must have a closed d attribute ending in Z");
   }
   return d;
+}
+
+function validateCutlineGeometry(
+  cutlinePath: string,
+  viewBox: { x: number; y: number; width: number; height: number },
+): void {
+  let parsed: SVGPathData;
+  try {
+    parsed = new SVGPathData(cutlinePath);
+  } catch {
+    throw new SvgContractError("Rule 3 failed: cutline d must be valid SVG path data");
+  }
+
+  const moveCount = parsed.commands.filter((command) => command.type === SVGPathData.MOVE_TO).length;
+  const closeCount = parsed.commands.filter((command) => command.type === SVGPathData.CLOSE_PATH).length;
+  if (
+    parsed.commands.length < 4 ||
+    parsed.commands[0]?.type !== SVGPathData.MOVE_TO ||
+    parsed.commands.at(-1)?.type !== SVGPathData.CLOSE_PATH ||
+    moveCount !== 1 ||
+    closeCount !== 1
+  ) {
+    throw new SvgContractError("Rule 3 failed: cutline must be one closed contour with exactly one subpath");
+  }
+
+  const bounds = parsed.getBounds();
+  const values = [bounds.minX, bounds.maxX, bounds.minY, bounds.maxY];
+  if (!values.every(Number.isFinite) || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) {
+    throw new SvgContractError("Rule 3 failed: cutline contour must have non-zero width and height");
+  }
+
+  const epsilon = Math.max(viewBox.width, viewBox.height) * 0.000001;
+  if (
+    bounds.minX < viewBox.x - epsilon ||
+    bounds.minY < viewBox.y - epsilon ||
+    bounds.maxX > viewBox.x + viewBox.width + epsilon ||
+    bounds.maxY > viewBox.y + viewBox.height + epsilon
+  ) {
+    throw new SvgContractError("Rule 3 failed: cutline bounds must stay inside the SVG viewBox");
+  }
+
+  const coverageX = (bounds.maxX - bounds.minX) / viewBox.width;
+  const coverageY = (bounds.maxY - bounds.minY) / viewBox.height;
+  if (coverageX < 0.9 || coverageY < 0.9) {
+    throw new SvgContractError("Rule 3 failed: cutline must cover at least 90% of the SVG viewBox");
+  }
 }
 
 function assertPlaceholders(svg: string, takesLabel: boolean): void {
@@ -117,13 +178,20 @@ export function validateShapeRecipeTemplate(input: ShapeRecipeInput): ValidatedS
     throw new SvgContractError(`functionType must be one of: ${STICKER_FUNCTION_TYPES.join(", ")}`);
   }
   const attrs = rootAttributes(input.svgTemplate);
+  assertQuotedRootDimensions(input.svgTemplate);
   const width = parseMm(attrs.width, "width");
   const height = parseMm(attrs.height, "height");
   const viewBox = parseViewBox(attrs.viewbox);
   const templateAspect = viewBox.width / viewBox.height;
-  if (Math.abs(templateAspect - input.aspectRatio) > 0.01) {
+  const physicalAspect = width / height;
+  const aspectTolerance = 0.005;
+  if (
+    Math.abs(templateAspect - input.aspectRatio) / input.aspectRatio > aspectTolerance ||
+    Math.abs(physicalAspect - input.aspectRatio) / input.aspectRatio > aspectTolerance ||
+    Math.abs(physicalAspect - templateAspect) / templateAspect > aspectTolerance
+  ) {
     throw new SvgContractError(
-      `Rule 5 failed: viewBox aspect ratio ${templateAspect.toFixed(4)} differs from aspect_ratio ${input.aspectRatio.toFixed(4)} by more than 0.01`,
+      `Rule 5 failed: physical dimensions (${physicalAspect.toFixed(4)}) and viewBox (${templateAspect.toFixed(4)}) must match aspect_ratio ${input.aspectRatio.toFixed(4)} within 0.5%`,
     );
   }
   assertNoRaster(input.svgTemplate);
@@ -146,6 +214,7 @@ export function validateShapeRecipeTemplate(input: ShapeRecipeInput): ValidatedS
     throw error;
   }
   const cutlinePath = cutlineFromTemplate(input.svgTemplate);
+  validateCutlineGeometry(cutlinePath, viewBox);
   return { svgTemplate: input.svgTemplate.trim(), viewBox, cutlinePath };
 }
 
@@ -190,6 +259,31 @@ export function renderShapeRecipe(
     h: height,
   });
   return { svg: rendered.svg, cutlinePath: validated.cutlinePath, viewBox: rendered.viewBox };
+}
+
+export function renderShapeRecipeCutlineSvg(
+  rendered: Pick<ValidatedShapeRecipe, "cutlinePath" | "viewBox">,
+  widthMm: number,
+): string {
+  if (!Number.isFinite(widthMm) || widthMm <= 0) {
+    throw new SvgContractError("Cutline width must be a positive millimetre value");
+  }
+  const heightMm = widthMm * (rendered.viewBox.height / rendered.viewBox.width);
+  const pixelWidth = Math.max(1, Math.round((widthMm / MM_PER_INCH) * SHAPE_RECIPE_OUTPUT_DPI));
+  const pixelHeight = Math.max(1, Math.round((heightMm / MM_PER_INCH) * SHAPE_RECIPE_OUTPUT_DPI));
+  const scaleX = pixelWidth / rendered.viewBox.width;
+  const scaleY = pixelHeight / rendered.viewBox.height;
+  const d = new SVGPathData(rendered.cutlinePath)
+    .toAbs()
+    .matrix(scaleX, 0, 0, scaleY, -rendered.viewBox.x * scaleX, -rendered.viewBox.y * scaleY)
+    .round(3)
+    .encode();
+  const format = (value: number) => Number(value.toFixed(3)).toString();
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${pixelWidth} ${pixelHeight}" width="${format(widthMm)}mm" height="${format(heightMm)}mm">`,
+    `  <path d="${d}" fill="none" stroke="#000000" stroke-width="1"/>`,
+    `</svg>`,
+  ].join("\n");
 }
 
 export function normalizeRecipeInput(body: Record<string, unknown>): ShapeRecipeInput {

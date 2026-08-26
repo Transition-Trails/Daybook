@@ -1,5 +1,5 @@
 /**
- * Sticker Studio — Store-scoped two-mode shell (replaces Store Pack Studio).
+ * Sticker Studio — Store-scoped three-mode shell (replaces Store Pack Studio).
  *
  * Mode A — Create Stickers:  batch upload + three AI generation sub-routes
  *   • Upload & Process (batch pipeline with shadow/feather controls)
@@ -7,17 +7,18 @@
  *   • Text Set         (renders date / weekday / month label sets)
  *   • Illustrative Art (Claude writes an image-gen prompt)
  *
- * Mode B — Assemble a Pack: pack name/tag/price editor + attestation + publish
+ * Mode B — Shape Recipes: starter catalog + store-owned deterministic SVG authoring
+ * Mode C — Assemble a Pack: pack name/tag/price editor + attestation + publish
  *
- * Mode is kept in the URL query string (?mode=create | ?mode=assemble) so the
+ * Mode is kept in the URL query string (?mode=create | ?mode=recipes | ?mode=assemble) so the
  * browser back button returns you to the correct mode.
  */
-import { useState, useRef } from "react";
-import { useLocation } from "wouter";
+import { useEffect, useState, useRef } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Loader2, Upload, Wand2, Type, Image, Package, Sticker,
-  RefreshCw, Save, Globe, Lock, Sparkles, X, ChevronRight,
+  Loader2, Upload, Wand2, Type, Image, ImageOff, Package, Sticker,
+  RefreshCw, Save, Globe, Lock, Sparkles, X, ChevronRight, Plus, Layers,
   CheckCircle2, AlertCircle, Lightbulb, ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,10 @@ import {
   studioGenerateApi,
   apiFetch,
   STICKER_FUNCTION_TYPES,
+  shapeRecipesApi,
   type StickerFunctionType,
+  type StickerShapeRecipe,
+  type StickerShapeRecipeInput,
 } from "@/lib/api";
 import { getPackPriceError, parsePackPrice } from "@/lib/studio/packPricing";
 import { AiDisabledState, SuperAdminAiBanner } from "./AiDisabledState";
@@ -52,7 +56,7 @@ interface Props {
   aiEnabled: boolean;
 }
 
-type Mode = "create" | "assemble";
+type Mode = "create" | "recipes" | "assemble";
 type CreateTab = "upload" | "functional" | "textset" | "prompt";
 
 interface BatchItem {
@@ -76,13 +80,13 @@ interface GeneratedSticker {
 
 function useQueryParam(key: string, fallback: string): [string, (v: string) => void] {
   const [location, setLocation] = useLocation();
-  const params = new URLSearchParams(location.split("?")[1] ?? "");
+  const search = useSearch();
+  const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const value = params.get(key) ?? fallback;
   const set = (v: string) => {
-    const base = location.split("?")[0];
     const next = new URLSearchParams(params);
     next.set(key, v);
-    setLocation(`${base}?${next.toString()}`);
+    setLocation(`${location}?${next.toString()}`);
   };
   return [value, set];
 }
@@ -103,6 +107,7 @@ function ModeBar({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) 
     <div className="flex gap-2 mb-6 p-1 bg-muted rounded-lg w-fit">
       {([
         { id: "create", label: "Create Stickers", icon: Sticker },
+        { id: "recipes", label: "Shape Recipes", icon: Layers },
         { id: "assemble", label: "Assemble a Pack", icon: Package },
       ] as const).map(({ id, label, icon: Icon }) => (
         <button
@@ -332,49 +337,80 @@ function UploadTab({ storeId }: { storeId: string }) {
 
 // ── Functional SVG tab ────────────────────────────────────────────────────────
 
-function FunctionalTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; aiEnabled: boolean; isSuperAdmin?: boolean }) {
+function FunctionalTab({ storeId }: { storeId: string }) {
   const { toast } = useToast();
-  const [functionType, setFunctionType] = useState<StickerFunctionType>("tab");
+  const [recipeId, setRecipeId] = useState("");
   const [label, setLabel] = useState("");
   const [color, setColor] = useState("#2D3748");
+  const [accent, setAccent] = useState("#C87560");
   const [sizeInMm, setSizeInMm] = useState(20);
-  const [result, setResult] = useState<GeneratedSticker | null>(null);
+  const [result, setResult] = useState<{ name: string } | null>(null);
 
-  if (!aiEnabled) return isSuperAdmin ? <SuperAdminAiBanner /> : <AiDisabledState />;
+  const recipes = useQuery({
+    queryKey: ["sticker-shape-recipes", storeId],
+    queryFn: () => shapeRecipesApi.listStore(storeId),
+  });
+  const selectedRecipe = recipes.data?.find((recipe) => recipe.id === recipeId);
+
+  useEffect(() => {
+    if (!recipeId && recipes.data?.[0]) {
+      setRecipeId(recipes.data[0].id);
+      setSizeInMm(recipes.data[0].defaultSizeMm);
+    }
+  }, [recipeId, recipes.data]);
 
   const generate = useMutation({
     mutationFn: () =>
-      apiFetch<GeneratedSticker & { model: string }>(`/stores/${storeId}/stickers/generate/functional`, {
-        method: "POST",
-        body: JSON.stringify({ functionType, label: label.trim() || undefined, paletteColors: [color], sizeInMm }),
+      shapeRecipesApi.render(storeId, {
+        recipeId,
+        label: label.trim() || undefined,
+        paletteColors: [color, accent],
+        sizeInMm,
       }),
     onSuccess: (data) => {
-      setResult(data);
-      toast({ title: "SVG sticker generated and saved as draft" });
+      setResult(data.sticker);
+      toast({ title: "Recipe rendered and saved as draft" });
     },
-    onError: (err: Error) => toast({ title: "Generation failed", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: "Render failed", description: err.message, variant: "destructive" }),
   });
 
   return (
     <div className="space-y-6 max-w-lg">
       <p className="text-sm text-muted-foreground">
-        Claude draws a clean vector SVG sticker. Ideal for tabs, banners, date circles, and functional shapes.
+        Choose a validated shape recipe and render it as a deterministic SVG sticker. Manage custom silhouettes in Shape Recipes.
       </p>
       <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <Label className="text-xs">Function type</Label>
-          <Select value={functionType} onValueChange={(value) => setFunctionType(value as StickerFunctionType)}>
+        <div className="col-span-2 space-y-1.5">
+          <Label className="text-xs">Shape recipe</Label>
+          <Select
+            value={recipeId}
+            onValueChange={(value) => {
+              setRecipeId(value);
+              const recipe = recipes.data?.find((item) => item.id === value);
+              if (recipe) setSizeInMm(recipe.defaultSizeMm);
+              setResult(null);
+            }}
+          >
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              {STICKER_FUNCTION_TYPES.map((t) => (
-                <SelectItem key={t} value={t}>{t}</SelectItem>
+              {(recipes.data ?? []).map((recipe) => (
+                <SelectItem key={recipe.id} value={recipe.id}>
+                  {recipe.name} · {recipe.origin === "starter" ? "Starter" : "My recipe"}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {recipes.isError && <p className="text-xs text-destructive">{(recipes.error as Error).message}</p>}
+          {recipes.data?.length === 0 && <p className="text-xs text-muted-foreground">No recipes are available yet.</p>}
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">Label (optional)</Label>
-          <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Monday" />
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. Monday"
+            disabled={selectedRecipe?.takesLabel === false}
+          />
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">Primary colour</Label>
@@ -385,6 +421,14 @@ function FunctionalTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; 
           </div>
         </div>
         <div className="space-y-1.5">
+          <Label className="text-xs">Accent colour</Label>
+          <div className="flex gap-2 items-center">
+            <input type="color" value={accent} onChange={(e) => setAccent(e.target.value)}
+              className="h-9 w-14 rounded border border-border cursor-pointer" />
+            <Input value={accent} onChange={(e) => setAccent(e.target.value)} className="font-mono text-xs" />
+          </div>
+        </div>
+        <div className="space-y-1.5">
           <Label className="text-xs">Size (mm)</Label>
           <Input type="number" min={8} max={200} value={sizeInMm}
             onChange={(e) => setSizeInMm(Number(e.target.value))} />
@@ -392,12 +436,12 @@ function FunctionalTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; 
       </div>
       <Button
         onClick={() => generate.mutate()}
-        disabled={generate.isPending}
+        disabled={generate.isPending || recipes.isLoading || !recipeId}
         className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
       >
         {generate.isPending
-          ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Claude is drawing…</>
-          : <><Wand2 className="w-4 h-4 mr-2" />Generate SVG sticker</>}
+          ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Rendering…</>
+          : <><Wand2 className="w-4 h-4 mr-2" />Render SVG sticker</>}
       </Button>
 
       {result && (
@@ -710,7 +754,254 @@ function IllustrativeTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// MODE B — ASSEMBLE A PACK
+// MODE B — SHAPE RECIPES
+// ═════════════════════════════════════════════════════════════════════════════
+
+const NEW_STORE_RECIPE: StickerShapeRecipeInput = {
+  name: "New banner recipe",
+  slug: "new-banner-recipe",
+  functionType: "banner",
+  svgTemplate: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" width="120mm" height="40mm">
+  <rect x="0" y="0" width="120" height="40" fill="{{primary}}"/>
+  <text x="60" y="25" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="{{labelFontSize}}" fill="{{accent}}">{{label}}</text>
+  <path data-name="cutline" d="M0 0 L120 0 L120 40 L0 40 Z" fill="none" stroke="none"/>
+</svg>`,
+  aspectRatio: 3,
+  defaultSizeMm: 60,
+  takesLabel: true,
+  status: "draft",
+};
+
+function StoreRecipeCenter({ storeId }: { storeId: string }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [selected, setSelected] = useState<StickerShapeRecipe | null>(null);
+  const [form, setForm] = useState<StickerShapeRecipeInput>({ ...NEW_STORE_RECIPE });
+  const [preview, setPreview] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState("");
+  const [previewing, setPreviewing] = useState(false);
+
+  const recipes = useQuery({
+    queryKey: ["sticker-shape-recipes", storeId],
+    queryFn: () => shapeRecipesApi.listStore(storeId),
+  });
+
+  const choose = (recipe: StickerShapeRecipe | null) => {
+    setSelected(recipe);
+    setForm(recipe ? {
+      name: recipe.name,
+      slug: recipe.slug,
+      functionType: recipe.functionType,
+      svgTemplate: recipe.svgTemplate,
+      aspectRatio: recipe.aspectRatio,
+      defaultSizeMm: recipe.defaultSizeMm,
+      takesLabel: recipe.takesLabel,
+      status: recipe.status,
+    } : { ...NEW_STORE_RECIPE });
+    setPreview(null);
+    setValidationError("");
+  };
+
+  useEffect(() => {
+    let active = true;
+    setPreviewing(true);
+    const timer = window.setTimeout(() => {
+      shapeRecipesApi.previewStore(storeId, {
+        ...form,
+        label: form.takesLabel ? "Preview" : "",
+        paletteColors: ["#1B2A4A", "#C87560"],
+      }).then((result) => {
+        if (!active) return;
+        setPreview(result.processedImageData);
+        setValidationError("");
+      }).catch((error: Error) => {
+        if (!active) return;
+        setPreview(null);
+        setValidationError(error.message);
+      }).finally(() => {
+        if (active) setPreviewing(false);
+      });
+    }, 450);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [form, storeId]);
+
+  const save = useMutation({
+    mutationFn: () => selected
+      ? shapeRecipesApi.updateStore(storeId, selected.id, form)
+      : shapeRecipesApi.createStore(storeId, form),
+    onSuccess: (recipe) => {
+      qc.invalidateQueries({ queryKey: ["sticker-shape-recipes", storeId] });
+      setSelected(recipe);
+      setForm({
+        name: recipe.name,
+        slug: recipe.slug,
+        functionType: recipe.functionType,
+        svgTemplate: recipe.svgTemplate,
+        aspectRatio: recipe.aspectRatio,
+        defaultSizeMm: recipe.defaultSizeMm,
+        takesLabel: recipe.takesLabel,
+        status: recipe.status,
+      });
+      setValidationError("");
+      toast({ title: selected ? "Recipe updated" : "Recipe created" });
+    },
+    onError: (error: Error) => setValidationError(error.message),
+  });
+
+  const update = <K extends keyof StickerShapeRecipeInput>(
+    key: K,
+    value: StickerShapeRecipeInput[K],
+  ) => setForm((current) => ({ ...current, [key]: value }));
+  const starterSelected = selected?.origin === "starter";
+  const formDisabled = starterSelected || save.isPending;
+
+  return (
+    <div className="space-y-5 max-w-5xl">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">Shape recipes</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Author repeatable functional SVGs with machine-ready cut paths for your store.
+          </p>
+        </div>
+        <Button onClick={() => choose(null)}>
+          <Plus className="w-4 h-4 mr-1.5" />New recipe
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+        <ShieldCheck className="w-4 h-4 shrink-0" />
+        Starters are shared reference recipes. Create a new store recipe to author your own shape.
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-5">
+        <div className="space-y-2">
+          {recipes.isLoading && (
+            <div className="rounded-xl border p-4 text-sm text-muted-foreground">Loading recipes…</div>
+          )}
+          {recipes.isError && (
+            <ErrorState message={(recipes.error as Error).message} onRetry={() => recipes.refetch()} />
+          )}
+          {recipes.data?.map((recipe) => (
+            <button key={recipe.id} onClick={() => choose(recipe)}
+              className={`w-full text-left rounded-xl border p-3 transition-colors ${selected?.id === recipe.id ? "border-primary bg-primary/5" : "hover:bg-muted/40"}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[13px] font-semibold truncate">{recipe.name}</span>
+                <Badge variant={recipe.origin === "starter" ? "secondary" : "outline"} className="text-[10px] shrink-0">
+                  {recipe.origin === "starter" ? "Starter" : "Your recipe"}
+                </Badge>
+              </div>
+              <p className="text-[10.5px] text-muted-foreground mt-1">
+                {recipe.slug} · {recipe.functionType}
+              </p>
+            </button>
+          ))}
+          {!recipes.isLoading && !recipes.isError && !recipes.data?.length && (
+            <div className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">
+              No recipes yet. Create your first authored shape.
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border bg-card p-5 space-y-4">
+          {starterSelected && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <Lock className="w-3.5 h-3.5 shrink-0" />
+              Starter recipes are read-only.
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label>Name</Label>
+              <Input disabled={formDisabled} value={form.name} onChange={(e) => update("name", e.target.value)} />
+            </div>
+            <div>
+              <Label>Slug</Label>
+              <Input disabled={formDisabled} value={form.slug} onChange={(e) => update("slug", e.target.value)} />
+            </div>
+            <div>
+              <Label>Function type</Label>
+              <select disabled={formDisabled} className="w-full h-10 rounded-md border bg-background px-3 text-sm"
+                value={form.functionType} onChange={(e) => update("functionType", e.target.value as StickerFunctionType)}>
+                {STICKER_FUNCTION_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label>Aspect</Label>
+                <Input disabled={formDisabled} type="number" step="0.01" value={form.aspectRatio}
+                  onChange={(e) => update("aspectRatio", Number(e.target.value))} />
+              </div>
+              <div>
+                <Label>Size mm</Label>
+                <Input disabled={formDisabled} type="number" value={form.defaultSizeMm}
+                  onChange={(e) => update("defaultSizeMm", Number(e.target.value))} />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-5">
+            <label className={`flex items-center gap-2 text-sm ${starterSelected ? "text-muted-foreground" : "cursor-pointer"}`}>
+              <Checkbox disabled={formDisabled} checked={form.takesLabel}
+                onCheckedChange={(value) => update("takesLabel", value === true)} />Takes label
+            </label>
+            <label className={`flex items-center gap-2 text-sm ${starterSelected ? "text-muted-foreground" : "cursor-pointer"}`}>
+              <Checkbox disabled={formDisabled} checked={form.status === "live"}
+                onCheckedChange={(value) => update("status", value === true ? "live" : "draft")} />Live
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_230px] gap-4">
+            <div>
+              <Label>SVG template</Label>
+              <Textarea disabled={formDisabled} className="font-mono text-[11px] min-h-[300px]" value={form.svgTemplate}
+                onChange={(e) => update("svgTemplate", e.target.value)} />
+            </div>
+            <div className="space-y-3">
+              <Label>Contract preview</Label>
+              <div className="h-[180px] rounded-xl border bg-[linear-gradient(45deg,#eee_25%,transparent_25%),linear-gradient(-45deg,#eee_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#eee_75%),linear-gradient(-45deg,transparent_75%,#eee_75%)] bg-[length:16px_16px] flex items-center justify-center p-4">
+                {previewing
+                  ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  : preview
+                    ? <img src={preview} alt="Recipe preview" className="max-w-full max-h-full" />
+                    : <ImageOff className="text-muted-foreground" />}
+              </div>
+              <p className="text-[10.5px] text-muted-foreground">
+                The server validates the SVG contract before showing a preview or allowing save.
+              </p>
+            </div>
+          </div>
+
+          {validationError && (
+            <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+              {validationError}
+            </div>
+          )}
+          <div className="flex justify-end">
+            {starterSelected ? (
+              <Button variant="outline" onClick={() => choose(null)}>
+                <Plus className="w-4 h-4 mr-1.5" />Create store recipe
+              </Button>
+            ) : (
+              <Button disabled={previewing || !!validationError || save.isPending} onClick={() => save.mutate()}>
+                {save.isPending
+                  ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                  : <Save className="w-4 h-4 mr-1.5" />}
+                {selected ? "Save changes" : "Save recipe"}
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MODE C — ASSEMBLE A PACK
 // ═════════════════════════════════════════════════════════════════════════════
 
 function AssembleMode({ storeId, role, aiEnabled }: Props) {
@@ -956,7 +1247,7 @@ export default function StoreStudioPage({ storeId, role, aiEnabled }: Props) {
               <UploadTab storeId={storeId} />
             </TabsContent>
             <TabsContent value="functional">
-              <FunctionalTab storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={isSuperAdminRole(role)} />
+              <FunctionalTab storeId={storeId} />
             </TabsContent>
             <TabsContent value="textset">
               <TextSetTab storeId={storeId} />
@@ -966,6 +1257,8 @@ export default function StoreStudioPage({ storeId, role, aiEnabled }: Props) {
             </TabsContent>
           </Tabs>
         </div>
+      ) : mode === "recipes" ? (
+        <StoreRecipeCenter storeId={storeId} />
       ) : (
         <AssembleMode storeId={storeId} role={role} aiEnabled={aiEnabled} />
       )}

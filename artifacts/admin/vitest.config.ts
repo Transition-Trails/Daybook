@@ -13,6 +13,9 @@ export default defineConfig({
     // A few jsdom-heavy integration tests can exceed Vitest's five-second
     // default under that shared CPU load without indicating a product failure.
     testTimeout: 15_000,
+    // Keep jsdom files serial when the API suite is running in parallel. This
+    // avoids CPU-starved waitFor/findBy* assertions without weakening them.
+    fileParallelism: false,
   },
   resolve: {
     alias: {

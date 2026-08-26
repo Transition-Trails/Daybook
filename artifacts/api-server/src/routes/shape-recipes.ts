@@ -11,12 +11,12 @@ import { requireStoreAccess } from "../middleware/requireRole";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import type { ActorContext } from "../lib/roles";
 import { writeAudit } from "../lib/audit";
-import { adjustCutlineSvgForShadow } from "../lib/imageProcessing";
 import { computeLabelFontSize } from "../lib/labelImageGen";
 import {
   normalizeRecipeInput,
   recipeToResponse,
   renderShapeRecipe,
+  renderShapeRecipeCutlineSvg,
   validateShapeRecipeTemplate,
 } from "../lib/shape-recipes";
 import { SvgContractError } from "../lib/svg-contract";
@@ -43,6 +43,20 @@ function sameStore(actor: ActorContext, storeId: string, res: Response): boolean
 function validationError(res: Response, error: unknown): void {
   const message = error instanceof Error ? error.message : "Recipe validation failed";
   res.status(400).json({ error: message });
+}
+
+function isRecipeSlugConflict(error: unknown): boolean {
+  const wrapped = error as {
+    code?: string;
+    constraint?: string;
+    cause?: { code?: string; constraint?: string };
+  } | null;
+  const dbError = wrapped?.code === "23505" ? wrapped : wrapped?.cause;
+  return dbError?.code === "23505"
+    && (
+      dbError.constraint === "sticker_shape_recipe_scope_slug_uq"
+      || dbError.constraint === "sticker_shape_recipe_starter_slug_uq"
+    );
 }
 
 async function ensureUniqueScope(
@@ -132,6 +146,50 @@ router.post(
       });
       res.status(201).json(recipeToResponse(recipe));
     } catch (error) {
+      if (isRecipeSlugConflict(error)) {
+        res.status(409).json({ error: `A recipe with slug "${input.slug}" already exists for this store.` });
+        return;
+      }
+      validationError(res, error);
+    }
+  },
+);
+
+router.post(
+  "/stores/:storeId/sticker-shape-recipes/preview",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const storeId = (req.params as { storeId: string }).storeId;
+    if (!sameStore(actor, storeId, res)) return;
+    const body = req.body as Record<string, unknown>;
+    const input = normalizeRecipeInput(body);
+    try {
+      const contract = validateShapeRecipeTemplate(input);
+      const label = typeof body.label === "string" ? body.label : "Preview";
+      const paletteColors = Array.isArray(body.paletteColors)
+        ? body.paletteColors.filter((value): value is string => typeof value === "string")
+        : [];
+      const rendered = renderShapeRecipe(
+        {
+          svgTemplate: input.svgTemplate,
+          aspectRatio: input.aspectRatio,
+          takesLabel: input.takesLabel,
+        },
+        {
+          primary: paletteColors[0] ?? "#1B2A4A",
+          accent: paletteColors[1] ?? "#C87560",
+          label,
+          labelFontSize: computeLabelFontSize(label) * (contract.viewBox.width / 400),
+          sizeInMm: input.defaultSizeMm,
+        },
+      );
+      const cutlineSvg = renderShapeRecipeCutlineSvg(rendered, input.defaultSizeMm);
+      res.json({
+        processedImageData: `data:image/svg+xml;base64,${Buffer.from(rendered.svg).toString("base64")}`,
+        cutlineSvg,
+      });
+    } catch (error) {
       validationError(res, error);
     }
   },
@@ -163,6 +221,10 @@ router.patch(
       const [recipe] = await db.update(stickerShapeRecipesTable).set(input).where(eq(stickerShapeRecipesTable.id, id)).returning();
       res.json(recipeToResponse(recipe));
     } catch (error) {
+      if (isRecipeSlugConflict(error)) {
+        res.status(409).json({ error: `A recipe with slug "${input.slug}" already exists for this store.` });
+        return;
+      }
       validationError(res, error);
     }
   },
@@ -198,6 +260,10 @@ router.post(
       }).returning();
       res.status(201).json(recipeToResponse(recipe));
     } catch (error) {
+      if (isRecipeSlugConflict(error)) {
+        res.status(409).json({ error: `A starter recipe with slug "${input.slug}" already exists.` });
+        return;
+      }
       validationError(res, error);
     }
   },
@@ -210,9 +276,11 @@ router.post(
     const body = req.body as Record<string, unknown>;
     const input = normalizeRecipeInput(body);
     try {
-      validateShapeRecipeTemplate(input);
+      const contract = validateShapeRecipeTemplate(input);
       const label = typeof body.label === "string" ? body.label : "Preview";
-      const paletteColors = Array.isArray(body.paletteColors) ? body.paletteColors.filter((value): value is string => typeof value === "string") : [];
+      const paletteColors = Array.isArray(body.paletteColors)
+        ? body.paletteColors.filter((value): value is string => typeof value === "string")
+        : [];
       const rendered = renderShapeRecipe(
         {
           svgTemplate: input.svgTemplate,
@@ -223,11 +291,11 @@ router.post(
           primary: paletteColors[0] ?? "#1B2A4A",
           accent: paletteColors[1] ?? "#C87560",
           label,
-          labelFontSize: computeLabelFontSize(label) * (validateShapeRecipeTemplate(input).viewBox.width / 400),
+          labelFontSize: computeLabelFontSize(label) * (contract.viewBox.width / 400),
           sizeInMm: input.defaultSizeMm,
         },
       );
-      const cutlineSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${rendered.viewBox.x} ${rendered.viewBox.y} ${rendered.viewBox.width} ${rendered.viewBox.height}"><path d="${rendered.cutlinePath}" fill="none" stroke="#000000" stroke-width="0.5"/></svg>`;
+      const cutlineSvg = renderShapeRecipeCutlineSvg(rendered, input.defaultSizeMm);
       res.json({
         processedImageData: `data:image/svg+xml;base64,${Buffer.from(rendered.svg).toString("base64")}`,
         cutlineSvg,
@@ -258,6 +326,10 @@ router.patch(
       const [recipe] = await db.update(stickerShapeRecipesTable).set(input).where(eq(stickerShapeRecipesTable.id, id)).returning();
       res.json(recipeToResponse(recipe));
     } catch (error) {
+      if (isRecipeSlugConflict(error)) {
+        res.status(409).json({ error: `A recipe with slug "${input.slug}" already exists in this scope.` });
+        return;
+      }
       validationError(res, error);
     }
   },
@@ -273,6 +345,10 @@ router.post(
     const storeId = (req.params as { storeId: string }).storeId;
     if (!sameStore(actor, storeId, res)) return;
     const body = req.body as Record<string, unknown>;
+    if (body.shadowStyle != null && body.shadowStyle !== "none") {
+      res.status(400).json({ error: "shadowStyle is not supported for deterministic shape recipe rendering." });
+      return;
+    }
     const recipeId = typeof body.recipeId === "string" ? body.recipeId : "";
     const recipe = await getVisibleRecipe(recipeId, storeId);
     if (!recipe) {
@@ -309,11 +385,7 @@ router.post(
         labelFontSize: computeLabelFontSize(label) * (contract.viewBox.width / 400),
         sizeInMm,
       });
-      const cutline = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${rendered.viewBox.x} ${rendered.viewBox.y} ${rendered.viewBox.width} ${rendered.viewBox.height}"><path d="${rendered.cutlinePath}" fill="none" stroke="#000000" stroke-width="0.5"/></svg>`;
-      const shadowStyle = typeof body.shadowStyle === "string" ? body.shadowStyle : "none";
-      const cutlineSvg = shadowStyle !== "none"
-        ? adjustCutlineSvgForShadow(cutline, shadowStyle, Number(body.shadowLiftPx) || 4)
-        : cutline;
+      const cutlineSvg = renderShapeRecipeCutlineSvg(rendered, sizeInMm);
       const processedImageData = `data:image/svg+xml;base64,${Buffer.from(rendered.svg).toString("base64")}`;
       const packId = typeof body.packId === "string" ? body.packId : null;
       if (packId) {
@@ -350,8 +422,8 @@ router.post(
         generationType: "shape-recipe",
         sourceType: "generated-svg",
         recipeId: recipe.id,
-        shadowStyle,
-        shadowLiftPx: Number(body.shadowLiftPx) || 4,
+        shadowStyle: "none",
+        shadowLiftPx: 0,
         processedImageData,
         cutlineSvg,
       }).returning();

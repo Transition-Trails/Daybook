@@ -8,7 +8,9 @@ import {
   real,
   serial,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { assetsTable } from "./assets";
 import { storesTable } from "./stores";
 
@@ -214,6 +216,9 @@ export const stickerShapeRecipesTable = pgTable(
       t.authoredByStoreId,
       t.slug,
     ),
+    starterSlugUnique: uniqueIndex("sticker_shape_recipe_starter_slug_uq")
+      .on(t.slug)
+      .where(sql`${t.origin} = 'starter' AND ${t.authoredByStoreId} IS NULL`),
   }),
 );
 

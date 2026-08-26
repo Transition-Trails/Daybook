@@ -2566,7 +2566,7 @@ function RecipeRail() {
   );
 }
 
-function RecipeCenter({ createTrigger }: { createTrigger: number }) {
+export function RecipeCenter({ createTrigger }: { createTrigger: number }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [selected, setSelected] = useState<StickerShapeRecipe | null>(null);
@@ -2574,6 +2574,7 @@ function RecipeCenter({ createTrigger }: { createTrigger: number }) {
   const [description, setDescription] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [validationError, setValidationError] = useState("");
+  const [previewing, setPreviewing] = useState(false);
 
   const recipes = useQuery({
     queryKey: ["sticker-shape-recipes"],
@@ -2600,20 +2601,29 @@ function RecipeCenter({ createTrigger }: { createTrigger: number }) {
   }, [createTrigger]);
 
   useEffect(() => {
+    let active = true;
+    setPreviewing(true);
     const timer = window.setTimeout(() => {
       shapeRecipesApi.previewPlatform({
         ...form,
         label: form.takesLabel ? "Preview" : "",
         paletteColors: ["#1B2A4A", "#C87560"],
       }).then((result) => {
+        if (!active) return;
         setPreview(result.processedImageData);
         setValidationError("");
       }).catch((error: Error) => {
+        if (!active) return;
         setPreview(null);
         setValidationError(error.message);
+      }).finally(() => {
+        if (active) setPreviewing(false);
       });
     }, 450);
-    return () => window.clearTimeout(timer);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
   }, [form]);
 
   const save = useMutation({
@@ -2694,12 +2704,16 @@ function RecipeCenter({ createTrigger }: { createTrigger: number }) {
           <div className="grid grid-cols-[minmax(0,1fr)_230px] gap-4">
             <div>
               <Label>SVG template</Label>
-              <Textarea className="font-mono text-[11px] min-h-[300px]" value={form.svgTemplate} onChange={(e) => update("svgTemplate", e.target.value)} />
+              <Textarea aria-label="SVG template" className="font-mono text-[11px] min-h-[300px]" value={form.svgTemplate} onChange={(e) => update("svgTemplate", e.target.value)} />
             </div>
             <div className="space-y-3">
               <Label>Contract preview</Label>
               <div className="h-[180px] rounded-xl border bg-[linear-gradient(45deg,#eee_25%,transparent_25%),linear-gradient(-45deg,#eee_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#eee_75%),linear-gradient(-45deg,transparent_75%,#eee_75%)] bg-[length:16px_16px] flex items-center justify-center p-4">
-                {preview ? <img src={preview} alt="Recipe preview" className="max-w-full max-h-full" /> : <ImageOff className="text-muted-foreground" />}
+                {previewing
+                  ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  : preview
+                    ? <img src={preview} alt="Recipe preview" className="max-w-full max-h-full" />
+                    : <ImageOff className="text-muted-foreground" />}
               </div>
               <Textarea placeholder="Describe a shape for Claude to propose…" value={description} onChange={(e) => setDescription(e.target.value)} />
               <Button type="button" variant="outline" className="w-full" disabled={!description.trim() || assist.isPending} onClick={() => assist.mutate()}>
@@ -2711,7 +2725,7 @@ function RecipeCenter({ createTrigger }: { createTrigger: number }) {
 
           {validationError && <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">{validationError}</div>}
           <div className="flex justify-end">
-            <Button disabled={!!validationError || save.isPending} onClick={() => save.mutate()}>
+            <Button disabled={previewing || !!validationError || save.isPending} onClick={() => save.mutate()}>
               {save.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Save className="w-4 h-4 mr-1.5" />}Save recipe
             </Button>
           </div>

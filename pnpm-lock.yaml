@@ -385,6 +385,9 @@ importers:
       stripe:
         specifier: ^22.3.2
         version: 22.3.2(@types/node@25.9.5)
+      svg-pathdata:
+        specifier: ^7.2.0
+        version: 7.2.0
       svix:
         specifier: ^1.99.1
         version: 1.99.1
@@ -5229,6 +5232,10 @@ packages:
     resolution: {integrity: sha512-oK8WG9diS3DlhdUkcFn4tkNIiIbBx9lI2ClF8K+b2/m8Eyv47LSawxUzZQSNKUrVb2KsqeTDCcjAAVPYaSLVTA==}
     engines: {node: '>=14.18.0'}
 
+  svg-pathdata@7.2.0:
+    resolution: {integrity: sha512-qd+AxqMpfRrRQaWb2SrNFvn69cvl6piqY8TxhYl2Li1g4/LO5F9NJb5wI4vNwRryqgSgD43gYKLm/w3ag1bKvQ==}
+    engines: {node: '>=20.11.1'}
+
   svix@1.99.1:
     resolution: {integrity: sha512-JfpvbAg5iT5NagDAfOq3e6Ci6NbOMbMm6C3DnfDBB60m2JDK+Z2hXPE9XNAmutb53DCdPoih1V70IbklZnX09A==}
 
@@ -9812,6 +9819,8 @@ snapshots:
       superagent: 10.3.0
     transitivePeerDependencies:
       - supports-color
+
+  svg-pathdata@7.2.0: {}
 
   svix@1.99.1:
     dependencies:

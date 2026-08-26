@@ -182,6 +182,27 @@ function RootRouter() {
 
   return (
     <Switch>
+      {/* ── Platform studio bookmarks ─────────────────────────────
+       * These root-level aliases keep saved platform-admin bookmarks
+       * working alongside the canonical /daybook console routes.
+       * Store-scoped studio URLs remain below and are intentionally
+       * handled by their store guards.
+       */ }
+      <Route path="/studios/(.*)">
+        <RequireSuperAdmin state={state}>
+          <SidebarProvider>
+            <Shell>
+              <Switch>
+                {daybookRoutes.map((r) => (
+                  <Route key={r.path} path={r.path} component={r.component} />
+                ))}
+                <Route component={NotFound} />
+              </Switch>
+            </Shell>
+          </SidebarProvider>
+        </RequireSuperAdmin>
+      </Route>
+
       {/* ── Super Admin console ────────────────────────────────── */}
       <Route path="/super">
         <RequireSuperAdmin state={state}>

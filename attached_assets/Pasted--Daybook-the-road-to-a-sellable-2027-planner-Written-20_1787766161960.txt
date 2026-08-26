@@ -1,0 +1,74 @@
+# Daybook — the road to a sellable 2027 planner
+
+**Written 2026-08-26.** Goal: produce 2027 planners you can inspect, trust, and sell. Commerce work
+(checkout, buyer accounts, dashboards) is parked until this is done.
+
+---
+
+## The thing you need to know first
+
+**Two planner-correctness defects are still live in the generator.** Both were found in review pass 1
+and neither is fixed in the code at `main` today. They are the two most visible things in any planner.
+
+**D13 — every month grid puts the 1st in the top-left corner.**
+`pdf-generator.ts:1157` and `:1644` both pass `dayOfMonthContext: { …, weekStartOffset: 0 }`. The
+template's own formula is `slot = d - 1 + weekStartOffset`, so with a literal 0 the 1st always lands in
+the first cell and day 8 sits directly beneath it — whatever weekday the month actually starts on.
+
+The worst part: line 1631 computes `const firstDow = new Date(startYear, startMonth, 1).getDay()` — the
+correct value — and then line 1634 does `const slot = d - 1; // weekStartOffset=0` and ignores it, under
+a comment claiming this "keeps consistency" with the other grid. Both grids are consistently wrong.
+
+**D05 — `weekStart` is accepted, stored, printed on the cover, and has no effect.**
+Line 143 still reads `while ((cursor.getDay() !== wdOffset) && cursor.getTime() >= startDate.getTime())`.
+Walking backward from `startDate`, the first decrement puts the cursor before `startDate`, so the guard
+stops the loop immediately. Monday and Sunday produce identical planners — but the filename and the cover
+page both record which was chosen, so the artifact makes a claim it does not honour.
+
+**There is no test anywhere that checks calendar correctness.** `weekStart` appears in the test suite
+only as a config input to font, link and file-size tests. Nothing asserts that a date lands on the right
+weekday. That is why both defects survived a ten-phase fix plan.
+
+### What that means for you
+
+You cannot produce a correct 2027 planner today. A buyer opening it would find every month's calendar
+grid misaligned — the most checkable thing in the entire product. This has to be fixed before any
+testing, because testing a planner whose calendar is wrong tells you nothing about anything else.
+
+---
+
+## The sequence
+
+**P1 — Calendar correctness.** `handoff/DAYBOOK-WAVE-P1-CALENDAR-CORRECTNESS.md`
+
+Fix D13 and D05, and build the calendar test suite that should have existed from the start — the
+permanent guard that stops this class of defect returning. Nothing else in this plan matters until the
+dates are right.
+
+**P2 — A 2027 planner you inspect with your own eyes.**
+
+Tests prove the grid formula; they cannot tell you the planner is *good*. P2 generates a real full-year
+2027 planner in both week-start variants and gives you a short checklist to walk — cover, a month spread,
+a week spread, a day page, the links between them. Same shape as the cut-line proof: the machine checks
+what it can, and one human pass catches what it cannot. Brief written after P1 reports, because what is
+worth checking depends on what P1 finds.
+
+**P3 — Studio readiness for a real 2027 edition.**
+
+Only after the artifact is trustworthy. The five studio hubs are the strongest part of the product and I
+have deliberately not reviewed them internally — doing that before the generator is correct would mean
+judging the authoring tools by broken output. Scope gets set from what P2's inspection turns up.
+
+**Parked until the above is done:** the checkout gap, buyer accounts and the purchase library, dashboard
+revenue, the altitude switch. All still recorded in `Daybook Journey Review.dc.html` and unchanged. The
+checkout gap means nothing is being sold today — which is precisely why it can wait a few days while the
+thing you would sell is made correct.
+
+---
+
+## Why this order
+
+A planner with a wrong calendar cannot be sold at any price, so correctness precedes commerce. Tests
+precede inspection, because your time is the expensive input and it should be spent on judgement rather
+than on catching arithmetic. And the studios come last because authoring tools can only be assessed
+against output you trust.

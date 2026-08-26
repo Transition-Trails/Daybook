@@ -1,0 +1,52 @@
+# Paste this into Replit — the 2027 proof set (P2)
+
+P1 is verified: `getMonthGridOffset` feeds all three call sites, the week-start walk reaches the boundary,
+and `calendar-correctness.test.ts` pins it. The three month anchors and both week boundaries check out
+independently — 1 Jan 2027 is a Friday, 1 Aug 2027 is a Sunday, and Dec 27/28 2026 are the correct Sunday
+and Monday starts.
+
+**The full brief is `handoff/DAYBOOK-WAVE-P2-2027-PROOF.md`. Follow it as written.**
+
+## What this wave is
+
+Real 2027 planners the owner can inspect by eye, plus a script that refuses to emit a broken set. Tests
+prove the formula; they cannot tell her the planner is good.
+
+Four PDFs — Monday vertical, Sunday vertical, Monday landscape, and a 13-month Monday file — generated
+through the **real** `buildPdf`, with six fail-closed assertions and a printed summary. Then a human
+checklist in `docs/planner-2027-verification.md`, table left empty.
+
+## The two things that matter most
+
+**Assertion 1 is the valuable one: every internal link must resolve.** Dead hyperlinks that look live are
+the D12 and D15 family, and they are completely invisible to visual inspection — a planner can look
+perfect and have a hundred buttons going nowhere. If that assertion is the only one you get right, the
+wave was worth running.
+
+**Assertion 3 must be independent.** Check the 1st-of-month placement by reading the generated document,
+not by calling `getMonthGridOffset` again. Calling the function under test to verify its own output proves
+nothing.
+
+## One gap P1 left
+
+The suite has no 29-day February. Step 1 adds it: `getMonthGridOffset(2028, 1, …)` for both week starts
+with a hand-verified comment, and a generated February 2028 grid where day 29 exists in the right slot. An
+off-by-one that only shows up in a leap February is exactly the kind that ships.
+
+Choosing hand-verified anchors over a derived loop in P1 was the right call, by the way — a loop built from
+the same formula would only restate it. Keep that approach.
+
+## Standing rules
+
+- Call the real generator. Do not reimplement or stub any part of the PDF path.
+- Do not weaken a test to make something pass.
+- Do not touch the storefront, checkout, or the studios.
+
+## Still outstanding from P1
+
+Two things the P1 report should have carried, needed before the inspection pass:
+
+1. **Confirmation that `calendar-correctness.test.ts` goes red when each of the two fixes is reverted
+   individually.** A suite that passes before and after the fix is not a guard.
+2. **The 12-month 2027 page count before and after P1.** If the week-start fix changed it, that means the
+   walk was affecting page generation as well as layout, and that is worth knowing before she inspects.

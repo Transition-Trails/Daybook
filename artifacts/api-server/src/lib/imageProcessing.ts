@@ -228,25 +228,50 @@ function dilateAlpha(alpha: Uint8Array, width: number, height: number, radius: n
   for (let y = 0; y < expandedHeight; y++) {
     const deque: number[] = [];
     const row = y * expandedWidth;
-    for (let x = 0; x < expandedWidth; x++) {
-      while (deque.length && deque[0] < x - window + 1) deque.shift();
-      while (deque.length && padded[row + deque[deque.length - 1]] <= padded[row + x]) deque.pop();
-      deque.push(x);
-      horizontal[row + x] = padded[row + deque[0]];
+    // The deque is causal, so delay each result by `radius` pixels to make
+    // the logical window centered on the output pixel. Without this offset a
+    // source pixel expands by 2*radius toward the right edge and not at all
+    // toward the left edge.
+    for (let right = 0; right < expandedWidth + radius; right++) {
+      const value = right < expandedWidth ? padded[row + right] : 0;
+      while (deque.length && deque[0] < right - window + 1) deque.shift();
+      while (deque.length) {
+        const previous = deque[deque.length - 1];
+        const previousValue = previous < expandedWidth ? padded[row + previous] : 0;
+        if (previousValue > value) break;
+        deque.pop();
+      }
+      deque.push(right);
+      if (right >= radius) {
+        const center = right - radius;
+        horizontal[row + center] = deque.length
+          ? (deque[0] < expandedWidth ? padded[row + deque[0]] : 0)
+          : 0;
+      }
     }
   }
 
   const out = new Uint8Array(padded.length);
   for (let x = 0; x < expandedWidth; x++) {
     const deque: number[] = [];
-    for (let y = 0; y < expandedHeight; y++) {
-      while (deque.length && deque[0] < y - window + 1) deque.shift();
-      while (
-        deque.length &&
-        horizontal[deque[deque.length - 1] * expandedWidth + x] <= horizontal[y * expandedWidth + x]
-      ) deque.pop();
-      deque.push(y);
-      out[y * expandedWidth + x] = horizontal[deque[0] * expandedWidth + x];
+    for (let bottom = 0; bottom < expandedHeight + radius; bottom++) {
+      const value = bottom < expandedHeight ? horizontal[bottom * expandedWidth + x] : 0;
+      while (deque.length && deque[0] < bottom - window + 1) deque.shift();
+      while (deque.length) {
+        const previous = deque[deque.length - 1];
+        const previousValue = previous < expandedHeight
+          ? horizontal[previous * expandedWidth + x]
+          : 0;
+        if (previousValue > value) break;
+        deque.pop();
+      }
+      deque.push(bottom);
+      if (bottom >= radius) {
+        const center = bottom - radius;
+        out[center * expandedWidth + x] = deque.length
+          ? (deque[0] < expandedHeight ? horizontal[deque[0] * expandedWidth + x] : 0)
+          : 0;
+      }
     }
   }
 

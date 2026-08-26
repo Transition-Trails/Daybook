@@ -231,6 +231,24 @@ function countOpaque(pixels: Uint8Array): number {
   return count;
 }
 
+function alphaBoundingBox(
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  const box = { minX: width, minY: height, maxX: -1, maxY: -1 };
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (pixels[(y * width + x) * 4 + 3] === 0) continue;
+      box.minX = Math.min(box.minX, x);
+      box.minY = Math.min(box.minY, y);
+      box.maxX = Math.max(box.maxX, x);
+      box.maxY = Math.max(box.maxY, y);
+    }
+  }
+  return box;
+}
+
 /**
  * Parse the SVG path `d` attribute and return all (x, y) coordinate pairs.
  * Only handles M and L commands (absolute, space-separated) — which is all
@@ -380,6 +398,52 @@ describe("0. Direct function diagnostics", () => {
         pixels[index + 3] > 0,
     );
     expect(hasWhiteMatte).toBe(true);
+  });
+
+  it("dilates a border symmetrically on all four sides", async () => {
+    const width = 64;
+    const height = 64;
+    const rgba = Buffer.alloc(width * height * 4);
+    for (let y = 24; y < 40; y++) {
+      for (let x = 24; x < 40; x++) {
+        const index = (y * width + x) * 4;
+        rgba[index] = 255;
+        rgba[index + 1] = 80;
+        rgba[index + 2] = 80;
+        rgba[index + 3] = 255;
+      }
+    }
+    const source = `data:image/png;base64,${(
+      await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer()
+    ).toString("base64")}`;
+
+    const bordered = await applyBorderAndSize(source, "white", null, "#fff", null, 0.6);
+    const decoded = await decodeProcessedImage(bordered);
+    const box = alphaBoundingBox(decoded.pixels, decoded.width, decoded.height);
+
+    expect(box.minX).toBe(box.minY);
+    expect(decoded.width - 1 - box.maxX).toBe(decoded.height - 1 - box.maxY);
+    expect(box.minX).toBe(decoded.width - 1 - box.maxX);
+  });
+
+  it("keeps a 38 mm bordered fixture cutline at the requested physical width", async () => {
+    const fixture = await fixtureAsDataUrl("bordered");
+    const sourceBuffer = Buffer.from(fixture.split(",", 2)[1], "base64");
+    const trimmed = await sharp(sourceBuffer).trim().png().toBuffer();
+    const processed = await applyBorderAndSize(
+      `data:image/png;base64,${trimmed.toString("base64")}`,
+      "white",
+      null,
+      "#ffffff",
+      38,
+      2,
+    );
+    const svg = await generateCutlineSvg(processed, STICKER_OUTPUT_DPI);
+    const points = parseSvgPathPoints(svg);
+    const box = boundingBox(points);
+    const widthMm = (box.width / STICKER_OUTPUT_DPI) * 25.4;
+
+    expect(Math.abs(widthMm - 38)).toBeLessThanOrEqual(0.4);
   });
 
   it("rejects a 12,000px source before allocating raw flood-fill buffers", () => {

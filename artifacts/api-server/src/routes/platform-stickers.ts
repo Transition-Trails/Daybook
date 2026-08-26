@@ -42,6 +42,7 @@ import {
 } from "drizzle-orm";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
+import { isNonNegativeWholeCentAmount } from "../lib/money";
 import {
   removeBackground,
   applyBorderAndSize,
@@ -1057,6 +1058,19 @@ router.post(
     };
 
     if (!name?.trim()) { res.status(400).json({ error: "name is required" }); return; }
+    // Platform packs may deliberately be free (null/omitted/zero), but a
+    // supplied price must be a finite non-negative whole-cent value. This
+    // prevents malformed values from being silently normalised to a free pack.
+    if (
+      price !== undefined
+      && price !== null
+      && (
+        !isNonNegativeWholeCentAmount(price)
+      )
+    ) {
+      res.status(400).json({ error: "price must be a non-negative whole-cent amount" });
+      return;
+    }
 
     const packId = `pack_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
     const status: "draft" | "live" = reqStatus === "live" ? "live" : "draft";

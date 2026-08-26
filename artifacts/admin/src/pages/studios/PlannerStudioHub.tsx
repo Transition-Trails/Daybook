@@ -32,6 +32,11 @@ import {
 import { catalogApi, apiFetch, platformPlannersApi, type PlatformPlannerConfig } from "@/lib/api";
 import { aiApi, extractJson, type AiResult } from "@/lib/ai";
 import { useToast } from "@/hooks/use-toast";
+import { PLANNER_FONT_FAMILIES } from "@/lib/studio/plannerConstants";
+import {
+  DEFAULT_BUILD, buildStateToStylePatch, templateToBuildState,
+  type PlannerBuildState as BuildState,
+} from "@/lib/studio/plannerState";
 
 /** Defensive string extractor — prevents [object Object] when Claude returns JSON or an unexpected shape. */
 function safeText(v: unknown): string {
@@ -95,85 +100,7 @@ const YEARS  = [2025, 2026, 2027, 2028];
 const MONTH_OPTIONS = MONTHS.map((m, i) => ({ value: String(i + 1), label: m }));
 const YEAR_OPTIONS  = YEARS.map(y => ({ value: String(y), label: String(y) }));
 
-// ── Bundled font families available as per-role overrides ─────────────────────
-/** Families that have WOFF files bundled on the API server — safe to request offline. */
-export const PLANNER_FONT_FAMILIES = [
-  // Serif / display
-  "Playfair Display", "Cormorant Garamond", "Spectral", "Crimson Pro",
-  "DM Serif Display", "EB Garamond", "Lora",
-  // Sans / modern
-  "Lato", "Source Sans Pro", "Work Sans", "Instrument Sans", "DM Sans",
-  "Inter", "Space Grotesk", "Nunito Sans",
-];
-
 // ── Build form state ──────────────────────────────────────────────────────────
-
-interface BuildState {
-  editionId:      string;
-  editionName:    string;
-  startYear:      string;
-  startMonth:     string;
-  endYear:        string;
-  endMonth:       string;
-  paperSize:      "A5" | "HalfLetter";
-  weeklyType:     "vertical" | "two-page";
-  themeId:        string;
-  themeName:      string;
-  paletteId:      string;
-  packIds:        string[];
-  insertIds:      string[];
-  productIds:     string[];
-  /** Derived from the selected edition — controls which modes are visible */
-  productType:    string;
-  /** New fields for the two-card build UI */
-  datingMode:     "dated" | "undated" | "perpetual";
-  weekStart:      "mon" | "sun";
-  tabPos:         "right" | "top" | "bottom" | "none";
-  sections:       string[];
-  /** Per-role font overrides — saved as style.fonts.  Empty = use theme default. */
-  headingFont:    string;
-  subheadingFont: string;
-  /** Saved as style.fonts.script (the script/body role in PlannerStyle). */
-  bodyFont:       string;
-  accentFont:     string;
-  /** Background override — saved as style.backgroundId. */
-  backgroundId:   string;
-  /** Binding hardware — saved as style.binding.{ type, finish }. */
-  bindingType:    string;
-  bindingFinish:  string;
-  /** Paper colour key — saved as style.paperColour. */
-  paperColour:    string;
-}
-
-export const DEFAULT_BUILD: BuildState = {
-  editionId:      "",
-  editionName:    "—",
-  startYear:      String(new Date().getFullYear()),
-  startMonth:     "1",
-  endYear:        String(new Date().getFullYear()),
-  endMonth:       "12",
-  paperSize:      "A5",
-  weeklyType:     "vertical",
-  themeId:        "",
-  themeName:      "None",
-  paletteId:      "",
-  packIds:        [],
-  insertIds:      [],
-  productIds:     [],
-  productType:    "planner",
-  datingMode:     "dated",
-  weekStart:      "mon",
-  tabPos:         "right",
-  sections:       [],
-  headingFont:    "",
-  subheadingFont: "",
-  bodyFont:       "",
-  accentFont:     "",
-  backgroundId:   "",
-  bindingType:    "coil",
-  bindingFinish:  "gold",
-  paperColour:    "white",
-};
 
 // ── Compose-context chip (clay active fill) ───────────────────────────────────
 
@@ -772,79 +699,6 @@ function PdfPreviewDock({ buildState, einkDevice }: { buildState: BuildState; ei
 // Eyebrow + consequence tokens used throughout the build card
 const BUILD_EYEBROW    = "text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground";
 const BUILD_CONSEQ     = "text-[12.5px] leading-relaxed text-muted-foreground";
-
-/** Convert a PlatformPlannerConfig to the BuildState shape used by PdfPreviewDock. */
-/** Exported so round-trip tests can call it directly. */
-export function templateToBuildState(t: PlatformPlannerConfig): BuildState {
-  const s  = t.setup as any;
-  const st = t.style  as any;
-  const monthCount  = s.monthCount  ?? 12;
-  const startMonth  = s.startMonth  ?? 0;   // 0-indexed
-  const startYear   = s.startYear   ?? (new Date().getFullYear() + 1);
-  const totalOffset = startMonth + monthCount - 1;
-  const endYear     = startYear + Math.floor(totalOffset / 12);
-  const endMonth    = totalOffset % 12;     // 0-indexed
-  return {
-    ...DEFAULT_BUILD,
-    editionId:      t.editionId  ?? "",
-    editionName:    "—",
-    startYear:      String(startYear),
-    startMonth:     String(startMonth + 1),  // BuildState uses 1-indexed
-    endYear:        String(endYear),
-    endMonth:       String(endMonth + 1),    // BuildState uses 1-indexed
-    weeklyType:     s.orientation === "landscape" ? "two-page" : "vertical",
-    themeId:        st.themeId   ?? "",
-    themeName:      "",
-    paletteId:      st.paletteId ?? "",
-    datingMode:     (s.datingMode  ?? "dated")  as BuildState["datingMode"],
-    weekStart:      (s.weekStart   ?? "mon")    as BuildState["weekStart"],
-    tabPos:         (st.tabPos     ?? "right")  as BuildState["tabPos"],
-    sections:       st.sections    ?? [],
-    packIds:        st.packIds     ?? [],
-    insertIds:      st.insertIds   ?? [],
-    // Font overrides — restored from style.fonts on draft reopen
-    headingFont:    (st.fonts as any)?.heading    ?? "",
-    subheadingFont: (st.fonts as any)?.subheading ?? "",
-    bodyFont:       (st.fonts as any)?.script     ?? "",
-    accentFont:     (st.fonts as any)?.accent     ?? "",
-    // Background, binding, paper colour
-    backgroundId:   st.backgroundId           ?? "",
-    bindingType:    (st.binding as any)?.type   ?? "coil",
-    bindingFinish:  (st.binding as any)?.finish ?? "gold",
-    paperColour:    st.paperColour             ?? "white",
-  };
-}
-
-/**
- * Serialize font/background/binding/paper fields from a BuildState to a
- * PlannerStyle-compatible style patch fragment.
- * Exported for unit tests.
- */
-export function buildStateToStylePatch(b: BuildState) {
-  const fonts = b.headingFont || b.subheadingFont || b.bodyFont || b.accentFont
-    ? {
-        ...(b.headingFont    ? { heading:    b.headingFont }    : {}),
-        ...(b.subheadingFont ? { subheading: b.subheadingFont } : {}),
-        ...(b.bodyFont       ? { script:     b.bodyFont }       : {}),
-        ...(b.accentFont     ? { accent:     b.accentFont }     : {}),
-      }
-    : undefined;
-  const binding = b.bindingType && b.bindingType !== "none"
-    ? { type: b.bindingType, finish: b.bindingFinish }
-    : undefined;
-  return {
-    themeId:       b.themeId   || null,
-    paletteId:     b.paletteId || null,
-    tabPos:        b.tabPos,
-    sections:      b.sections,
-    packIds:       b.packIds,
-    insertIds:     b.insertIds,
-    ...(fonts          ? { fonts }                              : {}),
-    backgroundId:  b.backgroundId || null,
-    ...(binding        ? { binding }                            : {}),
-    ...(b.paperColour  ? { paperColour: b.paperColour }         : {}),
-  };
-}
 
 export function BuildCenter({
   template, onUpdated, onCreateNew, onEinkDeviceChange,

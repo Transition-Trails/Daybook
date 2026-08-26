@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { ErrorState, SkeletonRows } from "@/components/shared";
+import { getPackPriceError, parsePackPrice } from "@/lib/studio/packPricing";
 import {
   storeStudiosApi,
   type OwnedTheme,
@@ -784,6 +785,8 @@ function EditPackModal({
   const [name, setName] = useState(pack.name);
   const [tagsStr, setTagsStr] = useState((pack.tags as string[]).join(", "));
   const [price, setPrice] = useState(String(pack.price ?? 0));
+  const priceError = getPackPriceError(price);
+  const parsedPrice = parsePackPrice(price);
 
   const save = useMutation({
     mutationFn: () =>
@@ -793,7 +796,7 @@ function EditPackModal({
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean),
-        price: parseFloat(price) || 0,
+        price: parsedPrice ?? undefined,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["store-owned-list", storeId] });
@@ -831,13 +834,16 @@ function EditPackModal({
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
               <Input
                 type="number"
-                min="0"
+                min="0.01"
                 step="0.01"
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
-                className="pl-6"
+                className={`pl-6 ${priceError ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                aria-invalid={!!priceError}
+                aria-describedby={priceError ? "content-pack-price-error" : undefined}
               />
             </div>
+            {priceError && <p id="content-pack-price-error" className="text-xs text-destructive">{priceError}</p>}
           </div>
         </div>
         <DialogFooter>
@@ -846,7 +852,8 @@ function EditPackModal({
             size="sm"
             className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
             onClick={() => save.mutate()}
-            disabled={!name || save.isPending}
+            disabled={!name || !parsedPrice || save.isPending}
+            title={priceError ?? (!name ? "Add a pack name before saving." : undefined)}
           >
             {save.isPending && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
             Save changes

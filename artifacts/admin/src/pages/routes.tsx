@@ -23,7 +23,7 @@
  * /editions           original editions list          → now Editions mode of Planner Studio
  * /editions/:id       edition detail (linked from Editions mode)
  * /planners/builder   original standalone builder     → now Build mode of Planner Studio
- * /studios/theme      original ThemeStudio            → now Theme mode of Planner Studio
+ * /studios/theme      original ThemeStudio            → canonical Theme Studio hub
  * /studios/edition    original EditionStudio          → now Editions mode of Planner Studio
  * /studios/trends     original TrendResearch          → now Trends mode of Marketing Studio
  * /studios/pack       legacy alias for /studios/stickers
@@ -76,14 +76,10 @@ import SyncDashboard from '@/pages/sync';
 import CalendarPage from '@/pages/calendar';
 import PlannerLibrary from '@/pages/ink/PlannerLibrary';
 
-// Backward-compat standalone pages (no nav entry, routes kept so bookmarks work)
+// Backward-compat pages that are still real screens (no nav entry)
 import PlannerBuilder from '@/pages/planners/builder';
 import PlannerInteriorsPage from '@/pages/planners/interiors';
-import ThemeStudio from '@/pages/studios/ThemeStudio';
-import EditionStudio from '@/pages/studios/EditionStudio';
 import EditionNew from '@/pages/editions/new';
-import StudioTrendResearch from '@/pages/studios/TrendResearch';
-import StickerStudio from '@/pages/studios/StickerStudio';
 
 export const routes = [
   { path: "/", component: Dashboard },
@@ -141,8 +137,8 @@ export const routes = [
   { path: "/editions/new",             component: EditionNew },             // standalone two-path create
   { path: "/editions/:id",             component: EditionDetail },
   { path: "/planners/builder",         component: PlannerBuilder },         // → Planner Studio · Build
-  { path: "/studios/theme",            component: ThemeStudio },            // → Planner Studio · Theme
-  { path: "/studios/edition",          component: EditionStudio },          // → Planner Studio · Editions
-  { path: "/studios/trends",           component: StudioTrendResearch },    // → Marketing Studio · Trends
-  { path: "/studios/pack",             component: StickerStudio },          // legacy alias
+  { path: "/studios/theme",            component: () => <Redirect to="/studios/theme-builder" /> },
+  { path: "/studios/edition",          component: () => <Redirect to="/studios/planner?mode=editions" /> },
+  { path: "/studios/trends",           component: () => <Redirect to="/studios/marketing?mode=trends" /> },
+  { path: "/studios/pack",             component: () => <Redirect to="/studios/stickers?mode=packs" /> },
 ];

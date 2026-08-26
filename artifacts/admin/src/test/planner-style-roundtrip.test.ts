@@ -10,8 +10,8 @@ import {
   templateToBuildState,
   buildStateToStylePatch,
   DEFAULT_BUILD,
-  type PlatformPlannerConfig,
-} from "@/pages/studios/PlannerStudioHub";
+} from "@/lib/studio/plannerState";
+import { type PlatformPlannerConfig } from "@/lib/api";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

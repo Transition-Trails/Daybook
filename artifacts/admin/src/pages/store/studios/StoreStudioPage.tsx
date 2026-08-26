@@ -33,6 +33,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
 import { storeStudiosApi, studioGenerateApi, apiFetch } from "@/lib/api";
+import { getPackPriceError, parsePackPrice } from "@/lib/studio/packPricing";
 import { AiDisabledState, SuperAdminAiBanner } from "./AiDisabledState";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -727,6 +728,8 @@ function AssembleMode({ storeId, role, aiEnabled }: Props) {
   // Attestation
   const [attestation, setAttestation] = useState<"own-or-licensed" | "ai-generated" | "">("");
   const [attestingTool, setAttestingTool] = useState("");
+  const priceError = getPackPriceError(price);
+  const parsedPrice = parsePackPrice(price);
 
   const generate = useMutation({
     mutationFn: () => studioGenerateApi.generatePack(storeId, { prompt: prompt.trim() }),
@@ -742,7 +745,7 @@ function AssembleMode({ storeId, role, aiEnabled }: Props) {
 
   const save = useMutation({
     mutationFn: (status: "draft" | "live") => {
-      const body: Record<string, unknown> = { name, tags, price: parseFloat(price) || 0, status };
+      const body: Record<string, unknown> = { name, tags, price: parsedPrice, status };
       if (attestation) { body.attestation = attestation; if (attestingTool) body.attestingTool = attestingTool; }
       return savedId
         ? apiFetch(`/stores/${storeId}/owned/sticker-packs/${savedId}`, { method: "PATCH", body: JSON.stringify(body) })
@@ -761,8 +764,8 @@ function AssembleMode({ storeId, role, aiEnabled }: Props) {
     },
   });
 
-  const canSave = !!name;
-  const canPublish = isOwner && !!attestation;
+  const canSave = !!name && !priceError;
+  const canPublish = isOwner && !!attestation && !priceError;
 
   return (
     <div className="space-y-0 max-w-3xl mx-auto">
@@ -834,9 +837,13 @@ function AssembleMode({ storeId, role, aiEnabled }: Props) {
                 <Label>Price (USD)</Label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                  <Input type="number" min="0" step="0.01" value={price}
-                    onChange={(e) => setPrice(e.target.value)} className="pl-6" />
+                  <Input type="number" min="0.01" step="0.01" value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    className={`pl-6 ${priceError ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                    aria-invalid={!!priceError}
+                    aria-describedby={priceError ? "store-pack-price-error" : undefined} />
                 </div>
+                {priceError && <p id="store-pack-price-error" className="text-xs text-destructive">{priceError}</p>}
               </div>
             </CardContent>
           </Card>
@@ -883,7 +890,8 @@ function AssembleMode({ storeId, role, aiEnabled }: Props) {
             </Button>
             <div className="flex-1" />
             <Button variant="outline" size="sm" onClick={() => save.mutate("draft")}
-              disabled={!canSave || save.isPending}>
+              disabled={!canSave || save.isPending}
+              title={priceError ?? (!name ? "Add a pack name before saving." : undefined)}>
               {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-2" />}
               {savedId ? "Update draft" : "Save as draft"}
             </Button>
@@ -891,7 +899,7 @@ function AssembleMode({ storeId, role, aiEnabled }: Props) {
               <Button size="sm" className="bg-[#C87560] hover:bg-[#A85E4E] text-white"
                 onClick={() => save.mutate("live")}
                 disabled={!canSave || !canPublish || save.isPending}
-                title={!attestation ? "Select an attestation to publish" : undefined}>
+                title={priceError ?? (!attestation ? "Select an attestation to publish" : undefined)}>
                 {save.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Globe className="w-3.5 h-3.5 mr-2" />}
                 Publish
               </Button>

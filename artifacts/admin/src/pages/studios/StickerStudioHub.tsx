@@ -69,6 +69,8 @@ import {
   CHIP_ACTIVE_BG,
 } from "@/components/studio/primitives";
 import { catalogApi } from "@/lib/api";
+import { getPackPriceError, parsePackPrice } from "@/lib/studio/packPricing";
+import { consumeStudioIdea } from "@/lib/studio/ideaHandoff";
 
 // ── Set-generator constants ────────────────────────────────────────────────────
 
@@ -656,12 +658,14 @@ function CreatePackModal({ onClose }: { onClose: () => void }) {
   const filtered = stickers.filter(
     (s) => !search || s.name.toLowerCase().includes(search.toLowerCase()),
   );
+  const parsedPrice = parsePackPrice(price, { allowFree: true });
+  const priceError = getPackPriceError(price, { allowFree: true });
 
   const create = useMutation({
     mutationFn: (status: "draft" | "live") =>
       platformStickersApi.createPack({
         name,
-        price:      parseFloat(price) || null,
+        price:      parsedPrice,
         tags:       tagsStr.split(",").map((t) => t.trim()).filter(Boolean),
         stickerIds: [...selectedIds],
         status,
@@ -694,8 +698,12 @@ function CreatePackModal({ onClose }: { onClose: () => void }) {
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[12.5px]">$</span>
                 <Input type="number" min="0" step="0.01" value={price}
-                  onChange={(e) => setPrice(e.target.value)} className="pl-6" />
+                  onChange={(e) => setPrice(e.target.value)}
+                  className={`pl-6 ${priceError ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                  aria-invalid={!!priceError}
+                  aria-describedby={priceError ? "platform-pack-price-error" : undefined} />
               </div>
+              {priceError && <p id="platform-pack-price-error" className="text-xs text-destructive">{priceError}</p>}
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label className="text-[12.5px]">Tags (comma-separated)</Label>
@@ -760,13 +768,15 @@ function CreatePackModal({ onClose }: { onClose: () => void }) {
 
         <DialogFooter className="border-t pt-4 shrink-0">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button variant="outline" size="sm" disabled={!name.trim() || create.isPending}
+          <Button variant="outline" size="sm" disabled={!name.trim() || !!priceError || create.isPending}
+            title={priceError ?? undefined}
             onClick={() => create.mutate("draft")}>
             {create.isPending && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
             Save as draft
           </Button>
           <Button size="sm" style={{ background: CHIP_ACTIVE_BG, color: "#fff" }}
-            disabled={!name.trim() || create.isPending}
+            disabled={!name.trim() || !!priceError || create.isPending}
+            title={priceError ?? undefined}
             onClick={() => create.mutate("live")}>
             {create.isPending && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
             <Globe className="w-3.5 h-3.5 mr-1.5" />Publish pack
@@ -1660,7 +1670,7 @@ const PATH_DESCRIPTIONS: Record<CreatePath, string> = {
 
 function CreateCenter({
   batchItems, setBatchItems, aiResult, setAiResult, uploadTrigger,
-  createPath, setCreatePath, onStickerCreated,
+  createPath, setCreatePath, onStickerCreated, initialAiPrompt = "",
 }: {
   batchItems: InProgressItem[]; setBatchItems: React.Dispatch<React.SetStateAction<InProgressItem[]>>;
   aiResult: PackAiResult | null; setAiResult: (r: PackAiResult | null) => void;
@@ -1670,6 +1680,8 @@ function CreateCenter({
   setCreatePath: (p: CreatePath) => void;
   /** Called after a sticker is successfully created — updates the right-dock preview */
   onStickerCreated?: (sticker: LibrarySticker) => void;
+  /** A one-time idea handed off from Trend Research. */
+  initialAiPrompt?: string;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -1726,12 +1738,13 @@ function CreateCenter({
   });
 
   // ── Brainstorm path ──────────────────────────────────────────────────────────
-  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiPrompt, setAiPrompt] = useState(initialAiPrompt);
   const [aiError,  setAiError]  = useState<string | null>(null);
   const [aiTags,   setAiTags]   = useState<string[]>([]);
   const [aiIdeas,  setAiIdeas]  = useState<string[]>([]);
   const [aiName,   setAiName]   = useState("");
   const [aiPrice,  setAiPrice]  = useState("4.99");
+  const parsedAiPrice = parsePackPrice(aiPrice, { allowFree: true });
 
   const aiMut = useMutation({
     mutationFn: () => aiApi.complete(PACK_SYSTEM_PROMPT, aiPrompt.trim()),
@@ -1750,13 +1763,15 @@ function CreateCenter({
 
   const savePack = useMutation({
     mutationFn: (status: "draft" | "live") =>
-      fetch("/api/sticker-packs", {
-        method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: aiName, tags: aiTags, price: parseFloat(aiPrice) || 0, editionIds: [], status, globalAvailable: false }),
-      }).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      platformStickersApi.createPack({
+        name: aiName,
+        price: parsedAiPrice,
+        tags: aiTags,
+        stickerIds: [],
+        status,
+      }),
     onSuccess: (_data, status) => {
-      qc.invalidateQueries({ queryKey: ["catalog"] });
+      qc.invalidateQueries({ queryKey: ["platform-sticker-packs"] });
       toast({ title: status === "live" ? "Pack published!" : "Saved as draft" });
     },
     onError: (err: Error) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
@@ -1994,14 +2009,14 @@ function CreateCenter({
                   <RefreshCw className="w-3.5 h-3.5" />Regenerate
                 </button>
                 <div className="flex-1" />
-                <button onClick={() => savePack.mutate("draft")} disabled={!aiName || savePack.isPending}
-                  style={{ cursor: !aiName || savePack.isPending ? "not-allowed" : "pointer" }}
+                <button onClick={() => savePack.mutate("draft")} disabled={!aiName || parsedAiPrice === undefined || savePack.isPending}
+                  style={{ cursor: !aiName || parsedAiPrice === undefined || savePack.isPending ? "not-allowed" : "pointer" }}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-[12px] font-medium disabled:opacity-40 hover:bg-muted transition-colors">
                   {savePack.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                   Save as draft
                 </button>
-                <button onClick={() => savePack.mutate("live")} disabled={!aiName || savePack.isPending}
-                  style={{ cursor: !aiName || savePack.isPending ? "not-allowed" : "pointer" }}
+                <button onClick={() => savePack.mutate("live")} disabled={!aiName || parsedAiPrice === undefined || savePack.isPending}
+                  style={{ cursor: !aiName || parsedAiPrice === undefined || savePack.isPending ? "not-allowed" : "pointer" }}
                   className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-[12px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity">
                   {savePack.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
                   Publish pack
@@ -2517,7 +2532,8 @@ export default function StickerStudioHub() {
   const search = useSearch();
   const [, navigate] = useLocation();
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
-  const mode = (params.get("mode") ?? "library") as ModeId;
+  const [handoffPrompt] = useState(consumeStudioIdea);
+  const mode = (params.get("mode") ?? (handoffPrompt ? "create" : "library")) as ModeId;
   const validMode: ModeId = MODES.some((m) => m.id === mode) ? mode : "library";
   const setMode = (id: string) => navigate(`/studios/stickers?mode=${id}`);
 
@@ -2533,7 +2549,7 @@ export default function StickerStudioHub() {
   // Create mode state
   const [batchItems,   setBatchItems]   = useState<InProgressItem[]>([]);
   const [aiResult,     setAiResult]     = useState<PackAiResult | null>(null);
-  const [createPath,   setCreatePath]   = useState<CreatePath>("upload");
+  const [createPath,   setCreatePath]   = useState<CreatePath>(handoffPrompt ? "brainstorm" : "upload");
 
   // Packs filter state
   const [packStatus,      setPackStatus]      = useState("all");
@@ -2613,6 +2629,7 @@ export default function StickerStudioHub() {
         aiResult={aiResult} setAiResult={setAiResult}
         uploadTrigger={uploadTrigger}
         createPath={createPath} setCreatePath={setCreatePath}
+        initialAiPrompt={handoffPrompt}
         onStickerCreated={(s) => setPreviewSticker(s)}
       />;
     return <PacksCenter

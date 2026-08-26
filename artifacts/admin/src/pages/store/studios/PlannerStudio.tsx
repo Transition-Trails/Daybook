@@ -53,7 +53,7 @@ import {
   type StorePlannerOutput, type Widget, type OwnedList,
 } from "@/lib/api";
 import { FontSpecimenCard } from "@/components/FontSpecimenCard";
-import { PLANNER_FONT_FAMILIES } from "@/pages/studios/PlannerStudioHub";
+import { PLANNER_FONT_FAMILIES } from "@/lib/studio/plannerConstants";
 import { isSuperAdminRole } from "@/lib/permissions";
 
 // ── Types & constants ─────────────────────────────────────────────────────────

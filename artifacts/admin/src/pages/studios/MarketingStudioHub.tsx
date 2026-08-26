@@ -244,7 +244,7 @@ function TrendsCenter() {
                       <ChevronRight className="w-3 h-3" />→ Theme Studio
                     </button>
                     <button
-                      onClick={() => { sessionStorage.setItem("studioIdea", card.idea); navigate("/studios/stickers"); }}
+                      onClick={() => { sessionStorage.setItem("studioIdea", card.idea); navigate("/studios/stickers?mode=create"); }}
                       style={{ cursor: "pointer", borderColor: "#E7DCCB" }}
                       className="flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11.5px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
                     >

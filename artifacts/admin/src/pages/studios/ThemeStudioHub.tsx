@@ -22,6 +22,7 @@ import { useAiDrawer } from "@/contexts/AiDrawerContext";
 import { aiApi } from "@/lib/ai";
 import { apiFetch } from "@/lib/api";
 import { useFontLoader } from "@/components/FontSpecimenCard";
+import { consumeStudioIdea } from "@/lib/studio/ideaHandoff";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const CLAY         = "#C87560";  // clay / primary – used for CTA buttons, glyphs
@@ -858,15 +859,20 @@ interface PreviewAndBundleTabProps {
   onStagedChange: (s: BundleState) => void;
   themeName:      string;
   catalog:        AllCatalog;
+  initialPrompt?: string;
 }
 
 function PreviewAndBundleTab({
-  bundle, staged, onStagedChange, themeName, catalog,
+  bundle, staged, onStagedChange, themeName, catalog, initialPrompt = "",
 }: PreviewAndBundleTabProps) {
-  const [prompt, setPrompt]           = useState("");
+  const [prompt, setPrompt]           = useState(initialPrompt);
   const [response, setResponse]       = useState<string | null>(null);
   const [parsedBundle, setParsedBundle] = useState<Partial<BundleState> | null>(null);
   const [isLoading, setIsLoading]     = useState(false);
+
+  useEffect(() => {
+    if (initialPrompt) setPrompt(initialPrompt);
+  }, [initialPrompt]);
 
   // Build a terse catalog summary for the system prompt
   const catalogContext = useMemo(() => {
@@ -1160,6 +1166,9 @@ export default function ThemeStudioHub() {
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
   const [isLoadingThemes,  setIsLoadingThemes]  = useState(false);
   const [isLoadingTypes,   setIsLoadingTypes]   = useState(false);
+  // Trend Research hands an approved opportunity to this hub through
+  // session storage. Consume it once so it pre-fills the real AI composer.
+  const [handoffPrompt] = useState(consumeStudioIdea);
 
   // ── URL sync ───────────────────────────────────────────────────────────────
   const updateUrl = useCallback((newMode: ModeId, newThemeId: string | null) => {
@@ -1300,6 +1309,7 @@ export default function ThemeStudioHub() {
       onStagedChange={handleStagedChange}
       themeName={themeName}
       catalog={catalog}
+      initialPrompt={handoffPrompt}
     />
   ), [bundle, staged, handleStagedChange, themeName, catalog]);
 

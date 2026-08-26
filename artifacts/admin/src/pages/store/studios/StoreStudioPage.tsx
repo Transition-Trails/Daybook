@@ -32,7 +32,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { ClaudeHeader } from "@/components/shared/ClaudeHeader";
 import { ErrorState } from "@/components/shared";
-import { storeStudiosApi, studioGenerateApi, apiFetch } from "@/lib/api";
+import {
+  storeStudiosApi,
+  studioGenerateApi,
+  apiFetch,
+  STICKER_FUNCTION_TYPES,
+  type StickerFunctionType,
+} from "@/lib/api";
 import { getPackPriceError, parsePackPrice } from "@/lib/studio/packPricing";
 import { AiDisabledState, SuperAdminAiBanner } from "./AiDisabledState";
 
@@ -328,7 +334,7 @@ function UploadTab({ storeId }: { storeId: string }) {
 
 function FunctionalTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; aiEnabled: boolean; isSuperAdmin?: boolean }) {
   const { toast } = useToast();
-  const [functionType, setFunctionType] = useState("tab");
+  const [functionType, setFunctionType] = useState<StickerFunctionType>("tab");
   const [label, setLabel] = useState("");
   const [color, setColor] = useState("#2D3748");
   const [sizeInMm, setSizeInMm] = useState(20);
@@ -357,10 +363,10 @@ function FunctionalTab({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <Label className="text-xs">Function type</Label>
-          <Select value={functionType} onValueChange={setFunctionType}>
+          <Select value={functionType} onValueChange={(value) => setFunctionType(value as StickerFunctionType)}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              {["tab", "banner", "date", "tracker", "habit", "bookmark", "divider", "decorative"].map((t) => (
+              {STICKER_FUNCTION_TYPES.map((t) => (
                 <SelectItem key={t} value={t}>{t}</SelectItem>
               ))}
             </SelectContent>

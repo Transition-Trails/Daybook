@@ -195,6 +195,71 @@ router.post(
   },
 );
 
+router.post(
+  "/stores/:storeId/sticker-shape-recipes/:id/copy",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!sameStore(actor, storeId, res)) return;
+
+    const [source] = await db.select().from(stickerShapeRecipesTable).where(and(
+      eq(stickerShapeRecipesTable.id, id),
+      eq(stickerShapeRecipesTable.origin, "starter"),
+      isNull(stickerShapeRecipesTable.authoredByStoreId),
+    ));
+    if (!source) {
+      res.status(404).json({ error: "Starter recipe not found" });
+      return;
+    }
+
+    const baseSlug = `${source.slug}-copy`;
+    const baseName = `Copy of ${source.name}`;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const suffix = attempt === 0 ? "" : `-${attempt + 1}`;
+      const slug = `${baseSlug}${suffix}`;
+      if (!(await ensureUniqueScope("owned", storeId, slug))) continue;
+      const input = {
+        name: attempt === 0 ? baseName : `${baseName} ${attempt + 1}`,
+        slug,
+        functionType: source.functionType,
+        svgTemplate: source.svgTemplate,
+        aspectRatio: source.aspectRatio,
+        defaultSizeMm: source.defaultSizeMm,
+        takesLabel: source.takesLabel,
+        status: "draft" as const,
+      };
+
+      try {
+        validateShapeRecipeTemplate(input);
+        const [recipe] = await db.insert(stickerShapeRecipesTable).values({
+          id: genRecipeId(),
+          origin: "owned",
+          authoredByStoreId: storeId,
+          ...input,
+        }).returning();
+        await writeAudit(db, {
+          actorUserId: actor.userId,
+          actorRole: actor.effectiveRole,
+          scope: storeId,
+          action: "sticker.shape-recipe.copy",
+          targetType: "sticker_shape_recipe",
+          targetId: recipe.id,
+          metadata: { origin: "owned", sourceRecipeId: source.id, slug },
+        });
+        res.status(201).json(recipeToResponse(recipe));
+        return;
+      } catch (error) {
+        if (isRecipeSlugConflict(error)) continue;
+        validationError(res, error);
+        return;
+      }
+    }
+
+    res.status(409).json({ error: "Could not create a unique recipe copy for this store." });
+  },
+);
+
 router.patch(
   "/stores/:storeId/sticker-shape-recipes/:id",
   requireStoreAccess("store_staff"),

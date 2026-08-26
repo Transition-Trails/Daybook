@@ -72,6 +72,63 @@ describe("store shape recipe route scope", () => {
     expect(response.body.cutlineSvg).toContain('width="60mm" height="20mm"');
   });
 
+  it("copies a starter into a store-owned draft with a unique slug", async () => {
+    const source = STARTER_SHAPE_RECIPES[0];
+    const first = await request(makeApp("store-alpha"))
+      .post(`/stores/store-alpha/sticker-shape-recipes/${source.id}/copy`);
+    const second = await request(makeApp("store-alpha"))
+      .post(`/stores/store-alpha/sticker-shape-recipes/${source.id}/copy`);
+
+    try {
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(first.body).toMatchObject({
+        origin: "owned",
+        authoredByStoreId: "store-alpha",
+        name: `Copy of ${source.name}`,
+        slug: `${source.slug}-copy`,
+        status: "draft",
+        svgTemplate: source.svgTemplate,
+      });
+      expect(second.body).toMatchObject({
+        origin: "owned",
+        authoredByStoreId: "store-alpha",
+        slug: `${source.slug}-copy-2`,
+        status: "draft",
+      });
+      expect(first.body.id).not.toBe(source.id);
+      expect(second.body.id).not.toBe(source.id);
+      expect(second.body.id).not.toBe(first.body.id);
+    } finally {
+      await db.delete(stickerShapeRecipesTable).where(
+        eq(stickerShapeRecipesTable.id, first.body.id),
+      );
+      await db.delete(stickerShapeRecipesTable).where(
+        eq(stickerShapeRecipesTable.id, second.body.id),
+      );
+    }
+  });
+
+  it("does not copy a recipe across stores or make an owned recipe copyable as a starter", async () => {
+    const source = STARTER_SHAPE_RECIPES[0];
+    const crossStore = await request(makeApp("store-alpha"))
+      .post(`/stores/store-beta/sticker-shape-recipes/${source.id}/copy`);
+    expect(crossStore.status).toBe(403);
+
+    const owned = await request(makeApp("store-alpha"))
+      .post(`/stores/store-alpha/sticker-shape-recipes/${source.id}/copy`);
+    expect(owned.status).toBe(201);
+    try {
+      const response = await request(makeApp("store-alpha"))
+        .post(`/stores/store-alpha/sticker-shape-recipes/${owned.body.id}/copy`);
+      expect(response.status).toBe(404);
+    } finally {
+      await db.delete(stickerShapeRecipesTable).where(
+        eq(stickerShapeRecipesTable.id, owned.body.id),
+      );
+    }
+  });
+
   it("rejects unsupported recipe shadows before rendering", async () => {
     const response = await request(makeApp("store-alpha"))
       .post("/stores/store-alpha/stickers/render/from-recipe")

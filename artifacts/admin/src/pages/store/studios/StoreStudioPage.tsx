@@ -19,7 +19,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Upload, Wand2, Type, Image, ImageOff, Package, Sticker,
   RefreshCw, Save, Globe, Lock, Sparkles, X, ChevronRight, Plus, Layers,
-  CheckCircle2, AlertCircle, Lightbulb, ShieldCheck,
+  CheckCircle2, AlertCircle, Lightbulb, ShieldCheck, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -851,12 +851,27 @@ function StoreRecipeCenter({ storeId }: { storeId: string }) {
     onError: (error: Error) => setValidationError(error.message),
   });
 
+  const copy = useMutation({
+    mutationFn: () => {
+      if (!selected || selected.origin !== "starter") {
+        throw new Error("Select a starter recipe to copy.");
+      }
+      return shapeRecipesApi.copyStore(storeId, selected.id);
+    },
+    onSuccess: (recipe) => {
+      qc.invalidateQueries({ queryKey: ["sticker-shape-recipes", storeId] });
+      choose(recipe);
+      toast({ title: "Recipe copied", description: "Your editable draft is ready to customize." });
+    },
+    onError: (error: Error) => setValidationError(error.message),
+  });
+
   const update = <K extends keyof StickerShapeRecipeInput>(
     key: K,
     value: StickerShapeRecipeInput[K],
   ) => setForm((current) => ({ ...current, [key]: value }));
   const starterSelected = selected?.origin === "starter";
-  const formDisabled = starterSelected || save.isPending;
+  const formDisabled = starterSelected || save.isPending || copy.isPending;
 
   return (
     <div className="space-y-5 max-w-5xl">
@@ -982,9 +997,17 @@ function StoreRecipeCenter({ storeId }: { storeId: string }) {
           )}
           <div className="flex justify-end">
             {starterSelected ? (
-              <Button variant="outline" onClick={() => choose(null)}>
-                <Plus className="w-4 h-4 mr-1.5" />Create store recipe
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="outline" onClick={() => choose(null)} disabled={copy.isPending}>
+                  <Plus className="w-4 h-4 mr-1.5" />New blank recipe
+                </Button>
+                <Button onClick={() => copy.mutate()} disabled={copy.isPending}>
+                  {copy.isPending
+                    ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                    : <Copy className="w-4 h-4 mr-1.5" />}
+                  Copy to customize
+                </Button>
+              </div>
             ) : (
               <Button disabled={previewing || !!validationError || save.isPending} onClick={() => save.mutate()}>
                 {save.isPending

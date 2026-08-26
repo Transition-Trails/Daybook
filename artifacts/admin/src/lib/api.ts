@@ -259,6 +259,11 @@ export const shapeRecipesApi = {
       body: JSON.stringify(data),
       headers: { "x-store-id": storeId },
     }),
+  copyStore: (storeId: string, id: string) =>
+    apiFetch<StickerShapeRecipe>(`/stores/${storeId}/sticker-shape-recipes/${id}/copy`, {
+      method: "POST",
+      headers: { "x-store-id": storeId },
+    }),
   updateStore: (storeId: string, id: string, data: StickerShapeRecipeInput) =>
     apiFetch<StickerShapeRecipe>(`/stores/${storeId}/sticker-shape-recipes/${id}`, {
       method: "PATCH",

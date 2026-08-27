@@ -1,0 +1,91 @@
+# Replit task — admin colour token drift
+
+Paste this whole file to Replit. Mechanical and low-risk: eleven files declare their own colour
+constants instead of reading the admin tokens. Most are close enough to look fine in isolation
+but wrong side-by-side, and several are **cool greys in a system whose borders and muted text are
+warm**.
+
+`artifacts/admin/src/index.css` is the source of truth. It already defines the full set under
+`:root`:
+
+```
+--admin-ink #1B2A4A      --admin-paper #F7F0E6     --admin-sunken #EFE6D8
+--admin-card #FFFDF9     --admin-card-subtle #FBF6EE
+--admin-border #E7DCCB   --admin-row-divider #F2EAE0   --admin-cell-divider #EFE6D8
+--admin-clay #C87560     --admin-clay-hover #A85B48
+--admin-green #3F7A5E    --admin-amber #8A6A22      --admin-blue #3A5480
+--admin-text #1B2A4A     --admin-secondary #5C4E3E
+--admin-muted #7A6A57    --admin-faint #8A7A66
+--admin-sidebar-text #C6D2E4   --admin-sidebar-muted #8FA0BC
+```
+
+## 0. Add one missing token
+
+`#4A6080` is **Slate** — a real brand colour (it is named in the palette comment at the top of
+`index.css` as the secondary), but it has no `--admin-*` token, which is why four files hardcode
+it. Add it next to `--admin-blue`:
+
+```css
+--admin-slate: #4A6080;
+```
+
+Do not add any other new token. Everything else below maps onto tokens that already exist.
+
+## 1. Replace the hardcoded values
+
+| Current literal | Replace with | Files |
+|---|---|---|
+| `hsl(38 65% 96%)` (PAPER) | `var(--admin-paper)` | `super/NewRecipe.tsx:26`, `super/Releases.tsx:17` |
+| `hsl(38 30% 88%)` (BORDER) | `var(--admin-border)` | `super/NewRecipe.tsx:27`, `super/Releases.tsx:18` |
+| `hsl(216 15% 52%)` (MUTED) | `var(--admin-muted)` | `super/NewRecipe.tsx:28`, `super/Releases.tsx:19`, and **three inline literals** at `super/ProductRecipes.tsx:619, 635, 650` |
+| `#4A6080` (MUTED) | `var(--admin-slate)` | `build/ProductBuilder.tsx:26`, `build/Step1Product.tsx:20`, `build/Step2Theme.tsx:21`, `build/Step3Confirm.tsx:27` |
+| `#E7DCCB` (BORDER) | `var(--admin-border)` | `build/ProductBuilder.tsx:25`, `build/Step1Product.tsx:18`, `build/Step2Theme.tsx:19`, `build/Step3Confirm.tsx:25` |
+| `#F7F0E6` (PAPER) | `var(--admin-paper)` | `build/Step2Theme.tsx:18`, `build/Step3Confirm.tsx:24` |
+| `#E7E0D7` (BORDER) | `var(--admin-border)` | `worldsmith-editorial/CanonRecordEditor.tsx:20`, `worldsmith-editorial/StorylineEditor.tsx:12` |
+| `#8A7B6A` (MUTED) | `var(--admin-faint)` | `super/PromoteCatalog.tsx:99` |
+| `#FFFDF9` (PAPER_TINT) | `var(--admin-card)` | `studios/JournalStudioHub.tsx:34`, `studios/MarketingStudioHub.tsx:30`, `studios/PlannerStudioHub.tsx:81` |
+
+Prefer deleting the local constant and using `var(--admin-*)` at the usage sites. Where a
+constant is referenced many times in one file, keeping the name but pointing it at the token is
+fine — that is what `ProductRecipes.tsx:22-24` already does, and it reads well:
+
+```ts
+const BORDER = "var(--admin-border)";
+```
+
+## 2. Two of these are visible changes, not no-ops
+
+Everything above is a same-or-near-same swap except the `MUTED` rows. Call these out when you
+report back:
+
+- **`hsl(216 15% 52%)` → `var(--admin-muted)`** is a cool grey becoming warm brown-grey
+  (`#7A6A57`). This is the intended correction — the admin surface has no cool greys — but it
+  changes how `NewRecipe`, `Releases` and `ProductRecipes` read. Expected, and correct.
+- **`#4A6080` → `var(--admin-slate)`** is not a colour change at all (same hex), just a token.
+  The four `build/` steps keep their current appearance.
+
+## 3. Then guard it
+
+Add a check so this does not come back. A lint rule is ideal; a test that greps the admin source
+is fine and cheaper:
+
+- Fail on a hex literal or `hsl(...)` colour in `artifacts/admin/src/pages/**` and
+  `components/**` that is not one of the token values.
+- Allow-list what genuinely cannot be a token yet, and **list what you allow-listed and why**.
+  I expect a few: `rgba(255,255,255,...)` overlays on the navy sidebar, the pill background pairs
+  in `components/shared/index.tsx` (`#E8F1EA`/`#3F7A5E` etc.), and `WorldSmithHome.tsx`, which
+  uses a generic status palette (`#f59e0b`, `#10b981`, `#ef4444`, `#8b5cf6`, `#7c3aed`,
+  `#0d9488`) unrelated to the brand.
+
+**`WorldSmithHome.tsx` is out of scope for this task.** Its `StatTile` takes an arbitrary
+`color` prop and is fed six off-brand colours; that is a real problem but it belongs with the
+WorldSmith work, not here. Just confirm the guard allow-lists it rather than fixing it.
+
+## Acceptance
+
+- No file under `pages/` or `components/` declares a `PAPER`, `BORDER` or `MUTED` constant
+  holding a raw colour value.
+- The guard fails if someone reintroduces one.
+- Screenshot `/super/recipes`, `/super/releases` and `/super/plans` before and after so the
+  cool-to-warm muted change is a deliberate, reviewed difference rather than a surprise.
+- Typecheck and the full test suite pass.

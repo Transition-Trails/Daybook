@@ -68,7 +68,6 @@ import ReleasesPage from '@/pages/super/Releases';
 
 // Platform
 import OrderDetail from '@/pages/orders/detail';
-import CalendarPage from '@/pages/calendar';
 
 // Backward-compat pages that are still real screens (no nav entry)
 import PlannerBuilder from '@/pages/planners/builder';
@@ -113,7 +112,6 @@ export const routes = [
 
   // ── Platform ───────────────────────────────────────────────────────────────
   { path: "/orders/:id",               component: OrderDetail },
-  { path: "/calendar",                 component: CalendarPage },
 
   // ── Backward-compat (bookmarks / deep links — no nav entry) ───────────────
   // These URLs still resolve cleanly but have no nav entry. Each is now a mode

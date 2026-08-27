@@ -767,40 +767,6 @@ function RootRouter() {
         )}
       </Route>
 
-      {/* ── Daybook Ink — full-screen editor, no Shell ───────────── */}
-      <Route path="/daybook/super/planner-interiors">
-        <RequireSuperAdmin state={state}><Redirect to="/super/planner-interiors" replace /></RequireSuperAdmin>
-      </Route>
-      <Route path="/daybook/plans">
-        <RequireSuperAdmin state={state}><Redirect to="/super/plans" replace /></RequireSuperAdmin>
-      </Route>
-      <Route path="/daybook/users/:id">
-        {(p) => <RequireSuperAdmin state={state}><Redirect to={`/super/users/${p.id}`} replace /></RequireSuperAdmin>}
-      </Route>
-      <Route path="/daybook/users">
-        <RequireSuperAdmin state={state}><Redirect to="/super/users" replace /></RequireSuperAdmin>
-      </Route>
-      {/* Legacy standalone entry: /daybook/ink/:id */}
-      <Route path="/daybook/ink/:id">
-        {(p) => <RequireSuperAdmin state={state}><Redirect to={`/super/ink/${p.id}`} replace /></RequireSuperAdmin>}
-      </Route>
-      <Route path="/daybook/ink">
-        <RequireSuperAdmin state={state}><Redirect to="/super/ink" replace /></RequireSuperAdmin>
-      </Route>
-      <Route path="/daybook/ai-settings">
-        <RequireSuperAdmin state={state}><Redirect to="/super/settings/ai" replace /></RequireSuperAdmin>
-      </Route>
-      <Route path="/daybook/sync">
-        <RequireSuperAdmin state={state}><Redirect to="/super/settings/google" replace /></RequireSuperAdmin>
-      </Route>
-      <Route path="/daybook/calendar">
-        <RequireSuperAdmin state={state}><Redirect to="/super/settings/calendar" replace /></RequireSuperAdmin>
-      </Route>
-      {/* Legacy deep-link from Planner Builder: /daybook/planners/:id/ink */}
-      <Route path="/daybook/planners/:id/ink">
-        {(p) => <RequireSuperAdmin state={state}><Redirect to={`/super/ink/${p.id}`} replace /></RequireSuperAdmin>}
-      </Route>
-
       {/*
        * ── Daybook Admin (catalog authoring, super_admin only) ──────────────
        *
@@ -914,6 +880,18 @@ function ShopRouteShell({ children }: { children: React.ReactNode }) {
 function AppRouter() {
   return (
     <Switch>
+      {/* Legacy platform-admin URLs redirect before auth/data loading begins. */}
+      <Route path="/daybook/super/planner-interiors"><Redirect to="/super/planner-interiors" replace /></Route>
+      <Route path="/daybook/plans"><Redirect to="/super/plans" replace /></Route>
+      <Route path="/daybook/users/:id">{(p) => <Redirect to={`/super/users/${p.id}`} replace />}</Route>
+      <Route path="/daybook/users"><Redirect to="/super/users" replace /></Route>
+      <Route path="/daybook/ink/:id">{(p) => <Redirect to={`/super/ink/${p.id}`} replace />}</Route>
+      <Route path="/daybook/ink"><Redirect to="/super/ink" replace /></Route>
+      <Route path="/daybook/ai-settings"><Redirect to="/super/settings/ai" replace /></Route>
+      <Route path="/daybook/sync"><Redirect to="/super/settings/google" replace /></Route>
+      <Route path="/daybook/calendar"><Redirect to="/super/settings/calendar" replace /></Route>
+      <Route path="/daybook/planners/:id/ink">{(p) => <Redirect to={`/super/ink/${p.id}`} replace />}</Route>
+
       <Route path="/login" component={Login} />
       <Route path="/unauthorized" component={Unauthorized} />
 

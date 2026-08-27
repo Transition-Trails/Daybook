@@ -1,0 +1,149 @@
+# Replit task — finish the /super route consolidation and fix the dashboard metrics
+
+Paste this whole file to Replit. It is self-contained; you do not need to re-read the earlier
+followup files.
+
+Two tasks. Do task 1 completely before starting task 2.
+
+---
+
+# Task 1 — Move the remaining admin pages onto `/super/`
+
+## Background
+
+The admin app has one shell (`AdminLayout.tsx`) and one sidebar, but two URL prefixes. Most
+pages live under `/super/`. Five nav items still point into a second route tree at `/daybook/`,
+and one more (`Legacy console`) points at its root:
+
+```ts
+{ label: "Ink library",       href: "/daybook/ink" }
+{ label: "Planner interiors", href: "/daybook/super/planner-interiors" }
+{ label: "Plans",             href: "/daybook/plans" }
+{ label: "Users",             href: "/daybook/users" }
+{ label: "AI settings",       href: "/daybook/ai-settings" }
+{ label: "Legacy console",    href: "/daybook", icon: Archive }
+```
+
+The decision is to **move these pages onto `/super/`**, not to quarantine them behind a
+"Legacy console" entry. Nothing is being deleted — Daybook is the product; `/daybook/` is just a
+leftover URL prefix. One admin app should have one route prefix.
+
+## What to do
+
+### 1.1 Move the pages
+
+| From | To |
+|---|---|
+| `/daybook/plans` | `/super/plans` |
+| `/daybook/users` | `/super/users` |
+| `/daybook/ink` | `/super/ink` |
+| `/daybook/ai-settings` | `/super/settings/ai` |
+| `/daybook/sync` | `/super/settings/google` |
+| `/daybook/calendar` | `/super/settings/calendar` |
+| `/daybook/super/planner-interiors` | `/super/planner-interiors` |
+
+Rules:
+
+1. **Leave a permanent redirect at every old path.** Bookmarks, docs, and any link already sent
+   in an email must keep working.
+2. **The store surface imports from this tree.** Before moving a file, find every import that
+   crosses out of `/daybook/`. Where a component is shared, extract it to a shared module and
+   have both sides import that — do not duplicate it, and do not move a file the store surface
+   still imports from its old location.
+3. **One page per commit.** Seven small commits, each one page plus its redirect, so a breakage
+   is traceable to a single move.
+4. **Do not restyle anything in this task.** Route move only. Several of these pages predate the
+   `--admin-*` token block and will look wrong inside `AdminLayout` — that is expected and is a
+   separate pass. List which ones need it; do not fix them here.
+5. When the last page has moved, report what remains under `/daybook/`, if anything.
+
+### 1.2 Fix the nav
+
+Delete the `Legacy console` item entirely.
+
+`Google sync` and `Calendar` are currently in **no group at all** — they were dropped from the
+sidebar in the last change. They need to be back, in Settings.
+
+`Deliverability` is currently in Settings; it belongs in Platform. It is an operational surface,
+not a configuration one.
+
+Final super-admin nav:
+
+| Group | Items |
+|---|---|
+| OVERVIEW | Dashboard, Revenue |
+| PLATFORM | Stores, Feature flags, Releases, Audit log, Deliverability |
+| CONTENT | Promote content, Planner interiors, Ink library |
+| SETTINGS | Plans, Users, AI settings, Google sync, Calendar |
+| CATALOG | Catalog authoring, Product recipes, Global catalog |
+| STUDIOS | All studios, WorldSmith Studio |
+| SUPPORT | Help center, Support inbox, Support patterns |
+
+Also: three items share or misuse icons. `Revenue` and `Google sync` both use `Activity`;
+`Deliverability` uses `Receipt`, which reads as billing. Give each a distinct, meaningful Lucide
+icon.
+
+**Acceptance:** no `href` in `AdminLayout.tsx` starts with `/daybook`. Every old path still
+resolves via redirect. Every nav item belongs to exactly one group.
+
+---
+
+# Task 2 — Collapse the dashboard to one metric strip
+
+## The problem
+
+`pages/super/Dashboard.tsx` currently renders three separate rows of metrics before the decision
+queue starts:
+
+1. `MetricStrip` — New stores, Completed builds, Failed builds (3 cells with sparklines)
+2. a `StatTile` grid — Current MRR, Paid revenue, Trial → paid (3 large tiles)
+3. a second `MetricStrip` — Paid revenue trend, Conversion trend (2 cells with sparklines)
+
+Plus a four-line methodology paragraph between 2 and 3.
+
+That is eight metric cells in three different visual treatments, costing more than a screenful
+before any actionable content appears. `StatTile` is the large-card component the metric strip
+was introduced to replace, so using both puts the old pattern back alongside the new one. Paid
+revenue is shown twice — once as a tile, once as a trend cell.
+
+**The underlying data work is correct and none of it should be thrown away.** `activitySeries`,
+`billingAnalytics`, and `billingTrendValues` all stay. This is a presentation change only.
+
+## What to do
+
+Render **one** `MetricStrip` with exactly these five cells, each passing both `values` and
+`desirable`:
+
+| Cell | Value | Series | Desirable |
+|---|---|---|---|
+| MRR | `billing.mrr.amountUsd` | `billingTrends.revenue` | up |
+| Trial → paid | `latestConversion.conversionRatePercent` | `billingTrends.conversion` | up |
+| New stores | `activity.newStores.at(-1)` | `activity.newStores` | up |
+| Completed builds | `activity.completedBuilds.at(-1)` | `activity.completedBuilds` | up |
+| Failed builds | `activity.failedBuilds.at(-1)` | `activity.failedBuilds` | **down** |
+
+`desirable: false` on Failed builds so that a falling count renders green. Colour by whether the
+trend is *wanted*, not by the sign of the change.
+
+Then:
+
+- Delete the `StatTile` grid and the second `MetricStrip`.
+- Remove the now-unused `StatTile`, `DollarSign` and `Percent` imports.
+- Cut the methodology paragraph to one line, or attach it as a `title` on the MRR and Trial → paid
+  cells — it only describes those two.
+- Keep the "Hide test & seed stores" checkbox, the decision queue, the release runway and the
+  audit stream exactly as they are. They are correct.
+
+**Acceptance:** the dashboard renders one metric row of five cells, every cell draws a sparkline
+(no "Trend unavailable" text), and the decision queue is visible without scrolling at 1440×900.
+
+---
+
+# Also fix, both small
+
+- `pages/super/FeatureFlags.tsx` — the store cell renders the name in a `block` above a `flex`
+  row of status pills, so row height varies with pill count (a `Conflict` pill adds a second
+  one). Put the name and pills on one line in a flex row with `gap: 9px` and `truncate` on the
+  name. Variable row height is what caused rows to visually collide in an earlier build.
+- `index.css:82` — delete `--admin-prototype-ink: #121D34`. It only ever coloured a screen
+  switcher in a design prototype and has no meaning in the product.

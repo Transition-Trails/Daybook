@@ -30,6 +30,22 @@ interface GenerateResult {
   pageCount: number;
 }
 
+export function PlannerInkButton({ plannerId }: { plannerId: string }) {
+  const [, navigate] = useLocation();
+
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      className="mt-1 gap-2 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
+      onClick={() => navigate(`~/super/ink/${plannerId}`)}
+    >
+      <PenLine className="w-3.5 h-3.5" />
+      Open in Ink ✦
+    </Button>
+  );
+}
+
 // Build the request body from current form state
 function buildBody(params: {
   editionId: string; startYear: number; startMonth: number; monthCount: number;
@@ -58,7 +74,6 @@ function buildBody(params: {
 
 export default function PlannerBuilder() {
   const { toast } = useToast();
-  const [, navigate] = useLocation();
 
   const { data: inkStatus } = useQuery({
     queryKey: ["ink/enabled", ""],
@@ -439,15 +454,7 @@ export default function PlannerBuilder() {
                     <div>PDF: {result.drive.pdfFileId}</div>
                   </div>
                   {inkEnabled && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="mt-1 gap-2 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
-                      onClick={() => navigate(`/super/ink/${result.id}`)}
-                    >
-                      <PenLine className="w-3.5 h-3.5" />
-                      Open in Ink ✦
-                    </Button>
+                    <PlannerInkButton plannerId={result.id} />
                   )}
                 </div>
               </CardContent>

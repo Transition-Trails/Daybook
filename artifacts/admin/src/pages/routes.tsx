@@ -62,7 +62,6 @@ import { Redirect } from "wouter";
 // Products / editions (backward compat — also embedded in Planner Studio)
 import EditionsList from '@/pages/editions/list';
 import EditionDetail from '@/pages/editions/detail';
-import PlansList from '@/pages/plans/index';
 
 // Super admin
 import ReleasesPage from '@/pages/super/Releases';
@@ -118,7 +117,6 @@ export const routes = [
   { path: "/super/planner-interiors",  component: PlannerInteriorsPage },
 
   // ── Platform ───────────────────────────────────────────────────────────────
-  { path: "/plans",                    component: PlansList },
   { path: "/users",                    component: UsersList },
   { path: "/users/:id",                component: UserDetail },
   { path: "/orders/:id",               component: OrderDetail },

@@ -78,6 +78,7 @@ import SuperRecipes from "@/pages/super/ProductRecipes";
 import NewRecipe from "@/pages/super/NewRecipe";
 import SuperSupportInbox from "@/pages/super/SupportInbox";
 import ReleasesPage from "@/pages/super/Releases";
+import PlansList from "@/pages/plans";
 import StoreSupportInbox from "@/pages/store/SupportInbox";
 const ShopSupportPage = lazy(() => import("@/pages/shop/SupportPage"));
 
@@ -225,6 +226,9 @@ function RootRouter() {
         <RequireSuperAdmin state={state}>
           <SuperAdminShell><ReleasesPage /></SuperAdminShell>
         </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/plans">
+        <RequireSuperAdmin state={state}><SuperAdminShell><PlansList /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       <Route path="/super/stores">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperStores /></SuperAdminShell></RequireSuperAdmin>
@@ -727,6 +731,9 @@ function RootRouter() {
       </Route>
 
       {/* ── Daybook Ink — full-screen editor, no Shell ───────────── */}
+      <Route path="/daybook/plans">
+        <RequireSuperAdmin state={state}><Redirect to="/super/plans" replace /></RequireSuperAdmin>
+      </Route>
       {/* Standalone entry: /daybook/ink/:id (from Planner Library) */}
       <Route path="/daybook/ink/:id">
         {(p) => (

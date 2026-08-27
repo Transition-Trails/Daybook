@@ -7,8 +7,15 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import {
+  FLAG_KEYS,
+  reconcileFlagRows,
+  reconcileSavedFlagRows,
+  type FlagKey,
+  type ReconciledFlagRow,
+} from "@/lib/flag-reconciliation";
 
-interface FlagRow { store: Store; flags: StoreFlags; original: StoreFlags }
+type FlagRow = ReconciledFlagRow;
 type CapabilityKey = "aiEnabled" | "inkEnabled" | "worldsmithEnabled" | "customDomain";
 const CAPABILITIES: Array<{ key: CapabilityKey; label: string; hint: string }> = [
   { key: "aiEnabled", label: "AI", hint: "Enables AI-assisted studio tools." },
@@ -25,49 +32,51 @@ export default function SuperFeatureFlags() {
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
-  const storesQuery = useQuery({ queryKey: ["stores"], queryFn: storesApi.list });
+  const storesQuery = useQuery({
+    queryKey: ["stores", { includeSeed: true }],
+    queryFn: () => storesApi.list({ includeSeed: true }),
+  });
   const stores = storesQuery.data ?? [];
   const flagsQuery = useQuery({
-    queryKey: ["all-flags"],
-    queryFn: () => Promise.all(stores.map(async (store) => ({ storeId: store.id, flags: await storesApi.flags.get(store.id) }))),
-    enabled: stores.length > 0,
+    queryKey: ["all-flags", { includeSeed: true }],
+    queryFn: () => storesApi.flags.list({ includeSeed: true }),
   });
 
   useEffect(() => {
-    if (!stores.length || !flagsQuery.data) return;
-    const map = new Map(flagsQuery.data.map((entry) => [entry.storeId, entry.flags]));
-    setRows(stores.map((store) => {
-      const flags = map.get(store.id) ?? { storeId: store.id, aiEnabled: false, inkEnabled: false, worldsmithEnabled: false, customDomain: false, editionsCap: 5, storageQuota: 1024 };
-      return { store, flags, original: { ...flags } };
-    }));
+    if (!flagsQuery.data) return;
+    setRows((current) => reconcileFlagRows(stores, flagsQuery.data, current));
   }, [stores, flagsQuery.data]);
 
   const dirtyFields = useMemo(() => rows.flatMap((row) =>
-    (Object.keys(row.flags) as Array<keyof StoreFlags>)
+    FLAG_KEYS
       .filter((key) => row.flags[key] !== row.original[key])
       .map((key) => ({ storeId: row.store.id, key }))), [rows]);
   const dirtyStoreIds = [...new Set(dirtyFields.map((field) => field.storeId))];
+  const changes = useMemo(() => dirtyStoreIds.map((storeId) => {
+    const row = rows.find((item) => item.store.id === storeId)!;
+    const flags: Partial<StoreFlags> = {};
+    for (const key of FLAG_KEYS) {
+      if (row.flags[key] !== row.original[key]) {
+        (flags as Record<string, boolean | number>)[key] = row.flags[key];
+      }
+    }
+    return { storeId, flags };
+  }), [dirtyStoreIds, rows]);
 
   const save = useMutation({
-    mutationFn: () => storesApi.flags.updateBulk(dirtyStoreIds.map((storeId) => {
-      const row = rows.find((item) => item.store.id === storeId)!;
-      const flags: Partial<StoreFlags> = {};
-      for (const key of Object.keys(row.flags) as Array<keyof StoreFlags>) {
-        if (row.flags[key] !== row.original[key]) (flags as Record<string, unknown>)[key] = row.flags[key];
-      }
-      return { storeId, flags };
-    })),
-    onSuccess: () => {
-      setRows((current) => current.map((row) => ({ ...row, original: { ...row.flags } })));
-      qc.invalidateQueries({ queryKey: ["all-flags"] });
+    mutationFn: (submitted: Array<{ storeId: string; flags: Partial<StoreFlags> }>) =>
+      storesApi.flags.updateBulk(submitted).then((serverFlags) => ({ submitted, serverFlags })),
+    onSuccess: ({ submitted, serverFlags }) => {
+      setRows((current) => reconcileSavedFlagRows(current, submitted, serverFlags));
+      qc.invalidateQueries({ queryKey: ["all-flags", { includeSeed: true }] });
       toast({ title: "Capability changes saved" });
     },
     onError: (error: Error) => toast({ title: "Save failed", description: error.message, variant: "destructive" }),
   });
 
-  const update = (storeId: string, key: keyof StoreFlags, value: boolean | number) =>
+  const update = (storeId: string, key: FlagKey, value: boolean | number) =>
     setRows((current) => current.map((row) => row.store.id === storeId ? { ...row, flags: { ...row.flags, [key]: value } } : row));
-  const discard = () => setRows((current) => current.map((row) => ({ ...row, flags: { ...row.original } })));
+  const discard = () => setRows((current) => current.map((row) => ({ ...row, flags: { ...row.original }, conflicts: {} })));
   const visible = rows.filter((row) =>
     row.store.name.toLowerCase().includes(search.toLowerCase()) && (status === "all" || row.store.status === status));
   const active = rows.find((row) => row.store.id === selected);
@@ -97,7 +106,10 @@ export default function SuperFeatureFlags() {
             <button key={row.store.id} type="button" onClick={() => setSelected(row.store.id)} className="grid w-full grid-cols-[1.6fr_2.1fr_.8fr_.9fr_24px] items-center gap-3 border-b border-[#F2EAE0] px-[18px] py-3 text-left transition-colors last:border-0 hover:bg-[#FBF6EE]">
               <span className="min-w-0">
                 <span className="block truncate text-sm font-semibold text-[#1B2A4A]">{row.store.name}</span>
-                <Pill tone={row.store.status === "active" ? "live" : row.store.status === "trial" ? "info" : "warn"}>{row.store.status}</Pill>
+                <span className="flex items-center gap-1.5">
+                  <Pill tone={row.store.status === "active" ? "live" : row.store.status === "trial" ? "info" : "warn"}>{row.store.status}</Pill>
+                  {Object.keys(row.conflicts).length > 0 && <Pill tone="warn">Conflict</Pill>}
+                </span>
               </span>
               <span className="flex flex-wrap gap-1.5">{CAPABILITIES.map((capability) => <Chip key={capability.key} active={row.flags[capability.key]}>{capability.label}</Chip>)}</span>
               <span className="text-right font-mono text-xs text-[#1B2A4A]">{row.flags.editionsCap}</span>
@@ -120,14 +132,14 @@ export default function SuperFeatureFlags() {
               <div className="mt-5 divide-y divide-[#F2EAE0] rounded-xl border border-[#E7DCCB]">
                 {CAPABILITIES.map((capability) => (
                   <label key={capability.key} className="flex items-center gap-3 p-4">
-                    <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-[#1B2A4A]">{capability.label}</span><span className="block text-xs text-[#7A6A57]">{capability.hint}</span></span>
+                    <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-[#1B2A4A]">{capability.label}{active.conflicts[capability.key] && <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-[#C87560]">Changed on server</span>}</span><span className="block text-xs text-[#7A6A57]">{capability.hint}</span></span>
                     <Switch checked={active.flags[capability.key]} onCheckedChange={(value) => update(active.store.id, capability.key, value)} />
                   </label>
                 ))}
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3">
-                <label className="text-xs font-semibold text-[#5C4E3E]">Editions cap<Input type="number" min={1} value={active.flags.editionsCap} onChange={(e) => update(active.store.id, "editionsCap", Number(e.target.value))} className="mt-1 border-[#E7DCCB]" /></label>
-                <label className="text-xs font-semibold text-[#5C4E3E]">Storage MB<Input type="number" min={0} value={active.flags.storageQuota} onChange={(e) => update(active.store.id, "storageQuota", Number(e.target.value))} className="mt-1 border-[#E7DCCB]" /></label>
+                <label className="text-xs font-semibold text-[#5C4E3E]">Editions cap{active.conflicts.editionsCap && <span className="ml-1 text-[10px] text-[#C87560]">server changed</span>}<Input type="number" min={1} value={active.flags.editionsCap} onChange={(e) => update(active.store.id, "editionsCap", Number(e.target.value))} className="mt-1 border-[#E7DCCB]" /></label>
+                <label className="text-xs font-semibold text-[#5C4E3E]">Storage MB{active.conflicts.storageQuota && <span className="ml-1 text-[10px] text-[#C87560]">server changed</span>}<Input type="number" min={0} value={active.flags.storageQuota} onChange={(e) => update(active.store.id, "storageQuota", Number(e.target.value))} className="mt-1 border-[#E7DCCB]" /></label>
               </div>
               <p className="mt-4 text-xs text-[#8A7A66]">Changes are queued. Nothing is live until you choose Save all.</p>
             </div>
@@ -141,7 +153,7 @@ export default function SuperFeatureFlags() {
           <span className="rounded-full bg-[#C87560] px-2 py-1 font-mono text-[10px] font-bold">{dirtyFields.length}</span>
           <span className="text-sm">{dirtyFields.length} unsaved changes, queued — nothing is live yet</span>
           <button type="button" onClick={discard} className="ml-auto rounded-lg px-4 py-2 text-xs font-semibold text-[#C6D2E4]">Discard</button>
-          <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className="rounded-lg bg-[#C87560] px-4 py-2 text-xs font-semibold text-white hover:bg-[#A85B48]">{save.isPending ? "Saving…" : "Save all"}</button>
+          <button type="button" onClick={() => save.mutate(changes)} disabled={save.isPending} className="rounded-lg bg-[#C87560] px-4 py-2 text-xs font-semibold text-white hover:bg-[#A85B48]">{save.isPending ? "Saving…" : "Save all"}</button>
         </div>
       )}
     </div>

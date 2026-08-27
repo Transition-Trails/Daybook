@@ -55,8 +55,8 @@ export default function StoreInspector({ storeId }: { storeId: string }) {
   const [tab, setTab] = useState("overview");
 
   const { data: stores = [], isLoading: storesLoading } = useQuery({
-    queryKey: ["stores"],
-    queryFn: storesApi.list,
+    queryKey: ["stores", { includeSeed: true }],
+    queryFn: () => storesApi.list({ includeSeed: true }),
     staleTime: 30_000,
   });
   const store = stores.find(s => s.id === storeId);

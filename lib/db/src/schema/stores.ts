@@ -23,6 +23,9 @@ export const storesTable = pgTable("stores", {
     .references(() => usersTable.id),
   plan: text("plan").notNull().default("starter"), // starter | pro
   status: text("status").notNull().default("trial"), // active | trial | suspended
+  // Platform-owned fixtures and CI stores are excluded from customer-facing
+  // lists and metrics unless an explicit includeSeed override is requested.
+  isSeed: boolean("is_seed").notNull().default(false),
   // Content mode — seeds UI defaults; entitlement is still enforced per-item by origin.
   // curated    = licensed-first: store uses platform catalog items (licensed origin).
   // independent = own-IP: store only uses starter set + what it authors (owned origin).

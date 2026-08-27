@@ -17,6 +17,7 @@ import {
   auditLogTable,
   usersTable,
   generationJobsTable,
+  plannerConfigsTable,
   plansTable,
   stickersLibraryTable,
   packStickersTable,
@@ -24,7 +25,7 @@ import {
   STICKER_FUNCTION_TYPES,
   type StickerFunctionType,
 } from "@workspace/db";
-import { eq, or, count, desc, and, inArray, ne, ilike, sql } from "drizzle-orm";
+import { eq, or, count, desc, and, inArray, ne, ilike, sql, isNull } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import {
   requireSuperAdmin,
@@ -47,12 +48,19 @@ const router: IRouter = Router();
 
 // ── GET /platform/stats ───────────────────────────────────────────────────────
 
-router.get("/platform/stats", requireSuperAdmin, async (_req: Request, res: Response): Promise<void> => {
+router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const includeSeed = req.query.includeSeed === "true";
+  const storeVisibility = includeSeed ? undefined : eq(storesTable.isSeed, false);
   const [storeStatusRows, userCountRow, genCountRow, proStoreRows] = await Promise.all([
-    db.select({ status: storesTable.status, cnt: count() }).from(storesTable).groupBy(storesTable.status),
+    db.select({ status: storesTable.status, cnt: count() }).from(storesTable).where(storeVisibility).groupBy(storesTable.status),
     db.select({ cnt: count() }).from(usersTable),
-    db.select({ cnt: count() }).from(generationJobsTable),
-    db.select({ cnt: count() }).from(storesTable).where(and(eq(storesTable.plan, "pro"), eq(storesTable.status, "active"))),
+    db
+      .select({ cnt: count() })
+      .from(generationJobsTable)
+      .leftJoin(plannerConfigsTable, eq(plannerConfigsTable.id, generationJobsTable.plannerId))
+      .leftJoin(storesTable, eq(storesTable.id, plannerConfigsTable.storeId))
+      .where(includeSeed ? undefined : or(isNull(plannerConfigsTable.storeId), eq(storesTable.isSeed, false))),
+    db.select({ cnt: count() }).from(storesTable).where(and(eq(storesTable.plan, "pro"), eq(storesTable.status, "active"), storeVisibility)),
   ]);
 
   const storesByStatus: Record<string, number> = {};

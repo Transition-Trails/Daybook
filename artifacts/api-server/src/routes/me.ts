@@ -21,7 +21,12 @@ router.get("/me/stores", async (req: Request, res: Response): Promise<void> => {
 
   // super_admin: return all stores
   if (isSuperAdmin(user)) {
-    const stores = await db.select().from(storesTable).orderBy(storesTable.name);
+    const includeSeed = req.query.includeSeed === "true";
+    const stores = await db
+      .select()
+      .from(storesTable)
+      .where(includeSeed ? undefined : eq(storesTable.isSeed, false))
+      .orderBy(storesTable.name);
     res.json(stores.map(s => ({ ...s, role: "super_admin" })));
     return;
   }

@@ -65,6 +65,7 @@ export interface Store {
   ownerUserId: string;
   plan: StorePlan;
   status: StoreStatus;
+  isSeed: boolean;
   defaultMode: DefaultMode;
   subscriptionActive: boolean;
   createdAt: string;
@@ -182,7 +183,10 @@ export interface SpineStyleCatalogItem extends CatalogItem {
 // ── Platform endpoints ──────────────────────────────────────────────────────
 
 export const platformApi = {
-  stats: () => apiFetch<PlatformStats>("/platform/stats"),
+  stats: (options?: { includeSeed?: boolean }) => {
+    const query = options?.includeSeed ? "?includeSeed=true" : "";
+    return apiFetch<PlatformStats>(`/platform/stats${query}`);
+  },
   audit: (params?: { storeId?: string; action?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.storeId) q.set("storeId", params.storeId);
@@ -449,13 +453,15 @@ export const platformStickersApi = {
 // ── Me endpoints ────────────────────────────────────────────────────────────
 
 export const meApi = {
-  stores: () => apiFetch<StoreWithRole[]>("/me/stores"),
+  stores: (options?: { includeSeed?: boolean }) =>
+    apiFetch<StoreWithRole[]>(`/me/stores${options?.includeSeed ? "?includeSeed=true" : ""}`),
 };
 
 // ── Store endpoints ─────────────────────────────────────────────────────────
 
 export const storesApi = {
-  list: () => apiFetch<Store[]>("/stores"),
+  list: (options?: { includeSeed?: boolean }) =>
+    apiFetch<Store[]>(`/stores${options?.includeSeed ? "?includeSeed=true" : ""}`),
   create: (data: Partial<Store>) =>
     apiFetch<Store>("/stores", { method: "POST", body: JSON.stringify(data) }),
   update: (storeId: string, data: Partial<Store>, xStoreId?: string) =>
@@ -504,6 +510,8 @@ export const storesApi = {
 
   flags: {
     get: (storeId: string) => apiFetch<StoreFlags>(`/stores/${storeId}/flags`),
+    list: (options?: { includeSeed?: boolean }) =>
+      apiFetch<StoreFlags[]>(`/stores/flags${options?.includeSeed ? "?includeSeed=true" : ""}`),
     update: (storeId: string, data: Partial<StoreFlags>) =>
       apiFetch<StoreFlags>(`/stores/${storeId}/flags`, {
         method: "PUT",

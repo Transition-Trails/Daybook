@@ -59,10 +59,12 @@ const CATALOG_TABLES: Record<string, { table: any; label: string }> = {
 // ── GET /stores ───────────────────────────────────────────────────────────────
 
 router.get("/stores", requireSuperAdmin, async (_req: Request, res: Response): Promise<void> => {
+  const includeSeed = _req.query.includeSeed === "true";
   const stores = await db
     .select({ store: storesTable, memberCount: count(storeMembersTable.id) })
     .from(storesTable)
     .leftJoin(storeMembersTable, eq(storeMembersTable.storeId, storesTable.id))
+    .where(includeSeed ? undefined : eq(storesTable.isSeed, false))
     .groupBy(storesTable.id)
     .orderBy(storesTable.createdAt);
 
@@ -73,10 +75,15 @@ router.get("/stores", requireSuperAdmin, async (_req: Request, res: Response): P
 
 router.post("/stores", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
   const actor = req.actor!;
-  const body = req.body as Record<string, string>;
-  const { id, name, slug, domain, ownerUserId, plan, status } = body;
+  const body = req.body as Record<string, unknown>;
+  const { id, name, slug, domain, ownerUserId, plan, status, isSeed } = body;
 
-  if (!id || !name || !slug || !ownerUserId) {
+  if (
+    typeof id !== "string" ||
+    typeof name !== "string" ||
+    typeof slug !== "string" ||
+    typeof ownerUserId !== "string"
+  ) {
     res.status(400).json({ error: "id, name, slug, ownerUserId are required" });
     return;
   }
@@ -84,7 +91,16 @@ router.post("/stores", requireSuperAdmin, async (req: Request, res: Response): P
   try {
     const [store] = await db
       .insert(storesTable)
-      .values({ id, name, slug, domain, ownerUserId, plan: plan ?? "starter", status: status ?? "trial" })
+      .values({
+        id,
+        name,
+        slug,
+        domain: typeof domain === "string" ? domain : null,
+        ownerUserId,
+        plan: typeof plan === "string" ? plan : "starter",
+        status: typeof status === "string" ? status : "trial",
+        isSeed: isSeed === true,
+      })
       .returning();
 
     // Auto-create flags row + auto-enroll the ownerUserId as store_owner
@@ -114,6 +130,40 @@ router.post("/stores", requireSuperAdmin, async (req: Request, res: Response): P
     }
   }
 });
+
+// ── GET /stores/flags ─────────────────────────────────────────────────────────
+
+router.get(
+  "/stores/flags",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const includeSeed = req.query.includeSeed === "true";
+    const rows = await db
+      .select({
+        storeId: storesTable.id,
+        aiEnabled: storeFlagsTable.aiEnabled,
+        customDomain: storeFlagsTable.customDomain,
+        editionsCap: storeFlagsTable.editionsCap,
+        storageQuota: storeFlagsTable.storageQuota,
+        inkEnabled: storeFlagsTable.inkEnabled,
+        worldsmithEnabled: storeFlagsTable.worldsmithEnabled,
+      })
+      .from(storesTable)
+      .leftJoin(storeFlagsTable, eq(storeFlagsTable.storeId, storesTable.id))
+      .where(includeSeed ? undefined : eq(storesTable.isSeed, false))
+      .orderBy(storesTable.createdAt);
+
+    res.json(rows.map((row) => ({
+      storeId: row.storeId,
+      aiEnabled: row.aiEnabled ?? false,
+      customDomain: row.customDomain ?? false,
+      editionsCap: row.editionsCap ?? 5,
+      storageQuota: row.storageQuota ?? 1024,
+      inkEnabled: row.inkEnabled ?? false,
+      worldsmithEnabled: row.worldsmithEnabled ?? false,
+    })));
+  },
+);
 
 // ── GET /stores/:storeId ──────────────────────────────────────────────────────
 

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowRight, Clock3 } from "lucide-react";
-import { platformApi, releasesApi, storesApi, type ReleaseWithNotes, type Store } from "@/lib/api";
+import { platformApi, releasesApi, storesApi, type ReleaseWithNotes } from "@/lib/api";
 import { EmptyState, ErrorState, MetricStrip, PageHeader, Pill, SkeletonRows } from "@/components/shared";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -14,8 +14,16 @@ function age(date: string | Date) {
 
 export default function SuperDashboard() {
   const [hideSeed, setHideSeed] = useState(true);
-  const statsQuery = useQuery({ queryKey: ["platform/stats"], queryFn: platformApi.stats });
-  const storesQuery = useQuery({ queryKey: ["stores"], queryFn: storesApi.list });
+  const statsQuery = useQuery({
+    queryKey: ["platform/stats", { includeSeed: !hideSeed }],
+    queryFn: () => platformApi.stats({ includeSeed: !hideSeed }),
+  });
+  // The dashboard needs the complete set to report how many fixtures are
+  // hidden, so this is an intentional, explicit override of the API default.
+  const storesQuery = useQuery({
+    queryKey: ["stores", { includeSeed: true }],
+    queryFn: () => storesApi.list({ includeSeed: true }),
+  });
   const { data: releases = [] } = useQuery<ReleaseWithNotes[]>({ queryKey: ["releases"], queryFn: releasesApi.list });
   const { data: audit = [], isLoading: auditLoading } = useQuery({
     queryKey: ["audit/recent"],
@@ -23,8 +31,8 @@ export default function SuperDashboard() {
   });
 
   const allStores = storesQuery.data ?? [];
-  const seedStores = allStores.filter((store) => Boolean((store as Store & { isSeed?: boolean }).isSeed));
-  const visibleStores = hideSeed ? allStores.filter((store) => !(store as Store & { isSeed?: boolean }).isSeed) : allStores;
+  const seedStores = allStores.filter((store) => store.isSeed);
+  const visibleStores = hideSeed ? allStores.filter((store) => !store.isSeed) : allStores;
   const decisions = useMemo(() => visibleStores
     .filter((store) => store.status === "suspended" || store.status === "trial")
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))

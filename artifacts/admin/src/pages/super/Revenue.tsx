@@ -15,7 +15,7 @@ const COLORS: Record<string, string> = {
 export default function SuperRevenue() {
   const { data: stats, isLoading, error, refetch } = useQuery({
     queryKey: ["platform/stats"],
-    queryFn: platformApi.stats,
+    queryFn: () => platformApi.stats(),
   });
 
   return (

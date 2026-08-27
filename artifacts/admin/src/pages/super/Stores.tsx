@@ -26,7 +26,7 @@ export default function SuperStores() {
 
   const { data: stores = [], isLoading, error, refetch } = useQuery({
     queryKey: ["stores"],
-    queryFn: storesApi.list,
+    queryFn: () => storesApi.list(),
   });
 
   const patchMutation = useMutation({

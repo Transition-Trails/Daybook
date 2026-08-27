@@ -13,6 +13,7 @@ import platformRouter from "../routes/platform.js";
 import ordersRouter from "../routes/orders.js";
 import supportRouter from "../routes/support.js";
 import usersRouter from "../routes/users.js";
+import meRouter from "../routes/me.js";
 
 // ── Known seeded users ────────────────────────────────────────────────────────
 // These IDs match scripts/src/seed.ts exactly.
@@ -149,5 +150,6 @@ export function makeApp(user: User | null) {
   app.use("/api", ordersRouter);
   app.use("/api", supportRouter);
   app.use("/api", usersRouter);
+  app.use("/api", meRouter);
   return app;
 }

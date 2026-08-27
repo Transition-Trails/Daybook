@@ -211,23 +211,49 @@ describe("super_admin — allow", () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("stores");
     expect(res.body).toHaveProperty("users");
+
+    const withSeed = await request(sa).get("/api/platform/stats?includeSeed=true").expect(200);
+    expect(withSeed.body.stores.total).toBeGreaterThan(res.body.stores.total);
+    expect(withSeed.body.mrr.amountUsd).toBeGreaterThan(res.body.mrr.amountUsd);
   });
 
-  it("GET /api/stores → 200 (lists all stores)", async () => {
+  it("GET /api/stores excludes seed stores by default and exposes them explicitly", async () => {
     const res = await request(sa).get("/api/stores");
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
-    const ids = res.body.map((s: { id: string }) => s.id);
-    expect(ids).toContain("store-alpha");
-    expect(ids).toContain("store-beta");
+    const defaultIds = res.body.map((s: { id: string }) => s.id);
+    expect(defaultIds).not.toContain("store-alpha");
+    expect(defaultIds).not.toContain("store-beta");
+
+    const withSeed = await request(sa).get("/api/stores?includeSeed=true").expect(200);
+    expect(withSeed.body.find((store: { id: string }) => store.id === "store-alpha")).toMatchObject({
+      id: "store-alpha",
+      isSeed: true,
+    });
+  });
+
+  it("GET /api/me/stores uses the same seed-store default for super admins", async () => {
+    const customerOnly = await request(sa).get("/api/me/stores").expect(200);
+    expect(customerOnly.body.some((store: { id: string }) => store.id === "store-alpha")).toBe(false);
+
+    const withSeed = await request(sa).get("/api/me/stores?includeSeed=true").expect(200);
+    expect(withSeed.body.find((store: { id: string }) => store.id === "store-alpha")).toMatchObject({
+      id: "store-alpha",
+      isSeed: true,
+      role: "super_admin",
+    });
   });
 
   it("POST /api/stores → 201 (create any store)", async () => {
     const res = await request(sa)
       .post("/api/stores")
-      .send({ id: ids.testStore, name: "Test Store", slug: ids.testStore, ownerUserId: "u-sa" });
+      .send({ id: ids.testStore, name: "Test Store", slug: ids.testStore, ownerUserId: "u-sa", isSeed: true });
     expect(res.status).toBe(201);
     expect(res.body.id).toBe(ids.testStore);
+    expect(res.body.isSeed).toBe(true);
+
+    const customerOnly = await request(sa).get("/api/stores").expect(200);
+    expect(customerOnly.body.some((store: { id: string }) => store.id === ids.testStore)).toBe(false);
 
     // Register cleanup — must also wipe flags auto-created + member auto-enrolled
     cleanups.push(async () => {
@@ -1305,6 +1331,19 @@ describe("audit log — written on admin mutations", () => {
     expect(response.body).toHaveLength(2);
     expect(response.body.find((row: { storeId: string }) => row.storeId === "store-alpha").editionsCap).toBe(31);
     expect(response.body.find((row: { storeId: string }) => row.storeId === "store-beta").storageQuota).toBe(2049);
+  });
+
+  it("GET /api/stores/flags returns all flags in one request with seed filtering", async () => {
+    await request(alphaOwner).get("/api/stores/flags").expect(403);
+
+    const customerOnly = await request(sa).get("/api/stores/flags").expect(200);
+    expect(customerOnly.body.some((row: { storeId: string }) => row.storeId === "store-alpha")).toBe(false);
+
+    const withSeed = await request(sa).get("/api/stores/flags?includeSeed=true").expect(200);
+    expect(withSeed.body.find((row: { storeId: string }) => row.storeId === "store-alpha")).toMatchObject({
+      storeId: "store-alpha",
+      aiEnabled: true,
+    });
   });
 
   it("POST /api/stores/:id/members (store_owner) writes audit entry: actorRole contains store_owner, scope=store-alpha", async () => {

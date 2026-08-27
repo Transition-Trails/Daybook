@@ -1,0 +1,300 @@
+# Replit task — rebuild the admin IA and visual system
+
+Paste this whole file to Replit as one task. Reference design: `Daybook Admin IA.dc.html`
+in the design project (six screens behind the top prototype strip). Do not copy that file's
+code — it is a design artifact, not production React. Implement the spec below in the real app.
+
+Work in this order. Do not start a later phase until the earlier one runs.
+
+---
+
+## Phase 1 — Collapse the two admin shells into one
+
+**The problem.** `/super` and the catalog admin are two separate app shells. The catalog
+admin has its own `Dashboard`, its own Studios list, its own sidebar, and a "Back to super
+admin" link. Studios are listed in both. A user can be in the wrong shell and not know it.
+
+**Do this.**
+
+1. Delete the second shell entirely. There is one admin layout component with one sidebar.
+2. Every route that lived in the catalog admin becomes a route inside the single shell:
+   - `/super/catalog` — catalog authoring landing (Phase 4)
+   - `/super/catalog/themes`, `/backgrounds`, `/inserts`, `/widgets`
+   - `/super/studios` — studio picker (Phase 5)
+   - `/super/studios/:slug` — individual studio
+3. Remove the "Back to super admin" link and any `window.location` hard navigation between
+   admin areas. All in-app navigation is client-side routing inside the one layout.
+4. Remove the duplicate catalog Dashboard. There is exactly one dashboard route:
+   `/super` (Phase 3).
+
+**Acceptance:** grep the codebase for a second admin layout, a second sidebar component, and
+the string "Back to super admin". All three are gone. Navigating from Dashboard to Catalog
+authoring to a studio never remounts the sidebar and never changes the URL prefix away from
+`/super`.
+
+---
+
+## Phase 2 — Sidebar: five collapsible groups, and role-aware nav
+
+Replace the flat 15-item list with grouped, collapsible sections. Group open/closed state
+persists per user in `localStorage` under `daybook.nav.groups`.
+
+### Super admin nav
+
+| Group | Items |
+|---|---|
+| OVERVIEW | Dashboard, Revenue |
+| PLATFORM | Stores (badge: count of stores needing attention), Feature flags, Deliverability, Audit log |
+| CATALOG | Catalog authoring, Product recipes (badge: draft count), Global catalog |
+| STUDIOS | All studios (badge: count of studios with a new recipe this month), WorldSmith Studio |
+| SUPPORT | Help center, Support inbox (badge: open ticket count) |
+
+### Store owner nav
+
+| Group | Items |
+|---|---|
+| YOUR SHOP | Home, Products, Orders (badge: unfulfilled count) |
+| BUILD | All studios, Themes & assets |
+| ACCOUNT | Plan & billing, Help center |
+
+**Rules.**
+
+- The owner nav is the **same layout component**, driven by the session role. Governance items
+  are not rendered at all for owners — not disabled, not hidden by CSS. Enforce on the server
+  too: every `/super/*` route rejects a non-superadmin request. Nav filtering is presentation,
+  not authorization.
+- A new product recipe must never add a nav item. Recipes appear **inside** a studio. The
+  Studios group has one entry point plus named studios only.
+- Group headers are buttons: uppercase 9.5px, `letter-spacing: .16em`, colour `#8FA0BC`, with a
+  caret that rotates 0° → 90° over 180ms.
+- Active item: `border-left: 3px solid #C87560`, background `rgba(255,255,255,.09)`, white text,
+  weight 600. Inactive: transparent, `#C6D2E4`, weight 400.
+- Sidebar is 246px, `#1B2A4A`, and does not scroll the header or footer — only the nav list
+  scrolls.
+- Sidebar footer: "Enter a customer store" (dashed border button, superadmin only), then the
+  user block with name, role line, sign-out.
+
+**Acceptance:** an owner session hitting `/super/flags` directly gets a 403 from the API, not a
+blank page. Collapsing a group and reloading keeps it collapsed.
+
+---
+
+## Phase 3 — Impersonation
+
+"Enter a customer store" and the "Enter this store" button in the store drawer both start
+impersonation.
+
+1. Server issues a scoped impersonation session: superadmin identity + target store id. Never
+   swap the user record.
+2. Every write during impersonation writes **two** audit rows, or one row carrying both actor
+   and impersonated store. The real actor must always be recoverable.
+3. While impersonating, render a 38px banner directly under the sidebar's right edge, above the
+   page header: background `#C87560`, white text, an uppercase mono "VIEWING AS" tag with
+   `rgba(0,0,0,.18)` background, the sentence *"You are inside {Store} as super admin. Edits are
+   logged to the audit trail."*, and a white "Exit store" button pinned right.
+4. Exiting returns to `/super` and drops the scope.
+5. Impersonation sessions expire on their own — 30 minutes is fine.
+
+**Acceptance:** impersonate, change something, exit, open the audit log. The row names the
+superadmin *and* the store. The banner is impossible to miss and cannot be dismissed without
+exiting.
+
+---
+
+## Phase 4 — Dashboard: metric strip + decision queue
+
+Delete the four big stat cards and the 15-row "Stores needing attention" list.
+
+### Metric strip
+
+One row, five cells, in a single card with `1px solid #EFE6D8` dividers between cells. Per cell:
+uppercase 10px label, then value in Spectral 22px/600 beside a small delta (green `#3F7A5E` up,
+clay `#A85B48` down), then a 20px-tall sparkline of the last 6 periods, `stroke-width: 1.6`,
+`vector-effect: non-scaling-stroke`.
+
+Metrics: MRR, Paying stores, Trial → paid, Planners built, Failed builds. For "Failed builds",
+down is good — colour by whether the trend is *desirable*, not by sign.
+
+### Needs a decision
+
+A queue of items that require a human choice, newest signal first. Not an event log — the audit
+stream is separate. Each row: a tone dot, title (13.5px/600), a meta line naming the
+consequence, a category pill, and an age. Row click opens the detail drawer.
+
+Seed the queue from real conditions, e.g.:
+
+- store suspended more than 48h after a failed payment
+- a recipe in draft whose release month is within 60 days
+- a recipe failing the engine-gap validation
+- live listings claiming hyperlinked navigation on a device whose e-ink profile marks links poor
+- a trial ending within 5 days with zero planners built
+
+### Test and seed store exclusion — do this properly
+
+Add a boolean column `is_seed` to the stores table (or reuse an existing environment/kind flag).
+Backfill it for every store created by seeds, migrations, or CI. Then:
+
+- Every production count, list, metric, and revenue figure **excludes** `is_seed` stores by
+  default. Enforce it at the query layer, not per-component, so a new screen cannot forget.
+- The dashboard shows a "Hide test & seed stores" checkbox, on by default, and a caption stating
+  how many are hidden.
+
+**Acceptance:** with the checkbox on, no row named "Test Store" appears anywhere on the
+dashboard, and Total stores reads the count of real stores. Turning it off changes the caption
+and re-includes them.
+
+### Right column
+
+Two stacked cards, no tall empty space:
+
+1. **Release runway** — next four recipes with month and state pill.
+2. **Audit stream** — navy `#1B2A4A` card, mono timestamps, 4 most recent entries, "Open audit
+   log →". This card is short by design; it is not a column filler.
+
+---
+
+## Phase 5 — Feature flags
+
+**Collapse the boolean columns.** Four toggle columns become one Capabilities cell holding
+chips. Chip on: clay text `#A85B48` on `#F3E4DF`, `1px solid #E8CFC7`, weight 600. Chip off:
+`#A2937E` on `#F5EFE5`, `line-through` in `#D4C6B0`. Capabilities: AI, Ink, WorldSmith,
+Custom domain.
+
+Grid: `1.6fr 2.1fr .8fr .9fr 24px` — Store / Capabilities / Editions (right) / Storage (right) /
+chevron. Fixed row padding of `12px 18px` on every row. The current build has rows overlapping
+(WorldSmith Migration House is clipped under the row above) because row heights vary with
+content — remove whatever is causing that; do not patch it with a fixed height.
+
+**Detail drawer.** Row click opens a 420px right drawer over a `rgba(27,42,74,.28)` scrim.
+Contents: kicker, store name, an explanation that overrides sit on top of the plan and that an
+absent override is not the same as "off", a bordered list of capability toggles each with a
+one-line hint, Editions cap and Storage inputs, a note that changes are queued, and "Enter this
+store" in the footer.
+
+**Sticky save bar.** Delete the per-row save icons. Any pending edit raises a 56px navy bar
+pinned to the bottom of the content area: a clay mono count chip, "N unsaved changes, queued —
+nothing is live yet", then Discard and Save all. Save all commits in one transaction. Discard
+restores the original values.
+
+**Above the table.** Search by store name, status filter chips (All / Active / Trial /
+Suspended), and a right-aligned count reading "N of M stores · K seed rows excluded". Default
+page size 25.
+
+**Acceptance:** toggling three capabilities across two stores shows "3", saves in one request,
+and writes three audit rows. No row can visually overlap another at any window width down to
+1180px.
+
+---
+
+## Phase 6 — Help center
+
+- Remove the redundancy: rows currently show a status badge **and** a publish toggle saying the
+  same thing. Keep one control. The status pill is the control — click it to change status, or
+  change status in the row's drawer.
+- The title column must carry real titles. The current view repeats "something-else" as the
+  collection for every row, which means the collection field is either unset or misjoined — fix
+  the query.
+- Columns: `2.4fr 1fr .9fr .8fr 24px` — Article (title + "Updated N ago" sub-line) / Collection /
+  Status / Views 30d (right, mono) / chevron.
+- Search, status filter (All / Live / Draft), count line "N shown · M total", default 25 rows
+  with "Show N more".
+
+---
+
+## Phase 7 — Catalog authoring landing
+
+This is the page that used to be a whole second app. Sections top to bottom:
+
+1. A note card, `border-left: 3px solid #C87560`, explaining that catalog authoring is now a
+   section of this admin and the role and audit trail do not change. Remove this card once the
+   team has adjusted — it is transitional.
+2. **Catalog tables** — four tiles (Themes, Backgrounds, Inserts, Widgets), each with glyph,
+   label, total in Spectral 19px, and live/draft pills. A `0 draft` pill is neutral grey, not
+   amber. Four equal columns, no ragged trailing row.
+3. **Recently edited** (1.4fr) beside **Where things live now** (1fr).
+
+Primary actions ("New theme", "Import assets") belong in the page header, not below the fold.
+The current catalog dashboard buries Create Theme / Create Edition / Research Trends under
+eight stat tiles — move them up.
+
+---
+
+## Phase 8 — Studio picker
+
+Three-column card grid. Seven studios: Planner, Journal, Sticker, Theme, Product Builder,
+WorldSmith Studio, Marketing. Each card: 32px rounded glyph tile (`#F3E4DF` bg, `#A85B48`
+glyph), name in Spectral 15.5px/600, a recipe/scale sub-line, an optional clay "NEW" badge, a
+two-line blurb, and recipe-name tags.
+
+**WorldSmith Studio** is a studio here, not a platform nav item. It builds canon records for
+worldbuilders — characters, places, timelines, lore — exported as a linked companion volume.
+Give it the NEW badge until the next recipe ships. The per-store `WorldSmith` capability chip in
+Feature flags gates access to it.
+
+Filters above the grid: All studios / Has new recipes / Pro only.
+
+---
+
+## Phase 9 — Store owner home
+
+Same shell, owner nav. Content:
+
+1. A navy `#1B2A4A` "New this month" card naming the newest recipe, stating plainly that it is a
+   recipe and not a new studio, with "Build one" (clay) and "What changed" (ghost) buttons. This
+   card is the renewal argument — stores renew for recipes that arrive.
+2. "Your shop this month" — four small stats in a 2×2 grid: Revenue, Orders, Planners built,
+   Editions used (as `used / cap`).
+3. "Pick up where you left off" — in-progress products with thumbnail, name, meta, status pill
+   and a per-row CTA (Publish / Resume / Start).
+
+---
+
+## Visual system — use these values exactly
+
+Copy nothing else from the reference file. These are the tokens.
+
+```
+Sidebar / ink navy      #1B2A4A     Prototype strip navy   #121D34
+Page canvas             #F7F0E6     Sunken canvas          #EFE6D8
+Card surface            #FFFDF9     Card sub-surface       #FBF6EE
+Warm hairline border    #E7DCCB     Row divider            #F2EAE0
+                                    Cell divider           #EFE6D8
+Clay accent             #C87560     Clay hover             #A85B48
+Green (good)            #3F7A5E     on #E8F1EA
+Amber (draft)           #8A6A22     on #F6EBD4
+Blue (info)             #3A5480     on #E4EAF4
+Body text               #1B2A4A     Secondary text         #5C4E3E
+Muted text              #7A6A57     Faint text             #8A7A66 / #A2937E
+Sidebar body text       #C6D2E4     Sidebar muted          #8FA0BC
+```
+
+- **Borders are warm, never grey.** `#E7DCCB` on paper. A grey border in this UI is a bug.
+- **Type:** Spectral 600 for headings and numerals; Instrument Sans for body and UI; Space Mono
+  for timestamps, counts, IDs and numeric table cells. Caveat is not used in admin.
+- **Radii:** 7–9px controls, 12px tiles, 14px content cards, 20px pills.
+- **Shadows:** `0 1px 2px rgba(27,42,74,.05)` tiles, `0 1px 3px rgba(27,42,74,.06)` cards,
+  `0 4px 14px rgba(27,42,74,.09)` card hover, `-10px 0 34px rgba(27,42,74,.2)` drawer.
+- **Motion:** 120–320ms ease-out. Caret rotation 180ms, toggle slide 200ms. No bounce, no
+  scale-up on hover. Hover deepens colour or lightens a surface.
+- **Pills** are one component with tones `live / draft / info / warn / on / off`. Do not
+  hand-roll a badge anywhere.
+- **Uppercase eyebrow labels:** 10px, `letter-spacing: .14em`, weight 600–700, `#8A7A66` on
+  paper.
+- Numeric table cells are Space Mono and right-aligned. Never centre a number.
+- Content max-width 1120px (1000px on the owner home). Page header is 56px, `#FFFDF9`, with the
+  title in Spectral 19px and a sub-line, actions right-aligned.
+
+## Shared components to build once
+
+`AdminLayout`, `Sidebar`, `NavGroup`, `NavItem`, `ImpersonationBanner`, `PageHeader`,
+`MetricStrip`, `Sparkline`, `Pill`, `Chip`, `DataTable` (grid template, search, filter chips,
+count line, row click), `DetailDrawer`, `StickySaveBar`, `QueueList`, `StatTile`.
+
+Every screen in Phases 4–9 composes these. If a screen needs a one-off variant of one of them,
+add a prop — do not fork the component.
+
+## Out of scope
+
+Do not redesign the studios themselves, the product builder, or the storefront. Do not change
+the planner generator. Do not touch billing logic. This task is navigation, layout, and the
+visual system only.

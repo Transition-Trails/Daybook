@@ -194,7 +194,7 @@ function RootRouter() {
     <Switch>
       {/* ── Platform studio bookmarks ─────────────────────────────
        * These root-level aliases keep saved platform-admin bookmarks
-       * working alongside the canonical /daybook console routes.
+       * working alongside the canonical /super console routes.
        * Store-scoped studio URLs remain below and are intentionally
        * handled by their store guards.
        */ }

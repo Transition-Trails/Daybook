@@ -1,5 +1,5 @@
 /**
- * Daybook Admin routes — all rendered inside Shell under /daybook/...
+ * Daybook Admin routes — legacy catalog routes rendered under /daybook/...
  *
  * ── Studio hubs (one per product domain) ─────────────────────────────────────
  * /studios/planner    → PlannerStudioHub   (Build · Editions · Inserts · Theme…)
@@ -14,8 +14,7 @@
  * /catalog/widgets    Platform widgets info page
  * /catalog/products   Related products list + detail
  *
- * ── Platform ──────────────────────────────────────────────────────────────────
- * /plans  /users  /ink  /ai-settings  /sync  /calendar
+ * Platform settings pages now live under canonical /super/ routes in App.tsx.
  *
  * ── Backward-compat (no nav entry, still reachable via bookmarks/deep links) ──
  * /catalog/stickers   original platform sticker list  → now Library mode of Sticker Studio

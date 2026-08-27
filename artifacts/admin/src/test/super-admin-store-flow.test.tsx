@@ -171,12 +171,14 @@ describe("SuperAdminShell navigation", () => {
     const expectedLinks: Record<string, string> = {
       "Releases": "/super/releases",
       "Promote content": "/super/promote",
-      "Plans": "/daybook/plans",
-      "Users": "/daybook/users",
-      "Ink library": "/daybook/ink",
-      "AI settings": "/daybook/ai-settings",
-      "Planner interiors": "/daybook/super/planner-interiors",
-      "Legacy console": "/daybook",
+      "Plans": "/super/plans",
+      "Users": "/super/users",
+      "Ink library": "/super/ink",
+      "AI settings": "/super/settings/ai",
+      "Google sync": "/super/settings/google",
+      "Calendar": "/super/settings/calendar",
+      "Planner interiors": "/super/planner-interiors",
+      "Deliverability": "/super/email/deliverability",
       "All studios": "/super/studios",
       "Help center": "/super/help",
       "Support inbox": "/super/support",
@@ -188,8 +190,11 @@ describe("SuperAdminShell navigation", () => {
     }
     expect(screen.getByRole("button", { name: /content/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /settings/i })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Google sync" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Calendar" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /platform/i })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Legacy console" })).not.toBeInTheDocument();
+    for (const link of screen.getAllByRole("link")) {
+      expect(link.getAttribute("href")).not.toMatch(/^\/daybook/);
+    }
   });
 });
 

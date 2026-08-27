@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useLogout, useGetMe } from "@workspace/api-client-react";
 import {
-  Activity,
   BookCopy,
   BookMarked,
   BookOpen,
+  CalendarDays,
   ChevronDown,
   CircleHelp,
   ClipboardList,
@@ -14,6 +14,7 @@ import {
   Globe2,
   Home,
   LayoutDashboard,
+  MailCheck,
   LogOut,
   Megaphone,
   Package,
@@ -27,7 +28,8 @@ import {
   Tags,
   Users,
   WandSparkles,
-  Archive,
+  RefreshCw,
+  DollarSign,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
@@ -221,7 +223,7 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
           label: "Overview",
           items: [
             { label: "Dashboard", href: "/super", icon: LayoutDashboard },
-            { label: "Revenue", href: "/super/revenue", icon: Activity },
+            { label: "Revenue", href: "/super/revenue", icon: DollarSign },
           ],
         },
         {
@@ -232,6 +234,7 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
             { label: "Feature flags", href: "/super/flags", icon: Flag },
             { label: "Releases", href: "/super/releases", icon: Rocket },
             { label: "Audit log", href: "/super/audit", icon: ClipboardList },
+            { label: "Deliverability", href: "/super/email/deliverability", icon: MailCheck },
           ],
         },
         {
@@ -239,19 +242,19 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
           label: "Content",
           items: [
             { label: "Promote content", href: "/super/promote", icon: Megaphone },
-            { label: "Ink library", href: "/daybook/ink", icon: FileText },
-            { label: "Planner interiors", href: "/daybook/super/planner-interiors", icon: BookCopy },
+            { label: "Planner interiors", href: "/super/planner-interiors", icon: BookCopy },
+            { label: "Ink library", href: "/super/ink", icon: FileText },
           ],
         },
         {
           id: "settings",
           label: "Settings",
           items: [
-            { label: "Plans", href: "/daybook/plans", icon: BookOpen },
-            { label: "Users", href: "/daybook/users", icon: Users },
-            { label: "AI settings", href: "/daybook/ai-settings", icon: Settings2 },
-            { label: "Deliverability", href: "/super/email/deliverability", icon: Receipt },
-            { label: "Legacy console", href: "/daybook", icon: Archive },
+            { label: "Plans", href: "/super/plans", icon: BookOpen },
+            { label: "Users", href: "/super/users", icon: Users },
+            { label: "AI settings", href: "/super/settings/ai", icon: Settings2 },
+            { label: "Google sync", href: "/super/settings/google", icon: RefreshCw },
+            { label: "Calendar", href: "/super/settings/calendar", icon: CalendarDays },
           ],
         },
         {

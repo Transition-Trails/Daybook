@@ -109,6 +109,7 @@ function getSurfaceCtx(location: string): Partial<AiContextPayload> {
   };
   if (
     location.startsWith("/daybook") ||
+    location.startsWith("/super") ||
     location.startsWith("/studios") ||
     location.startsWith("/catalog")
   ) return {

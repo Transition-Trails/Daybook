@@ -104,9 +104,9 @@ export default function SuperFeatureFlags() {
           storesQuery.error ? <ErrorState message="Couldn't load store capabilities." /> :
           visible.map((row) => (
             <button key={row.store.id} type="button" aria-label={`Edit feature flags for ${row.store.name}`} onClick={() => setSelected(row.store.id)} className="grid min-h-14 w-full grid-cols-[1.6fr_2.1fr_.8fr_.9fr_24px] items-center gap-3 border-b border-[#F2EAE0] px-[18px] py-2 text-left transition-colors last:border-0 hover:bg-[#FBF6EE]">
-              <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+              <span className="flex min-w-0 items-center gap-[9px] overflow-hidden">
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#1B2A4A]">{row.store.name}</span>
-                <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                <span className="flex shrink-0 items-center gap-[9px] whitespace-nowrap">
                   <Pill tone={row.store.status === "active" ? "live" : row.store.status === "trial" ? "info" : "warn"}>{row.store.status}</Pill>
                   {Object.keys(row.conflicts).length > 0 && <Pill tone="warn">Conflict</Pill>}
                 </span>

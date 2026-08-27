@@ -30,8 +30,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
-import { resolveStoreId, flagsQueryOptions, type MeStore } from "@/lib/api";
-import { useQuery } from "@tanstack/react-query";
+import { resolveStoreId, type MeStore } from "@/lib/api";
+import { PageHeaderTargetContext } from "@/components/shared/page-header-context";
 
 type ShellRole = "super" | "owner";
 type NavItem = {
@@ -65,6 +65,28 @@ function readGroupState(): Record<string, boolean> {
   }
 }
 
+function NavItemLink({
+  item,
+  active,
+}: {
+  item: NavItem;
+  active: boolean;
+}) {
+  const ItemIcon = item.icon;
+  return (
+    <Link href={item.href} aria-label={item.label} title={item.label}>
+      <span
+        className={cn("admin-nav-item", active && "is-active")}
+        aria-current={active ? "page" : undefined}
+      >
+        <ItemIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+        {item.badge !== undefined && <span className="admin-nav-badge">{item.badge}</span>}
+      </span>
+    </Link>
+  );
+}
+
 function NavGroupView({
   group,
   open,
@@ -89,23 +111,12 @@ function NavGroupView({
       </button>
       <div className={cn("admin-nav-group__items", !open && "is-collapsed")}>
         {group.items.map((item) => {
+          const isConsoleRoot = item.href === "/super" || /^\/store\/[^/]+$/.test(item.href);
           const active =
-            item.href === "/super" || item.href.startsWith("/store/")
+            isConsoleRoot
               ? location === item.href
               : location === item.href || location.startsWith(`${item.href}/`);
-          const ItemIcon = item.icon;
-          return (
-            <Link key={`${item.href}-${item.label}`} href={item.href}>
-              <span
-                className={cn("admin-nav-item", active && "is-active")}
-                aria-current={active ? "page" : undefined}
-              >
-                <ItemIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                {item.badge !== undefined && <span className="admin-nav-badge">{item.badge}</span>}
-              </span>
-            </Link>
-          );
+          return <NavItemLink key={`${item.href}-${item.label}`} item={item} active={active} />;
         })}
       </div>
     </section>
@@ -144,11 +155,8 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
   const logout = useLogout();
   const { openAssistant } = useAiDrawer();
   const [groups, setGroups] = useState(readGroupState);
+  const [pageHeaderTarget, setPageHeaderTarget] = useState<HTMLDivElement | null>(null);
   const storeId = store ? resolveStoreId(store) : "";
-  const { data: flags } = useQuery({
-    ...flagsQueryOptions(storeId),
-    enabled: role === "owner" && Boolean(storeId),
-  });
 
   useEffect(() => {
     try {
@@ -190,6 +198,13 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
             { label: "Promote content", href: "/super/promote", icon: Megaphone },
             { label: "Deliverability", href: "/super/email/deliverability", icon: Receipt },
             { label: "Audit log", href: "/super/audit", icon: ClipboardList },
+            { label: "Plans", href: "/daybook/plans", icon: BookOpen },
+            { label: "Users", href: "/daybook/users", icon: Users },
+            { label: "Ink library", href: "/daybook/ink", icon: FileText },
+            { label: "AI settings", href: "/daybook/ai-settings", icon: Settings2 },
+            { label: "Google sync", href: "/daybook/sync", icon: Activity },
+            { label: "Calendar", href: "/daybook/calendar", icon: BookCopy },
+            { label: "Planner interiors", href: "/daybook/super/planner-interiors", icon: FileText },
           ],
         },
         {
@@ -215,12 +230,12 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
           items: [
             { label: "Help center", href: "/super/help", icon: CircleHelp },
             { label: "Support inbox", href: "/super/support", icon: Users },
+            { label: "Support patterns", href: "/super/support/patterns", icon: ClipboardList },
           ],
         },
       ];
     }
     const base = `/store/${storeId}`;
-    const studioEnabled = Boolean(flags?.aiEnabled) || store?.role === "super_admin" || storeId === "store-house";
     const canPublish = storeRole === "store_owner" || storeRole === "store_staff" || storeRole === "super_admin";
     return [
       {
@@ -241,28 +256,35 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
         label: "Build",
         items: [
           ...(canPublish ? [{ label: "Themes & assets", href: `${base}/my-content`, icon: Palette }] : []),
-          ...(canPublish && studioEnabled ? [
-            { label: "All studios", href: `${base}/studios/edition`, icon: Sparkles },
-            { label: "Theme Studio", href: `${base}/studios/theme`, icon: Palette },
-            { label: "Sticker Studio", href: `${base}/studios/stickers`, icon: Tags },
-            { label: "Edition Studio", href: `${base}/studios/edition`, icon: BookCopy },
-            { label: "Planner Studio", href: `${base}/studios/planners`, icon: FileText },
-            { label: "Trend Research", href: `${base}/studios/trends`, icon: Activity },
-            { label: "Marketing Studio", href: `${base}/studios/marketing`, icon: Megaphone },
-            { label: "Product Builder", href: `${base}/build`, icon: WandSparkles },
-          ] : canPublish ? [{ label: "Studios (not enabled)", href: `${base}#studios-disabled`, icon: Sparkles }] : []),
+          ...(canPublish ? [{ label: "All studios", href: `${base}/studios`, icon: Sparkles }] : []),
         ],
       },
       {
-        id: "account",
-        label: "Account",
+        id: "manage",
+        label: "Manage",
         items: [
-          { label: "Plan & billing", href: `${base}/settings/profile`, icon: Shield },
+          ...(canPublish ? [
+            { label: "Planner builds", href: `${base}/builds`, icon: FileText },
+            { label: "Sticker library", href: `${base}/stickers`, icon: Tags },
+            { label: "Widgets", href: `${base}/widgets`, icon: WandSparkles },
+          ] : []),
+          { label: "Store profile", href: `${base}/settings/profile`, icon: Settings2 },
+          ...(canPublish ? [{ label: "Email settings", href: `${base}/email-settings`, icon: Receipt }] : []),
+        ],
+      },
+      {
+        id: "support",
+        label: "Support",
+        items: [
+          ...(canPublish ? [
+            { label: "Buyer support inbox", href: `${base}/support-inbox`, icon: Users },
+            { label: "Support patterns", href: `${base}/support-patterns`, icon: ClipboardList },
+          ] : []),
           { label: "Help center", href: `${base}/help`, icon: CircleHelp },
         ],
       },
     ];
-  }, [flags?.aiEnabled, role, store?.role, storeId, storeRole]);
+  }, [role, storeId, storeRole]);
 
   const toggleGroup = (id: string) => setGroups((prev) => ({ ...prev, [id]: !prev[id] }));
   const handleLogout = () => {
@@ -279,14 +301,6 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
             <p className="admin-scope">{role === "super" ? "Platform admin" : store?.name ?? "Store admin"}</p>
           </div>
         </div>
-
-        {isImpersonating && (
-          <div className="px-3 pt-3">
-            <Link href="/super">
-              <span className="admin-store-entry mb-0">← Back to platform</span>
-            </Link>
-          </div>
-        )}
 
         <nav className="admin-sidebar__nav" aria-label="Admin navigation">
           {navGroups.map((group) => (
@@ -334,8 +348,10 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
       <div className="admin-main">
         {isImpersonating && <ImpersonationBanner storeName={store?.name ?? storeId} />}
         <header className="admin-page-header">
-          <div className="flex items-center gap-2">
-            <span className="admin-page-header__title-context">{titleContext ?? (role === "super" ? "Platform" : store?.name)}</span>
+          <div ref={setPageHeaderTarget} className="admin-page-header__page-slot">
+            <span className="admin-page-header__title-context">
+              {titleContext ?? (role === "super" ? "Platform" : store?.name)}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <button type="button" className="admin-ai-button" onClick={openAssistant}>
@@ -345,11 +361,13 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
             <span className="admin-role-pill">{roleLabel}</span>
           </div>
         </header>
-        <main className="admin-content">
-          <div className={cn("admin-content__inner", location.includes("/studios/") && "admin-content__inner--studio")}>
-            {children}
-          </div>
-        </main>
+        <PageHeaderTargetContext.Provider value={pageHeaderTarget}>
+          <main className="admin-content">
+            <div className={cn("admin-content__inner", location.includes("/studios/") && "admin-content__inner--studio")}>
+              {children}
+            </div>
+          </main>
+        </PageHeaderTargetContext.Provider>
       </div>
     </div>
   );

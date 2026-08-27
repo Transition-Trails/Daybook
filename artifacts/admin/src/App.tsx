@@ -90,6 +90,7 @@ import StoreOrders from "@/pages/orders/list";
 import OrderDetail from "@/pages/orders/detail";
 import StoreStaff from "@/pages/store/StaffRoles";
 import StoreHelp from "@/pages/store/StoreHelp";
+import StoreStudioPicker from "@/pages/store/StudioPicker";
 
 // ── Store: Manage Owned Content ───────────────────────────────────────────────
 import MyContent from "@/pages/store/MyContent";
@@ -539,6 +540,17 @@ function RootRouter() {
       </Route>
 
       {/* ── Store AI Studios ─────────────────────────────────────── */}
+      <Route path="/store/:storeId/studios">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                <StoreStudioPicker storeId={p.storeId!} role={store.role as string} />
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
       <Route path="/store/:storeId/studios/theme">
         {(p) => (
           <RequireStore state={state} storeId={p.storeId}>

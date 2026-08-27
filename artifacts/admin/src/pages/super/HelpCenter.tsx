@@ -57,11 +57,14 @@ export default function SuperHelpCenter() {
     queryFn: () => helpApi.list({ scope: "platform" }),
   });
 
-  const byKind = articles.filter((a) =>
-    a.kind === kind
-    && (statusFilter === "all" || a.status === statusFilter)
-    && a.title.toLowerCase().includes(search.toLowerCase()),
-  );
+  const matchesActiveFilters = (article: HelpArticle) =>
+    (statusFilter === "all" || article.status === statusFilter)
+    && article.title.toLowerCase().includes(search.toLowerCase());
+  const filteredCounts = {
+    article: articles.filter((article) => article.kind === "article" && matchesActiveFilters(article)).length,
+    faq: articles.filter((article) => article.kind === "faq" && matchesActiveFilters(article)).length,
+  };
+  const byKind = articles.filter((article) => article.kind === kind && matchesActiveFilters(article));
 
   const toggleMutation = useMutation({
     mutationFn: (a: HelpArticle) =>
@@ -131,7 +134,7 @@ export default function SuperHelpCenter() {
           >
             {k === "article" ? "Articles" : "FAQs"}
             <span className="ml-1.5 text-xs opacity-60">
-              {articles.filter((a) => a.kind === k).length}
+              {filteredCounts[k]}
             </span>
           </button>
         ))}
@@ -158,26 +161,51 @@ export default function SuperHelpCenter() {
         <EmptyState title={`No ${kind}s yet`} description="Create one with the button above." />
       ) : (
         <div className="rounded-[14px] border border-[#E7DCCB] bg-[#FFFDF9] overflow-hidden">
-          <div className="grid grid-cols-[2.4fr_1fr_.9fr_.8fr_68px] gap-3 border-b border-[#EFE6D8] bg-[#FBF6EE] px-[18px] py-3 text-[10px] font-bold uppercase tracking-[.12em] text-[#8A7A66]">
-            <span>Article</span><span>Collection</span><span>Status</span><span className="text-right">Views 30d</span><span />
+          <div className="grid grid-cols-[2.4fr_1fr_.9fr_68px] gap-3 border-b border-[#EFE6D8] bg-[#FBF6EE] px-[18px] py-3 text-[10px] font-bold uppercase tracking-[.12em] text-[#8A7A66]">
+            <span>Article</span><span>Collection</span><span>Status</span><span />
           </div>
           <div className="divide-y divide-[#F2EAE0]">
               {byKind.map((a) => (
-                <div key={a.id} className="grid grid-cols-[2.4fr_1fr_.9fr_.8fr_68px] items-center gap-3 px-[18px] py-3 hover:bg-[#FBF6EE] transition-colors">
+                <div
+                  key={a.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => { setEditing(a); setOpen(true); }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setEditing(a);
+                      setOpen(true);
+                    }
+                  }}
+                  aria-label={`Edit ${a.title}`}
+                  className="grid cursor-pointer grid-cols-[2.4fr_1fr_.9fr_68px] items-center gap-3 px-[18px] py-3 transition-colors hover:bg-[#FBF6EE] focus-visible:bg-[#FBF6EE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1B2A4A]"
+                >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-[#1B2A4A]">{a.title}</p>
                     <p className="text-[10px] text-[#8A7A66]">Updated {new Date(a.updatedAt).toLocaleDateString()}</p>
                   </div>
                   <span className="truncate text-sm text-[#5C4E3E]">{helpCategoryLabel(a.category as any)}</span>
-                  <button type="button" onClick={() => toggleMutation.mutate(a)} disabled={toggleMutation.isPending} className="justify-self-start"><StatusPill status={a.status} /></button>
-                  <span className="text-right font-mono text-xs text-[#1B2A4A]">0</span>
+                   <button
+                     type="button"
+                     onClick={(event) => {
+                       event.stopPropagation();
+                       toggleMutation.mutate(a);
+                     }}
+                     onKeyDown={(event) => event.stopPropagation()}
+                     disabled={toggleMutation.isPending}
+                     className="justify-self-start"
+                     aria-label={`${a.status === "live" ? "Unpublish" : "Publish"} ${a.title}`}
+                   >
+                     <StatusPill status={a.status} />
+                   </button>
                   <div className="flex items-center justify-end gap-1">
-                    <button onClick={() => { setEditing(a); setOpen(true); }} className="p-1 text-[#A2937E] hover:text-[#1B2A4A]" title={`Edit ${a.title}`} aria-label={`Edit ${a.title}`}>
+                     <button onClick={(event) => { event.stopPropagation(); setEditing(a); setOpen(true); }} className="p-1 text-[#A2937E] hover:text-[#1B2A4A]" title={`Edit ${a.title}`} aria-label={`Edit ${a.title}`}>
                       <ChevronRight className="h-4 w-4" />
                     </button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <button className="rounded p-1 text-[#A2937E] transition-colors hover:bg-red-50 hover:text-destructive" aria-label={`Delete ${a.title}`}>
+                         <button onClick={(event) => event.stopPropagation()} className="rounded p-1 text-[#A2937E] transition-colors hover:bg-red-50 hover:text-destructive" aria-label={`Delete ${a.title}`}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </AlertDialogTrigger>

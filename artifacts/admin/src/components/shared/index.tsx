@@ -2,6 +2,9 @@ import { cn } from "@/lib/utils";
 import { AlertCircle, Inbox, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { createPortal } from "react-dom";
+import { useContext } from "react";
+import { PageHeaderTargetContext } from "./page-header-context";
 
 const STATUS_STYLES: Record<string, string> = {
   live: "bg-[#E8F1EA] text-[#3F7A5E] border-[#CFE0D2]",
@@ -154,11 +157,12 @@ export function PageHeader({
   scopeLabel?: string;
   actions?: React.ReactNode;
 }) {
-  return (
-    <div className="mb-6 flex min-h-14 items-start justify-between gap-4">
-      <div>
+  const target = useContext(PageHeaderTargetContext);
+  const content = (
+    <div className="admin-page-header__page-content">
+      <div className="min-w-0">
         <h1 className="font-display text-[19px] font-semibold text-[#1B2A4A]">{title}</h1>
-        {description && <p className="mt-1 text-sm text-[#7A6A57]">{description}</p>}
+        {description && <p className="mt-1 truncate text-sm text-[#7A6A57]">{description}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-3">
         {scopeLabel && <Pill tone="info">{scopeLabel}</Pill>}
@@ -166,6 +170,8 @@ export function PageHeader({
       </div>
     </div>
   );
+  if (target) return createPortal(content, target);
+  return <div className="mb-6 flex min-h-14 items-start justify-between gap-4">{content}</div>;
 }
 
 export function EmptyState({

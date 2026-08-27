@@ -11,9 +11,9 @@
  *  3. RequireStore — regular store member gets access to their own store (positive)
  *  4. RequireStore — store member cannot access another store → redirect (NEGATIVE)
  *  5. RequireStore — unauthenticated state → redirect (NEGATIVE)
- *  6. Full shell: super_admin sees super-admin banner, all six studio links
- *  7. Full shell: studio links visible even when flags endpoint returns 401 (super bypass)
- *  8. Full shell: studio links hidden for regular user when flags endpoint returns 401 (no aiEnabled fallback = false)
+ *  6. Full shell: super_admin sees one banner exit and a single studio-picker link
+ *  7. Full shell: studio picker remains reachable if flags fail
+ *  8. Full shell: regular owners also reach the picker rather than duplicated studio links
  *  9. SuperStores page: "Enter store" link points to /store/:id
  * 10. Navigation: clicking "Enter store" renders the StoreAdminShell (end-to-end mini-app)
  */
@@ -124,9 +124,45 @@ function Wrapper({
 
 import { RequireStore, RequireSuperAdmin } from "@/lib/guards";
 import { StoreAdminShell } from "@/components/layout/StoreAdminShell";
+import { SuperAdminShell } from "@/components/layout/SuperAdminShell";
 import { AiDrawerProvider } from "@/contexts/AiDrawerContext";
 import type { ConsoleState } from "@/lib/useConsole";
 import type { MeStore } from "@/lib/api";
+
+describe("SuperAdminShell navigation", () => {
+  it("links every restored management item to a mounted route", () => {
+    const qc = makeQc();
+    render(
+      <Wrapper path="/super" qc={qc}>
+        <AiDrawerProvider>
+          <SuperAdminShell>
+            <div>Platform content</div>
+          </SuperAdminShell>
+        </AiDrawerProvider>
+      </Wrapper>,
+    );
+
+    const expectedLinks: Record<string, string> = {
+      "Releases": "/super/releases",
+      "Promote content": "/super/promote",
+      "Plans": "/daybook/plans",
+      "Users": "/daybook/users",
+      "Ink library": "/daybook/ink",
+      "AI settings": "/daybook/ai-settings",
+      "Google sync": "/daybook/sync",
+      "Calendar": "/daybook/calendar",
+      "Planner interiors": "/daybook/super/planner-interiors",
+      "All studios": "/super/studios",
+      "Help center": "/super/help",
+      "Support inbox": "/super/support",
+      "Support patterns": "/super/support/patterns",
+    };
+
+    for (const [name, href] of Object.entries(expectedLinks)) {
+      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+  });
+});
 
 // ── Shared test fixtures ───────────────────────────────────────────────────
 
@@ -326,40 +362,29 @@ describe("StoreAdminShell — super_admin via RequireStore", () => {
     expect(screen.getByText(/as super admin/i)).toBeInTheDocument();
   });
 
-  it("shows Back-to-super-admin quick exit in sidebar", () => {
+  it("does not duplicate the impersonation exit in the sidebar", () => {
     renderSuperAdminShell();
-    // Sidebar link reads "Back to platform" (navigates to /super)
-    expect(screen.getByText(/back to platform/i)).toBeInTheDocument();
+    expect(screen.queryByText(/back to platform/i)).not.toBeInTheDocument();
   });
 
-  it("shows 'Leave store' link pointing to /super", () => {
+  it("shows the banner exit link pointing to /super", () => {
     renderSuperAdminShell();
-    // Banner exit link reads "← Leave store" and points to /super (platform console)
-    const exitLink = screen.getByText(/leave store/i);
+    const exitLink = screen.getByText(/exit store/i);
     expect(exitLink.closest("a")).toHaveAttribute("href", "/super");
   });
 
-  it("shows all six AI Studio nav links regardless of aiEnabled flag", () => {
+  it("shows one All studios entry instead of individual studio links", () => {
     renderSuperAdminShell();
-    const studios = [
+    const allStudios = screen.getByRole("link", { name: "All studios" });
+    expect(allStudios).toHaveAttribute("href", "/store/store-test/studios");
+    [
       "Theme Studio",
       "Sticker Studio",
       "Edition Studio",
       "Planner Studio",
       "Trend Research",
       "Marketing Studio",
-    ];
-    studios.forEach((label) => {
-      expect(screen.getByText(label)).toBeInTheDocument();
-    });
-  });
-
-  it("studio links point to the correct /store/:id/studios/* paths", () => {
-    renderSuperAdminShell("store-test");
-    const themeLink = screen.getByText("Theme Studio").closest("a");
-    expect(themeLink).toHaveAttribute("href", "/store/store-test/studios/theme");
-    const plannerLink = screen.getByText("Planner Studio").closest("a");
-    expect(plannerLink).toHaveAttribute("href", "/store/store-test/studios/planners");
+    ].forEach((label) => expect(screen.queryByText(label)).not.toBeInTheDocument());
   });
 });
 
@@ -368,8 +393,7 @@ describe("StoreAdminShell — super_admin via RequireStore", () => {
 describe("StoreAdminShell — super_admin bypasses flags auth failure", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
-  it("shows studio links even when flags endpoint returns 401 (super_admin bypass)", async () => {
-    // Flags endpoint returns 401 — super_admin should still see studios
+  it("keeps the studio picker link when flags endpoint returns 401", async () => {
     vi.stubGlobal(
       "fetch",
       makeFetch({ "/api/stores/store-test/flags": { status: 401, body: { error: "Unauthorized" } } }),
@@ -393,10 +417,10 @@ describe("StoreAdminShell — super_admin bypasses flags auth failure", () => {
       </Wrapper>,
     );
 
-    // Studio links are rendered immediately for super_admin (isSuperAdminBrowsing=true)
-    // regardless of the flags query result.
-    expect(screen.getByText("Theme Studio")).toBeInTheDocument();
-    expect(screen.getByText("Planner Studio")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "All studios" })).toHaveAttribute(
+      "href",
+      "/store/store-test/studios",
+    );
   });
 });
 
@@ -405,7 +429,7 @@ describe("StoreAdminShell — super_admin bypasses flags auth failure", () => {
 describe("StoreAdminShell — regular member with flags 401 falls back gracefully", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
-  it("hides studio links for a regular store_owner when flags returns 401", async () => {
+  it("keeps one picker link for a regular owner when flags returns 401", async () => {
     vi.stubGlobal(
       "fetch",
       makeFetch({ "/api/stores/store-test/flags": { status: 401, body: { error: "Unauthorized" } } }),
@@ -429,13 +453,13 @@ describe("StoreAdminShell — regular member with flags 401 falls back gracefull
       </Wrapper>,
     );
 
-    // After the flags query settles in error, aiEnabled remains false.
-    // The shell should show the "Studios (not enabled)" placeholder, not real studio links.
     await waitFor(() => {
-      // Theme Studio link should NOT be present — only the disabled placeholder
       expect(screen.queryByText("Theme Studio")).not.toBeInTheDocument();
     });
-    expect(screen.getByText(/studios.*not enabled/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "All studios" })).toHaveAttribute(
+      "href",
+      "/store/store-test/studios",
+    );
   });
 });
 
@@ -613,22 +637,19 @@ describe("End-to-end: navigate from /super/stores to /store/:id", () => {
     // Click the "Enter store" link — navigates to /store/store-test
     await user.click(screen.getByText("Enter store"));
 
-    // After navigation: StoreAdminShell should render with studio links
+    // After navigation: StoreAdminShell should render with the picker link
     await waitFor(() => {
       expect(screen.getByTestId("store-dashboard")).toBeInTheDocument();
     });
 
-    // All six AI studio links visible (super_admin bypass regardless of aiEnabled)
-    expect(screen.getByText("Theme Studio")).toBeInTheDocument();
-    expect(screen.getByText("Sticker Studio")).toBeInTheDocument();
-    expect(screen.getByText("Edition Studio")).toBeInTheDocument();
-    expect(screen.getByText("Planner Studio")).toBeInTheDocument();
-    expect(screen.getByText("Trend Research")).toBeInTheDocument();
-    expect(screen.getByText("Marketing Studio")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "All studios" })).toHaveAttribute(
+      "href",
+      "/store/store-test/studios",
+    );
 
-    // Super admin banner visible — banner reads "Viewing [store] as super admin" / "← Leave store"
+    // Super admin banner visible with the only exit action.
     expect(screen.getByText(/viewing/i)).toBeInTheDocument();
-    expect(screen.getByText(/leave store/i)).toBeInTheDocument();
+    expect(screen.getByText(/exit store/i)).toBeInTheDocument();
 
     // No 401/404 triggered (fetch was not called with an unauthorized response)
     const allCalls = (vi.mocked(fetch) as any).mock.calls as Array<[string, unknown]>;

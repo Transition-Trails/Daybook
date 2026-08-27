@@ -15,10 +15,10 @@ import { SECTION_LIBRARY, resolveThemeDefault } from "./section-library";
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const INK    = "#1B2A4A";
 const CLAY   = "#C87560";
-const PAPER  = "#F7F0E6";
-const BORDER = "#E7DCCB";
-const CARD   = "#FFFDF9";
-const MUTED  = "#4A6080";
+const PAPER  = "var(--admin-paper)";
+const BORDER = "var(--admin-border)";
+const CARD   = "var(--admin-card)";
+const MUTED  = "var(--admin-slate)";
 const GREEN  = "#22A66B";
 const EYEBROW: React.CSSProperties = {
   fontSize: 10, fontWeight: 700, letterSpacing: "0.18em",

@@ -31,7 +31,7 @@ import { SPINE_BINDING_TYPES, type SpineBindingType } from "@/lib/spineCatalog";
 // ── Design tokens ─────────────────────────────────────────────────────────────
 
 const CLAY       = "#C87560";
-const PAPER_TINT = "#FFFDF9";
+const PAPER_TINT = "var(--admin-card)";
 const THIN_SCROLL: React.CSSProperties = {
   scrollbarWidth: "thin",
   scrollbarColor: "rgba(0,0,0,0.12) transparent",

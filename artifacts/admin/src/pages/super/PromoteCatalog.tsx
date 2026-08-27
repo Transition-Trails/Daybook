@@ -93,10 +93,10 @@ export default function PromoteCatalog() {
     return map;
   };
 
-  const BG  = "#F7F0E6";
-  const BDR = "#E7DCCB";
+  const BG  = "var(--admin-paper)";
+  const BDR = "var(--admin-border)";
   const INK = "#1B2A4A";
-  const MUTED = "#8A7B6A";
+  const MUTED = "var(--admin-faint)";
 
   const ItemCard = ({ item }: { item: HouseOwnedItem }) => {
     const os = ORIGIN_STYLE[item.origin] ?? ORIGIN_STYLE.owned;

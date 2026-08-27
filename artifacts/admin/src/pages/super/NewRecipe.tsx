@@ -23,9 +23,9 @@ import { useToast } from "@/hooks/use-toast";
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const INK    = "hsl(221 46% 17%)";
 const CLAY   = "#C87560";
-const PAPER  = "hsl(38 65% 96%)";
-const BORDER = "hsl(38 30% 88%)";
-const MUTED  = "hsl(216 15% 52%)";
+const PAPER  = "var(--admin-paper)";
+const BORDER = "var(--admin-border)";
+const MUTED  = "var(--admin-muted)";
 
 const EYEBROW   = "text-[10px] font-semibold uppercase tracking-[0.18em]";
 const INPUT_CLS = "w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#C87560]";

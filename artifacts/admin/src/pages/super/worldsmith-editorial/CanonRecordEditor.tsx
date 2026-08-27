@@ -17,7 +17,7 @@ import { FontLibraryPicker } from "@/components/FontLibraryPicker";
 
 const INK = "#1B2A4A";
 const CLAY = "#C87560";
-const BORDER = "#E7E0D7";
+const BORDER = "var(--admin-border)";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
 

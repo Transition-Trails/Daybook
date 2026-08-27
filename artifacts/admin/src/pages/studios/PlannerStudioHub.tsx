@@ -78,7 +78,7 @@ export const plannerEditionHref = (editionId: string, section?: "themes" | "stic
 const CLAY = "#C87560";
 
 /** Paper tint used for library card thumbnails. */
-const PAPER_TINT = "#FFFDF9";
+const PAPER_TINT = "var(--admin-card)";
 
 const THIN_SCROLL: React.CSSProperties = {
   scrollbarWidth: "thin",

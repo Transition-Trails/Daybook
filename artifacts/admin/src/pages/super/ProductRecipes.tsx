@@ -614,9 +614,9 @@ export default function ProductRecipesPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="font-semibold text-[13px]" style={{ color: INK }}>{name}</span>
-                  <span className="text-[11px]" style={{ color: "hsl(216 15% 62%)" }}>{dims}</span>
+                   <span className="text-[11px]" style={{ color: "hsl(216 15% 62%)" }}>{dims}</span>
                 </div>
-                <p className="text-xs leading-relaxed" style={{ color: "hsl(216 15% 52%)" }}>{desc}</p>
+                 <p className="text-xs leading-relaxed" style={{ color: MUTED }}>{desc}</p>
               </div>
               <span
                 className="shrink-0 mt-0.5 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
@@ -632,7 +632,7 @@ export default function ProductRecipesPage() {
 
         {/* What the profile enforces */}
         <div className="px-5 py-4 border-t" style={{ borderColor: BORDER, background: "white" }}>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] mb-3" style={{ color: "hsl(216 15% 52%)" }}>
+           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] mb-3" style={{ color: MUTED }}>
             What the profile enforces
           </p>
           <div className="space-y-2.5">
@@ -647,7 +647,7 @@ export default function ProductRecipesPage() {
                 <span className="text-[10px] font-bold uppercase tracking-wide shrink-0 pt-0.5 w-32" style={{ color: INK }}>
                   {label}
                 </span>
-                <span className="text-xs leading-relaxed" style={{ color: "hsl(216 15% 52%)" }}>{desc}</span>
+                 <span className="text-xs leading-relaxed" style={{ color: MUTED }}>{desc}</span>
               </div>
             ))}
           </div>

@@ -9,7 +9,7 @@ import { apiFetch } from "@/lib/api";
 
 const INK = "#1B2A4A";
 const CLAY = "#C87560";
-const BORDER = "#E7E0D7";
+const BORDER = "var(--admin-border)";
 const STORY_STATUSES = ["draft", "planned", "active", "archived"] as const;
 
 interface StoryAct {

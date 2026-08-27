@@ -22,8 +22,8 @@ import { Step3Confirm } from "./Step3Confirm";
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const INK    = "#1B2A4A";
 const CLAY   = "#C87560";
-const BORDER = "#E7DCCB";
-const MUTED  = "#4A6080";
+const BORDER = "var(--admin-border)";
+const MUTED  = "var(--admin-slate)";
 
 // ── Top bar ───────────────────────────────────────────────────────────────────
 

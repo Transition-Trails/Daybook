@@ -15,9 +15,9 @@ import { recipesApi, type ProductRecipe, type OwnedList } from "@/lib/api";
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const INK    = "#1B2A4A";
 const CLAY   = "#C87560";
-const BORDER = "#E7DCCB";
-const CARD   = "#FFFDF9";
-const MUTED  = "#4A6080";
+const BORDER = "var(--admin-border)";
+const CARD   = "var(--admin-card)";
+const MUTED  = "var(--admin-slate)";
 const EYEBROW: React.CSSProperties = {
   fontSize: 10, fontWeight: 700, letterSpacing: "0.18em",
   textTransform: "uppercase", color: MUTED,

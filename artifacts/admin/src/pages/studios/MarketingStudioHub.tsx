@@ -27,7 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 
 // ── Design tokens (mirrored from Planner Studio) ──────────────────────────────
 const CLAY       = "#C87560";
-const PAPER_TINT = "#FFFDF9";
+const PAPER_TINT = "var(--admin-card)";
 const NAVY       = "#1B2A4A";
 
 // ── Modes ─────────────────────────────────────────────────────────────────────

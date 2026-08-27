@@ -68,7 +68,6 @@ import ReleasesPage from '@/pages/super/Releases';
 
 // Platform
 import OrderDetail from '@/pages/orders/detail';
-import AiSettingsPage from '@/pages/ai-settings';
 import SyncDashboard from '@/pages/sync';
 import CalendarPage from '@/pages/calendar';
 
@@ -115,7 +114,6 @@ export const routes = [
 
   // ── Platform ───────────────────────────────────────────────────────────────
   { path: "/orders/:id",               component: OrderDetail },
-  { path: "/ai-settings",              component: AiSettingsPage },
   { path: "/sync",                     component: SyncDashboard },
   { path: "/calendar",                 component: CalendarPage },
 

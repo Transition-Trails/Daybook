@@ -3,10 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowRight, Clock3 } from "lucide-react";
 import { platformApi, recipesApi, storesApi } from "@/lib/api";
-import { EmptyState, ErrorState, MetricStrip, PageHeader, Pill, SkeletonRows, StatTile } from "@/components/shared";
+import { EmptyState, ErrorState, MetricStrip, PageHeader, Pill, SkeletonRows } from "@/components/shared";
 import { Checkbox } from "@/components/ui/checkbox";
 import { billingTrendValues, buildRecipeReleaseRunway, deriveDecisionSignals, formatPercent } from "@/lib/dashboard-insights";
-import { DollarSign, Percent } from "lucide-react";
 
 function age(date: string | Date) {
   const hours = Math.max(0, Math.floor((Date.now() - new Date(date).getTime()) / 3_600_000));
@@ -19,6 +18,17 @@ function periodDelta(values: number[]) {
   const previous = values.at(-2) ?? 0;
   const difference = current - previous;
   return `${difference >= 0 ? "+" : ""}${difference} vs last month`;
+}
+
+function currencyPeriodDelta(values: number[]) {
+  const current = values.at(-1) ?? 0;
+  const previous = values.at(-2) ?? 0;
+  const difference = current - previous;
+  return `${difference >= 0 ? "+" : "-"}$${Math.abs(difference).toLocaleString("en-US")} vs last month`;
+}
+
+function sixPointSeries(values: Array<number | null> | null | undefined) {
+  return Array.from({ length: 6 }, (_, index) => values?.[index] ?? 0);
 }
 
 export default function SuperDashboard() {
@@ -60,32 +70,40 @@ export default function SuperDashboard() {
   const conversionDelta = latestConversion && previousConversion
     ? `${(latestConversion.conversionRatePercent ?? 0) - (previousConversion.conversionRatePercent ?? 0) >= 0 ? "+" : ""}${((latestConversion.conversionRatePercent ?? 0) - (previousConversion.conversionRatePercent ?? 0)).toFixed(1)} pts vs prior mature cohort`
     : "No prior mature cohort";
-  const revenueSeries = billing?.revenueSeries ?? [];
-  const currentRevenue = revenueSeries.at(-1);
-  const previousRevenue = revenueSeries.at(-2);
-  const revenueDelta = currentRevenue && previousRevenue
-    ? `${currentRevenue.amountUsd - previousRevenue.amountUsd >= 0 ? "+" : ""}$${Math.abs(currentRevenue.amountUsd - previousRevenue.amountUsd).toLocaleString()} vs last month`
-    : "No prior period";
   const metrics = [
+    {
+      label: "MRR",
+      value: billing ? `$${billing.mrr.amountUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—",
+      delta: billingTrends ? currencyPeriodDelta(billingTrends.revenue) : "Loading",
+      values: sixPointSeries(billingTrends?.revenue),
+      desirable: true,
+    },
+    {
+      label: "Trial → paid",
+      value: formatPercent(latestConversion?.conversionRatePercent ?? null),
+      delta: latestConversion && previousConversion ? conversionDelta : "No prior mature cohort",
+      values: sixPointSeries(billingTrends?.conversion),
+      desirable: true,
+    },
     {
       label: "New stores",
       value: activity?.newStores.at(-1) ?? "—",
       delta: activity ? periodDelta(activity.newStores) : "Loading",
-      values: activity?.newStores,
+      values: sixPointSeries(activity?.newStores),
       desirable: true,
     },
     {
       label: "Completed builds",
       value: activity?.completedBuilds.at(-1) ?? "—",
       delta: activity ? periodDelta(activity.completedBuilds) : "Loading",
-      values: activity?.completedBuilds,
+      values: sixPointSeries(activity?.completedBuilds),
       desirable: true,
     },
     {
       label: "Failed builds",
       value: activity?.failedBuilds.at(-1) ?? "—",
       delta: activity ? periodDelta(activity.failedBuilds) : "Loading",
-      values: activity?.failedBuilds,
+      values: sixPointSeries(activity?.failedBuilds),
       desirable: false,
     },
   ];
@@ -101,49 +119,11 @@ export default function SuperDashboard() {
 
       {statsQuery.isLoading ? <SkeletonRows rows={2} cols={5} /> :
         statsQuery.error ? <ErrorState message="Couldn't load platform metrics." onRetry={() => statsQuery.refetch()} /> :
-        <MetricStrip metrics={metrics} />}
+         <MetricStrip metrics={metrics} />}
       {billing && billingTrends && (
-        <>
-          <div className="grid gap-4 md:grid-cols-3">
-            <StatTile
-              label="Current MRR"
-              value={`$${billing.mrr.amountUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-              sub={`${billing.mrr.activeSubscriptions} active Stripe subscription${billing.mrr.activeSubscriptions === 1 ? "" : "s"}`}
-              icon={DollarSign}
-            />
-            <StatTile
-              label="Paid revenue"
-              value={currentRevenue ? `$${currentRevenue.amountUsd.toLocaleString()}` : "—"}
-              sub={revenueDelta}
-              icon={DollarSign}
-            />
-            <StatTile
-              label="Trial → paid"
-              value={formatPercent(latestConversion?.conversionRatePercent ?? null)}
-              sub={latestConversion ? `${latestConversion.convertedUsers}/${latestConversion.eligibleUsers} owners · ${conversionDelta}` : "No mature 30-day cohort yet"}
-              icon={Percent}
-            />
-          </div>
-          <p className="-mt-4 text-[11px] text-[#8A7A66]">
-            Stripe ledger analytics in USD. MRR uses the latest successful annual subscription payment ÷ 12; conversion uses mature 30-day UTC account-owner cohorts. Seed stores are {hideSeed ? "excluded" : "included"}.
-          </p>
-          <MetricStrip metrics={[
-            {
-              label: "Paid revenue trend",
-              value: currentRevenue ? `$${currentRevenue.amountUsd.toLocaleString()}` : "—",
-              delta: revenueDelta,
-              values: billingTrends.revenue,
-              desirable: true,
-            },
-            {
-              label: "Conversion trend",
-              value: formatPercent(latestConversion?.conversionRatePercent ?? null),
-              delta: conversionDelta,
-              values: billingTrends.conversion,
-              desirable: true,
-            },
-          ]} />
-        </>
+        <p className="-mt-4 text-[11px] text-[#8A7A66]">
+          MRR uses successful annual USD subscription revenue ÷ 12; Trial → paid uses mature 30-day UTC owner cohorts.
+        </p>
       )}
 
       <div className="grid gap-5 lg:grid-cols-[1.55fr_.85fr]">

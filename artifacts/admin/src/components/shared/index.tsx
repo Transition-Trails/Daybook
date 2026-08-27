@@ -105,7 +105,13 @@ export function StatTile({
   );
 }
 
-export function Sparkline({ values, desirable = true }: { values: Array<number | null>; desirable?: boolean }) {
+export function Sparkline({
+  values,
+  tone = "positive",
+}: {
+  values: Array<number | null>;
+  tone?: "positive" | "negative" | "neutral";
+}) {
   const width = 96;
   const height = 20;
   const validValues = values.filter((value): value is number => value !== null);
@@ -132,7 +138,14 @@ export function Sparkline({ values, desirable = true }: { values: Array<number |
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="h-5 w-24" aria-hidden="true">
       {segments.map((segmentPoints) => (
-        <polyline key={segmentPoints} points={segmentPoints} fill="none" stroke={desirable ? "#3F7A5E" : "#A85B48"} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+        <polyline
+          key={segmentPoints}
+          points={segmentPoints}
+          fill="none"
+          stroke={tone === "positive" ? "#3F7A5E" : tone === "negative" ? "#A85B48" : "#8A7A66"}
+          strokeWidth="1.6"
+          vectorEffect="non-scaling-stroke"
+        />
       ))}
     </svg>
   );
@@ -157,7 +170,7 @@ export function MetricStrip({
   return (
     <div className="grid overflow-hidden rounded-[14px] border border-[#E7DCCB] bg-[#FFFDF9] shadow-[0_1px_3px_rgba(27,42,74,.06)] sm:grid-cols-2 xl:auto-cols-fr xl:grid-flow-col">
       {metrics.map((metric) => (
-        <div key={metric.label} className="min-w-0 border-b border-r border-[#EFE6D8] px-4 py-4 last:border-r-0 xl:border-b-0">
+        <div key={metric.label} data-testid="metric-strip-cell" className="min-w-0 border-b border-r border-[#EFE6D8] px-4 py-4 last:border-r-0 xl:border-b-0">
           {(() => {
             const tone = metric.neutral ? "neutral" : metricTrendTone(metric.values, metric.desirable !== false);
             const toneClass = tone === "positive"
@@ -171,9 +184,7 @@ export function MetricStrip({
             <span className="font-display text-[22px] font-semibold text-[#1B2A4A]">{metric.value}</span>
             <span className={cn("text-[10px] font-semibold", toneClass)}>{metric.delta}</span>
           </div>
-          {metric.values && metric.values.filter((value) => value !== null).length > 1
-            ? <Sparkline values={metric.values} desirable={tone !== "negative"} />
-            : <p className="mt-1 text-[10px] text-[#A2937E]">Trend unavailable</p>}
+          <Sparkline values={metric.values ?? []} tone={tone} />
             </>;
           })()}
         </div>

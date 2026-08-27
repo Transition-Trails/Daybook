@@ -83,6 +83,7 @@ import UsersList from "@/pages/users/list";
 import UserDetail from "@/pages/users/detail";
 import PlannerLibrary from "@/pages/ink/PlannerLibrary";
 import AiSettingsPage from "@/pages/ai-settings";
+import SyncDashboard from "@/pages/sync";
 import StoreSupportInbox from "@/pages/store/SupportInbox";
 const ShopSupportPage = lazy(() => import("@/pages/shop/SupportPage"));
 
@@ -254,6 +255,9 @@ function RootRouter() {
       </Route>
       <Route path="/super/settings/ai">
         <RequireSuperAdmin state={state}><SuperAdminShell><AiSettingsPage /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/settings/google">
+        <RequireSuperAdmin state={state}><SuperAdminShell><SyncDashboard /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       <Route path="/super/stores">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperStores /></SuperAdminShell></RequireSuperAdmin>
@@ -774,6 +778,9 @@ function RootRouter() {
       </Route>
       <Route path="/daybook/ai-settings">
         <RequireSuperAdmin state={state}><Redirect to="/super/settings/ai" replace /></RequireSuperAdmin>
+      </Route>
+      <Route path="/daybook/sync">
+        <RequireSuperAdmin state={state}><Redirect to="/super/settings/google" replace /></RequireSuperAdmin>
       </Route>
       {/* Legacy deep-link from Planner Builder: /daybook/planners/:id/ink */}
       <Route path="/daybook/planners/:id/ink">

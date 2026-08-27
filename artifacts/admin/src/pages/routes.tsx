@@ -68,7 +68,6 @@ import ReleasesPage from '@/pages/super/Releases';
 
 // Platform
 import OrderDetail from '@/pages/orders/detail';
-import SyncDashboard from '@/pages/sync';
 import CalendarPage from '@/pages/calendar';
 
 // Backward-compat pages that are still real screens (no nav entry)
@@ -114,7 +113,6 @@ export const routes = [
 
   // ── Platform ───────────────────────────────────────────────────────────────
   { path: "/orders/:id",               component: OrderDetail },
-  { path: "/sync",                     component: SyncDashboard },
   { path: "/calendar",                 component: CalendarPage },
 
   // ── Backward-compat (bookmarks / deep links — no nav entry) ───────────────

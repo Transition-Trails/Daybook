@@ -1,0 +1,115 @@
+# Replit follow-up — admin IA, round 3
+
+Round 2 closed well. All four bugs are fixed, and two of them were fixed *better* than asked:
+`flag-reconciliation.ts` tracks per-field conflicts and surfaces "Changed on server" in the
+drawer, and there is a real test file behind it. `isSeed` is a schema field with an
+`includeSeed` param. Impersonation is a server-issued scope. The N+1 is gone. The
+`PageHeader` portal is a clean solution to the double-header.
+
+Six things left. Three are the dashboard items from round 2 that did not get picked up, two
+are new drift, one is small.
+
+---
+
+## 1. The metric strip still shows nothing measurable — closes round-2 item 8
+
+`pages/super/Dashboard.tsx`
+
+```ts
+{ label: "Trial → paid",   value: "Unavailable", delta: "Not measured", neutral: true }
+{ label: "Failed builds",  value: "Unavailable", delta: "Not measured", neutral: true }
+```
+
+All five cells pass `neutral: true` and none passes `values`, so `MetricStrip` takes its
+fallback branch and renders **"Trend unavailable"** five times. The component supports
+sparklines and desirable-direction colouring; nothing uses either. A trend strip with no trend
+and two "Unavailable" cells costs the same space as the four big cards it replaced and says
+less.
+
+Pick one and ship it:
+
+- **Instrument it.** Add period-over-period values and a 6-point series to `platformApi.stats`,
+  then pass `values` and `desirable` per metric. `desirable: false` on Failed builds so a
+  falling count reads green.
+- **Or cut to three.** MRR, Paying stores, Planners built — with real deltas and series. Put one
+  line under the strip naming what is not instrumented yet.
+
+Do not ship "Unavailable" in a hero strip. If the data is not there, the cell should not be.
+
+## 2. The decision queue is still a store-status filter — closes round-2 item 9
+
+```ts
+.filter((store) => store.status === "suspended" || store.status === "trial")
+.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+```
+
+Still no thresholds and still only stores. A store suspended two minutes ago ranks above one
+suspended a month ago purely by `updatedAt`, and a suspension qualifies instantly rather than
+after 48h.
+
+Make it a union of typed signals, each with its own condition and severity, sorted by severity
+then age:
+
+| Signal | Condition |
+|---|---|
+| Payment recovery | suspended **more than 48h** |
+| Churn risk | trial ending within 5 days **and** 0 planners built |
+| Release blocker | recipe failing the engine-gap check |
+| Release at risk | recipe in draft with a release month inside 60 days |
+| Overclaim | live listing promising links on a poor-links device |
+
+The last three come from recipes, not stores — which is why the queue cannot be a store filter.
+
+## 3. Release runway still lists app versions — closes round-2 item 10
+
+`releasesApi.list` gives "Version 1.0.0 · Aug 2026". The card is the recipe release schedule:
+what arrives next month, and which months have nothing in them. Empty months are the finding —
+that is the renewal argument. Point it at recipes; app releases already have `/super/releases`.
+
+## 4. NEW — the Platform group is now a 13-item flat list
+
+`AdminLayout.tsx`, super nav. Seven of the thirteen items point at `/daybook/*`:
+
+```
+Plans · Users · Ink library · AI settings · Google sync · Calendar · Planner interiors
+```
+
+Grouping the sidebar was meant to end the 15-item flat list. Platform is now a 13-item flat
+list inside a collapsed header, and more than half of it links into the POC layer we have not
+decided the fate of.
+
+Two of these are also mislabelled by icon: `Deliverability` uses `Receipt`, `Revenue` and
+`Google sync` both use `Activity`.
+
+Proposal — split Platform, and quarantine the POC links:
+
+| Group | Items |
+|---|---|
+| PLATFORM | Stores, Feature flags, Releases, Audit log, Deliverability |
+| CONTENT | Promote content, Planner interiors, Ink library |
+| SETTINGS | Plans, Users, AI settings, Google sync, Calendar |
+
+If `/daybook/*` is being retired, these belong behind one "Legacy console" item, not seven
+peers of Stores. **Tell me which, and I will re-cut the nav** — this is a product decision, not
+a layout one.
+
+## 5. NEW — flags rows still stack name over pill
+
+Round-2 item 11 asked for one line. The store cell still renders name in a `block` above a
+`flex` row of pills, so row height varies with the pill count (`Conflict` adds a second pill).
+That variance is what caused the original clipping. Name and pills on one line, `gap: 9px`,
+`truncate` on the name.
+
+## 6. `--admin-prototype-ink: #121D34` is still in `index.css:82`
+
+Round-2 item 14. It only ever coloured the prototype screen-switcher strip in the design file.
+Delete it.
+
+---
+
+## Not started
+
+Phases 7–9. `CatalogAuthoring.tsx` and `StudioPicker.tsx` exist — check them against Phases 7
+and 8 before rebuilding. Store owner home (Phase 9) has no file yet.
+
+Also unstarted: everything in `REPLIT-PRODUCT-RECIPES.md`.

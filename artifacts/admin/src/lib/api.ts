@@ -136,7 +136,27 @@ export interface CatalogItemWithOrigin extends CatalogItem {
 export interface PlatformStats {
   stores: { total: number; active: number; byStatus: Record<string, number> };
   users: { total: number };
-  planners: { total: number };
+  planners: {
+    total: number;
+    completed: number;
+    failed: number;
+    byStore: Record<string, number>;
+    completedByStore: Record<string, number>;
+  };
+  activitySeries: {
+    labels: string[];
+    newStores: number[];
+    completedBuilds: number[];
+    failedBuilds: number[];
+  };
+  trials: { endsAtByStore: Record<string, string> };
+  linkRiskListings: Array<{
+    plannerId: string;
+    editionName: string;
+    storeId: string | null;
+    deviceLabel: string;
+    createdAt: string;
+  }>;
   mrr: { amountUsd: number; note: string };
 }
 
@@ -1855,7 +1875,15 @@ export interface ProductRecipe {
   decisionCard: ProductRecipeDecisionCard | null;
   parts:        string[];
   physicalPath: { prints: boolean; impositionSheet?: string; templates?: string[] } | null;
-  claudeBrief:  { asks: string[]; generates: string } | null;
+  claudeBrief:  {
+    asks: string[];
+    generates: string;
+    engineGaps?: Array<{
+      title?: string;
+      explanation?: string;
+      severity?: "Blocks release" | "Needs a decision" | string;
+    }>;
+  } | null;
   release:      ProductRecipeRelease | null;
   status:       "draft" | "live" | "retired";
   buildCount:   number;

@@ -175,9 +175,8 @@ describe("SuperAdminShell navigation", () => {
       "Users": "/daybook/users",
       "Ink library": "/daybook/ink",
       "AI settings": "/daybook/ai-settings",
-      "Google sync": "/daybook/sync",
-      "Calendar": "/daybook/calendar",
       "Planner interiors": "/daybook/super/planner-interiors",
+      "Legacy console": "/daybook",
       "All studios": "/super/studios",
       "Help center": "/super/help",
       "Support inbox": "/super/support",
@@ -187,6 +186,10 @@ describe("SuperAdminShell navigation", () => {
     for (const [name, href] of Object.entries(expectedLinks)) {
       expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
     }
+    expect(screen.getByRole("button", { name: /content/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /settings/i })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Google sync" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Calendar" })).not.toBeInTheDocument();
   });
 });
 

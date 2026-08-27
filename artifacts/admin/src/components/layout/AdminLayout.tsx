@@ -27,6 +27,7 @@ import {
   Tags,
   Users,
   WandSparkles,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
@@ -52,6 +53,8 @@ const NAV_KEY = "daybook.nav.groups";
 const NAV_DEFAULTS = {
   overview: true,
   platform: true,
+  content: true,
+  settings: true,
   catalog: true,
   studios: true,
   support: true,
@@ -228,16 +231,27 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
             { label: "Stores", href: "/super/stores", icon: Store },
             { label: "Feature flags", href: "/super/flags", icon: Flag },
             { label: "Releases", href: "/super/releases", icon: Rocket },
-            { label: "Promote content", href: "/super/promote", icon: Megaphone },
-            { label: "Deliverability", href: "/super/email/deliverability", icon: Receipt },
             { label: "Audit log", href: "/super/audit", icon: ClipboardList },
+          ],
+        },
+        {
+          id: "content",
+          label: "Content",
+          items: [
+            { label: "Promote content", href: "/super/promote", icon: Megaphone },
+            { label: "Ink library", href: "/daybook/ink", icon: FileText },
+            { label: "Planner interiors", href: "/daybook/super/planner-interiors", icon: BookCopy },
+          ],
+        },
+        {
+          id: "settings",
+          label: "Settings",
+          items: [
             { label: "Plans", href: "/daybook/plans", icon: BookOpen },
             { label: "Users", href: "/daybook/users", icon: Users },
-            { label: "Ink library", href: "/daybook/ink", icon: FileText },
             { label: "AI settings", href: "/daybook/ai-settings", icon: Settings2 },
-            { label: "Google sync", href: "/daybook/sync", icon: Activity },
-            { label: "Calendar", href: "/daybook/calendar", icon: BookCopy },
-            { label: "Planner interiors", href: "/daybook/super/planner-interiors", icon: FileText },
+            { label: "Deliverability", href: "/super/email/deliverability", icon: Receipt },
+            { label: "Legacy console", href: "/daybook", icon: Archive },
           ],
         },
         {

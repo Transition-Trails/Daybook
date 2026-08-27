@@ -79,7 +79,6 @@
 :root {
   /* Admin IA tokens — keep these literal values aligned with the product brief. */
   --admin-ink: #1B2A4A;
-  --admin-prototype-ink: #121D34;
   --admin-paper: #F7F0E6;
   --admin-sunken: #EFE6D8;
   --admin-card: #FFFDF9;

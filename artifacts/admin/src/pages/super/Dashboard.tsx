@@ -2,14 +2,22 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowRight, Clock3 } from "lucide-react";
-import { platformApi, releasesApi, storesApi, type ReleaseWithNotes } from "@/lib/api";
+import { platformApi, recipesApi, storesApi } from "@/lib/api";
 import { EmptyState, ErrorState, MetricStrip, PageHeader, Pill, SkeletonRows } from "@/components/shared";
 import { Checkbox } from "@/components/ui/checkbox";
+import { buildRecipeReleaseRunway, deriveDecisionSignals } from "@/lib/dashboard-insights";
 
 function age(date: string | Date) {
   const hours = Math.max(0, Math.floor((Date.now() - new Date(date).getTime()) / 3_600_000));
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
+}
+
+function periodDelta(values: number[]) {
+  const current = values.at(-1) ?? 0;
+  const previous = values.at(-2) ?? 0;
+  const difference = current - previous;
+  return `${difference >= 0 ? "+" : ""}${difference} vs last month`;
 }
 
 export default function SuperDashboard() {
@@ -24,7 +32,10 @@ export default function SuperDashboard() {
     queryKey: ["stores", { includeSeed: true }],
     queryFn: () => storesApi.list({ includeSeed: true }),
   });
-  const { data: releases = [] } = useQuery<ReleaseWithNotes[]>({ queryKey: ["releases"], queryFn: releasesApi.list });
+  const recipesQuery = useQuery({
+    queryKey: ["platform-recipes"],
+    queryFn: recipesApi.list,
+  });
   const { data: audit = [], isLoading: auditLoading } = useQuery({
     queryKey: ["audit/recent"],
     queryFn: () => platformApi.audit({ limit: 4 }),
@@ -33,28 +44,36 @@ export default function SuperDashboard() {
   const allStores = storesQuery.data ?? [];
   const seedStores = allStores.filter((store) => store.isSeed);
   const visibleStores = hideSeed ? allStores.filter((store) => !store.isSeed) : allStores;
-  const decisions = useMemo(() => visibleStores
-    .filter((store) => store.status === "suspended" || store.status === "trial")
-    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
-    .slice(0, 6)
-    .map((store) => ({
-      id: store.id,
-      title: store.status === "suspended" ? `${store.name} is suspended` : `${store.name}'s trial needs review`,
-      meta: store.status === "suspended"
-        ? "Payment recovery is blocking storefront activity."
-        : "Trial conversion is approaching without an active-plan decision.",
-      tone: store.status === "suspended" ? "warn" as const : "info" as const,
-      category: store.status === "suspended" ? "Billing" : "Trial",
-      updatedAt: store.updatedAt,
-    })), [visibleStores]);
-
   const stats = statsQuery.data;
+  const recipes = recipesQuery.data ?? [];
+  const decisions = useMemo(
+    () => stats ? deriveDecisionSignals(visibleStores, recipes, stats).slice(0, 6) : [],
+    [visibleStores, recipes, stats],
+  );
+  const runway = useMemo(() => buildRecipeReleaseRunway(recipes, new Date(), 4), [recipes]);
+  const activity = stats?.activitySeries;
   const metrics = [
-    { label: "MRR", value: `$${stats?.mrr.amountUsd.toLocaleString() ?? "—"}`, delta: "Current total", neutral: true },
-    { label: "Paying stores", value: visibleStores.filter((s) => s.status === "active" && s.plan === "pro").length, delta: "Current total", neutral: true },
-    { label: "Trial → paid", value: "Unavailable", delta: "Not measured", neutral: true },
-    { label: "Planners built", value: stats?.planners.total ?? "—", delta: "Current total", neutral: true },
-    { label: "Failed builds", value: "Unavailable", delta: "Not measured", neutral: true },
+    {
+      label: "New stores",
+      value: activity?.newStores.at(-1) ?? "—",
+      delta: activity ? periodDelta(activity.newStores) : "Loading",
+      values: activity?.newStores,
+      desirable: true,
+    },
+    {
+      label: "Completed builds",
+      value: activity?.completedBuilds.at(-1) ?? "—",
+      delta: activity ? periodDelta(activity.completedBuilds) : "Loading",
+      values: activity?.completedBuilds,
+      desirable: true,
+    },
+    {
+      label: "Failed builds",
+      value: activity?.failedBuilds.at(-1) ?? "—",
+      delta: activity ? periodDelta(activity.failedBuilds) : "Loading",
+      values: activity?.failedBuilds,
+      desirable: false,
+    },
   ];
 
   return (
@@ -69,6 +88,9 @@ export default function SuperDashboard() {
       {statsQuery.isLoading ? <SkeletonRows rows={2} cols={5} /> :
         statsQuery.error ? <ErrorState message="Couldn't load platform metrics." onRetry={() => statsQuery.refetch()} /> :
         <MetricStrip metrics={metrics} />}
+      <p className="-mt-4 text-[11px] text-[#8A7A66]">
+        Six-month monthly activity from Daybook records. Live MRR and trial-to-paid trends remain outside this strip until billing analytics are instrumented.
+      </p>
 
       <div className="grid gap-5 lg:grid-cols-[1.55fr_.85fr]">
         <section className="overflow-hidden rounded-[14px] border border-[#E7DCCB] bg-[#FFFDF9] shadow-[0_1px_3px_rgba(27,42,74,.06)]">
@@ -76,20 +98,20 @@ export default function SuperDashboard() {
             <p className="text-[10px] font-bold uppercase tracking-[.14em] text-[#8A7A66]">Needs a decision</p>
             <h2 className="mt-1 font-display text-lg font-semibold text-[#1B2A4A]">Human judgment queue</h2>
           </div>
-          {storesQuery.isLoading ? <div className="p-5"><SkeletonRows rows={4} cols={2} /></div> :
+          {storesQuery.isLoading || statsQuery.isLoading || recipesQuery.isLoading ? <div className="p-5"><SkeletonRows rows={4} cols={2} /></div> :
             decisions.length === 0 ? <EmptyState title="No decisions waiting" description="The current store signals do not need intervention." /> :
             <ul className="divide-y divide-[#F2EAE0]">
               {decisions.map((item) => (
                 <li key={item.id}>
-                  <Link href={`/super/stores/${item.id}/inspect`}>
+                  <Link href={item.href}>
                     <span className="flex cursor-pointer items-start gap-3 px-5 py-4 transition-colors hover:bg-[#FBF6EE]">
-                      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.tone === "warn" ? "bg-[#C87560]" : "bg-[#3A5480]"}`} />
+                      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.severity === "critical" ? "bg-[#A85B48]" : item.severity === "warning" ? "bg-[#C87560]" : "bg-[#3A5480]"}`} />
                       <span className="min-w-0 flex-1">
                         <span className="block text-[13.5px] font-semibold text-[#1B2A4A]">{item.title}</span>
-                        <span className="mt-0.5 block text-xs text-[#7A6A57]">{item.meta}</span>
+                        <span className="mt-0.5 block text-xs text-[#7A6A57]">{item.description}</span>
                       </span>
-                      <Pill tone={item.tone}>{item.category}</Pill>
-                      <span className="font-mono text-[10px] text-[#8A7A66]">{age(item.updatedAt)}</span>
+                      <Pill tone={item.severity === "critical" || item.severity === "warning" ? "warn" : "info"}>{item.category}</Pill>
+                      <span className="font-mono text-[10px] text-[#8A7A66]">{age(item.occurredAt)}</span>
                     </span>
                   </Link>
                 </li>
@@ -101,16 +123,22 @@ export default function SuperDashboard() {
           <section className="rounded-[14px] border border-[#E7DCCB] bg-[#FFFDF9] p-5 shadow-[0_1px_3px_rgba(27,42,74,.06)]">
             <h2 className="font-display text-base font-semibold text-[#1B2A4A]">Release runway</h2>
             <ul className="mt-3 divide-y divide-[#F2EAE0]">
-              {releases.slice(0, 4).map((release) => (
-                <li key={release.id} className="flex items-center justify-between gap-3 py-2.5">
-                  <div>
-                    <p className="text-sm font-medium text-[#1B2A4A]">Version {release.version}</p>
-                    <p className="text-[10px] text-[#8A7A66]">{release.releaseDate ? new Date(release.releaseDate).toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "Unscheduled"}</p>
+              {runway.map((month) => (
+                <li key={month.key} className="flex items-start justify-between gap-3 py-2.5">
+                  <p className="w-16 shrink-0 font-mono text-[10px] text-[#8A7A66]">{month.label}</p>
+                  <div className="min-w-0 flex-1 text-right">
+                    {month.recipes.length === 0
+                      ? <p className="text-xs italic text-[#A2937E]">No recipe scheduled</p>
+                      : month.recipes.map((recipe) => (
+                        <p key={recipe.id} className="truncate text-sm font-medium text-[#1B2A4A]">
+                          {recipe.name} <Pill tone={recipe.status === "live" ? "live" : "draft"}>{recipe.status}</Pill>
+                        </p>
+                      ))}
                   </div>
-                  <Pill tone={release.isPublished ? "live" : "draft"}>{release.isPublished ? "Live" : "Draft"}</Pill>
                 </li>
               ))}
             </ul>
+            <Link href="/super/recipes"><span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[#1B2A4A]">Open product recipes <ArrowRight className="h-3 w-3" /></span></Link>
           </section>
 
           <section className="rounded-[14px] bg-[#1B2A4A] p-5 text-white shadow-[0_1px_3px_rgba(27,42,74,.06)]">

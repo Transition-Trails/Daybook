@@ -18,6 +18,7 @@ import {
   usersTable,
   generationJobsTable,
   plannerConfigsTable,
+  editionsTable,
   plansTable,
   stickersLibraryTable,
   packStickersTable,
@@ -53,16 +54,42 @@ const router: IRouter = Router();
 router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
   const includeSeed = req.query.includeSeed === "true";
   const storeVisibility = includeSeed ? undefined : eq(storesTable.isSeed, false);
-  const [storeStatusRows, userCountRow, genCountRow, proStoreRows] = await Promise.all([
+  const [storeStatusRows, storeCreatedRows, userCountRow, generationRows, proStoreRows, trialRows, plannerRows] = await Promise.all([
     db.select({ status: storesTable.status, cnt: count() }).from(storesTable).where(storeVisibility).groupBy(storesTable.status),
+    db.select({ createdAt: storesTable.createdAt }).from(storesTable).where(storeVisibility),
     db.select({ cnt: count() }).from(usersTable),
     db
-      .select({ cnt: count() })
+      .select({
+        status: generationJobsTable.status,
+        storeId: plannerConfigsTable.storeId,
+        createdAt: generationJobsTable.createdAt,
+      })
       .from(generationJobsTable)
       .leftJoin(plannerConfigsTable, eq(plannerConfigsTable.id, generationJobsTable.plannerId))
       .leftJoin(storesTable, eq(storesTable.id, plannerConfigsTable.storeId))
       .where(includeSeed ? undefined : or(isNull(plannerConfigsTable.storeId), eq(storesTable.isSeed, false))),
     db.select({ cnt: count() }).from(storesTable).where(and(eq(storesTable.plan, "pro"), eq(storesTable.status, "active"), storeVisibility)),
+    db
+      .select({
+        storeId: storesTable.id,
+        endsAt: usersTable.planCurrentPeriodEnd,
+      })
+      .from(storesTable)
+      .innerJoin(usersTable, eq(usersTable.id, storesTable.ownerUserId))
+      .where(and(eq(storesTable.status, "trial"), storeVisibility)),
+    db
+      .select({
+        plannerId: plannerConfigsTable.id,
+        storeId: plannerConfigsTable.storeId,
+        output: plannerConfigsTable.output,
+        createdAt: plannerConfigsTable.createdAt,
+        editionName: editionsTable.name,
+        editionStatus: editionsTable.status,
+      })
+      .from(plannerConfigsTable)
+      .innerJoin(editionsTable, eq(editionsTable.id, plannerConfigsTable.editionId))
+      .leftJoin(storesTable, eq(storesTable.id, plannerConfigsTable.storeId))
+      .where(includeSeed ? undefined : or(isNull(plannerConfigsTable.storeId), eq(storesTable.isSeed, false))),
   ]);
 
   const storesByStatus: Record<string, number> = {};
@@ -72,6 +99,69 @@ router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Respo
     totalStores += Number(row.cnt);
   }
 
+  const plannersByStore: Record<string, number> = {};
+  const completedPlannersByStore: Record<string, number> = {};
+  let completedBuilds = 0;
+  let failedBuilds = 0;
+  for (const row of generationRows) {
+    if (row.storeId) plannersByStore[row.storeId] = (plannersByStore[row.storeId] ?? 0) + 1;
+    if (row.status === "complete") {
+      completedBuilds += 1;
+      if (row.storeId) completedPlannersByStore[row.storeId] = (completedPlannersByStore[row.storeId] ?? 0) + 1;
+    }
+    if (row.status === "failed") failedBuilds += 1;
+  }
+  const seriesStarts = Array.from({ length: 6 }, (_, index) => {
+    const offset = index - 5;
+    return new Date(Date.UTC(
+      new Date().getUTCFullYear(),
+      new Date().getUTCMonth() + offset,
+      1,
+    ));
+  });
+  const seriesLabels = seriesStarts.map((date) => date.toLocaleDateString("en-US", {
+    month: "short",
+    timeZone: "UTC",
+  }));
+  const bucket = (date: Date): number => seriesStarts.findIndex((start, index) => {
+    const end = index === seriesStarts.length - 1
+      ? new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1))
+      : seriesStarts[index + 1];
+    return date >= start && date < end;
+  });
+  const newStores = Array(6).fill(0) as number[];
+  const completedBuildSeries = Array(6).fill(0) as number[];
+  const failedBuildSeries = Array(6).fill(0) as number[];
+  for (const row of storeCreatedRows) {
+    const index = bucket(row.createdAt);
+    if (index >= 0) newStores[index] += 1;
+  }
+  for (const row of generationRows) {
+    const index = bucket(row.createdAt);
+    if (index < 0) continue;
+    if (row.status === "complete") completedBuildSeries[index] += 1;
+    if (row.status === "failed") failedBuildSeries[index] += 1;
+  }
+  const trialEndsAtByStore: Record<string, string> = {};
+  for (const row of trialRows) {
+    if (row.endsAt) trialEndsAtByStore[row.storeId] = row.endsAt.toISOString();
+  }
+  const poorLinkDevices: Record<string, string> = {
+    kindle_scribe: "Kindle Scribe",
+  };
+  const linkRiskListings = plannerRows.flatMap((row) => {
+    const output = row.output as { calMode?: string; einkDevice?: string | null } | null;
+    const deviceLabel = output?.einkDevice ? poorLinkDevices[output.einkDevice] : undefined;
+    if (row.editionStatus !== "live" || output?.calMode !== "link" || !deviceLabel) return [];
+    return [{
+      plannerId: row.plannerId,
+      editionName: row.editionName,
+      storeId: row.storeId,
+      deviceLabel,
+      createdAt: row.createdAt.toISOString(),
+    }];
+  });
+
   res.json({
     stores: {
       total: totalStores,
@@ -79,7 +169,21 @@ router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Respo
       byStatus: storesByStatus,
     },
     users: { total: Number(userCountRow[0]?.cnt ?? 0) },
-    planners: { total: Number(genCountRow[0]?.cnt ?? 0) },
+    planners: {
+      total: generationRows.length,
+      completed: completedBuilds,
+      failed: failedBuilds,
+      byStore: plannersByStore,
+      completedByStore: completedPlannersByStore,
+    },
+    activitySeries: {
+      labels: seriesLabels,
+      newStores,
+      completedBuilds: completedBuildSeries,
+      failedBuilds: failedBuildSeries,
+    },
+    trials: { endsAtByStore: trialEndsAtByStore },
+    linkRiskListings,
     mrr: {
       amountUsd: Number(proStoreRows[0]?.cnt ?? 0) * 49,
       note: "placeholder — connect Stripe for live data",

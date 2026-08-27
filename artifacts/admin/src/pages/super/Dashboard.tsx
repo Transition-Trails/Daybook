@@ -27,8 +27,8 @@ function currencyPeriodDelta(values: number[]) {
   return `${difference >= 0 ? "+" : "-"}$${Math.abs(difference).toLocaleString("en-US")} vs last month`;
 }
 
-function sixPointSeries(values: Array<number | null> | null | undefined) {
-  return Array.from({ length: 6 }, (_, index) => values?.[index] ?? 0);
+function series(values: Array<number | null> | null | undefined) {
+  return (values ?? []).filter((value): value is number => value !== null);
 }
 
 export default function SuperDashboard() {
@@ -75,35 +75,35 @@ export default function SuperDashboard() {
       label: "MRR",
       value: billing ? `$${billing.mrr.amountUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—",
       delta: billingTrends ? currencyPeriodDelta(billingTrends.revenue) : "Loading",
-      values: sixPointSeries(billingTrends?.revenue),
+      values: series(billingTrends?.revenue),
       desirable: true,
     },
     {
       label: "Trial → paid",
       value: formatPercent(latestConversion?.conversionRatePercent ?? null),
       delta: latestConversion && previousConversion ? conversionDelta : "No prior mature cohort",
-      values: sixPointSeries(billingTrends?.conversion),
+      values: series(billingTrends?.conversion),
       desirable: true,
     },
     {
       label: "New stores",
       value: activity?.newStores.at(-1) ?? "—",
       delta: activity ? periodDelta(activity.newStores) : "Loading",
-      values: sixPointSeries(activity?.newStores),
+      values: series(activity?.newStores),
       desirable: true,
     },
     {
       label: "Completed builds",
       value: activity?.completedBuilds.at(-1) ?? "—",
       delta: activity ? periodDelta(activity.completedBuilds) : "Loading",
-      values: sixPointSeries(activity?.completedBuilds),
+      values: series(activity?.completedBuilds),
       desirable: true,
     },
     {
       label: "Failed builds",
       value: activity?.failedBuilds.at(-1) ?? "—",
       delta: activity ? periodDelta(activity.failedBuilds) : "Loading",
-      values: sixPointSeries(activity?.failedBuilds),
+      values: series(activity?.failedBuilds),
       desirable: false,
     },
   ];

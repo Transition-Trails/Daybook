@@ -33,7 +33,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import {
   Loader2, Pencil, Trash2, Info, Copy, Eye, EyeOff,
   Upload, ImageOff, Package, AlertTriangle, Globe, Sticker,
@@ -113,6 +113,10 @@ const MODES = [
 ] as const;
 
 type ModeId = typeof MODES[number]["id"];
+
+export function stickerPackHref(packId: string) {
+  return `/super/catalog/packs/${packId}`;
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1319,12 +1323,12 @@ function PackCard({ pack, coverImage, onToggle, togglePending }: {
           onClick={onToggle} disabled={togglePending}
           variant={isLive ? "secondary" : "primary"}
         />
-        <a
-          href={`/daybook/catalog/packs/${pack.id}`}
+        <Link
+          href={stickerPackHref(pack.id)}
           className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-border text-[12px] font-semibold text-foreground hover:bg-muted transition-colors"
         >
           Edit
-        </a>
+        </Link>
       </div>
     </div>
   );
@@ -2210,10 +2214,10 @@ function PackRow({ pack, coverImage, onToggle, togglePending }: {
           disabled={togglePending}
           variant={isLive ? "secondary" : "primary"}
         />
-        <a href={`/daybook/catalog/packs/${pack.id}`}
+        <Link href={stickerPackHref(pack.id)}
           className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-border text-[12px] font-semibold text-foreground hover:bg-muted transition-colors">
           Edit
-        </a>
+        </Link>
       </div>
     </div>
   );

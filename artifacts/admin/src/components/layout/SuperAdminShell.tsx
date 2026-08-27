@@ -7,5 +7,3 @@ import { AdminLayout } from "./AdminLayout";
 export function SuperAdminShell({ children }: { children: React.ReactNode }) {
   return <AdminLayout role="super">{children}</AdminLayout>;
 }
-
-export const HOUSE_STORE_ID = "store-house";

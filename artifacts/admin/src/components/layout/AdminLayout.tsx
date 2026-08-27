@@ -62,7 +62,7 @@ const NAV_DEFAULTS = {
   support: true,
   shop: true,
   build: true,
-  account: true,
+  manage: true,
 };
 
 function readGroupState(): Record<string, boolean> {

@@ -74,3 +74,4 @@
 - [Realistic planner blank pages](planner-realistic-blank-pages.md) — never serialize an empty pdf-lib document for diagnostics; save() inserts an untracked leading blank page
 - [Platform billing analytics](platform-billing-analytics.md) — MRR is yearly-ledger-only; trial conversion uses fully matured UTC monthly owner cohorts and preserves unscored periods
 - [Legacy admin redirects](legacy-admin-redirects.md) — canonicalization runs before auth/data loading so deep links replace reliably without mounting the legacy console
+- [Draft reconciliation readiness](draft-reconciliation-readiness.md) — cached operator drafts must wait for every authoritative query before reconciliation

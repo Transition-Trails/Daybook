@@ -555,6 +555,11 @@ describe("store_owner (store-alpha) — deny", () => {
     expect(res.status).toBe(403);
   });
 
+  it("GET /api/stores/flags → 403 (super_admin only)", async () => {
+    const res = await request(alphaOwner).get("/api/stores/flags");
+    expect(res.status).toBe(403);
+  });
+
   it("GET /api/stores/store-beta → 403 (different store, no membership)", async () => {
     const res = await request(alphaOwner).get("/api/stores/store-beta");
     expect(res.status).toBe(403);

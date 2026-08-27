@@ -17,6 +17,7 @@ import {
 
 type FlagRow = ReconciledFlagRow;
 type CapabilityKey = "aiEnabled" | "inkEnabled" | "worldsmithEnabled" | "customDomain";
+const FLAG_DRAFTS_QUERY_KEY = ["feature-flag-draft-rows"] as const;
 const CAPABILITIES: Array<{ key: CapabilityKey; label: string; hint: string }> = [
   { key: "aiEnabled", label: "AI", hint: "Enables AI-assisted studio tools." },
   { key: "inkEnabled", label: "Ink", hint: "Enables planner annotation and Ink exports." },
@@ -28,7 +29,9 @@ export default function SuperFeatureFlags() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [, navigate] = useLocation();
-  const [rows, setRows] = useState<FlagRow[]>([]);
+  const [rows, setRows] = useState<FlagRow[]>(
+    () => qc.getQueryData<FlagRow[]>(FLAG_DRAFTS_QUERY_KEY) ?? [],
+  );
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
@@ -43,9 +46,13 @@ export default function SuperFeatureFlags() {
   });
 
   useEffect(() => {
-    if (!flagsQuery.data) return;
-    setRows((current) => reconcileFlagRows(stores, flagsQuery.data, current));
-  }, [stores, flagsQuery.data]);
+    if (!storesQuery.data || !flagsQuery.data) return;
+    setRows((current) => {
+      const next = reconcileFlagRows(storesQuery.data, flagsQuery.data, current);
+      qc.setQueryData(FLAG_DRAFTS_QUERY_KEY, next);
+      return next;
+    });
+  }, [storesQuery.data, flagsQuery.data, qc]);
 
   const dirtyFields = useMemo(() => rows.flatMap((row) =>
     FLAG_KEYS
@@ -67,7 +74,11 @@ export default function SuperFeatureFlags() {
     mutationFn: (submitted: Array<{ storeId: string; flags: Partial<StoreFlags> }>) =>
       storesApi.flags.updateBulk(submitted).then((serverFlags) => ({ submitted, serverFlags })),
     onSuccess: ({ submitted, serverFlags }) => {
-      setRows((current) => reconcileSavedFlagRows(current, submitted, serverFlags));
+      setRows((current) => {
+        const next = reconcileSavedFlagRows(current, submitted, serverFlags);
+        qc.setQueryData(FLAG_DRAFTS_QUERY_KEY, next);
+        return next;
+      });
       qc.invalidateQueries({ queryKey: ["all-flags", { includeSeed: true }] });
       toast({ title: "Capability changes saved" });
     },
@@ -75,8 +86,16 @@ export default function SuperFeatureFlags() {
   });
 
   const update = (storeId: string, key: FlagKey, value: boolean | number) =>
-    setRows((current) => current.map((row) => row.store.id === storeId ? { ...row, flags: { ...row.flags, [key]: value } } : row));
-  const discard = () => setRows((current) => current.map((row) => ({ ...row, flags: { ...row.original }, conflicts: {} })));
+    setRows((current) => {
+      const next = current.map((row) => row.store.id === storeId ? { ...row, flags: { ...row.flags, [key]: value } } : row);
+      qc.setQueryData(FLAG_DRAFTS_QUERY_KEY, next);
+      return next;
+    });
+  const discard = () => setRows((current) => {
+    const next = current.map((row) => ({ ...row, flags: { ...row.original }, conflicts: {} }));
+    qc.setQueryData(FLAG_DRAFTS_QUERY_KEY, next);
+    return next;
+  });
   const visible = rows.filter((row) =>
     row.store.name.toLowerCase().includes(search.toLowerCase()) && (status === "all" || row.store.status === status));
   const active = rows.find((row) => row.store.id === selected);

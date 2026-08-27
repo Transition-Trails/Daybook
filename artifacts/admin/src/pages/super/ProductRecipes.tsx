@@ -17,11 +17,11 @@ import { recipesApi, type ProductRecipe } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
-const INK     = "hsl(221 46% 17%)";
-const CLAY    = "#C87560";
-const PAPER   = "hsl(38 65% 96%)";
-const BORDER  = "hsl(38 30% 88%)";
-const MUTED   = "hsl(216 15% 52%)";
+const INK     = "var(--admin-ink)";
+const CLAY    = "var(--admin-clay)";
+const PAPER   = "var(--admin-paper)";
+const BORDER  = "var(--admin-border)";
+const MUTED   = "var(--admin-muted)";
 
 const EYEBROW = "text-[10px] font-semibold uppercase tracking-[0.18em]";
 

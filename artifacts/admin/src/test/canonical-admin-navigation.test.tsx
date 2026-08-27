@@ -9,6 +9,7 @@ import {
   plannerEditionHref,
   plannerStudioModeHref,
 } from "@/pages/studios/PlannerStudioHub";
+import { stickerPackHref } from "@/pages/studios/StickerStudioHub";
 
 describe("canonical admin page navigation", () => {
   afterEach(() => {
@@ -48,5 +49,9 @@ describe("canonical admin page navigation", () => {
     expect(plannerStudioModeHref("editions")).toBe("/super/studios/planner?mode=editions");
     expect(plannerEditionHref("edition-123")).toBe("/super/editions/edition-123");
     expect(plannerEditionHref("edition-123", "themes")).toBe("/super/editions/edition-123/themes");
+  });
+
+  it("keeps Sticker Studio pack edits on the canonical super catalog route", () => {
+    expect(stickerPackHref("pack-123")).toBe("/super/catalog/packs/pack-123");
   });
 });

@@ -184,7 +184,9 @@ export function MetricStrip({
             <span className="font-display text-[22px] font-semibold text-[#1B2A4A]">{metric.value}</span>
             <span className={cn("text-[10px] font-semibold", toneClass)}>{metric.delta}</span>
           </div>
-          <Sparkline values={metric.values ?? []} tone={tone} />
+          {metric.values && metric.values.length > 1
+            ? <Sparkline values={metric.values} tone={tone} />
+            : <p className="mt-1 text-[10px] text-[#A2937E]">Trend unavailable</p>}
             </>;
           })()}
         </div>

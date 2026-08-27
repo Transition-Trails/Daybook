@@ -39,6 +39,19 @@ describe("metric trend direction", () => {
     expect(container.textContent).not.toContain("Trend unavailable");
   });
 
+  it("does not fabricate points for a short or single-point series", () => {
+    const { container } = render(
+      createElement(MetricStrip, { metrics: [
+        { label: "Three months", value: 3, delta: "+1", values: [1, 2, 3], desirable: true },
+        { label: "One month", value: 1, delta: "No prior period", values: [1], desirable: true },
+      ] }),
+    );
+
+    expect(container.querySelector('polyline')?.getAttribute("points")?.split(" ")).toHaveLength(3);
+    expect(container.querySelectorAll("svg")).toHaveLength(1);
+    expect(container.textContent).toContain("Trend unavailable");
+  });
+
   it("colors failed-build sparklines green when falling, red when rising, and neutral when flat", () => {
     const { container } = render(
       createElement(MetricStrip, { metrics: [

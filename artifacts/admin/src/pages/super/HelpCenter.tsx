@@ -4,7 +4,7 @@ import { helpApi, type HelpArticle } from "@/lib/api";
 import { HelpArticleForm } from "@/components/help/HelpArticleForm";
 import { PageHeader, StatusPill, SkeletonRows, ErrorState, EmptyState } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from "@/components/ui/sheet";
@@ -14,7 +14,7 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Trash2, Search, ChevronRight } from "lucide-react";
 import { helpCategoryLabel, isHelpCategory } from "@workspace/api-zod";
 
 type Kind = "article" | "faq";
@@ -27,6 +27,8 @@ export default function SuperHelpCenter() {
   const draftArea    = params.get("area") ?? "";
 
   const [kind, setKind] = useState<Kind>("article");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "live" | "draft">("all");
   const [open, setOpen] = useState(draftParam);
   const [prefill, setPrefill] = useState<{ category: string; title: string } | null>(
     draftParam && isHelpCategory(draftArea)
@@ -55,7 +57,11 @@ export default function SuperHelpCenter() {
     queryFn: () => helpApi.list({ scope: "platform" }),
   });
 
-  const byKind = articles.filter((a) => a.kind === kind);
+  const byKind = articles.filter((a) =>
+    a.kind === kind
+    && (statusFilter === "all" || a.status === statusFilter)
+    && a.title.toLowerCase().includes(search.toLowerCase()),
+  );
 
   const toggleMutation = useMutation({
     mutationFn: (a: HelpArticle) =>
@@ -131,6 +137,19 @@ export default function SuperHelpCenter() {
         ))}
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="relative min-w-64 flex-1">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#8A7A66]" />
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search articles" className="border-[#E7DCCB] bg-[#FFFDF9] pl-9" />
+        </label>
+        {(["all", "live", "draft"] as const).map((value) => (
+          <button key={value} type="button" onClick={() => setStatusFilter(value)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold capitalize ${statusFilter === value ? "border-[#1B2A4A] bg-[#1B2A4A] text-white" : "border-[#E7DCCB] bg-[#FFFDF9] text-[#5C4E3E]"}`}>
+            {value}
+          </button>
+        ))}
+        <span className="ml-auto font-mono text-[10px] text-[#8A7A66]">{byKind.length} shown · {articles.filter((article) => article.kind === kind).length} total</span>
+      </div>
+
       {isLoading ? (
         <SkeletonRows rows={5} cols={4} />
       ) : error ? (
@@ -138,70 +157,45 @@ export default function SuperHelpCenter() {
       ) : byKind.length === 0 ? (
         <EmptyState title={`No ${kind}s yet`} description="Create one with the button above." />
       ) : (
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-                <th className="px-5 py-3 font-medium">Title</th>
-                <th className="px-4 py-3 font-medium">Category</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium text-right">Published</th>
-                <th className="px-4 py-3 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+        <div className="rounded-[14px] border border-[#E7DCCB] bg-[#FFFDF9] overflow-hidden">
+          <div className="grid grid-cols-[2.4fr_1fr_.9fr_.8fr_68px] gap-3 border-b border-[#EFE6D8] bg-[#FBF6EE] px-[18px] py-3 text-[10px] font-bold uppercase tracking-[.12em] text-[#8A7A66]">
+            <span>Article</span><span>Collection</span><span>Status</span><span className="text-right">Views 30d</span><span />
+          </div>
+          <div className="divide-y divide-[#F2EAE0]">
               {byKind.map((a) => (
-                <tr key={a.id} className="hover:bg-muted/20 transition-colors">
-                  <td className="px-5 py-3 font-medium text-foreground">{a.title}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{a.category}</td>
-                  <td className="px-4 py-3">
-                    <StatusPill status={a.status} />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Switch
-                      checked={a.status === "live"}
-                      onCheckedChange={() => toggleMutation.mutate(a)}
-                      disabled={toggleMutation.isPending}
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => { setEditing(a); setOpen(true); }}
-                        className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <button className="p-1 rounded hover:bg-red-50 transition-colors text-muted-foreground hover:text-destructive">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete article?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will permanently remove "{a.title}" from the help center.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => deleteMutation.mutate(a.id)}
-                              className="bg-destructive text-white hover:bg-destructive/90"
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </td>
-                </tr>
+                <div key={a.id} className="grid grid-cols-[2.4fr_1fr_.9fr_.8fr_68px] items-center gap-3 px-[18px] py-3 hover:bg-[#FBF6EE] transition-colors">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-[#1B2A4A]">{a.title}</p>
+                    <p className="text-[10px] text-[#8A7A66]">Updated {new Date(a.updatedAt).toLocaleDateString()}</p>
+                  </div>
+                  <span className="truncate text-sm text-[#5C4E3E]">{helpCategoryLabel(a.category as any)}</span>
+                  <button type="button" onClick={() => toggleMutation.mutate(a)} disabled={toggleMutation.isPending} className="justify-self-start"><StatusPill status={a.status} /></button>
+                  <span className="text-right font-mono text-xs text-[#1B2A4A]">0</span>
+                  <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => { setEditing(a); setOpen(true); }} className="p-1 text-[#A2937E] hover:text-[#1B2A4A]" title={`Edit ${a.title}`} aria-label={`Edit ${a.title}`}>
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <button className="rounded p-1 text-[#A2937E] transition-colors hover:bg-red-50 hover:text-destructive" aria-label={`Delete ${a.title}`}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete article?</AlertDialogTitle>
+                          <AlertDialogDescription>This will permanently remove "{a.title}" from the help center.</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteMutation.mutate(a.id)} className="bg-destructive text-white hover:bg-destructive/90">Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
+          </div>
         </div>
       )}
     </div>

@@ -9,7 +9,6 @@ import {
   useLocation,
   Redirect,
 } from "wouter";
-import { SidebarProvider } from "@/components/ui/sidebar";
 import { useEffect } from "react";
 import { Shell } from "@/components/layout/Shell";
 import { SuperAdminShell } from "@/components/layout/SuperAdminShell";
@@ -69,6 +68,8 @@ function InkGate({ storeSlug, children }: { storeSlug?: string; children: React.
 import SuperDashboard from "@/pages/super/Dashboard";
 import SuperStores from "@/pages/super/Stores";
 import SuperCatalog from "@/pages/super/GlobalCatalog";
+import CatalogAuthoring from "@/pages/super/CatalogAuthoring";
+import StudioPicker from "@/pages/super/StudioPicker";
 import SuperRevenue from "@/pages/super/Revenue";
 import SuperHelp from "@/pages/super/HelpCenter";
 import SuperFlags from "@/pages/super/FeatureFlags";
@@ -190,18 +191,26 @@ function RootRouter() {
        */ }
       <Route path="/studios/(.*)">
         <RequireSuperAdmin state={state}>
-          <SidebarProvider>
-            <Shell>
-              <Switch>
-                {daybookRoutes.map((r) => (
-                  <Route key={r.path} path={r.path} component={r.component} />
-                ))}
-                <Route component={NotFound} />
-              </Switch>
-            </Shell>
-          </SidebarProvider>
+          <Shell>
+            <Switch>
+              {daybookRoutes.map((r) => (
+                <Route key={r.path} path={r.path} component={r.component} />
+              ))}
+              <Route component={NotFound} />
+            </Switch>
+          </Shell>
         </RequireSuperAdmin>
       </Route>
+
+      {daybookRoutes
+        .filter((route) => route.path.startsWith("/catalog/") || route.path.startsWith("/studios/"))
+        .map(({ path, component: Component }) => (
+          <Route key={`canonical-${path}`} path={`/super${path}`}>
+            <RequireSuperAdmin state={state}>
+              <SuperAdminShell><Component /></SuperAdminShell>
+            </RequireSuperAdmin>
+          </Route>
+        ))}
 
       {/* ── Super Admin console ────────────────────────────────── */}
       <Route path="/super">
@@ -213,18 +222,20 @@ function RootRouter() {
       </Route>
       <Route path="/super/releases">
         <RequireSuperAdmin state={state}>
-          <SidebarProvider>
-            <Shell>
-              <ReleasesPage />
-            </Shell>
-          </SidebarProvider>
+          <SuperAdminShell><ReleasesPage /></SuperAdminShell>
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/stores">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperStores /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       <Route path="/super/catalog">
+        <RequireSuperAdmin state={state}><SuperAdminShell><CatalogAuthoring /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/catalog/global">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperCatalog /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/studios">
+        <RequireSuperAdmin state={state}><SuperAdminShell><StudioPicker /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       <Route path="/super/revenue">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperRevenue /></SuperAdminShell></RequireSuperAdmin>
@@ -743,32 +754,28 @@ function RootRouter() {
       <Route path="/daybook">
         <RequireSuperAdmin state={state}>
           <WouterRouter base="/daybook">
-            <SidebarProvider>
-              <Shell>
-                <Switch>
-                  {daybookRoutes.map((r) => (
-                    <Route key={r.path} path={r.path} component={r.component} />
-                  ))}
-                  <Route component={NotFound} />
-                </Switch>
-              </Shell>
-            </SidebarProvider>
+            <Shell>
+              <Switch>
+                {daybookRoutes.map((r) => (
+                  <Route key={r.path} path={r.path} component={r.component} />
+                ))}
+                <Route component={NotFound} />
+              </Switch>
+            </Shell>
           </WouterRouter>
         </RequireSuperAdmin>
       </Route>
       <Route path="/daybook/(.*)">
         <RequireSuperAdmin state={state}>
           <WouterRouter base="/daybook">
-            <SidebarProvider>
-              <Shell>
-                <Switch>
-                  {daybookRoutes.map((r) => (
-                    <Route key={r.path} path={r.path} component={r.component} />
-                  ))}
-                  <Route component={NotFound} />
-                </Switch>
-              </Shell>
-            </SidebarProvider>
+            <Shell>
+              <Switch>
+                {daybookRoutes.map((r) => (
+                  <Route key={r.path} path={r.path} component={r.component} />
+                ))}
+                <Route component={NotFound} />
+              </Switch>
+            </Shell>
           </WouterRouter>
         </RequireSuperAdmin>
       </Route>

@@ -1,66 +1,81 @@
-/**
- * Shared UI primitives used across all three admin consoles.
- */
 import { cn } from "@/lib/utils";
 import { AlertCircle, Inbox, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
-// ── StatusPill ─────────────────────────────────────────────────────────────
-
-type Status = "live" | "draft" | "active" | "trial" | "suspended" | "deleted" |
-              "store_owner" | "store_staff" | "support" | "customer" |
-              "pro" | "starter" | "article" | "faq";
-
 const STATUS_STYLES: Record<string, string> = {
-  live:        "bg-emerald-100 text-emerald-800 border-emerald-200",
-  active:      "bg-emerald-100 text-emerald-800 border-emerald-200",
-  draft:       "bg-amber-100  text-amber-800  border-amber-200",
-  trial:       "bg-sky-100    text-sky-800    border-sky-200",
-  suspended:   "bg-red-100    text-red-800    border-red-200",
-  deleted:     "bg-gray-100   text-gray-500   border-gray-200",
-  store_owner: "bg-violet-100 text-violet-800 border-violet-200",
-  store_staff: "bg-blue-100   text-blue-800   border-blue-200",
-  support:     "bg-teal-100   text-teal-800   border-teal-200",
-  customer:    "bg-gray-100   text-gray-700   border-gray-200",
-  super_admin: "bg-[#C87560]/10 text-[#C87560] border-[#C87560]/20",
-  pro:         "bg-violet-100 text-violet-800 border-violet-200",
-  starter:     "bg-gray-100   text-gray-700   border-gray-200",
-  article:     "bg-sky-100    text-sky-800    border-sky-200",
-  faq:         "bg-purple-100 text-purple-800 border-purple-200",
+  live: "bg-[#E8F1EA] text-[#3F7A5E] border-[#CFE0D2]",
+  active: "bg-[#E8F1EA] text-[#3F7A5E] border-[#CFE0D2]",
+  draft: "bg-[#F6EBD4] text-[#8A6A22] border-[#E9D8B7]",
+  trial: "bg-[#E4EAF4] text-[#3A5480] border-[#CDD7E8]",
+  suspended: "bg-[#F3E4DF] text-[#A85B48] border-[#E8CFC7]",
+  deleted: "bg-[#F5EFE5] text-[#A2937E] border-[#E7DCCB]",
+  store_owner: "bg-[#E4EAF4] text-[#3A5480] border-[#CDD7E8]",
+  store_staff: "bg-[#E4EAF4] text-[#3A5480] border-[#CDD7E8]",
+  support: "bg-[#E8F1EA] text-[#3F7A5E] border-[#CFE0D2]",
+  customer: "bg-[#F5EFE5] text-[#7A6A57] border-[#E7DCCB]",
+  super_admin: "bg-[#F3E4DF] text-[#A85B48] border-[#E8CFC7]",
+  pro: "bg-[#E4EAF4] text-[#3A5480] border-[#CDD7E8]",
+  starter: "bg-[#F5EFE5] text-[#7A6A57] border-[#E7DCCB]",
+  article: "bg-[#E4EAF4] text-[#3A5480] border-[#CDD7E8]",
+  faq: "bg-[#F3E4DF] text-[#A85B48] border-[#E8CFC7]",
 };
 
 const STATUS_LABELS: Record<string, string> = {
   store_owner: "Owner",
   store_staff: "Staff",
-  support:     "Support",
-  customer:    "Customer",
+  support: "Support",
+  customer: "Customer",
   super_admin: "Super admin",
 };
 
-export function StatusPill({
-  status,
-  className,
-}: {
-  status: string;
-  className?: string;
-}) {
-  const styles = STATUS_STYLES[status] ?? "bg-gray-100 text-gray-600 border-gray-200";
-  const label  = STATUS_LABELS[status] ?? status;
+export function StatusPill({ status, className }: { status: string; className?: string }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium capitalize",
-        styles,
-        className,
-      )}
-    >
-      {label}
+    <span className={cn(
+      "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium capitalize",
+      STATUS_STYLES[status] ?? "bg-[#F5EFE5] text-[#7A6A57] border-[#E7DCCB]",
+      className,
+    )}>
+      {STATUS_LABELS[status] ?? status}
     </span>
   );
 }
 
-// ── StatTile ───────────────────────────────────────────────────────────────
+export type PillTone = "live" | "draft" | "info" | "warn" | "on" | "off";
+const PILL_TONES: Record<PillTone, string> = {
+  live: "bg-[#E8F1EA] text-[#3F7A5E] border-[#CFE0D2]",
+  draft: "bg-[#F6EBD4] text-[#8A6A22] border-[#E9D8B7]",
+  info: "bg-[#E4EAF4] text-[#3A5480] border-[#CDD7E8]",
+  warn: "bg-[#F3E4DF] text-[#A85B48] border-[#E8CFC7]",
+  on: "bg-[#F3E4DF] text-[#A85B48] border-[#E8CFC7]",
+  off: "bg-[#F5EFE5] text-[#A2937E] border-[#E7DCCB]",
+};
+
+export function Pill({ tone, children, className }: { tone: PillTone; children: React.ReactNode; className?: string }) {
+  return (
+    <span className={cn(
+      "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-4",
+      PILL_TONES[tone],
+      className,
+    )}>
+      {children}
+    </span>
+  );
+}
+
+export function Chip({ active, children, className }: { active: boolean; children: React.ReactNode; className?: string }) {
+  return (
+    <span className={cn(
+      "inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-semibold",
+      active
+        ? "border-[#E8CFC7] bg-[#F3E4DF] text-[#A85B48]"
+        : "border-[#E7DCCB] bg-[#F5EFE5] text-[#A2937E] line-through decoration-[#D4C6B0]",
+      className,
+    )}>
+      {children}
+    </span>
+  );
+}
 
 export function StatTile({
   label,
@@ -76,20 +91,57 @@ export function StatTile({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-xl border border-border bg-card p-5 flex flex-col gap-2", className)}>
+    <div className={cn("flex flex-col gap-2 rounded-xl border border-[#E7DCCB] bg-[#FFFDF9] p-5 shadow-[0_1px_2px_rgba(27,42,74,.05)]", className)}>
       <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">{label}</span>
-        {Icon && <Icon className="w-4 h-4 text-muted-foreground" />}
+        <span className="text-sm text-[#7A6A57]">{label}</span>
+        {Icon && <Icon className="h-4 w-4 text-[#8A7A66]" />}
       </div>
-      <div className="text-3xl font-display font-semibold text-foreground tabular-nums">
-        {value}
-      </div>
-      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+      <div className="font-display text-3xl font-semibold tabular-nums text-[#1B2A4A]">{value}</div>
+      {sub && <p className="text-xs text-[#7A6A57]">{sub}</p>}
     </div>
   );
 }
 
-// ── PageHeader ─────────────────────────────────────────────────────────────
+export function Sparkline({ values, desirable = true }: { values: number[]; desirable?: boolean }) {
+  const width = 96;
+  const height = 20;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const points = values.map((value, index) => {
+    const x = values.length === 1 ? 0 : index * (width / (values.length - 1));
+    const y = height - 2 - ((value - min) / span) * (height - 4);
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-5 w-24" aria-hidden="true">
+      <polyline points={points} fill="none" stroke={desirable ? "#3F7A5E" : "#A85B48"} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+export function MetricStrip({
+  metrics,
+}: {
+  metrics: Array<{ label: string; value: string | number; delta: string; values?: number[]; desirable?: boolean; neutral?: boolean }>;
+}) {
+  return (
+    <div className="grid overflow-hidden rounded-[14px] border border-[#E7DCCB] bg-[#FFFDF9] shadow-[0_1px_3px_rgba(27,42,74,.06)] sm:grid-cols-2 xl:grid-cols-5">
+      {metrics.map((metric) => (
+        <div key={metric.label} className="min-w-0 border-b border-r border-[#EFE6D8] px-4 py-4 last:border-r-0 xl:border-b-0">
+          <p className="text-[10px] font-bold uppercase tracking-[.14em] text-[#8A7A66]">{metric.label}</p>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="font-display text-[22px] font-semibold text-[#1B2A4A]">{metric.value}</span>
+            <span className={cn("text-[10px] font-semibold", metric.neutral ? "text-[#8A7A66]" : metric.desirable === false ? "text-[#A85B48]" : "text-[#3F7A5E]")}>{metric.delta}</span>
+          </div>
+          {metric.values && metric.values.length > 1
+            ? <Sparkline values={metric.values} desirable={metric.desirable !== false} />
+            : <p className="mt-1 text-[10px] text-[#A2937E]">Trend unavailable</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function PageHeader({
   title,
@@ -103,26 +155,18 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 mb-8">
+    <div className="mb-6 flex min-h-14 items-start justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-display font-semibold text-foreground">{title}</h1>
-        {description && (
-          <p className="text-sm text-muted-foreground mt-1">{description}</p>
-        )}
+        <h1 className="font-display text-[19px] font-semibold text-[#1B2A4A]">{title}</h1>
+        {description && <p className="mt-1 text-sm text-[#7A6A57]">{description}</p>}
       </div>
-      <div className="flex items-center gap-3 shrink-0">
-        {scopeLabel && (
-          <span className="inline-flex items-center rounded-full border border-[#E7DCCB] bg-[#F7F0E6] px-3 py-1 text-xs font-medium text-[#4A6080]">
-            {scopeLabel}
-          </span>
-        )}
+      <div className="flex shrink-0 items-center gap-3">
+        {scopeLabel && <Pill tone="info">{scopeLabel}</Pill>}
         {actions}
       </div>
     </div>
   );
 }
-
-// ── EmptyState ─────────────────────────────────────────────────────────────
 
 export function EmptyState({
   title,
@@ -137,52 +181,37 @@ export function EmptyState({
 }) {
   const DisplayIcon = Icon ?? Inbox;
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
-      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-        <DisplayIcon className="w-6 h-6 text-muted-foreground" />
+    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F5EFE5]">
+        <DisplayIcon className="h-6 w-6 text-[#8A7A66]" />
       </div>
       <div>
-        <p className="font-medium text-foreground">{title}</p>
-        {description && (
-          <p className="text-sm text-muted-foreground mt-1 max-w-xs">{description}</p>
-        )}
+        <p className="font-medium text-[#1B2A4A]">{title}</p>
+        {description && <p className="mt-1 max-w-xs text-sm text-[#7A6A57]">{description}</p>}
       </div>
       {action}
     </div>
   );
 }
 
-// ── ErrorState ─────────────────────────────────────────────────────────────
-
-export function ErrorState({
-  message,
-  onRetry,
-}: {
-  message?: string;
-  onRetry?: () => void;
-}) {
+export function ErrorState({ message, onRetry }: { message?: string; onRetry?: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
-      <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
-        <AlertCircle className="w-6 h-6 text-red-500" />
+    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F3E4DF]">
+        <AlertCircle className="h-6 w-6 text-[#A85B48]" />
       </div>
       <div>
-        <p className="font-medium text-foreground">Something went wrong</p>
-        <p className="text-sm text-muted-foreground mt-1">
-          {message ?? "We couldn't load this data. Please try again."}
-        </p>
+        <p className="font-medium text-[#1B2A4A]">Something went wrong</p>
+        <p className="mt-1 text-sm text-[#7A6A57]">{message ?? "We couldn't load this data. Please try again."}</p>
       </div>
       {onRetry && (
         <Button variant="outline" size="sm" onClick={onRetry}>
-          <RefreshCw className="w-3.5 h-3.5 mr-2" />
-          Try again
+          <RefreshCw className="mr-2 h-3.5 w-3.5" />Try again
         </Button>
       )}
     </div>
   );
 }
-
-// ── SkeletonRows ───────────────────────────────────────────────────────────
 
 export function SkeletonRows({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   return (
@@ -190,11 +219,7 @@ export function SkeletonRows({ rows = 5, cols = 4 }: { rows?: number; cols?: num
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex gap-4">
           {Array.from({ length: cols }).map((_, j) => (
-            <Skeleton
-              key={j}
-              className="h-8 flex-1"
-              style={{ opacity: 1 - i * 0.12 }}
-            />
+            <Skeleton key={j} className="h-8 flex-1" style={{ opacity: 1 - i * 0.12 }} />
           ))}
         </div>
       ))}

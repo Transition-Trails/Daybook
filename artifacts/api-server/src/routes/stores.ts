@@ -625,6 +625,54 @@ router.patch(
   },
 );
 
+// ── PUT /stores/flags/bulk ────────────────────────────────────────────────────
+
+router.put(
+  "/stores/flags/bulk",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const changes = Array.isArray(req.body?.changes) ? req.body.changes : [];
+    if (changes.length === 0 || changes.length > 100) {
+      res.status(400).json({ error: "changes must contain between 1 and 100 store updates" });
+      return;
+    }
+
+    const allowed = ["aiEnabled", "customDomain", "editionsCap", "storageQuota", "inkEnabled", "worldsmithEnabled"] as const;
+    const updated = await db.transaction(async (tx) => {
+      const rows = [];
+      for (const change of changes) {
+        if (!change || typeof change.storeId !== "string" || !change.flags || typeof change.flags !== "object") {
+          throw new Error("Each change requires storeId and flags");
+        }
+        const patch = Object.fromEntries(
+          allowed
+            .filter((key) => change.flags[key] !== undefined)
+            .map((key) => [key, change.flags[key]]),
+        ) as Partial<typeof storeFlagsTable.$inferInsert>;
+        if (Object.keys(patch).length === 0) continue;
+        const [flags] = await tx
+          .insert(storeFlagsTable)
+          .values({ storeId: change.storeId, ...patch })
+          .onConflictDoUpdate({ target: storeFlagsTable.storeId, set: patch })
+          .returning();
+        rows.push(flags);
+        await writeAudit(tx, {
+          actorUserId: actor.userId,
+          actorRole: actor.effectiveRole,
+          scope: "platform",
+          action: "flags.update",
+          targetType: "store",
+          targetId: change.storeId,
+          metadata: patch as Record<string, unknown>,
+        });
+      }
+      return rows;
+    });
+    res.json(updated);
+  },
+);
+
 // ── GET /stores/:storeId/flags ────────────────────────────────────────────────
 
 router.get(

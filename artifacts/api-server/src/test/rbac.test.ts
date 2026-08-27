@@ -1286,6 +1286,27 @@ describe("audit log — written on admin mutations", () => {
     expect(entries[0].scope).toBe("platform");
   });
 
+  it("PUT /api/stores/flags/bulk updates multiple stores atomically and rejects non-super-admins", async () => {
+    await request(alphaOwner)
+      .put("/api/stores/flags/bulk")
+      .send({ changes: [{ storeId: "store-alpha", flags: { editionsCap: 31 } }] })
+      .expect(403);
+
+    const response = await request(sa)
+      .put("/api/stores/flags/bulk")
+      .send({
+        changes: [
+          { storeId: "store-alpha", flags: { editionsCap: 31 } },
+          { storeId: "store-beta", flags: { storageQuota: 2049 } },
+        ],
+      })
+      .expect(200);
+
+    expect(response.body).toHaveLength(2);
+    expect(response.body.find((row: { storeId: string }) => row.storeId === "store-alpha").editionsCap).toBe(31);
+    expect(response.body.find((row: { storeId: string }) => row.storeId === "store-beta").storageQuota).toBe(2049);
+  });
+
   it("POST /api/stores/:id/members (store_owner) writes audit entry: actorRole contains store_owner, scope=store-alpha", async () => {
     // Assign u-delta-owner as support in alpha, then clean up
     const res = await request(alphaOwner)

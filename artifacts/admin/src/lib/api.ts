@@ -509,6 +509,11 @@ export const storesApi = {
         method: "PUT",
         body: JSON.stringify(data),
       }),
+    updateBulk: (changes: Array<{ storeId: string; flags: Partial<StoreFlags> }>) =>
+      apiFetch<StoreFlags[]>("/stores/flags/bulk", {
+        method: "PUT",
+        body: JSON.stringify({ changes }),
+      }),
   },
 
   entitlement: {

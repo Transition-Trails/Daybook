@@ -71,7 +71,6 @@ import OrderDetail from '@/pages/orders/detail';
 
 // Backward-compat pages that are still real screens (no nav entry)
 import PlannerBuilder from '@/pages/planners/builder';
-import PlannerInteriorsPage from '@/pages/planners/interiors';
 import EditionNew from '@/pages/editions/new';
 
 export const routes = [
@@ -108,7 +107,6 @@ export const routes = [
 
   // ── Super admin ────────────────────────────────────────────────────────────
   { path: "/super/releases",           component: ReleasesPage },
-  { path: "/super/planner-interiors",  component: PlannerInteriorsPage },
 
   // ── Platform ───────────────────────────────────────────────────────────────
   { path: "/orders/:id",               component: OrderDetail },

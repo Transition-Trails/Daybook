@@ -85,6 +85,7 @@ import PlannerLibrary from "@/pages/ink/PlannerLibrary";
 import AiSettingsPage from "@/pages/ai-settings";
 import SyncDashboard from "@/pages/sync";
 import CalendarPage from "@/pages/calendar";
+import PlannerInteriorsPage from "@/pages/planners/interiors";
 import StoreSupportInbox from "@/pages/store/SupportInbox";
 const ShopSupportPage = lazy(() => import("@/pages/shop/SupportPage"));
 
@@ -232,6 +233,9 @@ function RootRouter() {
         <RequireSuperAdmin state={state}>
           <SuperAdminShell><ReleasesPage /></SuperAdminShell>
         </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/planner-interiors">
+        <RequireSuperAdmin state={state}><SuperAdminShell><PlannerInteriorsPage /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       <Route path="/super/plans">
         <RequireSuperAdmin state={state}><SuperAdminShell><PlansList /></SuperAdminShell></RequireSuperAdmin>
@@ -764,6 +768,9 @@ function RootRouter() {
       </Route>
 
       {/* ── Daybook Ink — full-screen editor, no Shell ───────────── */}
+      <Route path="/daybook/super/planner-interiors">
+        <RequireSuperAdmin state={state}><Redirect to="/super/planner-interiors" replace /></RequireSuperAdmin>
+      </Route>
       <Route path="/daybook/plans">
         <RequireSuperAdmin state={state}><Redirect to="/super/plans" replace /></RequireSuperAdmin>
       </Route>

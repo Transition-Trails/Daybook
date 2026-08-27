@@ -55,6 +55,13 @@ import {
 import { FontSpecimenCard } from "@/components/FontSpecimenCard";
 import { PLANNER_FONT_FAMILIES } from "@/lib/studio/plannerConstants";
 import { isSuperAdminRole } from "@/lib/permissions";
+import {
+  SPINE_BINDING_TYPES,
+  SPINE_FINISHES,
+  spineFinishLabel,
+  type SpineBindingType,
+  type SpineFinish,
+} from "@/lib/spineCatalog";
 
 // ── Types & constants ─────────────────────────────────────────────────────────
 
@@ -1570,7 +1577,7 @@ function PaperMode({ planner, storeId, onUpdated }: { planner: StorePlannerConfi
     mutationFn: () => storePlannersApi.patch(storeId, planner.id, { style: {
       paperColour: paperColour as StorePlannerStyle["paperColour"], size: size as StorePlannerStyle["size"],
       renderStyle: renderStyle as "realistic" | "flat",
-      binding: { type: bindingType as "coil"|"twin-loop"|"discs"|"3-ring"|"none", finish: bindingFinish as "gold"|"rose gold"|"silver"|"matte black"|"white" },
+      binding: { type: bindingType as SpineBindingType | "none", finish: bindingFinish as SpineFinish },
       notePaper: notePaper as StorePlannerStyle["notePaper"],
     }}),
     onSuccess: async () => {
@@ -1634,10 +1641,11 @@ function PaperMode({ planner, storeId, onUpdated }: { planner: StorePlannerConfi
           <Select value={bindingType} onValueChange={setBindingType}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="coil">Coil</SelectItem>
-              <SelectItem value="twin-loop">Twin loop</SelectItem>
-              <SelectItem value="discs">Disc binding</SelectItem>
-              <SelectItem value="3-ring">3-ring</SelectItem>
+              {SPINE_BINDING_TYPES.map(type => (
+                <SelectItem key={type} value={type}>
+                  {type === "twin-loop" ? "Twin loop" : type === "disc" ? "Disc binding" : type === "3-ring" ? "3-ring" : "Coil"}
+                </SelectItem>
+              ))}
               <SelectItem value="none">None</SelectItem>
             </SelectContent>
           </Select>
@@ -1647,11 +1655,9 @@ function PaperMode({ planner, storeId, onUpdated }: { planner: StorePlannerConfi
           <Select value={bindingFinish} onValueChange={setBindingFinish}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="gold">Gold</SelectItem>
-              <SelectItem value="rose gold">Rose gold</SelectItem>
-              <SelectItem value="silver">Silver</SelectItem>
-              <SelectItem value="matte black">Matte black</SelectItem>
-              <SelectItem value="white">White</SelectItem>
+              {SPINE_FINISHES.map(({ value }) => (
+                <SelectItem key={value} value={value}>{spineFinishLabel(value)}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

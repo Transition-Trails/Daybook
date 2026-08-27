@@ -19,10 +19,15 @@ import {
 } from "@/components/ui/select";
 import { Plus, Loader2 } from "lucide-react";
 import { CatalogPageHeader } from "@/components/catalog/CatalogPageHeader";
+import {
+  SPINE_BINDING_TYPES,
+  SPINE_FINISHES,
+  spineFinishLabel,
+} from "@/lib/spineCatalog";
 
 interface HardwareItem {
   id: string; name: string;
-  kind: string;   // coil | twin-loop | discs | 3-ring
+  kind: string;   // canonical spine binding type
   finish: string | null;
   status: "draft" | "live";
   origin: string;
@@ -99,8 +104,12 @@ function HardwareForm({
   onCancel: () => void;
 }) {
   const [name,   setName]   = useState(initial?.name   ?? "");
-  const [kind,   setKind]   = useState(initial?.kind   ?? "coil");
-  const [finish, setFinish] = useState(initial?.finish ?? "");
+  const [kind, setKind] = useState(initial?.kind === "discs" ? "disc" : initial?.kind ?? "coil");
+  const [finish, setFinish] = useState(
+    initial?.finish === "black" ? "matte-black"
+      : initial?.finish === "brass" ? "bronze"
+      : initial?.finish ?? "",
+  );
   const [status, setStatus] = useState<"draft" | "live">(initial?.status ?? "draft");
   const [origin, setOrigin] = useState(initial?.origin ?? "starter");
 
@@ -116,10 +125,11 @@ function HardwareForm({
           <Select value={kind} onValueChange={setKind}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="coil">Coil</SelectItem>
-              <SelectItem value="twin-loop">Twin-loop</SelectItem>
-              <SelectItem value="discs">Discs</SelectItem>
-              <SelectItem value="3-ring">3-ring</SelectItem>
+              {SPINE_BINDING_TYPES.map(type => (
+                <SelectItem key={type} value={type}>
+                  {type === "twin-loop" ? "Twin-loop" : type === "disc" ? "Discs" : type === "3-ring" ? "3-ring" : "Coil"}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -129,12 +139,9 @@ function HardwareForm({
             <SelectTrigger><SelectValue placeholder="Select finish" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="none">— none —</SelectItem>
-              <SelectItem value="brass">Brass</SelectItem>
-              <SelectItem value="silver">Silver</SelectItem>
-              <SelectItem value="black">Black</SelectItem>
-              <SelectItem value="rose-gold">Rose gold</SelectItem>
-              <SelectItem value="white">White</SelectItem>
-              <SelectItem value="gunmetal">Gunmetal</SelectItem>
+              {SPINE_FINISHES.map(({ value }) => (
+                <SelectItem key={value} value={value}>{spineFinishLabel(value)}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -255,7 +262,7 @@ export default function HardwareList() {
   if (error) return <div className="p-8 text-destructive">Failed to load hardware.</div>;
 
   const filtered = items.filter(it =>
-    (kindFilter === "all" || it.kind === kindFilter) &&
+    (kindFilter === "all" || (it.kind === "discs" ? "disc" : it.kind) === kindFilter) &&
     (statusFilter === "all" || it.status === statusFilter)
   );
   const editing = items.find(it => it.id === editingId);
@@ -280,11 +287,11 @@ export default function HardwareList() {
           {
             value: kindFilter,
             options: [
-              { value: "all",       label: "All kinds"  },
-              { value: "coil",      label: "Coil"       },
-              { value: "twin-loop", label: "Twin-loop"  },
-              { value: "discs",     label: "Discs"      },
-              { value: "3-ring",    label: "3-ring"     },
+              { value: "all", label: "All kinds" },
+              ...SPINE_BINDING_TYPES.map(value => ({
+                value,
+                label: value === "twin-loop" ? "Twin-loop" : value === "disc" ? "Discs" : value === "3-ring" ? "3-ring" : "Coil",
+              })),
             ],
             onChange: setKindFilter,
           },

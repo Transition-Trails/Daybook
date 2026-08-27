@@ -2597,17 +2597,12 @@ function PaperCompose({
       <div className="rounded-[16px] border p-5 mb-6 space-y-3" style={{ background: PAPER_TINT }}>
         <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Binding type</p>
         <div className="flex gap-2 flex-wrap">
-          {[
-            { value: "coil",       label: "Coil" },
-            { value: "twin-loop",  label: "Twin loop" },
-            { value: "disc",       label: "Disc" },
-            { value: "3-ring",     label: "3-ring" },
-          ].map(o => (
-            <ComposeChip key={o.value} label={o.label} active={binding === o.value} onClick={() => {
-              setBinding(o.value);
-              onBindingTypeChange?.(o.value);
+          {SPINE_BINDING_TYPES.map(value => (
+            <ComposeChip key={value} label={value === "twin-loop" ? "Twin loop" : value === "disc" ? "Disc" : value === "3-ring" ? "3-ring" : "Coil"} active={binding === value} onClick={() => {
+              setBinding(value);
+              onBindingTypeChange?.(value);
               const selected = spineStyles.find(style => style.id === spineStyleId);
-              if (selected && (selected.bindingType !== o.value || selected.finish !== hardware)) {
+              if (selected && (selected.bindingType !== value || selected.finish !== hardware)) {
                 setSpineStyleId("");
                 onSpineStyleChange?.("");
               }

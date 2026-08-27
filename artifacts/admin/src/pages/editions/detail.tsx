@@ -25,11 +25,25 @@ import { Loader2, ArrowLeft, Trash2, Save } from 'lucide-react';
 import { Link } from 'wouter';
 import { type EditionInputTier } from '@workspace/api-client-react';
 import { apiFetch } from '@/lib/api';
+import {
+  SPINE_BINDING_TYPES,
+  SPINE_FINISHES,
+  spineFinishLabel,
+  type SpineBindingType,
+  type SpineFinish,
+} from '@/lib/spineCatalog';
 
 const PRODUCT_TYPES = ['planner', 'notebook', 'journal', 'memory-keeping'] as const;
-const BINDING_TYPES   = ['', 'coil', 'twin-loop', 'discs', '3-ring', 'none'] as const;
-const BINDING_FINISHES = ['', 'gold', 'rose gold', 'silver', 'matte black', 'white'] as const;
 const NO_WORLD_VALUE = '__no-world__';
+const NO_BINDING_VALUE = '__no-binding__';
+const NO_BINDING_FINISH_VALUE = '__no-binding-finish__';
+const DEFAULT_BINDING_FINISH = 'gold' satisfies SpineFinish;
+const BINDING_LABELS: Record<SpineBindingType, string> = {
+  coil: 'Coil',
+  'twin-loop': 'Twin-loop wire-o',
+  disc: 'Disc / Arc',
+  '3-ring': '3-ring binder',
+};
 const optionalMoney = z.preprocess(
   (value) => value === '' || value === null || value === undefined ? undefined : Number(value),
   z.number().finite().min(0).optional(),
@@ -180,9 +194,12 @@ export default function EditionDetail() {
     const sections = data.sections ? data.sections.split(',').map(s => s.trim()).filter(Boolean) : [];
     const tier = data.tier as EditionInputTier;
 
-    const bindingPayload = data.bindingType && data.bindingType !== ''
-      ? { type: data.bindingType as "coil" | "twin-loop" | "discs" | "3-ring" | "none", finish: (data.bindingFinish || 'gold') as "gold" | "rose gold" | "silver" | "matte black" | "white" }
-      : null;
+    const bindingPayload = data.bindingType === ''
+      ? null
+      : {
+          type: data.bindingType as SpineBindingType | 'none',
+          finish: (data.bindingFinish || DEFAULT_BINDING_FINISH) as SpineFinish,
+        };
 
     const worldValue = data.world.trim().toUpperCase() || null;
 
@@ -402,18 +419,20 @@ export default function EditionDetail() {
                     <FormField control={form.control} name="bindingType" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Binding type <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select
+                          onValueChange={value => field.onChange(value === NO_BINDING_VALUE ? '' : value)}
+                          value={field.value || NO_BINDING_VALUE}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="None / unset" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="">None / unset</SelectItem>
-                            <SelectItem value="coil">Coil</SelectItem>
-                            <SelectItem value="twin-loop">Twin-loop wire-o</SelectItem>
-                            <SelectItem value="discs">Disc / Arc</SelectItem>
-                            <SelectItem value="3-ring">3-ring binder</SelectItem>
+                            <SelectItem value={NO_BINDING_VALUE}>None / unset</SelectItem>
+                            {SPINE_BINDING_TYPES.map(type => (
+                              <SelectItem key={type} value={type}>{BINDING_LABELS[type]}</SelectItem>
+                            ))}
                             <SelectItem value="none">Perfect / glue</SelectItem>
                           </SelectContent>
                         </Select>
@@ -423,19 +442,20 @@ export default function EditionDetail() {
                     <FormField control={form.control} name="bindingFinish" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Binding finish</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select
+                          onValueChange={value => field.onChange(value === NO_BINDING_FINISH_VALUE ? '' : value)}
+                          value={field.value || NO_BINDING_FINISH_VALUE}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Gold (default)" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="">Gold (default)</SelectItem>
-                            <SelectItem value="gold">Gold</SelectItem>
-                            <SelectItem value="rose gold">Rose gold</SelectItem>
-                            <SelectItem value="silver">Silver</SelectItem>
-                            <SelectItem value="matte black">Matte black</SelectItem>
-                            <SelectItem value="white">White</SelectItem>
+                            <SelectItem value={NO_BINDING_FINISH_VALUE}>Gold (default)</SelectItem>
+                            {SPINE_FINISHES.map(({ value }) => (
+                              <SelectItem key={value} value={value}>{spineFinishLabel(value)}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />

@@ -26,6 +26,7 @@ import {
 } from "@/lib/api";
 import { aiApi, extractJson } from "@/lib/ai";
 import { useToast } from "@/hooks/use-toast";
+import { SPINE_BINDING_TYPES, type SpineBindingType } from "@/lib/spineCatalog";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 
@@ -81,14 +82,12 @@ const JOURNAL_TYPES = [
   { value: "notebook", label: "Notebook" },
 ];
 
-const BINDING_OPTIONS = [
-  { value: "coil",      label: "Coil"         },
-  { value: "twin-loop", label: "Twin-loop"     },
-  { value: "discs",     label: "Discs"         },
-  { value: "3-ring",    label: "3-ring"        },
-  { value: "none",      label: "Perfect bound" },
-];
-
+const JOURNAL_BINDING_LABELS: Record<SpineBindingType, string> = {
+  coil: "Coil",
+  "twin-loop": "Twin-loop",
+  disc: "Discs",
+  "3-ring": "3-ring",
+};
 const PAPER_COLOURS = [
   { value: "white", label: "White", swatch: "#FFFFFF" },
   { value: "cream", label: "Cream", swatch: "#FFFAF0" },
@@ -692,7 +691,10 @@ function PaperPanel({ template, onUpdated }: { template: PlatformPlannerConfig |
         <div className="space-y-2">
           <span className={BUILD_EYEBROW}>Binding</span>
           <div className="flex flex-wrap gap-2">
-            {BINDING_OPTIONS.map(o => <PillChip key={o.value} label={o.label} active={bindingType === o.value} onClick={() => setBindingType(o.value)} />)}
+            {[
+              ...SPINE_BINDING_TYPES.map(value => ({ value, label: JOURNAL_BINDING_LABELS[value] })),
+              { value: "none", label: "Perfect bound" },
+            ].map(o => <PillChip key={o.value} label={o.label} active={bindingType === o.value} onClick={() => setBindingType(o.value)} />)}
           </div>
         </div>
         <div className="space-y-2">

@@ -1377,7 +1377,10 @@ export interface StorePlannerStyle {
   sections?: string[];
   renderStyle?: "realistic" | "flat";
   size?: "A5" | "B6" | "Personal" | "Half letter" | "Letter" | "iPad 4:3";
-  binding?: { type: "coil" | "twin-loop" | "discs" | "3-ring" | "none"; finish: "gold" | "rose gold" | "silver" | "matte black" | "white" };
+  binding?: {
+    type: import("@/lib/spineCatalog").SpineBindingType | "none";
+    finish: import("@/lib/spineCatalog").SpineFinish;
+  };
   paperColour?: "cream" | "white" | "ivory" | "kraft" | "slate";
   coverType?: "texture" | "photo" | "pattern" | "solid";
   coverTitle?: string;

@@ -64,7 +64,7 @@ export default function OrderDetail() {
   const status = receiptStatus(order);
   const statusInfo = statusDetails[status];
   const StatusIcon = statusInfo.icon;
-  const backHref = storeId ? `/store/${storeId}/orders` : "/users";
+  const backHref = storeId ? `/store/${storeId}/orders` : "/super/users";
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 max-w-4xl mx-auto">

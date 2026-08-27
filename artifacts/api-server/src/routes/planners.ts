@@ -44,7 +44,8 @@ export async function runGeneration(
   let spine: SpineSpec | null = null;
   if (style.spineStyleId) {
     const [row] = await db.select().from(spineStylesTable).where(eq(spineStylesTable.id, style.spineStyleId));
-    if (row?.status === "live") spine = row;
+    const binding = style.binding;
+    if (row?.status === "live" && row.bindingType === binding?.type && row.finish === binding?.finish) spine = row;
   }
   let editionRecord: typeof editionsTable.$inferSelect | undefined;
 
@@ -329,7 +330,8 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     let previewSpine: SpineSpec | null = null;
     if (previewStyle?.spineStyleId) {
       const [row] = await db.select().from(spineStylesTable).where(eq(spineStylesTable.id, previewStyle.spineStyleId));
-      if (row?.status === "live") previewSpine = row;
+      const binding = previewStyle.binding;
+      if (row?.status === "live" && row.bindingType === binding?.type && row.finish === binding?.finish) previewSpine = row;
     }
 
     if (previewStyle?.paletteId) {

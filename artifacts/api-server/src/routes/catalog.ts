@@ -39,6 +39,8 @@ import {
   accessoriesTable,
   fontsTable,
   spineStylesTable,
+  SPINE_BINDING_TYPES,
+  SPINE_FINISH_VALUES,
 } from "@workspace/db";
 import { eq, ne, and, inArray, asc, sql } from "drizzle-orm";
 import { requireSuperAdmin, requireStoreAccess, resolveStoreActorOptional } from "../middleware/requireRole";
@@ -468,8 +470,11 @@ router.get("/spine-styles", async (req: Request, res: Response): Promise<void> =
 
 router.post("/spine-styles", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
   const body = req.body as Partial<typeof spineStylesTable.$inferInsert>;
-  if (!body.name || !body.slug || !body.assetRef || !body.unitAspect || !["vertical", "horizontal"].includes(String(body.orientation))) {
-    res.status(400).json({ error: "name, slug, assetRef, positive unitAspect, and orientation are required" });
+  if (!body.name || !body.slug || !body.assetRef || !body.unitAspect ||
+      !["vertical", "horizontal"].includes(String(body.orientation)) ||
+      !SPINE_BINDING_TYPES.includes(body.bindingType as any) ||
+      !SPINE_FINISH_VALUES.includes(body.finish as any)) {
+    res.status(400).json({ error: "name, slug, assetRef, unitAspect, orientation, bindingType, and finish are required" });
     return;
   }
   const [row] = await db.insert(spineStylesTable).values({

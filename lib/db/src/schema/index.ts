@@ -17,3 +17,4 @@ export * from "./checkout";
 export * from "./worldsmith";
 export * from "./worldsmith-editorial";
 export * from "./releases";
+export * from "../catalog-constants";

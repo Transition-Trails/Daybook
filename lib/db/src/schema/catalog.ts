@@ -244,6 +244,8 @@ export const spineStylesTable = pgTable(
     unitAspect: real("unit_aspect").notNull(),
     gapRatio: real("gap_ratio").notNull().default(0),
     orientation: text("orientation").notNull().$type<SpineStyleOrientation>(),
+    bindingType: text("binding_type").notNull(),
+    finish: text("finish").notNull(),
     status: text("status").notNull().default("draft").$type<SpineStyleStatus>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

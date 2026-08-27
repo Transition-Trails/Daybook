@@ -348,93 +348,6 @@ const PAGE_WIDTH  = 595;  // A4 default — kept for buildPreviewPdf fallback
 const PAGE_HEIGHT = 842;
 const MARGIN = 40;
 
-/** Finish colour lookup for binding hardware. */
-const BINDING_FINISH_RGB: Record<string, [number, number, number]> = {
-  gold:         [0.83, 0.69, 0.22],
-  "rose-gold":  [0.86, 0.66, 0.66],
-  silver:       [0.75, 0.75, 0.75],
-  bronze:       [0.55, 0.40, 0.27],
-  white:        [0.96, 0.96, 0.96],
-  "matte-black":[0.15, 0.15, 0.15],
-};
-
-/**
- * Draw binding hardware on a page using pdf-lib vector primitives.
- * Placement: left edge for portrait/single-page, centre gutter for landscape.
- * bindingType: 'coil' | 'twin-loop' | 'disc' | '3-ring'
- * bindingFinish: key in BINDING_FINISH_RGB
- */
-function drawBindingHardware(
-  page: PDFPage,
-  pageWidth: number,
-  pageHeight: number,
-  bindingType: string,
-  bindingFinish: string,
-  isLandscape: boolean,
-): void {
-  const [fr, fg, fb] = BINDING_FINISH_RGB[bindingFinish] ?? BINDING_FINISH_RGB.silver!;
-  const hardwareColor = rgb(fr, fg, fb);
-  const shadowColor   = rgb(fr * 0.6, fg * 0.6, fb * 0.6);
-
-  // For portrait: hardware runs down the left edge.
-  // For landscape: hardware runs down the centre gutter.
-  const edgeX = isLandscape ? pageWidth / 2 : 0;
-
-  if (bindingType === "coil") {
-    // Spiral coil: series of ovals, alternating fore/aft pass.
-    const count   = Math.floor(pageHeight / 22);
-    const ovalW   = 14;
-    const ovalH   = 10;
-    for (let i = 0; i < count; i++) {
-      const cy = pageHeight - 10 - i * 22;
-      const cx = isLandscape ? edgeX : ovalW / 2 + 1;
-      // Shadow oval
-      page.drawEllipse({ x: cx + 1, y: cy - 1, xScale: ovalW / 2 + 1, yScale: ovalH / 2, color: shadowColor, opacity: 0.4 });
-      // Fore pass
-      page.drawEllipse({ x: cx, y: cy, xScale: ovalW / 2, yScale: ovalH / 2, color: hardwareColor, opacity: 0.9 });
-    }
-
-  } else if (bindingType === "twin-loop") {
-    // Twin-loop (double-O wire): pairs of small linked ovals.
-    const count = Math.floor(pageHeight / 16);
-    const ow = 10;
-    const oh = 6;
-    for (let i = 0; i < count; i++) {
-      const cy = pageHeight - 8 - i * 16;
-      const cx = isLandscape ? edgeX : ow / 2 + 2;
-      page.drawEllipse({ x: cx, y: cy + 3, xScale: ow / 2, yScale: oh / 2, color: hardwareColor, opacity: 0.85 });
-      page.drawEllipse({ x: cx, y: cy - 3, xScale: ow / 2, yScale: oh / 2, color: hardwareColor, opacity: 0.85 });
-    }
-
-  } else if (bindingType === "disc") {
-    // Disc binding: large circles with centre holes.
-    const count  = Math.min(12, Math.floor(pageHeight / 55));
-    const outerR = 14;
-    const innerR = 6;
-    const spacing = pageHeight / (count + 1);
-    for (let i = 1; i <= count; i++) {
-      const cy = pageHeight - i * spacing;
-      const cx = isLandscape ? edgeX : outerR + 3;
-      page.drawEllipse({ x: cx + 1, y: cy - 1, xScale: outerR + 1, yScale: outerR, color: shadowColor, opacity: 0.35 });
-      page.drawEllipse({ x: cx, y: cy, xScale: outerR, yScale: outerR, color: hardwareColor, opacity: 0.9 });
-      page.drawEllipse({ x: cx, y: cy, xScale: innerR, yScale: innerR, color: rgb(0.88, 0.88, 0.88), opacity: 1 });
-    }
-
-  } else {
-    // 3-ring (default for unknown types): 3 large rings.
-    const positions = [0.25, 0.5, 0.75];
-    const outerR = 18;
-    const innerR = 8;
-    for (const frac of positions) {
-      const cy = pageHeight * frac;
-      const cx = isLandscape ? edgeX : outerR + 4;
-      page.drawEllipse({ x: cx + 1, y: cy - 1, xScale: outerR + 1, yScale: outerR, color: shadowColor, opacity: 0.35 });
-      page.drawEllipse({ x: cx, y: cy, xScale: outerR, yScale: outerR, color: hardwareColor, opacity: 0.9 });
-      page.drawEllipse({ x: cx, y: cy, xScale: innerR, yScale: innerR, color: rgb(0.88, 0.88, 0.88), opacity: 1 });
-    }
-  }
-}
-
 interface PageWithId {
   id: string;
   page: PDFPage;
@@ -940,9 +853,11 @@ export async function buildPdf(
   const coverTitle    = (style as Record<string, unknown>).coverTitle as string | undefined;
   const coverSubtitle = (style as Record<string, unknown>).coverSubtitle as string | undefined;
   const coverYear     = (style as Record<string, unknown>).coverYear;  // false = suppress year
-  const showCoverYear = coverYear !== false
-    && datingMode === "dated"
-    && !coverTitle?.includes(String(startYear));
+  const showCoverYear = coverYear !== false && datingMode === "dated";
+  const coverYearText = String(typeof coverYear === "number" ? coverYear : startYear);
+  const coverTitleText = (coverTitle ?? "Daybook")
+    .replace(new RegExp(`\\s*${coverYearText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`), "")
+    .trim() || "Daybook";
 
   // 1. Generate & validate page IDs + template
   const map = generatePageIds(config);
@@ -1157,10 +1072,15 @@ export async function buildPdf(
   {
     const sp = getPage("cover");
     if (sp) {
-      sp.drawText(coverTitle ?? "Daybook", { x: MARGIN, y: pageHeight / 2 + 40, size: 32, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
-      sp.drawText(coverSubtitle ?? "Your planner, your way.", { x: MARGIN, y: pageHeight / 2, size: 14, font, color: rgb(ink.r, ink.g, ink.b) });
+      const maxTitleWidth = pageWidth - MARGIN * 2;
+      const titleSize = Math.max(18, Math.min(32, 32 * maxTitleWidth / Math.max(maxTitleWidth, fontBold.widthOfTextAtSize(coverTitleText, 32))));
+      const titleY = pageHeight / 2 + 48;
+      const subtitleY = titleY - titleSize - 12;
+      const yearY = subtitleY - 34;
+      sp.drawText(coverTitleText, { x: MARGIN, y: titleY, size: titleSize, font: fontBold, color: rgb(accent.r, accent.g, accent.b) });
+      sp.drawText(coverSubtitle ?? "Your planner, your way.", { x: MARGIN, y: subtitleY, size: 14, font, color: rgb(ink.r, ink.g, ink.b), maxWidth: maxTitleWidth });
       if (showCoverYear) {
-        sp.drawText(String(startYear), { x: MARGIN, y: pageHeight / 2 - 28, size: 22, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
+        sp.drawText(coverYearText, { x: MARGIN, y: yearY, size: 22, font: fontBold, color: rgb(ink.r, ink.g, ink.b) });
       }
       if (orientation !== "landscape") {
         sp.drawRectangle({ x: 0, y: 0, width: 8, height: pageHeight, color: rgb(accent.r, accent.g, accent.b) });

@@ -1270,7 +1270,7 @@ async function main() {
         tabShape: "rounded",
         paperColour: "cream",
         renderStyle: "flat",
-        binding: { type: "discs", finish: "gold" },
+        binding: { type: "disc", finish: "gold" },
         coverType: "texture",
         coverTitle: "2026",
         coverSubtitle: "Warm Earth Planner",

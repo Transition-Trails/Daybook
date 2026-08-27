@@ -4,6 +4,9 @@
 - `horizontal` assets tile along the **top page edge**.
 - `tabPos` does not move the binding edge; it only controls navigation tabs.
 - A page renders at most one selected spine style. A null `spineStyleId` renders none.
+- Binding type and finish are catalog attributes. The Studio only offers spine
+  styles that match the selected combination, and generation rejects stale
+  mismatches instead of silently falling back.
 - Tiles keep `unitAspect` intact. The final full-size tile is clipped by the PDF
   media box instead of being stretched to fit.
 - Images without alpha emit a warning and render opaquely.

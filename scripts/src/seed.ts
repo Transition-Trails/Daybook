@@ -318,7 +318,7 @@ async function main() {
     readFile(new URL("../assets/rings2.png", import.meta.url)),
     readFile(new URL("../assets/rings1.png", import.meta.url)),
   ]);
-  await db.insert(spineStylesTable).values([
+  const starterSpineStyles = [
     {
       id: "spine-starter-rings-vertical",
       origin: "starter",
@@ -329,6 +329,8 @@ async function main() {
       unitAspect: 0.1353,
       gapRatio: 0,
       orientation: "vertical",
+      bindingType: "coil",
+      finish: "gold",
       status: "live",
     },
     {
@@ -341,12 +343,21 @@ async function main() {
       unitAspect: 11.9,
       gapRatio: 0,
       orientation: "horizontal",
+      bindingType: "twin-loop",
+      finish: "copper",
       status: "live",
     },
-  ]).onConflictDoUpdate({
-    target: spineStylesTable.id,
-    set: { status: "live" },
-  });
+  ] as const;
+  for (const style of starterSpineStyles) {
+    await db.insert(spineStylesTable).values(style).onConflictDoUpdate({
+      target: spineStylesTable.id,
+      set: {
+        status: "live",
+        bindingType: style.bindingType,
+        finish: style.finish,
+      },
+    });
+  }
   console.log("  ✓ starter spine styles");
 
   // ── Help content ───────────────────────────────────────────────────────────

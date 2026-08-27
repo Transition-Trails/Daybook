@@ -175,6 +175,8 @@ export interface SpineStyleCatalogItem extends CatalogItem {
   unitAspect: number;
   gapRatio: number;
   orientation: "vertical" | "horizontal";
+  bindingType: "coil" | "twin-loop" | "disc" | "3-ring";
+  finish: "gold" | "rose-gold" | "silver" | "copper" | "bronze" | "white" | "matte-black";
 }
 
 // ── Platform endpoints ──────────────────────────────────────────────────────

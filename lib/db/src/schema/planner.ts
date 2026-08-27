@@ -1,4 +1,5 @@
 import { pgTable, text, integer, timestamp, jsonb, unique } from "drizzle-orm/pg-core";
+import type { SpineBindingType, SpineFinish } from "../catalog-constants";
 
 // ── SETUP (locked after first generation) ─────────────────────────────────────
 export type PlannerSetup = {
@@ -13,8 +14,8 @@ export type PlannerSetup = {
 
 // ── STYLE (re-exportable) ──────────────────────────────────────────────────────
 export type PlannerBinding = {
-  type: "coil" | "twin-loop" | "discs" | "3-ring" | "none";
-  finish: "gold" | "rose gold" | "silver" | "matte black" | "white";
+  type: SpineBindingType;
+  finish: SpineFinish;
 };
 
 /** One tab rail on a planner page edge.  Items are navigation target keys. */

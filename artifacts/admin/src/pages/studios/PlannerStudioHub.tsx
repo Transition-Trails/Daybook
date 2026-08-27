@@ -37,6 +37,7 @@ import {
   DEFAULT_BUILD, buildStateToStylePatch, templateToBuildState,
   type PlannerBuildState as BuildState,
 } from "@/lib/studio/plannerState";
+import { SPINE_BINDING_TYPES, SPINE_FINISHES, spineFinishLabel } from "@/lib/spineCatalog";
 
 /** Defensive string extractor — prevents [object Object] when Claude returns JSON or an unexpected shape. */
 function safeText(v: unknown): string {
@@ -2449,14 +2450,13 @@ function DividersCompose() {
 
 // ── PAPER & BINDING mode center ───────────────────────────────────────────────
 
-const HARDWARE_OPTIONS = [
-  { value: "gold",       label: "Gold",       hex: "#D4AF37" },
-  { value: "rose-gold",  label: "Rose gold",  hex: "#B76E79" },
-  { value: "silver",     label: "Silver",     hex: "#A8A9AD" },
-  { value: "bronze",     label: "Bronze",     hex: "#8C7853" },
-  { value: "white",      label: "White",      hex: "#F0F0EE" },
-  { value: "matt-black", label: "Matt black", hex: "#2C2C2C" },
-];
+const FINISH_HEX: Record<string, string> = {
+  gold: "#D4AF37", "rose-gold": "#B76E79", silver: "#A8A9AD",
+  copper: "#B87333", bronze: "#8C7853", white: "#F0F0EE", "matte-black": "#2C2C2C",
+};
+const HARDWARE_OPTIONS = SPINE_FINISHES.map(({ value, label }) => ({
+  value, label, hex: FINISH_HEX[value],
+}));
 
 const PAPER_COLOUR_OPTIONS = [
   { value: "white",  label: "White",  hex: "#FAFAFA" },
@@ -2505,7 +2505,10 @@ function PaperCompose({
     queryFn: () => catalogApi.spineStyles(),
     staleTime: 0,
   });
-  const selectedSpine = spineStyles.find(s => s.id === spineStyleId);
+  const matchingSpineStyles = spineStyles.filter(
+    style => style.bindingType === binding && style.finish === hardware,
+  );
+  const selectedSpine = matchingSpineStyles.find(s => s.id === spineStyleId);
   const [weight,      setWeight]      = useState("80");
   const [finish,      setFinish]      = useState("matte");
 
@@ -2532,13 +2535,12 @@ function PaperCompose({
   const BINDING_DESCRIPTIONS: Record<string, string> = {
     coil:        "Plastic or metal coil through punched holes — lies flat when open.",
     "twin-loop": "Double-wire O binding — professional finish, very flat opening.",
-    discs:       "Removable disc system (Arc, Atoma) — pages can be rearranged.",
+    disc:        "Removable disc system (Arc, Atoma) — pages can be rearranged.",
     "3-ring":    "Classic binder rings — works with standard paper punches.",
     none:        "No binding artwork rendered — pages output as flat PDF.",
   };
 
-  const bindingHasHardware = ["coil", "twin-loop", "discs", "3-ring"].includes(binding);
-  const hwHex = HARDWARE_OPTIONS.find(h => h.value === hardware)?.hex ?? "#D4AF37";
+  const bindingHasHardware = SPINE_BINDING_TYPES.includes(binding as any);
   const paperHex = PAPER_COLOUR_OPTIONS.find(p => p.value === paperColour)?.hex ?? "#FAFAFA";
 
   return (
@@ -2598,13 +2600,17 @@ function PaperCompose({
           {[
             { value: "coil",       label: "Coil" },
             { value: "twin-loop",  label: "Twin loop" },
-            { value: "discs",      label: "Discs" },
+            { value: "disc",       label: "Disc" },
             { value: "3-ring",     label: "3-ring" },
-            { value: "none",       label: "None" },
           ].map(o => (
             <ComposeChip key={o.value} label={o.label} active={binding === o.value} onClick={() => {
               setBinding(o.value);
               onBindingTypeChange?.(o.value);
+              const selected = spineStyles.find(style => style.id === spineStyleId);
+              if (selected && (selected.bindingType !== o.value || selected.finish !== hardware)) {
+                setSpineStyleId("");
+                onSpineStyleChange?.("");
+              }
             }} />
           ))}
         </div>
@@ -2615,7 +2621,7 @@ function PaperCompose({
       <div className="rounded-[16px] border p-5 mb-6 space-y-3" style={{ background: PAPER_TINT }}>
         <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Spine / ring artwork</p>
         <div className="grid grid-cols-2 gap-3">
-          {[{ id: "", name: "None", assetRef: "", orientation: "vertical" }, ...spineStyles].map(style => {
+          {[{ id: "", name: "None", assetRef: "", orientation: "vertical", bindingType: binding, finish: hardware }, ...matchingSpineStyles].map(style => {
             const active = spineStyleId === style.id;
             return (
               <button
@@ -2635,6 +2641,11 @@ function PaperCompose({
             );
           })}
         </div>
+        {matchingSpineStyles.length === 0 && (
+          <p className="rounded-lg border border-dashed px-3 py-2 text-[12px] text-muted-foreground">
+            No {binding.replace("-", " ")} in {spineFinishLabel(hardware).toLowerCase()} yet. Choose None or add matching artwork to the catalog.
+          </p>
+        )}
         <p className="text-[11.5px] text-muted-foreground">Vertical assets render on the left edge. Horizontal assets render on the top edge.</p>
       </div>
 
@@ -2648,7 +2659,15 @@ function PaperCompose({
               return (
                 <button
                   key={o.value}
-                  onClick={() => { setHardware(o.value); onBindingFinishChange?.(o.value); }}
+                  onClick={() => {
+                    setHardware(o.value);
+                    onBindingFinishChange?.(o.value);
+                    const selected = spineStyles.find(style => style.id === spineStyleId);
+                    if (selected && (selected.bindingType !== binding || selected.finish !== o.value)) {
+                      setSpineStyleId("");
+                      onSpineStyleChange?.("");
+                    }
+                  }}
                   style={{
                     cursor: "pointer",
                     background: active ? "#FEF0ED" : PAPER_TINT,

@@ -59,6 +59,8 @@ type SpineSpec = {
   unitAspect: number;
   gapRatio: number;
   orientation: Orientation extends "vertical" ? never : "vertical" | "horizontal";
+  bindingType: "coil" | "twin-loop";
+  finish: "gold" | "copper";
 };
 type TemplateModule = {
   DEFAULT_TEMPLATE: {
@@ -140,6 +142,8 @@ const SPINES = {
     unitAspect: 0.1353,
     gapRatio: 0,
     orientation: "vertical",
+    bindingType: "coil",
+    finish: "gold",
     file: "rings2.png",
   },
   landscape: {
@@ -148,6 +152,8 @@ const SPINES = {
     unitAspect: 11.9,
     gapRatio: 0,
     orientation: "horizontal",
+    bindingType: "twin-loop",
+    finish: "copper",
     file: "rings1.png",
   },
 } as const;
@@ -211,6 +217,10 @@ function makeConfig(spec: ProofSpec): ProofConfig {
       coverSubtitle: `${spec.label} · ${THEME.name}`,
       coverYear: 2027,
       spineStyleId: SPINES[spec.orientation].id,
+      binding: {
+        type: SPINES[spec.orientation].bindingType,
+        finish: SPINES[spec.orientation].finish,
+      },
     },
     output: {
       calMode: "link",

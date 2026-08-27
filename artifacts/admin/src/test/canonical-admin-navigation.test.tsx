@@ -5,6 +5,10 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import PlannerLibrary from "@/pages/ink/PlannerLibrary";
 import { superOrderHref } from "@/pages/users/detail";
+import {
+  plannerEditionHref,
+  plannerStudioModeHref,
+} from "@/pages/studios/PlannerStudioHub";
 
 describe("canonical admin page navigation", () => {
   afterEach(() => {
@@ -38,5 +42,11 @@ describe("canonical admin page navigation", () => {
 
   it("keeps user payment links on the canonical super order route", () => {
     expect(superOrderHref("order-123")).toBe("/super/orders/order-123");
+  });
+
+  it("keeps Planner Studio modes and edition links under the super prefix", () => {
+    expect(plannerStudioModeHref("editions")).toBe("/super/studios/planner?mode=editions");
+    expect(plannerEditionHref("edition-123")).toBe("/super/editions/edition-123");
+    expect(plannerEditionHref("edition-123", "themes")).toBe("/super/editions/edition-123/themes");
   });
 });

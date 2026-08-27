@@ -68,6 +68,10 @@ const MODES = [
 
 type ModeId = typeof MODES[number]["id"];
 
+export const plannerStudioModeHref = (mode: ModeId) => `/super/studios/planner?mode=${mode}`;
+export const plannerEditionHref = (editionId: string, section?: "themes" | "stickers" | "inserts") =>
+  `/super/editions/${editionId}${section ? `/${section}` : ""}`;
+
 // ── Design tokens ─────────────────────────────────────────────────────────────
 
 /** Clay — active fill for COMPOSE context chips (decision cards, build options). */
@@ -1825,7 +1829,7 @@ function EditionsListInStudio({
                     onClick={() => dupMut.mutate(e.id)}
                   />
                   <Link
-                    href={`/editions/${e.id}`}
+                    href={plannerEditionHref(e.id)}
                     className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold border bg-background text-foreground border-border hover:bg-muted transition-colors"
                   >
                     Edit →
@@ -2005,9 +2009,9 @@ function EditionDetailPanel({ edition, onClose, onSaved }: {
         <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Attachments</p>
         <div className="grid grid-cols-3 gap-2.5">
           {[
-            { label: "THEMES",               icon: "🎨", href: `/editions/${edition.id}/themes` },
-            { label: "STICKER PACKS",         icon: "✦",  href: `/editions/${edition.id}/stickers` },
-            { label: "INSERTS & PRODUCTS",    icon: "📄", href: `/editions/${edition.id}/inserts` },
+            { label: "THEMES",               icon: "🎨", href: plannerEditionHref(edition.id, "themes") },
+            { label: "STICKER PACKS",         icon: "✦",  href: plannerEditionHref(edition.id, "stickers") },
+            { label: "INSERTS & PRODUCTS",    icon: "📄", href: plannerEditionHref(edition.id, "inserts") },
           ].map(card => (
             <a
               key={card.label}
@@ -2033,7 +2037,7 @@ function EditionDetailPanel({ edition, onClose, onSaved }: {
           {saving ? <span className="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" /> : null}
           {saved ? "✓ Saved" : "Save changes"}
         </button>
-        <Link href={`/editions/${edition.id}`}
+        <Link href={plannerEditionHref(edition.id)}
           className="text-[12.5px] font-medium text-muted-foreground hover:text-foreground transition-colors">
           Open full editor →
         </Link>
@@ -2890,7 +2894,7 @@ export default function PlannerStudioHub() {
   const params    = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const mode      = (params.get("mode") ?? "build") as ModeId;
 
-  const setMode = (id: string) => navigate(`/studios/planner?mode=${id}`);
+  const setMode = (id: ModeId) => navigate(plannerStudioModeHref(id));
 
   // ── Platform template state ─────────────────────────────────────────────────
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);

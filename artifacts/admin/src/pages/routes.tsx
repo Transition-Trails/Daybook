@@ -60,10 +60,8 @@ import { Redirect } from "wouter";
 
 // Products / editions (backward compat — also embedded in Planner Studio)
 import EditionsList from '@/pages/editions/list';
-import EditionDetail from '@/pages/editions/detail';
 
 // Super admin
-import ReleasesPage from '@/pages/super/Releases';
 
 // Platform
 
@@ -104,7 +102,6 @@ export const routes = [
   },
 
   // ── Super admin ────────────────────────────────────────────────────────────
-  { path: "/super/releases",           component: ReleasesPage },
 
   // ── Platform ───────────────────────────────────────────────────────────────
 
@@ -116,7 +113,6 @@ export const routes = [
   { path: "/catalog/packs/:id",        component: PackDetail },
   { path: "/editions",                 component: EditionsList },           // → Planner Studio · Editions
   { path: "/editions/new",             component: EditionNew },             // standalone two-path create
-  { path: "/editions/:id",             component: EditionDetail },
   { path: "/planners/builder",         component: PlannerBuilder },         // → Planner Studio · Build
   { path: "/studios/theme",            component: () => <Redirect to="/studios/theme-builder" /> },
   { path: "/studios/edition",          component: () => <Redirect to="/studios/planner?mode=editions" /> },

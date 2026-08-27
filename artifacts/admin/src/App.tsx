@@ -86,6 +86,7 @@ import AiSettingsPage from "@/pages/ai-settings";
 import SyncDashboard from "@/pages/sync";
 import CalendarPage from "@/pages/calendar";
 import PlannerInteriorsPage from "@/pages/planners/interiors";
+import EditionDetail from "@/pages/editions/detail";
 import StoreSupportInbox from "@/pages/store/SupportInbox";
 const ShopSupportPage = lazy(() => import("@/pages/shop/SupportPage"));
 
@@ -248,6 +249,18 @@ function RootRouter() {
       </Route>
       <Route path="/super/orders/:id">
         <RequireSuperAdmin state={state}><SuperAdminShell><OrderDetail /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/editions/:id/themes">
+        <RequireSuperAdmin state={state}><SuperAdminShell><EditionDetail /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/editions/:id/stickers">
+        <RequireSuperAdmin state={state}><SuperAdminShell><EditionDetail /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/editions/:id/inserts">
+        <RequireSuperAdmin state={state}><SuperAdminShell><EditionDetail /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/editions/:id">
+        <RequireSuperAdmin state={state}><SuperAdminShell><EditionDetail /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       <Route path="/super/ink/:id">
         {(p) => (
@@ -889,6 +902,11 @@ function AppRouter() {
       <Route path="/daybook/users/:id">{(p) => <Redirect to={`/super/users/${p.id}`} replace />}</Route>
       <Route path="/daybook/users"><Redirect to="/super/users" replace /></Route>
       <Route path="/daybook/orders/:id">{(p) => <Redirect to={`/super/orders/${p.id}`} replace />}</Route>
+      <Route path="/daybook/editions/:id/themes">{(p) => <Redirect to={`/super/editions/${p.id}/themes`} replace />}</Route>
+      <Route path="/daybook/editions/:id/stickers">{(p) => <Redirect to={`/super/editions/${p.id}/stickers`} replace />}</Route>
+      <Route path="/daybook/editions/:id/inserts">{(p) => <Redirect to={`/super/editions/${p.id}/inserts`} replace />}</Route>
+      <Route path="/daybook/editions/:id">{(p) => <Redirect to={`/super/editions/${p.id}`} replace />}</Route>
+      <Route path="/daybook/super/releases"><Redirect to="/super/releases" replace /></Route>
       <Route path="/daybook/ink/:id">{(p) => <Redirect to={`/super/ink/${p.id}`} replace />}</Route>
       <Route path="/daybook/ink"><Redirect to="/super/ink" replace /></Route>
       <Route path="/daybook/ai-settings"><Redirect to="/super/settings/ai" replace /></Route>

@@ -105,30 +105,46 @@ export function StatTile({
   );
 }
 
-export function Sparkline({ values, desirable = true }: { values: number[]; desirable?: boolean }) {
+export function Sparkline({ values, desirable = true }: { values: Array<number | null>; desirable?: boolean }) {
   const width = 96;
   const height = 20;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const validValues = values.filter((value): value is number => value !== null);
+  const min = Math.min(...validValues);
+  const max = Math.max(...validValues);
   const span = max - min || 1;
   const points = values.map((value, index) => {
+    if (value === null) return null;
     const x = values.length === 1 ? 0 : index * (width / (values.length - 1));
     const y = height - 2 - ((value - min) / span) * (height - 4);
     return `${x},${y}`;
-  }).join(" ");
+  });
+  const segments: string[] = [];
+  let segment: string[] = [];
+  for (const point of points) {
+    if (point === null) {
+      if (segment.length) segments.push(segment.join(" "));
+      segment = [];
+    } else {
+      segment.push(point);
+    }
+  }
+  if (segment.length) segments.push(segment.join(" "));
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="h-5 w-24" aria-hidden="true">
-      <polyline points={points} fill="none" stroke={desirable ? "#3F7A5E" : "#A85B48"} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+      {segments.map((segmentPoints) => (
+        <polyline key={segmentPoints} points={segmentPoints} fill="none" stroke={desirable ? "#3F7A5E" : "#A85B48"} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+      ))}
     </svg>
   );
 }
 
 export function metricTrendTone(
-  values: number[] | undefined,
+  values: Array<number | null> | undefined,
   higherIsBetter = true,
 ): "positive" | "negative" | "neutral" {
-  if (!values || values.length < 2) return "neutral";
-  const change = values[values.length - 1] - values[values.length - 2];
+  const comparableValues = values?.filter((value): value is number => value !== null);
+  if (!comparableValues || comparableValues.length < 2) return "neutral";
+  const change = comparableValues[comparableValues.length - 1] - comparableValues[comparableValues.length - 2];
   if (change === 0) return "neutral";
   return (higherIsBetter ? change > 0 : change < 0) ? "positive" : "negative";
 }
@@ -136,7 +152,7 @@ export function metricTrendTone(
 export function MetricStrip({
   metrics,
 }: {
-  metrics: Array<{ label: string; value: string | number; delta: string; values?: number[]; desirable?: boolean; neutral?: boolean }>;
+  metrics: Array<{ label: string; value: string | number; delta: string; values?: Array<number | null>; desirable?: boolean; neutral?: boolean }>;
 }) {
   return (
     <div className="grid overflow-hidden rounded-[14px] border border-[#E7DCCB] bg-[#FFFDF9] shadow-[0_1px_3px_rgba(27,42,74,.06)] sm:grid-cols-2 xl:auto-cols-fr xl:grid-flow-col">
@@ -155,7 +171,7 @@ export function MetricStrip({
             <span className="font-display text-[22px] font-semibold text-[#1B2A4A]">{metric.value}</span>
             <span className={cn("text-[10px] font-semibold", toneClass)}>{metric.delta}</span>
           </div>
-          {metric.values && metric.values.length > 1
+          {metric.values && metric.values.filter((value) => value !== null).length > 1
             ? <Sparkline values={metric.values} desirable={tone !== "negative"} />
             : <p className="mt-1 text-[10px] text-[#A2937E]">Trend unavailable</p>}
             </>;

@@ -16,4 +16,8 @@ describe("metric trend direction", () => {
     expect(metricTrendTone([2, 2], true)).toBe("neutral");
     expect(metricTrendTone([2, 2], false)).toBe("neutral");
   });
+
+  it("preserves missing periods while comparing the latest scored values", () => {
+    expect(metricTrendTone([20, null, 30, null], true)).toBe("positive");
+  });
 });

@@ -72,3 +72,4 @@
 - [Drizzle error wrapping](drizzle-error-wrapping.md) — PostgreSQL constraint details may live on a Drizzle error or its cause; inspect both before mapping conflicts
 - [Storefront showcase commerce](storefront-showcase-commerce.md) — editions are the only checkout items; themes and sticker packs stay unpriced showcases, and Drive is optional
 - [Realistic planner blank pages](planner-realistic-blank-pages.md) — never serialize an empty pdf-lib document for diagnostics; save() inserts an untracked leading blank page
+- [Platform billing analytics](platform-billing-analytics.md) — MRR is yearly-ledger-only; trial conversion uses fully matured UTC monthly owner cohorts and preserves unscored periods

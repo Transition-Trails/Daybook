@@ -214,7 +214,9 @@ describe("super_admin — allow", () => {
 
     const withSeed = await request(sa).get("/api/platform/stats?includeSeed=true").expect(200);
     expect(withSeed.body.stores.total).toBeGreaterThan(res.body.stores.total);
-    expect(withSeed.body.mrr.amountUsd).toBeGreaterThan(res.body.mrr.amountUsd);
+    expect(res.body.billingAnalytics.period).toMatchObject({ timezone: "UTC", months: 6 });
+    expect(res.body.billingAnalytics.trialConversion.cohortWindowDays).toBe(30);
+    expect(res.body.mrr.note).toContain("successful USD platform subscription");
   });
 
   it("GET /api/stores excludes seed stores by default and exposes them explicitly", async () => {

@@ -20,6 +20,7 @@ import {
   plannerConfigsTable,
   editionsTable,
   plansTable,
+  paymentsTable,
   stickersLibraryTable,
   packStickersTable,
   stickerPacksTable,
@@ -39,6 +40,7 @@ import { getBundleCoverageGaps } from "../lib/font-warmup";
 import { UI_REACHABLE_FAMILIES, _bundledFontPath } from "../lib/pdf-generator";
 import { existsSync } from "fs";
 import { writeAudit } from "../lib/audit";
+import { buildPlatformBillingAnalytics } from "../lib/platform-analytics";
 import { isHelpCategory } from "@workspace/api-zod";
 import {
   removeBackground,
@@ -54,9 +56,15 @@ const router: IRouter = Router();
 router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
   const includeSeed = req.query.includeSeed === "true";
   const storeVisibility = includeSeed ? undefined : eq(storesTable.isSeed, false);
-  const [storeStatusRows, storeCreatedRows, userCountRow, generationRows, proStoreRows, trialRows, plannerRows] = await Promise.all([
+  const analyticsNow = new Date();
+  const [storeStatusRows, storeCreatedRows, userCountRow, generationRows, trialRows, plannerRows, billingUsers, billingPayments] = await Promise.all([
     db.select({ status: storesTable.status, cnt: count() }).from(storesTable).where(storeVisibility).groupBy(storesTable.status),
-    db.select({ createdAt: storesTable.createdAt }).from(storesTable).where(storeVisibility),
+    db.select({
+      id: storesTable.id,
+      ownerUserId: storesTable.ownerUserId,
+      isSeed: storesTable.isSeed,
+      createdAt: storesTable.createdAt,
+    }).from(storesTable).where(storeVisibility),
     db.select({ cnt: count() }).from(usersTable),
     db
       .select({
@@ -68,7 +76,6 @@ router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Respo
       .leftJoin(plannerConfigsTable, eq(plannerConfigsTable.id, generationJobsTable.plannerId))
       .leftJoin(storesTable, eq(storesTable.id, plannerConfigsTable.storeId))
       .where(includeSeed ? undefined : or(isNull(plannerConfigsTable.storeId), eq(storesTable.isSeed, false))),
-    db.select({ cnt: count() }).from(storesTable).where(and(eq(storesTable.plan, "pro"), eq(storesTable.status, "active"), storeVisibility)),
     db
       .select({
         storeId: storesTable.id,
@@ -90,6 +97,32 @@ router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Respo
       .innerJoin(editionsTable, eq(editionsTable.id, plannerConfigsTable.editionId))
       .leftJoin(storesTable, eq(storesTable.id, plannerConfigsTable.storeId))
       .where(includeSeed ? undefined : or(isNull(plannerConfigsTable.storeId), eq(storesTable.isSeed, false))),
+    db
+      .select({
+        id: usersTable.id,
+        createdAt: usersTable.createdAt,
+        plan: usersTable.plan,
+        planStatus: usersTable.planStatus,
+        planCurrentPeriodEnd: usersTable.planCurrentPeriodEnd,
+        stripeSubscriptionId: usersTable.stripeSubscriptionId,
+      })
+      .from(usersTable),
+    db
+      .select({
+        userId: paymentsTable.userId,
+        planId: paymentsTable.planId,
+        source: paymentsTable.source,
+        status: paymentsTable.status,
+        amountCents: paymentsTable.amountCents,
+        currency: paymentsTable.currency,
+        stripeSubscriptionId: paymentsTable.stripeSubscriptionId,
+        createdAt: paymentsTable.createdAt,
+      })
+      .from(paymentsTable)
+      .where(and(
+        inArray(paymentsTable.source, ["checkout", "async_checkout", "invoice"]),
+        eq(paymentsTable.status, "succeeded"),
+      )),
   ]);
 
   const storesByStatus: Record<string, number> = {};
@@ -114,8 +147,8 @@ router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Respo
   const seriesStarts = Array.from({ length: 6 }, (_, index) => {
     const offset = index - 5;
     return new Date(Date.UTC(
-      new Date().getUTCFullYear(),
-      new Date().getUTCMonth() + offset,
+      analyticsNow.getUTCFullYear(),
+      analyticsNow.getUTCMonth() + offset,
       1,
     ));
   });
@@ -161,6 +194,13 @@ router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Respo
       createdAt: row.createdAt.toISOString(),
     }];
   });
+  const billingAnalytics = buildPlatformBillingAnalytics({
+    now: analyticsNow,
+    includeSeed,
+    stores: storeCreatedRows,
+    users: billingUsers,
+    payments: billingPayments,
+  });
 
   res.json({
     stores: {
@@ -184,9 +224,10 @@ router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Respo
     },
     trials: { endsAtByStore: trialEndsAtByStore },
     linkRiskListings,
+    billingAnalytics,
     mrr: {
-      amountUsd: Number(proStoreRows[0]?.cnt ?? 0) * 49,
-      note: "placeholder — connect Stripe for live data",
+      amountUsd: billingAnalytics.mrr.amountUsd,
+      note: billingAnalytics.mrr.calculation,
     },
   });
 });

@@ -26,14 +26,14 @@ export default function SuperRevenue() {
         scopeLabel="Platform"
       />
 
-      {/* Stripe note */}
+      {/* Stripe definition */}
       <div
         className="flex items-start gap-3 rounded-lg border p-4 text-sm"
         style={{ background: "hsl(38 65% 94%)", borderColor: "hsl(38 40% 85%)", color: "hsl(38 50% 30%)" }}
       >
         <Info className="w-4 h-4 mt-0.5 shrink-0" />
         <span>
-          MRR is estimated from pro-plan store count. Connect Stripe for live billing data.
+          MRR and paid revenue use the Stripe-backed subscription ledger. MRR is the latest successful annual USD subscription payment divided by 12; trial conversion uses mature 30-day UTC account-owner cohorts. Seed stores are excluded by default.
         </span>
       </div>
 
@@ -49,23 +49,25 @@ export default function SuperRevenue() {
         <>
           <div className="grid gap-4 md:grid-cols-3">
             <StatTile
-              label="Estimated MRR"
-              value={`$${stats.mrr.amountUsd.toLocaleString()}`}
-              sub="Pro stores × $49"
+              label="Current MRR"
+              value={`$${stats.billingAnalytics.mrr.amountUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              sub={`${stats.billingAnalytics.mrr.activeSubscriptions} active Stripe subscription${stats.billingAnalytics.mrr.activeSubscriptions === 1 ? "" : "s"}`}
               icon={TrendingUp}
             />
             <StatTile
-              label="Total stores"
-              value={stats.stores.total}
-              sub={`${stats.stores.active} active`}
+              label="Trial → paid"
+              value={stats.billingAnalytics.trialConversion.latestMatured?.conversionRatePercent == null
+                ? "—"
+                : `${stats.billingAnalytics.trialConversion.latestMatured.conversionRatePercent}%`}
+              sub={stats.billingAnalytics.trialConversion.latestMatured
+                ? `${stats.billingAnalytics.trialConversion.latestMatured.convertedUsers}/${stats.billingAnalytics.trialConversion.latestMatured.eligibleUsers} owners in the latest mature cohort`
+                : "No mature 30-day cohort yet"}
               icon={Store}
             />
             <StatTile
-              label="Active rate"
-              value={stats.stores.total > 0
-                ? `${Math.round((stats.stores.active / stats.stores.total) * 100)}%`
-                : "—"}
-              sub="Active ÷ total stores"
+              label="Latest paid revenue"
+              value={`$${(stats.billingAnalytics.revenueSeries.at(-1)?.amountUsd ?? 0).toLocaleString()}`}
+              sub="Current UTC calendar month"
               icon={Activity}
             />
           </div>

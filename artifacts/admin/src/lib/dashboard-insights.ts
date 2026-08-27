@@ -1,5 +1,20 @@
 import type { PlatformStats, ProductRecipe, Store } from "./api";
 
+export function formatPercent(value: number | null): string {
+  return value === null ? "—" : `${value.toLocaleString("en-US", { maximumFractionDigits: 1 })}%`;
+}
+
+export function billingTrendValues(stats: PlatformStats): {
+  revenue: number[];
+  conversion: Array<number | null>;
+} {
+  return {
+    revenue: stats.billingAnalytics.revenueSeries.map((period) => period.amountUsd),
+    conversion: stats.billingAnalytics.trialConversion.series
+      .map((period) => period.conversionRatePercent),
+  };
+}
+
 export type DecisionSignalSeverity = "critical" | "warning" | "info";
 export type DecisionSignalKind =
   | "suspended_store"

@@ -157,6 +157,61 @@ export interface PlatformStats {
     deviceLabel: string;
     createdAt: string;
   }>;
+  billingAnalytics: {
+    asOf: string;
+    currency: "USD";
+    period: {
+      timezone: "UTC";
+      months: number;
+      start: string;
+      end: string;
+    };
+    mrr: {
+      amountUsd: number;
+      activeSubscriptions: number;
+      calculation: string;
+    };
+    revenueSeries: Array<{
+      label: string;
+      start: string;
+      end: string;
+      amountCents: number;
+      amountUsd: number;
+      paymentCount: number;
+    }>;
+    trialConversion: {
+      cohortWindowDays: number;
+      definition: string;
+      series: Array<{
+        label: string;
+        start: string;
+        end: string;
+        eligibleUsers: number;
+        convertedUsers: number;
+        conversionRatePercent: number | null;
+        isMature: boolean;
+      }>;
+      latestMatured: {
+        label: string;
+        start: string;
+        end: string;
+        eligibleUsers: number;
+        convertedUsers: number;
+        conversionRatePercent: number | null;
+        isMature: boolean;
+      } | null;
+      previousMatured: {
+        label: string;
+        start: string;
+        end: string;
+        eligibleUsers: number;
+        convertedUsers: number;
+        conversionRatePercent: number | null;
+        isMature: boolean;
+      } | null;
+    };
+  };
+  /** Backwards-compatible summary used by older admin surfaces. */
   mrr: { amountUsd: number; note: string };
 }
 

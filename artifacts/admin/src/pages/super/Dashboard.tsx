@@ -3,9 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowRight, Clock3 } from "lucide-react";
 import { platformApi, recipesApi, storesApi } from "@/lib/api";
-import { EmptyState, ErrorState, MetricStrip, PageHeader, Pill, SkeletonRows } from "@/components/shared";
+import { EmptyState, ErrorState, MetricStrip, PageHeader, Pill, SkeletonRows, StatTile } from "@/components/shared";
 import { Checkbox } from "@/components/ui/checkbox";
-import { buildRecipeReleaseRunway, deriveDecisionSignals } from "@/lib/dashboard-insights";
+import { billingTrendValues, buildRecipeReleaseRunway, deriveDecisionSignals, formatPercent } from "@/lib/dashboard-insights";
+import { DollarSign, Percent } from "lucide-react";
 
 function age(date: string | Date) {
   const hours = Math.max(0, Math.floor((Date.now() - new Date(date).getTime()) / 3_600_000));
@@ -52,6 +53,19 @@ export default function SuperDashboard() {
   );
   const runway = useMemo(() => buildRecipeReleaseRunway(recipes, new Date(), 4), [recipes]);
   const activity = stats?.activitySeries;
+  const billing = stats?.billingAnalytics;
+  const billingTrends = stats ? billingTrendValues(stats) : undefined;
+  const latestConversion = billing?.trialConversion.latestMatured;
+  const previousConversion = billing?.trialConversion.previousMatured;
+  const conversionDelta = latestConversion && previousConversion
+    ? `${(latestConversion.conversionRatePercent ?? 0) - (previousConversion.conversionRatePercent ?? 0) >= 0 ? "+" : ""}${((latestConversion.conversionRatePercent ?? 0) - (previousConversion.conversionRatePercent ?? 0)).toFixed(1)} pts vs prior mature cohort`
+    : "No prior mature cohort";
+  const revenueSeries = billing?.revenueSeries ?? [];
+  const currentRevenue = revenueSeries.at(-1);
+  const previousRevenue = revenueSeries.at(-2);
+  const revenueDelta = currentRevenue && previousRevenue
+    ? `${currentRevenue.amountUsd - previousRevenue.amountUsd >= 0 ? "+" : ""}$${Math.abs(currentRevenue.amountUsd - previousRevenue.amountUsd).toLocaleString()} vs last month`
+    : "No prior period";
   const metrics = [
     {
       label: "New stores",
@@ -88,9 +102,49 @@ export default function SuperDashboard() {
       {statsQuery.isLoading ? <SkeletonRows rows={2} cols={5} /> :
         statsQuery.error ? <ErrorState message="Couldn't load platform metrics." onRetry={() => statsQuery.refetch()} /> :
         <MetricStrip metrics={metrics} />}
-      <p className="-mt-4 text-[11px] text-[#8A7A66]">
-        Six-month monthly activity from Daybook records. Live MRR and trial-to-paid trends remain outside this strip until billing analytics are instrumented.
-      </p>
+      {billing && billingTrends && (
+        <>
+          <div className="grid gap-4 md:grid-cols-3">
+            <StatTile
+              label="Current MRR"
+              value={`$${billing.mrr.amountUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              sub={`${billing.mrr.activeSubscriptions} active Stripe subscription${billing.mrr.activeSubscriptions === 1 ? "" : "s"}`}
+              icon={DollarSign}
+            />
+            <StatTile
+              label="Paid revenue"
+              value={currentRevenue ? `$${currentRevenue.amountUsd.toLocaleString()}` : "—"}
+              sub={revenueDelta}
+              icon={DollarSign}
+            />
+            <StatTile
+              label="Trial → paid"
+              value={formatPercent(latestConversion?.conversionRatePercent ?? null)}
+              sub={latestConversion ? `${latestConversion.convertedUsers}/${latestConversion.eligibleUsers} owners · ${conversionDelta}` : "No mature 30-day cohort yet"}
+              icon={Percent}
+            />
+          </div>
+          <p className="-mt-4 text-[11px] text-[#8A7A66]">
+            Stripe ledger analytics in USD. MRR uses the latest successful annual subscription payment ÷ 12; conversion uses mature 30-day UTC account-owner cohorts. Seed stores are {hideSeed ? "excluded" : "included"}.
+          </p>
+          <MetricStrip metrics={[
+            {
+              label: "Paid revenue trend",
+              value: currentRevenue ? `$${currentRevenue.amountUsd.toLocaleString()}` : "—",
+              delta: revenueDelta,
+              values: billingTrends.revenue,
+              desirable: true,
+            },
+            {
+              label: "Conversion trend",
+              value: formatPercent(latestConversion?.conversionRatePercent ?? null),
+              delta: conversionDelta,
+              values: billingTrends.conversion,
+              desirable: true,
+            },
+          ]} />
+        </>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[1.55fr_.85fr]">
         <section className="overflow-hidden rounded-[14px] border border-[#E7DCCB] bg-[#FFFDF9] shadow-[0_1px_3px_rgba(27,42,74,.06)]">

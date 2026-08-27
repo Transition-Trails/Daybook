@@ -8,6 +8,8 @@ import { billingApi, type CustomerPaymentHistoryEntry } from '@/lib/api';
 import { EmptyState, ErrorState } from '@/components/shared';
 import { Loader2, ArrowLeft, CreditCard, ExternalLink } from 'lucide-react';
 
+export const superOrderHref = (orderId: string) => `/super/orders/${orderId}`;
+
 function formatMoney(amountCents: number | null, currency: string | null): string {
   if (amountCents === null) return '—';
   return new Intl.NumberFormat(undefined, {
@@ -192,7 +194,7 @@ export default function UserDetail() {
                       <tr key={payment.id} className="align-top hover:bg-muted/20 transition-colors">
                         <td className="px-2 py-3">
                           <Link
-                            href={`/orders/${payment.order.id}`}
+                            href={superOrderHref(payment.order.id)}
                             className="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
                           >
                             {payment.order.id}

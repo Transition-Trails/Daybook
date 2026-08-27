@@ -358,7 +358,7 @@ export default function PlannerLibrary() {
         </div>
 
         <button
-          onClick={() => navigate("/planners/builder")}
+          onClick={() => navigate("/super/studios/planner?mode=build")}
           style={{
             background: "#1B2A4A",
             color: "#fff",
@@ -418,7 +418,7 @@ export default function PlannerLibrary() {
             Build your first planner to start annotating.
           </p>
           <button
-            onClick={() => navigate("/planners/builder")}
+            onClick={() => navigate("/super/studios/planner?mode=build")}
             style={{
               background: "#C87560",
               color: "#fff",

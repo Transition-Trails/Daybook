@@ -246,6 +246,9 @@ function RootRouter() {
       <Route path="/super/users">
         <RequireSuperAdmin state={state}><SuperAdminShell><UsersList /></SuperAdminShell></RequireSuperAdmin>
       </Route>
+      <Route path="/super/orders/:id">
+        <RequireSuperAdmin state={state}><SuperAdminShell><OrderDetail /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
       <Route path="/super/ink/:id">
         {(p) => (
           <RequireSuperAdmin state={state}>
@@ -885,6 +888,7 @@ function AppRouter() {
       <Route path="/daybook/plans"><Redirect to="/super/plans" replace /></Route>
       <Route path="/daybook/users/:id">{(p) => <Redirect to={`/super/users/${p.id}`} replace />}</Route>
       <Route path="/daybook/users"><Redirect to="/super/users" replace /></Route>
+      <Route path="/daybook/orders/:id">{(p) => <Redirect to={`/super/orders/${p.id}`} replace />}</Route>
       <Route path="/daybook/ink/:id">{(p) => <Redirect to={`/super/ink/${p.id}`} replace />}</Route>
       <Route path="/daybook/ink"><Redirect to="/super/ink" replace /></Route>
       <Route path="/daybook/ai-settings"><Redirect to="/super/settings/ai" replace /></Route>

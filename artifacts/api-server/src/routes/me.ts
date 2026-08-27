@@ -9,6 +9,7 @@ import { storesTable, storeMembersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { User } from "@workspace/db";
 import { isSuperAdmin } from "../lib/roles";
+import { getActiveImpersonation } from "../middleware/requireRole";
 
 const router: IRouter = Router();
 
@@ -21,6 +22,16 @@ router.get("/me/stores", async (req: Request, res: Response): Promise<void> => {
 
   // super_admin: return all stores
   if (isSuperAdmin(user)) {
+    const impersonation = getActiveImpersonation(req, user.id);
+    if (impersonation) {
+      const stores = await db
+        .select()
+        .from(storesTable)
+        .where(eq(storesTable.id, impersonation.storeId))
+        .limit(1);
+      res.json(stores.map(s => ({ ...s, role: "super_admin" })));
+      return;
+    }
     const includeSeed = req.query.includeSeed === "true";
     const stores = await db
       .select()

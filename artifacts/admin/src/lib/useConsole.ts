@@ -11,7 +11,7 @@
  */
 import { useGetMe } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
-import { meApi, type MeStore, resolveStoreId } from "./api";
+import { meApi, type MeStore, type StoreImpersonation, resolveStoreId } from "./api";
 import { isStaffRole } from "./permissions";
 
 export type ConsoleKind =
@@ -27,6 +27,8 @@ export interface ConsoleState {
   stores: MeStore[];
   /** First non-customer store the user belongs to (for default Store Admin routing) */
   primaryStore: MeStore | undefined;
+  /** Server-issued support scope; never inferred from a store role or URL. */
+  impersonation?: StoreImpersonation | null;
 }
 
 export function useConsole(): ConsoleState {
@@ -37,27 +39,30 @@ export function useConsole(): ConsoleState {
   } = useGetMe();
 
   const isSuper = (user as any)?.platformRole === "super_admin";
+  const impersonation = (user as typeof user & {
+    impersonation?: StoreImpersonation | null;
+  } | undefined)?.impersonation ?? null;
 
   const {
     data: stores = [],
     isLoading: storesLoading,
   } = useQuery({
-    queryKey: ["me/stores"] as const,
-    queryFn: () => meApi.stores(),
+    queryKey: ["me/stores", { includeSeed: isSuper && !!impersonation }] as const,
+    queryFn: () => meApi.stores({ includeSeed: isSuper && !!impersonation }),
     enabled: !!user,
     retry: false,
   });
 
   if (userLoading || (!!user && storesLoading)) {
-    return { kind: "loading", user: undefined, stores: [], primaryStore: undefined };
+    return { kind: "loading", user: undefined, stores: [], primaryStore: undefined, impersonation: null };
   }
 
   if (userError || !user) {
-    return { kind: "unauthenticated", user: undefined, stores: [], primaryStore: undefined };
+    return { kind: "unauthenticated", user: undefined, stores: [], primaryStore: undefined, impersonation: null };
   }
 
   if (isSuper) {
-    return { kind: "super", user, stores, primaryStore: undefined };
+    return { kind: "super", user, stores, primaryStore: undefined, impersonation };
   }
 
   // Store members: find their first non-customer store
@@ -69,8 +74,9 @@ export function useConsole(): ConsoleState {
       user,
       stores: adminStores,
       primaryStore: adminStores[0],
+      impersonation: null,
     };
   }
 
-  return { kind: "unauthorized", user, stores: [], primaryStore: undefined };
+  return { kind: "unauthorized", user, stores: [], primaryStore: undefined, impersonation: null };
 }

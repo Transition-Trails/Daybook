@@ -6,16 +6,16 @@
  * endpoint fetch handlers so status codes are meaningful.
  *
  * Coverage:
- *  1. RequireStore — super_admin gets access to any store (positive)
- *  2. RequireStore — super_admin gets a synthetic store when storeId is unknown (positive)
+ *  1. RequireStore — super_admin needs a matching server-issued scope
+ *  2. RequireStore — an unknown or mismatched scope is denied
  *  3. RequireStore — regular store member gets access to their own store (positive)
  *  4. RequireStore — store member cannot access another store → redirect (NEGATIVE)
  *  5. RequireStore — unauthenticated state → redirect (NEGATIVE)
  *  6. Full shell: super_admin sees one banner exit and a single studio-picker link
  *  7. Full shell: studio picker remains reachable if flags fail
  *  8. Full shell: regular owners also reach the picker rather than duplicated studio links
- *  9. SuperStores page: "Enter store" link points to /store/:id
- * 10. Navigation: clicking "Enter store" renders the StoreAdminShell (end-to-end mini-app)
+ *  9. SuperStores page: "Enter store" starts a server session
+ * 10. Navigation: successful entry renders the StoreAdminShell (end-to-end mini-app)
  */
 
 import React, { Suspense } from "react";
@@ -30,7 +30,17 @@ import { memoryLocation } from "wouter/memory-location";
 
 vi.mock("@workspace/api-client-react", () => ({
   useGetMe: () => ({
-    data: { id: "u-super", name: "Super Admin", platformRole: "super_admin" },
+    data: {
+      id: "u-super",
+      name: "Super Admin",
+      platformRole: "super_admin",
+      impersonation: {
+        actorUserId: "u-super",
+        storeId: "store-test",
+        startedAt: "2026-08-27T12:00:00.000Z",
+        expiresAt: "2026-08-27T12:30:00.000Z",
+      },
+    },
     isLoading: false,
     error: null,
   }),
@@ -54,6 +64,21 @@ const DEFAULT_HANDLERS: EndpointHandlers = {
   "/api/stores/store-test/flags": {
     status: 200,
     body: { storeId: "store-test", aiEnabled: false, customDomain: false },
+  },
+  "/api/stores/store-test/impersonate": {
+    status: 200,
+    body: {
+      impersonation: {
+        actorUserId: "u-super",
+        storeId: "store-test",
+        startedAt: "2026-08-27T12:00:00.000Z",
+        expiresAt: "2026-08-27T12:30:00.000Z",
+      },
+    },
+  },
+  "/api/stores/impersonation/exit": {
+    status: 200,
+    body: { impersonation: null },
   },
   "/api/stores/store-test": {
     status: 200,
@@ -123,6 +148,7 @@ function Wrapper({
 // ── Imports of components / guards under test ──────────────────────────────
 
 import { RequireStore, RequireSuperAdmin } from "@/lib/guards";
+import { useConsole } from "@/lib/useConsole";
 import { StoreAdminShell } from "@/components/layout/StoreAdminShell";
 import { SuperAdminShell } from "@/components/layout/SuperAdminShell";
 import { AiDrawerProvider } from "@/contexts/AiDrawerContext";
@@ -186,6 +212,12 @@ const SUPER_STATE_WITH_STORE: ConsoleState = {
     } as MeStore,
   ],
   primaryStore: undefined,
+  impersonation: {
+    actorUserId: "u-super",
+    storeId: "store-test",
+    startedAt: "2026-08-27T12:00:00.000Z",
+    expiresAt: "2026-08-27T12:30:00.000Z",
+  },
 };
 
 const MEMBER_STORE: MeStore = {
@@ -209,7 +241,7 @@ describe("RequireStore guard", () => {
   beforeEach(() => vi.stubGlobal("fetch", makeFetch()));
   afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
-  it("grants super_admin access to any store and passes role='super_admin' to child", () => {
+  it("denies super_admin store access without a server-issued scope", () => {
     const qc = makeQc();
     render(
       <Wrapper path="/store/store-test" qc={qc}>
@@ -220,17 +252,14 @@ describe("RequireStore guard", () => {
         </RequireStore>
       </Wrapper>,
     );
-    const el = screen.getByTestId("guarded");
-    expect(el).toBeInTheDocument();
-    expect(el).toHaveAttribute("data-role", "super_admin");
+    expect(screen.queryByTestId("guarded")).not.toBeInTheDocument();
   });
 
-  it("creates a synthetic store when storeId is not in super_admin stores list", () => {
-    // SUPER_STATE has stores: [] — unknown storeId must still resolve
+  it("grants access only when the server scope and known store both match", () => {
     const qc = makeQc();
     render(
-      <Wrapper path="/store/unknown-store" qc={qc}>
-        <RequireStore state={SUPER_STATE} storeId="unknown-store">
+      <Wrapper path="/store/store-test" qc={qc}>
+        <RequireStore state={SUPER_STATE_WITH_STORE} storeId="store-test">
           {(store) => (
             <div data-testid="guarded" data-role={store.role}>
               {store.storeId ?? (store as any).id}
@@ -241,7 +270,46 @@ describe("RequireStore guard", () => {
     );
     const el = screen.getByTestId("guarded");
     expect(el).toHaveAttribute("data-role", "super_admin");
-    expect(el).toHaveTextContent("unknown-store");
+    expect(el).toHaveTextContent("store-test");
+  });
+
+  it("loads a scoped seed store through the real console query before granting access", async () => {
+    vi.stubGlobal("fetch", makeFetch({
+      "/api/me/stores": {
+        status: 200,
+        body: [{
+          id: "store-test",
+          name: "Test Seed Store",
+          status: "active",
+          plan: "starter",
+          role: "super_admin",
+          isSeed: true,
+        }],
+      },
+    }));
+    const qc = makeQc();
+
+    function SeedStoreRoute() {
+      const state = useConsole();
+      if (state.kind === "loading") return <div>Loading</div>;
+      return (
+        <RequireStore state={state} storeId="store-test">
+          {(store) => <div data-testid="seed-store">{store.name}</div>}
+        </RequireStore>
+      );
+    }
+
+    render(
+      <Wrapper path="/store/store-test" qc={qc}>
+        <SeedStoreRoute />
+      </Wrapper>,
+    );
+
+    expect(await screen.findByTestId("seed-store")).toHaveTextContent("Test Seed Store");
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/api/me/stores?includeSeed=true",
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 
   it("grants a store member access to their own store", () => {
@@ -333,7 +401,7 @@ describe("StoreAdminShell — super_admin via RequireStore", () => {
     render(
       <Wrapper path={`/store/${storeId}`} qc={qc}>
         <AiDrawerProvider>
-          <RequireStore state={SUPER_STATE} storeId={storeId}>
+          <RequireStore state={SUPER_STATE_WITH_STORE} storeId={storeId}>
             {(store) => (
               <StoreAdminShell
                 store={store}
@@ -367,10 +435,9 @@ describe("StoreAdminShell — super_admin via RequireStore", () => {
     expect(screen.queryByText(/back to platform/i)).not.toBeInTheDocument();
   });
 
-  it("shows the banner exit link pointing to /super", () => {
+  it("shows one explicit Exit store button", () => {
     renderSuperAdminShell();
-    const exitLink = screen.getByText(/exit store/i);
-    expect(exitLink.closest("a")).toHaveAttribute("href", "/super");
+    expect(screen.getAllByRole("button", { name: "Exit store" })).toHaveLength(1);
   });
 
   it("shows one All studios entry instead of individual studio links", () => {
@@ -403,7 +470,7 @@ describe("StoreAdminShell — super_admin bypasses flags auth failure", () => {
     render(
       <Wrapper path="/store/store-test" qc={qc}>
         <AiDrawerProvider>
-          <RequireStore state={SUPER_STATE} storeId="store-test">
+          <RequireStore state={SUPER_STATE_WITH_STORE} storeId="store-test">
             {(store) => (
               <StoreAdminShell
                 store={store}
@@ -610,7 +677,7 @@ describe("End-to-end: navigate from /super/stores to /store/:id", () => {
             </Route>
             <Route path="/store/:storeId">
               {(p) => (
-                <RequireStore state={SUPER_STATE} storeId={p.storeId}>
+                <RequireStore state={SUPER_STATE_WITH_STORE} storeId={p.storeId}>
                   {(store) => (
                     <AiDrawerProvider>
                       <StoreAdminShell
@@ -647,9 +714,13 @@ describe("End-to-end: navigate from /super/stores to /store/:id", () => {
       "/store/store-test/studios",
     );
 
-    // Super admin banner visible with the only exit action.
+    // Server-backed super admin banner and the single explicit exit control are visible.
     expect(screen.getByText(/viewing/i)).toBeInTheDocument();
-    expect(screen.getByText(/exit store/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exit store" })).toBeInTheDocument();
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/api/stores/store-test/impersonate",
+      expect.objectContaining({ method: "POST", credentials: "include" }),
+    );
 
     // No 401/404 triggered (fetch was not called with an unauthorized response)
     const allCalls = (vi.mocked(fetch) as any).mock.calls as Array<[string, unknown]>;

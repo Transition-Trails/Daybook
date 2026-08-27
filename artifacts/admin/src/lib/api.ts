@@ -83,6 +83,12 @@ export interface MeStore {
   role: StoreRole | "super_admin";
 }
 
+export interface StoreImpersonation {
+  actorUserId: string;
+  storeId: string;
+  startedAt: string;
+  expiresAt: string;
+}
 export interface StoreWithRole extends Store {
   role: StoreRole | "super_admin";
   /** alias populated for member rows from /me/stores */
@@ -471,6 +477,16 @@ export const storesApi = {
       headers: xStoreId ? { "x-store-id": xStoreId } : {},
     }),
   get: (storeId: string) => apiFetch<Store & { flags: StoreFlags; memberCount: number }>(`/stores/${storeId}`),
+  impersonation: {
+    enter: (storeId: string) =>
+      apiFetch<{ impersonation: StoreImpersonation }>(`/stores/${storeId}/impersonate`, {
+        method: "POST",
+      }),
+    exit: () =>
+      apiFetch<{ impersonation: null }>("/stores/impersonation/exit", {
+        method: "POST",
+      }),
+  },
 
   members: {
     list: (storeId: string) =>
@@ -580,14 +596,29 @@ export const helpApi = {
     const q = new URLSearchParams();
     if (params?.scope) q.set("scope", params.scope);
     if (params?.kind) q.set("kind", params.kind);
-    return apiFetch<HelpArticle[]>(`/help${q.size ? `?${q}` : ""}`);
+    return apiFetch<HelpArticle[]>(`/help${q.size ? `?${q}` : ""}`, {
+      headers: params?.scope && params.scope !== "platform"
+        ? { "x-store-id": params.scope }
+        : undefined,
+    });
   },
   create: (data: Partial<HelpArticle>) =>
-    apiFetch<HelpArticle>("/help", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<HelpArticle>) =>
-    apiFetch<HelpArticle>(`/help/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/help/${id}`, { method: "DELETE" }),
+    apiFetch<HelpArticle>("/help", {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: data.scope && data.scope !== "platform" ? { "x-store-id": data.scope } : undefined,
+    }),
+  update: (id: string, data: Partial<HelpArticle>, storeScope?: string) =>
+    apiFetch<HelpArticle>(`/help/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+      headers: storeScope ? { "x-store-id": storeScope } : undefined,
+    }),
+  delete: (id: string, storeScope?: string) =>
+    apiFetch<void>(`/help/${id}`, {
+      method: "DELETE",
+      headers: storeScope ? { "x-store-id": storeScope } : undefined,
+    }),
 };
 
 // ── Store Studios API (store-scoped owned catalog creation + management) ─────
@@ -2066,11 +2097,15 @@ export const supportApi = {
     if (params?.storeId) q.set("storeId", params.storeId);
     if (params?.status)  q.set("status",  params.status);
     const qs = q.toString();
-    return apiFetch<{ tickets: SupportTicket[] }>(`/support/inbox${qs ? `?${qs}` : ""}`);
+    return apiFetch<{ tickets: SupportTicket[] }>(`/support/inbox${qs ? `?${qs}` : ""}`, {
+      headers: params?.storeId ? { "x-store-id": params.storeId } : undefined,
+    });
   },
 
-  get: (id: string) =>
-    apiFetch<{ ticket: SupportTicket; replies: TicketReply[] }>(`/support/tickets/${id}`),
+  get: (id: string, storeId?: string) =>
+    apiFetch<{ ticket: SupportTicket; replies: TicketReply[] }>(`/support/tickets/${id}`, {
+      headers: storeId ? { "x-store-id": storeId } : undefined,
+    }),
 
   create: (data: {
     area: string;
@@ -2086,20 +2121,23 @@ export const supportApi = {
       body: JSON.stringify(data),
     }),
 
-  addReply: (ticketId: string, body: string) =>
+  addReply: (ticketId: string, body: string, storeId?: string) =>
     apiFetch<{ reply: TicketReply }>(`/support/tickets/${ticketId}/replies`, {
       method: "POST",
       body: JSON.stringify({ body }),
+      headers: storeId ? { "x-store-id": storeId } : undefined,
     }),
 
   updateStatus: (
     ticketId: string,
     status: string,
     opts?: { closeReason?: string; closeNote?: string },
+    storeId?: string,
   ) =>
     apiFetch<{ ok: boolean }>(`/support/tickets/${ticketId}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status, ...opts }),
+      headers: storeId ? { "x-store-id": storeId } : undefined,
     }),
 
   closeReasonPatterns: (params?: { storeId?: string; months?: number }) => {
@@ -2107,7 +2145,9 @@ export const supportApi = {
     if (params?.storeId) q.set("storeId", params.storeId);
     if (params?.months)  q.set("months",  String(params.months));
     const qs = q.toString();
-    return apiFetch<CloseReasonPatternsResult>(`/support/close-reason-patterns${qs ? `?${qs}` : ""}`);
+    return apiFetch<CloseReasonPatternsResult>(`/support/close-reason-patterns${qs ? `?${qs}` : ""}`, {
+      headers: params?.storeId ? { "x-store-id": params.storeId } : undefined,
+    });
   },
 };
 

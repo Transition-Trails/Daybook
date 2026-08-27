@@ -17,6 +17,14 @@ import type { User } from "@workspace/db";
 
 export type PlatformRole = "super_admin" | null;
 
+/** Server-owned scope issued when a platform admin enters a customer store. */
+export interface StoreImpersonation {
+  actorUserId: string;
+  storeId: string;
+  startedAt: string;
+  expiresAt: string;
+}
+
 /** Returns true if the user has super_admin platform access. */
 export function isSuperAdmin(user: User): boolean {
   return user.platformRole === "super_admin";
@@ -59,6 +67,8 @@ export interface ActorContext {
   storeRole: StoreRole | null;
   /** Effective actor label used for audit entries. */
   effectiveRole: string;
+  /** Active server-owned support scope, if this request is impersonating a store. */
+  impersonation?: StoreImpersonation;
 }
 
 // Extend Express.Request so routes can access req.actor.

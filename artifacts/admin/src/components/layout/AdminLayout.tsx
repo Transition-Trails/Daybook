@@ -30,9 +30,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
-import { resolveStoreId, type MeStore } from "@/lib/api";
+import {
+  resolveStoreId,
+  storesApi,
+  type MeStore,
+  type StoreImpersonation,
+} from "@/lib/api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeaderTargetContext } from "@/components/shared/page-header-context";
-
 type ShellRole = "super" | "owner";
 type NavItem = {
   label: string;
@@ -123,19 +128,29 @@ function NavGroupView({
   );
 }
 
-function ImpersonationBanner({ storeName }: { storeName: string }) {
+function ImpersonationBanner({
+  storeName,
+  onExit,
+  exiting,
+}: {
+  storeName: string;
+  onExit: () => void;
+  exiting: boolean;
+}) {
   return (
     <div className="admin-impersonation" role="status">
       <span className="admin-impersonation__tag">Viewing as</span>
       <span className="truncate">
         You are inside <strong>{storeName}</strong> as super admin. Edits are logged to the audit trail.
       </span>
-      <Link href="/super">
-        <span className="admin-impersonation__exit">
-          <span className="sr-only">Leave store</span>
-          Exit store
-        </span>
-      </Link>
+      <button
+        type="button"
+        className="admin-impersonation__exit"
+        onClick={onExit}
+        disabled={exiting}
+      >
+        {exiting ? "Exiting…" : "Exit store"}
+      </button>
     </div>
   );
 }
@@ -150,8 +165,9 @@ export interface AdminLayoutProps {
 }
 
 export function AdminLayout({ children, role, storeRole, store, allStores = [], titleContext }: AdminLayoutProps) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { data: user } = useGetMe();
+  const queryClient = useQueryClient();
   const logout = useLogout();
   const { openAssistant } = useAiDrawer();
   const [groups, setGroups] = useState(readGroupState);
@@ -166,7 +182,24 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
     }
   }, [groups]);
 
-  const isImpersonating = role === "owner" && store?.role === "super_admin" && storeId !== "store-house";
+  const impersonation = (user as typeof user & {
+    impersonation?: StoreImpersonation | null;
+  } | undefined)?.impersonation ?? null;
+  const isImpersonating =
+    role === "owner" &&
+    impersonation?.storeId === storeId;
+  const exitImpersonation = useMutation({
+    mutationFn: storesApi.impersonation.exit,
+    onSuccess: () => {
+      queryClient.setQueryData(["/api/auth/me"], (current: unknown) => (
+        current && typeof current === "object"
+          ? { ...current, impersonation: null }
+          : current
+      ));
+      navigate("/super");
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+  });
   const roleLabel = role === "super" || storeRole === "super_admin"
     ? "Super admin"
     : storeRole === "store_owner"
@@ -346,7 +379,13 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
       </aside>
 
       <div className="admin-main">
-        {isImpersonating && <ImpersonationBanner storeName={store?.name ?? storeId} />}
+        {isImpersonating && (
+          <ImpersonationBanner
+            storeName={store?.name ?? storeId}
+            onExit={() => exitImpersonation.mutate()}
+            exiting={exitImpersonation.isPending}
+          />
+        )}
         <header className="admin-page-header">
           <div ref={setPageHeaderTarget} className="admin-page-header__page-slot">
             <span className="admin-page-header__title-context">

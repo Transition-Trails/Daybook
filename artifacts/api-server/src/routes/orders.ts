@@ -10,7 +10,12 @@ import { Router, urlencoded, type IRouter, type Request, type Response } from "e
 import { db } from "@workspace/db";
 import { ordersTable, plannerConfigsTable, storesTable } from "@workspace/db";
 import { and, desc, eq, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
-import { resolveStoreActor, resolveStoreActorOptional, requireSuperAdmin } from "../middleware/requireRole";
+import {
+  resolveStoreActor,
+  resolveStoreActorOptionalWithStoreHeader,
+  requireStoreAccess,
+  requireSuperAdmin,
+} from "../middleware/requireRole";
 import { sendOrderReceipt } from "../lib/email/senders";
 import { logger } from "../lib/logger";
 import { createSignedDownloadLinks, recoveryUrl, verifySignedDownload } from "../lib/order-delivery";
@@ -158,7 +163,7 @@ async function recordReceiptFailure(orderId: string, err: unknown): Promise<void
 // ── GET /orders/:id — support/store operator order detail ─────────────────────
 router.get(
   "/orders/:id",
-  resolveStoreActor,
+  requireStoreAccess("store_staff"),
   async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params as { id: string };
     try {
@@ -172,6 +177,10 @@ router.get(
         return;
       }
       const actor = req.actor!;
+      if (actor.impersonation && actor.impersonation.storeId !== order.storeId) {
+        res.status(403).json({ error: "Forbidden: order is outside the impersonated store" });
+        return;
+      }
       const isStoreOperator = actor.storeRole === "store_owner" || actor.storeRole === "store_staff";
       if (!actor.isSuperAdmin && (actor.storeId !== order.storeId || !isStoreOperator)) {
         res.status(403).json({ error: "Forbidden: store operator access required" });
@@ -190,7 +199,7 @@ router.get(
 // buyer's original receipt email.
 router.post(
   "/orders/:id/resend-receipt",
-  resolveStoreActorOptional,
+  resolveStoreActorOptionalWithStoreHeader,
   async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params as { id: string };
     const { token } = req.query as { token?: string };
@@ -211,6 +220,10 @@ router.post(
         || order.resendTokenExpiresAt.getTime() <= now.getTime();
       const validToken = !tokenExpired && tokenMatches(order.resendToken, token);
       const actor = req.actor;
+      if (actor?.impersonation && actor.impersonation.storeId !== order.storeId) {
+        res.status(403).json({ error: "Forbidden: order is outside the impersonated store" });
+        return;
+      }
       const actorCanResend = Boolean(
         actor
         && (

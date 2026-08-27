@@ -6,15 +6,16 @@
  * Separate from "Enter store" (/store/:id). This page never mutates anything.
  */
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { storesApi, apiFetch, type StoreMember } from "@/lib/api";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowLeft, Store, ExternalLink, ShieldCheck,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -53,6 +54,26 @@ interface AuditEntry {
 
 export default function StoreInspector({ storeId }: { storeId: string }) {
   const [tab, setTab] = useState("overview");
+  const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const enterMutation = useMutation({
+    mutationFn: () => storesApi.impersonation.enter(storeId),
+    onSuccess: ({ impersonation }) => {
+      queryClient.setQueryData(["/api/auth/me"], (current: unknown) => (
+        current && typeof current === "object"
+          ? { ...current, impersonation }
+          : current
+      ));
+      navigate(`/store/${impersonation.storeId}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+    onError: (err: Error) => toast({
+      title: "Could not enter store",
+      description: err.message,
+      variant: "destructive",
+    }),
+  });
 
   const { data: stores = [], isLoading: storesLoading } = useQuery({
     queryKey: ["stores", { includeSeed: true }],
@@ -119,12 +140,16 @@ export default function StoreInspector({ storeId }: { storeId: string }) {
           <p className="text-muted-foreground text-sm mt-0.5 font-mono">{store.id}</p>
         </div>
         <div className="flex gap-2 shrink-0">
-          <Link href={`/store/${storeId}`}>
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <Store className="w-3.5 h-3.5" />
-              Enter store
-            </Button>
-          </Link>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => enterMutation.mutate()}
+            disabled={enterMutation.isPending}
+          >
+            <Store className="w-3.5 h-3.5" />
+            {enterMutation.isPending ? "Entering…" : "Enter store"}
+          </Button>
           {store.slug && (
             <a href={`/s/${store.slug}`} target="_blank" rel="noopener noreferrer">
               <Button variant="ghost" size="sm" className="gap-1.5">

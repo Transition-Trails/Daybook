@@ -27,6 +27,8 @@ import {
   requireStoreAccess,
   resolveStoreActor,
 } from "../middleware/requireRole";
+import { getActiveImpersonation } from "../middleware/requireRole";
+import type { StoreImpersonation } from "../lib/roles";
 import { assertStoreScope } from "../lib/auth-middleware";
 import { writeAudit } from "../lib/audit";
 import { annotateWithEntitlement, type EntitlementContext } from "../lib/entitlement";
@@ -46,6 +48,66 @@ function appUrl(): string {
   return (process.env.APP_URL ?? "http://localhost:5000").replace(/\/+$/, "");
 }
 
+const IMPERSONATION_TTL_MS = 30 * 60 * 1000;
+
+function saveSession(req: Request): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.save((err) => (err ? reject(err) : resolve()));
+  });
+}
+
+async function startImpersonation(req: Request, res: Response): Promise<void> {
+  const actor = req.actor!;
+  const storeId = req.params.storeId as string;
+  const [store] = await db.select({ id: storesTable.id }).from(storesTable)
+    .where(eq(storesTable.id, storeId)).limit(1);
+  if (!store) {
+    res.status(404).json({ error: "Store not found" });
+    return;
+  }
+
+  const now = new Date();
+  const impersonation: StoreImpersonation = {
+    actorUserId: actor.userId,
+    storeId,
+    startedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + IMPERSONATION_TTL_MS).toISOString(),
+  };
+  req.session.storeImpersonation = impersonation;
+  await saveSession(req);
+
+  await writeAudit(db, {
+    actorUserId: actor.userId,
+    actorRole: actor.effectiveRole,
+    scope: storeId,
+    action: "store.impersonation.start",
+    targetType: "store",
+    targetId: storeId,
+    impersonation,
+  });
+
+  res.json({ impersonation });
+}
+
+async function endImpersonation(req: Request, res: Response): Promise<void> {
+  const actor = req.user as import("@workspace/db").User;
+  const impersonation = getActiveImpersonation(req, actor.id);
+  if (impersonation) {
+    await writeAudit(db, {
+      actorUserId: actor.id,
+      actorRole: "super_admin",
+      scope: impersonation.storeId,
+      action: "store.impersonation.exit",
+      targetType: "store",
+      targetId: impersonation.storeId,
+      impersonation,
+    });
+  }
+  delete req.session.storeImpersonation;
+  await saveSession(req);
+  res.json({ impersonation: null });
+}
+
 // ── Catalog table registry ─────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const CATALOG_TABLES: Record<string, { table: any; label: string }> = {
@@ -55,6 +117,35 @@ const CATALOG_TABLES: Record<string, { table: any; label: string }> = {
   product: { table: editionsTable,        label: "Edition" },
   edition: { table: editionsTable,        label: "Edition" },
 };
+
+// ── Store impersonation lifecycle ────────────────────────────────────────────
+// A support session is deliberately separate from the URL.  The signed session
+// is the source of truth for both the target store and its expiry.
+router.post(
+  "/stores/:storeId/impersonate",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      await startImpersonation(req, res);
+    } catch (err) {
+      req.log.error({ err }, "store impersonation start failed");
+      res.status(500).json({ error: "Could not enter store" });
+    }
+  },
+);
+
+router.post(
+  "/stores/impersonation/exit",
+  requireSuperAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      await endImpersonation(req, res);
+    } catch (err) {
+      req.log.error({ err }, "store impersonation exit failed");
+      res.status(500).json({ error: "Could not exit store" });
+    }
+  },
+);
 
 // ── GET /stores ───────────────────────────────────────────────────────────────
 

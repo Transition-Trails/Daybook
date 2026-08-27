@@ -20,6 +20,15 @@ export function assertStoreScope(
   urlStoreId: string,
   res: Response,
 ): boolean {
+  if (
+    actor.impersonation &&
+    actor.impersonation.storeId !== urlStoreId
+  ) {
+    res.status(403).json({
+      error: "Forbidden: impersonation scope is limited to the entered store",
+    });
+    return false;
+  }
   if (actor.platformRole === "super_admin") return true;
 
   if (actor.storeId === urlStoreId && actor.storeRole) return true;

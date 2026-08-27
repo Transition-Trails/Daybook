@@ -52,7 +52,20 @@ import { KNOWN_TEXTURE_SLUGS } from "../lib/texture-registry";
 import { isPurchasableCatalogItem } from "../lib/catalog-commerce";
 
 const router: IRouter = Router();
-router.use(resolveStoreActorOptional);
+router.use(
+  [
+    "/themes",
+    "/spine-styles",
+    "/products",
+    "/related-products",
+    "/hardware",
+    "/accessories",
+    "/fonts",
+    "/editions",
+    "/catalog",
+  ],
+  resolveStoreActorOptional,
+);
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 

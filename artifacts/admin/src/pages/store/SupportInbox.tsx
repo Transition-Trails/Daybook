@@ -287,12 +287,12 @@ function TicketDetail({
 
   const { data, isLoading } = useQuery({
     queryKey: ["support-ticket", ticket.id],
-    queryFn: () => supportApi.get(ticket.id),
+    queryFn: () => supportApi.get(ticket.id, storeId),
   });
   const replies: TicketReply[] = data?.replies ?? [];
 
   const replyMut = useMutation({
-    mutationFn: () => supportApi.addReply(ticket.id, reply.trim()),
+    mutationFn: () => supportApi.addReply(ticket.id, reply.trim(), storeId),
     onSuccess: () => {
       setReply("");
       qc.invalidateQueries({ queryKey: ["support-ticket", ticket.id] });
@@ -302,7 +302,7 @@ function TicketDetail({
 
   const statusMut = useMutation({
     mutationFn: (args: { status: string; closeReason?: string; closeNote?: string }) =>
-      supportApi.updateStatus(ticket.id, args.status, args),
+      supportApi.updateStatus(ticket.id, args.status, args, storeId),
     onSuccess: () => {
       setShowClose(false);
       qc.invalidateQueries({ queryKey: ["support-inbox-store", storeId] });

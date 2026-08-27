@@ -46,7 +46,7 @@ export function HelpArticleForm({
     event.preventDefault();
     try {
       if (initial) {
-        await helpApi.update(initial.id, form);
+        await helpApi.update(initial.id, form, scope === "platform" ? undefined : scope);
         toast({ title: "Article updated" });
       } else {
         await helpApi.create(form);

@@ -8,10 +8,12 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import express, { type NextFunction, type Request, type Response } from "express";
+import session from "express-session";
 import request from "supertest";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
+  auditLogTable,
   storeFlagsTable,
   storeMembersTable,
   storesTable,
@@ -64,6 +66,7 @@ const worldIds = {
   alpha: `${ids.alphaStore}--world`,
   beta: `${ids.betaStore}--world`,
   disabled: `${ids.disabledStore}--world`,
+  impersonated: `${ids.alphaStore}--impersonated-world`,
 };
 const libraryIds = {
   alphaPalette: `ws-scope-alpha-palette-${RUN}`,
@@ -117,6 +120,38 @@ const superAdminApp = makeApp({
   id: "worldsmith-scope-super-admin",
   platformRole: "super_admin",
 } as User);
+function makeImpersonatingSuperAdminApp() {
+  const user = {
+    id: ids.alphaOwner,
+    platformRole: "super_admin",
+  } as User;
+  const app = express();
+  app.use(express.json());
+  app.use(session({
+    secret: "worldsmith-impersonation-test-secret",
+    resave: false,
+    saveUninitialized: false,
+  }));
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    const testRequest = req as any;
+    testRequest.log = { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} };
+    testRequest.isAuthenticated = () => true;
+    testRequest.user = user;
+    next();
+  });
+  app.post("/test/impersonate/:storeId", (req, res) => {
+    const now = new Date();
+    req.session.storeImpersonation = {
+      actorUserId: user.id,
+      storeId: req.params.storeId as string,
+      startedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString(),
+    };
+    res.sendStatus(204);
+  });
+  app.use("/api", worldsmithRouter);
+  return app;
+}
 function scoped(
   app: express.Express,
   storeId: string,
@@ -215,6 +250,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(auditLogTable).where(and(
+    eq(auditLogTable.actorUserId, ids.alphaOwner),
+    eq(auditLogTable.action, "store.impersonation.mutation"),
+  ));
   await db.delete(palettesTable).where(inArray(palettesTable.id, Object.values(libraryIds).slice(0, 2)));
   await db.delete(fontsTable).where(inArray(fontsTable.id, Object.values(libraryIds).slice(2)));
   await db.delete(worldsmithWorldsTable).where(inArray(worldsmithWorldsTable.id, [
@@ -228,10 +267,60 @@ afterAll(async () => {
 });
 
 describe("WorldSmith store-facing access", () => {
+  it("keeps header-scoped WorldSmith routes inside an active impersonation", async () => {
+    const agent = request.agent(makeImpersonatingSuperAdminApp());
+    await agent.post(`/test/impersonate/${ids.alphaStore}`).expect(204);
+
+    const ownWorlds = await agent
+      .get("/api/v1/worldsmith/worlds")
+      .set("x-store-id", ids.alphaStore);
+    expect(ownWorlds.status).toBe(200);
+    expect(ownWorlds.body.worlds.map((world: { id: string }) => world.id)).toContain(worldIds.alpha);
+    expect(ownWorlds.body.worlds.map((world: { id: string }) => world.id)).not.toContain(worldIds.beta);
+
+    const created = await agent
+      .post("/api/v1/worldsmith/worlds")
+      .set("x-store-id", ids.alphaStore)
+      .send({ id: "impersonated-world", name: "Impersonated World", code: "IMP" });
+    expect(created.status).toBe(201);
+    expect(created.body.id).toBe(worldIds.impersonated);
+
+    const updated = await agent
+      .patch(`/api/v1/worldsmith/worlds/${worldIds.impersonated}`)
+      .set("x-store-id", ids.alphaStore)
+      .send({ visualPalette: "Audited ink and brass" });
+    expect(updated.status).toBe(200);
+
+    let audits: Array<typeof auditLogTable.$inferSelect> = [];
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      audits = await db.select().from(auditLogTable).where(and(
+        eq(auditLogTable.actorUserId, ids.alphaOwner),
+        eq(auditLogTable.action, "store.impersonation.mutation"),
+      ));
+      if (audits.length >= 2) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    expect(audits).toHaveLength(2);
+    expect(audits.map(row => row.targetId)).toEqual(expect.arrayContaining([
+      "/api/v1/worldsmith/worlds",
+      `/api/v1/worldsmith/worlds/${worldIds.impersonated}`,
+    ]));
+    expect(audits.every(row => row.scope === ids.alphaStore)).toBe(true);
+    expect(audits.every(row =>
+      (row.metadata as Record<string, unknown>)?.adminSupportAction === true
+    )).toBe(true);
+
+    const otherStore = await agent
+      .get("/api/v1/worldsmith/worlds")
+      .set("x-store-id", ids.betaStore);
+    expect(otherStore.status).toBe(403);
+  });
+
   it("lists only the scoped store's worlds and creates worlds under that store", async () => {
     const alphaList = await scoped(alphaApp, ids.alphaStore).get("/api/v1/worldsmith/worlds");
     expect(alphaList.status).toBe(200);
-    expect(alphaList.body.worlds.map((world: { id: string }) => world.id)).toEqual([worldIds.alpha]);
+    expect(alphaList.body.worlds.map((world: { id: string }) => world.id)).toContain(worldIds.alpha);
+    expect(alphaList.body.worlds.map((world: { id: string }) => world.id)).not.toContain(worldIds.beta);
     expect(alphaList.body.permissions).toEqual({ canEditWorldRules: false });
 
     const betaList = await scoped(betaApp, ids.betaStore).get("/api/v1/worldsmith/worlds");

@@ -31,6 +31,8 @@ import {
   requireSuperAdmin,
   resolveStoreActor,
   resolveStoreActorOptional,
+  resolveStoreActorOptionalWithStoreHeader,
+  resolveStoreActorWithStoreHeader,
 } from "../middleware/requireRole";
 import { getBundleCoverageGaps } from "../lib/font-warmup";
 import { UI_REACHABLE_FAMILIES, _bundledFontPath } from "../lib/pdf-generator";
@@ -117,10 +119,14 @@ router.get("/platform/font-coverage", requireSuperAdmin, (_req: Request, res: Re
 
 // ── GET /help ─────────────────────────────────────────────────────────────────
 
-router.get("/help", resolveStoreActorOptional, async (req: Request, res: Response): Promise<void> => {
+router.get("/help", resolveStoreActorOptionalWithStoreHeader, async (req: Request, res: Response): Promise<void> => {
   const actor = req.actor;
   const q = req.query as Record<string, string | undefined>;
   const { kind, category, scope: scopeFilter, status: statusFilter } = q;
+  if (actor?.impersonation && scopeFilter !== actor.impersonation.storeId) {
+    res.status(403).json({ error: "Forbidden: help scope must match the entered store" });
+    return;
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let rows: any[];
@@ -200,11 +206,15 @@ router.get("/help", resolveStoreActorOptional, async (req: Request, res: Respons
 
 // ── POST /help ────────────────────────────────────────────────────────────────
 
-router.post("/help", resolveStoreActor, async (req: Request, res: Response): Promise<void> => {
+router.post("/help", resolveStoreActorWithStoreHeader, async (req: Request, res: Response): Promise<void> => {
   const actor = req.actor;
   if (!actor) { res.status(401).json({ error: "Not authenticated" }); return; }
 
   const { id, title, body, category, kind, scope, status } = req.body as Record<string, string>;
+  if (actor.impersonation && scope !== actor.impersonation.storeId) {
+    res.status(403).json({ error: "Forbidden: help scope must match the entered store" });
+    return;
+  }
 
   if (!id || !title || !body || !category || !scope) {
     res.status(400).json({ error: "id, title, body, category, scope are required" });
@@ -260,7 +270,7 @@ router.post("/help", resolveStoreActor, async (req: Request, res: Response): Pro
 
 // ── PATCH /help/:id ───────────────────────────────────────────────────────────
 
-router.patch("/help/:id", resolveStoreActor, async (req: Request, res: Response): Promise<void> => {
+router.patch("/help/:id", resolveStoreActorWithStoreHeader, async (req: Request, res: Response): Promise<void> => {
   const actor = req.actor;
   if (!actor) { res.status(401).json({ error: "Not authenticated" }); return; }
 
@@ -276,6 +286,10 @@ router.patch("/help/:id", resolveStoreActor, async (req: Request, res: Response)
   const existingRows = await db.select().from(helpContentTable).where(eq(helpContentTable.id, id));
   const existing = existingRows[0];
   if (!existing) { res.status(404).json({ error: "Help article not found" }); return; }
+  if (actor.impersonation && existing.scope !== actor.impersonation.storeId) {
+    res.status(403).json({ error: "Forbidden: help article is outside the entered store" });
+    return;
+  }
 
   if (!actor.isSuperAdmin) {
     if (existing.scope === "platform") {
@@ -313,7 +327,7 @@ router.patch("/help/:id", resolveStoreActor, async (req: Request, res: Response)
 
 // ── DELETE /help/:id ──────────────────────────────────────────────────────────
 
-router.delete("/help/:id", resolveStoreActor, async (req: Request, res: Response): Promise<void> => {
+router.delete("/help/:id", resolveStoreActorWithStoreHeader, async (req: Request, res: Response): Promise<void> => {
   const actor = req.actor;
   if (!actor) { res.status(401).json({ error: "Not authenticated" }); return; }
 
@@ -322,6 +336,10 @@ router.delete("/help/:id", resolveStoreActor, async (req: Request, res: Response
   const existingRows = await db.select().from(helpContentTable).where(eq(helpContentTable.id, id));
   const existing = existingRows[0];
   if (!existing) { res.status(404).json({ error: "Help article not found" }); return; }
+  if (actor.impersonation && existing.scope !== actor.impersonation.storeId) {
+    res.status(403).json({ error: "Forbidden: help article is outside the entered store" });
+    return;
+  }
 
   if (!actor.isSuperAdmin) {
     if (existing.scope === "platform") {

@@ -29,6 +29,8 @@ import { eq, and, or, desc, asc, inArray, sql, gte } from "drizzle-orm";
 import {
   resolveStoreActor,
   resolveStoreActorOptional,
+  resolveStoreActorOptionalWithStoreHeader,
+  resolveStoreActorWithStoreHeader,
 } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
 import {
@@ -343,7 +345,7 @@ router.get(
 // Store owner/staff: pass ?storeId= to see that store's buyer queue.
 router.get(
   "/support/inbox",
-  resolveStoreActor,
+  resolveStoreActorWithStoreHeader,
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, status } = req.query as {
@@ -359,6 +361,10 @@ router.get(
       const sid = storeId ?? actor.storeId;
         if (!sid) {
           res.status(400).json({ error: "storeId required" });
+          return;
+        }
+        if (actor.impersonation && sid !== actor.impersonation.storeId) {
+          res.status(403).json({ error: "Forbidden: inbox is outside the entered store" });
           return;
         }
         // Must be super admin OR store_owner/staff of that store
@@ -414,7 +420,7 @@ router.get(
 // ── GET /support/tickets/:id ──────────────────────────────────────────────────
 router.get(
   "/support/tickets/:id",
-  resolveStoreActor,
+  resolveStoreActorWithStoreHeader,
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { id } = req.params as { id: string };
@@ -429,10 +435,14 @@ router.get(
         res.status(404).json({ error: "Ticket not found" });
         return;
       }
+      if (actor.impersonation && ticket.recipientScope !== actor.impersonation.storeId) {
+        res.status(403).json({ error: "Forbidden: ticket is outside the entered store" });
+        return;
+      }
 
       const canView =
         ticket.reporterUserId === actor.userId ||
-        (ticket.recipientScope === "platform" && actor.isSuperAdmin) ||
+        actor.isSuperAdmin ||
         (ticket.recipientScope !== "platform" &&
           actor.storeId === ticket.recipientScope &&
           ["store_owner", "store_staff"].includes(actor.storeRole ?? ""));
@@ -623,7 +633,7 @@ router.post(
 // ── POST /support/tickets/:id/replies ─────────────────────────────────────────
 router.post(
   "/support/tickets/:id/replies",
-  resolveStoreActor,
+  resolveStoreActorWithStoreHeader,
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { id } = req.params as { id: string };
@@ -644,10 +654,14 @@ router.post(
         res.status(404).json({ error: "Ticket not found" });
         return;
       }
+      if (actor.impersonation && ticket.recipientScope !== actor.impersonation.storeId) {
+        res.status(403).json({ error: "Forbidden: ticket is outside the entered store" });
+        return;
+      }
 
       const isReporter = ticket.reporterUserId === actor.userId;
       const isScopeAdmin =
-        (ticket.recipientScope === "platform" && actor.isSuperAdmin) ||
+        actor.isSuperAdmin ||
         (ticket.recipientScope !== "platform" &&
           actor.storeId === ticket.recipientScope &&
           ["store_owner", "store_staff"].includes(actor.storeRole ?? ""));
@@ -712,7 +726,7 @@ router.post(
 // ── PATCH /support/tickets/:id/status ─────────────────────────────────────────
 router.patch(
   "/support/tickets/:id/status",
-  resolveStoreActor,
+  resolveStoreActorWithStoreHeader,
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { id } = req.params as { id: string };
@@ -749,9 +763,13 @@ router.patch(
         res.status(404).json({ error: "Ticket not found" });
         return;
       }
+      if (actor.impersonation && ticket.recipientScope !== actor.impersonation.storeId) {
+        res.status(403).json({ error: "Forbidden: ticket is outside the entered store" });
+        return;
+      }
 
       const canUpdate =
-        (ticket.recipientScope === "platform" && actor.isSuperAdmin) ||
+        actor.isSuperAdmin ||
         (ticket.recipientScope !== "platform" &&
           actor.storeId === ticket.recipientScope &&
           ["store_owner", "store_staff"].includes(actor.storeRole ?? ""));
@@ -816,7 +834,7 @@ router.patch(
 // Aggregates closed tickets this month by reason and surfaces no-article clusters.
 router.get(
   "/support/close-reason-patterns",
-  resolveStoreActor,
+  resolveStoreActorWithStoreHeader,
   async (req: Request, res: Response): Promise<void> => {
     const actor = req.actor!;
     const { storeId, months = "1" } = req.query as { storeId?: string; months?: string };
@@ -837,6 +855,10 @@ router.get(
         (actor.storeId !== sid || !["store_owner", "store_staff"].includes(actor.storeRole ?? ""))
       ) {
         res.status(403).json({ error: "Forbidden" }); return;
+      }
+      if (actor.impersonation && sid !== actor.impersonation.storeId) {
+        res.status(403).json({ error: "Forbidden: support patterns are outside the entered store" });
+        return;
       }
       scope = sid;
     }

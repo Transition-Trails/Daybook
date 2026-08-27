@@ -1,3 +1,4 @@
+- [Express async scope binding](express-async-scope-binding.md) — tenant authorization binds from immutable request paths; live Express can hide params from async middleware
 - [Daybook seed script](daybook-seed.md) — re-run `pnpm --filter @workspace/scripts run seed` to repopulate; credentials stored in environment secrets only
 - [Daybook Zod schema naming](daybook-zod-names.md) — generated schema names don't always match intuition; consult api.ts before writing routes
 - [DB build requirement](db-build.md) — lib/db has composite:true tsconfig; run `npx tsc -b lib/db` before api-server typecheck or changes won't be picked up

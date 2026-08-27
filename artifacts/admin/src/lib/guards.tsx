@@ -32,13 +32,17 @@ export function RequireStore({
   storeId: string | undefined;
   children: (store: ConsoleState["stores"][number]) => React.ReactNode;
 }) {
-  // super_admin can access any store; create a synthetic store entry if the
-  // store is not in their fetched stores list (e.g. freshly loaded page).
-  if (state.kind === "super" && storeId) {
-    const store =
-      state.stores.find((s) => (s.storeId ?? (s as any).id) === storeId) ??
-      ({ storeId, id: storeId, name: storeId, role: "super_admin" } as any);
-    return <>{children(store)}</>;
+  // Platform admins enter store pages only through a live, server-issued
+  // impersonation scope. A URL or synthetic role is not authorization.
+  if (
+    state.kind === "super" &&
+    storeId &&
+    state.impersonation?.storeId === storeId
+  ) {
+    const store = state.stores.find(
+      (candidate) => (candidate.storeId ?? (candidate as any).id) === storeId,
+    );
+    if (store) return <>{children(store)}</>;
   }
 
   if (state.kind === "store") {

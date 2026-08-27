@@ -14,7 +14,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Users, ExternalLink, Search, ArrowRight } from "lucide-react";
 import type { StorePlan, StoreStatus } from "@/lib/api";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 
 type Filter = "all" | "active" | "trial" | "suspended";
 
@@ -23,6 +23,7 @@ export default function SuperStores() {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [, navigate] = useLocation();
 
   const { data: stores = [], isLoading, error, refetch } = useQuery({
     queryKey: ["stores"],
@@ -37,6 +38,23 @@ export default function SuperStores() {
       toast({ title: "Store updated" });
     },
     onError: (err: Error) => toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+  });
+  const enterMutation = useMutation({
+    mutationFn: (storeId: string) => storesApi.impersonation.enter(storeId),
+    onSuccess: ({ impersonation }) => {
+      qc.setQueryData(["/api/auth/me"], (current: unknown) => (
+        current && typeof current === "object"
+          ? { ...current, impersonation }
+          : current
+      ));
+      navigate(`/store/${impersonation.storeId}`);
+      qc.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+    onError: (err: Error) => toast({
+      title: "Could not enter store",
+      description: err.message,
+      variant: "destructive",
+    }),
   });
 
   const filtered = stores.filter(
@@ -144,7 +162,13 @@ export default function SuperStores() {
                         </span>
                       </Link>
                       {/* Enter store — opens store admin console in support mode */}
-                      <Link href={`/store/${s.id}`}>
+                      <Link
+                        href={`/store/${s.id}`}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          if (!enterMutation.isPending) enterMutation.mutate(s.id);
+                        }}
+                      >
                         <span
                           className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md cursor-pointer transition-colors"
                           style={{
@@ -157,6 +181,7 @@ export default function SuperStores() {
                           onMouseLeave={e => {
                             (e.currentTarget as HTMLElement).style.background = "hsl(221 46% 17%)";
                           }}
+                          aria-disabled={enterMutation.isPending}
                         >
                           <ArrowRight className="w-3 h-3" />Enter store
                         </span>

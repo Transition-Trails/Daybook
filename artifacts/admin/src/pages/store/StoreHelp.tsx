@@ -63,14 +63,14 @@ export default function StoreHelp({ storeId, role }: Props) {
 
   const toggleMutation = useMutation({
     mutationFn: (a: HelpArticle) =>
-      helpApi.update(a.id, { status: a.status === "live" ? "draft" : "live" }),
+      helpApi.update(a.id, { status: a.status === "live" ? "draft" : "live" }, storeId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["help/store", storeId] }),
     onError: (err: Error) =>
       toast({ title: "Update failed", description: err.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => helpApi.delete(id),
+    mutationFn: (id: string) => helpApi.delete(id, storeId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["help/store", storeId] });
       toast({ title: "Article deleted" });

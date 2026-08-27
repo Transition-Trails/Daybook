@@ -6,6 +6,7 @@ import { storeMembersTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { User } from "@workspace/db";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { getActiveImpersonation } from "../middleware/requireRole";
 
 const router: IRouter = Router();
 
@@ -67,7 +68,10 @@ async function getMeHandler(req: Parameters<IRouter["get"]>[1] extends (req: inf
   }
   const user = req.user as User;
   const { passwordHash, googleAccessToken, googleRefreshToken, notionToken, ...safe } = user;
-  res.json(safe);
+  res.json({
+    ...safe,
+    impersonation: getActiveImpersonation(req, user.id) ?? null,
+  });
 }
 
 router.get("/me", getMeHandler);

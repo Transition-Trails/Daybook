@@ -1,0 +1,130 @@
+# Replit task — admin IA cleanup
+
+Paste this whole file to Replit. It closes out the admin IA work: two real defects, then a
+sweep for the leftovers the last four rounds created. Self-contained — no need to re-read the
+earlier followup files.
+
+Nothing here is a redesign. Do not restyle, rename, or restructure anything not named below.
+
+---
+
+## 1. `sixPointSeries` fabricates a cliff to zero
+
+`pages/super/Dashboard.tsx`
+
+```ts
+function sixPointSeries(values: Array<number | null> | null | undefined) {
+  return Array.from({ length: 6 }, (_, index) => values?.[index] ?? 0);
+}
+```
+
+Every metric is padded to exactly six points, filling gaps with `0`. So a platform with three
+months of history renders three real points followed by a hard drop to zero — the sparkline
+reads as a collapse. A `null` mid-series does the same thing in the middle of the line. This is
+the one thing on the dashboard that can actively mislead.
+
+Fix: drop the padding. Pass through only the points that exist, filtering `null`.
+
+```ts
+function series(values: Array<number | null> | null | undefined) {
+  return (values ?? []).filter((value): value is number => value !== null);
+}
+```
+
+`MetricStrip` already falls back to "Trend unavailable" when it gets fewer than two points, so a
+short or empty series degrades correctly on its own. Do not add a floor, a zero-fill, or a
+minimum length.
+
+Also confirm `billingTrends.revenue` and `billingTrends.conversion` are ordered oldest → newest.
+`Sparkline` plots index 0 at the left, so a newest-first array draws every trend backwards. If
+`billingTrendValues` returns newest-first, reverse it there, not at the call site.
+
+**Acceptance:** with only three months of data, the sparkline draws three points and no descent
+to zero. A metric with one data point shows "Trend unavailable" rather than a flat line.
+
+## 2. Sticker studio still links into the legacy catalog tree
+
+`pages/studios/StickerStudioHub.tsx` lines ~1323 and ~2213:
+
+```tsx
+href={`/daybook/catalog/packs/${pack.id}`}
+```
+
+Two links out of the new admin and into the legacy catalog routes. These are the last
+`/daybook/` links in a page a user actually clicks.
+
+The platform catalog authoring surface is canonical; the legacy catalog pages are on their way
+out. So:
+
+1. Point both at the canonical pack route under `/super/`. If no equivalent route exists yet,
+   **stop and tell me** rather than inventing one — do not add a redirect hop from a page we
+   control.
+2. Note that line 2213 is a bare `<a href>`, not a wouter `<Link>`. That causes a full page
+   reload out of the SPA, dropping React state and re-fetching everything. Make it a `<Link>`.
+
+## 3. Sweep for leftovers
+
+Four rounds of changes left debris. Check each and report what you found — some of these may
+already be clean.
+
+**Dead code and imports**
+
+- `pages/super/Dashboard.tsx` — `StatTile`, `DollarSign` and `Percent` were removed from the
+  render. Confirm they are gone from the import list too.
+- `components/layout/AdminLayout.tsx` — the icon set was reshuffled twice. `Activity`, `Archive`
+  and `Receipt` may no longer be used by the super nav. Remove any icon import no longer
+  referenced.
+- `components/shared/index.tsx` — `StatTile` may now have no callers anywhere. If it does not,
+  delete it; if something still uses it, leave it and say what.
+- Search for any component or helper introduced during these rounds that now has zero imports.
+
+**Nav state**
+
+`NAV_DEFAULTS` must contain exactly one key per group id that can be rendered, and no others.
+Super renders `overview, platform, content, settings, catalog, studios, support`; owner renders
+`shop, build, manage, support`. `manage` is currently missing from `NAV_DEFAULTS`, so it falls
+through to the `?? true` at the call site and is never persisted — collapsing it does not
+survive a reload. Add it. Remove `account`, which no group uses.
+
+**Route table**
+
+- Confirm every one of the seven moved pages resolves at its new `/super/` path, renders inside
+  `AdminLayout`, and does not double-wrap in a second shell.
+- Confirm each old `/daybook/` path still redirects.
+- Grep the whole admin app for remaining `/daybook` string literals and classify each one:
+  legacy-catalog route (expected, leaving later), router plumbing in `App.tsx` (expected), or a
+  stray link that should have moved (fix it).
+
+**Token drift**
+
+The `--admin-*` custom properties in `index.css` are the source of truth for admin colour. Two
+known deviations to check:
+
+- `pages/super/ProductRecipes.tsx` defines its own local `PAPER`, `BORDER` and `MUTED`
+  constants, and `MUTED` is a cool grey (`hsl(216 15% 52%)`). This system has no grey borders —
+  they are warm (`#E7DCCB`). Replace the local constants with the tokens.
+- Grep for any other file declaring its own colour constants instead of reading the tokens, and
+  list them. Do not fix them in this pass beyond `ProductRecipes.tsx` — just report.
+
+**The seven moved pages**
+
+They predate the token block. Report which of them look wrong inside `AdminLayout` — wrong
+background, grey borders, its own page header, its own sidebar remnant, unstyled tables. Do not
+restyle them here; this is a list for the next task.
+
+## 4. Verify before you report back
+
+Run the full test suite and typecheck. Then confirm by hand:
+
+1. Sign in as a store owner and hit `/super/flags` directly — expect a 403 from the API, not a
+   blank screen.
+2. Collapse three nav groups, reload, and confirm all three are still collapsed.
+3. Enter a customer store from the sidebar, change a capability, exit, and open the audit log —
+   the entry must name both the super admin and the store.
+4. Queue capability changes across two stores, trigger a `["stores"]` refetch (switch tabs away
+   and back), and confirm the queued edits survive and the save bar still shows the right count.
+5. At 1440×900 on the dashboard, the metric strip and the top of the decision queue are both
+   visible without scrolling.
+
+Report: what you fixed, what was already clean, the `/daybook` classification list, the
+token-drift list, and the list of moved pages needing a visual pass.

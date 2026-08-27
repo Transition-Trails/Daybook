@@ -69,7 +69,7 @@ export default function UsersList() {
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/users/${user.id}`}>
+                      <Link href={`/super/users/${user.id}`}>
                         <ExternalLink className="w-3 h-3 mr-1" />
                         View
                       </Link>

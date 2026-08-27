@@ -56,7 +56,7 @@ export default function UserDetail() {
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/users"><ArrowLeft className="w-4 h-4" /></Link>
+          <Link href="/super/users"><ArrowLeft className="w-4 h-4" /></Link>
         </Button>
         <div className="flex items-center gap-4">
           {user.avatarUrl ? (

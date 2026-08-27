@@ -67,8 +67,6 @@ import EditionDetail from '@/pages/editions/detail';
 import ReleasesPage from '@/pages/super/Releases';
 
 // Platform
-import UsersList from '@/pages/users/list';
-import UserDetail from '@/pages/users/detail';
 import OrderDetail from '@/pages/orders/detail';
 import AiSettingsPage from '@/pages/ai-settings';
 import SyncDashboard from '@/pages/sync';
@@ -117,8 +115,6 @@ export const routes = [
   { path: "/super/planner-interiors",  component: PlannerInteriorsPage },
 
   // ── Platform ───────────────────────────────────────────────────────────────
-  { path: "/users",                    component: UsersList },
-  { path: "/users/:id",                component: UserDetail },
   { path: "/orders/:id",               component: OrderDetail },
   { path: "/ink",                      component: PlannerLibrary },
   { path: "/ai-settings",              component: AiSettingsPage },

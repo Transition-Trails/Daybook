@@ -2,8 +2,7 @@
  * PlannerLibrary — standalone Ink entry point.
  *
  * Gallery of the user's generated planners. Click any card to open it in
- * the standalone Ink editor (/daybook/ink/:id). Navigation from within the
- * daybook WouterRouter (base="/daybook") so navigate("/ink/X") → /daybook/ink/X.
+ * the standalone Ink editor (/super/ink/:id).
  */
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -450,7 +449,7 @@ export default function PlannerLibrary() {
               key={p.id}
               planner={p}
               layers={layerMap[p.id]}
-              onClick={() => navigate(`/ink/${p.id}`)}
+              onClick={() => navigate(`/super/ink/${p.id}`)}
             />
           ))}
         </div>

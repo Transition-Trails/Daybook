@@ -81,6 +81,7 @@ import ReleasesPage from "@/pages/super/Releases";
 import PlansList from "@/pages/plans";
 import UsersList from "@/pages/users/list";
 import UserDetail from "@/pages/users/detail";
+import PlannerLibrary from "@/pages/ink/PlannerLibrary";
 import StoreSupportInbox from "@/pages/store/SupportInbox";
 const ShopSupportPage = lazy(() => import("@/pages/shop/SupportPage"));
 
@@ -237,6 +238,18 @@ function RootRouter() {
       </Route>
       <Route path="/super/users">
         <RequireSuperAdmin state={state}><SuperAdminShell><UsersList /></SuperAdminShell></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/ink/:id">
+        {(p) => (
+          <RequireSuperAdmin state={state}>
+            <Suspense fallback={<div style={{ minHeight: "100vh", background: "#F7F0E6" }} />}>
+              <InkEditor key={p.id} />
+            </Suspense>
+          </RequireSuperAdmin>
+        )}
+      </Route>
+      <Route path="/super/ink">
+        <RequireSuperAdmin state={state}><SuperAdminShell><PlannerLibrary /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       <Route path="/super/stores">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperStores /></SuperAdminShell></RequireSuperAdmin>
@@ -748,25 +761,16 @@ function RootRouter() {
       <Route path="/daybook/users">
         <RequireSuperAdmin state={state}><Redirect to="/super/users" replace /></RequireSuperAdmin>
       </Route>
-      {/* Standalone entry: /daybook/ink/:id (from Planner Library) */}
+      {/* Legacy standalone entry: /daybook/ink/:id */}
       <Route path="/daybook/ink/:id">
-        {(p) => (
-          <RequireSuperAdmin state={state}>
-            <Suspense fallback={<div style={{ minHeight: "100vh", background: "#F7F0E6" }} />}>
-              <InkEditor key={p.id} />
-            </Suspense>
-          </RequireSuperAdmin>
-        )}
+        {(p) => <RequireSuperAdmin state={state}><Redirect to={`/super/ink/${p.id}`} replace /></RequireSuperAdmin>}
+      </Route>
+      <Route path="/daybook/ink">
+        <RequireSuperAdmin state={state}><Redirect to="/super/ink" replace /></RequireSuperAdmin>
       </Route>
       {/* Legacy deep-link from Planner Builder: /daybook/planners/:id/ink */}
       <Route path="/daybook/planners/:id/ink">
-        {(p) => (
-          <RequireSuperAdmin state={state}>
-            <Suspense fallback={<div style={{ minHeight: "100vh", background: "#F7F0E6" }} />}>
-              <InkEditor key={p.id} />
-            </Suspense>
-          </RequireSuperAdmin>
-        )}
+        {(p) => <RequireSuperAdmin state={state}><Redirect to={`/super/ink/${p.id}`} replace /></RequireSuperAdmin>}
       </Route>
 
       {/*

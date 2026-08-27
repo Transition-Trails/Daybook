@@ -443,7 +443,7 @@ export default function PlannerBuilder() {
                       size="sm"
                       variant="outline"
                       className="mt-1 gap-2 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
-                      onClick={() => navigate(`/ink/${result.id}`)}
+                      onClick={() => navigate(`/super/ink/${result.id}`)}
                     >
                       <PenLine className="w-3.5 h-3.5" />
                       Open in Ink ✦

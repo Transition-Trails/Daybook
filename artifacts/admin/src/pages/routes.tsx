@@ -71,7 +71,6 @@ import OrderDetail from '@/pages/orders/detail';
 import AiSettingsPage from '@/pages/ai-settings';
 import SyncDashboard from '@/pages/sync';
 import CalendarPage from '@/pages/calendar';
-import PlannerLibrary from '@/pages/ink/PlannerLibrary';
 
 // Backward-compat pages that are still real screens (no nav entry)
 import PlannerBuilder from '@/pages/planners/builder';
@@ -116,7 +115,6 @@ export const routes = [
 
   // ── Platform ───────────────────────────────────────────────────────────────
   { path: "/orders/:id",               component: OrderDetail },
-  { path: "/ink",                      component: PlannerLibrary },
   { path: "/ai-settings",              component: AiSettingsPage },
   { path: "/sync",                     component: SyncDashboard },
   { path: "/calendar",                 component: CalendarPage },

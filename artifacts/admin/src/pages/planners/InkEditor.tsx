@@ -222,7 +222,7 @@ export default function InkEditor() {
   const { id: plannerId } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const goBack = () => navigate("/daybook/ink");
+  const goBack = () => navigate("/super/ink");
 
   // ── All refs (read in callbacks without stale closures) ──────────────────
   const toolRef           = useRef<Tool>("pen");

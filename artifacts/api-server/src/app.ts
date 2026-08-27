@@ -8,6 +8,10 @@ import path from "node:path";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import "./lib/passport"; // configure passport strategies
+import {
+  createSessionStore,
+  SESSION_COOKIE_MAX_AGE_MS,
+} from "./lib/session-store";
 
 const app: Express = express();
 
@@ -54,13 +58,14 @@ const sessionSecret = process.env.SESSION_SECRET ?? "daybook-dev-secret-change-m
 app.use(
   session({
     secret: sessionSecret,
+    store: createSessionStore(),
     resave: false,
     saveUninitialized: false,
     cookie: {
       secure: "auto", // let express-session decide based on the connection (works with trust proxy)
       httpOnly: true,
       sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: SESSION_COOKIE_MAX_AGE_MS, // 7 days
     },
   }),
 );

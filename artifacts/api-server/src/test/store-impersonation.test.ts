@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import express, { type NextFunction, type Request, type Response } from "express";
 import session from "express-session";
 import request from "supertest";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
+  pool,
   auditLogTable,
   helpContentTable,
   ordersTable,
@@ -19,13 +20,49 @@ import ordersRouter from "../routes/orders";
 import meRouter from "../routes/me";
 import platformRouter from "../routes/platform";
 import supportRouter from "../routes/support";
+import {
+  createSessionStore,
+  SESSION_TABLE_NAME,
+} from "../lib/session-store";
 
 const actorId = `impersonation-sa-${Math.random().toString(36).slice(2, 10)}`;
 const orderId = `impersonation-order-${Math.random().toString(36).slice(2, 10)}`;
 const helpId = `impersonation-help-${Math.random().toString(36).slice(2, 10)}`;
 const alphaTicketId = `impersonation-ticket-alpha-${Math.random().toString(36).slice(2, 10)}`;
 const betaTicketId = `impersonation-ticket-beta-${Math.random().toString(36).slice(2, 10)}`;
+const sessionTableName = `${SESSION_TABLE_NAME}_test_${Math.random().toString(36).slice(2, 10)}`;
 let actor: User;
+
+function makePersistentSessionApp(options: {
+  maxAge?: number;
+  pruneSessionInterval?: false | number;
+} = {}) {
+  const app = express();
+  const store = createSessionStore({
+    tableName: sessionTableName,
+    createTableIfMissing: true,
+    pruneSessionInterval: options.pruneSessionInterval ?? false,
+  });
+  app.use(session({
+    secret: "persistent-session-test-secret",
+    store,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: options.maxAge ?? 7 * 24 * 60 * 60 * 1000 },
+  }));
+  app.post("/test/login", (req, res, next) => {
+    req.session.passport = { user: actorId };
+    req.session.save((err) => (err ? next(err) : res.sendStatus(204)));
+  });
+  app.get("/test/me", (req, res) => {
+    res.json({ userId: req.session.passport?.user ?? null });
+  });
+  return { app, store };
+}
+
+async function dropPersistentSessionTable() {
+  await pool.query(`DROP TABLE IF EXISTS "${sessionTableName}"`);
+}
 
 function makeSessionApp() {
   const app = express();
@@ -378,5 +415,61 @@ describe("store impersonation session lifecycle", () => {
 
     const otherStore = await agent.get("/api/stores/store-beta");
     expect(otherStore.status).toBe(200);
+  });
+});
+
+describe("persistent admin session lifecycle", () => {
+  beforeAll(dropPersistentSessionTable);
+  beforeEach(dropPersistentSessionTable);
+  afterAll(dropPersistentSessionTable);
+
+  it("shares login sessions across recreated API instances", async () => {
+    const first = makePersistentSessionApp();
+    const login = await request(first.app).post("/test/login").expect(204);
+    const cookie = login.headers["set-cookie"];
+    expect(cookie).toBeDefined();
+
+    const second = makePersistentSessionApp();
+    const restored = await request(second.app)
+      .get("/test/me")
+      .set("Cookie", cookie);
+
+    expect(restored.status).toBe(200);
+    expect(restored.body).toEqual({ userId: actorId });
+    await first.store.close();
+    await second.store.close();
+  });
+
+  it("does not restore a session after its configured expiry", async () => {
+    const first = makePersistentSessionApp({ maxAge: 1_100 });
+    const login = await request(first.app).post("/test/login").expect(204);
+    const cookie = login.headers["set-cookie"];
+    await new Promise((resolve) => setTimeout(resolve, 2_300));
+
+    const second = makePersistentSessionApp({ maxAge: 1_100 });
+    const expired = await request(second.app)
+      .get("/test/me")
+      .set("Cookie", cookie);
+
+    expect(expired.status).toBe(200);
+    expect(expired.body).toEqual({ userId: null });
+    await first.store.close();
+    await second.store.close();
+  });
+
+  it("automatically prunes expired session records", async () => {
+    const persistent = makePersistentSessionApp({
+      maxAge: 1_100,
+      pruneSessionInterval: 0.05,
+    });
+    await request(persistent.app).post("/test/login").expect(204);
+
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    const records = await pool.query(
+      `SELECT sid FROM "${sessionTableName}"`,
+    );
+
+    expect(records.rowCount).toBe(0);
+    await persistent.store.close();
   });
 });

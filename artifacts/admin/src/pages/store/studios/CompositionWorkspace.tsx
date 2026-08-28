@@ -67,6 +67,19 @@ function pagesFor(planner: StorePlannerConfig): Page[] {
   return pages;
 }
 
+function generatedPageCount(type: string, planner: StorePlannerConfig): number {
+  if (["cover", "home", "year", "todo", "notes"].includes(type)) return 1;
+  if (type === "section-divider") return planner.style.sections?.length ?? 0;
+  if (type === "note-paper") return planner.style.notePaper === "mixed" ? 3 : 1;
+  if (type === "month-divider" || type === "month-calendar") return Math.max(1, planner.setup.monthCount || 12);
+  const start = new Date(Date.UTC(planner.setup.startYear, planner.setup.startMonth, 1));
+  const end = new Date(Date.UTC(planner.setup.startYear, planner.setup.startMonth + Math.max(1, planner.setup.monthCount || 12), 1));
+  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000);
+  if (type === "daily") return days;
+  const leadingDays = (start.getUTCDay() - (planner.setup.weekStart === "mon" ? 1 : 0) + 7) % 7;
+  return Math.ceil((days + leadingDays) / 7);
+}
+
 export default function CompositionWorkspace({ storeId, planner, onSaved }: Props) {
   const { data: widgets = [], isLoading: widgetsLoading } = useQuery<Widget[]>({ queryKey: ["widgets", storeId], queryFn: () => widgetsApi.list(storeId) });
   const compositionQuery = useQuery<StorePlannerComposition>({ queryKey: ["planner-composition", storeId, planner.id], queryFn: () => storePlannersApi.getComposition(storeId, planner.id) });
@@ -92,6 +105,7 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
   );
   const selectedPlacement = composition.placements.find((p) => p.id === selected);
   const selectedWidget = widgets.find((w) => w.id === selectedPlacement?.widgetId);
+  const selectedPageCount = selectedPlacement ? generatedPageCount(selectedPlacement.pageType, planner) : 1;
   const save = useMutation({
     mutationFn: () => storePlannersApi.saveComposition(storeId, planner.id, composition),
     onSuccess: async () => {
@@ -99,6 +113,7 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
       onSaved(await storePlannersApi.get(storeId, planner.id));
     },
   });
+  const saveError = save.error instanceof Error ? save.error.message : null;
 
   const update = (id: string, patch: Partial<PlannerWidgetPlacement>) =>
     setComposition((c) => ({ ...c, placements: c.placements.map((p) => p.id === id ? { ...p, ...patch } : p) }));
@@ -135,7 +150,7 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
   return <div className="min-h-full bg-background text-foreground">
     <div className="border-b border-border bg-card px-5 py-4 flex items-center justify-between gap-4">
       <div><p className="text-[10px] uppercase tracking-[.2em] text-primary font-semibold">Composition desk</p><h2 className="font-serif text-2xl">Inserts & widgets</h2><p className="text-xs text-muted-foreground mt-1">Place once, repeat with confidence. Coordinates stay production-safe.</p></div>
-      <div className="flex items-center gap-3"><span data-testid="status-composition-save" className={`text-xs ${save.isError ? "text-destructive" : "text-muted-foreground"}`}>{save.isPending ? "Saving…" : save.isError ? "Save failed — try again" : save.isSuccess ? "Saved just now" : "Unsaved changes"}</span><Button data-testid="button-save-composition" onClick={() => save.mutate()} disabled={save.isPending} className="bg-foreground text-background hover:bg-foreground/90"><Save className="w-4 h-4 mr-2" /> Save composition</Button></div>
+      <div className="flex items-center gap-3"><span data-testid="status-composition-save" role={save.isError ? "alert" : undefined} className={`text-xs ${save.isError ? "text-destructive" : "text-muted-foreground"}`}>{save.isPending ? "Saving…" : save.isError ? saveError ?? "Save failed — check the placement settings" : save.isSuccess ? "Saved just now" : "Unsaved changes"}</span><Button data-testid="button-save-composition" onClick={() => save.mutate()} disabled={save.isPending} className="bg-foreground text-background hover:bg-foreground/90"><Save className="w-4 h-4 mr-2" /> Save composition</Button></div>
     </div>
     <div className="grid grid-cols-[220px_minmax(420px,1fr)_250px] min-h-[680px] max-lg:grid-cols-[190px_minmax(420px,1fr)]">
       <aside className="border-r border-border bg-muted/40 p-3 overflow-y-auto max-h-[calc(100vh-190px)]">
@@ -189,11 +204,14 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
               <div className="grid grid-cols-2 gap-2">
                 <label className="text-[10px] font-medium">
                   From
-                  <Input type="number" min={0} value={selectedPlacement.rangeStart ?? selectedPlacement.pageIndex} onChange={(e) => update(selectedPlacement.id, { rangeStart: Math.max(0, Number(e.target.value)) })} className="mt-1 h-8" />
+                  <Input type="number" min={0} max={Math.max(0, selectedPageCount - 1)} value={selectedPlacement.rangeStart ?? selectedPlacement.pageIndex} onChange={(e) => {
+                    const rangeStart = Math.min(Math.max(0, Number(e.target.value)), Math.max(0, selectedPageCount - 1));
+                    update(selectedPlacement.id, { rangeStart, rangeEnd: Math.max(rangeStart, Math.min(selectedPlacement.rangeEnd ?? rangeStart, Math.max(0, selectedPageCount - 1))) });
+                  }} className="mt-1 h-8" />
                 </label>
                 <label className="text-[10px] font-medium">
                   Through
-                  <Input type="number" min={selectedPlacement.rangeStart ?? 0} value={selectedPlacement.rangeEnd ?? selectedPlacement.pageIndex} onChange={(e) => update(selectedPlacement.id, { rangeEnd: Math.max(selectedPlacement.rangeStart ?? 0, Number(e.target.value)) })} className="mt-1 h-8" />
+                  <Input type="number" min={selectedPlacement.rangeStart ?? 0} max={Math.max(0, selectedPageCount - 1)} value={selectedPlacement.rangeEnd ?? selectedPlacement.pageIndex} onChange={(e) => update(selectedPlacement.id, { rangeEnd: Math.min(Math.max(selectedPlacement.rangeStart ?? 0, Number(e.target.value)), Math.max(0, selectedPageCount - 1)) })} className="mt-1 h-8" />
                 </label>
               </div>
             )}

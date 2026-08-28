@@ -18,6 +18,7 @@ import {
   LogOut,
   Megaphone,
   Package,
+  PanelLeft,
   Palette,
   Receipt,
   Rocket,
@@ -52,6 +53,7 @@ type NavItem = {
 type NavGroup = { id: string; label: string; items: NavItem[] };
 
 const NAV_KEY = "daybook.nav.groups";
+const SIDEBAR_KEY = "daybook.nav.sidebar-collapsed";
 const NAV_DEFAULTS = {
   overview: true,
   platform: true,
@@ -72,6 +74,15 @@ function readGroupState(): Record<string, boolean> {
     return { ...NAV_DEFAULTS, ...parsed };
   } catch {
     return NAV_DEFAULTS;
+  }
+}
+
+function readSidebarCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === "true";
+  } catch {
+    return false;
   }
 }
 
@@ -176,6 +187,7 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
   const logout = useLogout();
   const { openAssistant } = useAiDrawer();
   const [groups, setGroups] = useState(readGroupState);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [pageHeaderTarget, setPageHeaderTarget] = useState<HTMLDivElement | null>(null);
   const storeId = store ? resolveStoreId(store) : "";
 
@@ -186,6 +198,14 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
       // Storage may be unavailable in private browsing; navigation still works.
     }
   }, [groups]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed));
+    } catch {
+      // Storage may be unavailable in private browsing; the sidebar still works.
+    }
+  }, [sidebarCollapsed]);
 
   const impersonation = (user as typeof user & {
     impersonation?: StoreImpersonation | null;
@@ -343,13 +363,23 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
 
   return (
     <div className="admin-layout">
-      <aside className="admin-sidebar">
+      <aside className={cn("admin-sidebar", sidebarCollapsed && "is-collapsed")}>
         <div className="admin-sidebar__header">
           <BookMarked className="h-5 w-5 shrink-0 text-[#C87560]" aria-hidden="true" />
           <div className="min-w-0">
             <p className="admin-brand">Daybook</p>
             <p className="admin-scope">{role === "super" ? "Platform admin" : store?.name ?? "Store admin"}</p>
           </div>
+          <button
+            type="button"
+            className="admin-sidebar__toggle"
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-expanded={!sidebarCollapsed}
+            title={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+          >
+            <PanelLeft className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
 
         <nav className="admin-sidebar__nav" aria-label="Admin navigation">

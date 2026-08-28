@@ -21,6 +21,12 @@ Selected-template Build mode is an immersive workspace: hide the outer template 
 
 **How to apply:** Keep template selection and cross-studio navigation outside focused Build. Drive canvas geometry from the live Build state, falling back to persisted setup only before live state is available.
 
+The shared admin navigation can collapse to a persistent 64px icon rail so focused planner work can reclaim the full content width; icon links must retain accessible labels and active-state styling.
+
+**Why:** The global navigation otherwise competes with the planner workspace even after the studio’s own outer rail is hidden.
+
+**How to apply:** Persist the collapsed preference locally, keep a visible accessible expand/collapse control, and leave the planner page rail and canvas independent of the global rail state.
+
 The Super Admin template canvas uses two persistent panels: Planner personalization contains page/widget composition and PDF preview; Structural visual system & output contains setup, theme, typography, inserts, binding, e-ink, generation, and publishing controls.
 
 **Why:** Separating page-level personalization from system-level template decisions keeps the primary canvas focused while retaining the existing complete build workflow.

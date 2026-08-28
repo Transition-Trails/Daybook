@@ -213,6 +213,27 @@
   border-bottom: 1px solid rgba(255,255,255,.09);
   flex-shrink: 0;
 }
+.admin-sidebar__toggle {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--admin-sidebar-muted);
+  cursor: pointer;
+  transition: background 160ms ease-out, color 160ms ease-out;
+}
+.admin-sidebar__toggle:hover,
+.admin-sidebar__toggle:focus-visible {
+  background: rgba(255,255,255,.08);
+  color: white;
+  outline: none;
+}
 
 .admin-brand {
   margin: 0;
@@ -351,6 +372,44 @@
 }
 .admin-icon-button:hover { background: rgba(255,255,255,.08); color: white; }
 
+/* Collapsed desktop rail: keep navigation discoverable as icons while giving
+   the planner the maximum possible working width. */
+.admin-sidebar.is-collapsed {
+  width: 64px;
+  flex-basis: 64px;
+}
+.admin-sidebar.is-collapsed .admin-sidebar__header {
+  padding: 0;
+  justify-content: center;
+}
+.admin-sidebar.is-collapsed .admin-sidebar__header > div,
+.admin-sidebar.is-collapsed .admin-sidebar__footer,
+.admin-sidebar.is-collapsed .admin-nav-group__header {
+  display: none;
+}
+.admin-sidebar.is-collapsed .admin-sidebar__nav {
+  padding: 12px 6px;
+}
+.admin-sidebar.is-collapsed .admin-nav-group {
+  margin-bottom: 6px;
+}
+.admin-sidebar.is-collapsed .admin-nav-group__items.is-collapsed {
+  grid-template-rows: 1fr;
+}
+.admin-sidebar.is-collapsed .admin-nav-item {
+  justify-content: center;
+  padding: 0;
+  border-left: 0;
+  border-right: 3px solid transparent;
+}
+.admin-sidebar.is-collapsed .admin-nav-item.is-active {
+  border-right-color: var(--admin-clay);
+}
+.admin-sidebar.is-collapsed .admin-nav-item > span,
+.admin-sidebar.is-collapsed .admin-nav-badge {
+  display: none;
+}
+
 .admin-main { min-width: 0; flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
 .admin-page-header {
   min-height: 64px;
@@ -460,6 +519,7 @@
   .admin-sidebar { width: 58px; flex-basis: 58px; }
   .admin-sidebar__header { padding: 0; justify-content: center; }
   .admin-sidebar__header > div, .admin-sidebar__footer, .admin-nav-group__header { display: none; }
+  .admin-sidebar__toggle { display: none; }
   .admin-sidebar__nav { padding: 12px 6px; }
   .admin-nav-group { margin-bottom: 6px; }
   .admin-nav-group__items { grid-template-rows: 1fr; }

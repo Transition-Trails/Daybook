@@ -1523,12 +1523,125 @@ export async function buildPdf(
 }
 
 // ── Preview PDF ───────────────────────────────────────────────────────────────
-// Renders a representative 8-9 page sample using the SAME drawing primitives
-// as buildPdf but skipping DB writes, Drive uploads, and large month ranges.
-// Pages: cover · home · year · month-divider · month-calendar · weekly · daily
-//        · notes hub · (optional) first section divider
+// Preview renders the real export, then copies a representative subset of its
+// pages. This deliberately trades a little preview latency for visual truth:
+// page geometry, backgrounds, fonts, links, widgets, and e-ink treatment all
+// come from buildPdf rather than a second approximation.
+
+function pageIdForTarget(map: PageIdMap, pageType: string, pageIndex: number): string | undefined {
+  const exact: Record<string, string> = {
+    cover: map.cover,
+    home: map.home,
+    year: map.year,
+    todo: map.todo,
+    notes: map.notes,
+  };
+  if (exact[pageType]) return pageIndex === 0 ? exact[pageType] : undefined;
+  const groups: Record<string, string[]> = {
+    "month-divider": map.monthDividers,
+    "month-calendar": map.monthCalendars,
+    weekly: map.weeklies,
+    daily: map.dailies,
+    "section-divider": map.sectionDividers,
+    "note-paper": map.notePaper,
+  };
+  return groups[pageType]?.[pageIndex];
+}
+
+export function selectPreviewPageIds(config: GeneratorConfig): string[] {
+  const map = generatePageIds(config);
+  const firstMonthDailyId = `d${config.setup.startYear}${String(config.setup.startMonth + 1).padStart(2, "0")}01`;
+  const selected = new Set<string>([
+    map.cover,
+    map.home,
+    map.year,
+    map.monthDividers[0],
+    map.monthCalendars[0],
+    map.weeklies[0],
+    map.dailies.includes(firstMonthDailyId) ? firstMonthDailyId : map.dailies[0],
+    map.notes,
+    map.sectionDividers[0],
+  ].filter((id): id is string => !!id));
+
+  for (const placement of config.style.composition?.placements ?? []) {
+    if (placement.settings?.visible === false) continue;
+    const indexes = new Set<number>([placement.pageIndex]);
+    if (placement.scope === "range") {
+      if (placement.rangeStart !== undefined) indexes.add(placement.rangeStart);
+      if (placement.rangeEnd !== undefined) indexes.add(placement.rangeEnd);
+    }
+    for (const index of indexes) {
+      const id = pageIdForTarget(map, placement.pageType, index);
+      if (id) selected.add(id);
+    }
+  }
+
+  const selectedSet = selected;
+  return flattenPageIds(map).filter((id) => selectedSet.has(id));
+}
 
 export async function buildPreviewPdf(
+  config: GeneratorConfig,
+  themeColors?: string[],
+  template: PlannerTemplate = DEFAULT_TEMPLATE,
+  background?: BackgroundSpec,
+  fontPairing?: ThemeFontPairing,
+  einkDevice?: string,
+  spine?: SpineSpec | null,
+  widgetSpecs?: WidgetRenderSpec[],
+  hotspotsByTemplate?: Map<string, UserHotspot[]>,
+): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[] }> {
+  const generated = await buildPdf(
+    config,
+    themeColors,
+    template,
+    background,
+    fontPairing,
+    hotspotsByTemplate,
+    !!config.output.inkFriendly,
+    einkDevice,
+    false,
+    spine,
+    widgetSpecs,
+  );
+  const source = await PDFDocument.load(generated.buffer);
+  const map = generatePageIds(config);
+  const flattened = flattenPageIds(map);
+  const sourceIndexes = new Map(flattened.map((id, index) => [id, index]));
+  const selectedIds = selectPreviewPageIds(config);
+  const indexes = selectedIds
+    .map((id) => sourceIndexes.get(id))
+    .filter((index): index is number => index !== undefined);
+  const selectedIndexes = new Set(indexes);
+  const retainedPageRefs = new Set(
+    indexes.map((index) => source.getPage(index).ref.objectNumber),
+  );
+  for (const index of indexes) {
+    const annots = source.getPage(index).node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+    if (!annots) continue;
+    for (let annotIndex = annots.size() - 1; annotIndex >= 0; annotIndex -= 1) {
+      const annot = source.context.lookup(annots.get(annotIndex));
+      if (!(annot instanceof PDFDict)) continue;
+      const destination = annot.lookupMaybe(PDFName.of("Dest"), PDFArray);
+      const target = destination?.get(0);
+      if (target instanceof PDFRef && !retainedPageRefs.has(target.objectNumber)) {
+        annots.remove(annotIndex);
+      }
+    }
+  }
+  for (let index = source.getPageCount() - 1; index >= 0; index -= 1) {
+    if (!selectedIndexes.has(index)) {
+      source.removePage(index);
+    }
+  }
+  return {
+    buffer: await source.save(),
+    pageCount: indexes.length,
+    fontSubstitutions: generated.fontSubstitutions,
+  };
+}
+
+async function buildLegacyPreviewPdf(
   config: GeneratorConfig,
   themeColors?: string[],
   template: PlannerTemplate = DEFAULT_TEMPLATE,

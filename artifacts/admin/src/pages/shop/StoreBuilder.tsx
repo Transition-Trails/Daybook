@@ -338,9 +338,7 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
       },
       style: { themeId: themeId || undefined, paletteId: paletteId || undefined, backgroundId: backgroundId || undefined, packs: selectedPacks, inserts: selectedInserts },
        output: { calMode, eventMins: 60, aiInPdf: false, saveToDrive },
-      // storeContext is included on the persisting generate call so the server can
-      // enforce entitlement for this store (starter items always pass; licensed items
-      // require subscriptionActive=true). Preview is non-persisting — no context needed.
+       // Store context scopes both previews and persisted generation to this seller.
       ...(includeStoreContext ? { storeContext: { storeId: store.id } } : {}),
     };
   }
@@ -354,8 +352,8 @@ function BuilderForm({ data, storeSlug }: BuilderFormProps) {
         const res = await fetch("/api/planners/preview", {
           method: "POST", signal: controller.signal,
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildBody()),
+          headers: { "Content-Type": "application/json", "x-store-id": store.id },
+          body: JSON.stringify(buildBody(true)),
         });
         if (!res.ok) return;
         const blob = await res.blob();

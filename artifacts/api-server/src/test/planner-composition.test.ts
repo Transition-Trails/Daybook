@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { PDFArray, PDFDocument, PDFRawStream } from "pdf-lib";
 import {
   InvalidPlannerCompositionError,
   placementAppliesToPage,
   validateCompositionTargets,
   validatePlannerComposition,
 } from "../lib/planner-composition";
-import { buildPreviewPdf } from "../lib/pdf-generator";
-import { generatePageIds } from "../lib/pdf-generator";
+import { buildPdf, buildPreviewPdf, generatePageIds, selectPreviewPageIds } from "../lib/pdf-generator";
 import { getPlannerPageCounts } from "@workspace/db/planner-pages";
 
 const placement = {
@@ -20,6 +20,15 @@ const placement = {
   h: 0.2,
   scope: "page" as const,
 };
+
+function pageContentBytes(document: PDFDocument, pageIndex: number): Buffer {
+  const contents = document.getPage(pageIndex).node.Contents();
+  const objects = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
+  return Buffer.concat(objects.map((object) => {
+    const stream = document.context.lookup(object);
+    return stream instanceof PDFRawStream ? Buffer.from(stream.getContents()) : Buffer.from(String(stream));
+  }));
+}
 
 describe("planner widget composition", () => {
   it.each([
@@ -170,6 +179,58 @@ describe("planner widget composition", () => {
 
     expect(result.pageCount).toBeGreaterThan(0);
     expect(result.buffer.byteLength).toBeGreaterThan(1_000);
+  });
+
+  it("copies a later repeated page from the export without changing its geometry or drawing stream", async () => {
+    const config = {
+      setup: {
+        weekStart: "mon" as const,
+        orientation: "landscape" as const,
+        startMonth: 0,
+        startYear: 2027,
+        monthCount: 2,
+      },
+      style: {
+        size: "A5" as const,
+        renderStyle: "flat" as const,
+        sections: ["Projects"],
+        composition: {
+          version: 1 as const,
+          placements: [{
+            ...placement,
+            pageIndex: 40,
+            settings: { label: "Later tracker", paletteSlot: "accent" as const, visible: true },
+          }],
+        },
+      },
+      output: { calMode: "none" as const, eventMins: 60 as const, aiInPdf: false },
+      sections: ["Projects"],
+    };
+    const widgets = [{
+      id: "widget-1",
+      name: "Test tracker",
+      svgData: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><rect width="100" height="60" fill="{{slot:accent}}"/></svg>',
+    }];
+    const ids = generatePageIds(config);
+    const selectedIds = selectPreviewPageIds(config);
+    const targetId = ids.dailies[40];
+    expect(selectedIds).toContain(targetId);
+
+    const [exported, preview] = await Promise.all([
+      buildPdf(config, ["#ffffff", "#172033", "#d2694f"], undefined, undefined, undefined, undefined, false, undefined, false, undefined, widgets),
+      buildPreviewPdf(config, ["#ffffff", "#172033", "#d2694f"], undefined, undefined, undefined, undefined, undefined, widgets),
+    ]);
+    const exportDocument = await PDFDocument.load(exported.buffer);
+    const previewDocument = await PDFDocument.load(preview.buffer);
+    const exportIndex = [
+      ids.cover, ids.home, ids.year,
+      ...ids.monthDividers, ...ids.monthCalendars, ...ids.weeklies, ...ids.dailies,
+      ids.todo, ids.notes, ...ids.sectionDividers, ...ids.notePaper,
+    ].indexOf(targetId);
+    const previewIndex = selectedIds.indexOf(targetId);
+
+    expect(previewDocument.getPage(previewIndex).getSize()).toEqual(exportDocument.getPage(exportIndex).getSize());
+    expect(pageContentBytes(previewDocument, previewIndex)).toEqual(pageContentBytes(exportDocument, exportIndex));
   });
 
   it("fails preview explicitly when a visible placement has no renderable widget", async () => {

@@ -543,9 +543,20 @@ function RightDock({
         <AiAssistant storeId={storeId} mode={mode} planner={planner} />
       ) : (
         <div className="flex-1 overflow-y-auto p-3 space-y-5 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" }}>
+          <div className="space-y-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Generated output preview</p>
+            <LivePreview planner={planner} storeId={storeId} />
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Built from the saved planner using the export renderer. Save composition changes before loading.
+            </p>
+          </div>
+          <div className="pt-3 border-t">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Illustrative guides</p>
+            <p className="text-[11px] text-muted-foreground mt-1">These miniatures explain page features; they are not output previews.</p>
+          </div>
           {/* Daily spread */}
           <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Daily Spread</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Daily spread guide</p>
             <DailySpreadPreview />
             <p className="text-[11px] text-muted-foreground leading-relaxed">
               Dates link to Google Calendar invites, plus daily task rows with checkbox automation.
@@ -553,19 +564,12 @@ function RightDock({
           </div>
           {/* Index & instructions */}
           <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Index & Instructions</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Index & instructions guide</p>
             <IndexPreview />
             <p className="text-[11px] text-muted-foreground leading-relaxed">
               Contents page is hyperlinked. The welcome page carries your brand voice.
             </p>
           </div>
-          {/* PDF preview link */}
-          {planner.drive.pdfFileId && (
-            <div className="space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Full PDF</p>
-              <LivePreview planner={planner} storeId={storeId} />
-            </div>
-          )}
         </div>
       )}
     </aside>
@@ -1750,14 +1754,21 @@ function AiAssistant({ storeId, mode, planner }: { storeId: string; mode: Studio
 function LivePreview({ planner, storeId }: { planner: StorePlannerConfig; storeId: string }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [fontSubstitutions, setFontSubstitutions] = useState<string[]>([]);
+  const [previewPages, setPreviewPages] = useState<number | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => () => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+  }, []);
 
   const loadPreview = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/planners/preview", {
         method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-store-id": storeId },
         body: JSON.stringify({
           plannerId: planner.id,
           storeContext: { storeId },
@@ -1767,29 +1778,42 @@ function LivePreview({ planner, storeId }: { planner: StorePlannerConfig; storeI
           sections: planner.style.sections ?? [],
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error || `Preview request failed with HTTP ${res.status}`);
+      }
+      setFontSubstitutions((res.headers.get("X-Font-Substitutions") ?? "").split(",").map((value) => value.trim()).filter(Boolean));
+      const pageHeader = Number(res.headers.get("X-Preview-Pages"));
+      setPreviewPages(Number.isFinite(pageHeader) && pageHeader > 0 ? pageHeader : null);
       const blob = new Blob([await res.arrayBuffer()], { type: "application/pdf" });
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(URL.createObjectURL(blob));
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      const nextUrl = URL.createObjectURL(blob);
+      previewUrlRef.current = nextUrl;
+      setPreviewUrl(nextUrl);
     } catch (err) {
-      toast({ title: "Preview failed", description: String(err), variant: "destructive" });
+      toast({ title: "Preview failed", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
     } finally { setLoading(false); }
-  }, [planner, previewUrl, storeId, toast]);
+  }, [planner, storeId, toast]);
 
   return (
     <div className="rounded-lg border overflow-hidden">
       <div className="flex items-center justify-between p-2 border-b bg-muted/30">
-        <p className="text-[11px] font-medium text-muted-foreground">PDF preview</p>
-        <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={loadPreview} disabled={loading}>
+        <div><p className="text-[11px] font-medium">Export-rendered PDF</p>{previewPages && <p className="text-[9px] text-muted-foreground">{previewPages} representative pages</p>}</div>
+        <Button data-testid="button-load-output-preview" size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={loadPreview} disabled={loading}>
           {loading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
-          {loading ? "" : "Load"}
+          {loading ? "" : previewUrl ? "Refresh" : "Load"}
         </Button>
       </div>
       {previewUrl ? (
-        <iframe src={`${previewUrl}#view=FitH`} className="w-full h-48 border-0" title="PDF Preview" />
+        <iframe data-testid="frame-output-preview" src={`${previewUrl}#view=FitH`} className="w-full h-48 border-0" title="Export-rendered planner preview" />
       ) : (
         <div className="flex items-center justify-center h-24 text-xs text-muted-foreground">
           <Eye className="w-4 h-4 mr-1.5 opacity-40" /> Click Load to preview
+        </div>
+      )}
+      {fontSubstitutions.length > 0 && (
+        <div role="alert" className="border-t bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-900">
+          Font fallback: {fontSubstitutions.join(", ")} could not be embedded.
         </div>
       )}
     </div>

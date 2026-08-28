@@ -14,6 +14,7 @@ import ordersRouter from "../routes/orders.js";
 import supportRouter from "../routes/support.js";
 import usersRouter from "../routes/users.js";
 import meRouter from "../routes/me.js";
+import plannersRouter from "../routes/planners.js";
 
 // ── Known seeded users ────────────────────────────────────────────────────────
 // These IDs match scripts/src/seed.ts exactly.
@@ -151,5 +152,6 @@ export function makeApp(user: User | null) {
   app.use("/api", supportRouter);
   app.use("/api", usersRouter);
   app.use("/api", meRouter);
+  app.use("/api", plannersRouter);
   return app;
 }

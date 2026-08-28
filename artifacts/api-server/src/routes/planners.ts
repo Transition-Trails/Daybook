@@ -17,11 +17,14 @@ import {
   plannerInteriorVersionsTable,
   spineStylesTable,
   widgetsTable,
+  plannerHotspotsTable,
   type ThemeFontPairing,
 } from "@workspace/db";
 import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
-import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec, type SpineSpec, type WidgetRenderSpec } from "../lib/pdf-generator";
+import { resolveStoreActorWithStoreHeader } from "../middleware/requireRole";
+import { canPreviewCatalogAsset } from "../lib/planner-preview-authorization";
+import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec, type SpineSpec, type WidgetRenderSpec, type UserHotspot } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
 import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
@@ -343,7 +346,7 @@ export async function runGeneration(
 // Phase 1: builder is new-planner-only — reexport lives at /planners/:id/reexport
 // and is NOT surfaced in any builder UI.
 
-router.post("/planners/preview", requireAuth, async (req, res): Promise<void> => {
+router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, async (req, res): Promise<void> => {
   const body = req.body as {
     editionId?: string;
     einkDevice?: string | null;
@@ -362,6 +365,18 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
   }
 
   try {
+    const storeId = body.storeContext?.storeId;
+    const actor = req.actor!;
+    if (storeId && !actor.isSuperAdmin) {
+      if (actor.storeId !== storeId) {
+        res.status(403).json({ error: "Forbidden: cross-store access denied" });
+        return;
+      }
+      if (!["store_owner", "store_staff"].includes(actor.storeRole ?? "")) {
+        res.status(403).json({ error: "Forbidden: store staff membership required" });
+        return;
+      }
+    }
     await refreshEinkCatalog();
     const requestedEinkDevice = body.einkDevice ?? body.output?.einkDevice ?? null;
     if (requestedEinkDevice && !getEinkPreset(requestedEinkDevice)) {
@@ -371,24 +386,35 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     // Resolve colors — same priority chain as runGeneration (palette > theme.colors > edition fallback).
     let themeColors: string[] | undefined;
     const previewStyle = body.style as (PlannerStyle & { themeId?: string; paletteId?: string; backgroundId?: string }) | undefined;
+    let previewTheme: typeof themesTable.$inferSelect | undefined;
+    if (previewStyle?.themeId) {
+      [previewTheme] = await db.select().from(themesTable).where(eq(themesTable.id, previewStyle.themeId));
+      if (previewTheme && !canPreviewCatalogAsset(actor, previewTheme)) {
+        throw new Error("Selected theme is not available to this store");
+      }
+    }
     let previewSpine: SpineSpec | null = null;
     if (previewStyle?.spineStyleId) {
       const [row] = await db.select().from(spineStylesTable).where(eq(spineStylesTable.id, previewStyle.spineStyleId));
+      if (row && !canPreviewCatalogAsset(actor, row)) throw new Error("Selected spine style is not available to this store");
       const binding = previewStyle.binding;
       if (row?.status === "live" && row.bindingType === binding?.type && row.finish === binding?.finish) previewSpine = row;
     }
 
     if (previewStyle?.paletteId) {
       const [pal] = await db.select().from(palettesTable).where(eq(palettesTable.id, previewStyle.paletteId));
+      if (pal && !canPreviewCatalogAsset(actor, pal)) throw new Error("Selected palette is not available to this store");
       if (pal) themeColors = pal.colors as string[];
     }
     if (!themeColors && previewStyle?.themeId) {
-      const [theme] = await db.select().from(themesTable).where(eq(themesTable.id, previewStyle.themeId));
-      if (theme) themeColors = theme.colors as string[];
+      if (previewTheme) themeColors = previewTheme.colors as string[];
     }
     let previewEdition: typeof editionsTable.$inferSelect | undefined;
     if (body.editionId) {
       [previewEdition] = await db.select().from(editionsTable).where(eq(editionsTable.id, body.editionId));
+      if (previewEdition && !canPreviewCatalogAsset(actor, previewEdition)) {
+        throw new Error("Selected edition is not available to this store");
+      }
       if (!themeColors && previewEdition) {
         const firstThemeId = (previewEdition.themes as string[])?.[0];
         if (firstThemeId) {
@@ -402,19 +428,21 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     let previewBackground: BackgroundSpec | undefined;
     if (previewStyle?.backgroundId) {
       const [bg] = await db
-        .select({ type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
+        .select()
         .from(backgroundsTable)
         .where(eq(backgroundsTable.id, previewStyle.backgroundId));
+      if (bg && !canPreviewCatalogAsset(actor, bg)) throw new Error("Selected background is not available to this store");
       if (bg) previewBackground = bg;
     }
     if (!previewBackground && previewStyle?.themeId) {
       const [bgRow] = await db
-        .select({ type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
+        .select({ type: backgroundsTable.type, assetRef: backgroundsTable.assetRef, authoredByStoreId: backgroundsTable.authoredByStoreId, status: backgroundsTable.status })
         .from(themeBackgroundsTable)
         .innerJoin(backgroundsTable, eq(themeBackgroundsTable.backgroundId, backgroundsTable.id))
         .where(eq(themeBackgroundsTable.themeId, previewStyle.themeId))
         .orderBy(asc(themeBackgroundsTable.position))
         .limit(1);
+      if (bgRow && !canPreviewCatalogAsset(actor, bgRow)) throw new Error("Selected theme background is not available to this store");
       if (bgRow) previewBackground = bgRow;
     }
 
@@ -439,11 +467,7 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
         if (merged.heading || merged.body || merged.accent) previewFontPairing = merged;
       }
       if (!previewFontPairing) {
-        const [themeRow] = await db
-          .select({ fontPairing: themesTable.fontPairing })
-          .from(themesTable)
-          .where(eq(themesTable.id, previewStyle.themeId));
-        if (themeRow?.fontPairing) previewFontPairing = themeRow.fontPairing as ThemeFontPairing;
+        if (previewTheme?.fontPairing) previewFontPairing = previewTheme.fontPairing as ThemeFontPairing;
       }
     }
 
@@ -464,16 +488,32 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     const previewEinkDevice = body.einkDevice ?? previewOutput.einkDevice ?? undefined;
     const previewInkFriendly = !!previewOutput.inkFriendly || (!!previewEinkDevice && getEinkRule("grayscale")?.enabled !== false);
     if (previewStyle?.composition?.placements?.length) {
-      const user = req.user as User;
       if (!body.plannerId || !body.storeContext?.storeId) throw new Error("Composition preview requires its store planner");
       const [ownedPlanner] = await db.select({ id: plannerConfigsTable.id }).from(plannerConfigsTable).where(and(
         eq(plannerConfigsTable.id, body.plannerId),
         eq(plannerConfigsTable.storeId, body.storeContext.storeId),
-        eq(plannerConfigsTable.userId, user.id),
       ));
       if (!ownedPlanner) throw new Error("Composition preview is not authorized");
     }
     const previewWidgetSpecs = await resolveWidgetRenderSpecs(previewStyle ?? {}, body.storeContext?.storeId);
+    let previewHotspots: Map<string, UserHotspot[]> | undefined;
+    if (storeId) {
+      const rows = await db.select().from(plannerHotspotsTable).where(eq(plannerHotspotsTable.storeId, storeId));
+      previewHotspots = new Map<string, UserHotspot[]>();
+      for (const hotspot of rows) {
+        const existing = previewHotspots.get(hotspot.templateKey) ?? [];
+        existing.push({
+          x: hotspot.x,
+          y: hotspot.y,
+          w: hotspot.w,
+          h: hotspot.h,
+          targetType: hotspot.targetType,
+          targetRef: hotspot.targetRef,
+          label: hotspot.label,
+        });
+        previewHotspots.set(hotspot.templateKey, existing);
+      }
+    }
     if (previewEdition?.interiorVersionId) {
       if (previewWidgetSpecs.length > 0) {
         throw new Error("Widget composition is not supported by authored planner interiors");
@@ -494,7 +534,7 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
       pageCount = authoredPreview.pageCount;
     } else {
       const sections = (body.style as PlannerStyle | undefined)?.sections ?? [];
-      const legacyPreview = await buildPreviewPdf(
+      const generatedPreview = await buildPreviewPdf(
         {
           setup: body.setup,
           style: body.style ?? {},
@@ -509,10 +549,11 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
         previewEinkDevice,
         previewSpine,
         previewWidgetSpecs,
+        previewHotspots,
       );
-      buffer = legacyPreview.buffer;
-      pageCount = legacyPreview.pageCount;
-      pvSubs = legacyPreview.fontSubstitutions;
+      buffer = generatedPreview.buffer;
+      pageCount = generatedPreview.pageCount;
+      pvSubs = generatedPreview.fontSubstitutions;
     }
 
     res.setHeader("Content-Type", "application/pdf");
@@ -527,7 +568,7 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     res.send(Buffer.from(buffer));
   } catch (err) {
     req.log.error({ err }, "Preview generation failed");
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

@@ -894,6 +894,38 @@ describe("authenticated user with no store membership — store routes 403", () 
   it("GET /api/audit → 403 (no owned stores)", async () => {
     expect((await request(noStore).get("/api/audit")).status).toBe(403);
   });
+
+  it("POST /api/planners/preview → 403 when a non-member forges matching store IDs for composition", async () => {
+    const res = await request(noStore)
+      .post("/api/planners/preview")
+      .set("x-store-id", "store-alpha")
+      .send({
+        plannerId: "known-store-planner",
+        storeContext: { storeId: "store-alpha" },
+        setup: { weekStart: "mon", orientation: "vertical", startMonth: 0, startYear: 2027, monthCount: 1 },
+        style: { composition: { version: 1, placements: [{ widgetId: "known-store-widget" }] } },
+      });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: "Forbidden: store staff membership required" });
+  });
+
+  it("POST /api/planners/preview → 403 before a non-member can resolve store assets", async () => {
+    const res = await request(noStore)
+      .post("/api/planners/preview")
+      .set("x-store-id", "store-alpha")
+      .send({
+        storeContext: { storeId: "store-alpha" },
+        setup: { weekStart: "mon", orientation: "vertical", startMonth: 0, startYear: 2027, monthCount: 1 },
+        style: {
+          paletteId: "known-store-palette",
+          themeId: "known-store-theme",
+          backgroundId: "known-store-background",
+          spineStyleId: "known-store-spine",
+        },
+      });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: "Forbidden: store staff membership required" });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

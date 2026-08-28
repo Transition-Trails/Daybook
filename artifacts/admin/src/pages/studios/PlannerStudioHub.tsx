@@ -346,21 +346,35 @@ function BuildPanel({
       style={{ borderColor: "hsl(var(--border))", background: PAPER_TINT }}
     >
       {/* Eyebrow */}
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-          {eyebrow}
-        </p>
-        {selectedItemName && (
+      <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+        {eyebrow}
+      </p>
+
+      {/* Selected library item — full-width so the active state is never clipped
+          on the narrower studio viewport. */}
+      {selectedItemName && (
+        <div className="flex items-center justify-between gap-3 rounded-[12px] border border-[#E8CFC7] bg-[#FEF0ED] px-3.5 py-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#A85B48]">
+              Library item loaded
+            </p>
+            <p className="mt-0.5 truncate text-[12.5px] font-semibold text-foreground">
+              {selectedItemName}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+              Describe the changes you want below, or clear this to start fresh.
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClearSelected}
-            className="max-w-[55%] truncate rounded-full border border-[#E8CFC7] bg-[#FEF0ED] px-2.5 py-1 text-[10px] font-semibold text-[#A85B48] hover:bg-[#FBE3DC]"
-            title={`Editing ${selectedItemName}`}
+            className="shrink-0 rounded-full border border-[#D8B0A5] bg-background px-3 py-1.5 text-[10.5px] font-semibold text-[#A85B48] hover:bg-white"
+            title={`Clear ${selectedItemName}`}
           >
-            Editing · {selectedItemName} · clear
+            Clear selection
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Drop zone */}
       <button

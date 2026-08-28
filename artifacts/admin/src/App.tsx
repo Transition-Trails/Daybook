@@ -75,6 +75,7 @@ import SuperHelp from "@/pages/super/HelpCenter";
 import SuperFlags from "@/pages/super/FeatureFlags";
 import SuperAudit from "@/pages/super/AuditLog";
 import SuperRecipes from "@/pages/super/ProductRecipes";
+import NewRecipe from "@/pages/super/NewRecipe";
 import SuperSupportInbox from "@/pages/super/SupportInbox";
 import ReleasesPage from "@/pages/super/Releases";
 import PlansList from "@/pages/plans";
@@ -303,8 +304,8 @@ function RootRouter() {
       <Route path="/super/flags">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperFlags /></SuperAdminShell></RequireSuperAdmin>
       </Route>
-      <Route path="/super/recipes/eink">
-        <RequireSuperAdmin state={state}><SuperAdminShell><SuperRecipes /></SuperAdminShell></RequireSuperAdmin>
+      <Route path="/super/recipes/new">
+        <RequireSuperAdmin state={state}><SuperAdminShell><NewRecipe /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       <Route path="/super/recipes">
         <RequireSuperAdmin state={state}><SuperAdminShell><SuperRecipes /></SuperAdminShell></RequireSuperAdmin>

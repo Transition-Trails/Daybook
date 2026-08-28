@@ -5,6 +5,7 @@
  * suggested articles, deep links, and authored help content use one vocabulary.
  */
 export const HELP_CATEGORIES = [
+  { key: "concepts", label: "Concepts" },
   { key: "building-planner", label: "Building a planner" },
   { key: "stickers-packs", label: "Stickers & packs" },
   { key: "exported-pdf", label: "Exported PDF" },

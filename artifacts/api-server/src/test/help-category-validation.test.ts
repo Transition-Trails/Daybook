@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { HELP_CATEGORIES, helpCategoryLabel, isHelpCategory } from "@workspace/api-zod";
 
 describe("canonical help categories", () => {
-  it("contains each owner and buyer support-area key", () => {
+  it("contains each canonical help category key", () => {
     expect(HELP_CATEGORIES.map(({ key }) => key)).toEqual([
+      "concepts",
       "building-planner",
       "stickers-packs",
       "exported-pdf",
@@ -20,6 +21,8 @@ describe("canonical help categories", () => {
   });
 
   it("accepts only canonical category keys and returns their labels", () => {
+    expect(isHelpCategory("concepts")).toBe(true);
+    expect(helpCategoryLabel("concepts")).toBe("Concepts");
     expect(isHelpCategory("building-planner")).toBe(true);
     expect(isHelpCategory("Building a planner")).toBe(false);
     expect(isHelpCategory("general")).toBe(false);

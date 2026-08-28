@@ -29,6 +29,7 @@ import {
   helpContentTable,
   spineStylesTable,
 } from "@workspace/db";
+import { RECIPE_HELP_CONTENT } from "./recipe-help-content";
 import { readFile } from "node:fs/promises";
 import bcrypt from "bcryptjs";
 import { seedStarterShapeRecipes, STARTER_SHAPE_RECIPES } from "./seed-sticker-shape-recipes";
@@ -363,6 +364,7 @@ async function main() {
 
   // ── Help content ───────────────────────────────────────────────────────────
   await db.insert(helpContentTable).values([
+    RECIPE_HELP_CONTENT,
     { id: "h-build-first", title: "Build your first planner", body: `## Getting started\n\nOpen the Planner Builder from the sidebar, select an edition, then walk through the three steps: Style (choose a theme), Sections (pick your inserts and packs), and Output (set year, orientation, and file format).\n\nClick **Generate** when ready — your PDF will appear in the Downloads panel within a few seconds.\n\n## Tips\n- Pick a theme that matches your brand first; colours drive the whole look.\n- Start with fewer inserts and add more once you're happy with the base layout.\n- The preview button shows the first 9 pages so you can spot layout issues before generating 400+ pages.`, category: "Getting started", kind: "article", scope: "platform", status: "live" },
     { id: "h-google-drive", title: "Connect Google Drive & Calendar", body: `## Why connect Google?\n\nConnecting your Google account lets Daybook:\n- **Back up** generated PDFs directly to a Drive folder.\n- **Pull calendar events** into day/week views inside the admin.\n- **Push planner schedules** to Google Calendar so your plan lives where you work.\n\n## How to connect\n1. Go to **Google Sync** in the sidebar.\n2. Click **Connect Google** — you'll be redirected to Google's OAuth screen.\n3. Grant the requested permissions (Drive, Calendar).\n4. You'll be redirected back; the Sync dashboard will show green status badges.\n\n## Reconnecting after token expiry\nGoogle tokens expire after roughly 1 hour. If you see a yellow banner saying "Your Google connection expired", click **Reconnect Google** to refresh silently.`, category: "Integrations", kind: "article", scope: "platform", status: "live" },
     { id: "h-ai-assistant", title: "Using the AI assistant", body: `## What the AI assistant does\n\nThe AI assistant helps you research trends, generate copy, and brainstorm edition themes.`, category: "Features", kind: "article", scope: "platform", status: "live" },

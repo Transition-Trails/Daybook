@@ -75,3 +75,4 @@
 - [Platform billing analytics](platform-billing-analytics.md) — MRR is yearly-ledger-only; trial conversion uses fully matured UTC monthly owner cohorts and preserves unscored periods
 - [Legacy admin redirects](legacy-admin-redirects.md) — canonicalization runs before auth/data loading so deep links replace reliably without mounting the legacy console
 - [Draft reconciliation readiness](draft-reconciliation-readiness.md) — cached operator drafts must wait for every authoritative query before reconciliation
+- [Task branch scope isolation](task-branch-scope-isolation.md) — completion review can include inherited branch commits; compare against origin/main and neutralize unrelated changes

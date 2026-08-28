@@ -96,7 +96,7 @@ function RightInspector({
     flex: 1, padding: "4px 0", fontSize: 11, cursor: "pointer",
     border: "1px solid", borderColor: active ? "#1B2A4A" : "#D1C9BE",
     background: active ? "#1B2A4A" : "transparent",
-    color: active ? "#fff" : "#4A6080", borderRadius: 5,
+    color: active ? "#fff" : "var(--admin-slate)", borderRadius: 5,
     fontWeight: active ? 600 : 400,
   });
   const lbl: React.CSSProperties = {
@@ -133,7 +133,7 @@ function RightInspector({
             width: "100%", padding: "5px 8px", borderRadius: 6, cursor: "pointer",
             border: `1px solid ${snapShapes ? "#C87560" : "#D1C9BE"}`,
             background: snapShapes ? "#FEF0ED" : "transparent",
-            color: snapShapes ? "#C87560" : "#4A6080",
+            color: snapShapes ? "#C87560" : "var(--admin-slate)",
             fontSize: 11, fontWeight: snapShapes ? 600 : 400, textAlign: "left",
           }}>
             {snapShapes ? "✓ Snap ON" : "Snap OFF"}
@@ -186,7 +186,7 @@ function RightInspector({
           <div style={lbl}>Lasso Select</div>
           {hasSel ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#4A6080" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--admin-slate)" }}>
                 {lassoSelection.size} stroke{lassoSelection.size > 1 ? "s" : ""} selected
               </div>
               <button onClick={onRecolorSelection} style={{
@@ -211,7 +211,7 @@ function RightInspector({
         </div>
       )}
 
-      {isHL && <div style={{ ...note, color: "#4A6080" }}>Highlighter blends at 38% opacity on canvas and export.</div>}
+      {isHL && <div style={{ ...note, color: "var(--admin-slate)" }}>Highlighter blends at 38% opacity on canvas and export.</div>}
     </div>
   );
 }
@@ -763,7 +763,7 @@ export default function InkEditor() {
   const railBtn = (active: boolean): React.CSSProperties => ({
     width: 44, height: 44, borderRadius: 10, border: "none",
     background: active ? "#1B2A4A" : "transparent",
-    color: active ? "#fff" : "#4A6080", cursor: "pointer",
+    color: active ? "#fff" : "var(--admin-slate)", cursor: "pointer",
     display: "flex", alignItems: "center", justifyContent: "center",
     transition: "background 0.12s", flexShrink: 0,
   });
@@ -974,7 +974,7 @@ export default function InkEditor() {
                 <button onClick={() => setShowPicker(false)} style={{
                   marginTop: 8, width: "100%", padding: "4px", fontSize: 11,
                   border: "1px solid #E7DCCB", borderRadius: 5, cursor: "pointer",
-                  background: "transparent", color: "#4A6080",
+                  background: "transparent", color: "var(--admin-slate)",
                 }}>
                   Done
                 </button>
@@ -1013,7 +1013,7 @@ export default function InkEditor() {
             width: 140, background: "#FFFDF9", borderRight: "1px solid #E7DCCB",
             padding: 10, display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", flexShrink: 0,
           }}>
-            <p style={{ fontSize: 11, fontWeight: 600, color: "#4A6080", margin: 0 }}>Stickers</p>
+            <p style={{ fontSize: 11, fontWeight: 600, color: "var(--admin-slate)", margin: 0 }}>Stickers</p>
             <p style={{ fontSize: 10, color: "#9CA3AF", margin: 0 }}>Click a sticker, then click the canvas to place it.</p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
               {STICKER_GLYPHS.map((g) => (
@@ -1036,10 +1036,10 @@ export default function InkEditor() {
           flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
           background: "#E5DDD3", position: "relative", overflow: "hidden",
         }}>
-          {pdfStatus === "loading" && <div style={{ color: "#4A6080", fontSize: 14 }}>Loading PDF…</div>}
+          {pdfStatus === "loading" && <div style={{ color: "var(--admin-slate)", fontSize: 14 }}>Loading PDF…</div>}
           {pdfStatus === "no-drive" && (
             <div style={{
-              color: "#4A6080", fontSize: 14, textAlign: "center", padding: 24,
+              color: "var(--admin-slate)", fontSize: 14, textAlign: "center", padding: 24,
               background: "#FFFDF9", borderRadius: 12, border: "1px solid #E7DCCB",
             }}>
               <p style={{ fontFamily: "'Spectral', serif", fontSize: 18, marginBottom: 8 }}>No PDF in Drive</p>

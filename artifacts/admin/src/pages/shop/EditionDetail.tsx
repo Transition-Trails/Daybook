@@ -31,7 +31,7 @@ interface EditionData {
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const T = {
   bg: "#F7F0E6", card: "#FFFDF9", border: "#E7DCCB",
-  navy: "#1B2A4A", clay: "#C87560", slate: "#4A6080", muted: "#7A8FA6",
+  navy: "#1B2A4A", clay: "#C87560", slate: "var(--admin-slate)", muted: "var(--admin-muted)",
 };
 
 // ── Fetch ─────────────────────────────────────────────────────────────────────

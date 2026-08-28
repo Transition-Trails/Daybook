@@ -64,7 +64,7 @@ function SuggestedStorylines({
   return (
     <section
       className="mb-6 rounded-2xl p-5"
-      style={{ background: "#FFFCF8", border: "1px solid #DDD4C4" }}
+      style={{ background: "var(--admin-card-subtle)", border: "1px solid #DDD4C4" }}
       aria-labelledby="storyline-suggestions-heading"
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -120,7 +120,7 @@ function SuggestedStorylines({
               </div>
               <h3 className="mt-3 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{suggestion.title}</h3>
               <p className="mt-1.5 line-clamp-3 text-xs leading-relaxed" style={{ color: "#667085" }}>{suggestion.rationale}</p>
-              <p className="mt-2 line-clamp-3 text-[11.5px] italic leading-relaxed" style={{ color: "#8A7B6A" }}>{suggestion.narrativePromise}</p>
+              <p className="mt-2 line-clamp-3 text-[11.5px] italic leading-relaxed" style={{ color: "var(--admin-faint)" }}>{suggestion.narrativePromise}</p>
               <button
                 onClick={() => onCreate(suggestion)}
                 className="mt-auto inline-flex self-start pt-3 text-xs font-semibold hover:underline"
@@ -240,7 +240,7 @@ export default function StoriesStudio() {
   }
 
   return (
-    <div className="h-full overflow-y-auto" style={{ background: "#FAF8F3" }}>
+    <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card)" }}>
       <div className="w-full px-7 py-7">
         <header className="flex flex-wrap items-start justify-between gap-4 mb-7">
           <div>
@@ -300,7 +300,7 @@ export default function StoriesStudio() {
           </section>
         ) : (
           <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
-            <aside className="rounded-2xl p-2.5" style={{ background: "white", border: "1px solid #E7E0D7" }}>
+            <aside className="rounded-2xl p-2.5" style={{ background: "white", border: "1px solid var(--admin-border)" }}>
               <p className="px-2.5 pt-1 pb-2 text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#98A2B3" }}>
                 In this world
               </p>
@@ -332,7 +332,7 @@ export default function StoriesStudio() {
             </aside>
 
             {selectedStory && (
-              <section className="rounded-2xl p-6" style={{ background: "white", border: "1px solid #E7E0D7" }}>
+              <section className="rounded-2xl p-6" style={{ background: "white", border: "1px solid var(--admin-border)" }}>
                 <div className="flex flex-wrap gap-3 items-start justify-between mb-5">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -345,7 +345,7 @@ export default function StoriesStudio() {
                       onChange={event => setTitleDraft(draft => ({ ...draft, [selectedStory.id]: event.target.value }))}
                       onBlur={() => saveStoryField(selectedStory, "title")}
                       className="mt-2 w-full border-b bg-transparent pb-1 text-2xl outline-none focus:border-[#C87560]"
-                      style={{ color: "#1B2A4A", borderColor: "#E7E0D7", fontFamily: "'Playfair Display', Georgia, serif" }}
+                      style={{ color: "#1B2A4A", borderColor: "var(--admin-border)", fontFamily: "'Playfair Display', Georgia, serif" }}
                     />
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-3 pt-5">
@@ -385,7 +385,7 @@ export default function StoriesStudio() {
                 </div>
                 <div className="mt-3 grid md:grid-cols-2 gap-3">
                   {selectedStory.acts.map(act => (
-                    <div key={act.id} className="rounded-xl p-4" style={{ background: "#FAF8F3", border: "1px solid #E7E0D7" }}>
+                    <div key={act.id} className="rounded-xl p-4" style={{ background: "var(--admin-card)", border: "1px solid var(--admin-border)" }}>
                       <p className="text-[10px] uppercase tracking-[0.13em] font-bold" style={{ color: "#C87560" }}>Movement {act.actNumber}</p>
                       <p className="mt-1 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{act.title}</p>
                       {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}

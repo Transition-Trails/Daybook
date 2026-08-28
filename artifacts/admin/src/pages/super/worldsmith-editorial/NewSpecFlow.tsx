@@ -652,7 +652,7 @@ export default function NewSpecFlow() {
   const canSubmit = !!(form.productionItem.trim() && form.componentType.trim() && selectedWorldId);
   const currentSection = SECTIONS[activeSection];
   return (
-    <div className="flex h-full overflow-hidden" style={{ background: "#FAF8F3" }}>
+    <div className="flex h-full overflow-hidden" style={{ background: "var(--admin-card)" }}>
       {/* Progress sidebar */}
       <aside className="flex flex-col border-r bg-white" style={{ width: 220, borderColor: "#E5E7EB" }}>
         <div className="px-4 pt-5 pb-3 border-b" style={{ borderColor: "#F3F4F6" }}>

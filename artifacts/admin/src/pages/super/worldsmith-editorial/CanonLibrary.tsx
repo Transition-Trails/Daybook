@@ -604,7 +604,7 @@ function InlineSuggestionsSection({
   return (
     <section
       className="mx-5 mb-7 mt-3 rounded-2xl p-5"
-      style={{ background: "#FFFCF8", border: "1px solid #DDD4C4" }}
+      style={{ background: "var(--admin-card-subtle)", border: "1px solid #DDD4C4" }}
       aria-labelledby="canon-suggestions-heading"
     >
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
@@ -690,7 +690,7 @@ function InlineSuggestionsSection({
                 <p className="mt-1.5 text-xs leading-relaxed line-clamp-3" style={{ color: "#667085" }}>
                   {suggestion.rationale}
                 </p>
-                <p className="mt-2 text-[11.5px] italic leading-relaxed line-clamp-3" style={{ color: "#8A7B6A" }}>
+                <p className="mt-2 text-[11.5px] italic leading-relaxed line-clamp-3" style={{ color: "var(--admin-faint)" }}>
                   {suggestion.narrativeDetails}
                 </p>
                 <button

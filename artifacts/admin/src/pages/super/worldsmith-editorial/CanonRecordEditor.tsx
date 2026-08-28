@@ -136,7 +136,7 @@ function ImageField({
         onClick={() => inputRef.current?.click()}
         disabled={uploading || generating}
         className="group flex w-full min-h-48 overflow-hidden rounded-xl border border-dashed transition-colors disabled:cursor-wait"
-        style={{ borderColor: portraitUrl ? "#D7CDC0" : "#CDBEAF", background: "#FAF8F3" }}
+        style={{ borderColor: portraitUrl ? "#D7CDC0" : "#CDBEAF", background: "var(--admin-card)" }}
       >
         {imageUrl ? (
           <img src={imageUrl} alt="Canon record reference" className="h-48 w-full object-cover" />
@@ -448,7 +448,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   );
 
   return (
-    <div className="h-full overflow-y-auto" style={{ background: "#FAF8F3" }}>
+    <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card)" }}>
       <header className="h-12 flex items-center gap-2 px-7 border-b bg-white" style={{ borderColor: BORDER }}>
         <span className="text-[11px]" style={{ color: "#98A2B3" }}>WorldSmith</span>
         <span className="text-[11px]" style={{ color: "#C9BFB2" }}>/</span>
@@ -502,7 +502,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_330px]"
         >
           <div className="space-y-5">
-            <section className="rounded-2xl border p-7" style={{ background: "#FFFCF8", borderColor: BORDER }}>
+            <section className="rounded-2xl border p-7" style={{ background: "var(--admin-card-subtle)", borderColor: BORDER }}>
               <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_230px]">
                 <label className="block">
                   <span className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "#786D60" }}>Record name</span>
@@ -579,7 +579,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                     <div className="mt-3 space-y-2">
                       {linkedSpecs.slice(0, 6).map(spec => (
                         <Link key={spec.id} href={`/super/worldsmith/editorial/specs/${spec.id}`}>
-                          <span className="flex cursor-pointer items-center gap-2 rounded-lg p-2 hover:bg-[#FAF8F3]">
+                          <span className="flex cursor-pointer items-center gap-2 rounded-lg p-2 hover:bg-[var(--admin-card)]">
                             <FileText className="h-3.5 w-3.5 shrink-0" style={{ color: "#98A2B3" }} />
                             <span className="min-w-0"><span className="block truncate text-xs font-medium" style={{ color: INK }}>{spec.productionItem}</span><span className="block truncate text-[10px]" style={{ color: "#98A2B3" }}>{spec.componentType}</span></span>
                           </span>

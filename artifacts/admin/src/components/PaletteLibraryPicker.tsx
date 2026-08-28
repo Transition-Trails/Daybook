@@ -60,7 +60,7 @@ export function PaletteLibraryPicker({
   const palettes = data ?? [];
 
   return (
-    <div className="mb-3 rounded-xl border border-[#E7E0D7] bg-[#FAF8F3] p-3">
+    <div className="mb-3 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card)] p-3">
       <button
         type="button"
         onClick={() => setOpen(current => !current)}
@@ -114,7 +114,7 @@ export function PaletteLibraryPicker({
                 }}
                 className="flex w-full items-center gap-3 rounded-lg border px-2.5 py-2 text-left transition-colors hover:border-[#C87560]/50"
                 style={{
-                  borderColor: selected ? "#C87560" : "#E7E0D7",
+                  borderColor: selected ? "#C87560" : "var(--admin-border)",
                   background: selected ? "#FFF7F3" : "white",
                 }}
               >

@@ -898,7 +898,7 @@ function StickerScalePreview({ sticker, onOpenEdit }: { sticker?: LibrarySticker
           position: "absolute", bottom: 6, left: 12, right: 12,
           display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
-          <span style={{ fontSize: 9, color: "#7A8FA6" }}>148mm A5</span>
+          <span style={{ fontSize: 9, color: "var(--admin-muted)" }}>148mm A5</span>
           <span style={{
             fontSize: 9,
             color:      isAtTrueScale ? "#3f6b4c" : "#92400e",

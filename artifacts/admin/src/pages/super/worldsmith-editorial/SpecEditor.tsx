@@ -290,7 +290,7 @@ function CompletionSidebar({
               <img
                 src={preview.preview_url}
                 alt={`Specification board for ${preview.production_item}`}
-                className="w-full rounded-md border border-gray-200 bg-[#FAF8F3]"
+                className="w-full rounded-md border border-gray-200 bg-[var(--admin-card)]"
               />
             </a>
             <a
@@ -1021,7 +1021,7 @@ export default function SpecEditor({ specId }: { specId: string }) {
           >
             <Trash2 className="w-4 h-4" />
           </button>
-          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#E7E0D7] bg-[#FAF8F3] px-3 py-1.5 text-xs font-semibold text-[#786D60]">
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--admin-border)] bg-[var(--admin-card)] px-3 py-1.5 text-xs font-semibold text-[#786D60]">
             <Lock className="h-3.5 w-3.5" /> Identity locked
           </span>
         </div>
@@ -1052,7 +1052,7 @@ export default function SpecEditor({ specId }: { specId: string }) {
 
           {/* Tab content — fills available width, no maxWidth cap */}
           <div className="flex-1 overflow-y-auto p-6">
-            <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[#E7E0D7] bg-[#FFFCF8] px-4 py-3 text-xs leading-relaxed text-[#786D60]">
+            <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card-subtle)] px-4 py-3 text-xs leading-relaxed text-[#786D60]">
               <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#C87560]" />
               <span>
                 Identity and creative-direction fields are locked after creation.{" "}

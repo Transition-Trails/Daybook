@@ -17,8 +17,8 @@ const T = {
   navy:    "#1B2A4A",
   clay:    "#C87560",
   green:   "#1E6E34",
-  slate:   "#4A6080",
-  muted:   "#7A8FA6",
+  slate:   "var(--admin-slate)",
+  muted:   "var(--admin-muted)",
   border:  "var(--border)",
   card:    "hsl(var(--card))",
   greenBg: "#E6F4EA",
@@ -29,7 +29,7 @@ const REASON_COLORS: Record<string, string> = {
   fixed_myself:             "#1B2A4A",
   answered_article_existed: "#1E6E34",
   answered_no_article:      "#C87560",
-  buyer_error:              "#4A6080",
+  buyer_error:              "var(--admin-slate)",
   product_defect:           "#C62828",
 };
 

@@ -12,7 +12,7 @@ import { CLOSE_REASONS, closeReasonLabel } from "@/pages/shop/close-reasons";
 
 const T = {
   navy: "#1B2A4A", clay: "#C87560", red: "#C62828",
-  green: "#1E6E34", slate: "#4A6080", muted: "#7A8FA6",
+  green: "#1E6E34", slate: "var(--admin-slate)", muted: "var(--admin-muted)",
   border: "var(--border)", card: "hsl(var(--card))",
   greenBg: "#E6F4EA", redBg: "#FDECEA", amberBg: "#FDF3F0",
 };

@@ -761,7 +761,7 @@ function CopilotPanelSession({
             </button>
           )}
           {!hasUsefulConversation && (
-            <span className="text-[10.5px] leading-tight" style={{ color: "#8A7B6A" }}>
+            <span className="text-[10.5px] leading-tight" style={{ color: "var(--admin-faint)" }}>
               Add a question and reply to make notes.
             </span>
           )}
@@ -791,7 +791,7 @@ function CopilotPanelSession({
                 </div>
                 <FileText className="w-4 h-4 shrink-0" style={{ color: CLAY }} />
               </div>
-              <p className="text-[10.5px] mt-2" style={{ color: "#8A7B6A" }}>
+              <p className="text-[10.5px] mt-2" style={{ color: "var(--admin-faint)" }}>
                 {summary.sourceWasLimited
                   ? `Based on the latest ${summary.sourceTurnCount} conversation turns`
                   : `Based on ${summary.sourceTurnCount} conversation turns`}
@@ -893,7 +893,7 @@ function CopilotPanelSession({
           <div className="flex justify-start">
             <div
               className="rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-[13px] flex items-center gap-2"
-              style={{ background: "#EDE4D8", color: "#8A7B6A" }}
+              style={{ background: "#EDE4D8", color: "var(--admin-faint)" }}
             >
               <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: CLAY }} />
               thinking…

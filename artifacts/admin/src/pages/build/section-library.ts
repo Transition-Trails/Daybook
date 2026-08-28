@@ -94,8 +94,8 @@ export const SECTION_LIBRARY: Record<string, SectionDef> = {
     options: [
       { id: "december-daily",  name: "December daily",  desc: "daily log, December dates",   swatch: "#8B2323" },
       { id: "christmas-daily", name: "Christmas daily", desc: "advent-formatted daily",       swatch: "#2B6B3E" },
-      { id: "weekly",          name: "Weekly",          desc: "weekly spread format",          swatch: "#4A6080" },
-      { id: "monthly",         name: "Monthly",         desc: "monthly overview page",         swatch: "#4A6080" },
+      { id: "weekly",          name: "Weekly",          desc: "weekly spread format",          swatch: "var(--admin-slate)" },
+      { id: "monthly",         name: "Monthly",         desc: "monthly overview page",         swatch: "var(--admin-slate)" },
       { id: "blank",           name: "Blank",           desc: "no insert pages",              swatch: "#E7DCCB" },
     ],
   },
@@ -124,8 +124,8 @@ export const SECTION_LIBRARY: Record<string, SectionDef> = {
       "This paper style is the most versatile match for the theme's palette.",
     optionGroupLabel: "PAPER RULING",
     options: [
-      { id: "lined",       name: "Lined",       desc: "classic ruled lines",   swatch: "#4A6080" },
-      { id: "dotted",      name: "Dotted",      desc: "5 mm dot grid",         swatch: "#4A6080" },
+      { id: "lined",       name: "Lined",       desc: "classic ruled lines",   swatch: "var(--admin-slate)" },
+      { id: "dotted",      name: "Dotted",      desc: "5 mm dot grid",         swatch: "var(--admin-slate)" },
       { id: "blank",       name: "Blank",       desc: "unruled white space",   swatch: "#FFFDF9" },
       { id: "watercolour", name: "Watercolour", desc: "textured wash paper",   swatch: "#A8C4D0" },
     ],
@@ -142,7 +142,7 @@ export const SECTION_LIBRARY: Record<string, SectionDef> = {
     options: [
       { id: "morning-pages",     name: "Morning pages",    desc: "3-question AM ritual",   swatch: "#C87560" },
       { id: "gratitude",         name: "Gratitude",        desc: "5 daily gratitudes",      swatch: "#22A66B" },
-      { id: "weekly-reflection", name: "Weekly reflection",desc: "end-of-week review",      swatch: "#4A6080" },
+      { id: "weekly-reflection", name: "Weekly reflection",desc: "end-of-week review",      swatch: "var(--admin-slate)" },
       { id: "none",              name: "No prompts",       desc: "pure writing space",      swatch: "#E7DCCB" },
     ],
   },
@@ -181,7 +181,7 @@ export const SECTION_LIBRARY: Record<string, SectionDef> = {
     optionGroupLabel: "COVER SOURCE",
     options: [
       { id: "theme-cover",   name: "Theme cover art", desc: "uses the theme's artwork",  swatch: "#C87560" },
-      { id: "custom-upload", name: "Custom upload",   desc: "your own PNG or SVG",        swatch: "#4A6080" },
+      { id: "custom-upload", name: "Custom upload",   desc: "your own PNG or SVG",        swatch: "var(--admin-slate)" },
       { id: "plain",         name: "Plain",           desc: "palette colour, no art",     swatch: "#E7DCCB" },
     ],
   },
@@ -196,8 +196,8 @@ export const SECTION_LIBRARY: Record<string, SectionDef> = {
     optionGroupLabel: "DATE MODE",
     options: [
       { id: "dated",     name: "Dated",     desc: "specific year printed", swatch: "#1B2A4A" },
-      { id: "undated",   name: "Undated",   desc: "reusable, no year",     swatch: "#4A6080" },
-      { id: "perpetual", name: "Perpetual", desc: "month / day, no year",  swatch: "#8A7B6A" },
+      { id: "undated",   name: "Undated",   desc: "reusable, no year",     swatch: "var(--admin-slate)" },
+      { id: "perpetual", name: "Perpetual", desc: "month / day, no year",  swatch: "var(--admin-faint)" },
     ],
   },
 };

@@ -35,8 +35,8 @@ const T = {
   border:  "#E7DCCB",
   navy:    "#1B2A4A",
   clay:    "#C87560",
-  slate:   "#4A6080",
-  muted:   "#7A8FA6",
+  slate:   "var(--admin-slate)",
+  muted:   "var(--admin-muted)",
 };
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
@@ -305,7 +305,7 @@ function UnavailableState() {
         <h2 style={{ fontFamily: "var(--app-font-display)", fontSize: 26, fontWeight: 600, color: "#1B2A4A", margin: "0 0 12px" }}>
           Store temporarily unavailable
         </h2>
-        <p style={{ color: "#4A6080", fontSize: 15, lineHeight: 1.6, margin: 0 }}>
+        <p style={{ color: "var(--admin-slate)", fontSize: 15, lineHeight: 1.6, margin: 0 }}>
           This store is currently paused. Please check back later or contact the store owner for more information.
         </p>
       </div>
@@ -318,12 +318,12 @@ function NotFoundState({ slug }: { slug: string }) {
     <div style={{ minHeight: "100vh", background: "#F7F0E6", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--app-font-sans)" }}>
       <div style={{ textAlign: "center", maxWidth: 420, padding: "0 24px" }}>
         <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#E7DCCB", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px" }}>
-          <BookMarked size={28} color="#4A6080" />
+          <BookMarked size={28} color="var(--admin-slate)" />
         </div>
         <h2 style={{ fontFamily: "var(--app-font-display)", fontSize: 26, fontWeight: 600, color: "#1B2A4A", margin: "0 0 12px" }}>
           Store not found
         </h2>
-        <p style={{ color: "#4A6080", fontSize: 15, lineHeight: 1.6 }}>
+        <p style={{ color: "var(--admin-slate)", fontSize: 15, lineHeight: 1.6 }}>
           We couldn't find a store at <strong>/{slug}</strong>. Double-check the link and try again.
         </p>
       </div>
@@ -335,7 +335,7 @@ function EmptySection({ message }: { message: string }) {
   return (
     <div style={{
       border: `1px dashed #E7DCCB`, borderRadius: 12,
-      padding: "36px 24px", textAlign: "center", color: "#7A8FA6", fontSize: 14,
+      padding: "36px 24px", textAlign: "center", color: "var(--admin-muted)", fontSize: 14,
     }}>
       {message}
     </div>

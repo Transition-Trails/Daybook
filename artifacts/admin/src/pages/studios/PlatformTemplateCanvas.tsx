@@ -118,10 +118,12 @@ export default function PlatformTemplateCanvas({
   template,
   onUpdated,
   preview,
+  settings,
 }: {
   template: PlatformPlannerConfig;
   onUpdated: (template: PlatformPlannerConfig) => void;
   preview: ReactNode;
+  settings: ReactNode;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -132,6 +134,7 @@ export default function PlatformTemplateCanvas({
   const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"compose" | "preview">("compose");
+  const [activeTab, setActiveTab] = useState<"personalization" | "system">("personalization");
   const [composition, setComposition] = useState<StorePlannerComposition>(
     template.style.composition ?? { version: 1, placements: [] },
   );
@@ -218,23 +221,73 @@ export default function PlatformTemplateCanvas({
         <div>
           <p className="text-[10px] uppercase tracking-[.18em] font-semibold text-muted-foreground">Template canvas</p>
           <h2 className="font-display text-lg font-semibold">{template.name}</h2>
-          <p className="text-xs text-muted-foreground">Choose a page, then fill its bounded widget spaces. Widgets cannot extend outside the safe area.</p>
+          <p className="text-xs text-muted-foreground">
+            Personalize the planner page, then define the structural visual system and output details.
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="rounded-full bg-muted p-1 flex">
-            <button onClick={() => setView("compose")} className={`px-3 py-1.5 rounded-full text-xs ${view === "compose" ? "bg-background shadow-sm font-semibold" : "text-muted-foreground"}`}>Compose</button>
-            <button onClick={() => setView("preview")} className={`px-3 py-1.5 rounded-full text-xs ${view === "preview" ? "bg-background shadow-sm font-semibold" : "text-muted-foreground"}`}>PDF preview</button>
-          </div>
           <Button onClick={() => save.mutate()} disabled={save.isPending} size="sm">
             <Save className="w-4 h-4 mr-2" />{save.isPending ? "Saving…" : "Save layout"}
           </Button>
         </div>
       </div>
 
-      {view === "preview" ? (
-        <div className="h-[720px]">{preview}</div>
-      ) : (
-        <div className="grid grid-cols-[190px_minmax(420px,1fr)_260px] min-h-[720px] max-xl:grid-cols-[160px_minmax(400px,1fr)] max-lg:grid-cols-1">
+      <div className="border-b bg-muted/20 px-5 pt-3">
+        <div className="flex gap-1" role="tablist" aria-label="Template canvas sections">
+          <button
+            role="tab"
+            aria-selected={activeTab === "personalization"}
+            onClick={() => setActiveTab("personalization")}
+            className={`border-b-2 px-3 pb-3 pt-1 text-xs font-semibold transition-colors ${
+              activeTab === "personalization"
+                ? "border-[#1B2A4A] text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="template-tab-personalization"
+          >
+            Planner personalization
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === "system"}
+            onClick={() => setActiveTab("system")}
+            className={`border-b-2 px-3 pb-3 pt-1 text-xs font-semibold transition-colors ${
+              activeTab === "system"
+                ? "border-[#1B2A4A] text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="template-tab-system"
+          >
+            Structural visual system &amp; output
+          </button>
+        </div>
+      </div>
+
+      <div
+        role="tabpanel"
+        aria-label="Planner personalization"
+        hidden={activeTab !== "personalization"}
+      >
+        <div className="flex items-center justify-end border-b px-5 py-3">
+          <div className="rounded-full bg-muted p-1 flex">
+            <button
+              onClick={() => setView("compose")}
+              className={`px-3 py-1.5 rounded-full text-xs ${view === "compose" ? "bg-background shadow-sm font-semibold" : "text-muted-foreground"}`}
+            >
+              Compose
+            </button>
+            <button
+              onClick={() => setView("preview")}
+              className={`px-3 py-1.5 rounded-full text-xs ${view === "preview" ? "bg-background shadow-sm font-semibold" : "text-muted-foreground"}`}
+            >
+              PDF preview
+            </button>
+          </div>
+        </div>
+        {view === "preview" ? (
+          <div className="h-[720px]">{preview}</div>
+        ) : (
+          <div className="grid grid-cols-[190px_minmax(420px,1fr)_260px] min-h-[720px] max-xl:grid-cols-[160px_minmax(400px,1fr)] max-lg:grid-cols-1">
           <aside className="border-r bg-muted/20 p-3 overflow-y-auto max-h-[720px] max-lg:max-h-48 max-lg:border-r-0 max-lg:border-b">
             <p className="text-[10px] uppercase tracking-[.18em] font-semibold text-muted-foreground mb-3">Planner pages</p>
             <div className="space-y-1.5">
@@ -328,8 +381,18 @@ export default function PlatformTemplateCanvas({
               </div>
             )}
           </aside>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
+
+      <div
+        role="tabpanel"
+        aria-label="Structural visual system and output details"
+        hidden={activeTab !== "system"}
+        className="border-t"
+      >
+        {settings}
+      </div>
     </div>
   );
 }

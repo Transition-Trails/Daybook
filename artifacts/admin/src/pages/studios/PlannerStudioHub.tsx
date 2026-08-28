@@ -3219,25 +3219,15 @@ export default function PlannerStudioHub() {
                 template={selectedTemplate}
               />
             }
-          />
-          <details className="rounded-2xl border bg-background group">
-            <summary className="list-none cursor-pointer px-5 py-4 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] uppercase tracking-[.18em] font-semibold text-muted-foreground">Template settings</p>
-                <p className="text-sm font-semibold">Structure, visual system, and output</p>
-              </div>
-              <span className="text-xs text-muted-foreground group-open:hidden">Open settings</span>
-              <span className="text-xs text-muted-foreground hidden group-open:inline">Close settings</span>
-            </summary>
-            <div className="border-t p-5">
+            settings={
               <BuildCenter
                 template={selectedTemplate}
                 onUpdated={handleTemplateUpdated}
                 onCreateNew={handleTemplateCreated}
                 onEinkDeviceChange={setPreviewEinkDevice}
               />
-            </div>
-          </details>
+            }
+          />
         </div>
       );
     }

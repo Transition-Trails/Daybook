@@ -17,6 +17,9 @@ export function RequireSuperAdmin({
   state: ConsoleState;
   children: React.ReactNode;
 }) {
+  // A hard reload starts with an unresolved /auth/me request. Do not turn that
+  // transient state into a permanent navigation to /unauthorized.
+  if (state.kind === "loading") return null;
   if (state.kind === "super") return <>{children}</>;
   return <Redirect to="/unauthorized" />;
 }
@@ -32,6 +35,10 @@ export function RequireStore({
   storeId: string | undefined;
   children: (store: ConsoleState["stores"][number]) => React.ReactNode;
 }) {
+  // Keep the requested URL stable while authentication and memberships load.
+  // Once resolved, the existing authorization checks below still fail closed.
+  if (state.kind === "loading") return null;
+
   // Platform admins enter store pages only through a live, server-issued
   // impersonation scope. A URL or synthetic role is not authorization.
   if (

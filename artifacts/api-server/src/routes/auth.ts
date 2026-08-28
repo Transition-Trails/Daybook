@@ -202,7 +202,8 @@ router.post("/auth/test-login", async (req, res): Promise<void> => {
     if (err) { res.status(500).json({ error: "Login failed" }); return; }
     req.session.save((saveErr) => {
       if (saveErr) {
-        res.status(500).json({ error: "Login session could not be saved" });
+        req.log.error({ err: saveErr }, "test login session save failed");
+        res.status(500).json({ error: "Login failed" });
         return;
       }
       const { passwordHash, googleAccessToken, googleRefreshToken, notionToken, ...safe } = user;
@@ -210,5 +211,4 @@ router.post("/auth/test-login", async (req, res): Promise<void> => {
     });
   });
 });
-
 export default router;

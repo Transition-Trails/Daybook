@@ -249,6 +249,35 @@ describe("RequireStore guard", () => {
   beforeEach(() => vi.stubGlobal("fetch", makeFetch()));
   afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
+  it("does not redirect a protected reload while authentication is loading", () => {
+    const loadingState: ConsoleState = {
+      kind: "loading",
+      user: undefined,
+      stores: [],
+      primaryStore: undefined,
+    };
+    const qc = makeQc();
+    render(
+      <Wrapper path="/store/store-test" qc={qc}>
+        <Switch>
+          <Route path="/store/:sid">
+            {(p) => (
+              <RequireStore state={loadingState} storeId={p.sid}>
+                {() => <div data-testid="should-not-render">secret content</div>}
+              </RequireStore>
+            )}
+          </Route>
+          <Route path="/unauthorized">
+            <div data-testid="unauthorized-page">Access denied</div>
+          </Route>
+        </Switch>
+      </Wrapper>,
+    );
+
+    expect(screen.queryByTestId("unauthorized-page")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("should-not-render")).not.toBeInTheDocument();
+  });
+
   it("denies super_admin store access without a server-issued scope", () => {
     const qc = makeQc();
     render(

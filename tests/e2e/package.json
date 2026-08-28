@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "playwright test",
-    "test:development-browser": "pnpm --filter @workspace/scripts run seed:ci && NODE_ENV=development PLAYWRIGHT_BASE_URL=\"${PLAYWRIGHT_BASE_URL:-https://${REPLIT_DEV_DOMAIN}}\" playwright test journeys/editorial-navigation.spec.ts",
+    "test:development-browser": "pnpm --filter @workspace/scripts run seed:ci && NODE_ENV=development PLAYWRIGHT_BASE_URL=\"${PLAYWRIGHT_BASE_URL:-https://${REPLIT_DEV_DOMAIN}}\" playwright test journeys/editorial-navigation.spec.ts journeys/planner-composition-reload.spec.ts",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",

@@ -4,20 +4,7 @@ import type {
   PlannerStyle,
   PlannerWidgetPlacement,
 } from "@workspace/db";
-
-export const PLANNER_PAGE_TYPES = [
-  "cover",
-  "home",
-  "year",
-  "month-divider",
-  "month-calendar",
-  "weekly",
-  "daily",
-  "todo",
-  "notes",
-  "section-divider",
-  "note-paper",
-] as const;
+import { getPlannerPageCounts, PLANNER_PAGE_TYPES, type PlannerPageType } from "@workspace/db/planner-pages";
 
 const PAGE_TYPE_SET = new Set<string>(PLANNER_PAGE_TYPES);
 const SAFE_INSET = 0.06;
@@ -128,25 +115,9 @@ export function validateCompositionTargets(
   setup: PlannerSetup,
   style: PlannerStyle,
 ): void {
-  const start = new Date(Date.UTC(setup.startYear, setup.startMonth, 1));
-  const end = new Date(Date.UTC(setup.startYear, setup.startMonth + setup.monthCount, 1));
-  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000);
-  const leadingDays = (start.getUTCDay() - (setup.weekStart === "mon" ? 1 : 0) + 7) % 7;
-  const counts: Record<string, number> = {
-    cover: 1,
-    home: 1,
-    year: 1,
-    "month-divider": setup.monthCount,
-    "month-calendar": setup.monthCount,
-    weekly: Math.ceil((days + leadingDays) / 7),
-    daily: days,
-    todo: 1,
-    notes: 1,
-    "section-divider": style.sections?.length ?? 0,
-    "note-paper": style.notePaper === "mixed" ? 3 : 1,
-  };
+  const counts = getPlannerPageCounts(setup, style);
   for (const placement of composition.placements) {
-    const count = counts[placement.pageType] ?? 0;
+    const count = counts[placement.pageType as PlannerPageType] ?? 0;
     const finalIndex = placement.scope === "range" ? placement.rangeEnd! : placement.pageIndex;
     if (count === 0 || placement.pageIndex >= count || finalIndex >= count) {
       throw new InvalidPlannerCompositionError(

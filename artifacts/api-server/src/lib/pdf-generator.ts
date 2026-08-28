@@ -39,6 +39,7 @@ import type {
   PlannerWidgetPlacement,
   ThemeFontPairing,
 } from "@workspace/db";
+import { getPlannerPageCounts } from "@workspace/db/planner-pages";
 import { sanitizeSvg } from "./svg-contract";
 import { placementAppliesToPage } from "./planner-composition";
 import {
@@ -315,6 +316,7 @@ export function generatePageIds(config: GeneratorConfig): PageIdMap {
   const { startMonth, startYear, monthCount, weekStart } = setup;
   const tabPos = style.tabPos ?? "right";
   const notePaper = style.notePaper ?? "dot";
+  const pageCounts = getPlannerPageCounts(setup, { sections, notePaper });
 
   const map: PageIdMap = {
     cover: "cover",
@@ -347,12 +349,9 @@ export function generatePageIds(config: GeneratorConfig): PageIdMap {
   }
 
   const startDate = new Date(startYear, startMonth, 1);
-  const { year: endYear, month: endMonth } = addMonths(startYear, startMonth, monthCount - 1);
-  const endDate = new Date(endYear, endMonth, daysInMonth(endYear, endMonth));
-
   const weeksSeen = new Set<string>();
   const cursor = getPlannerWeekStart(startDate, weekStart);
-  while (cursor.getTime() <= endDate.getTime()) {
+  for (let i = 0; i < pageCounts.weekly; i++) {
     const weekId = getISOWeekId(cursor);
     if (!weeksSeen.has(weekId)) { weeksSeen.add(weekId); map.weeklies.push(weekId); }
     cursor.setDate(cursor.getDate() + 7);
@@ -362,8 +361,7 @@ export function generatePageIds(config: GeneratorConfig): PageIdMap {
     map.sectionDividers.push(`ns${i}`);
   }
 
-  const paperCount = notePaper === "mixed" ? 3 : 1;
-  for (let i = 0; i < paperCount; i++) {
+  for (let i = 0; i < pageCounts["note-paper"]; i++) {
     map.notePaper.push(`notes-p${i}`);
   }
 

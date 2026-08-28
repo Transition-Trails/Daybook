@@ -6,6 +6,8 @@ import {
   validatePlannerComposition,
 } from "../lib/planner-composition";
 import { buildPreviewPdf } from "../lib/pdf-generator";
+import { generatePageIds } from "../lib/pdf-generator";
+import { getPlannerPageCounts } from "@workspace/db/planner-pages";
 
 const placement = {
   id: "placement-1",
@@ -20,6 +22,42 @@ const placement = {
 };
 
 describe("planner widget composition", () => {
+  it.each([
+    { weekStart: "mon" as const, startMonth: 0, startYear: 2027, monthCount: 1, sections: [] as string[], notePaper: "dot" as const },
+    { weekStart: "sun" as const, startMonth: 11, startYear: 2027, monthCount: 2, sections: ["Goals", "Projects"], notePaper: "mixed" as const },
+    { weekStart: "mon" as const, startMonth: 1, startYear: 2028, monthCount: 12, sections: ["Journal"], notePaper: "lined" as const },
+  ])("keeps shared page counts aligned with generated export pages", (scenario) => {
+    const setup = {
+      weekStart: scenario.weekStart,
+      orientation: "vertical" as const,
+      startMonth: scenario.startMonth,
+      startYear: scenario.startYear,
+      monthCount: scenario.monthCount,
+    };
+    const style = { sections: scenario.sections, notePaper: scenario.notePaper };
+    const counts = getPlannerPageCounts(setup, style);
+    const ids = generatePageIds({
+      setup,
+      style,
+      output: { calMode: "none", eventMins: 60, aiInPdf: false },
+      sections: scenario.sections,
+    });
+
+    expect({
+      cover: ids.cover ? 1 : 0,
+      home: ids.home ? 1 : 0,
+      year: ids.year ? 1 : 0,
+      "month-divider": ids.monthDividers.length,
+      "month-calendar": ids.monthCalendars.length,
+      weekly: ids.weeklies.length,
+      daily: ids.dailies.length,
+      todo: ids.todo ? 1 : 0,
+      notes: ids.notes ? 1 : 0,
+      "section-divider": ids.sectionDividers.length,
+      "note-paper": ids.notePaper.length,
+    }).toEqual(counts);
+  });
+
   it("accepts versioned placements inside the safe area", () => {
     expect(validatePlannerComposition({ version: 1, placements: [placement] })).toEqual({
       version: 1,

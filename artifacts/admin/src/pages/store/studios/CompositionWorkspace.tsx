@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { storePlannersApi, widgetsApi, type PlannerWidgetPlacement, type StorePlannerComposition, type StorePlannerConfig, type Widget } from "@/lib/api";
+import { getPlannerPageCounts, getPlannerPageDescriptors, type PlannerPageType } from "@workspace/db/planner-pages";
 
 const cleanSvg = (raw: string | null) => {
   if (!raw) return "";
@@ -32,52 +33,32 @@ type Props = {
 type Page = { type: string; label: string; index: number; detail: string };
 
 function pagesFor(planner: StorePlannerConfig): Page[] {
-  const count = Math.max(1, planner.setup.monthCount || 12);
-  const pages: Page[] = [
-    { type: "cover", label: "Cover", index: 0, detail: "Opening page" },
-    { type: "home", label: "Home", index: 0, detail: "Navigation hub" },
-    { type: "year", label: "Year at a glance", index: 0, detail: "Overview" },
-  ];
-  for (let i = 0; i < count; i++) {
-    pages.push({ type: "month-divider", label: `Month ${i + 1} divider`, index: i, detail: "Monthly section" });
-    pages.push({ type: "month-calendar", label: `Month ${i + 1} calendar`, index: i, detail: "Monthly spread" });
-  }
-  const start = new Date(Date.UTC(planner.setup.startYear, planner.setup.startMonth, 1));
-  const end = new Date(Date.UTC(planner.setup.startYear, planner.setup.startMonth + count, 1));
-  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000);
-  const leadingDays = (start.getUTCDay() - (planner.setup.weekStart === "mon" ? 1 : 0) + 7) % 7;
-  const weeks = Math.ceil((days + leadingDays) / 7);
-  for (let i = 0; i < weeks; i++) {
-    pages.push({ type: "weekly", label: `Weekly ${i + 1}`, index: i, detail: "Weekly repeat" });
-  }
-  for (let i = 0; i < days; i++) {
-    pages.push({ type: "daily", label: `Daily ${i + 1}`, index: i, detail: "Daily repeat" });
-  }
-  pages.push(
-    { type: "todo", label: "To-do", index: 0, detail: "Task hub" },
-    { type: "notes", label: "Notes", index: 0, detail: "Notes hub" },
-  );
-  (planner.style.sections ?? []).forEach((section, index) => {
-    pages.push({ type: "section-divider", label: section || `Section ${index + 1}`, index, detail: "Section divider" });
-  });
-  const notePaperCount = planner.style.notePaper === "mixed" ? 3 : 1;
-  for (let i = 0; i < notePaperCount; i++) {
-    pages.push({ type: "note-paper", label: notePaperCount > 1 ? `Note paper ${i + 1}` : "Note paper", index: i, detail: "Reusable notes page" });
-  }
-  return pages;
+  const meta: Record<PlannerPageType, { label: string; detail: string }> = {
+    cover: { label: "Cover", detail: "Opening page" },
+    home: { label: "Home", detail: "Navigation hub" },
+    year: { label: "Year at a glance", detail: "Overview" },
+    "month-divider": { label: "Month divider", detail: "Monthly section" },
+    "month-calendar": { label: "Month calendar", detail: "Monthly spread" },
+    weekly: { label: "Weekly", detail: "Weekly repeat" },
+    daily: { label: "Daily", detail: "Daily repeat" },
+    todo: { label: "To-do", detail: "Task hub" },
+    notes: { label: "Notes", detail: "Notes hub" },
+    "section-divider": { label: "Section", detail: "Section divider" },
+    "note-paper": { label: "Note paper", detail: "Reusable notes page" },
+  };
+  const counts = getPlannerPageCounts(planner.setup, planner.style);
+  return getPlannerPageDescriptors(planner.setup, planner.style).map(({ type, index }) => ({
+    type,
+    index,
+    label: type === "section-divider"
+      ? planner.style.sections?.[index] || `Section ${index + 1}`
+      : counts[type] > 1 ? `${meta[type].label} ${index + 1}` : meta[type].label,
+    detail: meta[type].detail,
+  }));
 }
 
 function generatedPageCount(type: string, planner: StorePlannerConfig): number {
-  if (["cover", "home", "year", "todo", "notes"].includes(type)) return 1;
-  if (type === "section-divider") return planner.style.sections?.length ?? 0;
-  if (type === "note-paper") return planner.style.notePaper === "mixed" ? 3 : 1;
-  if (type === "month-divider" || type === "month-calendar") return Math.max(1, planner.setup.monthCount || 12);
-  const start = new Date(Date.UTC(planner.setup.startYear, planner.setup.startMonth, 1));
-  const end = new Date(Date.UTC(planner.setup.startYear, planner.setup.startMonth + Math.max(1, planner.setup.monthCount || 12), 1));
-  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000);
-  if (type === "daily") return days;
-  const leadingDays = (start.getUTCDay() - (planner.setup.weekStart === "mon" ? 1 : 0) + 7) % 7;
-  return Math.ceil((days + leadingDays) / 7);
+  return getPlannerPageCounts(planner.setup, planner.style)[type as PlannerPageType] ?? 0;
 }
 
 export default function CompositionWorkspace({ storeId, planner, onSaved }: Props) {

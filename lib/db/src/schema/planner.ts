@@ -18,6 +18,36 @@ export type PlannerBinding = {
   finish: SpineFinish;
 };
 
+export type PlannerWidgetPlacementScope = "page" | "matching" | "range";
+
+export type PlannerWidgetPlacement = {
+  id: string;
+  widgetId: string;
+  /** Stable generated page role, such as "daily" or "month-calendar". */
+  pageType: string;
+  /** Zero-based ordinal inside pageType. */
+  pageIndex: number;
+  /** Normalized coordinates measured from the top-left of the page. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  scope: PlannerWidgetPlacementScope;
+  rangeStart?: number;
+  rangeEnd?: number;
+  sizeVariant?: string;
+  settings?: {
+    label?: string;
+    paletteSlot?: string;
+    visible?: boolean;
+  };
+};
+
+export type PlannerComposition = {
+  version: 1;
+  placements: PlannerWidgetPlacement[];
+};
+
 /** One tab rail on a planner page edge.  Items are navigation target keys. */
 export interface TabGroup {
   /** Navigation target identifiers in visual order (top → bottom or left → right). */
@@ -62,6 +92,8 @@ export type PlannerStyle = {
   coverTitle?: string;
   coverSubtitle?: string;
   coverYear?: number;
+  /** Seller-authored widgets layered on the immutable planner template. */
+  composition?: PlannerComposition;
   /**
    * Tab groups — explicit multi-edge navigation rails (Item 6).
    * When present, overrides `tabPos`.  Each group is an independent tab rail

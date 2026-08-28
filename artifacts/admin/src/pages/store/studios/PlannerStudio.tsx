@@ -55,6 +55,7 @@ import {
 import { FontSpecimenCard } from "@/components/FontSpecimenCard";
 import { PLANNER_FONT_FAMILIES } from "@/lib/studio/plannerConstants";
 import { isSuperAdminRole } from "@/lib/permissions";
+import CompositionWorkspace from "./CompositionWorkspace";
 import {
   SPINE_BINDING_TYPES,
   SPINE_FINISHES,
@@ -562,7 +563,7 @@ function RightDock({
           {planner.drive.pdfFileId && (
             <div className="space-y-2">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Full PDF</p>
-              <LivePreview planner={planner} />
+              <LivePreview planner={planner} storeId={storeId} />
             </div>
           )}
         </div>
@@ -1255,7 +1256,7 @@ function EditionsMode({ planner, storeId, onUpdated }: { planner: StorePlannerCo
 
 // ── Inserts & Widgets mode ────────────────────────────────────────────────────
 
-function InsertsMode({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; aiEnabled: boolean; isSuperAdmin?: boolean }) {
+function InsertsMode({ storeId, planner, onUpdated, aiEnabled, isSuperAdmin }: { storeId: string; planner: StorePlannerConfig; onUpdated: (planner: StorePlannerConfig) => void; aiEnabled: boolean; isSuperAdmin?: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [prompt, setPrompt] = useState("");
@@ -1280,7 +1281,7 @@ function InsertsMode({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; ai
   });
 
   return (
-    <div className="p-6 max-w-xl space-y-4">
+    <div className="p-6 space-y-4">
       <div>
         <h2 className="text-xl font-semibold mb-1">Inserts & Widgets</h2>
         <p className="text-sm text-muted-foreground">AI-generate recolourable vector inserts and functional overlay widgets.</p>
@@ -1342,6 +1343,7 @@ function InsertsMode({ storeId, aiEnabled, isSuperAdmin }: { storeId: string; ai
           ))}
         </div>
       )}
+      <CompositionWorkspace storeId={storeId} planner={planner} onSaved={onUpdated} />
     </div>
   );
 }
@@ -1745,7 +1747,7 @@ function AiAssistant({ storeId, mode, planner }: { storeId: string; mode: Studio
 
 // ── Live Preview (compact) ────────────────────────────────────────────────────
 
-function LivePreview({ planner }: { planner: StorePlannerConfig }) {
+function LivePreview({ planner, storeId }: { planner: StorePlannerConfig; storeId: string }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
@@ -1756,7 +1758,14 @@ function LivePreview({ planner }: { planner: StorePlannerConfig }) {
       const res = await fetch("/api/planners/preview", {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ setup: planner.setup, style: planner.style, output: planner.output, sections: planner.style.sections ?? [] }),
+        body: JSON.stringify({
+          plannerId: planner.id,
+          storeContext: { storeId },
+          setup: planner.setup,
+          style: planner.style,
+          output: planner.output,
+          sections: planner.style.sections ?? [],
+        }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = new Blob([await res.arrayBuffer()], { type: "application/pdf" });
@@ -1765,7 +1774,7 @@ function LivePreview({ planner }: { planner: StorePlannerConfig }) {
     } catch (err) {
       toast({ title: "Preview failed", description: String(err), variant: "destructive" });
     } finally { setLoading(false); }
-  }, [planner, previewUrl, toast]);
+  }, [planner, previewUrl, storeId, toast]);
 
   return (
     <div className="rounded-lg border overflow-hidden">
@@ -1879,7 +1888,7 @@ export default function PlannerStudio({ storeId, role, aiEnabled }: Props) {
           {mode === "paper"    && <PaperMode    planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
           {mode === "quality"  && <QualityMode  planner={activePlanner} />}
           {mode === "dividers" && <DividersMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
-          {mode === "inserts"  && <InsertsMode  storeId={storeId} aiEnabled={aiEnabled} isSuperAdmin={isSuperAdminRole(role)} />}
+          {mode === "inserts"  && <InsertsMode  storeId={storeId} planner={activePlanner} onUpdated={handleUpdated} aiEnabled={aiEnabled} isSuperAdmin={isSuperAdminRole(role)} />}
           {mode === "editions" && <EditionsMode planner={activePlanner} storeId={storeId} onUpdated={handleUpdated} />}
           {mode === "hotspots" && <HotspotEditor storeId={storeId} />}
         </main>

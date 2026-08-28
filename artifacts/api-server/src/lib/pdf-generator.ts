@@ -32,7 +32,15 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { getEinkPreset, getEinkRule } from "./eink-presets";
 import { parseHexColor } from "./color";
-import type { PlannerSetup, PlannerStyle, PlannerOutput, ThemeFontPairing } from "@workspace/db";
+import type {
+  PlannerSetup,
+  PlannerStyle,
+  PlannerOutput,
+  PlannerWidgetPlacement,
+  ThemeFontPairing,
+} from "@workspace/db";
+import { sanitizeSvg } from "./svg-contract";
+import { placementAppliesToPage } from "./planner-composition";
 import {
   type PageIdMap,
   type PageRole,
@@ -77,6 +85,105 @@ export interface SpineTile {
   y: number;
   width: number;
   height: number;
+}
+
+export interface WidgetRenderSpec {
+  id: string;
+  name: string;
+  svgData: string;
+}
+
+function pageTarget(map: PageIdMap, id: string): { pageType: string; pageIndex: number } | null {
+  const exact: Record<string, string> = {
+    cover: "cover",
+    home: "home",
+    year: "year",
+    todo: "todo",
+    notes: "notes",
+  };
+  if (exact[id]) return { pageType: exact[id], pageIndex: 0 };
+  const groups: Array<[string, string[]]> = [
+    ["month-divider", map.monthDividers],
+    ["month-calendar", map.monthCalendars],
+    ["weekly", map.weeklies],
+    ["daily", map.dailies],
+    ["section-divider", map.sectionDividers],
+    ["note-paper", map.notePaper],
+  ];
+  for (const [pageType, ids] of groups) {
+    const pageIndex = ids.indexOf(id);
+    if (pageIndex >= 0) return { pageType, pageIndex };
+  }
+  return null;
+}
+
+async function stampWidgetComposition(
+  pdfDoc: PDFDocument,
+  pageMap: Map<string, PageWithId>,
+  map: PageIdMap,
+  style: PlannerStyle,
+  pageWidth: number,
+  pageHeight: number,
+  colors: string[],
+  labelFont: PDFFont,
+  widgetSpecs?: WidgetRenderSpec[],
+): Promise<void> {
+  const placements = style.composition?.placements ?? [];
+  if (placements.length === 0) return;
+  const specs = new Map((widgetSpecs ?? []).map((widget) => [widget.id, widget]));
+  const images = new Map<string, Awaited<ReturnType<PDFDocument["embedPng"]>>>();
+  const slotColors: Record<string, string> = {
+    accent: colors[0] ?? "#6366f1",
+    secondary: colors[2] ?? "#a5b4fc",
+    tertiary: colors[3] ?? "#c7d2fe",
+    ink: colors[4] ?? "#1e1b4b",
+    paper: colors[5] ?? "#fafafa",
+  };
+
+  for (const placement of placements) {
+    const selectedSlot = placement.settings?.paletteSlot ?? "accent";
+    const imageKey = `${placement.widgetId}:${selectedSlot}`;
+    if (placement.settings?.visible === false || images.has(imageKey)) continue;
+    const widget = specs.get(placement.widgetId);
+    if (!widget?.svgData) throw new Error(`Widget ${placement.widgetId} cannot be rendered`);
+    let svg = sanitizeSvg(widget.svgData);
+    for (const [slot, defaultColor] of Object.entries(slotColors)) {
+      const color = slot === "accent" ? (slotColors[selectedSlot] ?? defaultColor) : defaultColor;
+      svg = svg.replaceAll(`{{slot:${slot}}}`, color);
+    }
+    const png = await sharp(Buffer.from(svg)).png().toBuffer();
+    images.set(imageKey, await pdfDoc.embedPng(png));
+  }
+
+  for (const [id, entry] of pageMap) {
+    const target = pageTarget(map, id);
+    if (!target) continue;
+    for (const placement of placements) {
+      if (
+        placement.settings?.visible === false ||
+        !placementAppliesToPage(placement, target.pageType, target.pageIndex)
+      ) continue;
+      const image = images.get(`${placement.widgetId}:${placement.settings?.paletteSlot ?? "accent"}`);
+      if (!image) throw new Error(`Widget ${placement.widgetId} cannot be rendered`);
+      const x = placement.x * pageWidth;
+      const y = pageHeight - (placement.y + placement.h) * pageHeight;
+      const width = placement.w * pageWidth;
+      const height = placement.h * pageHeight;
+      entry.page.drawImage(image, {
+        x, y, width, height,
+      });
+      if (placement.settings?.label?.trim()) {
+        entry.page.drawText(placement.settings.label.trim(), {
+          x: x + 3,
+          y: y + height - 10,
+          size: 8,
+          font: labelFont,
+          color: rgb(0.1, 0.1, 0.1),
+          maxWidth: Math.max(1, width - 6),
+        });
+      }
+    }
+  }
 }
 
 /**
@@ -853,6 +960,7 @@ export async function buildPdf(
    *  Gate this behind a flag — never set it on buyer-facing generations. */
   diagnosticPage = false,
   spine?: SpineSpec | null,
+  widgetSpecs?: WidgetRenderSpec[],
 ): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[]; totalLinkAnnotations?: number }> {
   const { einkPreset, forceGrayscale, lt, lo, skipLinks, margin: MARGIN } = makeEinkHelpers(einkDevice);
   // E-ink mode forces ink-friendly (grayscale is the e-ink asset)
@@ -1407,6 +1515,10 @@ export async function buildPdf(
     });
   }
 
+  await stampWidgetComposition(
+    pdfDoc, pageMap, map, style, pageWidth, pageHeight, colors, font, widgetSpecs,
+  );
+
   // 9. Serialize
   const pdfBytes = await pdfDoc.save();
   return { buffer: pdfBytes, pageCount: flat.length, fontSubstitutions: [...genFallbackLog], totalLinkAnnotations };
@@ -1426,6 +1538,7 @@ export async function buildPreviewPdf(
   fontPairing?: ThemeFontPairing,
   einkDevice?: string,
   spine?: SpineSpec | null,
+  widgetSpecs?: WidgetRenderSpec[],
 ): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[] }> {
   // Shared e-ink helpers — identical logic to buildPdf so the preview is
   // always truthful about what the export will produce.
@@ -1512,6 +1625,7 @@ export async function buildPreviewPdf(
     firstWeeklyId, firstDayId, "notes",
     ...(sections.length > 0 ? ["ns1"] : []),
   ];
+  const fullMap = generatePageIds(config);
 
   const pageMap = new Map<string, PageWithId>();
   for (const id of previewIds) {
@@ -1801,6 +1915,9 @@ export async function buildPreviewPdf(
     }
   }
 
+  await stampWidgetComposition(
+    pdfDoc, pageMap, fullMap, style, pageWidth, pageHeight, colors, font, widgetSpecs,
+  );
   const pdfBytes = await pdfDoc.save();
   return { buffer: pdfBytes, pageCount: previewIds.length, fontSubstitutions: [...pvFallbackLog] };
 }

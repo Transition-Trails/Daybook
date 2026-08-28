@@ -16,11 +16,12 @@ import {
   storesTable,
   plannerInteriorVersionsTable,
   spineStylesTable,
+  widgetsTable,
   type ThemeFontPairing,
 } from "@workspace/db";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
-import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec, type SpineSpec } from "../lib/pdf-generator";
+import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec, type SpineSpec, type WidgetRenderSpec } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
 import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
@@ -31,6 +32,25 @@ import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } 
 const router: IRouter = Router();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function resolveWidgetRenderSpecs(style: PlannerStyle, storeId?: string | null): Promise<WidgetRenderSpec[]> {
+  const ids = [...new Set((style.composition?.placements ?? []).map((placement) => placement.widgetId))];
+  if (ids.length === 0) return [];
+  if (!storeId) throw new Error("Widget composition requires an authorized store planner");
+  const rows = await db
+    .select({ id: widgetsTable.id, name: widgetsTable.name, svgData: widgetsTable.svgData, status: widgetsTable.status, origin: widgetsTable.origin, authoredByStoreId: widgetsTable.authoredByStoreId })
+    .from(widgetsTable)
+    .where(inArray(widgetsTable.id, ids));
+  const specs = rows.filter(
+    (row): row is typeof row & { svgData: string } =>
+      typeof row.svgData === "string" && row.svgData.length > 0 &&
+      (row.authoredByStoreId === storeId || (row.status === "live" && (row.origin === "starter" || row.origin === "licensed"))),
+  );
+  if (specs.length !== ids.length) {
+    throw new Error("Planner composition contains a missing or non-renderable widget");
+  }
+  return specs;
+}
 
 export async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
@@ -178,6 +198,7 @@ export async function runGeneration(
     editionId: config.editionId ?? undefined,
     userId: config.userId,
   };
+  const widgetSpecs = await resolveWidgetRenderSpecs(style, config.storeId);
 
   // diagnosticPage flag — read as a cast so PlannerOutput type stays unchanged.
   // Only honoured when callers (admin scripts, test routes) explicitly set it true.
@@ -193,7 +214,9 @@ export async function runGeneration(
     if (!interiorVersion) throw new Error(`Pinned planner interior version "${editionRecord.interiorVersionId}" was not found`);
   }
   const generated = interiorVersion
-    ? await buildInteriorPdf(interiorVersion.manifest, interiorVersion.assets, {
+    ? widgetSpecs.length > 0
+      ? (() => { throw new Error("Widget composition is not supported by authored planner interiors"); })()
+      : await buildInteriorPdf(interiorVersion.manifest, interiorVersion.assets, {
         themeColors,
         title: editionRecord?.name,
         year: config.year ?? undefined,
@@ -204,6 +227,7 @@ export async function runGeneration(
         /* einkDevice  */ undefined,
         /* diagnosticPage */ diagnosticEnabled,
         spine,
+        widgetSpecs,
       );
   const { buffer, pageCount, totalLinkAnnotations } = generated;
   const fontSubstitutions = "fontSubstitutions" in generated ? generated.fontSubstitutions : [];
@@ -227,6 +251,7 @@ export async function runGeneration(
             /* einkDevice */ einkDeviceKey ?? undefined,
             /* diagnosticPage */ false,
             spine,
+            widgetSpecs,
           );
       inkFriendlyBuffer = result.buffer;
       console.log(
@@ -325,6 +350,8 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     setup: PlannerSetup;
     style?: PlannerStyle & { themeId?: string };
     output?: PlannerOutput;
+    plannerId?: string;
+    storeContext?: { storeId: string };
   };
 
   if (!body.setup) { res.status(400).json({ error: "setup is required" }); return; }
@@ -436,7 +463,21 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     const previewOutput = (body.output ?? {}) as PlannerOutput;
     const previewEinkDevice = body.einkDevice ?? previewOutput.einkDevice ?? undefined;
     const previewInkFriendly = !!previewOutput.inkFriendly || (!!previewEinkDevice && getEinkRule("grayscale")?.enabled !== false);
+    if (previewStyle?.composition?.placements?.length) {
+      const user = req.user as User;
+      if (!body.plannerId || !body.storeContext?.storeId) throw new Error("Composition preview requires its store planner");
+      const [ownedPlanner] = await db.select({ id: plannerConfigsTable.id }).from(plannerConfigsTable).where(and(
+        eq(plannerConfigsTable.id, body.plannerId),
+        eq(plannerConfigsTable.storeId, body.storeContext.storeId),
+        eq(plannerConfigsTable.userId, user.id),
+      ));
+      if (!ownedPlanner) throw new Error("Composition preview is not authorized");
+    }
+    const previewWidgetSpecs = await resolveWidgetRenderSpecs(previewStyle ?? {}, body.storeContext?.storeId);
     if (previewEdition?.interiorVersionId) {
+      if (previewWidgetSpecs.length > 0) {
+        throw new Error("Widget composition is not supported by authored planner interiors");
+      }
       const [interiorVersion] = await db
         .select()
         .from(plannerInteriorVersionsTable)
@@ -467,6 +508,7 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
         previewFontPairing,
         previewEinkDevice,
         previewSpine,
+        previewWidgetSpecs,
       );
       buffer = legacyPreview.buffer;
       pageCount = legacyPreview.pageCount;
@@ -505,6 +547,10 @@ router.post("/planners", requireAuth, async (req, res): Promise<void> => {
 
   if (!body.setup) {
     res.status(400).json({ error: "setup is required" });
+    return;
+  }
+  if (body.style && "composition" in body.style) {
+    res.status(400).json({ error: "Create the planner before adding widget composition" });
     return;
   }
   const { weekStart, orientation, startMonth, startYear, monthCount } = body.setup;
@@ -677,6 +723,10 @@ router.post("/planners/:id/reexport", requireAuth, async (req, res): Promise<voi
   if (!existing) { res.status(404).json({ error: "Planner not found" }); return; }
 
   const body = req.body as { style?: PlannerStyle; output?: PlannerOutput };
+  if (body.style && "composition" in body.style) {
+    res.status(400).json({ error: "Update widget composition through the store planner composition endpoint" });
+    return;
+  }
 
   // Merge style/output but never touch setup (locked)
   const updatedStyle = { ...(existing.style as PlannerStyle), ...(body.style ?? {}) };

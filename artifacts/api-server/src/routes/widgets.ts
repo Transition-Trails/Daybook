@@ -13,7 +13,7 @@
 import { Router, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { widgetsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { requireStoreAccess } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
 import type { ActorContext } from "../lib/roles";
@@ -42,7 +42,10 @@ router.get(
     const rows = await db
       .select()
       .from(widgetsTable)
-      .where(eq(widgetsTable.authoredByStoreId, storeId))
+      .where(or(
+        eq(widgetsTable.authoredByStoreId, storeId),
+        and(eq(widgetsTable.status, "live"), or(eq(widgetsTable.origin, "starter"), eq(widgetsTable.origin, "licensed"))),
+      ))
       .orderBy(widgetsTable.createdAt);
 
     res.json(rows);

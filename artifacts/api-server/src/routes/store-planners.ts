@@ -22,9 +22,10 @@ import {
   themeBackgroundsTable,
   storeProfilesTable,
   storeFlagsTable,
+  widgetsTable,
 } from "@workspace/db";
 import type { UserHotspot } from "../lib/pdf-generator";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { requireStoreAccess } from "../middleware/requireRole";
 import { writeAudit } from "../lib/audit";
 import { callAi } from "../lib/ai-proxy";
@@ -33,7 +34,12 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { plannerFileName } from "../lib/planner-filename";
 import { runGeneration } from "./planners";
 import type { ActorContext } from "../lib/roles";
-import type { PlannerSetup, PlannerStyle, PlannerOutput } from "@workspace/db";
+import type { PlannerSetup, PlannerStyle, PlannerOutput, PlannerComposition } from "@workspace/db";
+import {
+  InvalidPlannerCompositionError,
+  validateCompositionTargets,
+  validatePlannerComposition,
+} from "../lib/planner-composition";
 
 const LOCKED_SETUP_FIELDS = [
   "datingMode", "weekStart", "orientation", "startMonth", "startYear", "monthCount",
@@ -190,6 +196,10 @@ router.post(
       inkFriendly: rawOutput.inkFriendly ?? false,
       ...(rawOutput.einkDevice !== undefined ? { einkDevice: rawOutput.einkDevice } : {}),
     };
+    if (body.style && "composition" in body.style) {
+      res.status(400).json({ error: "Create the planner before adding widget composition" });
+      return;
+    }
     if (datingMode !== "dated") {
       output.calMode = "none";
     }
@@ -293,6 +303,120 @@ router.get(
   },
 );
 
+router.get(
+  "/stores/:storeId/planners/:id/composition",
+  requireStoreAccess("store_staff"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const [config] = await db
+      .select({ style: plannerConfigsTable.style })
+      .from(plannerConfigsTable)
+      .where(and(eq(plannerConfigsTable.id, id), eq(plannerConfigsTable.storeId, storeId)));
+    if (!config) {
+      res.status(404).json({ error: "Planner not found" });
+      return;
+    }
+    const style = config.style as PlannerStyle;
+    res.json(style.composition ?? { version: 1, placements: [] });
+  },
+);
+
+router.put(
+  "/stores/:storeId/planners/:id/composition",
+  requireStoreAccess("store_owner"),
+  async (req: Request, res: Response): Promise<void> => {
+    const actor = req.actor!;
+    const { storeId, id } = req.params as { storeId: string; id: string };
+    if (!assertSameStore(actor, storeId, res)) return;
+
+    const [config] = await db
+      .select()
+      .from(plannerConfigsTable)
+      .where(and(eq(plannerConfigsTable.id, id), eq(plannerConfigsTable.storeId, storeId)));
+    if (!config) {
+      res.status(404).json({ error: "Planner not found" });
+      return;
+    }
+
+    try {
+      const composition = validatePlannerComposition(
+        (req.body as { composition?: PlannerComposition }).composition,
+      );
+      validateCompositionTargets(
+        composition,
+        config.setup as PlannerSetup,
+        config.style as PlannerStyle,
+      );
+      if (composition.placements.length > 0 && config.editionId) {
+        const [edition] = await db
+          .select({ interiorVersionId: editionsTable.interiorVersionId })
+          .from(editionsTable)
+          .where(eq(editionsTable.id, config.editionId));
+        if (edition?.interiorVersionId) {
+          res.status(409).json({
+            error: "This planner template does not yet support widget composition",
+            code: "COMPOSITION_UNSUPPORTED",
+          });
+          return;
+        }
+      }
+      const widgetIds = [...new Set(composition.placements.map((placement) => placement.widgetId))];
+      if (widgetIds.length > 0) {
+        const widgets = await db
+          .select({
+            id: widgetsTable.id,
+            status: widgetsTable.status,
+            origin: widgetsTable.origin,
+            authoredByStoreId: widgetsTable.authoredByStoreId,
+          })
+          .from(widgetsTable)
+          .where(inArray(widgetsTable.id, widgetIds));
+        const accessible = new Set(
+          widgets
+            .filter((widget) =>
+              widget.authoredByStoreId === storeId ||
+              (widget.authoredByStoreId === null && widget.status === "live" && widget.origin !== "owned"),
+            )
+            .map((widget) => widget.id),
+        );
+        const unavailable = widgetIds.find((widgetId) => !accessible.has(widgetId));
+        if (unavailable) {
+          res.status(400).json({
+            error: "A selected widget is unavailable to this store",
+            code: "WIDGET_UNAVAILABLE",
+          });
+          return;
+        }
+      }
+
+      const style = { ...(config.style as PlannerStyle), composition };
+      await db
+        .update(plannerConfigsTable)
+        .set({ style })
+        .where(and(eq(plannerConfigsTable.id, id), eq(plannerConfigsTable.storeId, storeId)));
+      await writeAudit(db, {
+        actorUserId: actor.userId,
+        actorRole: actor.effectiveRole,
+        scope: storeId,
+        action: "store.planner.composition.update",
+        targetType: "planner",
+        targetId: id,
+        metadata: { storeId, placementCount: composition.placements.length },
+      });
+      res.json(composition);
+    } catch (error) {
+      if (error instanceof InvalidPlannerCompositionError) {
+        res.status(400).json({ error: error.message, code: error.code });
+        return;
+      }
+      throw error;
+    }
+  },
+);
+
 // ── GET /stores/:storeId/planners/:id ────────────────────────────────────────
 
 router.get(
@@ -344,6 +468,10 @@ router.patch(
       /** Nullable — pass null to unlink the edition. */
       editionId?: string | null;
     };
+    if (body.style && "composition" in body.style) {
+      res.status(400).json({ error: "Use the planner composition endpoint to update widget placements" });
+      return;
+    }
 
     // If generatedAt is set, reject any mutation to locked setup fields
     if (existing.generatedAt && body.setup) {
@@ -424,6 +552,10 @@ router.post(
     }
 
     const body = req.body as { style?: PlannerStyle; output?: PlannerOutput };
+    if (body.style && "composition" in body.style) {
+      res.status(400).json({ error: "Use the planner composition endpoint to update widget placements" });
+      return;
+    }
     const updatedStyle = { ...(existing.style as PlannerStyle), ...(body.style ?? {}) };
     const updatedOutput = { ...(existing.output as PlannerOutput), ...(body.output ?? {}) };
 

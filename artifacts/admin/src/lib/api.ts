@@ -1531,6 +1531,33 @@ export interface StorePlannerSetup {
   datingMode?: PlannerDatingMode;
 }
 
+export type PlannerWidgetPlacementScope = "page" | "matching" | "range";
+
+export interface PlannerWidgetPlacement {
+  id: string;
+  widgetId: string;
+  pageType: string;
+  pageIndex: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  scope: PlannerWidgetPlacementScope;
+  rangeStart?: number;
+  rangeEnd?: number;
+  sizeVariant?: string;
+  settings?: {
+    label?: string;
+    paletteSlot?: string;
+    visible?: boolean;
+  };
+}
+
+export interface StorePlannerComposition {
+  version: 1;
+  placements: PlannerWidgetPlacement[];
+}
+
 export interface StorePlannerStyle {
   themeId?: string | null;
   paletteId?: string | null;
@@ -1558,6 +1585,7 @@ export interface StorePlannerStyle {
     script?: string;
     accent?: string;
   } | null;
+  composition?: StorePlannerComposition;
 }
 
 export interface StorePlannerOutput {
@@ -1630,6 +1658,18 @@ export const storePlannersApi = {
     apiFetch<StorePlannerResult>(`/stores/${storeId}/planners/${id}/reexport`, {
       method: "POST",
       body: JSON.stringify(data),
+      headers: { "x-store-id": storeId },
+    }),
+
+  getComposition: (storeId: string, id: string) =>
+    apiFetch<StorePlannerComposition>(`/stores/${storeId}/planners/${id}/composition`, {
+      headers: { "x-store-id": storeId },
+    }),
+
+  saveComposition: (storeId: string, id: string, composition: StorePlannerComposition) =>
+    apiFetch<StorePlannerComposition>(`/stores/${storeId}/planners/${id}/composition`, {
+      method: "PUT",
+      body: JSON.stringify({ composition }),
       headers: { "x-store-id": storeId },
     }),
 };

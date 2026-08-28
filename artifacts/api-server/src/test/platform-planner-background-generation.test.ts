@@ -172,8 +172,18 @@ beforeAll(async () => {
   await db.insert(themeBackgroundsTable).values([
     {
       themeId: ids.brokenTheme,
+      backgroundId: ids.validBackground,
+      position: 10,
+    },
+    {
+      themeId: ids.brokenTheme,
       backgroundId: ids.brokenBackground,
       position: 0,
+    },
+    {
+      themeId: ids.validTheme,
+      backgroundId: ids.brokenBackground,
+      position: 10,
     },
     {
       themeId: ids.validTheme,
@@ -265,7 +275,7 @@ describe("POST /platform/planners/:id/generate background round trip", () => {
     expect(response.body).not.toHaveProperty("assetRef");
   }, 120_000);
 
-  it("preserves safe warning metadata when a broken image is resolved through the theme", async () => {
+  it("chooses the broken theme background with the lowest position", async () => {
     const response = await request(app)
       .post(`/api/platform/planners/${ids.brokenThemeTemplate}/generate`)
       .send({});
@@ -281,7 +291,7 @@ describe("POST /platform/planners/:id/generate background round trip", () => {
     expect(response.body).not.toHaveProperty("assetRef");
   }, 120_000);
 
-  it("returns no warning when a valid image is resolved through the theme", async () => {
+  it("chooses the valid theme background with the lowest position", async () => {
     const response = await request(app)
       .post(`/api/platform/planners/${ids.validThemeTemplate}/generate`)
       .send({});

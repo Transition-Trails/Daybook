@@ -1558,6 +1558,11 @@ export interface StorePlannerComposition {
   placements: PlannerWidgetPlacement[];
 }
 
+export interface PlannerPageOrderItem {
+  type: string;
+  index: number;
+}
+
 export interface StorePlannerStyle {
   themeId?: string | null;
   paletteId?: string | null;
@@ -1586,6 +1591,7 @@ export interface StorePlannerStyle {
     accent?: string;
   } | null;
   composition?: StorePlannerComposition;
+  pageOrder?: PlannerPageOrderItem[];
 }
 
 export interface StorePlannerOutput {

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Grid2X2, Plus, Save, Search, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, GripVertical, Grid2X2, Plus, Save, Search, Trash2 } from "lucide-react";
 import { getPlannerPageCounts, getPlannerPageDescriptors, type PlannerPageType } from "@workspace/db/planner-pages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import {
   platformPlannersApi,
+  type PlannerPageOrderItem,
   type PlannerWidgetPlacement,
   type PlatformPlannerConfig,
   type StorePlannerComposition,
@@ -85,6 +86,24 @@ function cleanSvg(raw: string | null) {
 
 type PageDescriptor = { type: string; index: number; label: string };
 
+function pageKey(page: Pick<PageDescriptor, "type" | "index">) {
+  return `${page.type}:${page.index}`;
+}
+
+export function reorderPlannerPages<T>(pages: T[], fromIndex: number, toIndex: number): T[] {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= pages.length ||
+    toIndex >= pages.length
+  ) return pages;
+  const next = [...pages];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
 function pagesFor(template: PlatformPlannerConfig): PageDescriptor[] {
   const labels: Record<PlannerPageType, string> = {
     cover: "Cover",
@@ -130,9 +149,10 @@ export default function PlatformTemplateCanvas({
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const pages = useMemo(() => pagesFor(template), [template]);
   const slots = useMemo(() => createPlannerGridSlots(), []);
+  const [pages, setPages] = useState<PageDescriptor[]>(() => pagesFor(template));
   const [pagePosition, setPagePosition] = useState(0);
+  const [draggedPageKey, setDraggedPageKey] = useState<string | null>(null);
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
   const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -141,12 +161,30 @@ export default function PlatformTemplateCanvas({
   const [composition, setComposition] = useState<StorePlannerComposition>(
     template.style.composition ?? { version: 1, placements: [] },
   );
+  const pageStructureKey = JSON.stringify({
+    setup: template.setup,
+    sections: template.style.sections ?? [],
+    notePaper: template.style.notePaper ?? null,
+  });
 
   useEffect(() => {
     setComposition(template.style.composition ?? { version: 1, placements: [] });
+    setPages(pagesFor(template));
     setPagePosition(0);
+    setDraggedPageKey(null);
     setSelectedPlacementId(null);
   }, [template.id]);
+
+  useEffect(() => {
+    setPages((current) => pagesFor({
+      ...template,
+      style: {
+        ...template.style,
+        pageOrder: current.map(({ type, index }) => ({ type, index })),
+      },
+    }));
+    setPagePosition((current) => Math.min(current, Math.max(0, pagesFor(template).length - 1)));
+  }, [pageStructureKey]);
 
   const { data: widgets = [], isLoading } = useQuery({
     queryKey: ["platform-widgets"],
@@ -179,6 +217,26 @@ export default function PlatformTemplateCanvas({
     widget.name.toLowerCase().includes(query.trim().toLowerCase())
   );
   const selectedWidget = widgets.find((widget) => widget.id === selectedWidgetId) ?? null;
+
+  const movePage = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    const selectedPageKey = page ? pageKey(page) : null;
+    setPages((current) => {
+      const next = reorderPlannerPages(current, fromIndex, toIndex);
+      if (selectedPageKey) {
+        const nextPosition = next.findIndex((candidate) => pageKey(candidate) === selectedPageKey);
+        if (nextPosition >= 0) setPagePosition(nextPosition);
+      }
+      return next;
+    });
+  };
+
+  const dropPageAt = (toIndex: number) => {
+    if (!draggedPageKey) return;
+    const fromIndex = pages.findIndex((candidate) => pageKey(candidate) === draggedPageKey);
+    movePage(fromIndex, toIndex);
+    setDraggedPageKey(null);
+  };
 
   useEffect(() => {
     if (!page) {
@@ -222,11 +280,16 @@ export default function PlatformTemplateCanvas({
   ]);
 
   const save = useMutation({
-    mutationFn: () => platformPlannersApi.patch(template.id, { style: { composition } }),
+    mutationFn: () => platformPlannersApi.patch(template.id, {
+      style: {
+        composition,
+        pageOrder: pages.map(({ type, index }): PlannerPageOrderItem => ({ type, index })),
+      },
+    }),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["platform-planners"] });
       onUpdated(updated);
-      toast({ title: "Planner layout saved", description: "The preview and generated planner will use these widget slots." });
+      toast({ title: "Planner layout saved", description: "The preview and generated planner will use this page order and these widget slots." });
     },
     onError: (error: Error) => toast({ title: "Layout could not be saved", description: error.message, variant: "destructive" }),
   });
@@ -341,17 +404,64 @@ export default function PlatformTemplateCanvas({
           <div className="grid grid-cols-[190px_minmax(420px,1fr)_260px] min-h-[720px] max-xl:grid-cols-[160px_minmax(400px,1fr)] max-lg:grid-cols-1">
           <aside className="border-r bg-muted/20 p-3 overflow-y-auto max-h-[720px] max-lg:max-h-48 max-lg:border-r-0 max-lg:border-b">
             <p className="text-[10px] uppercase tracking-[.18em] font-semibold text-muted-foreground mb-3">Planner pages</p>
+            <p className="text-[10px] leading-4 text-muted-foreground mb-3">Drag pages into order, or use the arrow buttons. Save the layout when you’re done.</p>
             <div className="space-y-1.5">
-              {pages.map((candidate, index) => (
-                <button
+              {pages.map((candidate, index) => {
+                const candidateKey = pageKey(candidate);
+                const isDragging = draggedPageKey === candidateKey;
+                return (
+                <div
                   key={`${candidate.type}-${candidate.index}`}
-                  onClick={() => { setPagePosition(index); setSelectedPlacementId(null); }}
-                  className={`w-full rounded-lg border p-2 text-left flex items-center gap-2 ${index === pagePosition ? "border-primary bg-background" : "border-transparent hover:border-border"}`}
+                  draggable
+                  onDragStart={(event) => {
+                    setDraggedPageKey(candidateKey);
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", candidateKey);
+                  }}
+                  onDragEnd={() => setDraggedPageKey(null)}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    dropPageAt(index);
+                  }}
+                  className={`group w-full rounded-lg border p-1 flex items-center gap-1 transition ${index === pagePosition ? "border-primary bg-background" : "border-transparent hover:border-border"} ${isDragging ? "opacity-40 border-dashed" : ""}`}
+                  data-testid={`planner-page-row-${candidateKey}`}
                 >
-                  <span className="w-7 h-9 rounded border bg-background flex items-end justify-center pb-1 text-[8px] text-muted-foreground">{index + 1}</span>
-                  <span className="text-xs font-medium truncate">{candidate.label}</span>
-                </button>
-              ))}
+                  <GripVertical className="w-3.5 h-3.5 shrink-0 text-muted-foreground cursor-grab active:cursor-grabbing" aria-hidden="true" />
+                  <button
+                    type="button"
+                    onClick={() => { setPagePosition(index); setSelectedPlacementId(null); }}
+                    className="min-w-0 flex-1 p-1 text-left flex items-center gap-2"
+                    aria-current={index === pagePosition ? "page" : undefined}
+                  >
+                    <span className="w-7 h-9 shrink-0 rounded border bg-background flex items-end justify-center pb-1 text-[8px] text-muted-foreground">{index + 1}</span>
+                    <span className="text-xs font-medium truncate">{candidate.label}</span>
+                  </button>
+                  <span className="flex flex-col opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => movePage(index, index - 1)}
+                      disabled={index === 0}
+                      aria-label={`Move ${candidate.label} up`}
+                      className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-25"
+                    >
+                      <ArrowUp className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => movePage(index, index + 1)}
+                      disabled={index === pages.length - 1}
+                      aria-label={`Move ${candidate.label} down`}
+                      className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-25"
+                    >
+                      <ArrowDown className="w-3 h-3" />
+                    </button>
+                  </span>
+                </div>
+              )})}
             </div>
           </aside>
 

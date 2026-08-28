@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createPlannerGridSlots,
   placementSlotIndex,
+  reorderPlannerPages,
 } from "@/pages/studios/PlatformTemplateCanvas";
 import type { PlannerWidgetPlacement } from "@/lib/api";
 
@@ -46,5 +47,30 @@ describe("platform template bounded widget grid", () => {
     };
 
     expect(placementSlotIndex(placement, slots)).toBe(5);
+  });
+});
+
+describe("platform template page ordering", () => {
+  it("moves a page while preserving every stable page identity", () => {
+    const pages = [
+      { type: "cover", index: 0 },
+      { type: "weekly", index: 0 },
+      { type: "weekly", index: 1 },
+    ];
+
+    const reordered = reorderPlannerPages(pages, 2, 0);
+
+    expect(reordered).toEqual([
+      { type: "weekly", index: 1 },
+      { type: "cover", index: 0 },
+      { type: "weekly", index: 0 },
+    ]);
+    expect(pages[0]).toEqual({ type: "cover", index: 0 });
+  });
+
+  it("ignores invalid move targets", () => {
+    const pages = ["cover", "home"];
+    expect(reorderPlannerPages(pages, 0, -1)).toBe(pages);
+    expect(reorderPlannerPages(pages, 4, 0)).toBe(pages);
   });
 });

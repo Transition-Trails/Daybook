@@ -1,4 +1,4 @@
-import type { PlannerSetup, PlannerStyle } from "./schema/planner";
+import type { PlannerPageOrderItem, PlannerSetup, PlannerStyle } from "./schema/planner";
 
 export const PLANNER_PAGE_TYPES = [
   "cover",
@@ -20,6 +20,33 @@ export type PlannerPageDescriptor = {
   type: PlannerPageType;
   index: number;
 };
+
+export function plannerPageKey(page: PlannerPageOrderItem): string {
+  return `${page.type}:${page.index}`;
+}
+
+export function reconcilePlannerPageOrder(
+  pages: PlannerPageDescriptor[],
+  savedOrder?: PlannerPageOrderItem[],
+): PlannerPageDescriptor[] {
+  if (!savedOrder?.length) return pages;
+  const available = new Map(pages.map((page) => [plannerPageKey(page), page]));
+  const ordered: PlannerPageDescriptor[] = [];
+  const seen = new Set<string>();
+  for (const item of savedOrder) {
+    const key = plannerPageKey(item);
+    const page = available.get(key);
+    if (page && !seen.has(key)) {
+      ordered.push(page);
+      seen.add(key);
+    }
+  }
+  for (const page of pages) {
+    const key = plannerPageKey(page);
+    if (!seen.has(key)) ordered.push(page);
+  }
+  return ordered;
+}
 
 export function getPlannerPageCounts(
   setup: PlannerSetup,
@@ -47,7 +74,7 @@ export function getPlannerPageCounts(
 
 export function getPlannerPageDescriptors(
   setup: PlannerSetup,
-  style: Pick<PlannerStyle, "sections" | "notePaper">,
+  style: Pick<PlannerStyle, "sections" | "notePaper" | "pageOrder">,
 ): PlannerPageDescriptor[] {
   const counts = getPlannerPageCounts(setup, style);
   const pages: PlannerPageDescriptor[] = [];
@@ -56,5 +83,5 @@ export function getPlannerPageDescriptors(
       pages.push({ type, index });
     }
   }
-  return pages;
+  return reconcilePlannerPageOrder(pages, style.pageOrder);
 }

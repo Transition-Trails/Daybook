@@ -33,6 +33,7 @@ import sharp from "sharp";
 import { getEinkPreset, getEinkRule } from "./eink-presets";
 import { parseHexColor } from "./color";
 import type {
+  PlannerPageOrderItem,
   PlannerSetup,
   PlannerStyle,
   PlannerOutput,
@@ -377,7 +378,28 @@ export function generatePageIds(config: GeneratorConfig): PageIdMap {
   return map;
 }
 
-export function flattenPageIds(map: PageIdMap): string[] {
+function pageIdForOrderItem(map: PageIdMap, item: PlannerPageOrderItem): string | undefined {
+  if (item.index < 0 || !Number.isInteger(item.index)) return undefined;
+  const singlePages: Record<string, string> = {
+    cover: map.cover,
+    home: map.home,
+    year: map.year,
+    todo: map.todo,
+    notes: map.notes,
+  };
+  if (singlePages[item.type]) return item.index === 0 ? singlePages[item.type] : undefined;
+  const repeatedPages: Record<string, string[]> = {
+    "month-divider": map.monthDividers,
+    "month-calendar": map.monthCalendars,
+    weekly: map.weeklies,
+    daily: map.dailies,
+    "section-divider": map.sectionDividers,
+    "note-paper": map.notePaper,
+  };
+  return repeatedPages[item.type]?.[item.index];
+}
+
+export function flattenPageIds(map: PageIdMap, pageOrder?: PlannerPageOrderItem[]): string[] {
   const ids: string[] = [map.cover, map.home, map.year];
   for (let i = 0; i < map.monthDividers.length; i++) {
     ids.push(map.monthDividers[i]);
@@ -389,7 +411,21 @@ export function flattenPageIds(map: PageIdMap): string[] {
   ids.push(map.notes);
   ids.push(...map.sectionDividers);
   ids.push(...map.notePaper);
-  return ids;
+  if (!pageOrder?.length) return ids;
+  const available = new Set(ids);
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  for (const item of pageOrder) {
+    const id = pageIdForOrderItem(map, item);
+    if (id && available.has(id) && !seen.has(id)) {
+      ordered.push(id);
+      seen.add(id);
+    }
+  }
+  for (const id of ids) {
+    if (!seen.has(id)) ordered.push(id);
+  }
+  return ordered;
 }
 
 // ── CI determinism check ──────────────────────────────────────────────────────
@@ -1124,7 +1160,7 @@ export async function buildPdf(
   }
 
   // 4. Build ordered ID list and create pages
-  const flat = flattenPageIds(map);
+  const flat = flattenPageIds(map, style.pageOrder);
   const pageMap = new Map<string, PageWithId>();
 
   for (const id of flat) {
@@ -1606,7 +1642,7 @@ export function selectPreviewPageIds(config: GeneratorConfig): string[] {
   }
 
   const selectedSet = selected;
-  return flattenPageIds(map).filter((id) => selectedSet.has(id));
+  return flattenPageIds(map, config.style.pageOrder).filter((id) => selectedSet.has(id));
 }
 
 export async function buildPreviewPdf(
@@ -1640,7 +1676,7 @@ export async function buildPreviewPdf(
   );
   const source = await PDFDocument.load(generated.buffer);
   const map = generatePageIds(config);
-  const flattened = flattenPageIds(map);
+  const flattened = flattenPageIds(map, config.style.pageOrder);
   const sourceIndexes = new Map(flattened.map((id, index) => [id, index]));
   const selectedIds = selectPreviewPageIds(config);
   const indexes = selectedIds

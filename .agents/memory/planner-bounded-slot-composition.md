@@ -9,6 +9,12 @@ Super Admin planner construction is template-first. Widget placement must use ex
 
 **How to apply:** Preserve full-page inserts as pages, not overlays. Keep persisted coordinates compatible with canonical preview/export geometry, and make digital and physical output settings contextual to the selected template rather than separate construction flows.
 
+Planner page order is user-authored and persists as stable page-role/index pairs. Reordering changes serialization position only; widget targets and link IDs retain their original identities. Reconcile saved order against the generated page set and append newly generated pages so personalization changes cannot lose pages or corrupt an older template.
+
+**Why:** Page counts can change when planner personalization changes, while widgets and links still need stable targets across drag reordering, preview, and final export.
+
+**How to apply:** Use the same reconciled order in the canvas rail, preview selection, and PDF page creation. Ignore stale or duplicate saved entries and preserve canonical behavior when no order has been saved.
+
 The Super Admin template canvas uses two persistent panels: Planner personalization contains page/widget composition and PDF preview; Structural visual system & output contains setup, theme, typography, inserts, binding, e-ink, generation, and publishing controls.
 
 **Why:** Separating page-level personalization from system-level template decisions keeps the primary canvas focused while retaining the existing complete build workflow.

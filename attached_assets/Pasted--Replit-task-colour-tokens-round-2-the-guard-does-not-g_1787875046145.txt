@@ -1,0 +1,127 @@
+# Replit task — colour tokens, round 2: the guard does not guard
+
+The nine mapped files from `REPLIT-ADMIN-TOKEN-DRIFT.md` are correct. `--admin-slate` is in
+`index.css:94`, the four `build/` steps read it, `ProductRecipes.tsx` is clean of the cool-grey
+literals, and `test/admin-colour-tokens.test.ts` exists. That part is done.
+
+But the guard only catches the *shape* of the problem I happened to name, not the problem. And
+running the wider search turned up roughly thirty more files carrying the same colours in a
+different shape.
+
+---
+
+## 1. The regex only sees named constants
+
+```ts
+/const\s+(?:PAPER(?:_TINT)?|BORDER|MUTED)\s*=\s*["'`](?:#[\da-f]{3,8}|hsla?\([^)]*\)|rgba?\([^)]*\))["'`]/gi
+```
+
+This fails a file only if it declares a constant **named exactly** `PAPER`, `PAPER_TINT`,
+`BORDER` or `MUTED`. It passes on every other way of writing the same hardcoded colour:
+
+```ts
+const T = { navy: "#1B2A4A", clay: "#C87560", slate: "#4A6080", muted: "#7A8FA6" };  // passes
+<div style={{ borderColor: "#E7E0D7" }}>                                             // passes
+className="border-[#E7E0D7] bg-[#FAF8F3]"                                            // passes
+const CARD = "#FFFDF9";                                                              // passes
+```
+
+So the brief's acceptance criterion — *"the guard fails if someone reintroduces one"* — is not
+met. Renaming a constant defeats it.
+
+Replace it with a scan for **raw colour values anywhere** in `pages/**` and `components/**`:
+hex literals, `hsl()`/`hsla()`, `rgb()`/`rgba()`, in string literals, style objects, and
+Tailwind arbitrary-value brackets (`bg-[#...]`, `border-[#...]`, `text-[#...]`). Then subtract
+the allow-list. Report the count it finds before you start fixing, so we can see the real size.
+
+## 2. The allow-list is not connected to anything
+
+```ts
+it("keeps every raw-colour exception documented with a reason", () => {
+  for (const exception of documentedRawColourAllowList) {
+    expect(exception.scope).not.toBe("");
+    expect(exception.reason).not.toBe("");
+  }
+});
+```
+
+This asserts that three hand-written strings are non-empty. It always passes, and it does not
+exempt anything from the actual scan — the scan never consults the list.
+
+Make the allow-list functional: each entry needs a **file glob or path** plus a reason, and the
+scan skips matches inside allow-listed scopes. An entry that no longer matches any file should
+fail the test, so the list cannot rot.
+
+## 3. The same colours live on in theme objects
+
+The wider search found these, none of which the current guard catches. This is the real
+population.
+
+**`#4A6080` (Slate) — should be `var(--admin-slate)`**, as `slate:` in a local theme object:
+`shop/EditionDetail.tsx:34`, `shop/StoreBuilder.tsx:48`, `shop/StorefrontHome.tsx:38` (+308,
+321, 326), `shop/SupportPage.tsx:37`, `store/SupportInbox.tsx:31`,
+`store/SupportPatterns.tsx:20,32`, `store/settings/EmailSettings.tsx:20`,
+`super/Deliverability.tsx:21`, `super/SupportInbox.tsx:15`, `super/SupportPatterns.tsx:10,16`,
+and ~10 inline uses in `planners/InkEditor.tsx`.
+
+**`#E7E0D7` — should be `var(--admin-border)`**, mostly as Tailwind brackets or inline
+`borderColor`: `components/FontLibraryPicker.tsx:78,149`,
+`components/PaletteLibraryPicker.tsx:63,117`, and across `super/worldsmith-editorial/`:
+`SpecEditor.tsx:1024,1055`, `StoriesStudio.tsx:303,335,348,388`,
+`StoryConnections.tsx:294,318,335`, `StorylineEditor.tsx:249`, `WorldBibleStudio.tsx:19,49`.
+
+**`#8A7B6A` — should be `var(--admin-faint)`**: `components/CopilotPanel.tsx:764,794,896`,
+`worldsmith-editorial/CanonLibrary.tsx:693`, `worldsmith-editorial/StoriesStudio.tsx:123`,
+`build/section-library.ts:200`.
+
+**`#7A8FA6` — converge on `var(--admin-muted)`.** Decided. It appears as `muted:` in
+`shop/EditionDetail.tsx`, `shop/StoreBuilder.tsx`, `super/SupportInbox.tsx` and
+`super/SupportPatterns.tsx`. It is a cool grey; `--admin-muted` (#7A6A57) is warm, so **this one
+is a visible change** — secondary text in those four files gets warmer. That is the intended
+correction. No new token; do not keep a cool muted in the admin surface.
+
+Also `#FAF8F3` and `#FFFCF8` recur in worldsmith-editorial as card backgrounds — near-misses for
+`--admin-card` (#FFFDF9) and `--admin-card-subtle` (#FBF6EE). **Converge them.** Where a file
+layers two surfaces (a card on a tinted panel), use `--admin-card` for the raised surface and
+`--admin-card-subtle` for the recessed one, so the layering survives as a token relationship
+rather than two arbitrary hexes. Judgement call is yours per site; the rule is that no raw
+near-miss survives.
+
+## What to do, in order
+
+The standing instruction is **make the colour consistent** — do not stop to ask about individual
+values. Every raw colour in `pages/**` and `components/**` either maps onto an `--admin-*` token
+or earns an allow-list entry with a written reason. Nothing stays raw and undocumented.
+
+1. **Rewrite the guard first** (items 1 and 2), with the allow-list wired in. Run it. Report the
+   total count and a per-directory breakdown — for the record, not for approval. Then continue.
+2. **Fix all of it**, using this mapping:
+
+| Raw value | Token | Risk |
+|---|---|---|
+| `#4A6080` | `var(--admin-slate)` | none — same hex |
+| `#E7E0D7` | `var(--admin-border)` | negligible |
+| `#8A7B6A` | `var(--admin-faint)` | negligible |
+| `#7A8FA6` | `var(--admin-muted)` | **visible** — cool to warm, 4 files |
+| `#FAF8F3` / `#FFFCF8` | `var(--admin-card)` or `--admin-card-subtle` | slight — preserve layering |
+| any other hex/hsl/rgb the scan finds | nearest `--admin-*` token | judge per site |
+
+   Where the nearest token is genuinely wrong for a site, allow-list it with a reason instead of
+   inventing a token. Add a new token only if the same unmapped colour appears in **three or
+   more** files with the same role — and say which you added.
+3. Screenshot before/after for the four `#7A8FA6` files and any site where you judged a swap
+   rather than matched one, so the visible changes are reviewable in one place.
+4. Leave `WorldSmithHome.tsx` alone — its arbitrary status palette stays out of scope, but the
+   new allow-list should name it explicitly rather than relying on the old test's inert array.
+
+One note on scope: `planners/InkEditor.tsx` uses `#4A6080` for toolbar text and `#1B2A4A`,
+`#C87560`, `#000000` as **ink colours the user draws with**. Those are product data, not chrome.
+Swap the toolbar chrome; leave the pen palette as literal values and allow-list it.
+
+## Acceptance
+
+- The guard fails on `const T = { slate: "#4A6080" }` and on `className="border-[#E7E0D7]"`.
+  Verify by adding one temporarily and watching it fail.
+- The allow-list drives the scan, and a stale entry fails the test.
+- The scan reports **zero** un-allow-listed raw colours in `pages/**` and `components/**`.
+- Typecheck and the full suite pass.

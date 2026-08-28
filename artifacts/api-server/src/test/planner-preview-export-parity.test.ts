@@ -32,6 +32,11 @@ function exportPageIndex(config: GeneratorConfig, pageId: string): number {
   return flattenPageIds(generatePageIds(config)).indexOf(pageId);
 }
 
+// Fixed 1×1 PNG keeps this regression independent from image generation,
+// calendars, fonts, and network availability.
+const DETERMINISTIC_PNG_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
 describe("planner preview/export visual parity", () => {
   it.each([
     {
@@ -158,6 +163,71 @@ describe("planner preview/export visual parity", () => {
       const background: BackgroundSpec = {
         type: "color",
         assetRef: "#f2c4b5",
+      };
+      const selectedIds = selectPreviewPageIds(config);
+      const idsToCompare = [
+        selectedIds[0],
+        selectedIds.find((id) => id === "m0"),
+        selectedIds.find((id) => id.startsWith("d")),
+        selectedIds.find((id) => id === "notes"),
+      ].filter((id): id is string => !!id);
+
+      const [exportResult, previewResult, plainExportResult] = await Promise.all([
+        buildPdf(config, themeColors, undefined, background),
+        buildPreviewPdf(config, themeColors, undefined, background),
+        buildPdf(config, themeColors),
+      ]);
+      const exportDocument = await PDFDocument.load(exportResult.buffer);
+      const previewDocument = await PDFDocument.load(previewResult.buffer);
+      const plainExportDocument = await PDFDocument.load(plainExportResult.buffer);
+
+      expect(idsToCompare.length).toBe(4);
+      expect(previewResult.pageCount).toBe(selectedIds.length);
+      expect(previewDocument.getPageCount()).toBe(selectedIds.length);
+      expect(exportDocument.getPageCount()).toBeGreaterThan(selectedIds.length);
+      expect(pageContentBytes(exportDocument, 0)).not.toEqual(
+        pageContentBytes(plainExportDocument, 0),
+      );
+
+      idsToCompare.forEach((pageId) => {
+        const exportIndex = exportPageIndex(config, pageId);
+        const actualPreviewIndex = selectedIds.indexOf(pageId);
+        expect(exportIndex, `missing export page for ${pageId}`).toBeGreaterThanOrEqual(0);
+        expect(actualPreviewIndex, `missing preview page for ${pageId}`).toBeGreaterThanOrEqual(0);
+        expect(previewDocument.getPage(actualPreviewIndex).getSize()).toEqual(
+          exportDocument.getPage(exportIndex).getSize(),
+        );
+        expect(pageContentBytes(previewDocument, actualPreviewIndex)).toEqual(
+          pageContentBytes(exportDocument, exportIndex),
+        );
+      });
+    },
+    120_000,
+  );
+
+  it(
+    "keeps representative retained pages equal for an image background",
+    async () => {
+      const config = {
+        setup: {
+          weekStart: "mon" as const,
+          orientation: "vertical" as const,
+          startMonth: 3,
+          startYear: 2027,
+          monthCount: 2,
+        },
+        style: {
+          size: "A5" as const,
+          renderStyle: "flat" as const,
+          sections: ["Projects"],
+        },
+        output: { calMode: "none" as const, eventMins: 60 as const, aiInPdf: false },
+        sections: ["Projects"],
+      } satisfies GeneratorConfig;
+      const themeColors = ["#ffffff", "#172033", "#d2694f", "#c7d2fe", "#1e1b4b", "#fafafa"];
+      const background: BackgroundSpec = {
+        type: "image",
+        assetRef: DETERMINISTIC_PNG_DATA_URL,
       };
       const selectedIds = selectPreviewPageIds(config);
       const idsToCompare = [

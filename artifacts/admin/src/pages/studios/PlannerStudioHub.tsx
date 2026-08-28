@@ -3334,6 +3334,11 @@ export default function PlannerStudioHub() {
             template={selectedTemplate}
             onUpdated={handleTemplateUpdated}
             onAiContextChange={handleCanvasAiContextChange}
+            layoutOrientation={
+              plannerBuildContext?.templateId === selectedTemplate.id
+                ? plannerBuildContext.value.personalization.orientation as "vertical" | "landscape"
+                : selectedTemplate.setup.orientation
+            }
             preview={
               <PdfPreviewDock
                 buildState={templateToBuildState(selectedTemplate)}
@@ -3393,6 +3398,13 @@ export default function PlannerStudioHub() {
       status={{ label: "Platform", ok: true }}
       primaryAction={primaryAction}
       leftRail={leftRail}
+      focusMode={validMode === "build" && selectedTemplate
+        ? {
+            label: selectedTemplate.name,
+            exitLabel: "Templates",
+            onExit: () => setSelectedTemplateId(null),
+          }
+        : undefined}
       hasAssistant
       hasPreview={validMode === "build"}
     >

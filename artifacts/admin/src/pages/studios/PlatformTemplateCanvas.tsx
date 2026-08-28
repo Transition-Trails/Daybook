@@ -140,12 +140,15 @@ export default function PlatformTemplateCanvas({
   preview,
   settings,
   onAiContextChange,
+  layoutOrientation,
 }: {
   template: PlatformPlannerConfig;
   onUpdated: (template: PlatformPlannerConfig) => void;
   preview: ReactNode;
   settings: ReactNode;
   onAiContextChange?: (context: PlannerCanvasAiContext | null) => void;
+  /** Live Build settings value; may be newer than the last saved template. */
+  layoutOrientation?: "vertical" | "landscape";
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -328,6 +331,9 @@ export default function PlatformTemplateCanvas({
 
   if (!page) return null;
   const freeCount = slots.length - occupied.size;
+  const isTwoPageSpread = (layoutOrientation ?? template.setup.orientation) === "landscape";
+  const canvasWidthClass = isTwoPageSpread ? "max-w-[900px]" : "max-w-[560px]";
+  const pageNoun = isTwoPageSpread ? "Spread" : "Page";
 
   return (
     <div className="rounded-2xl border bg-background overflow-hidden" data-testid="platform-template-canvas">
@@ -466,12 +472,26 @@ export default function PlatformTemplateCanvas({
           </aside>
 
           <section className="p-5 bg-muted/10 flex flex-col items-center min-w-0">
-            <div className="w-full max-w-[560px] flex items-end justify-between mb-3">
-              <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Page {pagePosition + 1} of {pages.length}</p><h3 className="font-display text-lg font-semibold">{page.label}</h3></div>
+            <div className={`w-full ${canvasWidthClass} flex items-end justify-between mb-3`}>
+              <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">{pageNoun} {pagePosition + 1} of {pages.length}</p><h3 className="font-display text-lg font-semibold">{page.label}</h3></div>
               <div className="text-right"><p className="text-xs font-semibold">{freeCount} of {slots.length} spaces available</p><p className="text-[10px] text-muted-foreground">Delete a widget to free its space</p></div>
             </div>
-            <div className="relative w-full max-w-[560px] aspect-[.77] bg-card border shadow-lg overflow-hidden">
-              <div className="absolute left-[3%] top-0 bottom-0 w-[2%] bg-muted border-r" />
+            <div
+              className={`relative w-full ${canvasWidthClass} bg-card border shadow-lg overflow-hidden`}
+              style={{ aspectRatio: isTwoPageSpread ? "1.54 / 1" : ".77 / 1" }}
+              data-planner-layout={isTwoPageSpread ? "two-page" : "vertical"}
+            >
+              {isTwoPageSpread ? (
+                <>
+                  <div className="absolute inset-y-0 left-0 w-1/2 border-r bg-card" />
+                  <div className="absolute inset-y-0 right-0 w-1/2 bg-card" />
+                  <div className="absolute inset-y-0 left-1/2 z-10 w-[3%] -translate-x-1/2 border-x bg-gradient-to-r from-muted/70 via-background to-muted/70 shadow-sm" />
+                  <span className="absolute left-[7%] top-[2.5%] text-[8px] font-bold uppercase tracking-[.16em] text-muted-foreground">Left page</span>
+                  <span className="absolute left-[54%] top-[2.5%] text-[8px] font-bold uppercase tracking-[.16em] text-muted-foreground">Right page</span>
+                </>
+              ) : (
+                <div className="absolute left-[3%] top-0 bottom-0 w-[2%] bg-muted border-r" />
+              )}
               <div className="absolute inset-[6%] grid grid-cols-2 grid-rows-4 gap-[1.8%]" data-testid="widget-slot-grid">
                 {slots.map((slot) => {
                   const placement = occupied.get(slot.index);
@@ -510,7 +530,7 @@ export default function PlatformTemplateCanvas({
                 })}
               </div>
             </div>
-            <div className="mt-3 w-full max-w-[560px] rounded-lg border bg-background px-3 py-2 flex items-center gap-2 text-xs">
+            <div className={`mt-3 w-full ${canvasWidthClass} rounded-lg border bg-background px-3 py-2 flex items-center gap-2 text-xs`}>
               <Grid2X2 className="w-4 h-4 text-primary" />
               <span><b>Bounded layout:</b> every widget occupies one safe space. The grid cannot grow beyond the printable page.</span>
             </div>

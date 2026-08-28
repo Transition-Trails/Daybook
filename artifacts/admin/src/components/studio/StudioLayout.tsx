@@ -16,7 +16,7 @@
  * One scroll context per region — center scrolls; rail scrolls; no third column.
  */
 import { useState, useEffect, useRef } from "react";
-import { PanelLeft, X, Bot, Eye } from "lucide-react";
+import { ArrowLeft, PanelLeft, X, Bot, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -46,6 +46,15 @@ export interface StudioLayoutProps {
   };
   /** Left rail content (context card + tools + voice/tone pinned at bottom) */
   leftRail: React.ReactNode;
+  /**
+   * Replaces the mode navigation and hides the outer rail for an immersive
+   * editor surface. The exit control returns to the surrounding studio.
+   */
+  focusMode?: {
+    label: string;
+    onExit: () => void;
+    exitLabel?: string;
+  };
   /**
    * Show the ✦ AI button in the top bar.
    * Calls openAssistant() on the global AiDrawerContext.
@@ -82,6 +91,7 @@ export function StudioLayout({
   status,
   primaryAction,
   leftRail,
+  focusMode,
   hasAssistant = true,
   hasPreview = false,
   children,
@@ -142,7 +152,7 @@ export function StudioLayout({
         style={{ minHeight: 48 }}
       >
         {/* Narrow: rail hamburger (44×44 touch target) */}
-        {band === "narrow" && (
+        {band === "narrow" && !focusMode && (
           <button
             ref={hamburgerRef}
             onClick={() => setRailOpen((v) => !v)}
@@ -164,10 +174,26 @@ export function StudioLayout({
           {scope}
         </span>
 
-        {/* Mode pills — flex-1 min-w-0 so they never push the right cluster off-screen */}
-        <div className="flex-1 min-w-0 overflow-hidden relative">
-          <div className="flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-            {modes.map((m) => (
+        {/* Mode pills — replaced by one compact exit control in focused editors. */}
+        {focusMode ? (
+          <div className="flex-1 min-w-0 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={focusMode.onExit}
+              className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              {focusMode.exitLabel ?? "Back"}
+            </button>
+            <span className="truncate text-[12.5px] font-semibold">{focusMode.label}</span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold uppercase tracking-[.08em] text-muted-foreground">
+              Build focus
+            </span>
+          </div>
+        ) : (
+          <div className="flex-1 min-w-0 overflow-hidden relative">
+            <div className="flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+              {modes.map((m) => (
               <button
                 key={m.id}
                 onClick={() => onModeChange(m.id)}
@@ -184,14 +210,15 @@ export function StudioLayout({
               >
                 {m.label}
               </button>
-            ))}
+              ))}
+            </div>
+            {/* Right-edge fade — visible when pills overflow */}
+            <div
+              className="absolute right-0 inset-y-0 w-8 pointer-events-none"
+              style={{ background: "linear-gradient(to left, hsl(var(--card)), transparent)" }}
+            />
           </div>
-          {/* Right-edge fade — visible when pills overflow */}
-          <div
-            className="absolute right-0 inset-y-0 w-8 pointer-events-none"
-            style={{ background: "linear-gradient(to left, hsl(var(--card)), transparent)" }}
-          />
-        </div>
+        )}
 
         {/* Right cluster — status + primary action + drawer toggles */}
         <div className="flex items-center gap-1.5 shrink-0">
@@ -290,7 +317,7 @@ export function StudioLayout({
       >
 
         {/* LEFT RAIL ─────────────────────────────────────────────────────── */}
-        {band !== "narrow" ? (
+        {!focusMode && (band !== "narrow" ? (
           /* Wide + Medium: static aside */
           <aside
             className="border-r overflow-hidden flex flex-col shrink-0"
@@ -339,7 +366,7 @@ export function StudioLayout({
               </div>
             )}
           </>
-        )}
+        ))}
 
         {/* CENTER WORKSPACE ───────────────────────────────────────────────── */}
         {/* Single scroll context for the work surface — no nested scrollbars */}
@@ -347,7 +374,7 @@ export function StudioLayout({
           className="flex-1 overflow-y-auto bg-background [&::-webkit-scrollbar]:hidden"
           style={{ minWidth: 0, scrollbarWidth: "none" } as React.CSSProperties}
         >
-          <div className="p-6" style={{ minWidth: 0 }}>
+          <div className={focusMode ? "p-3" : "p-6"} style={{ minWidth: 0 }}>
             {children}
           </div>
         </main>

@@ -15,6 +15,12 @@ Planner page order is user-authored and persists as stable page-role/index pairs
 
 **How to apply:** Use the same reconciled order in the canvas rail, preview selection, and PDF page creation. Ignore stale or duplicate saved entries and preserve canonical behavior when no order has been saved.
 
+Selected-template Build mode is an immersive workspace: hide the outer template rail and studio mode pills, retain only a compact Templates exit control and the planner's own page rail. A two-page setting must render immediately as a wide spread with a center gutter, including before setup is saved.
+
+**Why:** Stacking the studio mode navigation, template rail, and planner page rail distracts from page construction. Reading only persisted orientation also makes the canvas contradict unsaved Build settings.
+
+**How to apply:** Keep template selection and cross-studio navigation outside focused Build. Drive canvas geometry from the live Build state, falling back to persisted setup only before live state is available.
+
 The Super Admin template canvas uses two persistent panels: Planner personalization contains page/widget composition and PDF preview; Structural visual system & output contains setup, theme, typography, inserts, binding, e-ink, generation, and publishing controls.
 
 **Why:** Separating page-level personalization from system-level template decisions keeps the primary canvas focused while retaining the existing complete build workflow.

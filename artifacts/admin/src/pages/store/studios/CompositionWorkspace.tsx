@@ -87,6 +87,7 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
   const selectedPlacement = composition.placements.find((p) => p.id === selected);
   const selectedWidget = widgets.find((w) => w.id === selectedPlacement?.widgetId);
   const selectedPageCount = selectedPlacement ? generatedPageCount(selectedPlacement.pageType, planner) : 1;
+  const selectedMaxIndex = Math.max(0, selectedPageCount - 1);
   const save = useMutation({
     mutationFn: () => storePlannersApi.saveComposition(storeId, planner.id, composition),
     onSuccess: async () => {
@@ -98,6 +99,17 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
 
   const update = (id: string, patch: Partial<PlannerWidgetPlacement>) =>
     setComposition((c) => ({ ...c, placements: c.placements.map((p) => p.id === id ? { ...p, ...patch } : p) }));
+  useEffect(() => {
+    if (!selectedPlacement || selectedPlacement.scope !== "range") return;
+    const maxIndex = Math.max(0, generatedPageCount(selectedPlacement.pageType, planner) - 1);
+    const start = Math.min(maxIndex, Math.max(0, selectedPlacement.rangeStart ?? selectedPlacement.pageIndex));
+    const end = Math.min(maxIndex, Math.max(start, selectedPlacement.rangeEnd ?? selectedPlacement.pageIndex));
+    if (maxIndex === 0) {
+      update(selectedPlacement.id, { scope: "page", rangeStart: undefined, rangeEnd: undefined });
+    } else if (start !== selectedPlacement.rangeStart || end !== selectedPlacement.rangeEnd) {
+      update(selectedPlacement.id, { rangeStart: start, rangeEnd: end });
+    }
+  }, [planner, selectedPlacement?.id, selectedPlacement?.scope, selectedPlacement?.pageIndex, selectedPlacement?.rangeStart, selectedPlacement?.rangeEnd]);
   const point = (e: DragEvent | PointerEvent) => {
     const r = canvasRef.current?.getBoundingClientRect();
     if (!r) return null;
@@ -164,15 +176,18 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
               <Input data-testid="input-palette-slot" value={selectedPlacement.settings?.paletteSlot ?? ""} onChange={(e) => update(selectedPlacement.id, { settings: { ...selectedPlacement.settings, paletteSlot: e.target.value } })} placeholder="accent / ink" className="mt-1 h-8" />
             </label>
             <div className="flex gap-1">
-              {(["page", "matching", "range"] as const).map((scope) => (
+              {(["page", "matching", ...(selectedPageCount > 1 ? ["range" as const] : [])] as const).map((scope) => (
                 <button
                   data-testid={`button-scope-${scope}`}
                   key={scope}
                   onClick={() => update(selectedPlacement.id, {
                     scope,
                     ...(scope === "range" ? {
-                      rangeStart: selectedPlacement.rangeStart ?? selectedPlacement.pageIndex,
-                      rangeEnd: selectedPlacement.rangeEnd ?? selectedPlacement.pageIndex,
+                      rangeStart: Math.min(selectedMaxIndex, Math.max(0, selectedPlacement.rangeStart ?? selectedPlacement.pageIndex)),
+                      rangeEnd: Math.min(selectedMaxIndex, Math.max(
+                        selectedPlacement.rangeStart ?? selectedPlacement.pageIndex,
+                        selectedPlacement.rangeEnd ?? selectedPlacement.pageIndex,
+                      )),
                     } : {}),
                   })}
                   className={`flex-1 text-[10px] py-1.5 rounded border ${selectedPlacement.scope === scope ? "bg-foreground text-background" : "border-border"}`}
@@ -182,18 +197,24 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
               ))}
             </div>
             {selectedPlacement.scope === "range" && (
-              <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="grid grid-cols-2 gap-2">
                 <label className="text-[10px] font-medium">
                   From
-                  <Input type="number" min={0} max={Math.max(0, selectedPageCount - 1)} value={selectedPlacement.rangeStart ?? selectedPlacement.pageIndex} onChange={(e) => {
-                    const rangeStart = Math.min(Math.max(0, Number(e.target.value)), Math.max(0, selectedPageCount - 1));
-                    update(selectedPlacement.id, { rangeStart, rangeEnd: Math.max(rangeStart, Math.min(selectedPlacement.rangeEnd ?? rangeStart, Math.max(0, selectedPageCount - 1))) });
+                  <Input type="number" min={0} max={selectedMaxIndex} value={Math.min(selectedMaxIndex, Math.max(0, selectedPlacement.rangeStart ?? selectedPlacement.pageIndex))} onChange={(e) => {
+                    const rangeStart = Math.min(selectedMaxIndex, Math.max(0, Number(e.target.value)));
+                    update(selectedPlacement.id, {
+                      rangeStart,
+                      rangeEnd: Math.min(selectedMaxIndex, Math.max(rangeStart, selectedPlacement.rangeEnd ?? rangeStart)),
+                    });
                   }} className="mt-1 h-8" />
                 </label>
                 <label className="text-[10px] font-medium">
                   Through
-                  <Input type="number" min={selectedPlacement.rangeStart ?? 0} max={Math.max(0, selectedPageCount - 1)} value={selectedPlacement.rangeEnd ?? selectedPlacement.pageIndex} onChange={(e) => update(selectedPlacement.id, { rangeEnd: Math.min(Math.max(selectedPlacement.rangeStart ?? 0, Number(e.target.value)), Math.max(0, selectedPageCount - 1)) })} className="mt-1 h-8" />
+                  <Input type="number" min={Math.max(0, selectedPlacement.rangeStart ?? 0)} max={selectedMaxIndex} value={Math.min(selectedMaxIndex, Math.max(selectedPlacement.rangeStart ?? 0, selectedPlacement.rangeEnd ?? selectedPlacement.pageIndex))} onChange={(e) => update(selectedPlacement.id, { rangeEnd: Math.min(selectedMaxIndex, Math.max(selectedPlacement.rangeStart ?? 0, Number(e.target.value))) })} className="mt-1 h-8" />
                 </label>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">Choose generated {selectedPlacement.pageType} pages from 0 through {selectedMaxIndex}.</p>
               </div>
             )}
             <button data-testid="button-toggle-visibility" onClick={() => update(selectedPlacement.id, { settings: { ...selectedPlacement.settings, visible: selectedPlacement.settings?.visible === false } })} className="text-xs flex items-center gap-2 text-muted-foreground">

@@ -118,10 +118,15 @@ export function validateCompositionTargets(
   const counts = getPlannerPageCounts(setup, style);
   for (const placement of composition.placements) {
     const count = counts[placement.pageType as PlannerPageType] ?? 0;
-    const finalIndex = placement.scope === "range" ? placement.rangeEnd! : placement.pageIndex;
-    if (count === 0 || placement.pageIndex >= count || finalIndex >= count) {
+    if (count === 0 || placement.pageIndex >= count) {
       throw new InvalidPlannerCompositionError(
-        `Placement "${placement.id}" targets a page that this planner does not contain`,
+        `Placement "${placement.id}" targets ${placement.pageType} page ${placement.pageIndex}, but this planner generates no page at that index`,
+      );
+    }
+    if (placement.scope === "range" && placement.rangeEnd! >= count) {
+      const maxIndex = count - 1;
+      throw new InvalidPlannerCompositionError(
+        `Placement "${placement.id}" has a ${placement.pageType} range ending at ${placement.rangeEnd}; this planner generates ${count} ${placement.pageType} page${count === 1 ? "" : "s"} indexed 0 through ${maxIndex}. Choose a Through index from ${placement.rangeStart} through ${maxIndex}`,
       );
     }
   }

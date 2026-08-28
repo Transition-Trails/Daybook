@@ -116,7 +116,18 @@ describe("planner widget composition", () => {
       { version: 1, placements: [{ ...placement, pageIndex: 999 }] },
       { weekStart: "mon", orientation: "vertical", startMonth: 0, startYear: 2027, monthCount: 1 },
       { sections: [] },
-    )).toThrow("does not contain");
+    )).toThrow("generates no page at that index");
+  });
+
+  it("rejects ranges beyond the generated count with an actionable bound", () => {
+    expect(() => validateCompositionTargets(
+      {
+        version: 1,
+        placements: [{ ...placement, pageType: "cover", pageIndex: 0, scope: "range", rangeStart: 0, rangeEnd: 2 }],
+      },
+      { weekStart: "mon", orientation: "vertical", startMonth: 0, startYear: 2027, monthCount: 1 },
+      { sections: [] },
+    )).toThrow("indexed 0 through 0");
   });
 
   it("accepts all three mixed note-paper pages", () => {

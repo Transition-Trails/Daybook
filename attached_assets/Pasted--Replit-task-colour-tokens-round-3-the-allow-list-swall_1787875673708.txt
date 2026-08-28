@@ -1,0 +1,109 @@
+# Replit task — colour tokens, round 3: the allow-list swallowed the guard
+
+The scan itself is now genuinely good. Real colour regex, glob scopes, line- and value-scoped
+exceptions, a staleness check that fails on a dead entry, and a per-directory breakdown in the
+failure message. That is the right mechanism, and all six token-equivalent colours are gone from
+`pages/**` and `components/**`. The fix landed.
+
+The problem is what the allow-list now covers.
+
+---
+
+## 1. The allow-list exempts almost the whole codebase
+
+Twenty-four entries, and these are directory-wide:
+
+```
+components/layout/**      components/shared/index.tsx    components/studio/**
+components/ui/**          components/help/**             pages/build/**
+pages/catalog/**          pages/editions/**              pages/ink/**
+pages/planners/**         pages/shop/**                  pages/store/**
+pages/studios/**          pages/super/*.tsx              pages/super/worldsmith-editorial/**
+```
+
+Between them that is nearly every file the scan walks. So:
+
+```ts
+it("has no undocumented raw colours in admin pages or components", ...)
+```
+
+passes because almost nothing is undocumented — not because the colours are consistent. The test
+name now describes a condition it is not measuring.
+
+**Worse, it undoes the round-2 fix.** Look at the token-equivalence test:
+
+```ts
+TOKEN_EQUIVALENT_RAW_COLOURS.has(match.value.toLowerCase()) &&
+!documentedRawColourAllowList.some((exception) => exceptionMatches(exception, match))
+```
+
+The allow-list is consulted there too. `#4A6080` and `#7A8FA6` lived in `pages/shop/**`,
+`pages/store/**` and `pages/super/*.tsx` — all three now blanket-exempt. So if either colour is
+reintroduced in exactly the files it was just removed from, **both tests pass**. The guard does
+not protect the thing it was built to protect.
+
+## 2. Narrow the allow-list to what is actually exempt
+
+The reasons given are mostly legitimate — product palettes, semantic status colours, authored
+document colours, alpha overlays. The scope is what is wrong. An exemption should name the
+*colours* or the *lines*, not the directory.
+
+The mechanism for this already exists in the code — `value` and `line` regexes on
+`RawColourException`, used once for `DEFAULT_COLORS`. Use it everywhere.
+
+**Rules:**
+
+1. **Never exempt a value that is in `TOKEN_EQUIVALENT_RAW_COLOURS`.** Check this first, before
+   the allow-list, so no scope can ever re-permit a token-equivalent colour. This is the one
+   change that matters most — do it even if you do nothing else.
+2. Prefer a `value` regex: semantic status colours are a small, nameable set. One entry per
+   family (`^#(?:10b981|3f7a5e|1e6e34)$` for greens, etc.) beats a directory glob.
+3. Where the colours are data rather than chrome, scope by `line` to the declaration — as the
+   `DEFAULT_COLORS` entry already does. Pen palettes, starter swatches, and seed palette arrays
+   are all this shape.
+4. `components/ui/**` is the one place a broad glob is fair: it is vendored shadcn primitives.
+   Say that as the reason.
+5. Every remaining entry should be defensible as *"these specific colours, for this specific
+   reason"*. If you cannot name the colours, the exemption is probably hiding drift.
+
+Report the count before and after narrowing. If narrowing surfaces real drift, fix it against
+the nearest token — the standing instruction from round 2 holds: make the colour consistent, no
+need to ask.
+
+## 3. `App.tsx` is not scanned, and it has drift
+
+`SCANNED_ROOTS = ["pages", "components"]`, so `src/App.tsx` is invisible to the guard. It has at
+least one hit:
+
+```
+App.tsx:877  color: "#7A8FA6"
+```
+
+That is a token-equivalent colour — `var(--admin-muted)` — sitting in the file that owns the
+route tree. Add `App.tsx` to the scan, or scan `src/**` and allow-list `index.css` and the test
+itself. Fix that literal.
+
+Also check `contexts/`, `hooks/` and `lib/` for the same. If they hold no colours, say so and
+leave the scan roots as they are.
+
+## 4. One naming problem
+
+`#FFFCF8` maps to `--admin-card-subtle`, but `--admin-card-subtle` is `#FBF6EE` — a warm tinted
+surface — while `#FFFCF8` is a *lighter* near-white, closer to `--admin-card` (`#FFFDF9`) than to
+the subtle tint. Both `#FAF8F3` and `#FFFCF8` were being used in worldsmith-editorial as card
+backgrounds, and the round-2 brief said to preserve the layering relationship.
+
+Check what actually happened at those sites. If `#FFFCF8` became the *recessed* surface and
+`#FAF8F3` the raised one, the layering is now inverted — the lighter colour went to the tinted
+token. Look at each site and make the raised surface `--admin-card` and the recessed one
+`--admin-card-subtle`, whichever hex it started as.
+
+## Acceptance
+
+- Adding `const T = { slate: "#4A6080" }` to `pages/shop/StoreBuilder.tsx` **fails** the suite.
+  That file is currently allow-listed, so verify this specifically.
+- Adding `color: "#7A8FA6"` to `pages/super/SupportInbox.tsx` fails.
+- No entry in the allow-list can exempt a value present in `TOKEN_EQUIVALENT_RAW_COLOURS`.
+- `App.tsx:877` reads `var(--admin-muted)`.
+- Report: allow-list entry count before and after, raw-colour count before and after, and any
+  drift the narrowing exposed.

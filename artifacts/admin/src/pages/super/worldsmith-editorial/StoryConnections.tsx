@@ -202,7 +202,7 @@ export default function StoryConnections() {
   }
 
   return (
-    <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card)" }}>
+    <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card-subtle)" }}>
       <div className="max-w-6xl mx-auto px-7 py-7">
         <header className="flex flex-wrap items-start justify-between gap-4 mb-7">
           <div>
@@ -291,7 +291,7 @@ export default function StoryConnections() {
                 </div>
               </section>
 
-              <section className="rounded-2xl p-5" style={{ background: "var(--admin-card-subtle)", border: "1px solid var(--admin-border)" }}>
+              <section className="rounded-2xl p-5" style={{ background: "var(--admin-card)", border: "1px solid var(--admin-border)" }}>
                 <div className="flex items-start justify-between gap-3 mb-5">
                   <div>
                     <p className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#C87560" }}>Connected canon</p>
@@ -349,7 +349,7 @@ export default function StoryConnections() {
                     {unlinkedRecords.slice(0, 8).map(record => (
                       <div key={record.id} className="rounded-lg px-2.5 py-2" style={{ border: "1px solid #F0ECE6" }}>
                         <Link href={`/super/worldsmith/editorial/canon/${record.id}`}>
-                          <span className="block cursor-pointer hover:bg-[var(--admin-card)]">
+                          <span className="block cursor-pointer hover:bg-[var(--admin-card-subtle)]">
                           <span className="block text-xs font-semibold truncate" style={{ color: "#344054" }}>{record.name}</span>
                           <span className="block mt-0.5 text-[10px] capitalize" style={{ color: TYPE_COLORS[record.canonType ?? ""] ?? "#98A2B3" }}>
                             {record.canonType ?? "Canon record"}

@@ -27,7 +27,7 @@ interface PlatformPalette {
   authoredByStoreId: string | null; createdAt: string; updatedAt: string;
 }
 
-const DEFAULT_COLORS = ["#C87560", "#7A8FA6", "#F3EDE1", "#2D3E50", "#A9957E", "#F7F0E6"];
+const DEFAULT_COLORS = ["#C87560", "#7A6A57", "#F3EDE1", "#2D3E50", "#A9957E", "#F7F0E6"];
 const COLOR_LABELS = ["Accent", "Accent dark", "Secondary", "Tertiary", "Ink", "Paper"];
 
 // ── Badge primitives ──────────────────────────────────────────────────────────

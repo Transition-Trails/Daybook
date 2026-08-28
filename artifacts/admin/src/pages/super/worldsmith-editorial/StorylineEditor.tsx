@@ -150,7 +150,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
   }
 
   return (
-    <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card)" }}>
+    <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card-subtle)" }}>
       <header className="flex h-12 items-center gap-2 border-b bg-white px-7" style={{ borderColor: BORDER }}>
         <span className="text-[11px]" style={{ color: "#98A2B3" }}>WorldSmith</span>
         <span className="text-[11px]" style={{ color: "#C9BFB2" }}>/</span>
@@ -190,7 +190,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
           className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]"
         >
           <div className="space-y-5">
-            <section className="rounded-2xl border p-7" style={{ background: "var(--admin-card-subtle)", borderColor: BORDER }}>
+            <section className="rounded-2xl border p-7" style={{ background: "var(--admin-card)", borderColor: BORDER }}>
               <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_200px]">
                 <label className="block">
                   <span className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "#786D60" }}>Storyline title</span>
@@ -246,7 +246,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
                 </div>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   {story.acts.map(act => (
-                    <div key={act.id} className="rounded-xl p-4" style={{ background: "var(--admin-card)", border: "1px solid var(--admin-border)" }}>
+                    <div key={act.id} className="rounded-xl p-4" style={{ background: "var(--admin-card-subtle)", border: "1px solid var(--admin-border)" }}>
                       <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: CLAY }}>Movement {act.actNumber}</p>
                       <p className="mt-1 text-sm font-semibold" style={{ color: INK }}>{act.title}</p>
                       {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}

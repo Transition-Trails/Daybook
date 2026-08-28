@@ -60,7 +60,7 @@ export function PaletteLibraryPicker({
   const palettes = data ?? [];
 
   return (
-    <div className="mb-3 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card)] p-3">
+    <div className="mb-3 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card-subtle)] p-3">
       <button
         type="button"
         onClick={() => setOpen(current => !current)}

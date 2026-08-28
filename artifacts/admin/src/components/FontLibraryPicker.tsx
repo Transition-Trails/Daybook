@@ -75,7 +75,7 @@ export function FontLibraryPicker({
   };
 
   return (
-    <div className="mb-3 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card)] p-3">
+    <div className="mb-3 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card-subtle)] p-3">
       {selectedChoices.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-2">
           {selectedChoices.map(choice => (

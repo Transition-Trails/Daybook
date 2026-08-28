@@ -604,7 +604,7 @@ function InlineSuggestionsSection({
   return (
     <section
       className="mx-5 mb-7 mt-3 rounded-2xl p-5"
-      style={{ background: "var(--admin-card-subtle)", border: "1px solid #DDD4C4" }}
+      style={{ background: "var(--admin-card)", border: "1px solid #DDD4C4" }}
       aria-labelledby="canon-suggestions-heading"
     >
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">

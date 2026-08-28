@@ -15,7 +15,7 @@ export default function WorldBibleStudio() {
   }
 
   return (
-    <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card)" }}>
+    <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card-subtle)" }}>
       <header className="h-12 shrink-0 flex items-center gap-2 px-7 border-b bg-white" style={{ borderColor: "var(--admin-border)" }}>
         <span className="text-[11px]" style={{ color: "#98A2B3" }}>WorldSmith</span>
         <span className="text-[11px]" style={{ color: "#C9BFB2" }}>/</span>
@@ -46,7 +46,7 @@ export default function WorldBibleStudio() {
           </Link>
         </div>
 
-        <section className="rounded-2xl p-7" style={{ background: "var(--admin-card-subtle)", border: "1px solid var(--admin-border)" }}>
+        <section className="rounded-2xl p-7" style={{ background: "var(--admin-card)", border: "1px solid var(--admin-border)" }}>
           <WorldBibleSection
             key={selectedWorld.id}
             world={selectedWorld}

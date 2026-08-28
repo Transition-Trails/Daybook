@@ -111,7 +111,7 @@ export default function EditorialDocumentEditor({ kind, documentId }: { kind: Do
   const canSave = name.trim().length > 0 && !saveMutation.isPending;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--admin-card)]">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--admin-card-subtle)]">
       <header className="flex shrink-0 items-center justify-between border-b border-border bg-background px-6 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <button onClick={() => navigate(config.pluralPath)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Back to library">

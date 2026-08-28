@@ -64,7 +64,7 @@ function SuggestedStorylines({
   return (
     <section
       className="mb-6 rounded-2xl p-5"
-      style={{ background: "var(--admin-card-subtle)", border: "1px solid #DDD4C4" }}
+      style={{ background: "var(--admin-card)", border: "1px solid #DDD4C4" }}
       aria-labelledby="storyline-suggestions-heading"
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -240,7 +240,7 @@ export default function StoriesStudio() {
   }
 
   return (
-    <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card)" }}>
+    <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card-subtle)" }}>
       <div className="w-full px-7 py-7">
         <header className="flex flex-wrap items-start justify-between gap-4 mb-7">
           <div>
@@ -385,7 +385,7 @@ export default function StoriesStudio() {
                 </div>
                 <div className="mt-3 grid md:grid-cols-2 gap-3">
                   {selectedStory.acts.map(act => (
-                    <div key={act.id} className="rounded-xl p-4" style={{ background: "var(--admin-card)", border: "1px solid var(--admin-border)" }}>
+                    <div key={act.id} className="rounded-xl p-4" style={{ background: "var(--admin-card-subtle)", border: "1px solid var(--admin-border)" }}>
                       <p className="text-[10px] uppercase tracking-[0.13em] font-bold" style={{ color: "#C87560" }}>Movement {act.actNumber}</p>
                       <p className="mt-1 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{act.title}</p>
                       {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}

@@ -306,7 +306,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
 
   return (
     <EditorialPageFilterContext.Provider value={filterContextValue}>
-      <div className="flex h-screen overflow-hidden" style={{ background: "var(--admin-card)" }}>
+      <div className="flex h-screen overflow-hidden" style={{ background: "var(--admin-card-subtle)" }}>
       {/* ── Left sidebar ─────────────────────────────────────────────────────── */}
       <aside
         data-testid="editorial-drawer"
@@ -413,7 +413,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
                 "flex items-center rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C87560] focus-visible:ring-offset-1",
                 drawerCollapsed ? "justify-center w-10 h-10 px-0" : "w-full gap-2 px-2.5 py-1.5",
               ].join(" ")}
-              style={{ background: "var(--admin-card)", border: "1px solid #E5E7EB" }}
+              style={{ background: "var(--admin-card-subtle)", border: "1px solid #E5E7EB" }}
             >
               <Globe className="w-3.5 h-3.5 text-gray-400 shrink-0" />
               <span className={drawerCollapsed ? "sr-only" : "flex-1 text-left font-medium truncate"}>

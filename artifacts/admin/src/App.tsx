@@ -265,7 +265,7 @@ function RootRouter() {
       <Route path="/super/ink/:id">
         {(p) => (
           <RequireSuperAdmin state={state}>
-            <Suspense fallback={<div style={{ minHeight: "100vh", background: "#F7F0E6" }} />}>
+            <Suspense fallback={<div style={{ minHeight: "100vh", background: "var(--admin-paper)" }} />}>
               <InkEditor key={p.id} />
             </Suspense>
           </RequireSuperAdmin>
@@ -858,7 +858,7 @@ function ShopPageLoading() {
   return (
     <div style={{
       minHeight: "100vh",
-      background: "#F7F0E6",
+      background: "var(--admin-paper)",
       display: "flex",
       flexDirection: "column",
       alignItems: "center",
@@ -869,12 +869,12 @@ function ShopPageLoading() {
       <div style={{
         width: 40,
         height: 40,
-        border: "3px solid #E7DCCB",
-        borderTopColor: "#C87560",
+        border: "3px solid var(--admin-border)",
+        borderTopColor: "var(--admin-clay)",
         borderRadius: "50%",
         animation: "shop-spin 0.8s linear infinite",
       }} />
-      <span style={{ fontSize: 13, color: "#7A8FA6", letterSpacing: "0.01em" }}>
+      <span style={{ fontSize: 13, color: "var(--admin-muted)", letterSpacing: "0.01em" }}>
         Loading…
       </span>
       <style>{`@keyframes shop-spin { to { transform: rotate(360deg); } }`}</style>

@@ -68,8 +68,17 @@ export type { PageIdMap, UserHotspot } from "./pdf-template";
  * texture→ assetRef is a base64 PNG/JPG data URL (tiled patterns handled as full-cover image)
  */
 export interface BackgroundSpec {
+  id?: string | null;
+  name?: string | null;
   type: string;      // "color" | "texture" | "image"
   assetRef?: string | null;
+}
+
+export interface BackgroundRenderWarning {
+  backgroundId: string | null;
+  backgroundName: string | null;
+  backgroundType: "image" | "texture";
+  reason: "missing_asset" | "embed_failed";
 }
 
 export interface SpineSpec {
@@ -959,7 +968,13 @@ export async function buildPdf(
   diagnosticPage = false,
   spine?: SpineSpec | null,
   widgetSpecs?: WidgetRenderSpec[],
-): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[]; totalLinkAnnotations?: number }> {
+): Promise<{
+  buffer: Uint8Array;
+  pageCount: number;
+  fontSubstitutions: string[];
+  backgroundWarnings: BackgroundRenderWarning[];
+  totalLinkAnnotations?: number;
+}> {
   const { einkPreset, forceGrayscale, lt, lo, skipLinks, margin: MARGIN } = makeEinkHelpers(einkDevice);
   // E-ink mode forces ink-friendly (grayscale is the e-ink asset)
   if (forceGrayscale) inkFriendly = true;
@@ -1034,23 +1049,31 @@ export async function buildPdf(
   let bgColorOverride: { r: number; g: number; b: number } | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let bgEmbedded: any = null; // PDFImage, kept as any to avoid pdf-lib internals
+  const backgroundWarnings: BackgroundRenderWarning[] = [];
 
   // In ink-friendly mode: skip all backgrounds (photographic art omitted, not greyed).
   if (!inkFriendly && background) {
     if (background.type === "color" && background.assetRef) {
       try { bgColorOverride = hexToRgb(background.assetRef); } catch { /* ignore malformed hex */ }
-    } else if (
-      (background.type === "image" || background.type === "texture") &&
-      background.assetRef?.startsWith("data:image/")
-    ) {
-      try {
-        const b64 = background.assetRef.replace(/^data:image\/[a-z+]+;base64,/, "");
-        const buf = Buffer.from(b64, "base64");
-        bgEmbedded = background.assetRef.startsWith("data:image/png")
-          ? await pdfDoc.embedPng(buf)
-          : await pdfDoc.embedJpg(buf);
-      } catch (err) {
-        console.warn("[pdf-generator] Background image embed failed — using paper fill:", (err as Error).message);
+    } else if (background.type === "image" || background.type === "texture") {
+      const warningBase = {
+        backgroundId: background.id ?? null,
+        backgroundName: background.name ?? null,
+        backgroundType: background.type,
+      } as const;
+      if (!background.assetRef?.startsWith("data:image/")) {
+        backgroundWarnings.push({ ...warningBase, reason: "missing_asset" });
+      } else {
+        try {
+          const b64 = background.assetRef.replace(/^data:image\/[a-z+]+;base64,/, "");
+          const buf = Buffer.from(b64, "base64");
+          bgEmbedded = background.assetRef.startsWith("data:image/png")
+            ? await pdfDoc.embedPng(buf)
+            : await pdfDoc.embedJpg(buf);
+        } catch (err) {
+          backgroundWarnings.push({ ...warningBase, reason: "embed_failed" });
+          console.warn("[pdf-generator] Background image embed failed — using paper fill:", (err as Error).message);
+        }
       }
     }
   }
@@ -1519,7 +1542,13 @@ export async function buildPdf(
 
   // 9. Serialize
   const pdfBytes = await pdfDoc.save();
-  return { buffer: pdfBytes, pageCount: flat.length, fontSubstitutions: [...genFallbackLog], totalLinkAnnotations };
+  return {
+    buffer: pdfBytes,
+    pageCount: flat.length,
+    fontSubstitutions: [...genFallbackLog],
+    backgroundWarnings,
+    totalLinkAnnotations,
+  };
 }
 
 // ── Preview PDF ───────────────────────────────────────────────────────────────
@@ -1590,7 +1619,12 @@ export async function buildPreviewPdf(
   spine?: SpineSpec | null,
   widgetSpecs?: WidgetRenderSpec[],
   hotspotsByTemplate?: Map<string, UserHotspot[]>,
-): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[] }> {
+): Promise<{
+  buffer: Uint8Array;
+  pageCount: number;
+  fontSubstitutions: string[];
+  backgroundWarnings: BackgroundRenderWarning[];
+}> {
   const generated = await buildPdf(
     config,
     themeColors,
@@ -1638,5 +1672,6 @@ export async function buildPreviewPdf(
     buffer: await source.save(),
     pageCount: indexes.length,
     fontSubstitutions: generated.fontSubstitutions,
+    backgroundWarnings: generated.backgroundWarnings,
   };
 }

@@ -185,6 +185,8 @@ describe("planner preview/export visual parity", () => {
       expect(previewResult.pageCount).toBe(selectedIds.length);
       expect(previewDocument.getPageCount()).toBe(selectedIds.length);
       expect(exportDocument.getPageCount()).toBeGreaterThan(selectedIds.length);
+      expect(exportResult.backgroundWarnings).toEqual([]);
+      expect(previewResult.backgroundWarnings).toEqual([]);
       expect(pageContentBytes(exportDocument, 0)).not.toEqual(
         pageContentBytes(plainExportDocument, 0),
       );
@@ -292,15 +294,24 @@ describe("planner preview/export visual parity", () => {
       } satisfies GeneratorConfig;
       const themeColors = ["#d2694f", "#172033", "#ffffff", "#c7d2fe", "#1e1b4b", "#fafafa"];
       const malformedBackground: BackgroundSpec = {
+        id: "bg-broken-garden",
+        name: "Broken Garden Texture",
         type: "image",
         assetRef: "data:image/png;base64,not-a-valid-png",
       };
+      const missingTexture: BackgroundSpec = {
+        id: "bg-missing-linen",
+        name: "Missing Linen",
+        type: "texture",
+        assetRef: null,
+      };
       const selectedIds = selectPreviewPageIds(config);
 
-      const [exportResult, previewResult, plainExportResult] = await Promise.all([
+      const [exportResult, previewResult, plainExportResult, missingTextureResult] = await Promise.all([
         buildPdf(config, themeColors, undefined, malformedBackground),
         buildPreviewPdf(config, themeColors, undefined, malformedBackground),
         buildPdf(config, themeColors),
+        buildPdf(config, themeColors, undefined, missingTexture),
       ]);
       const exportDocument = await PDFDocument.load(exportResult.buffer);
       const previewDocument = await PDFDocument.load(previewResult.buffer);
@@ -310,6 +321,20 @@ describe("planner preview/export visual parity", () => {
       expect(previewResult.pageCount).toBe(selectedIds.length);
       expect(previewDocument.getPageCount()).toBe(selectedIds.length);
       expect(exportDocument.getPageCount()).toBeGreaterThan(selectedIds.length);
+      expect(exportResult.backgroundWarnings).toEqual([{
+        backgroundId: "bg-broken-garden",
+        backgroundName: "Broken Garden Texture",
+        backgroundType: "image",
+        reason: "embed_failed",
+      }]);
+      expect(previewResult.backgroundWarnings).toEqual(exportResult.backgroundWarnings);
+      expect(missingTextureResult.backgroundWarnings).toEqual([{
+        backgroundId: "bg-missing-linen",
+        backgroundName: "Missing Linen",
+        backgroundType: "texture",
+        reason: "missing_asset",
+      }]);
+      expect(plainExportResult.backgroundWarnings).toEqual([]);
       expect(pageContentBytes(exportDocument, 0)).toEqual(
         pageContentBytes(plainExportDocument, 0),
       );

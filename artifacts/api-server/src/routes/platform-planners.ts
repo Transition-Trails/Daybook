@@ -267,7 +267,7 @@ router.post(
         productType: template.productType,
       } as unknown as typeof plannerConfigsTable.$inferSelect;
 
-      const { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount, einkCaveat } = await runGeneration(fakeConfig);
+      const { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount, einkCaveat, backgroundWarnings } = await runGeneration(fakeConfig);
 
       // Resolve names for the filename
       let editionName: string | null = null;
@@ -314,7 +314,7 @@ router.post(
         metadata: { pageCount, fileName },
       });
 
-      res.json({ id: updated.id, drive: { pdfFileId, configFileId, inkFriendlyPdfFileId }, pageCount, fileName, einkCaveat });
+      res.json({ id: updated.id, drive: { pdfFileId, configFileId, inkFriendlyPdfFileId }, pageCount, fileName, einkCaveat, backgroundWarnings });
     } catch (err) {
       req.log.error({ err }, "Platform planner generation failed");
       res.status((err as Error).name === "UnknownEinkDeviceError" ? 400 : 500).json({ error: String(err) });

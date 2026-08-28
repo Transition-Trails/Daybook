@@ -215,6 +215,35 @@ describe("BuildCenter — Generate button disabled invariant", () => {
   });
 });
 
+describe("BuildCenter — background generation warnings", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("names a saved background that could not be embedded without exposing its asset", async () => {
+    const { platformPlannersApi } = await import("@/lib/api");
+    vi.mocked(platformPlannersApi.generate).mockResolvedValue({
+      id: "tpl-1",
+      drive: { pdfFileId: "pdf-1", configFileId: null },
+      pageCount: 24,
+      fileName: "garden-planner.pdf",
+      backgroundWarnings: [{
+        backgroundId: "bg-broken-garden",
+        backgroundName: "Broken Garden Texture",
+        backgroundType: "image",
+        reason: "embed_failed",
+      }],
+    });
+    vi.mocked(platformPlannersApi.get).mockResolvedValue(makeTemplate());
+
+    renderBuildCenter(makeTemplate());
+    await userEvent.click(screen.getByRole("button", { name: /generate planner/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Broken Garden Texture");
+    expect(alert.textContent).toContain("generated without it");
+    expect(alert.textContent).not.toContain("data:image");
+  });
+});
+
 describe("BuildCenter — persisted E-ink profiles", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 

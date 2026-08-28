@@ -20,7 +20,7 @@ import { useLocation, useSearch, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sparkles, BookOpen, FileText, Download, Upload,
-  Plus, Copy, Globe, EyeOff, ImageOff, Layers,
+  Plus, Copy, Globe, EyeOff, ImageOff, Layers, AlertTriangle,
   Lock as LockIcon, RefreshCw, Check,
 } from "lucide-react";
 import { StudioLayout } from "@/components/studio/StudioLayout";
@@ -29,7 +29,14 @@ import {
   EmptyState, ErrorState, SkeletonRows, RailCard, DockAiAssistant,
   StatusPill, ActionChip, CHIP_ACTIVE_BG,
 } from "@/components/studio/primitives";
-import { catalogApi, apiFetch, platformApi, platformPlannersApi, type PlatformPlannerConfig } from "@/lib/api";
+import {
+  catalogApi,
+  apiFetch,
+  platformApi,
+  platformPlannersApi,
+  type PlatformPlannerConfig,
+  type BackgroundRenderWarning,
+} from "@/lib/api";
 import { aiApi, extractJson, type AiResult } from "@/lib/ai";
 import { useToast } from "@/hooks/use-toast";
 import { PLANNER_FONT_FAMILIES } from "@/lib/studio/plannerConstants";
@@ -744,6 +751,7 @@ export function BuildCenter({
   const [accentFont,     setAccentFont]     = useState("");
   const [backgroundId,   setBackgroundId]   = useState("");
   const [einkDevice,    setEinkDevice]    = useState<string | null>(null);
+  const [backgroundWarnings, setBackgroundWarnings] = useState<BackgroundRenderWarning[]>([]);
   const setEinkDeviceAndNotify = (device: string | null) => {
     setEinkDevice(device);
     onEinkDeviceChange?.(device);
@@ -863,12 +871,23 @@ export function BuildCenter({
       inkFriendly: inkFriendly || !!einkDevice,
       einkDevice: einkDevice ?? undefined,
     }),
+    onMutate: () => setBackgroundWarnings([]),
     onSuccess: async (result) => {
+      setBackgroundWarnings(result.backgroundWarnings ?? []);
       qc.invalidateQueries({ queryKey: ["platform-planners"] });
       const updated = await platformPlannersApi.get(template!.id);
       onUpdated(updated);
       const bwNote = einkDevice ? ` · ${einkDevice}` : (inkFriendly ? " · + ink-friendly" : "");
       toast({ title: "Generated", description: `${result.pageCount} pages · ${result.fileName}${bwNote}` });
+      if (result.backgroundWarnings?.length) {
+        const names = result.backgroundWarnings
+          .map((warning) => warning.backgroundName || `${warning.backgroundType} background`)
+          .join(", ");
+        toast({
+          title: "Background skipped",
+          description: `${names} could not be embedded, so the planner was generated without that artwork.`,
+        });
+      }
       if (result.einkCaveat) {
         toast({ title: "Kindle Scribe listing note", description: result.einkCaveat, variant: "default" });
       }
@@ -1603,6 +1622,21 @@ export function BuildCenter({
         {generateMut.isError   && <StatusPill label="Generation failed" kind="error" />}
         {publishMut.isSuccess  && <StatusPill label="Published" kind="success" />}
       </div>
+      {backgroundWarnings.length > 0 && (
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-amber-800"
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <p className="text-[11.5px] leading-snug">
+            <span className="font-semibold">Background artwork skipped —</span>{" "}
+            {backgroundWarnings
+              .map((warning) => warning.backgroundName || `${warning.backgroundType} background`)
+              .join(", ")}
+            {" "}could not be embedded, so the planner was generated without it. Replace or repair the saved background before publishing.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

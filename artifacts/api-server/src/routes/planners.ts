@@ -24,7 +24,7 @@ import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
 import { resolveStoreActorWithStoreHeader } from "../middleware/requireRole";
 import { canPreviewCatalogAsset } from "../lib/planner-preview-authorization";
-import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec, type SpineSpec, type WidgetRenderSpec, type UserHotspot } from "../lib/pdf-generator";
+import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec, type BackgroundRenderWarning, type SpineSpec, type WidgetRenderSpec, type UserHotspot } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
 import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
@@ -58,7 +58,17 @@ async function resolveWidgetRenderSpecs(style: PlannerStyle, storeId?: string | 
 export async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
   hotspotsByTemplate?: Map<string, import("../lib/pdf-generator").UserHotspot[]>,
-): Promise<{ pdfFileId: string; configFileId: string; inkFriendlyPdfFileId: string | null; pageCount: number; einkCaveat: string | null; fontSubstitutions: string[]; totalLinkAnnotations?: number; pdfBuffer: Uint8Array }> {
+): Promise<{
+  pdfFileId: string;
+  configFileId: string;
+  inkFriendlyPdfFileId: string | null;
+  pageCount: number;
+  einkCaveat: string | null;
+  fontSubstitutions: string[];
+  backgroundWarnings: BackgroundRenderWarning[];
+  totalLinkAnnotations?: number;
+  pdfBuffer: Uint8Array;
+}> {
   // Device geometry, link behavior, and safety thresholds are operator-managed
   // shared data. Refresh before rendering so every generation uses the latest
   // persisted profile rather than a process-start snapshot.
@@ -119,14 +129,14 @@ export async function runGeneration(
   let background: BackgroundSpec | undefined;
   if (style.backgroundId) {
     const [bg] = await db
-      .select({ type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
+      .select({ id: backgroundsTable.id, name: backgroundsTable.name, type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
       .from(backgroundsTable)
       .where(eq(backgroundsTable.id, style.backgroundId));
     if (bg) background = bg;
   }
   if (!background && style.themeId) {
     const [bgRow] = await db
-      .select({ type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
+      .select({ id: backgroundsTable.id, name: backgroundsTable.name, type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
       .from(themeBackgroundsTable)
       .innerJoin(backgroundsTable, eq(themeBackgroundsTable.backgroundId, backgroundsTable.id))
       .where(eq(themeBackgroundsTable.themeId, style.themeId))
@@ -234,6 +244,7 @@ export async function runGeneration(
       );
   const { buffer, pageCount, totalLinkAnnotations } = generated;
   const fontSubstitutions = "fontSubstitutions" in generated ? generated.fontSubstitutions : [];
+  const backgroundWarnings = "backgroundWarnings" in generated ? generated.backgroundWarnings : [];
 
   // B&W / e-ink variant: inkFriendly=true + optional device trim
   // Per spec: "the B&W asset from Part 2 IS the e-ink asset — do not build a second pipeline."
@@ -337,7 +348,17 @@ export async function runGeneration(
   // Kindle Scribe caveat — surface to caller for listing copy
   const einkCaveat = getEinkPreset(einkDeviceKey)?.caveat ?? null;
 
-  return { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount, einkCaveat, fontSubstitutions, totalLinkAnnotations, pdfBuffer: buffer };
+  return {
+    pdfFileId,
+    configFileId,
+    inkFriendlyPdfFileId,
+    pageCount,
+    einkCaveat,
+    fontSubstitutions,
+    backgroundWarnings,
+    totalLinkAnnotations,
+    pdfBuffer: buffer,
+  };
 }
 
 // ── POST /planners/preview ────────────────────────────────────────────────────

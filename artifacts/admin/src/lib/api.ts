@@ -1693,6 +1693,13 @@ export interface PlatformPlannerConfig {
   updatedAt: string;
 }
 
+export interface BackgroundRenderWarning {
+  backgroundId: string | null;
+  backgroundName: string | null;
+  backgroundType: "image" | "texture";
+  reason: "missing_asset" | "embed_failed";
+}
+
 export const platformPlannersApi = {
   list: () =>
     apiFetch<PlatformPlannerConfig[]>("/platform/planners"),
@@ -1730,7 +1737,14 @@ export const platformPlannersApi = {
     }),
 
   generate: (id: string, opts?: { inkFriendly?: boolean; einkDevice?: string | null }) =>
-    apiFetch<{ id: string; drive: { pdfFileId: string | null; configFileId: string | null; inkFriendlyPdfFileId?: string | null }; pageCount: number; fileName: string; einkCaveat?: string | null }>(
+    apiFetch<{
+      id: string;
+      drive: { pdfFileId: string | null; configFileId: string | null; inkFriendlyPdfFileId?: string | null };
+      pageCount: number;
+      fileName: string;
+      einkCaveat?: string | null;
+      backgroundWarnings?: BackgroundRenderWarning[];
+    }>(
       `/platform/planners/${id}/generate`,
       { method: "POST", body: JSON.stringify(opts ?? {}) },
     ),

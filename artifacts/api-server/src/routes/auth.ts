@@ -120,8 +120,14 @@ router.post("/auth/staff/login", async (req, res): Promise<void> => {
 
   req.login(user, (err) => {
     if (err) { res.status(500).json({ error: "Login failed" }); return; }
-    const { passwordHash, googleAccessToken, googleRefreshToken, notionToken, ...safe } = user;
-    res.json({ ...safe, memberships });
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        res.status(500).json({ error: "Login session could not be saved" });
+        return;
+      }
+      const { passwordHash, googleAccessToken, googleRefreshToken, notionToken, ...safe } = user;
+      res.json({ ...safe, memberships });
+    });
   });
 });
 
@@ -194,8 +200,14 @@ router.post("/auth/test-login", async (req, res): Promise<void> => {
   }
   req.login(user, (err) => {
     if (err) { res.status(500).json({ error: "Login failed" }); return; }
-    const { passwordHash, googleAccessToken, googleRefreshToken, notionToken, ...safe } = user;
-    res.json(safe);
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        res.status(500).json({ error: "Login session could not be saved" });
+        return;
+      }
+      const { passwordHash, googleAccessToken, googleRefreshToken, notionToken, ...safe } = user;
+      res.json(safe);
+    });
   });
 });
 

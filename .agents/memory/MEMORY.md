@@ -76,3 +76,4 @@
 - [Legacy admin redirects](legacy-admin-redirects.md) — canonicalization runs before auth/data loading so deep links replace reliably without mounting the legacy console
 - [Draft reconciliation readiness](draft-reconciliation-readiness.md) — cached operator drafts must wait for every authoritative query before reconciliation
 - [Task branch scope isolation](task-branch-scope-isolation.md) — completion review can include inherited branch commits; compare against origin/main and neutralize unrelated changes
+- [Admin test session flush](admin-test-session-flush.md) — browser test login must persist the Passport session before responding or reload can lose authorization

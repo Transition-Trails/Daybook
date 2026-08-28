@@ -141,7 +141,7 @@ export default function SuperFeatureFlags() {
       {active && (
         <>
           <button className="fixed inset-0 z-40 bg-[rgba(27,42,74,.28)]" aria-label="Close drawer" onClick={() => setSelected(null)} />
-          <aside className="fixed bottom-0 right-0 top-0 z-50 flex w-[420px] max-w-[92vw] flex-col bg-[#FFFDF9] shadow-[-10px_0_34px_rgba(27,42,74,.2)]">
+          <aside className="fixed bottom-0 right-0 top-0 z-50 flex w-[560px] max-w-[92vw] flex-col bg-[#FFFDF9] shadow-[-10px_0_34px_rgba(27,42,74,.2)]">
             <div className="flex items-start justify-between border-b border-[#E7DCCB] p-5">
               <div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-[#8A7A66]">Capability overrides</p><h2 className="mt-1 font-display text-xl font-semibold text-[#1B2A4A]">{active.store.name}</h2></div>
               <button type="button" onClick={() => setSelected(null)} className="rounded-md p-1 text-[#7A6A57] hover:bg-[#F5EFE5]"><X className="h-4 w-4" /></button>
@@ -156,7 +156,7 @@ export default function SuperFeatureFlags() {
                   </label>
                 ))}
               </div>
-              <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="text-xs font-semibold text-[#5C4E3E]">Editions cap{active.conflicts.editionsCap && <span className="ml-1 text-[10px] text-[#C87560]">server changed</span>}<Input type="number" min={1} value={active.flags.editionsCap} onChange={(e) => update(active.store.id, "editionsCap", Number(e.target.value))} className="mt-1 border-[#E7DCCB]" /></label>
                 <label className="text-xs font-semibold text-[#5C4E3E]">Storage MB{active.conflicts.storageQuota && <span className="ml-1 text-[10px] text-[#C87560]">server changed</span>}<Input type="number" min={0} value={active.flags.storageQuota} onChange={(e) => update(active.store.id, "storageQuota", Number(e.target.value))} className="mt-1 border-[#E7DCCB]" /></label>
               </div>

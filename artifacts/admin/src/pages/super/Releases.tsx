@@ -306,7 +306,7 @@ function ReleaseDrawer({
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="ml-auto h-full w-full max-w-lg flex flex-col shadow-2xl overflow-hidden"
+        className="ml-auto h-full w-full max-w-xl flex flex-col shadow-2xl overflow-hidden"
         style={{ background: PAPER }}
       >
         {/* Header */}
@@ -321,7 +321,7 @@ function ReleaseDrawer({
         </div>
 
         {/* Form body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-5">
 
           {/* Version + type */}
           <div className="grid grid-cols-2 gap-3">

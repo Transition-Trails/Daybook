@@ -14,6 +14,8 @@ import {
   backgroundsTable,
   editionsTable,
   platformPlannerTemplatesTable,
+  themeBackgroundsTable,
+  themesTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import type { User } from "@workspace/db";
@@ -24,8 +26,12 @@ const ids = {
   edition: `platform-bg-roundtrip-edition-${RUN}`,
   brokenBackground: `platform-bg-roundtrip-broken-${RUN}`,
   validBackground: `platform-bg-roundtrip-valid-${RUN}`,
+  brokenTheme: `platform-bg-roundtrip-broken-theme-${RUN}`,
+  validTheme: `platform-bg-roundtrip-valid-theme-${RUN}`,
   brokenTemplate: `platform-bg-roundtrip-broken-template-${RUN}`,
   validTemplate: `platform-bg-roundtrip-valid-template-${RUN}`,
+  brokenThemeTemplate: `platform-bg-roundtrip-broken-theme-template-${RUN}`,
+  validThemeTemplate: `platform-bg-roundtrip-valid-theme-template-${RUN}`,
 };
 
 const BROKEN_ASSET_REF = "data:image/png;base64,not-a-valid-catalog-image";
@@ -99,7 +105,8 @@ const setup = {
 function templateValues(
   id: string,
   name: string,
-  backgroundId: string,
+  backgroundId?: string,
+  themeId?: string,
 ): typeof platformPlannerTemplatesTable.$inferInsert {
   return {
     id,
@@ -111,7 +118,8 @@ function templateValues(
       size: "A5",
       renderStyle: "flat",
       sections: ["Projects"],
-      backgroundId,
+      ...(backgroundId ? { backgroundId } : {}),
+      ...(themeId ? { themeId } : {}),
     },
     output: {
       calMode: "none",
@@ -147,6 +155,32 @@ beforeAll(async () => {
       status: "draft",
     },
   ]);
+  await db.insert(themesTable).values([
+    {
+      id: ids.brokenTheme,
+      name: `Broken Background Theme ${RUN}`,
+      colors: ["#111111"],
+      status: "draft",
+    },
+    {
+      id: ids.validTheme,
+      name: `Valid Background Theme ${RUN}`,
+      colors: ["#222222"],
+      status: "draft",
+    },
+  ]);
+  await db.insert(themeBackgroundsTable).values([
+    {
+      themeId: ids.brokenTheme,
+      backgroundId: ids.brokenBackground,
+      position: 0,
+    },
+    {
+      themeId: ids.validTheme,
+      backgroundId: ids.validBackground,
+      position: 0,
+    },
+  ]);
   await db.insert(platformPlannerTemplatesTable).values([
     templateValues(
       ids.brokenTemplate,
@@ -158,6 +192,18 @@ beforeAll(async () => {
       `Valid Background Template ${RUN}`,
       ids.validBackground,
     ),
+    templateValues(
+      ids.brokenThemeTemplate,
+      `Broken Theme Background Template ${RUN}`,
+      undefined,
+      ids.brokenTheme,
+    ),
+    templateValues(
+      ids.validThemeTemplate,
+      `Valid Theme Background Template ${RUN}`,
+      undefined,
+      ids.validTheme,
+    ),
   ]);
 });
 
@@ -167,6 +213,20 @@ afterAll(async () => {
     .where(inArray(platformPlannerTemplatesTable.id, [
       ids.brokenTemplate,
       ids.validTemplate,
+      ids.brokenThemeTemplate,
+      ids.validThemeTemplate,
+    ]));
+  await db
+    .delete(themeBackgroundsTable)
+    .where(inArray(themeBackgroundsTable.themeId, [
+      ids.brokenTheme,
+      ids.validTheme,
+    ]));
+  await db
+    .delete(themesTable)
+    .where(inArray(themesTable.id, [
+      ids.brokenTheme,
+      ids.validTheme,
     ]));
   await db
     .delete(backgroundsTable)
@@ -197,6 +257,33 @@ describe("POST /platform/planners/:id/generate background round trip", () => {
   it("returns no warning for a valid saved image and does not expose its asset", async () => {
     const response = await request(app)
       .post(`/api/platform/planners/${ids.validTemplate}/generate`)
+      .send({});
+
+    expect(response.status).toBe(200);
+    expect(response.body.backgroundWarnings).toEqual([]);
+    expect(JSON.stringify(response.body)).not.toContain(VALID_ASSET_REF);
+    expect(response.body).not.toHaveProperty("assetRef");
+  }, 120_000);
+
+  it("preserves safe warning metadata when a broken image is resolved through the theme", async () => {
+    const response = await request(app)
+      .post(`/api/platform/planners/${ids.brokenThemeTemplate}/generate`)
+      .send({});
+
+    expect(response.status).toBe(200);
+    expect(response.body.backgroundWarnings).toEqual([{
+      backgroundId: ids.brokenBackground,
+      backgroundName: `Broken Catalog Image ${RUN}`,
+      backgroundType: "image",
+      reason: "embed_failed",
+    }]);
+    expect(JSON.stringify(response.body)).not.toContain(BROKEN_ASSET_REF);
+    expect(response.body).not.toHaveProperty("assetRef");
+  }, 120_000);
+
+  it("returns no warning when a valid image is resolved through the theme", async () => {
+    const response = await request(app)
+      .post(`/api/platform/planners/${ids.validThemeTemplate}/generate`)
       .send({});
 
     expect(response.status).toBe(200);

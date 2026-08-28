@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PDFArray, PDFDocument, PDFRawStream } from "pdf-lib";
+import request from "supertest";
+import { db } from "@workspace/db";
+import {
+  backgroundsTable,
+  themeBackgroundsTable,
+  themesTable,
+} from "@workspace/db";
+import { eq } from "drizzle-orm";
 import {
   buildPdf,
   buildPreviewPdf,
@@ -9,6 +17,7 @@ import {
   type BackgroundSpec,
   type GeneratorConfig,
 } from "../lib/pdf-generator";
+import { makeApp, USERS } from "./helpers";
 
 function pageContentBytes(document: PDFDocument, pageIndex: number): Buffer {
   const contents = document.getPage(pageIndex).node.Contents();
@@ -349,6 +358,126 @@ describe("planner preview/export visual parity", () => {
           pageContentBytes(plainExportDocument, exportIndex),
         );
       });
+    },
+    120_000,
+  );
+});
+
+describe("POST /planners/preview theme background parity", () => {
+  const run = Math.random().toString(36).slice(2, 10);
+  const themeId = `preview-background-theme-${run}`;
+  const firstBackgroundId = `preview-background-first-${run}`;
+  const laterBackgroundId = `preview-background-later-${run}`;
+  const malformedAssetRef = "data:image/png;base64,not-a-valid-preview-image";
+  const validAssetRef = DETERMINISTIC_PNG_DATA_URL;
+  const app = makeApp(USERS.superAdmin);
+
+  const config = {
+    setup: {
+      weekStart: "mon" as const,
+      orientation: "vertical" as const,
+      startMonth: 0,
+      startYear: 2027,
+      monthCount: 1,
+    },
+    style: {
+      size: "A5" as const,
+      renderStyle: "flat" as const,
+      themeId,
+      sections: ["Projects"],
+    },
+    output: {
+      calMode: "none" as const,
+      eventMins: 60 as const,
+      aiInPdf: false,
+    },
+    sections: ["Projects"],
+  } satisfies GeneratorConfig;
+
+  beforeAll(async () => {
+    await db.insert(backgroundsTable).values([
+      {
+        id: firstBackgroundId,
+        name: `Broken Preview Background ${run}`,
+        type: "image",
+        assetRef: malformedAssetRef,
+        status: "draft",
+      },
+      {
+        id: laterBackgroundId,
+        name: `Valid Preview Background ${run}`,
+        type: "image",
+        assetRef: validAssetRef,
+        status: "draft",
+      },
+    ]);
+    await db.insert(themesTable).values({
+      id: themeId,
+      name: `Preview Background Theme ${run}`,
+      colors: ["#ffffff", "#172033", "#d2694f"],
+      status: "draft",
+    });
+    await db.insert(themeBackgroundsTable).values([
+      {
+        themeId,
+        backgroundId: laterBackgroundId,
+        position: 10,
+      },
+      {
+        themeId,
+        backgroundId: firstBackgroundId,
+        position: 0,
+      },
+    ]);
+  });
+
+  afterAll(async () => {
+    await db
+      .delete(themeBackgroundsTable)
+      .where(eq(themeBackgroundsTable.themeId, themeId));
+    await db.delete(themesTable).where(eq(themesTable.id, themeId));
+    await db
+      .delete(backgroundsTable)
+      .where(eq(backgroundsTable.id, firstBackgroundId));
+    await db
+      .delete(backgroundsTable)
+      .where(eq(backgroundsTable.id, laterBackgroundId));
+  });
+
+  it(
+    "uses the lowest-position theme background and returns export-safe warnings",
+    async () => {
+      const exportResult = await buildPdf(
+        config,
+        ["#ffffff", "#172033", "#d2694f"],
+        undefined,
+        {
+          id: firstBackgroundId,
+          name: `Broken Preview Background ${run}`,
+          type: "image",
+          assetRef: malformedAssetRef,
+        },
+      );
+      const response = await request(app)
+        .post("/api/planners/preview")
+        .send(config);
+
+      expect(response.status).toBe(200);
+      expect(response.headers["content-type"]).toMatch(/^application\/pdf/);
+
+      const previewWarnings = JSON.parse(
+        String(response.headers["x-background-warnings"]),
+      );
+      expect(previewWarnings).toEqual(exportResult.backgroundWarnings);
+      expect(previewWarnings).toEqual([{
+        backgroundId: firstBackgroundId,
+        backgroundName: `Broken Preview Background ${run}`,
+        backgroundType: "image",
+        reason: "embed_failed",
+      }]);
+      expect(JSON.stringify(response.headers)).not.toContain(malformedAssetRef);
+      expect(previewWarnings[0]).not.toHaveProperty("assetRef");
+      expect(JSON.stringify(response.headers)).not.toContain(validAssetRef);
     },
     120_000,
   );

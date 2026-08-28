@@ -30,6 +30,7 @@ import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from 
 import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
 import { buildInteriorPdf } from "../lib/planner-interior-renderer";
 import { getEinkPreset, getEinkRule, refreshEinkCatalog } from "../lib/eink-presets";
+import type { ActorContext } from "../lib/roles";
 import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -53,6 +54,84 @@ async function resolveWidgetRenderSpecs(style: PlannerStyle, storeId?: string | 
     throw new Error("Planner composition contains a missing or non-renderable widget");
   }
   return specs;
+}
+
+type PlannerCatalogStyle = PlannerStyle & {
+  themeId?: string;
+  paletteId?: string;
+  backgroundId?: string;
+};
+
+type PlannerBackgroundRow = {
+  id: string;
+  name: string;
+  type: string;
+  assetRef: string | null;
+  authoredByStoreId: string | null;
+  status: string | null;
+};
+
+/**
+ * Resolve the background used by both export and preview.
+ *
+ * The optional actor is only needed by preview, where catalog visibility must
+ * be checked before passing the asset into the PDF renderer. Keeping the
+ * selection query shared prevents preview and export from disagreeing about
+ * which theme-linked background wins.
+ */
+async function resolvePlannerBackground(
+  style: PlannerCatalogStyle,
+  actor?: ActorContext,
+): Promise<BackgroundSpec | undefined> {
+  let row: PlannerBackgroundRow | undefined;
+
+  if (style.backgroundId) {
+    const [background] = await db
+      .select({
+        id: backgroundsTable.id,
+        name: backgroundsTable.name,
+        type: backgroundsTable.type,
+        assetRef: backgroundsTable.assetRef,
+        authoredByStoreId: backgroundsTable.authoredByStoreId,
+        status: backgroundsTable.status,
+      })
+      .from(backgroundsTable)
+      .where(eq(backgroundsTable.id, style.backgroundId));
+    row = background;
+  }
+
+  if (!row && style.themeId) {
+    const [background] = await db
+      .select({
+        id: backgroundsTable.id,
+        name: backgroundsTable.name,
+        type: backgroundsTable.type,
+        assetRef: backgroundsTable.assetRef,
+        authoredByStoreId: backgroundsTable.authoredByStoreId,
+        status: backgroundsTable.status,
+      })
+      .from(themeBackgroundsTable)
+      .innerJoin(backgroundsTable, eq(themeBackgroundsTable.backgroundId, backgroundsTable.id))
+      .where(eq(themeBackgroundsTable.themeId, style.themeId))
+      .orderBy(asc(themeBackgroundsTable.position))
+      .limit(1);
+    row = background;
+  }
+
+  if (!row) return undefined;
+  if (actor && !canPreviewCatalogAsset(actor, row)) {
+    throw new Error(
+      style.backgroundId
+        ? "Selected background is not available to this store"
+        : "Selected theme background is not available to this store",
+    );
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    assetRef: row.assetRef,
+  };
 }
 
 export async function runGeneration(
@@ -79,7 +158,7 @@ export async function runGeneration(
   // Priority 2: theme.colors for the explicit themeId (backward-compat)
   // Priority 3: first theme on the edition → theme.colors
   let themeColors: string[] | undefined;
-  const style = config.style as PlannerStyle & { themeId?: string; paletteId?: string; backgroundId?: string };
+  const style = config.style as PlannerCatalogStyle;
   let spine: SpineSpec | null = null;
   if (style.spineStyleId) {
     const [row] = await db.select().from(spineStylesTable).where(eq(spineStylesTable.id, style.spineStyleId));
@@ -122,28 +201,9 @@ export async function runGeneration(
       }
   }
 
-  // Background resolution: priority chain
-  //   1. style.backgroundId (explicit buyer selection)
-  //   2. theme's first linked background via theme_backgrounds
-  //   3. none → render as paper fill (blank page, backward-compat)
-  let background: BackgroundSpec | undefined;
-  if (style.backgroundId) {
-    const [bg] = await db
-      .select({ id: backgroundsTable.id, name: backgroundsTable.name, type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
-      .from(backgroundsTable)
-      .where(eq(backgroundsTable.id, style.backgroundId));
-    if (bg) background = bg;
-  }
-  if (!background && style.themeId) {
-    const [bgRow] = await db
-      .select({ id: backgroundsTable.id, name: backgroundsTable.name, type: backgroundsTable.type, assetRef: backgroundsTable.assetRef })
-      .from(themeBackgroundsTable)
-      .innerJoin(backgroundsTable, eq(themeBackgroundsTable.backgroundId, backgroundsTable.id))
-      .where(eq(themeBackgroundsTable.themeId, style.themeId))
-      .orderBy(asc(themeBackgroundsTable.position))
-      .limit(1);
-    if (bgRow) background = bgRow;
-  }
+  // Background resolution: explicit selection, then the lowest-position
+  // theme-linked background, then no background.
+  const background = await resolvePlannerBackground(style);
 
   // Font pairing resolution: theme_fonts rows → curatedPairings → ThemeFontPairing.
   // Priority: theme_fonts join (uses the heading/body/accent curatedPairings on each font row)
@@ -406,7 +466,7 @@ router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, 
     }
     // Resolve colors — same priority chain as runGeneration (palette > theme.colors > edition fallback).
     let themeColors: string[] | undefined;
-    const previewStyle = body.style as (PlannerStyle & { themeId?: string; paletteId?: string; backgroundId?: string }) | undefined;
+    const previewStyle = body.style as PlannerCatalogStyle | undefined;
     let previewTheme: typeof themesTable.$inferSelect | undefined;
     if (previewStyle?.themeId) {
       [previewTheme] = await db.select().from(themesTable).where(eq(themesTable.id, previewStyle.themeId));
@@ -445,27 +505,9 @@ router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, 
       }
     }
 
-    // Background resolution for preview (same chain as runGeneration)
-    let previewBackground: BackgroundSpec | undefined;
-    if (previewStyle?.backgroundId) {
-      const [bg] = await db
-        .select()
-        .from(backgroundsTable)
-        .where(eq(backgroundsTable.id, previewStyle.backgroundId));
-      if (bg && !canPreviewCatalogAsset(actor, bg)) throw new Error("Selected background is not available to this store");
-      if (bg) previewBackground = bg;
-    }
-    if (!previewBackground && previewStyle?.themeId) {
-      const [bgRow] = await db
-        .select({ type: backgroundsTable.type, assetRef: backgroundsTable.assetRef, authoredByStoreId: backgroundsTable.authoredByStoreId, status: backgroundsTable.status })
-        .from(themeBackgroundsTable)
-        .innerJoin(backgroundsTable, eq(themeBackgroundsTable.backgroundId, backgroundsTable.id))
-        .where(eq(themeBackgroundsTable.themeId, previewStyle.themeId))
-        .orderBy(asc(themeBackgroundsTable.position))
-        .limit(1);
-      if (bgRow && !canPreviewCatalogAsset(actor, bgRow)) throw new Error("Selected theme background is not available to this store");
-      if (bgRow) previewBackground = bgRow;
-    }
+    // Use the same explicit-then-lowest-position theme background resolver as
+    // generation, with preview-only catalog visibility enforcement.
+    const previewBackground = await resolvePlannerBackground(previewStyle ?? {}, actor);
 
     // Font pairing resolution for preview — same chain as runGeneration
     let previewFontPairing: ThemeFontPairing | undefined;
@@ -505,6 +547,7 @@ router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, 
     let buffer: Uint8Array;
     let pageCount: number;
     let pvSubs: string[] = [];
+    let backgroundWarnings: BackgroundRenderWarning[] = [];
     const previewOutput = (body.output ?? {}) as PlannerOutput;
     const previewEinkDevice = body.einkDevice ?? previewOutput.einkDevice ?? undefined;
     const previewInkFriendly = !!previewOutput.inkFriendly || (!!previewEinkDevice && getEinkRule("grayscale")?.enabled !== false);
@@ -575,6 +618,7 @@ router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, 
       buffer = generatedPreview.buffer;
       pageCount = generatedPreview.pageCount;
       pvSubs = generatedPreview.fontSubstitutions;
+      backgroundWarnings = generatedPreview.backgroundWarnings;
     }
 
     res.setHeader("Content-Type", "application/pdf");
@@ -586,6 +630,9 @@ router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, 
       // The admin UI reads this header to surface an inline warning.
       res.setHeader("X-Font-Substitutions", pvSubs.join(","));
     }
+    // Preview responses are PDFs, so expose the same sanitized warning
+    // metadata as a JSON header rather than returning the asset itself.
+    res.setHeader("X-Background-Warnings", JSON.stringify(backgroundWarnings));
     res.send(Buffer.from(buffer));
   } catch (err) {
     req.log.error({ err }, "Preview generation failed");

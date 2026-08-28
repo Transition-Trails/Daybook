@@ -6,6 +6,7 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
   plannerConfigsTable,
+  platformPlannerTemplatesTable,
   editionsTable,
   themesTable,
   palettesTable,
@@ -40,7 +41,6 @@ const router: IRouter = Router();
 async function resolveWidgetRenderSpecs(style: PlannerStyle, storeId?: string | null): Promise<WidgetRenderSpec[]> {
   const ids = [...new Set((style.composition?.placements ?? []).map((placement) => placement.widgetId))];
   if (ids.length === 0) return [];
-  if (!storeId) throw new Error("Widget composition requires an authorized store planner");
   const rows = await db
     .select({ id: widgetsTable.id, name: widgetsTable.name, svgData: widgetsTable.svgData, status: widgetsTable.status, origin: widgetsTable.origin, authoredByStoreId: widgetsTable.authoredByStoreId })
     .from(widgetsTable)
@@ -48,7 +48,15 @@ async function resolveWidgetRenderSpecs(style: PlannerStyle, storeId?: string | 
   const specs = rows.filter(
     (row): row is typeof row & { svgData: string } =>
       typeof row.svgData === "string" && row.svgData.length > 0 &&
-      (row.authoredByStoreId === storeId || (row.status === "live" && (row.origin === "starter" || row.origin === "licensed"))),
+      (
+        (storeId && row.authoredByStoreId === storeId) ||
+        (
+          row.status === "live" && (
+            !storeId ||
+            (!!storeId && (row.origin === "starter" || row.origin === "licensed"))
+          )
+        )
+      ),
   );
   if (specs.length !== ids.length) {
     throw new Error("Planner composition contains a missing or non-renderable widget");
@@ -435,6 +443,7 @@ router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, 
     style?: PlannerStyle & { themeId?: string };
     output?: PlannerOutput;
     plannerId?: string;
+    platformTemplateId?: string;
     storeContext?: { storeId: string };
   };
 
@@ -552,12 +561,20 @@ router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, 
     const previewEinkDevice = body.einkDevice ?? previewOutput.einkDevice ?? undefined;
     const previewInkFriendly = !!previewOutput.inkFriendly || (!!previewEinkDevice && getEinkRule("grayscale")?.enabled !== false);
     if (previewStyle?.composition?.placements?.length) {
-      if (!body.plannerId || !body.storeContext?.storeId) throw new Error("Composition preview requires its store planner");
-      const [ownedPlanner] = await db.select({ id: plannerConfigsTable.id }).from(plannerConfigsTable).where(and(
-        eq(plannerConfigsTable.id, body.plannerId),
-        eq(plannerConfigsTable.storeId, body.storeContext.storeId),
-      ));
-      if (!ownedPlanner) throw new Error("Composition preview is not authorized");
+      if (body.platformTemplateId && actor.isSuperAdmin) {
+        const [platformTemplate] = await db
+          .select({ id: platformPlannerTemplatesTable.id })
+          .from(platformPlannerTemplatesTable)
+          .where(eq(platformPlannerTemplatesTable.id, body.platformTemplateId));
+        if (!platformTemplate) throw new Error("Platform template composition preview is not authorized");
+      } else {
+        if (!body.plannerId || !body.storeContext?.storeId) throw new Error("Composition preview requires its store planner");
+        const [ownedPlanner] = await db.select({ id: plannerConfigsTable.id }).from(plannerConfigsTable).where(and(
+          eq(plannerConfigsTable.id, body.plannerId),
+          eq(plannerConfigsTable.storeId, body.storeContext.storeId),
+        ));
+        if (!ownedPlanner) throw new Error("Composition preview is not authorized");
+      }
     }
     const previewWidgetSpecs = await resolveWidgetRenderSpecs(previewStyle ?? {}, body.storeContext?.storeId);
     let previewHotspots: Map<string, UserHotspot[]> | undefined;

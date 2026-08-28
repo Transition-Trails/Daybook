@@ -1701,6 +1701,9 @@ export interface BackgroundRenderWarning {
 }
 
 export const platformPlannersApi = {
+  widgets: () =>
+    apiFetch<Widget[]>("/platform/widgets"),
+
   list: () =>
     apiFetch<PlatformPlannerConfig[]>("/platform/planners"),
 

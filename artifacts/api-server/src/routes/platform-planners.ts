@@ -19,6 +19,7 @@ import {
   plannerConfigsTable,
   editionsTable,
   themesTable,
+  widgetsTable,
 } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { requireSuperAdmin } from "../middleware/requireRole";
@@ -26,12 +27,32 @@ import { writeAudit } from "../lib/audit";
 import { runGeneration } from "./planners";
 import { plannerFileName } from "../lib/planner-filename";
 import type { PlannerSetup, PlannerStyle, PlannerOutput } from "@workspace/db";
+import { validateCompositionTargets, validatePlannerComposition, InvalidPlannerCompositionError } from "../lib/planner-composition";
 
 const LOCKED_SETUP_FIELDS = [
   "datingMode", "weekStart", "orientation", "startMonth", "startYear", "monthCount",
 ] as const;
 
 const router = Router();
+
+// ── GET /platform/widgets ─────────────────────────────────────────────────────
+
+router.get(
+  "/platform/widgets",
+  requireSuperAdmin,
+  async (_req: Request, res: Response): Promise<void> => {
+    const rows = await db
+      .select()
+      .from(widgetsTable)
+      .orderBy(widgetsTable.createdAt);
+
+    res.json(rows.filter((row) =>
+      row.status === "live" &&
+      typeof row.svgData === "string" &&
+      row.svgData.trim().length > 0
+    ));
+  },
+);
 
 // ── GET /platform/planners ───────────────────────────────────────────────────
 
@@ -188,6 +209,20 @@ router.patch(
     const updatedOutput = { ...(existing.output as PlannerOutput), ...(body.output ?? {}) };
     const existingSetup = existing.setup as PlannerSetup & { datingMode?: string };
     const mergedSetup   = { ...existingSetup, ...(body.setup ?? {}) };
+
+    if (body.style && "composition" in body.style) {
+      try {
+        const composition = validatePlannerComposition(body.style.composition);
+        validateCompositionTargets(composition, mergedSetup, updatedStyle);
+        updatedStyle.composition = composition;
+      } catch (error) {
+        if (error instanceof InvalidPlannerCompositionError) {
+          res.status(400).json({ error: error.message, code: error.code });
+          return;
+        }
+        throw error;
+      }
+    }
 
     if ((mergedSetup.datingMode ?? "dated") !== "dated") {
       updatedOutput.calMode = "none";

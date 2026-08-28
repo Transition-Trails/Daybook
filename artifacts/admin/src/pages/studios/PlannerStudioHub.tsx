@@ -45,6 +45,7 @@ import {
   type PlannerBuildState as BuildState,
 } from "@/lib/studio/plannerState";
 import { SPINE_BINDING_TYPES, SPINE_FINISHES, spineFinishLabel } from "@/lib/spineCatalog";
+import PlatformTemplateCanvas from "./PlatformTemplateCanvas";
 
 /** Defensive string extractor — prevents [object Object] when Claude returns JSON or an unexpected shape. */
 function safeText(v: unknown): string {
@@ -625,14 +626,21 @@ function EditionQuickPick({ value, onChange }: { value: string; onChange: () => 
 
 // ── PDF Preview dock panel ────────────────────────────────────────────────────
 
-function PdfPreviewDock({ buildState, einkDevice }: { buildState: BuildState; einkDevice?: string | null }) {
+function PdfPreviewDock({
+  buildState,
+  einkDevice,
+  template,
+}: {
+  buildState: BuildState;
+  einkDevice?: string | null;
+  template?: PlatformPlannerConfig | null;
+}) {
   const [previewUrl, setPreviewUrl]             = useState<string | null>(null);
   const [loading, setLoading]                   = useState(false);
   const [fontSubstitutions, setFontSubstitutions] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchPreview = useCallback(async () => {
-    if (!buildState.editionId) return;
     setLoading(true);
     try {
       // Compute monthCount from BuildState (1-indexed months → 0-indexed for server)
@@ -648,6 +656,7 @@ function PdfPreviewDock({ buildState, einkDevice }: { buildState: BuildState; ei
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           editionId:  buildState.editionId || undefined,
+          platformTemplateId: template?.id,
           einkDevice: einkDevice ?? null,
           setup: {
             weekStart:   buildState.weekStart,
@@ -658,6 +667,7 @@ function PdfPreviewDock({ buildState, einkDevice }: { buildState: BuildState; ei
             datingMode:  buildState.datingMode,
           },
           style: {
+            ...(template?.style ?? {}),
             themeId:    buildState.themeId   || undefined,
             paletteId:  buildState.paletteId || undefined,
             tabPos:     buildState.tabPos,
@@ -682,25 +692,13 @@ function PdfPreviewDock({ buildState, einkDevice }: { buildState: BuildState; ei
     } finally {
       setLoading(false);
     }
-  }, [buildState, einkDevice]);
+  }, [buildState, einkDevice, template]);
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(fetchPreview, 700);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [fetchPreview]);
-
-  if (!buildState.editionId) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full p-6 text-center gap-3">
-        <FileText className="w-8 h-8 text-muted-foreground" />
-        <div style={{ display: "flex", flexDirection: "column", width: "100%", alignItems: "center", gap: 4 }}>
-          <p className="font-semibold text-[13px] text-foreground">No edition selected</p>
-          <p className="text-[11px] text-muted-foreground">Pick an edition in the left rail to see a live preview.</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-full">
@@ -3173,7 +3171,7 @@ export default function PlannerStudioHub() {
   useEffect(() => {
     setAiContext({
       previewContent: validMode === "build" && selectedTemplate
-        ? <PdfPreviewDock buildState={templateToBuildState(selectedTemplate)} einkDevice={previewEinkDevice} />
+        ? <PdfPreviewDock buildState={templateToBuildState(selectedTemplate)} einkDevice={previewEinkDevice} template={selectedTemplate} />
         : null,
     });
   }, [validMode, selectedTemplate, previewEinkDevice]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3200,14 +3198,49 @@ export default function PlannerStudioHub() {
 
   // ── Center content ──────────────────────────────────────────────────────────
   const center = (() => {
-    if (validMode === "build")    return (
-      <BuildCenter
-        template={selectedTemplate}
-        onUpdated={handleTemplateUpdated}
-        onCreateNew={handleTemplateCreated}
-        onEinkDeviceChange={setPreviewEinkDevice}
-      />
-    );
+    if (validMode === "build") {
+      if (!selectedTemplate) return (
+        <BuildCenter
+          template={null}
+          onUpdated={handleTemplateUpdated}
+          onCreateNew={handleTemplateCreated}
+          onEinkDeviceChange={setPreviewEinkDevice}
+        />
+      );
+      return (
+        <div className="space-y-5 pb-8 min-w-0">
+          <PlatformTemplateCanvas
+            template={selectedTemplate}
+            onUpdated={handleTemplateUpdated}
+            preview={
+              <PdfPreviewDock
+                buildState={templateToBuildState(selectedTemplate)}
+                einkDevice={previewEinkDevice}
+                template={selectedTemplate}
+              />
+            }
+          />
+          <details className="rounded-2xl border bg-background group">
+            <summary className="list-none cursor-pointer px-5 py-4 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] uppercase tracking-[.18em] font-semibold text-muted-foreground">Template settings</p>
+                <p className="text-sm font-semibold">Structure, visual system, and output</p>
+              </div>
+              <span className="text-xs text-muted-foreground group-open:hidden">Open settings</span>
+              <span className="text-xs text-muted-foreground hidden group-open:inline">Close settings</span>
+            </summary>
+            <div className="border-t p-5">
+              <BuildCenter
+                template={selectedTemplate}
+                onUpdated={handleTemplateUpdated}
+                onCreateNew={handleTemplateCreated}
+                onEinkDeviceChange={setPreviewEinkDevice}
+              />
+            </div>
+          </details>
+        </div>
+      );
+    }
     if (validMode === "editions") return (
       <EditionsListInStudio
         tier={editionTier}

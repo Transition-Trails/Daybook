@@ -200,6 +200,21 @@ describe("planner calendar correctness", () => {
     60_000,
   );
 
+  it("suppresses calendar URI annotations in poor-link device previews", async () => {
+    const config = makeConfig("mon");
+    config.style.renderStyle = "flat";
+    config.output.calMode = "overlay";
+    config.output.aiInPdf = true;
+
+    const preview = await buildPreviewPdf(config, undefined, undefined, undefined, undefined, "kindle_scribe");
+    const doc = await PDFDocument.load(preview.buffer);
+    const uris = doc.getPages().flatMap((_, pageIndex) =>
+      linkAnnotations(doc, pageIndex).flatMap((link) => link.uri ? [link.uri] : []),
+    );
+
+    expect(uris).toEqual([]);
+  }, 30_000);
+
   it.each([
     ["sun", 2],
     ["mon", 1],

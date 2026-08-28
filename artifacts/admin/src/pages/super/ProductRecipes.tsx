@@ -1,733 +1,205 @@
-/**
- * ProductRecipes — Super Admin page.
- *
- * A recipe is a named arrangement of engines the platform already has.
- * Defining one makes a new product type available inside a studio without
- * writing new studio code. This is the subscription mechanic: stores
- * renew for the recipes that arrive, not for software they already have.
- */
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
-  Plus, Pencil, ChevronRight, BookOpen, FlaskConical, Info,
-  Layers2, CalendarDays, ArrowRight, CheckCircle2, Clock, Archive,
+  AlertTriangle, Archive, CalendarDays, CheckCircle2, ChevronRight, Clock,
+  Info, Layers2, Pencil, Plus, Save, Search, Trash2, X,
 } from "lucide-react";
-import { recipesApi, type ProductRecipe } from "@/lib/api";
+import { platformApi, recipesApi, type PlatformEinkPreset, type PlatformEinkRule, type ProductRecipe } from "@/lib/api";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { EmptyState, ErrorState, PageHeader, Pill, type PillTone, SkeletonRows } from "@/components/shared";
 import { useToast } from "@/hooks/use-toast";
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
-const INK     = "var(--admin-ink)";
-const CLAY    = "var(--admin-clay)";
-const PAPER   = "var(--admin-paper)";
-const BORDER  = "var(--admin-border)";
-const MUTED   = "var(--admin-muted)";
-
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const STUDIOS = ["Planner Studio", "Sticker Studio", "Journal Studio", "Theme Studio", "Marketing Studio", "New studio"];
+const ENGINES = ["calendar engine","tab rails","hyperlink map","covers","dividers","page recipe","cutout","cut path","index sheet","shape masks","papers","edge treatment","nesting","ephemera","tags","pockets","imposition","photo layouts","prompt deck","oracle","play sheet","tracker","B&W export","DXF","layered export","paper generator","palettes","tiling","invitations","place cards","signage","envelopes","lesson pages","labels","certificates","charts"];
 const EYEBROW = "text-[10px] font-semibold uppercase tracking-[0.18em]";
+type View = "recipes" | "schedule" | "eink";
+type DrawerState = { mode: "closed" } | { mode: "create"; month?: number; year?: number } | { mode: "edit"; recipe: ProductRecipe };
+type RecipeShape = { month?: number; year?: number; planTiers?: string[] };
 
-// ── Status badge ──────────────────────────────────────────────────────────────
-function StatusBadge({ status }: { status: string }) {
-  if (status === "live") return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
-      style={{ background: "hsl(142 50% 90%)", color: "hsl(142 55% 28%)" }}>
-      <CheckCircle2 className="w-2.5 h-2.5" /> LIVE
-    </span>
-  );
-  if (status === "draft") return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide"
-      style={{ background: "hsl(216 20% 92%)", color: MUTED }}>
-      <Clock className="w-2.5 h-2.5" /> DRAFT
-    </span>
-  );
-  if (status === "new") return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
-      style={{ background: "hsl(12 70% 90%)", color: CLAY }}>
-      NEW
-    </span>
-  );
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide"
-      style={{ background: "hsl(216 20% 90%)", color: MUTED }}>
-      <Archive className="w-2.5 h-2.5" /> RETIRED
-    </span>
-  );
+function releaseOf(recipe: ProductRecipe): RecipeShape {
+  return (recipe.release ?? {}) as RecipeShape;
+}
+function statusFor(recipe: ProductRecipe, now = new Date()): "live" | "draft" | "info" | "warn" | "off" {
+  const rel = releaseOf(recipe);
+  return recipe.status === "live" && rel.month === now.getMonth() + 1 && rel.year === now.getFullYear() ? "info" : recipe.status === "live" ? "live" : recipe.status === "draft" ? "draft" : "off";
+}
+function statusLabel(recipe: ProductRecipe, now = new Date()) {
+  const tone = statusFor(recipe, now);
+  return tone === "info" ? "NEW" : recipe.status.toUpperCase();
+}
+function blockersFor(recipe: Partial<ProductRecipe>, fields?: { prints: boolean; impositionSheet: string; cardPrompt: string; cardALabel: string; cardACons: string; cardBLabel: string; cardBCons: string; asks: string; generates: string }) {
+  const phys = fields ? { prints: fields.prints, impositionSheet: fields.impositionSheet } : recipe.physicalPath as { prints?: boolean; impositionSheet?: string } | null;
+  const card = fields ? { prompt: fields.cardPrompt, optionA: { label: fields.cardALabel, consequence: fields.cardACons }, optionB: { label: fields.cardBLabel, consequence: fields.cardBCons } } : recipe.decisionCard;
+  const brief = fields ? { asks: fields.asks.split("\n").filter(Boolean), generates: fields.generates } : recipe.claudeBrief;
+  const rel = recipe.release as RecipeShape | null;
+  const errors: string[] = [];
+  if (!recipe.parts?.length) errors.push("No parts list");
+  if (!STUDIOS.slice(0, 5).includes(recipe.category ?? "")) errors.push("Category is not a known studio");
+  if (phys?.prints && !phys.impositionSheet) errors.push("Printable path has no imposition sheet");
+  if (!rel?.month || !rel.planTiers?.length) errors.push("Release needs a month and plan tiers");
+  if (card?.prompt && (!card.optionA?.label || !card.optionA?.consequence || !card.optionB?.label || !card.optionB?.consequence)) errors.push("Decision card is missing an option label or consequence");
+  if (brief?.asks?.length && !brief.generates) errors.push("Claude brief has asks but no generates field");
+  return errors;
 }
 
-// ── Tier badge ────────────────────────────────────────────────────────────────
-function TierBadge({ tiers }: { tiers?: string[] }) {
-  if (!tiers || tiers.length === 0) return <span style={{ color: MUTED }} className="text-xs">TBD</span>;
-  const label = tiers.includes("all") || tiers.length >= 3 ? "All plans" : tiers.map(t => {
-    const m: Record<string, string> = { pro: "Pro", starter: "Starter", free: "Free" };
-    return m[t] ?? t;
-  }).join(", ");
-  return <span className="text-xs font-medium" style={{ color: INK }}>{label}</span>;
+function RecipeStatus({ recipe }: { recipe: ProductRecipe }) {
+  const tone = statusFor(recipe);
+  return <Pill tone={tone as PillTone}>{statusLabel(recipe)}</Pill>;
 }
 
-// ── Recipe row ────────────────────────────────────────────────────────────────
-function RecipeRow({
-  recipe, onEdit,
-}: { recipe: ProductRecipe; onEdit: (r: ProductRecipe) => void }) {
-  const rel  = recipe.release as { planTiers?: string[]; month?: number; year?: number } | null;
-  const now  = new Date();
-  const releaseMonth = rel?.month;
-  const releaseYear  = rel?.year;
-  const isNewThisMonth = releaseMonth === now.getMonth() + 1 && releaseYear === now.getFullYear();
-  const displayStatus  = isNewThisMonth && recipe.status === "live" ? "new" : recipe.status;
-
-  const partsDisplay = (recipe.parts ?? []).slice(0, 5).join(" · ")
-    + ((recipe.parts?.length ?? 0) > 5 ? " …" : "");
-
-  return (
-    <div
-      className="flex items-center gap-4 px-4 py-3 rounded-lg border transition-shadow hover:shadow-sm"
-      style={{ background: "white", borderColor: BORDER }}
-    >
-      {/* Name + studio + parts */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 flex-wrap">
-          <span className="font-semibold text-sm" style={{ color: INK }}>{recipe.name}</span>
-          <span className="text-xs font-medium" style={{ color: CLAY }}>· {recipe.category}</span>
-        </div>
-        {partsDisplay && (
-          <p className="text-xs mt-0.5 truncate" style={{ color: MUTED }}>
-            {partsDisplay}
-          </p>
-        )}
-      </div>
-
-      {/* Tier */}
-      <div className="w-20 shrink-0 text-right">
-        <TierBadge tiers={rel?.planTiers} />
-      </div>
-
-      {/* Build count */}
-      <div className="w-20 shrink-0 text-right">
-        <span className="text-xs tabular-nums" style={{ color: MUTED }}>
-          {recipe.status === "draft"
-            ? "—"
-            : recipe.buildCount === 0 ? "just shipped" : `${recipe.buildCount.toLocaleString()} builds`}
-        </span>
-      </div>
-
-      {/* Status */}
-      <div className="w-20 shrink-0 flex justify-end">
-        <StatusBadge status={displayStatus} />
-      </div>
-
-      {/* Edit chip */}
-      <button
-        onClick={() => onEdit(recipe)}
-        className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border transition-colors hover:border-[#C87560] hover:text-[#C87560]"
-        style={{ borderColor: BORDER, color: MUTED }}
-      >
-        Edit <ArrowRight className="w-3 h-3" />
-      </button>
-    </div>
-  );
-}
-
-// ── Stat tile ─────────────────────────────────────────────────────────────────
-function StatTile({ value, label }: { value: number | string; label: string }) {
-  return (
-    <div className="flex-1 rounded-xl border px-6 py-5" style={{ background: "white", borderColor: BORDER }}>
-      <p className="text-3xl font-bold font-display" style={{ color: INK }}>
-        {typeof value === "number" ? value.toLocaleString() : value}
-      </p>
-      <p className={`${EYEBROW} mt-1`} style={{ color: MUTED }}>{label}</p>
-    </div>
-  );
-}
-
-// ── Engine capability registry (for the parts multi-select) ─────────────────
-const ENGINE_REGISTRY = [
-  "calendar engine", "tab rails", "hyperlink map", "covers", "dividers",
-  "page recipe", "cutout", "cut path", "index sheet", "shape masks", "papers",
-  "edge treatment", "nesting", "ephemera", "tags", "pockets", "imposition",
-  "photo layouts", "prompt deck", "oracle", "play sheet", "tracker",
-  "B&W export", "DXF", "layered export", "paper generator", "palettes",
-  "tiling", "invitations", "place cards", "signage", "envelopes",
-  "lesson pages", "labels", "certificates", "charts",
-];
-
-const STUDIO_OPTIONS = [
-  "Planner Studio", "Sticker Studio", "Journal Studio", "Theme Studio",
-  "Marketing Studio", "New studio",
-];
-
-const MONTH_NAMES = [
-  "January","February","March","April","May","June",
-  "July","August","September","October","November","December",
-];
-
-// ── Edit / Create drawer ──────────────────────────────────────────────────────
-function RecipeDrawer({
-  recipe, onClose, onSaved,
-}: {
-  recipe: ProductRecipe | null; // null = creating new
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+function RecipeDrawer({ state, onClose, onSaved }: { state: Exclude<DrawerState, { mode: "closed" }>; onClose: () => void; onSaved: () => void }) {
   const { toast } = useToast();
-  const isNew = recipe === null;
-
-  const rel = recipe?.release as { planTiers?: string[]; month?: number; year?: number } | null;
-  const phys = recipe?.physicalPath as { prints?: boolean; impositionSheet?: string; templates?: string[] } | null;
-  const brief = recipe?.claudeBrief as { asks?: string[]; generates?: string } | null;
-  const card = recipe?.decisionCard as {
-    prompt?: string;
-    optionA?: { label?: string; consequence?: string };
-    optionB?: { label?: string; consequence?: string };
-  } | null;
-
-  const [name, setName]           = useState(recipe?.name ?? "");
-  const [category, setCategory]   = useState(recipe?.category ?? STUDIO_OPTIONS[0]);
-  const [parts, setParts]         = useState<string[]>(recipe?.parts ?? []);
-  const [month, setMonth]         = useState(rel?.month ?? (new Date().getMonth() + 1));
-  const [year, setYear]           = useState(rel?.year ?? (new Date().getFullYear() + 1));
-  const [tiers, setTiers]         = useState<string[]>(rel?.planTiers ?? ["all"]);
-  const [prints, setPrints]       = useState(phys?.prints ?? false);
-  const [impSheet, setImpSheet]   = useState(phys?.impositionSheet ?? "");
-  const [briefAsks, setBriefAsks] = useState((brief?.asks ?? []).join("\n"));
-  const [briefGen, setBriefGen]   = useState(brief?.generates ?? "");
-  const [cardPrompt, setCardPrompt]   = useState(card?.prompt ?? "");
-  const [cardALabel, setCardALabel]   = useState(card?.optionA?.label ?? "");
-  const [cardACons, setCardACons]     = useState(card?.optionA?.consequence ?? "");
-  const [cardBLabel, setCardBLabel]   = useState(card?.optionB?.label ?? "");
-  const [cardBCons, setCardBCons]     = useState(card?.optionB?.consequence ?? "");
-  const [saving, setSaving]           = useState(false);
-
-  const togglePart = (p: string) =>
-    setParts(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]);
-
-  const buildPayload = () => ({
-    name: name.trim(),
-    category,
-    parts,
-    decisionCard: cardPrompt ? {
-      prompt: cardPrompt,
-      optionA: { label: cardALabel, consequence: cardACons },
-      optionB: { label: cardBLabel, consequence: cardBCons },
-    } : undefined,
-    physicalPath: { prints, impositionSheet: impSheet, templates: [] },
-    claudeBrief: { asks: briefAsks.split("\n").filter(Boolean), generates: briefGen },
-    release: { planTiers: tiers, month, year },
-  });
-
-  const handleSave = async () => {
+  const recipe = state.mode === "edit" ? state.recipe : null;
+  const rel = recipe ? releaseOf(recipe) : {};
+  const phys = recipe?.physicalPath as { prints?: boolean; impositionSheet?: string } | null;
+  const card = recipe?.decisionCard;
+  const brief = recipe?.claudeBrief;
+  const [name, setName] = useState(recipe?.name ?? "");
+  const [category, setCategory] = useState(recipe?.category ?? STUDIOS[0]);
+  const [parts, setParts] = useState(recipe?.parts ?? []);
+  const [month, setMonth] = useState(rel.month ?? (state.mode === "create" ? state.month : undefined) ?? new Date().getMonth() + 1);
+  const [year, setYear] = useState(rel.year ?? (state.mode === "create" ? state.year : undefined) ?? new Date().getFullYear() + 1);
+  const [tiers, setTiers] = useState(rel.planTiers ?? ["all"]);
+  const [prints, setPrints] = useState(phys?.prints ?? false);
+  const [impositionSheet, setImpositionSheet] = useState(phys?.impositionSheet ?? "");
+  const [cardPrompt, setCardPrompt] = useState(card?.prompt ?? "");
+  const [cardALabel, setCardALabel] = useState(card?.optionA?.label ?? "");
+  const [cardACons, setCardACons] = useState(card?.optionA?.consequence ?? "");
+  const [cardBLabel, setCardBLabel] = useState(card?.optionB?.label ?? "");
+  const [cardBCons, setCardBCons] = useState(card?.optionB?.consequence ?? "");
+  const [asks, setAsks] = useState((brief?.asks ?? []).join("\n"));
+  const [generates, setGenerates] = useState(brief?.generates ?? "");
+  const [editParts, setEditParts] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [retireOpen, setRetireOpen] = useState(false);
+  const blockers = blockersFor({ name, category, parts, release: { month, year, planTiers: tiers }, physicalPath: { prints, impositionSheet }, decisionCard: cardPrompt ? { prompt: cardPrompt, optionA: { label: cardALabel, consequence: cardACons }, optionB: { label: cardBLabel, consequence: cardBCons } } : null, claudeBrief: { asks: asks.split("\n").filter(Boolean), generates } }, { prints, impositionSheet, cardPrompt, cardALabel, cardACons, cardBLabel, cardBCons, asks, generates });
+  const payload = () => ({ name: name.trim(), category, parts, decisionCard: cardPrompt ? { prompt: cardPrompt, optionA: { label: cardALabel, consequence: cardACons }, optionB: { label: cardBLabel, consequence: cardBCons } } : null, physicalPath: { prints, impositionSheet, templates: [] }, claudeBrief: { asks: asks.split("\n").filter(Boolean), generates }, release: { planTiers: tiers, month, year } });
+  const save = async () => {
     if (!name.trim()) { toast({ title: "Name required", variant: "destructive" }); return; }
     setSaving(true);
-    try {
-      if (isNew) {
-        await recipesApi.create(buildPayload());
-      } else {
-        await recipesApi.update(recipe!.id, buildPayload());
-      }
-      onSaved();
-    } catch (e: any) {
-      toast({ title: "Save failed", description: e.message, variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
+    try { recipe ? await recipesApi.update(recipe.id, payload()) : await recipesApi.create(payload()); onSaved(); }
+    catch (error) { toast({ title: "Save failed", description: (error as Error).message, variant: "destructive" }); }
+    finally { setSaving(false); }
   };
-
-  const handlePublish = async () => {
-    if (!recipe) return;
-    setSaving(true);
-    try {
-      await recipesApi.publish(recipe.id);
-      onSaved();
-    } catch (e: any) {
-      toast({ title: "Publish failed", description: e.message, variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRetire = async () => {
-    if (!recipe) return;
-    if (!confirm(`Retire "${recipe.name}"? It will be hidden for new builds but existing artifacts are unaffected.`)) return;
-    setSaving(true);
-    try {
-      await recipesApi.retire(recipe.id);
-      onSaved();
-    } catch (e: any) {
-      toast({ title: "Retire failed", description: e.message, variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const inputCls = "w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#C87560]";
-  const inputStyle = { borderColor: BORDER, background: "white" };
-  const labelCls  = `${EYEBROW} block mb-1.5`;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex"
-      style={{ background: "rgba(27,42,74,0.45)" }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="ml-auto h-full w-full max-w-lg flex flex-col shadow-2xl overflow-hidden"
-        style={{ background: PAPER }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: BORDER }}>
-          <div>
-            <p className={`${EYEBROW} text-[10px]`} style={{ color: CLAY }}>Product Recipe</p>
-            <h2 className="text-base font-semibold mt-0.5" style={{ color: INK }}>
-              {isNew ? "New recipe" : `Edit · ${recipe.name}`}
-            </h2>
-          </div>
-          <button onClick={onClose} className="text-sm" style={{ color: MUTED }}>✕</button>
-        </div>
-
-        {/* Form */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-
-          {/* Name + category */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls} style={{ color: MUTED }}>Name</label>
-              <input className={inputCls} style={inputStyle} value={name}
-                onChange={e => setName(e.target.value)} placeholder="Dated planner" />
-            </div>
-            <div>
-              <label className={labelCls} style={{ color: MUTED }}>Studio</label>
-              <select className={inputCls} style={inputStyle} value={category}
-                onChange={e => setCategory(e.target.value)}>
-                {STUDIO_OPTIONS.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Parts */}
-          <div>
-            <label className={labelCls} style={{ color: MUTED }}>Engine parts</label>
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              {ENGINE_REGISTRY.map(p => (
-                <button key={p} onClick={() => togglePart(p)}
-                  className="px-2.5 py-1 rounded-full border text-xs font-medium transition-colors"
-                  style={parts.includes(p)
-                    ? { background: INK, borderColor: INK, color: "white" }
-                    : { background: "white", borderColor: BORDER, color: MUTED }}>
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Decision card */}
-          <div className="rounded-lg border p-4 space-y-3" style={{ borderColor: BORDER, background: "white" }}>
-            <p className={labelCls} style={{ color: MUTED }}>Decision card</p>
-            <input className={inputCls} style={inputStyle} value={cardPrompt}
-              onChange={e => setCardPrompt(e.target.value)} placeholder="Buyer prompt (e.g. 'Do you want dates?')" />
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] font-semibold uppercase tracking-wide block mb-1" style={{ color: MUTED }}>Option A label</label>
-                <input className={inputCls} style={inputStyle} value={cardALabel}
-                  onChange={e => setCardALabel(e.target.value)} placeholder="Dated" />
-                <textarea className={`${inputCls} mt-1.5 resize-none`} style={inputStyle} rows={2}
-                  value={cardACons} onChange={e => setCardACons(e.target.value)}
-                  placeholder="Consequence line…" />
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold uppercase tracking-wide block mb-1" style={{ color: MUTED }}>Option B label</label>
-                <input className={inputCls} style={inputStyle} value={cardBLabel}
-                  onChange={e => setCardBLabel(e.target.value)} placeholder="Undated" />
-                <textarea className={`${inputCls} mt-1.5 resize-none`} style={inputStyle} rows={2}
-                  value={cardBCons} onChange={e => setCardBCons(e.target.value)}
-                  placeholder="Consequence line…" />
-              </div>
-            </div>
-          </div>
-
-          {/* Physical path */}
-          <div className="rounded-lg border p-4 space-y-3" style={{ borderColor: BORDER, background: "white" }}>
-            <p className={labelCls} style={{ color: MUTED }}>Physical path</p>
-            <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: INK }}>
-              <input type="checkbox" checked={prints} onChange={e => setPrints(e.target.checked)} />
-              This recipe produces a printable file
-            </label>
-            {prints && (
-              <input className={inputCls} style={inputStyle} value={impSheet}
-                onChange={e => setImpSheet(e.target.value)}
-                placeholder="Imposition sheet (e.g. A4, US Letter 8.5×11)" />
-            )}
-          </div>
-
-          {/* Claude brief */}
-          <div className="rounded-lg border p-4 space-y-3" style={{ borderColor: BORDER, background: "white" }}>
-            <p className={labelCls} style={{ color: MUTED }}>Claude brief</p>
-            <div>
-              <label className="text-[10px] font-semibold uppercase tracking-wide block mb-1" style={{ color: MUTED }}>What the assistant asks for (one per line)</label>
-              <textarea className={`${inputCls} resize-none`} style={inputStyle} rows={3}
-                value={briefAsks} onChange={e => setBriefAsks(e.target.value)}
-                placeholder="What is the planner for?&#10;What tone should the design take?" />
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold uppercase tracking-wide block mb-1" style={{ color: MUTED }}>What it generates from a premise</label>
-              <input className={inputCls} style={inputStyle} value={briefGen}
-                onChange={e => setBriefGen(e.target.value)}
-                placeholder="A fully structured section layout with cover concept" />
-            </div>
-          </div>
-
-          {/* Release */}
-          <div className="rounded-lg border p-4 space-y-3" style={{ borderColor: BORDER, background: "white" }}>
-            <p className={labelCls} style={{ color: MUTED }}>Release</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] font-semibold uppercase tracking-wide block mb-1" style={{ color: MUTED }}>Month</label>
-                <select className={inputCls} style={inputStyle} value={month}
-                  onChange={e => setMonth(Number(e.target.value))}>
-                  {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold uppercase tracking-wide block mb-1" style={{ color: MUTED }}>Year</label>
-                <input type="number" className={inputCls} style={inputStyle} value={year}
-                  onChange={e => setYear(Number(e.target.value))} min={2024} max={2030} />
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold uppercase tracking-wide block mb-1.5" style={{ color: MUTED }}>Plan tiers</label>
-              <div className="flex gap-2 flex-wrap">
-                {["all", "pro", "starter"].map(t => (
-                  <label key={t} className="flex items-center gap-1.5 text-sm cursor-pointer" style={{ color: INK }}>
-                    <input type="checkbox"
-                      checked={tiers.includes(t)}
-                      onChange={() => setTiers(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])} />
-                    {t === "all" ? "All plans" : t.charAt(0).toUpperCase() + t.slice(1)}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="border-t px-6 py-4 flex items-center gap-2" style={{ borderColor: BORDER }}>
-          <button onClick={handleSave} disabled={saving}
-            className="flex-1 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
-            style={{ background: INK }}>
-            {saving ? "Saving…" : isNew ? "Create recipe" : "Save changes"}
-          </button>
-          {!isNew && recipe!.status === "draft" && (
-            <button onClick={handlePublish} disabled={saving}
-              className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
-              style={{ background: CLAY }}>
-              Publish
-            </button>
-          )}
-          {!isNew && recipe!.status === "live" && (
-            <button onClick={handleRetire} disabled={saving}
-              className="px-4 py-2 rounded-lg text-sm font-medium border disabled:opacity-50"
-              style={{ borderColor: BORDER, color: MUTED }}>
-              Retire
-            </button>
-          )}
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm border"
-            style={{ borderColor: BORDER, color: MUTED }}>
-            Cancel
-          </button>
-        </div>
+  const publish = async () => { if (!recipe || blockers.length) return; setSaving(true); try { await recipesApi.publish(recipe.id); onSaved(); } catch (error) { toast({ title: "Publish failed", description: (error as Error).message, variant: "destructive" }); } finally { setSaving(false); } };
+  const retire = async () => { if (!recipe) return; setSaving(true); try { await recipesApi.retire(recipe.id); onSaved(); } catch (error) { toast({ title: "Retire failed", description: (error as Error).message, variant: "destructive" }); } finally { setSaving(false); setRetireOpen(false); } };
+  const input = "w-full rounded-lg border border-[var(--admin-border)] bg-[var(--admin-card)] px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[var(--admin-clay)]";
+  return <div className="fixed inset-0 z-50 flex bg-[rgba(27,42,74,.45)]" onClick={(event) => event.target === event.currentTarget && onClose()}>
+    <aside className="ml-auto flex h-full w-full max-w-[460px] flex-col bg-[var(--admin-paper)] shadow-[-10px_0_34px_rgba(27,42,74,.2)]">
+      <header className="flex items-start justify-between border-b border-[var(--admin-border)] px-6 py-5"><div><p className={`${EYEBROW} text-[var(--admin-clay)]`}>Recipe · {category}</p><h2 className="mt-1 font-display text-lg font-semibold text-[var(--admin-ink)]">{recipe?.name ?? "New recipe"}</h2></div><button aria-label="Close drawer" onClick={onClose}><X className="h-4 w-4 text-[var(--admin-muted)]" /></button></header>
+      <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+        {blockers.length > 0 && <div className="rounded-lg border border-[#E8CFC7] border-l-4 bg-[#FDF7F4] p-3"><p className={`${EYEBROW} text-[#A85B48]`}>Blocking release</p>{blockers.map((blocker) => <p key={blocker} className="mt-1 text-xs text-[#7A4B3E]">▲ {blocker}</p>)}</div>}
+        <div className="grid grid-cols-2 gap-3"><label className={`${EYEBROW} text-[var(--admin-muted)]`}>Name<input className={`${input} mt-1 normal-case tracking-normal`} value={name} onChange={(e) => setName(e.target.value)} /></label><label className={`${EYEBROW} text-[var(--admin-muted)]`}>Studio<select className={`${input} mt-1 normal-case tracking-normal`} value={category} onChange={(e) => setCategory(e.target.value)}>{STUDIOS.map((studio) => <option key={studio}>{studio}</option>)}</select></label></div>
+        <section><div className="flex items-center justify-between"><p className={`${EYEBROW} text-[var(--admin-muted)]`}>Parts list · {parts.length}</p><button className="text-xs font-semibold text-[var(--admin-clay)]" onClick={() => setEditParts(!editParts)}>{editParts ? "Done" : "Edit parts"}</button></div>{editParts ? <div className="mt-2 flex flex-wrap gap-1.5">{ENGINES.map((part) => <button key={part} onClick={() => setParts((current) => current.includes(part) ? current.filter((item) => item !== part) : [...current, part])} className={`rounded-full border px-2.5 py-1 text-xs ${parts.includes(part) ? "border-[var(--admin-ink)] bg-[var(--admin-ink)] text-white" : "border-[var(--admin-border)] bg-[var(--admin-card)] text-[var(--admin-muted)]"}`}>{part}</button>)}</div> : <div className="mt-2 flex flex-wrap gap-1.5">{parts.length ? parts.map((part) => <Pill key={part} tone="info">{part}</Pill>) : <span className="rounded-full border border-dashed border-[#C87560] px-3 py-1 text-xs text-[#A85B48]">no parts selected <span className="ml-1 opacity-70">empty — this is what blocks release</span></span>}</div>}</section>
+        <section className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card)] p-4"><p className={`${EYEBROW} text-[var(--admin-muted)]`}>Decision card</p><input className={`${input} mt-2`} placeholder="Buyer prompt" value={cardPrompt} onChange={(e) => setCardPrompt(e.target.value)} />{cardPrompt ? <div className="mt-3 grid grid-cols-2 gap-3">{[[cardALabel, setCardALabel, cardACons, setCardACons], [cardBLabel, setCardBLabel, cardBCons, setCardBCons]].map(([label, setLabel, consequence, setConsequence], index) => <div key={index}><input className={input} placeholder={`Option ${index ? "B" : "A"} label`} value={label as string} onChange={(e) => (setLabel as (value: string) => void)(e.target.value)} /><textarea className={`${input} mt-2 resize-none`} rows={2} placeholder="Consequence" value={consequence as string} onChange={(e) => (setConsequence as (value: string) => void)(e.target.value)} /></div>)}</div> : <p className="mt-3 text-xs text-[var(--admin-muted)]">The buyer has nothing to answer first.</p>}</section>
+        <div className="grid grid-cols-2 gap-3"><section><p className={`${EYEBROW} text-[var(--admin-muted)]`}>Physical path</p><label className="mt-2 flex items-center gap-2 text-sm text-[var(--admin-ink)]"><input type="checkbox" checked={prints} onChange={(e) => setPrints(e.target.checked)} /> Prints</label>{prints && <input className={`${input} mt-2`} placeholder="Imposition sheet" value={impositionSheet} onChange={(e) => setImpositionSheet(e.target.value)} />}</section><section><p className={`${EYEBROW} text-[var(--admin-muted)]`}>Release</p><div className="mt-2 flex gap-2"><select className={input} value={month} onChange={(e) => setMonth(Number(e.target.value))}>{MONTHS.map((item, index) => <option key={item} value={index + 1}>{item}</option>)}</select><input className={input} type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} /></div><div className="mt-2 flex flex-wrap gap-2 text-xs text-[var(--admin-ink)]">{["all","pro","starter"].map((tier) => <label key={tier}><input type="checkbox" checked={tiers.includes(tier)} onChange={() => setTiers((current) => current.includes(tier) ? current.filter((item) => item !== tier) : [...current, tier])} /> {tier}</label>)}</div></section></div>
+        <section className="rounded-xl border border-[var(--admin-border)] bg-[#FBF6EE] p-4"><p className={`${EYEBROW} text-[var(--admin-muted)]`}>Claude brief</p><textarea className={`${input} mt-2 resize-none`} rows={3} placeholder="Asks, one per line" value={asks} onChange={(e) => setAsks(e.target.value)} /><input className={`${input} mt-2`} placeholder="What it generates" value={generates} onChange={(e) => setGenerates(e.target.value)} /></section>
       </div>
-    </div>
-  );
+      <footer className="flex items-center gap-2 border-t border-[var(--admin-border)] px-6 py-4"><Button onClick={save} disabled={saving} className="flex-1 bg-[var(--admin-ink)] hover:bg-[var(--admin-ink)]">{saving ? "Saving…" : recipe ? "Save changes" : "Create recipe"}</Button>{recipe?.status === "draft" && <Button onClick={publish} disabled={saving || blockers.length > 0} className="bg-[var(--admin-clay)] hover:bg-[var(--admin-clay)]">{blockers.length ? "Blocked" : "Publish"}</Button>}{recipe?.status === "live" && <Button variant="outline" onClick={() => setRetireOpen(true)} disabled={saving}>Retire</Button>}<Button variant="outline" onClick={onClose}>Cancel</Button></footer>
+    </aside>
+    <AlertDialog open={retireOpen} onOpenChange={setRetireOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Retire “{recipe?.name}”?</AlertDialogTitle><AlertDialogDescription>It will be hidden for new builds; existing artifacts are unaffected.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={retire}>Retire recipe</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+  </div>;
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
-export default function ProductRecipesPage() {
-  const qc = useQueryClient();
+function RecipesView({ recipes, stats, onOpen }: { recipes: ProductRecipe[]; stats?: { live: number; draft: number; shipsNext: number; renewalsCitingNew: number }; onOpen: (state: DrawerState) => void }) {
+  const [search, setSearch] = useState(""); const [studio, setStudio] = useState("All");
+  const filtered = recipes.filter((recipe) => (!search || `${recipe.name} ${recipe.parts.join(" ")}`.toLowerCase().includes(search.toLowerCase())) && (studio === "All" || recipe.category === studio));
+  const blocked = recipes.map((recipe) => ({ recipe, blockers: blockersFor(recipe) })).find((item) => item.blockers.length);
+  const next = recipes.find((recipe) => {
+    const rel = releaseOf(recipe);
+    const now = new Date();
+    return !!rel.year && !!rel.month
+      && rel.year * 12 + rel.month === now.getFullYear() * 12 + (now.getMonth() + 1) + 1;
+  });
+  const metrics = [{ label: "Live recipes", value: stats?.live ?? "—", note: "across 4 studios" }, { label: "In draft", value: stats?.draft ?? "—", note: "1 blocked", warn: true }, { label: "Ships next month", value: stats?.shipsNext ?? "—", note: next?.name ?? "No recipe scheduled" }, ...(stats?.renewalsCitingNew ? [{ label: "Renewals citing new", value: stats.renewalsCitingNew, note: "real observed renewals" }] : [])];
+  return <div className="space-y-5"><div className="grid overflow-hidden rounded-[14px] border border-[var(--admin-border)] bg-[var(--admin-card)] sm:grid-cols-3">{metrics.map((metric) => <div key={metric.label} className="border-b border-r border-[#EFE6D8] px-5 py-4"><p className={`${EYEBROW} text-[var(--admin-faint)]`}>{metric.label}</p><p className={`mt-2 font-display text-[22px] font-semibold ${metric.warn ? "text-[#A85B48]" : "text-[var(--admin-ink)]"}`}>{metric.value}</p><p className="mt-1 text-[10px] text-[var(--admin-muted)]">{metric.note}</p></div>)}</div>
+    {blocked && <button onClick={() => onOpen({ mode: "edit", recipe: blocked.recipe })} className="w-full rounded-xl border border-[#E8CFC7] border-l-4 bg-[#FDF7F4] p-4 text-left"><p className={`${EYEBROW} text-[#A85B48]`}>Release blocker · {blocked.recipe.name}</p><p className="mt-1 text-xs text-[#7A4B3E]">{blocked.blockers[0]} <ChevronRight className="inline h-3 w-3" /></p></button>}
+    <div className="flex flex-wrap items-center gap-2"><label className="relative min-w-56 flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-[var(--admin-muted)]" /><input className="w-full rounded-lg border border-[var(--admin-border)] bg-[var(--admin-card)] py-2 pl-9 pr-3 text-sm" placeholder="Search name or parts" value={search} onChange={(e) => setSearch(e.target.value)} /></label>{["All", ...STUDIOS.slice(0, 5)].map((item) => <button key={item} onClick={() => setStudio(item)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${studio === item ? "border-[var(--admin-ink)] bg-[var(--admin-ink)] text-white" : "border-[var(--admin-border)] bg-[var(--admin-card)] text-[var(--admin-muted)]"}`}>{item.replace(" Studio", "")}</button>)}<span className="ml-auto font-mono text-[10px] text-[var(--admin-muted)]">{filtered.length} of {recipes.length} recipes</span></div>
+    <div className="overflow-hidden rounded-[14px] border border-[var(--admin-border)] bg-[var(--admin-card)]"><div className="grid grid-cols-[2.6fr_1fr_.8fr_.9fr_24px] gap-3 border-b border-[var(--admin-border)] bg-[var(--admin-card-subtle)] px-[18px] py-3 text-[10px] font-bold uppercase tracking-[.12em] text-[var(--admin-faint)]"><span>Recipe</span><span>Plans</span><span className="text-right">Builds</span><span className="text-right">Status</span><span /></div>{filtered.map((recipe) => <button key={recipe.id} onClick={() => onOpen({ mode: "edit", recipe })} className="grid w-full grid-cols-[2.6fr_1fr_.8fr_.9fr_24px] items-center gap-3 border-b border-[#F2EAE0] px-[18px] py-3 text-left transition-colors hover:bg-[var(--admin-card-subtle)]"><span className="min-w-0"><span className="flex truncate text-sm font-semibold text-[var(--admin-ink)]">{recipe.name}<small className="ml-2 font-medium text-[var(--admin-clay)]">{recipe.category}</small></span><span className="block truncate text-xs text-[var(--admin-muted)]">{recipe.parts.join(" · ") || "No parts selected"}</span></span><span className="text-xs text-[var(--admin-muted)]">{releaseOf(recipe).planTiers?.includes("all") ? "All plans" : releaseOf(recipe).planTiers?.join(", ") || "TBD"}</span><span className="text-right font-mono text-xs text-[var(--admin-muted)]">{recipe.buildCount.toLocaleString()}</span><span className="flex justify-end"><RecipeStatus recipe={recipe} /></span><ChevronRight className="h-4 w-4 text-[var(--admin-muted)]" /></button>)}</div>
+  </div>;
+}
+
+function ScheduleView({ recipes, onOpen }: { recipes: ProductRecipe[]; onOpen: (state: DrawerState) => void }) {
+  const [year, setYear] = useState(new Date().getFullYear());
+  const now = new Date(); const currentIndex = now.getFullYear() * 12 + now.getMonth();
+  const rows = MONTHS.map((name, month) => ({ name, month, recipe: recipes.find((item) => releaseOf(item).year === year && releaseOf(item).month === month + 1) }));
+  const empty = rows.filter((row) => !row.recipe).length; let longest = 0; let run = 0; rows.forEach((row) => { run = row.recipe ? 0 : run + 1; longest = Math.max(longest, run); });
+  return <div className="space-y-5"><div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]"><div className="rounded-[14px] bg-[var(--admin-ink)] p-6 text-white"><p className={`${EYEBROW} text-[#C6D1E0]`}>The renewal argument</p><h2 className="mt-3 max-w-md font-display text-xl">A recipe a month gives stores a reason to renew for what arrives next.</h2></div><div className="grid grid-cols-2 gap-px overflow-hidden rounded-[14px] border border-[var(--admin-border)] bg-[var(--admin-border)]">{[["Shipped this year", rows.filter((row) => row.recipe && row.month + 1 < now.getMonth() + 1 && year === now.getFullYear()).length],["Scheduled", rows.filter((row) => row.recipe).length],["Months with nothing", empty],["Longest gap", `${longest} months`]].map(([label, value]) => <div key={label as string} className="bg-[var(--admin-card)] p-4"><p className={`${EYEBROW} text-[var(--admin-faint)]`}>{label}</p><p className={`mt-2 font-display text-xl font-semibold ${label === "Months with nothing" && empty ? "text-[#A85B48]" : "text-[var(--admin-ink)]"}`}>{value}</p></div>)}</div></div><div className="flex items-center justify-between"><p className={`${EYEBROW} text-[var(--admin-muted)]`}>Release calendar</p><select className="rounded-lg border border-[var(--admin-border)] bg-[var(--admin-card)] px-3 py-2 text-sm" value={year} onChange={(e) => setYear(Number(e.target.value))}>{[year - 1, year, year + 1].map((item) => <option key={item}>{item}</option>)}</select></div><div className="overflow-hidden rounded-[14px] border border-[var(--admin-border)] bg-[var(--admin-card)]">{rows.map((row) => { const absolute = year * 12 + row.month; const state = row.recipe ? absolute < currentIndex ? "Shipped" : absolute === currentIndex ? "This month" : row.recipe.status === "live" ? "Scheduled" : "Draft" : "Nothing scheduled"; return <button key={row.name} onClick={() => onOpen(row.recipe ? { mode: "edit", recipe: row.recipe } : { mode: "create", month: row.month + 1, year })} className={`grid w-full grid-cols-[.9fr_2fr_.9fr_.9fr] items-center gap-3 border-b border-[#F2EAE0] px-[18px] py-3 text-left ${!row.recipe ? "bg-[#FDF7F4]" : "hover:bg-[var(--admin-card-subtle)]"}`}><span className="font-mono text-xs text-[var(--admin-muted)]">{String(row.month + 1).padStart(2, "0")} · {row.name}</span><span className={`text-sm font-semibold ${row.recipe ? "text-[var(--admin-ink)]" : "text-[#A85B48]"}`}>{row.recipe?.name ?? "No recipe"}{!row.recipe && <small className="ml-2 block text-xs font-normal">A month a store renews for software it already had.</small>}</span><span className="font-mono text-right text-xs text-[var(--admin-muted)]">{row.recipe?.buildCount ?? "—"}</span><span className="flex justify-end"><Pill tone={!row.recipe ? "warn" : state === "Draft" ? "draft" : state === "This month" ? "warn" : state === "Scheduled" ? "info" : "live"}>{state}</Pill></span></button>})}</div><div className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card)] p-4 text-sm text-[var(--admin-muted)]">When a recipe drops, stores see it in the studio picker, in the email, and at renewal.</div></div>;
+}
+
+type EinkPresetForm = Omit<PlatformEinkPreset, "linksQuality">;
+
+function presetForm(preset?: PlatformEinkPreset): EinkPresetForm {
+  return {
+    key: preset?.key ?? "",
+    name: preset?.name ?? "",
+    pixelWidth: preset?.pixelWidth ?? 1404,
+    pixelHeight: preset?.pixelHeight ?? 1872,
+    trimWidth: preset?.trimWidth ?? 447,
+    trimHeight: preset?.trimHeight ?? 597,
+    linkSupport: preset?.linkSupport ?? "full",
+    safeInset: preset?.safeInset ?? 8,
+    sellGuidance: preset?.sellGuidance ?? "",
+    caveat: preset?.caveat ?? "",
+  };
+}
+
+function EinkView() {
   const { toast } = useToast();
-  const [, navigate] = useLocation();
-  const [editing, setEditing]       = useState<ProductRecipe | null | "new">(undefined as any);
-  const drawerOpen = editing !== undefined && editing !== null && editing !== "new" as any;
-
-  const { data: recipes = [], isLoading, error, refetch } = useQuery({
-    queryKey: ["platform-recipes"],
-    queryFn: () => recipesApi.list(),
+  const qc = useQueryClient();
+  const catalogQuery = useQuery({ queryKey: ["platform-eink"], queryFn: platformApi.eink });
+  const riskQuery = useQuery({ queryKey: ["platform/stats", "eink-link-risk"], queryFn: () => platformApi.stats() });
+  const [presetDraft, setPresetDraft] = useState<EinkPresetForm | null>(null);
+  const [ruleDraft, setRuleDraft] = useState<PlatformEinkRule | null>(null);
+  const savePreset = useMutation({
+    mutationFn: (draft: EinkPresetForm) => draft.key && catalogQuery.data?.presets.some((item) => item.key === draft.key)
+      ? platformApi.updateEinkPreset(draft.key, draft)
+      : platformApi.createEinkPreset(draft),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["platform-eink"] }); qc.invalidateQueries({ queryKey: ["platform/stats"] }); setPresetDraft(null); toast({ title: "E-ink preset saved" }); },
+    onError: (error) => toast({ title: "Preset save failed", description: (error as Error).message, variant: "destructive" }),
   });
-
-  const { data: stats } = useQuery({
-    queryKey: ["platform-recipes-stats"],
-    queryFn: () => recipesApi.stats(),
+  const deletePreset = useMutation({
+    mutationFn: platformApi.deleteEinkPreset,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["platform-eink"] }); qc.invalidateQueries({ queryKey: ["platform/stats"] }); toast({ title: "E-ink preset deleted" }); },
+    onError: (error) => toast({ title: "Preset delete failed", description: (error as Error).message, variant: "destructive" }),
   });
-
-  const handleSaved = () => {
-    qc.invalidateQueries({ queryKey: ["platform-recipes"] });
-    qc.invalidateQueries({ queryKey: ["platform-recipes-stats"] });
-    setEditing(undefined as any);
-    toast({ title: "Recipe saved" });
-  };
-
-  // Next month release schedule from loaded recipes
-  const now = new Date();
-  const scheduleItems = recipes
-    .filter(r => {
-      const rel = r.release as { month?: number; year?: number } | null;
-      return rel?.year && rel?.month;
-    })
-    .sort((a, b) => {
-      const ra = a.release as any, rb = b.release as any;
-      return (ra.year * 12 + ra.month) - (rb.year * 12 + rb.month);
-    })
-    .slice(0, 6);
-
-  const dotColor = (r: ProductRecipe) => {
-    if (r.status === "live") return "hsl(142 55% 40%)";
-    if (r.status === "draft") return CLAY;
-    return MUTED;
-  };
-  const dotLabel = (r: ProductRecipe) => {
-    if (r.status === "live") return "Shipped";
-    const rel = r.release as { month?: number; year?: number } | null;
-    const isNext = rel?.month === now.getMonth() + 2;
-    return isNext ? "In draft" : "Planned";
-  };
-
-  return (
-    <div className="space-y-6 animate-in fade-in duration-300 max-w-5xl">
-
-      {/* Page header */}
-      <div>
-        <p className={`${EYEBROW} text-[10px]`} style={{ color: CLAY }}>Platform · Super Admin</p>
-        <h1 className="text-xl font-bold font-display mt-1" style={{ color: INK }}>Product recipes</h1>
-        <p className="text-sm mt-1" style={{ color: MUTED }}>
-          The product types stores can build — defined here, shipped on a schedule.
-        </p>
+  const saveRule = useMutation({
+    mutationFn: (rule: PlatformEinkRule) => platformApi.updateEinkRule(rule.key, {
+      label: rule.label, description: rule.description, enabled: rule.enabled, threshold: rule.threshold, unit: rule.unit,
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["platform-eink"] }); setRuleDraft(null); toast({ title: "Enforcement rule saved" }); },
+    onError: (error) => toast({ title: "Rule save failed", description: (error as Error).message, variant: "destructive" }),
+  });
+  const input = "w-full rounded-lg border border-[var(--admin-border)] bg-[var(--admin-card)] px-2.5 py-1.5 text-xs outline-none focus:ring-1 focus:ring-[var(--admin-ink)]";
+  const catalog = catalogQuery.data;
+  const risks = riskQuery.data?.linkRiskListings ?? [];
+  return <div className="space-y-5">
+    <div className="flex items-center gap-3 rounded-[14px] border border-[var(--admin-border)] border-l-4 border-l-[var(--admin-ink)] bg-[var(--admin-card)] p-5"><Info className="h-5 w-5 text-[var(--admin-ink)]" /><div><p className="text-sm font-semibold text-[var(--admin-ink)]">E-ink is a profile, not a studio or recipe.</p><p className="mt-1 text-xs text-[var(--admin-muted)]">These rules are inherited by every recipe exported for an e-ink device.</p></div><Pill tone="info" className="ml-auto">Inherited by every recipe</Pill></div>
+    {catalogQuery.isLoading ? <SkeletonRows rows={5} cols={4} /> : catalogQuery.error ? <ErrorState message="Could not load e-ink profiles." onRetry={() => catalogQuery.refetch()} /> : <div className="space-y-5">
+      <div className="overflow-hidden rounded-[14px] border border-[var(--admin-border)] bg-[var(--admin-card)]">
+        <div className="flex items-center justify-between border-b border-[var(--admin-border)] bg-[var(--admin-card-subtle)] px-[18px] py-3"><p className={`${EYEBROW} text-[var(--admin-faint)]`}>Device profiles · {catalog?.presets.length ?? 0}</p><button id="eink-add-preset" className="sr-only" onClick={() => setPresetDraft(presetForm())}>Add device preset</button></div>
+        <div className="grid grid-cols-[1.4fr_.8fr_2.4fr_.9fr_68px] border-b border-[var(--admin-border)] bg-[var(--admin-card-subtle)] px-[18px] py-3 text-[10px] font-bold uppercase tracking-[.12em] text-[var(--admin-faint)]"><span>Device</span><span>Trim</span><span>How to sell it</span><span className="text-right">PDF links</span><span /></div>
+        {catalog?.presets.map((preset) => <div key={preset.key} className="grid grid-cols-[1.4fr_.8fr_2.4fr_.9fr_68px] items-center border-b border-[#F2EAE0] px-[18px] py-4"><span><span className="block text-sm font-semibold text-[var(--admin-ink)]">{preset.name}</span><span className="font-mono text-[10px] text-[var(--admin-faint)]">{preset.key}</span></span><span className="font-mono text-xs text-[var(--admin-muted)]">{preset.trimWidth} × {preset.trimHeight} pt</span><span className="text-xs text-[var(--admin-muted)]">{preset.sellGuidance}</span><span className="flex justify-end"><Pill tone={preset.linkSupport === "full" ? "live" : "warn"}>{preset.linkSupport}</Pill></span><span className="flex justify-end gap-1"><button aria-label={`Edit ${preset.name}`} onClick={() => setPresetDraft(presetForm(preset))}><Pencil className="h-3.5 w-3.5 text-[var(--admin-muted)]" /></button><button aria-label={`Delete ${preset.name}`} onClick={() => window.confirm(`Delete ${preset.name}? Existing exports using it will prevent deletion.`) && deletePreset.mutate(preset.key)}><Trash2 className="h-3.5 w-3.5 text-[var(--admin-muted)]" /></button></span></div>)}
       </div>
+      {presetDraft && <section className="rounded-[14px] border border-[var(--admin-border)] bg-[var(--admin-card)] p-5"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold text-[var(--admin-ink)]">{presetDraft.key ? "Edit device preset" : "Add device preset"}</h2><button aria-label="Close preset editor" onClick={() => setPresetDraft(null)}><X className="h-4 w-4 text-[var(--admin-muted)]" /></button></div><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[["Key", "key", "text"], ["Name", "name", "text"], ["Pixel width", "pixelWidth", "number"], ["Pixel height", "pixelHeight", "number"], ["Trim width (pt)", "trimWidth", "number"], ["Trim height (pt)", "trimHeight", "number"], ["Safe inset (pt)", "safeInset", "number"]].map(([label, key, type]) => <label key={key} className={`${EYEBROW} text-[var(--admin-muted)]`}>{label}<input className={`${input} mt-1 normal-case tracking-normal`} type={type} value={String(presetDraft[key as keyof EinkPresetForm] ?? "")} disabled={key === "key" && !!catalog?.presets.some((item) => item.key === presetDraft.key)} onChange={(event) => setPresetDraft({ ...presetDraft, [key]: type === "number" ? Number(event.target.value) : event.target.value })} /></label>)}<label className={`${EYEBROW} text-[var(--admin-muted)]`}>Link support<select className={`${input} mt-1 normal-case tracking-normal`} value={presetDraft.linkSupport} onChange={(event) => setPresetDraft({ ...presetDraft, linkSupport: event.target.value as EinkPresetForm["linkSupport"] })}><option value="full">Full</option><option value="partial">Partial</option><option value="poor">Poor</option></select></label><label className={`${EYEBROW} text-[var(--admin-muted)] sm:col-span-2`}>Sell guidance<textarea className={`${input} mt-1 normal-case tracking-normal`} rows={2} value={presetDraft.sellGuidance} onChange={(event) => setPresetDraft({ ...presetDraft, sellGuidance: event.target.value })} /></label><label className={`${EYEBROW} text-[var(--admin-muted)] sm:col-span-2`}>Caveat (optional)<textarea className={`${input} mt-1 normal-case tracking-normal`} rows={2} value={presetDraft.caveat ?? ""} onChange={(event) => setPresetDraft({ ...presetDraft, caveat: event.target.value })} /></label></div><div className="mt-4 flex justify-end gap-2"><Button variant="outline" onClick={() => setPresetDraft(null)}>Cancel</Button><Button onClick={() => savePreset.mutate(presetDraft)} disabled={savePreset.isPending} className="bg-[var(--admin-ink)] hover:bg-[var(--admin-ink)]"><Save className="mr-1.5 h-3.5 w-3.5" />{savePreset.isPending ? "Saving…" : "Save preset"}</Button></div></section>}
+      <div className="grid gap-5 lg:grid-cols-2"><section className="rounded-[14px] border border-[var(--admin-border)] bg-[var(--admin-card)] p-5"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold text-[var(--admin-ink)]">What the profile enforces</h2><span className="text-[10px] text-[var(--admin-faint)]">Editable rules</span></div><div className="mt-4 space-y-3">{catalog?.rules.map((rule) => <div key={rule.key} className="flex items-start gap-3 border-b border-[#F2EAE0] pb-3 last:border-0 last:pb-0"><span className="w-24 shrink-0 text-[10px] font-bold uppercase tracking-wide text-[var(--admin-ink)]">{rule.label}</span><span className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--admin-muted)]">{rule.description}{rule.threshold !== null && <span className="ml-1 font-mono text-[10px]">({rule.threshold} {rule.unit})</span>} {!rule.enabled && <Pill tone="off" className="ml-1">off</Pill>}</span><button aria-label={`Edit ${rule.label}`} onClick={() => setRuleDraft({ ...rule })}><Pencil className="h-3.5 w-3.5 text-[var(--admin-muted)]" /></button></div>)}</div>{ruleDraft && <div className="mt-4 rounded-lg bg-[var(--admin-card-subtle)] p-3"><p className={`${EYEBROW} text-[var(--admin-muted)]`}>Edit {ruleDraft.label}</p><div className="mt-2 flex items-center gap-2"><input type="checkbox" checked={ruleDraft.enabled} onChange={(event) => setRuleDraft({ ...ruleDraft, enabled: event.target.checked })} /><span className="text-xs text-[var(--admin-ink)]">Enforced</span>{ruleDraft.threshold !== null && <input className={`${input} max-w-28`} type="number" step="0.01" value={ruleDraft.threshold} onChange={(event) => setRuleDraft({ ...ruleDraft, threshold: Number(event.target.value) })} />}</div><textarea className={`${input} mt-2`} rows={2} value={ruleDraft.description} onChange={(event) => setRuleDraft({ ...ruleDraft, description: event.target.value })} /><div className="mt-2 flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => setRuleDraft(null)}>Cancel</Button><Button size="sm" onClick={() => saveRule.mutate(ruleDraft)} disabled={saveRule.isPending}>Save rule</Button></div></div>}</section>
+        <section className="rounded-[14px] border border-[var(--admin-border)] bg-[var(--admin-card)] p-5"><h2 className="text-sm font-semibold text-[var(--admin-ink)]">Listings that overclaim</h2><p className="mt-2 text-xs leading-relaxed text-[var(--admin-muted)]">Live listings targeting a poor-link device while promising hyperlinked navigation appear here and in the platform decision queue.</p>{riskQuery.isLoading ? <div className="mt-5"><SkeletonRows rows={2} cols={3} /></div> : riskQuery.error ? <ErrorState message="Could not load listing risks." onRetry={() => riskQuery.refetch()} /> : risks.length === 0 ? <div className="mt-5 rounded-lg bg-[var(--admin-card-subtle)] p-4 text-xs text-[var(--admin-muted)]">No flagged listings found.</div> : <ul className="mt-5 divide-y divide-[#F2EAE0]">{risks.map((listing) => <li key={listing.plannerId} className="py-3 first:pt-0"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--admin-ink)]">{listing.editionName}</p><p className="mt-1 text-xs text-[var(--admin-muted)]">{listing.storeName || listing.storeId || "Platform catalog"} · {listing.deviceLabel}</p></div><span className="shrink-0 font-mono text-[10px] text-[var(--admin-faint)]">{listing.ageHours !== undefined ? `${listing.ageHours}h old` : "recent"}</span></div><a className="mt-2 inline-block text-xs font-semibold text-[var(--admin-ink)] underline" href={listing.storeId ? `/store/${listing.storeId}/builds` : "/super/catalog/global"}>Review listing</a></li>)}</ul>}</section></div>
+      </div>}
+  </div>;
+}
 
-      {/* ── Explainer card with navy left accent ── */}
-      <div
-        className="flex gap-4 rounded-xl border p-5 text-sm leading-relaxed"
-        style={{ background: "white", borderColor: BORDER, borderLeft: `4px solid ${INK}` }}
-      >
-        <Info className="w-4 h-4 mt-0.5 shrink-0 text-[hsl(221_46%_42%)]" />
-        <p style={{ color: "hsl(221 46% 28%)" }}>
-          A recipe is a named arrangement of engines the platform already has — page recipes,
-          cut paths, imposition, photo layouts, decks, trackers. Defining one here makes a
-          new product type available inside a studio without writing a new studio.{" "}
-          <strong>This is the subscription:</strong> stores renew for the recipes that arrive,
-          not for the software they already have.
-        </p>
-      </div>
-
-      {/* ── Stat tiles ── */}
-      <div className="flex gap-4">
-        <StatTile value={stats?.live ?? "—"}           label="Live recipes" />
-        <StatTile value={stats?.draft ?? "—"}          label="In draft" />
-        <StatTile value={stats?.shipsNext ?? "—"}      label="Ships next month" />
-        <StatTile value={`${stats?.renewalsCitingNew ?? "—"}%`} label="Renewals citing new recipes" />
-      </div>
-
-      {/* ── Recipe list ── */}
-      <div className="rounded-xl border overflow-hidden" style={{ background: PAPER, borderColor: BORDER }}>
-        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: BORDER }}>
-          <div>
-            <h2 className="font-semibold text-sm" style={{ color: INK }}>Recipes</h2>
-            <p className="text-xs mt-0.5" style={{ color: MUTED }}>
-              Each one lists the engines it draws on. Nothing here required new engine work.
-            </p>
-          </div>
-          <button
-            onClick={() => navigate("/super/recipes/new")}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white"
-            style={{ background: CLAY }}
-          >
-            <Plus className="w-3.5 h-3.5" /> New recipe
-          </button>
-        </div>
-
-        <div className="p-3 space-y-2">
-          {isLoading && (
-            [...Array(5)].map((_, i) => (
-              <div key={i} className="h-14 rounded-lg animate-pulse" style={{ background: "hsl(216 20% 94%)" }} />
-            ))
-          )}
-          {error && (
-            <div className="px-4 py-8 text-center text-sm" style={{ color: MUTED }}>
-              Couldn't load recipes.{" "}
-              <button onClick={() => refetch()} className="underline" style={{ color: CLAY }}>Retry</button>
-            </div>
-          )}
-          {!isLoading && !error && recipes.length === 0 && (
-            <div className="px-4 py-10 text-center">
-              <FlaskConical className="w-8 h-8 mx-auto mb-3" style={{ color: MUTED }} />
-              <p className="text-sm font-medium" style={{ color: INK }}>No recipes yet</p>
-              <p className="text-xs mt-1" style={{ color: MUTED }}>Create your first recipe to start building product types.</p>
-            </div>
-          )}
-          {recipes.map(r => (
-            <RecipeRow key={r.id} recipe={r} onEdit={setEditing} />
-          ))}
-        </div>
-      </div>
-
-      {/* ── E-Ink Export Profiles ── */}
-      <div className="rounded-xl border overflow-hidden" style={{ background: PAPER, borderColor: BORDER }}>
-        {/* Section header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: BORDER }}>
-          <div>
-            <h2 className="font-semibold text-sm" style={{ color: INK }}>E-Ink Export Profiles</h2>
-            <p className="text-xs mt-0.5" style={{ color: "hsl(216 15% 55%)" }}>
-              Not a new studio — a profile that sets the trim, forces the B&amp;W variant and runs the e-ink checks.
-              It turns "works on reMarkable" into a line on every existing listing.
-            </p>
-          </div>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wide"
-            style={{ background: "hsl(216 40% 88%)", color: "hsl(221 46% 28%)" }}>
-            Inherited by every recipe
-          </span>
-        </div>
-
-        {/* Device preset rows */}
-        <div className="divide-y" style={{ borderColor: BORDER }}>
-          {[
-            {
-              name: "reMarkable 2 / Pro",
-              dims: "1404 × 1872",
-              desc: "The strongest fit. Internal PDF links work, so tab rails and the contents page behave exactly as designed.",
-              links: "full" as const,
-            },
-            {
-              name: "Supernote A5X / A6X",
-              dims: "1404 × 1872",
-              desc: "Same trim as reMarkable. Handles links and heavy documents well.",
-              links: "full" as const,
-            },
-            {
-              name: "Boox Note / Tab",
-              dims: "varies by model",
-              desc: "Android-based, so the PDF reader is capable. Trim varies — export the closest preset.",
-              links: "full" as const,
-            },
-            {
-              name: "Kindle Scribe",
-              dims: "1860 × 2480",
-              desc: "Internal PDF links are unreliable and sideloading goes through Send to Kindle. Sell it as a printable-style planner here, not a hyperlinked one — and say so in the listing.",
-              links: "poor" as const,
-            },
-          ].map(({ name, dims, desc, links }) => (
-            <div key={name} className="flex items-start gap-4 px-5 py-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="font-semibold text-[13px]" style={{ color: INK }}>{name}</span>
-                   <span className="text-[11px]" style={{ color: "hsl(216 15% 62%)" }}>{dims}</span>
-                </div>
-                 <p className="text-xs leading-relaxed" style={{ color: MUTED }}>{desc}</p>
-              </div>
-              <span
-                className="shrink-0 mt-0.5 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
-                style={links === "full"
-                  ? { background: "hsl(142 50% 90%)", color: "hsl(142 55% 28%)" }
-                  : { background: "hsl(12 60% 90%)", color: "hsl(12 65% 38%)" }}
-              >
-                Links: {links}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {/* What the profile enforces */}
-        <div className="px-5 py-4 border-t" style={{ borderColor: BORDER, background: "white" }}>
-           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] mb-3" style={{ color: MUTED }}>
-            What the profile enforces
-          </p>
-          <div className="space-y-2.5">
-            {[
-              ["Grayscale only",   "E-ink has no colour, so the ink-friendly B&W variant is the e-ink variant. One asset, two audiences."],
-              ["Contrast floor",   "Fills lighter than about 15% grey disappear on e-ink. Nothing lighter may carry meaning — the quality checker enforces it."],
-              ["Line weight",      "Hairlines alias into nothing. Minimum 0.75 pt on any rule the buyer needs to see."],
-              ["File weight",      "Page turns are slow. Vector-first only — no full-bleed raster art above a 10 MB planner with heavy backgrounds."],
-              ["Toolbar margin",   "Device toolbars overlay the page edge. Keep live content inside a safe inset."],
-            ].map(([label, desc]) => (
-              <div key={label} className="flex gap-3">
-                <span className="text-[10px] font-bold uppercase tracking-wide shrink-0 pt-0.5 w-32" style={{ color: INK }}>
-                  {label}
-                </span>
-                 <span className="text-xs leading-relaxed" style={{ color: MUTED }}>{desc}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Bottom two cards ── */}
-      <div className="grid grid-cols-2 gap-5">
-
-        {/* What a recipe defines */}
-        <div className="rounded-xl border p-5" style={{ background: "white", borderColor: BORDER }}>
-          <h3 className="font-semibold text-sm mb-4" style={{ color: INK }}>What a recipe defines</h3>
-          <p className="text-xs mb-4" style={{ color: MUTED }}>Six fields. No code.</p>
-          <div className="space-y-3">
-            {[
-              ["NAME & CATEGORY", "What it is called in the studio picker, and which studio it appears in."],
-              ["DECISION CARD", "The one either/or the buyer answers first, with the plain-language consequence of each choice."],
-              ["PARTS LIST", "Which engines it draws on — page recipe, cut path, imposition, photo layouts, decks, trackers. Nothing new is written."],
-              ["PHYSICAL PATH", "Whether it prints, what it imposes onto, what templates ship with it."],
-              ["CLAUDE BRIEF", "What the assistant should ask for, and what it should generate from a premise."],
-              ["RELEASE", "Which plan tiers get it, and the month it drops."],
-            ].map(([label, desc]) => (
-              <div key={label} className="flex gap-3">
-                <span
-                  className="text-[10px] font-bold uppercase tracking-wide pt-0.5 shrink-0 w-28"
-                  style={{ color: INK }}
-                >
-                  {label}
-                </span>
-                <span className="text-xs leading-relaxed" style={{ color: MUTED }}>{desc}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Release schedule */}
-        <div className="rounded-xl border p-5" style={{ background: "white", borderColor: BORDER }}>
-          <h3 className="font-semibold text-sm mb-1" style={{ color: INK }}>Release schedule</h3>
-          <p className="text-xs mb-4" style={{ color: MUTED }}>A recipe a month is the renewal reason.</p>
-
-          {scheduleItems.length === 0 ? (
-            <div className="py-6 text-center text-xs" style={{ color: MUTED }}>
-              No releases scheduled yet.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {scheduleItems.map(r => {
-                const rel = r.release as { month?: number; year?: number } | null;
-                const monthLabel = rel?.month ? MONTH_NAMES[(rel.month - 1) % 12] : "—";
-                return (
-                  <div key={r.id} className="flex items-start gap-3">
-                    <div className="w-2 h-2 rounded-full mt-1 shrink-0" style={{ background: dotColor(r) }} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate" style={{ color: INK }}>{r.name}</p>
-                      <p className="text-xs" style={{ color: MUTED }}>{monthLabel}</p>
-                    </div>
-                    <span className="text-xs font-medium shrink-0" style={{ color: dotColor(r) }}>
-                      {dotLabel(r)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <p className="text-xs mt-5 pt-4 border-t" style={{ borderColor: BORDER, color: MUTED }}>
-            Stores see a "new this month" badge in their studio picker when a recipe drops.
-          </p>
-        </div>
-
-      </div>
-
-      {/* ── Recipe drawer ── */}
-      {drawerOpen && (
-        <RecipeDrawer
-          recipe={editing === null ? null : (editing as ProductRecipe)}
-          onClose={() => setEditing(undefined as any)}
-          onSaved={handleSaved}
-        />
-      )}
-    </div>
-  );
+export default function ProductRecipesPage() {
+  const [location, navigate] = useLocation(); const qc = useQueryClient(); const { toast } = useToast();
+  const params = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+  const view: View = location.endsWith("/eink") ? "eink" : params.get("view") === "schedule" ? "schedule" : "recipes";
+  const [drawer, setDrawer] = useState<DrawerState>({ mode: "closed" });
+  const { data: recipes = [], isLoading, error, refetch } = useQuery({ queryKey: ["platform-recipes"], queryFn: () => recipesApi.list() });
+  const { data: stats } = useQuery({ queryKey: ["platform-recipes-stats"], queryFn: () => recipesApi.stats() });
+  const saveDone = () => { qc.invalidateQueries({ queryKey: ["platform-recipes"] }); qc.invalidateQueries({ queryKey: ["platform-recipes-stats"] }); setDrawer({ mode: "closed" }); toast({ title: "Recipe saved" }); };
+  const setView = (next: View) => navigate(next === "eink" ? "/super/recipes/eink" : `/super/recipes?view=${next}`);
+  const action = view === "recipes" ? <Button size="sm" onClick={() => setDrawer({ mode: "create" })} className="bg-[var(--admin-clay)] hover:bg-[var(--admin-clay)]"><Plus className="mr-1.5 h-4 w-4" /> New recipe</Button> : view === "schedule" ? <Button size="sm" onClick={() => setDrawer({ mode: "create" })} className="bg-[var(--admin-clay)] hover:bg-[var(--admin-clay)]"><CalendarDays className="mr-1.5 h-4 w-4" /> Schedule a recipe</Button> : <Button size="sm" onClick={() => document.getElementById("eink-add-preset")?.click()} className="bg-[var(--admin-clay)] hover:bg-[var(--admin-clay)]"><Plus className="mr-1.5 h-4 w-4" /> Add device preset</Button>;
+  return <div className="space-y-5"><PageHeader title="Product recipes" description="The product types stores can build — defined here, shipped on a schedule." scopeLabel="Platform" actions={action} /><div className="flex w-fit gap-1 rounded-[11px] bg-[#F2EAE0] p-[3px]"><button onClick={() => setView("recipes")} className={`rounded-lg px-4 py-2 text-xs font-semibold ${view === "recipes" ? "bg-[#FFFDF9] text-[var(--admin-ink)] shadow-[0_1px_2px_rgba(27,42,74,.08)]" : "text-[var(--admin-muted)]"}`}>Recipes</button><button onClick={() => setView("schedule")} className={`rounded-lg px-4 py-2 text-xs font-semibold ${view === "schedule" ? "bg-[#FFFDF9] text-[var(--admin-ink)] shadow-[0_1px_2px_rgba(27,42,74,.08)]" : "text-[var(--admin-muted)]"}`}>Schedule</button><button onClick={() => setView("eink")} className={`rounded-lg px-4 py-2 text-xs font-semibold ${view === "eink" ? "bg-[#FFFDF9] text-[var(--admin-ink)] shadow-[0_1px_2px_rgba(27,42,74,.08)]" : "text-[var(--admin-muted)]"}`}>E-ink</button></div>{view === "eink" ? <EinkView /> : isLoading ? <SkeletonRows rows={6} cols={4} /> : error ? <ErrorState onRetry={() => refetch()} /> : view === "schedule" ? <ScheduleView recipes={recipes} onOpen={setDrawer} /> : <RecipesView recipes={recipes} stats={stats} onOpen={setDrawer} />}{drawer.mode !== "closed" && <RecipeDrawer state={drawer} onClose={() => setDrawer({ mode: "closed" })} onSaved={saveDone} />}</div>;
 }

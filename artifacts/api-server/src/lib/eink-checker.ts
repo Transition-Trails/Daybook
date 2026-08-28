@@ -19,6 +19,7 @@
  *     is a safety net for unusually complex vector content.
  */
 import { parseHexColor } from "./color";
+import { getEinkPreset, getEinkRule } from "./eink-presets";
 
 function hexBrightness(hex: string): number {
   const parsed = parseHexColor(hex);
@@ -54,9 +55,16 @@ export interface EinkCheckOpts {
 export function collectEinkViolations(opts: EinkCheckOpts): string[] {
   const violations: string[] = [];
 
+  if (!getEinkPreset(opts.deviceKey)) {
+    violations.push(`Unknown e-ink device profile "${opts.deviceKey}". Choose a configured device profile.`);
+    return violations;
+  }
+
   // 1. Contrast floor
   const brightness = hexBrightness(opts.originalAccentHex);
-  if (brightness > 0.85) {
+  const contrastRule = getEinkRule("contrast_floor");
+  const contrastFloor = contrastRule?.threshold ?? 0.85;
+  if (contrastRule?.enabled !== false && brightness > contrastFloor) {
     violations.push(
       `Accent colour ${opts.originalAccentHex} has perceived brightness ` +
       `${(brightness * 100).toFixed(0)}% — fills lighter than ~15% gray ` +
@@ -65,10 +73,11 @@ export function collectEinkViolations(opts: EinkCheckOpts): string[] {
     );
   }
 
-  // 2. File weight budget (10 MB)
-  const BUDGET_MB = 10;
+  // 2. File weight budget
+  const fileWeightRule = getEinkRule("file_weight");
+  const BUDGET_MB = fileWeightRule?.threshold ?? 10;
   const sizeMb = opts.bufferBytes / 1024 / 1024;
-  if (sizeMb > BUDGET_MB) {
+  if (fileWeightRule?.enabled !== false && sizeMb > BUDGET_MB) {
     violations.push(
       `PDF is ${sizeMb.toFixed(1)} MB — exceeds the ${BUDGET_MB} MB e-ink budget. ` +
       `Page turns will be slow on device. Remove full-bleed raster art or switch ` +

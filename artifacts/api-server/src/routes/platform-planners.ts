@@ -317,7 +317,7 @@ router.post(
       res.json({ id: updated.id, drive: { pdfFileId, configFileId, inkFriendlyPdfFileId }, pageCount, fileName, einkCaveat });
     } catch (err) {
       req.log.error({ err }, "Platform planner generation failed");
-      res.status(500).json({ error: String(err) });
+      res.status((err as Error).name === "UnknownEinkDeviceError" ? 400 : 500).json({ error: String(err) });
     }
   },
 );

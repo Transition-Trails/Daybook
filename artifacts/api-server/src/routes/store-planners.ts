@@ -187,6 +187,8 @@ router.post(
       calMode: rawOutput.calMode ?? "none",
       eventMins: rawOutput.eventMins ?? 60,
       aiInPdf: rawOutput.aiInPdf ?? false,
+      inkFriendly: rawOutput.inkFriendly ?? false,
+      ...(rawOutput.einkDevice !== undefined ? { einkDevice: rawOutput.einkDevice } : {}),
     };
     if (datingMode !== "dated") {
       output.calMode = "none";
@@ -215,7 +217,7 @@ router.post(
         arr.push({ x: h.x, y: h.y, w: h.w, h: h.h, targetType: h.targetType, targetRef: h.targetRef, label: h.label });
         hotspotsByTemplate.set(h.templateKey, arr);
       }
-      const { pdfFileId, configFileId, pageCount } = await runGeneration(config, hotspotsByTemplate.size ? hotspotsByTemplate : undefined);
+      const { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount } = await runGeneration(config, hotspotsByTemplate.size ? hotspotsByTemplate : undefined);
 
       // Determine edition + theme names for bundle filename
       let editionName: string | null = null;
@@ -237,7 +239,14 @@ router.post(
 
       const [updated] = await db
         .update(plannerConfigsTable)
-        .set({ drive: { pdfFileId: finalPdfFileId, configFileId }, generatedAt: new Date() })
+        .set({
+          drive: {
+            pdfFileId: finalPdfFileId,
+            configFileId,
+            ...(inkFriendlyPdfFileId ? { inkFriendlyPdfFileId } : {}),
+          },
+          generatedAt: new Date(),
+        })
         .where(eq(plannerConfigsTable.id, config.id as string))
         .returning();
 
@@ -253,13 +262,13 @@ router.post(
 
       res.status(201).json({
         id: updated.id,
-        drive: { pdfFileId: finalPdfFileId, configFileId },
+        drive: { pdfFileId: finalPdfFileId, configFileId, inkFriendlyPdfFileId },
         pageCount,
         fileName,
       });
     } catch (err) {
       req.log.error({ err }, "Store planner creation failed");
-      res.status(500).json({ error: String(err) });
+      res.status((err as Error).name === "UnknownEinkDeviceError" ? 400 : 500).json({ error: String(err) });
     }
   },
 );
@@ -439,7 +448,7 @@ router.post(
         arr.push({ x: h.x, y: h.y, w: h.w, h: h.h, targetType: h.targetType, targetRef: h.targetRef, label: h.label });
         reexportHotspots.set(h.templateKey, arr);
       }
-      const { pdfFileId, configFileId, pageCount } = await runGeneration(patched, reexportHotspots.size ? reexportHotspots : undefined);
+      const { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount } = await runGeneration(patched, reexportHotspots.size ? reexportHotspots : undefined);
 
       // Bundle filename
       let editionName: string | null = null;
@@ -457,7 +466,14 @@ router.post(
 
       const [final] = await db
         .update(plannerConfigsTable)
-        .set({ drive: { pdfFileId, configFileId }, generatedAt: new Date() })
+        .set({
+          drive: {
+            pdfFileId,
+            configFileId,
+            ...(inkFriendlyPdfFileId ? { inkFriendlyPdfFileId } : {}),
+          },
+          generatedAt: new Date(),
+        })
         .where(and(eq(plannerConfigsTable.id, id), eq(plannerConfigsTable.storeId, storeId)))
         .returning();
 
@@ -471,10 +487,10 @@ router.post(
         metadata: { storeId, pageCount, fileName },
       });
 
-      res.json({ id: final.id, drive: { pdfFileId, configFileId }, pageCount, fileName });
+      res.json({ id: final.id, drive: { pdfFileId, configFileId, inkFriendlyPdfFileId }, pageCount, fileName });
     } catch (err) {
       req.log.error({ err }, "Store planner reexport failed");
-      res.status(500).json({ error: String(err) });
+      res.status((err as Error).name === "UnknownEinkDeviceError" ? 400 : 500).json({ error: String(err) });
     }
   },
 );

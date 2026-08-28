@@ -54,6 +54,7 @@ function makeConfig(overrides: {
   datingMode?:  string;
   orientation?: string;
   calMode?:     string;
+  aiInPdf?:     boolean;
   sections?:    string[];
 } = {}): GeneratorConfig {
   return {
@@ -74,7 +75,7 @@ function makeConfig(overrides: {
     output: {
       calMode:   (overrides.calMode ?? "link") as "link" | "overlay" | "none",
       eventMins: 60,
-      aiInPdf:   false,
+      aiInPdf:   overrides.aiInPdf ?? false,
     } as any,
     sections: overrides.sections ?? ["Work", "Personal", "Health", "Goals"],
   };
@@ -448,6 +449,24 @@ describe("PDF link survival — standard 12-month portrait 2024 (leap year)", ()
     expect(failures, "Release blockers — see log above").toHaveLength(0);
   }, 60_000);
 
+});
+
+describe("poor-link e-ink profile", () => {
+  it("suppresses both calendar-overlay and AI URI annotations", async () => {
+    const result = await buildPdf(
+      makeConfig({ monthCount: 1, calMode: "overlay", aiInPdf: true }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      "kindle_scribe",
+    );
+    const doc = await PDFDocument.load(result.buffer);
+    const uris = extractAllLinks(doc).filter((link) => link.kind === "uri");
+    expect(uris).toHaveLength(0);
+  }, 60_000);
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

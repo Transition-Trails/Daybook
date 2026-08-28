@@ -154,8 +154,10 @@ export interface PlatformStats {
     plannerId: string;
     editionName: string;
     storeId: string | null;
+    storeName?: string | null;
     deviceLabel: string;
     createdAt: string;
+    ageHours?: number;
   }>;
   billingAnalytics: {
     asOf: string;
@@ -264,6 +266,22 @@ export interface SpineStyleCatalogItem extends CatalogItem {
 // ── Platform endpoints ──────────────────────────────────────────────────────
 
 export const platformApi = {
+  eink: () =>
+    apiFetch<PlatformEinkCatalog>("/platform/eink"),
+  updateEinkPreset: (key: string, data: Partial<PlatformEinkPreset>) =>
+    apiFetch<PlatformEinkPreset>(`/platform/eink/presets/${encodeURIComponent(key)}`, {
+      method: "PATCH", body: JSON.stringify(data),
+    }),
+  createEinkPreset: (data: Omit<PlatformEinkPreset, "linksQuality">) =>
+    apiFetch<PlatformEinkPreset>("/platform/eink/presets", {
+      method: "POST", body: JSON.stringify(data),
+    }),
+  deleteEinkPreset: (key: string) =>
+    apiFetch<void>(`/platform/eink/presets/${encodeURIComponent(key)}`, { method: "DELETE" }),
+  updateEinkRule: (key: string, data: Partial<PlatformEinkRule>) =>
+    apiFetch<PlatformEinkRule>(`/platform/eink/rules/${encodeURIComponent(key)}`, {
+      method: "PATCH", body: JSON.stringify(data),
+    }),
   stats: (options?: { includeSeed?: boolean }) => {
     const query = options?.includeSeed ? "?includeSeed=true" : "";
     return apiFetch<PlatformStats>(`/platform/stats${query}`);
@@ -650,6 +668,34 @@ export function flagsQueryOptions(storeId: string) {
     retry: 1,
     retryDelay: 1_000,
   };
+}
+
+export interface PlatformEinkPreset {
+  key: string;
+  name: string;
+  pixelWidth: number;
+  pixelHeight: number;
+  trimWidth: number;
+  trimHeight: number;
+  linkSupport: "full" | "partial" | "poor";
+  linksQuality: "full" | "partial" | "poor";
+  safeInset: number;
+  sellGuidance: string;
+  caveat?: string;
+}
+
+export interface PlatformEinkRule {
+  key: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  threshold: number | null;
+  unit: string | null;
+}
+
+export interface PlatformEinkCatalog {
+  presets: PlatformEinkPreset[];
+  rules: PlatformEinkRule[];
 }
 
 // ── Help endpoints ──────────────────────────────────────────────────────────

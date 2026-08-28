@@ -12,7 +12,8 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BuildCenter } from "@/pages/studios/PlannerStudioHub";
 import { type PlatformPlannerConfig } from "@/lib/api";
@@ -40,6 +41,23 @@ vi.mock("@/lib/api", () => ({
     generate: vi.fn(),
     publish:  vi.fn(),
     get:      vi.fn(),
+  },
+  platformApi: {
+    eink: () => Promise.resolve({
+      presets: [{
+        key: "custom_reader",
+        name: "Custom Reader",
+        pixelWidth: 1600,
+        pixelHeight: 2200,
+        trimWidth: 420,
+        trimHeight: 580,
+        linkSupport: "partial",
+        linksQuality: "partial",
+        safeInset: 18,
+        sellGuidance: "Use the persisted custom profile.",
+      }],
+      rules: [],
+    }),
   },
   apiFetch: vi.fn(),
 }));
@@ -194,6 +212,36 @@ describe("BuildCenter — Generate button disabled invariant", () => {
     renderBuildCenter(makeTemplate({ editionId: "ed-1" }));
     const btn = screen.getByRole("button", { name: /generate planner/i });
     expect((btn as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("BuildCenter — persisted E-ink profiles", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("selects a newly persisted profile and sends its key to generation", async () => {
+    const { platformPlannersApi } = await import("@/lib/api");
+    vi.mocked(platformPlannersApi.generate).mockResolvedValue({
+      id: "tpl-1",
+      drive: { pdfFileId: "pdf-1", configFileId: null },
+      pageCount: 1,
+      fileName: "custom-reader.pdf",
+    });
+    vi.mocked(platformPlannersApi.get).mockResolvedValue(makeTemplate());
+
+    renderBuildCenter(makeTemplate());
+    const profile = await screen.findByRole("button", { name: /Custom Reader/i });
+    expect(profile.textContent).toContain("420×580 pt");
+
+    await userEvent.click(profile);
+    expect(screen.getByText("Use the persisted custom profile.")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: /^generate/i }));
+
+    await waitFor(() => {
+      expect(platformPlannersApi.generate).toHaveBeenCalledWith(
+        "tpl-1",
+        expect.objectContaining({ einkDevice: "custom_reader", inkFriendly: true }),
+      );
+    });
   });
 });
 

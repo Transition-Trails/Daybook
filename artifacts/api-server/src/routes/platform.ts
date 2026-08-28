@@ -24,6 +24,8 @@ import {
   stickersLibraryTable,
   packStickersTable,
   stickerPacksTable,
+  einkDevicePresetsTable,
+  einkEnforcementRulesTable,
   STICKER_FUNCTION_TYPES,
   type StickerFunctionType,
 } from "@workspace/db";
@@ -48,8 +50,147 @@ import {
   generateCutlineSvg,
   STICKER_OUTPUT_DPI,
 } from "../lib/imageProcessing";
+import {
+  cacheEinkPreset,
+  cacheEinkRule,
+  getEinkPresets,
+  refreshEinkCatalog,
+  removeCachedEinkPreset,
+  type EinkPreset,
+} from "../lib/eink-presets";
 
 const router: IRouter = Router();
+
+// ── E-INK PROFILE CATALOG ─────────────────────────────────────────────────────
+
+function serializeEinkPreset(preset: EinkPreset) {
+  return {
+    key: preset.key,
+    name: preset.label,
+    pixelWidth: preset.px.w,
+    pixelHeight: preset.px.h,
+    trimWidth: preset.pts.w,
+    trimHeight: preset.pts.h,
+    linkSupport: preset.linkSupport,
+    linksQuality: preset.linksQuality,
+    safeInset: preset.safeInset,
+    sellGuidance: preset.sellGuidance,
+    caveat: preset.caveat,
+  };
+}
+
+router.get("/platform/eink", requireSuperAdmin, async (_req: Request, res: Response): Promise<void> => {
+  const catalog = await refreshEinkCatalog();
+  res.json({ presets: catalog.presets.map(serializeEinkPreset), rules: catalog.rules });
+});
+
+router.post("/platform/eink/presets", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const actor = req.actor!;
+  const body = req.body as Record<string, unknown>;
+  const key = typeof body.key === "string" ? body.key.trim().toLowerCase() : "";
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const sellGuidance = typeof body.sellGuidance === "string" ? body.sellGuidance.trim() : "";
+  const linkSupport = body.linkSupport;
+  const numeric = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value > 0;
+  if (!/^[a-z][a-z0-9_]*$/.test(key) || !name || !sellGuidance
+    || !numeric(body.pixelWidth) || !numeric(body.pixelHeight)
+    || !numeric(body.trimWidth) || !numeric(body.trimHeight)
+    || !numeric(body.safeInset) || !["full", "partial", "poor"].includes(String(linkSupport))) {
+    res.status(400).json({ error: "key, name, dimensions, safeInset, linkSupport, and sellGuidance are required" });
+    return;
+  }
+  try {
+    const [row] = await db.insert(einkDevicePresetsTable).values({
+      key,
+      name,
+      pixelWidth: body.pixelWidth as number,
+      pixelHeight: body.pixelHeight as number,
+      trimWidth: body.trimWidth as number,
+      trimHeight: body.trimHeight as number,
+      linkSupport: linkSupport as "full" | "partial" | "poor",
+      safeInset: body.safeInset as number,
+      sellGuidance,
+      caveat: typeof body.caveat === "string" && body.caveat.trim() ? body.caveat.trim() : null,
+    }).returning();
+    const preset = cacheEinkPreset(row);
+    await writeAudit(db, { actorUserId: actor.userId, actorRole: "super_admin", scope: "platform", action: "eink_preset.create", targetType: "eink_device_preset", targetId: key, metadata: { name } });
+    res.status(201).json(serializeEinkPreset(preset));
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      res.status(409).json({ error: "An e-ink preset with that key already exists" });
+      return;
+    }
+    throw error;
+  }
+});
+
+router.patch("/platform/eink/presets/:key", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const actor = req.actor!;
+  const key = String((req.params as { key: string }).key).toLowerCase();
+  const [existing] = await db.select().from(einkDevicePresetsTable).where(eq(einkDevicePresetsTable.key, key));
+  if (!existing) { res.status(404).json({ error: "E-ink preset not found" }); return; }
+  const body = req.body as Record<string, unknown>;
+  const patch: Partial<typeof einkDevicePresetsTable.$inferInsert> = {};
+  if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim();
+  const positiveFinite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value > 0;
+  const suppliedInvalidNumber = ["pixelWidth", "pixelHeight", "trimWidth", "trimHeight"]
+    .some((field) => Object.prototype.hasOwnProperty.call(body, field) && !positiveFinite(body[field]));
+  const suppliedInvalidInset = Object.prototype.hasOwnProperty.call(body, "safeInset")
+    && !(typeof body.safeInset === "number" && Number.isFinite(body.safeInset) && body.safeInset >= 0);
+  if (suppliedInvalidNumber || suppliedInvalidInset) {
+    res.status(400).json({ error: "Dimensions must be positive finite numbers and safeInset must be a non-negative finite number" });
+    return;
+  }
+  if (positiveFinite(body.pixelWidth)) patch.pixelWidth = body.pixelWidth;
+  if (positiveFinite(body.pixelHeight)) patch.pixelHeight = body.pixelHeight;
+  if (positiveFinite(body.trimWidth)) patch.trimWidth = body.trimWidth;
+  if (positiveFinite(body.trimHeight)) patch.trimHeight = body.trimHeight;
+  if (["full", "partial", "poor"].includes(String(body.linkSupport))) patch.linkSupport = body.linkSupport as "full" | "partial" | "poor";
+  if (typeof body.safeInset === "number" && Number.isFinite(body.safeInset) && body.safeInset >= 0) patch.safeInset = body.safeInset;
+  if (typeof body.sellGuidance === "string" && body.sellGuidance.trim()) patch.sellGuidance = body.sellGuidance.trim();
+  if (body.caveat === null || (typeof body.caveat === "string" && body.caveat.trim())) patch.caveat = body.caveat === null ? null : (body.caveat as string).trim();
+  if (!Object.keys(patch).length) { res.status(400).json({ error: "No valid preset fields supplied" }); return; }
+  const [row] = await db.update(einkDevicePresetsTable).set({ ...patch, updatedAt: new Date() }).where(eq(einkDevicePresetsTable.key, key)).returning();
+  const preset = cacheEinkPreset(row);
+  await writeAudit(db, { actorUserId: actor.userId, actorRole: "super_admin", scope: "platform", action: "eink_preset.edit", targetType: "eink_device_preset", targetId: key, metadata: { name: preset.label } });
+  res.json(serializeEinkPreset(preset));
+});
+
+router.delete("/platform/eink/presets/:key", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const actor = req.actor!;
+  const key = String((req.params as { key: string }).key).toLowerCase();
+  const [existing] = await db.select().from(einkDevicePresetsTable).where(eq(einkDevicePresetsTable.key, key));
+  if (!existing) { res.status(404).json({ error: "E-ink preset not found" }); return; }
+  const [usage] = await db.select({ count: count() }).from(plannerConfigsTable).where(sql`(${plannerConfigsTable.output}->>'einkDevice') = ${key}`);
+  if (Number(usage?.count ?? 0) > 0) {
+    res.status(409).json({ error: "This preset is used by existing planner exports and cannot be deleted" });
+    return;
+  }
+  await db.delete(einkDevicePresetsTable).where(eq(einkDevicePresetsTable.key, key));
+  removeCachedEinkPreset(key);
+  await writeAudit(db, { actorUserId: actor.userId, actorRole: "super_admin", scope: "platform", action: "eink_preset.delete", targetType: "eink_device_preset", targetId: key, metadata: { name: existing.name } });
+  res.status(204).end();
+});
+
+router.patch("/platform/eink/rules/:key", requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const actor = req.actor!;
+  const key = String((req.params as { key: string }).key);
+  const [existing] = await db.select().from(einkEnforcementRulesTable).where(eq(einkEnforcementRulesTable.key, key));
+  if (!existing) { res.status(404).json({ error: "E-ink enforcement rule not found" }); return; }
+  const body = req.body as Record<string, unknown>;
+  const patch: Partial<typeof einkEnforcementRulesTable.$inferInsert> = {};
+  if (typeof body.label === "string" && body.label.trim()) patch.label = body.label.trim();
+  if (typeof body.description === "string" && body.description.trim()) patch.description = body.description.trim();
+  if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+  if (body.threshold === null) patch.threshold = null;
+  else if (typeof body.threshold === "number" && Number.isFinite(body.threshold) && body.threshold >= 0) patch.threshold = body.threshold;
+  if (body.unit === null || typeof body.unit === "string") patch.unit = body.unit as string | null;
+  if (!Object.keys(patch).length) { res.status(400).json({ error: "No valid rule fields supplied" }); return; }
+  const [row] = await db.update(einkEnforcementRulesTable).set({ ...patch, updatedAt: new Date() }).where(eq(einkEnforcementRulesTable.key, key)).returning();
+  const rule = cacheEinkRule(row);
+  await writeAudit(db, { actorUserId: actor.userId, actorRole: "super_admin", scope: "platform", action: "eink_rule.edit", targetType: "eink_enforcement_rule", targetId: key, metadata: { enabled: rule.enabled, threshold: rule.threshold } });
+  res.json(rule);
+});
 
 // ── GET /platform/stats ───────────────────────────────────────────────────────
 
@@ -57,6 +198,7 @@ router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Respo
   const includeSeed = req.query.includeSeed === "true";
   const storeVisibility = includeSeed ? undefined : eq(storesTable.isSeed, false);
   const analyticsNow = new Date();
+  await refreshEinkCatalog();
   const [storeStatusRows, storeCreatedRows, userCountRow, generationRows, trialRows, plannerRows, billingUsers, billingPayments] = await Promise.all([
     db.select({ status: storesTable.status, cnt: count() }).from(storesTable).where(storeVisibility).groupBy(storesTable.status),
     db.select({
@@ -92,6 +234,7 @@ router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Respo
         createdAt: plannerConfigsTable.createdAt,
         editionName: editionsTable.name,
         editionStatus: editionsTable.status,
+        storeName: storesTable.name,
       })
       .from(plannerConfigsTable)
       .innerJoin(editionsTable, eq(editionsTable.id, plannerConfigsTable.editionId))
@@ -179,19 +322,24 @@ router.get("/platform/stats", requireSuperAdmin, async (req: Request, res: Respo
   for (const row of trialRows) {
     if (row.endsAt) trialEndsAtByStore[row.storeId] = row.endsAt.toISOString();
   }
-  const poorLinkDevices: Record<string, string> = {
-    kindle_scribe: "Kindle Scribe",
-  };
+  const poorLinkDevices = new Map(
+    getEinkPresets()
+      .filter((preset) => preset.linkSupport === "poor")
+      .map((preset) => [preset.key, preset.label]),
+  );
   const linkRiskListings = plannerRows.flatMap((row) => {
-    const output = row.output as { calMode?: string; einkDevice?: string | null } | null;
-    const deviceLabel = output?.einkDevice ? poorLinkDevices[output.einkDevice] : undefined;
-    if (row.editionStatus !== "live" || output?.calMode !== "link" || !deviceLabel) return [];
+    const output = row.output as { calMode?: string; aiInPdf?: boolean; einkDevice?: string | null } | null;
+    const deviceLabel = output?.einkDevice ? poorLinkDevices.get(output.einkDevice.toLowerCase()) : undefined;
+    const promisesUriLinks = output?.calMode === "link" || output?.calMode === "overlay" || output?.aiInPdf === true;
+    if (row.editionStatus !== "live" || !promisesUriLinks || !deviceLabel) return [];
     return [{
       plannerId: row.plannerId,
       editionName: row.editionName,
       storeId: row.storeId,
+      storeName: row.storeName,
       deviceLabel,
       createdAt: row.createdAt.toISOString(),
+      ageHours: Math.max(0, Math.floor((analyticsNow.getTime() - row.createdAt.getTime()) / 3_600_000)),
     }];
   });
   const billingAnalytics = buildPlatformBillingAnalytics({

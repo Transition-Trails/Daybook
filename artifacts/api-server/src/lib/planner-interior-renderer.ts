@@ -18,7 +18,7 @@ import {
 import { parseHexColor } from "./color";
 import { addGoToAnnotation } from "./pdf-template";
 import { resolvePlannerInteriorFont } from "./pdf-generator";
-import { getEinkPreset } from "./eink-presets";
+import { getEinkPreset, getEinkRule } from "./eink-presets";
 
 type ExpandedPage = {
   template: string;
@@ -240,13 +240,23 @@ async function renderSvg(
   options: RenderOptions,
 ): Promise<void> {
   const svg = stripGuidesAndZones(substituteSlots(template.svg, slotValues));
-  const scale = Math.min(pageWidth / template.viewBox.width, pageHeight / template.viewBox.height);
-  const offsetX = (pageWidth - template.viewBox.width * scale) / 2;
-  const offsetY = (pageHeight - template.viewBox.height * scale) / 2;
+  const preset = getEinkPreset(options.einkDevice);
+  const toolbarRule = getEinkRule("toolbar_margin");
+  const requestedInset = preset && toolbarRule?.enabled !== false
+    ? Math.max(preset.safeInset, toolbarRule?.threshold ?? 0)
+    : 0;
+  const inset = Math.min(requestedInset, pageWidth / 4, pageHeight / 4);
+  const scale = Math.min((pageWidth - 2 * inset) / template.viewBox.width, (pageHeight - 2 * inset) / template.viewBox.height);
+  const offsetX = inset + (pageWidth - 2 * inset - template.viewBox.width * scale) / 2;
+  const offsetY = inset + (pageHeight - 2 * inset - template.viewBox.height * scale) / 2;
   const toX = (x: number) => offsetX + (x - template.viewBox.x) * scale;
   const toY = (y: number) => pageHeight - offsetY - (y - template.viewBox.y) * scale;
-  const inkFriendly = options.inkFriendly || !!options.einkDevice;
-  const eInkStrokeFloor = options.einkDevice ? 0.75 : 0;
+  const grayscaleRule = getEinkRule("grayscale");
+  const inkFriendly = options.inkFriendly || (!!options.einkDevice && grayscaleRule?.enabled !== false);
+  const lineRule = getEinkRule("line_weight");
+  const eInkStrokeFloor = options.einkDevice && lineRule?.enabled !== false
+    ? (lineRule?.threshold ?? 0.75)
+    : 0;
   const elementMatcher = /<(rect|circle|ellipse|line|polyline|polygon|path)\b([^>]*?)\/?\s*>/gi;
   for (const match of svg.matchAll(elementMatcher)) {
     const tag = match[1].toLowerCase();
@@ -316,7 +326,8 @@ async function renderSvg(
 }
 
 function drawPlaceholderCover(page: PDFPage, width: number, height: number, options: RenderOptions): void {
-  const inkFriendly = options.inkFriendly || !!options.einkDevice;
+  const grayscaleRule = getEinkRule("grayscale");
+  const inkFriendly = options.inkFriendly || (!!options.einkDevice && grayscaleRule?.enabled !== false);
   const paper = inkFriendly ? rgb(1, 1, 1) : paint(options.themeColors?.[5], "#FAFAF7") ?? rgb(0.98, 0.98, 0.96);
   const accent = inkFriendly ? rgb(0, 0, 0) : paint(options.themeColors?.[0], "#1B2A4A") ?? rgb(0.11, 0.16, 0.29);
   const ink = inkFriendly ? rgb(0, 0, 0) : paint(options.themeColors?.[4], "#1B2A4A") ?? rgb(0.11, 0.16, 0.29);
@@ -343,6 +354,11 @@ export async function buildInteriorPdf(
   const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontCache = new Map<string, PDFFont>([["Helvetica:400", helvetica]]);
   const pages = expanded.map(() => pdfDoc.addPage([pageWidth, pageHeight]));
+  const toolbarRule = getEinkRule("toolbar_margin");
+  const requestedSafeInset = eInkPreset && toolbarRule?.enabled !== false
+    ? Math.max(eInkPreset.safeInset, toolbarRule?.threshold ?? 0)
+    : 0;
+  const safeInset = Math.min(requestedSafeInset, pageWidth / 4, pageHeight / 4);
 
   // pdf-lib text needs an embedded document font; assign it to text render calls
   // by relying on the document default set here via a small, invisible marker.
@@ -362,9 +378,9 @@ export async function buildInteriorPdf(
     const source = expanded[index];
     const template = templates[source.template];
     if (!template) continue;
-    const scale = Math.min(pageWidth / template.viewBox.width, pageHeight / template.viewBox.height);
-    const offsetX = (pageWidth - template.viewBox.width * scale) / 2;
-    const offsetY = (pageHeight - template.viewBox.height * scale) / 2;
+    const scale = Math.min((pageWidth - 2 * safeInset) / template.viewBox.width, (pageHeight - 2 * safeInset) / template.viewBox.height);
+    const offsetX = safeInset + (pageWidth - 2 * safeInset - template.viewBox.width * scale) / 2;
+    const offsetY = safeInset + (pageHeight - 2 * safeInset - template.viewBox.height * scale) / 2;
     for (const link of source.resolvedLinks) {
       if (link.targetIndex == null) continue;
       const { x, y, width, height } = link.zone.bounds;

@@ -25,6 +25,7 @@ import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
 import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
 import { buildInteriorPdf } from "../lib/planner-interior-renderer";
+import { getEinkPreset, getEinkRule, refreshEinkCatalog } from "../lib/eink-presets";
 import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -35,6 +36,11 @@ export async function runGeneration(
   config: typeof plannerConfigsTable.$inferSelect,
   hotspotsByTemplate?: Map<string, import("../lib/pdf-generator").UserHotspot[]>,
 ): Promise<{ pdfFileId: string; configFileId: string; inkFriendlyPdfFileId: string | null; pageCount: number; einkCaveat: string | null; fontSubstitutions: string[]; totalLinkAnnotations?: number; pdfBuffer: Uint8Array }> {
+  // Device geometry, link behavior, and safety thresholds are operator-managed
+  // shared data. Refresh before rendering so every generation uses the latest
+  // persisted profile rather than a process-start snapshot.
+  await refreshEinkCatalog();
+
   // Resolve colors for generation.
   // Priority 1: explicit paletteId (buyer picked a palette within the theme)
   // Priority 2: theme.colors for the explicit themeId (backward-compat)
@@ -155,8 +161,14 @@ export async function runGeneration(
   const saveToDrive = output.saveToDrive !== false;
   const inkFriendlyEnabled = !!output.inkFriendly;
   const einkDeviceKey = (output.einkDevice as string | null | undefined) ?? null;
+  if (einkDeviceKey && !getEinkPreset(einkDeviceKey)) {
+    const error = new Error(`Unknown e-ink device profile: ${einkDeviceKey}`);
+    error.name = "UnknownEinkDeviceError";
+    throw error;
+  }
   // When an e-ink device is set, always generate the B&W/device-trim variant.
   const shouldGenerateEinkVariant = inkFriendlyEnabled || !!einkDeviceKey;
+  const grayscaleEnabled = getEinkRule("grayscale")?.enabled !== false;
 
   const generatorConfig = {
     setup: config.setup as PlannerSetup,
@@ -206,12 +218,12 @@ export async function runGeneration(
             themeColors,
             title: editionRecord?.name,
             year: config.year ?? undefined,
-            inkFriendly: true,
+            inkFriendly: grayscaleEnabled,
             einkDevice: einkDeviceKey,
           })
         : await buildPdf(
             generatorConfig, themeColors, undefined, background, fontPairing, hotspotsByTemplate,
-            /* inkFriendly */ true,
+            /* inkFriendly */ grayscaleEnabled,
             /* einkDevice */ einkDeviceKey ?? undefined,
             /* diagnosticPage */ false,
             spine,
@@ -295,7 +307,6 @@ export async function runGeneration(
   }
 
   // Kindle Scribe caveat — surface to caller for listing copy
-  const { getEinkPreset } = await import("../lib/eink-presets");
   const einkCaveat = getEinkPreset(einkDeviceKey)?.caveat ?? null;
 
   return { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount, einkCaveat, fontSubstitutions, totalLinkAnnotations, pdfBuffer: buffer };
@@ -324,6 +335,12 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
   }
 
   try {
+    await refreshEinkCatalog();
+    const requestedEinkDevice = body.einkDevice ?? body.output?.einkDevice ?? null;
+    if (requestedEinkDevice && !getEinkPreset(requestedEinkDevice)) {
+      res.status(400).json({ error: `Unknown e-ink device profile: ${requestedEinkDevice}` });
+      return;
+    }
     // Resolve colors — same priority chain as runGeneration (palette > theme.colors > edition fallback).
     let themeColors: string[] | undefined;
     const previewStyle = body.style as (PlannerStyle & { themeId?: string; paletteId?: string; backgroundId?: string }) | undefined;
@@ -418,7 +435,7 @@ router.post("/planners/preview", requireAuth, async (req, res): Promise<void> =>
     let pvSubs: string[] = [];
     const previewOutput = (body.output ?? {}) as PlannerOutput;
     const previewEinkDevice = body.einkDevice ?? previewOutput.einkDevice ?? undefined;
-    const previewInkFriendly = !!previewOutput.inkFriendly || !!previewEinkDevice;
+    const previewInkFriendly = !!previewOutput.inkFriendly || (!!previewEinkDevice && getEinkRule("grayscale")?.enabled !== false);
     if (previewEdition?.interiorVersionId) {
       const [interiorVersion] = await db
         .select()
@@ -568,14 +585,16 @@ router.post("/planners", requireAuth, async (req, res): Promise<void> => {
       .returning();
 
     // Generate PDF and upload to Drive if the user has a Google token
-    const { pdfFileId, configFileId, pageCount } = await runGeneration(config);
+    const { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount } = await runGeneration(config);
     const saveToDrive = (config.output as PlannerOutput & { saveToDrive?: boolean }).saveToDrive !== false;
 
     // Update drive references
     const [updated] = await db
       .update(plannerConfigsTable)
       .set({
-        drive: saveToDrive ? { pdfFileId, configFileId } : { pdfFileId: null, configFileId: null },
+        drive: saveToDrive
+          ? { pdfFileId, configFileId, inkFriendlyPdfFileId }
+          : { pdfFileId: null, configFileId: null, inkFriendlyPdfFileId: null },
         generatedAt: new Date(),
       })
       .where(eq(plannerConfigsTable.id, config.id as string))
@@ -584,12 +603,14 @@ router.post("/planners", requireAuth, async (req, res): Promise<void> => {
     res.status(201).json({
       id: updated.id,
       downloadUrl: `/api/planners/${updated.id}/download`,
-      drive: saveToDrive ? { pdfFileId, configFileId } : { pdfFileId: null, configFileId: null },
+      drive: saveToDrive
+        ? { pdfFileId, configFileId, inkFriendlyPdfFileId }
+        : { pdfFileId: null, configFileId: null, inkFriendlyPdfFileId: null },
       pageCount,
     });
   } catch (err) {
     req.log.error({ err }, "Planner generation failed");
-    res.status(500).json({ error: String(err) });
+    res.status((err as Error).name === "UnknownEinkDeviceError" ? 400 : 500).json({ error: String(err) });
   }
 });
 
@@ -668,19 +689,31 @@ router.post("/planners/:id/reexport", requireAuth, async (req, res): Promise<voi
       .where(eq(plannerConfigsTable.id, id as string))
       .returning();
 
-    const { pdfFileId, configFileId, pageCount } = await runGeneration(updated);
+    const { pdfFileId, configFileId, inkFriendlyPdfFileId, pageCount } = await runGeneration(updated);
     const saveToDrive = (updated.output as PlannerOutput & { saveToDrive?: boolean }).saveToDrive !== false;
 
     const [final] = await db
       .update(plannerConfigsTable)
-      .set({ drive: saveToDrive ? { pdfFileId, configFileId } : { pdfFileId: null, configFileId: null }, generatedAt: new Date() })
+      .set({
+        drive: saveToDrive
+          ? { pdfFileId, configFileId, inkFriendlyPdfFileId }
+          : { pdfFileId: null, configFileId: null, inkFriendlyPdfFileId: null },
+        generatedAt: new Date(),
+      })
       .where(eq(plannerConfigsTable.id, id as string))
       .returning();
 
-    res.json({ id: final.id, downloadUrl: `/api/planners/${final.id}/download`, drive: saveToDrive ? { pdfFileId, configFileId } : { pdfFileId: null, configFileId: null }, pageCount });
+    res.json({
+      id: final.id,
+      downloadUrl: `/api/planners/${final.id}/download`,
+      drive: saveToDrive
+        ? { pdfFileId, configFileId, inkFriendlyPdfFileId }
+        : { pdfFileId: null, configFileId: null, inkFriendlyPdfFileId: null },
+      pageCount,
+    });
   } catch (err) {
     req.log.error({ err }, "Planner reexport failed");
-    res.status(500).json({ error: String(err) });
+    res.status((err as Error).name === "UnknownEinkDeviceError" ? 400 : 500).json({ error: String(err) });
   }
 });
 

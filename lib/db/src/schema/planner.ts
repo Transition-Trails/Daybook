@@ -110,6 +110,7 @@ export type PlannerDrive = {
   folderId?: string;
   pdfFileId?: string | null;
   configFileId?: string | null;
+  inkFriendlyPdfFileId?: string | null;
 };
 
 export const plannerConfigsTable = pgTable("planner_configs", {

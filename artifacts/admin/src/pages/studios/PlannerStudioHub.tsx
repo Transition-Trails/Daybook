@@ -29,7 +29,7 @@ import {
   EmptyState, ErrorState, SkeletonRows, RailCard, DockAiAssistant,
   StatusPill, ActionChip, CHIP_ACTIVE_BG,
 } from "@/components/studio/primitives";
-import { catalogApi, apiFetch, platformPlannersApi, type PlatformPlannerConfig } from "@/lib/api";
+import { catalogApi, apiFetch, platformApi, platformPlannersApi, type PlatformPlannerConfig } from "@/lib/api";
 import { aiApi, extractJson, type AiResult } from "@/lib/ai";
 import { useToast } from "@/hooks/use-toast";
 import { PLANNER_FONT_FAMILIES } from "@/lib/studio/plannerConstants";
@@ -790,6 +790,30 @@ export function BuildCenter({
   const { data: packs     = [] } = useQuery({ queryKey: ["packs-mini"],    queryFn: () => catalogApi.packs(),    staleTime: 0 });
   const { data: inserts   = [] } = useQuery({ queryKey: ["inserts-mini"],  queryFn: () => catalogApi.inserts(),  staleTime: 0 });
   const { data: editions  = [] } = useQuery({ queryKey: ["editions-create"], queryFn: () => catalogApi.editions(), staleTime: 0 });
+  const {
+    data: einkCatalog,
+    isPending: einkCatalogPending,
+    isError: einkCatalogError,
+  } = useQuery({
+    queryKey: ["platform-eink"],
+    queryFn: () => platformApi.eink(),
+    staleTime: 0,
+  });
+
+  const selectedEinkPreset = einkCatalog?.presets.find(
+    (preset) => preset.key.toLowerCase() === einkDevice?.toLowerCase(),
+  );
+  const invalidEinkDevice = !!einkDevice && !!einkCatalog && !selectedEinkPreset;
+
+  useEffect(() => {
+    if (!invalidEinkDevice) return;
+    setEinkDeviceAndNotify(null);
+    toast({
+      title: "E-ink profile is no longer available",
+      description: "Choose another device profile before generating.",
+      variant: "destructive",
+    });
+  }, [invalidEinkDevice]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const createMut = useMutation({
@@ -1501,11 +1525,12 @@ export function BuildCenter({
         </p>
         <div className="flex flex-wrap gap-1.5">
           {[
-            { key: "none",          label: "None",             sub: "" },
-            { key: "remarkable",    label: "reMarkable 2/Pro", sub: "447×597 pt" },
-            { key: "supernote",     label: "Supernote A5X",    sub: "447×597 pt" },
-            { key: "boox",          label: "Boox Note/Tab",    sub: "closest preset" },
-            { key: "kindle_scribe", label: "Kindle Scribe",    sub: "links: poor" },
+            { key: "none", label: "None", sub: "" },
+            ...(einkCatalog?.presets.map((preset) => ({
+              key: preset.key,
+              label: preset.name,
+              sub: `${preset.trimWidth}×${preset.trimHeight} pt · links: ${preset.linkSupport}`,
+            })) ?? []),
           ].map(({ key, label, sub }) => {
             const active = key === "none" ? !einkDevice : einkDevice === key;
             return (
@@ -1529,13 +1554,24 @@ export function BuildCenter({
             );
           })}
         </div>
+        {einkCatalogPending && <p className="text-[10px] text-muted-foreground">Loading device profiles…</p>}
+        {einkCatalogError && (
+          <p className="text-[10px] text-destructive">
+            Device profiles could not be loaded. E-ink export selection is unavailable.
+          </p>
+        )}
+        {selectedEinkPreset && (
+          <p className="max-w-xl text-[10px] leading-relaxed text-muted-foreground">
+            {selectedEinkPreset.sellGuidance}
+          </p>
+        )}
       </div>
 
       {/* Generate + Publish */}
       <div className="flex items-center gap-3 flex-wrap pt-1">
         <button
           onClick={() => generateMut.mutate()}
-          disabled={!template.editionId || generateMut.isPending}
+          disabled={!template.editionId || generateMut.isPending || invalidEinkDevice}
           style={{
             cursor: !template.editionId || generateMut.isPending ? "not-allowed" : "pointer",
             background: CHIP_ACTIVE_BG,

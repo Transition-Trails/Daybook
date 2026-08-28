@@ -30,7 +30,7 @@ import { promises as fsPromises } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { getEinkPreset } from "./eink-presets";
+import { getEinkPreset, getEinkRule } from "./eink-presets";
 import { parseHexColor } from "./color";
 import type { PlannerSetup, PlannerStyle, PlannerOutput, ThemeFontPairing } from "@workspace/db";
 import {
@@ -346,7 +346,16 @@ const PAGE_SIZES: Record<string, { w: number; h: number }> = {
 };
 const PAGE_WIDTH  = 595;  // A4 default — kept for buildPreviewPdf fallback
 const PAGE_HEIGHT = 842;
-const MARGIN = 40;
+const BASE_MARGIN = 40;
+
+export function getLegacyEinkMargin(einkDevice: string | null | undefined): number {
+  const preset = getEinkPreset(einkDevice ?? null);
+  if (!preset) return BASE_MARGIN;
+  const toolbarRule = getEinkRule("toolbar_margin");
+  return toolbarRule?.enabled !== false
+    ? Math.max(BASE_MARGIN, preset.safeInset, toolbarRule?.threshold ?? 0)
+    : BASE_MARGIN;
+}
 
 interface PageWithId {
   id: string;
@@ -817,13 +826,18 @@ export async function resolvePlannerInteriorFont(
 function makeEinkHelpers(einkDevice: string | null | undefined) {
   const einkPreset = getEinkPreset(einkDevice ?? null);
   const einkMode = !!einkPreset;
-  /** Enforce ≥ 0.75 pt on any drawn line in e-ink mode so hairlines survive rendering. */
-  const lt = (n: number) => einkMode ? Math.max(n, 0.75) : n;
+  const grayscaleRule = getEinkRule("grayscale");
+  const lineRule = getEinkRule("line_weight");
+  const lineFloor = lineRule?.threshold ?? 0.75;
+  /** Enforce the configured minimum on any drawn line in e-ink mode. */
+  const lt = (n: number) => einkMode && lineRule?.enabled !== false ? Math.max(n, lineFloor) : n;
   /** Enforce ≥ 0.30 opacity on content strokes so faint rules remain visible on e-ink. */
   const lo = (n: number) => einkMode ? Math.max(n, 0.30) : n;
   /** Suppress URI annotations on Kindle Scribe — links are unreliable via Send-to-Kindle. */
   const skipLinks = einkMode && (einkPreset?.linksQuality === "poor");
-  return { einkPreset, einkMode, lt, lo, skipLinks } as const;
+  const forceGrayscale = einkMode && grayscaleRule?.enabled !== false;
+  const margin = getLegacyEinkMargin(einkDevice);
+  return { einkPreset, einkMode, forceGrayscale, lt, lo, skipLinks, margin } as const;
 }
 
 export async function buildPdf(
@@ -840,9 +854,9 @@ export async function buildPdf(
   diagnosticPage = false,
   spine?: SpineSpec | null,
 ): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[]; totalLinkAnnotations?: number }> {
-  const { einkPreset, einkMode, lt, lo, skipLinks } = makeEinkHelpers(einkDevice);
+  const { einkPreset, forceGrayscale, lt, lo, skipLinks, margin: MARGIN } = makeEinkHelpers(einkDevice);
   // E-ink mode forces ink-friendly (grayscale is the e-ink asset)
-  if (einkMode) inkFriendly = true;
+  if (forceGrayscale) inkFriendly = true;
 
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, monthCount, weekStart, orientation } = setup;
@@ -1264,7 +1278,7 @@ export async function buildPdf(
     }
 
     // AI block
-    if (output.aiInPdf) {
+    if (output.aiInPdf && !skipLinks) {
       const aiUrl = `${process.env.APP_URL ?? "https://daybook.app"}/assistant?context=daily&page=${dayId}`;
       addUriAnnotation(pdfDoc, dPage, aiUrl, [pageWidth - MARGIN - 70, MARGIN + 22, pageWidth - MARGIN, MARGIN + 40], "* Ask AI", font, accent);
     }
@@ -1415,9 +1429,9 @@ export async function buildPreviewPdf(
 ): Promise<{ buffer: Uint8Array; pageCount: number; fontSubstitutions: string[] }> {
   // Shared e-ink helpers — identical logic to buildPdf so the preview is
   // always truthful about what the export will produce.
-  const { einkPreset, einkMode, lt, lo, skipLinks } = makeEinkHelpers(einkDevice);
+  const { einkPreset, forceGrayscale, lt, lo, skipLinks, margin: MARGIN } = makeEinkHelpers(einkDevice);
   // In e-ink mode the export is always ink-friendly; preview must match.
-  const inkFriendly = einkMode;
+  const inkFriendly = forceGrayscale;
 
   const { setup, style, output, sections } = config;
   const { startMonth, startYear, weekStart, orientation } = setup;
@@ -1684,7 +1698,7 @@ export async function buildPreviewPdf(
 
     // Calendar links per day column (preview — driven by output.calMode)
     const previewCalMode = output.calMode ?? "none";
-    if (previewCalMode === "link" || previewCalMode === "overlay") {
+    if (!skipLinks && (previewCalMode === "link" || previewCalMode === "overlay")) {
       for (let d = 0; d < 7; d++) {
         const date = new Date(weekStartDate);
         date.setDate(weekStartDate.getDate() + d);
@@ -1727,7 +1741,7 @@ export async function buildPreviewPdf(
 
     // Calendar link on daily preview (driven by output.calMode)
     const previewCalModeDaily = output.calMode ?? "none";
-    if (previewCalModeDaily === "link" || previewCalModeDaily === "overlay") {
+    if (!skipLinks && (previewCalModeDaily === "link" || previewCalModeDaily === "overlay")) {
       const nextDay = new Date(firstDate);
       nextDay.setDate(firstDate.getDate() + 1);
       const calRect: [number, number, number, number] = [pageWidth - 120, pageHeight - 50, pageWidth - MARGIN, pageHeight - 34];

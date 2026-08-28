@@ -14,7 +14,7 @@
  *
  * Chip fill: clay #C87560 in compose context, ink navy #1B2A4A for filters.
  */
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAiDrawer } from "@/contexts/AiDrawerContext";
 import { useLocation, useSearch, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -38,6 +38,11 @@ import {
   type BackgroundRenderWarning,
 } from "@/lib/api";
 import { aiApi, extractJson, type AiResult } from "@/lib/ai";
+import {
+  formatPlannerAiContext,
+  type PlannerBuildAiContext,
+  type PlannerCanvasAiContext,
+} from "@/lib/planner-ai-context";
 import { useToast } from "@/hooks/use-toast";
 import { PLANNER_FONT_FAMILIES } from "@/lib/studio/plannerConstants";
 import {
@@ -738,12 +743,13 @@ const BUILD_EYEBROW    = "text-[10px] font-semibold uppercase tracking-[0.18em] 
 const BUILD_CONSEQ     = "text-[12.5px] leading-relaxed text-muted-foreground";
 
 export function BuildCenter({
-  template, onUpdated, onCreateNew, onEinkDeviceChange,
+  template, onUpdated, onCreateNew, onEinkDeviceChange, onAiContextChange,
 }: {
   template: PlatformPlannerConfig | null;
   onUpdated: (t: PlatformPlannerConfig) => void;
   onCreateNew: (t: PlatformPlannerConfig) => void;
   onEinkDeviceChange?: (device: string | null) => void;
+  onAiContextChange?: (context: PlannerBuildAiContext | null) => void;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -807,6 +813,67 @@ export function BuildCenter({
     // Background
     setBackgroundId(st.backgroundId ?? "");
   }, [template?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!template) {
+      onAiContextChange?.(null);
+      return;
+    }
+    onAiContextChange?.({
+      personalization: {
+        datingMode,
+        weekStart,
+        orientation,
+        startMonth,
+        startYear,
+        monthCount,
+      },
+      visualSystem: {
+        themeId,
+        paletteId,
+        tabPosition: tabPos,
+        sections,
+        fonts: {
+          heading: headingFont,
+          subheading: subheadingFont,
+          body: bodyFont,
+          accent: accentFont,
+        },
+        backgroundId,
+        stickerPackCount: packIds.length,
+        insertCount: insertIds.length,
+        bindingType: ((template.style as any)?.binding as any)?.type ?? DEFAULT_BUILD.bindingType,
+        bindingFinish: ((template.style as any)?.binding as any)?.finish ?? DEFAULT_BUILD.bindingFinish,
+        paperColour: (template.style as any)?.paperColour ?? DEFAULT_BUILD.paperColour,
+      },
+      output: {
+        inkFriendly: inkFriendly || !!einkDevice,
+        einkDevice,
+      },
+    });
+  }, [
+    accentFont,
+    backgroundId,
+    datingMode,
+    einkDevice,
+    headingFont,
+    inkFriendly,
+    insertIds.length,
+    monthCount,
+    onAiContextChange,
+    orientation,
+    packIds.length,
+    paletteId,
+    sections,
+    startMonth,
+    startYear,
+    tabPos,
+    template,
+    themeId,
+    subheadingFont,
+    bodyFont,
+    weekStart,
+  ]);
 
   // ── Data queries ─────────────────────────────────────────────────────────────
   const { data: rawThemes = [] } = useQuery({
@@ -3021,6 +3088,14 @@ export default function PlannerStudioHub() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   /** Lifted from BuildCenter so PdfPreviewDock can re-render when device changes. */
   const [previewEinkDevice, setPreviewEinkDevice] = useState<string | null>(null);
+  const [plannerCanvasContext, setPlannerCanvasContext] = useState<{
+    templateId: string;
+    value: PlannerCanvasAiContext;
+  } | null>(null);
+  const [plannerBuildContext, setPlannerBuildContext] = useState<{
+    templateId: string;
+    value: PlannerBuildAiContext;
+  } | null>(null);
 
   const { data: platformPlanners = [], isLoading: templatesLoading } = useQuery({
     queryKey: ["platform-planners"],
@@ -3033,6 +3108,44 @@ export default function PlannerStudioHub() {
   const selectedTemplate = (platformPlanners as PlatformPlannerConfig[]).find(
     t => t.id === selectedTemplateId,
   ) ?? null;
+  const handleCanvasAiContextChange = useCallback((context: PlannerCanvasAiContext | null) => {
+    setPlannerCanvasContext(
+      context && selectedTemplateId ? { templateId: selectedTemplateId, value: context } : null,
+    );
+  }, [selectedTemplateId]);
+  const handleBuildAiContextChange = useCallback((context: PlannerBuildAiContext | null) => {
+    setPlannerBuildContext(
+      context && selectedTemplateId ? { templateId: selectedTemplateId, value: context } : null,
+    );
+  }, [selectedTemplateId]);
+
+  useEffect(() => {
+    setPlannerCanvasContext(null);
+    setPlannerBuildContext(null);
+  }, [selectedTemplateId]);
+
+  const plannerAiContextText = useMemo(
+    () => formatPlannerAiContext({
+      template: selectedTemplate
+        ? {
+            id: selectedTemplate.id,
+            name: selectedTemplate.name,
+            status: selectedTemplate.status,
+            productType: selectedTemplate.productType,
+            editionLinked: !!selectedTemplate.editionId,
+            generated: !!selectedTemplate.generatedAt,
+            hasPdf: !!selectedTemplate.drive?.pdfFileId,
+          }
+        : null,
+      canvas: plannerCanvasContext && plannerCanvasContext.templateId === selectedTemplate?.id
+        ? plannerCanvasContext.value
+        : null,
+      build: plannerBuildContext && plannerBuildContext.templateId === selectedTemplate?.id
+        ? plannerBuildContext.value
+        : null,
+    }),
+    [plannerBuildContext, plannerCanvasContext, selectedTemplate],
+  );
 
   const handleTemplateUpdated = useCallback((t: PlatformPlannerConfig) => {
     setSelectedTemplateId(t.id);
@@ -3175,6 +3288,13 @@ export default function PlannerStudioHub() {
         : null,
     });
   }, [validMode, selectedTemplate, previewEinkDevice]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Live canvas/settings context is ephemeral and only accompanies questions
+  // submitted while the user is in Planner Build mode.
+  useEffect(() => {
+    setAiContext({
+      contextText: validMode === "build" ? plannerAiContextText : "",
+    });
+  }, [validMode, plannerAiContextText, setAiContext]);
 
   // ── Primary action (top bar) ────────────────────────────────────────────────
   const primaryAction = (() => {
@@ -3205,6 +3325,7 @@ export default function PlannerStudioHub() {
           onUpdated={handleTemplateUpdated}
           onCreateNew={handleTemplateCreated}
           onEinkDeviceChange={setPreviewEinkDevice}
+          onAiContextChange={handleBuildAiContextChange}
         />
       );
       return (
@@ -3212,6 +3333,7 @@ export default function PlannerStudioHub() {
           <PlatformTemplateCanvas
             template={selectedTemplate}
             onUpdated={handleTemplateUpdated}
+            onAiContextChange={handleCanvasAiContextChange}
             preview={
               <PdfPreviewDock
                 buildState={templateToBuildState(selectedTemplate)}
@@ -3225,6 +3347,7 @@ export default function PlannerStudioHub() {
                 onUpdated={handleTemplateUpdated}
                 onCreateNew={handleTemplateCreated}
                 onEinkDeviceChange={setPreviewEinkDevice}
+                onAiContextChange={handleBuildAiContextChange}
               />
             }
           />

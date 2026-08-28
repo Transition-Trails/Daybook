@@ -224,6 +224,7 @@ export function GlobalAiDrawer() {
     examplePrompts: surface.examplePrompts ?? payload.examplePrompts,
     contextLabel:   surface.contextLabel   ?? payload.contextLabel,
     previewContent: payload.previewContent,
+    contextText:    payload.contextText,
   };
 
   const hasPreview = resolved.previewContent !== null;
@@ -265,6 +266,7 @@ export function GlobalAiDrawer() {
             key={resolved.systemPrompt}
             systemPrompt={resolved.systemPrompt}
             examplePrompts={resolved.examplePrompts}
+            contextText={resolved.contextText}
           />
         </div>
 

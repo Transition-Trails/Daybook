@@ -398,16 +398,18 @@ export function ActionChip({
 
 import { useState, useRef } from "react";
 import { Sparkles, Send } from "lucide-react";
-import { aiApi, type AiResult } from "@/lib/ai";
+import { aiApi, composeAiUserMessage, type AiResult } from "@/lib/ai";
 
 export function DockAiAssistant({
   systemPrompt,
   placeholder = "Ask the AI anything…",
   examplePrompts,
+  contextText = "",
 }: {
   systemPrompt: string;
   placeholder?: string;
   examplePrompts?: string[];
+  contextText?: string;
 }) {
   const [prompt,   setPrompt]   = useState("");
   const [response, setResponse] = useState<string | null>(null);
@@ -435,7 +437,10 @@ export function DockAiAssistant({
     setResponse(null);
     setError(null);
     try {
-      const result: AiResult = await aiApi.complete(systemPrompt, text.trim());
+      const result: AiResult = await aiApi.complete(
+        systemPrompt,
+        composeAiUserMessage(text, contextText),
+      );
       setResponse(result.text);
       // Scroll to show response
       setTimeout(() => {

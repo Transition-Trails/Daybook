@@ -31,6 +31,20 @@ export interface AiResult {
   model: string;
 }
 
+export function composeAiUserMessage(userMessage: string, contextText = "") {
+  const message = userMessage.trim();
+  const context = contextText.trim();
+  if (!context) return message;
+  return [
+    "[DAYBOOK_WORKSPACE_CONTEXT]",
+    context,
+    "[/DAYBOOK_WORKSPACE_CONTEXT]",
+    "",
+    "User question:",
+    message,
+  ].join("\n");
+}
+
 export const aiApi = {
   complete: (system: string, userMessage: string) =>
     apiFetch<AiResult>("/ai/complete", {

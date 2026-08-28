@@ -12,6 +12,7 @@ import {
   type StorePlannerComposition,
   type Widget,
 } from "@/lib/api";
+import type { PlannerCanvasAiContext } from "@/lib/planner-ai-context";
 
 const SAFE_INSET = 0.06;
 const SLOT_GAP = 0.018;
@@ -119,11 +120,13 @@ export default function PlatformTemplateCanvas({
   onUpdated,
   preview,
   settings,
+  onAiContextChange,
 }: {
   template: PlatformPlannerConfig;
   onUpdated: (template: PlatformPlannerConfig) => void;
   preview: ReactNode;
   settings: ReactNode;
+  onAiContextChange?: (context: PlannerCanvasAiContext | null) => void;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -151,24 +154,72 @@ export default function PlatformTemplateCanvas({
     staleTime: 0,
   });
   const page = pages[pagePosition] ?? pages[0];
-  const pagePlacements = composition.placements.filter((placement) =>
-    placement.pageType === page?.type &&
-    (
-      placement.scope === "matching" ||
-      (placement.scope === "range" &&
-        page.index >= (placement.rangeStart ?? 0) &&
-        page.index <= (placement.rangeEnd ?? -1)) ||
-      (placement.scope === "page" && placement.pageIndex === page?.index)
-    )
+  const pagePlacements = useMemo(
+    () => composition.placements.filter((placement) =>
+      placement.pageType === page?.type &&
+      (
+        placement.scope === "matching" ||
+        (placement.scope === "range" &&
+          page.index >= (placement.rangeStart ?? 0) &&
+          page.index <= (placement.rangeEnd ?? -1)) ||
+        (placement.scope === "page" && placement.pageIndex === page?.index)
+      )
+    ),
+    [composition.placements, page],
   );
-  const occupied = new Map<number, PlannerWidgetPlacement>();
-  for (const placement of pagePlacements) {
-    const slotIndex = placementSlotIndex(placement, slots);
-    if (slotIndex !== null && !occupied.has(slotIndex)) occupied.set(slotIndex, placement);
-  }
+  const occupied = useMemo(() => {
+    const next = new Map<number, PlannerWidgetPlacement>();
+    for (const placement of pagePlacements) {
+      const slotIndex = placementSlotIndex(placement, slots);
+      if (slotIndex !== null && !next.has(slotIndex)) next.set(slotIndex, placement);
+    }
+    return next;
+  }, [pagePlacements, slots]);
   const filteredWidgets = widgets.filter((widget) =>
     widget.name.toLowerCase().includes(query.trim().toLowerCase())
   );
+  const selectedWidget = widgets.find((widget) => widget.id === selectedWidgetId) ?? null;
+
+  useEffect(() => {
+    if (!page) {
+      onAiContextChange?.(null);
+      return;
+    }
+    onAiContextChange?.({
+      activeTab,
+      view,
+      page: {
+        position: pagePosition,
+        total: pages.length,
+        type: page.type,
+        index: page.index,
+        label: page.label,
+      },
+      slots: {
+        total: slots.length,
+        available: slots.length - occupied.size,
+        occupied: Array.from(occupied.entries()).map(([index, placement]) => ({
+          index,
+          widgetId: placement.widgetId,
+          widgetName: widgets.find((widget) => widget.id === placement.widgetId)?.name ?? "Widget",
+        })),
+      },
+      selectedWidget: selectedWidget
+        ? { id: selectedWidget.id, name: selectedWidget.name }
+        : null,
+    });
+  }, [
+    activeTab,
+    onAiContextChange,
+    occupied,
+    page,
+    pagePosition,
+    pages.length,
+    selectedWidget,
+    slots.length,
+    view,
+    widgets,
+  ]);
 
   const save = useMutation({
     mutationFn: () => platformPlannersApi.patch(template.id, { style: { composition } }),

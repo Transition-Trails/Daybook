@@ -29,6 +29,8 @@ export interface AiContextPayload {
   examplePrompts: string[];
   contextLabel: string;
   previewContent: ReactNode | null;
+  /** Compact live workspace details appended only when a question is submitted. */
+  contextText: string;
 }
 
 const DEFAULT_PAYLOAD: AiContextPayload = {
@@ -41,6 +43,7 @@ const DEFAULT_PAYLOAD: AiContextPayload = {
   ],
   contextLabel: "Daybook",
   previewContent: null,
+  contextText: "",
 };
 
 // ── localStorage helpers ───────────────────────────────────────────────────────

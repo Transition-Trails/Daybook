@@ -14,3 +14,9 @@ The Super Admin template canvas uses two persistent panels: Planner personalizat
 **Why:** Separating page-level personalization from system-level template decisions keeps the primary canvas focused while retaining the existing complete build workflow.
 
 **How to apply:** Keep both panels mounted while switching tabs so unsaved local form state is preserved.
+
+The Planner Studio assistant receives a compact, template-scoped snapshot only when a question is sent. It includes the active page, bounded-slot state, selected widget, and current personalization/system/output choices, but never raw assets or PDF data.
+
+**Why:** Recommendations need to follow the user’s exact page and unsaved settings without leaking stale state when templates or studio modes change.
+
+**How to apply:** Scope live context to the selected template, clear it outside Build mode, sanitize and bound all text/list values, and keep the assistant read-only.

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { helpApi, type HelpArticle } from "@/lib/api";
-import { HelpArticleForm } from "@/components/help/HelpArticleForm";
+import { HelpArticleForm, HelpArticlePreview } from "@/components/help/HelpArticleForm";
 import { PageHeader, StatusPill, SkeletonRows, ErrorState, EmptyState } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Search, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Search, Eye, Pencil, ChevronRight } from "lucide-react";
 import { helpCategoryLabel, isHelpCategory } from "@workspace/api-zod";
 
 type Kind = "article" | "faq";
@@ -36,6 +36,7 @@ export default function SuperHelpCenter() {
       : null,
   );
   const [editing, setEditing] = useState<HelpArticle | null>(null);
+  const [previewing, setPreviewing] = useState<HelpArticle | null>(null);
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -65,6 +66,12 @@ export default function SuperHelpCenter() {
     faq: articles.filter((article) => article.kind === "faq" && matchesActiveFilters(article)).length,
   };
   const byKind = articles.filter((article) => article.kind === kind && matchesActiveFilters(article));
+
+  const openEditor = (article?: HelpArticle) => {
+    setPreviewing(null);
+    setEditing(article ?? null);
+    setOpen(true);
+  };
 
   const toggleMutation = useMutation({
     mutationFn: (a: HelpArticle) =>
@@ -119,6 +126,31 @@ export default function SuperHelpCenter() {
         }
       />
 
+      <Sheet open={Boolean(previewing)} onOpenChange={(v) => { if (!v) setPreviewing(null); }}>
+        <SheetContent className="w-[560px] sm:max-w-[560px] overflow-y-auto">
+          <SheetHeader>
+            <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Read-only preview</p>
+            <SheetTitle>{previewing?.title}</SheetTitle>
+          </SheetHeader>
+          {previewing && (
+            <>
+              <HelpArticlePreview article={previewing} />
+              <div className="mt-6 border-t border-border pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full border-border text-foreground hover:bg-muted/20"
+                  onClick={() => openEditor(previewing)}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit article
+                </Button>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
         {(["article", "faq"] as Kind[]).map((k) => (
@@ -161,7 +193,7 @@ export default function SuperHelpCenter() {
         <EmptyState title={`No ${kind}s yet`} description="Create one with the button above." />
       ) : (
         <div className="rounded-[14px] border border-[#E7DCCB] bg-[#FFFDF9] overflow-hidden">
-          <div className="grid grid-cols-[2.4fr_1fr_.9fr_68px] gap-3 border-b border-[#EFE6D8] bg-[#FBF6EE] px-[18px] py-3 text-[10px] font-bold uppercase tracking-[.12em] text-[#8A7A66]">
+           <div className="grid grid-cols-[2.4fr_1fr_.9fr_68px] gap-3 border-b border-[#EFE6D8] bg-[#FBF6EE] px-[18px] py-3 text-[10px] font-bold uppercase tracking-[.12em] text-[#8A7A66]">
             <span>Article</span><span>Collection</span><span>Status</span><span />
           </div>
           <div className="divide-y divide-[#F2EAE0]">
@@ -170,16 +202,15 @@ export default function SuperHelpCenter() {
                   key={a.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => { setEditing(a); setOpen(true); }}
+                   onClick={() => setPreviewing(a)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      setEditing(a);
-                      setOpen(true);
+                       setPreviewing(a);
                     }
                   }}
-                  aria-label={`Edit ${a.title}`}
-                  className="grid cursor-pointer grid-cols-[2.4fr_1fr_.9fr_68px] items-center gap-3 px-[18px] py-3 transition-colors hover:bg-[#FBF6EE] focus-visible:bg-[#FBF6EE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1B2A4A]"
+                   aria-label={`Open preview for ${a.title}`}
+                   className="grid cursor-pointer grid-cols-[2.4fr_1fr_.9fr_68px] items-center gap-3 px-[18px] py-3 transition-colors hover:bg-[#FBF6EE] focus-visible:bg-[#FBF6EE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1B2A4A]"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-[#1B2A4A]">{a.title}</p>
@@ -200,6 +231,9 @@ export default function SuperHelpCenter() {
                      <StatusPill status={a.status} />
                    </button>
                   <div className="flex items-center justify-end gap-1">
+                      <button onClick={(event) => { event.stopPropagation(); setPreviewing(a); }} className="rounded p-1 text-muted-foreground hover:bg-muted/20 hover:text-foreground" title={`Preview ${a.title}`} aria-label={`Preview ${a.title}`}>
+                       <Eye className="h-4 w-4" />
+                     </button>
                      <button onClick={(event) => { event.stopPropagation(); setEditing(a); setOpen(true); }} className="p-1 text-[#A2937E] hover:text-[#1B2A4A]" title={`Edit ${a.title}`} aria-label={`Edit ${a.title}`}>
                       <ChevronRight className="h-4 w-4" />
                     </button>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { helpApi, type HelpArticle } from "@/lib/api";
-import { HELP_CATEGORIES, isHelpCategory } from "@workspace/api-zod";
+import { HELP_CATEGORIES, helpCategoryLabel, isHelpCategory } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,34 @@ import { useToast } from "@/hooks/use-toast";
 
 export function makeHelpId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function HelpArticlePreview({ article }: { article: HelpArticle }) {
+  return (
+    <div className="mt-6 space-y-6">
+      <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/20 p-4">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Category</p>
+          <p className="mt-1 text-sm font-semibold text-foreground">
+            {helpCategoryLabel(article.category as Parameters<typeof helpCategoryLabel>[0])}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Type</p>
+          <p className="mt-1 text-sm font-semibold capitalize text-foreground">{article.kind}</p>
+        </div>
+      </div>
+
+      <section aria-labelledby="help-article-body-heading">
+        <h3 id="help-article-body-heading" className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
+          Article body
+        </h3>
+        <div className="mt-2 rounded-lg border border-border bg-card px-4 py-4 text-sm leading-7 text-foreground whitespace-pre-wrap">
+          {article.body}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 export function HelpArticleForm({

@@ -61,6 +61,9 @@ vi.mock("@/components/help/HelpArticleForm", () => ({
   HelpArticleForm: ({ initial }: { initial?: { title: string } }) => (
     <div data-testid="article-form">{initial?.title ?? "New article"}</div>
   ),
+  HelpArticlePreview: ({ article }: { article: { body: string } }) => (
+    <div data-testid="article-preview">{article.body}</div>
+  ),
 }));
 
 function renderPage() {
@@ -92,7 +95,7 @@ describe("SuperHelpCenter navigation", () => {
     expect(screen.queryByText(/Views 30d/i)).not.toBeInTheDocument();
   });
 
-  it("opens the editor from the row while the status control remains independent", async () => {
+  it("opens a read-only preview from the row while the status control remains independent", async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Live article");
@@ -100,6 +103,16 @@ describe("SuperHelpCenter navigation", () => {
     await user.click(screen.getByRole("button", { name: "Unpublish Live article" }));
     await waitFor(() => expect(update).toHaveBeenCalledWith("h-1", { status: "draft" }));
     expect(screen.queryByTestId("article-form")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open preview for Live article" }));
+    expect(await screen.findByTestId("article-preview")).toHaveTextContent("Body");
+    expect(screen.queryByTestId("article-form")).not.toBeInTheDocument();
+  });
+
+  it("keeps editing as an explicit action from the article row", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Live article");
 
     await user.click(screen.getAllByRole("button", { name: "Edit Live article" })[0]);
     expect(await screen.findByTestId("article-form")).toHaveTextContent("Live article");

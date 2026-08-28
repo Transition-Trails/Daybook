@@ -125,10 +125,6 @@ const documentedRawColourAllowList: readonly RawColourException[] = [
     reason: "Platform pages use semantic analytics, billing, support, and release status colours.",
   },
   {
-    scope: "pages/super/WorldSmithHome.tsx",
-    reason: "WorldSmith accepts arbitrary status colours and is intentionally out of scope for this pass.",
-  },
-  {
     scope: "pages/super/worldsmith-editorial/**",
     reason: "Editorial tools render authored world palettes and semantic workflow statuses.",
   },
@@ -139,29 +135,28 @@ const documentedRawColourAllowList: readonly RawColourException[] = [
 ];
 
 const exceptionFingerprints: Readonly<Record<string, string>> = {
-  "components/CopilotPanel.tsx": "d965262ae9774a5af9c2500a7a34c7b576902a8e4f0e6f9f868ca565e59619c3",
-  "components/EditorialRichText.tsx": "25eae0264f2543206acb316280c91aa28fa42159553db199459463f7b26071f6",
-  "components/FontLibraryPicker.tsx": "ff7ec7dc56c7411aaf2f9f9a2e9146fd7d3243939079d2b24eba899040e7e15d",
-  "components/PaletteLibraryPicker.tsx": "26ef5d1e52c67b352a2e0bfd3f8030a133aa1d73dd85cad65dc3419560aa8c02",
-  "components/help/**": "fcaa54290f1929804f58ab95339806b536a9ac3b2ed01e7a567ed4cd6b02b978",
-  "components/layout/**": "8568924cab83a85f62875ae6004d5b8847f2fc01004f4cc914cf727caa706c18",
-  "components/shared/index.tsx": "a14e6b389c3d84a494bcef2a5dccfc18529830d844fcb40e0ec8aaafcf0e4b1f",
-  "components/shared/ClaudeHeader.tsx": "9a8b983f80303dd45eb23c41d3627264a26d78462e0a265fc987e647f3e3a94e",
-  "components/studio/**": "59cc8279603d79645603a4a73a01892e4c66d3f13a1604c7db86b7c39ec18122",
-  "components/ui/**": "d129b82c77ada1ce108bd34e0a6c76b87968b410a8e33de113f165afab57a130",
-  "pages/build/**": "cde09558886f01118a7d7ce1699a88ec8b5025a7cb700aab1601549e34a34a9d",
-  "pages/catalog/**": "8215bbad0c676ede632ebe24d38807750fe45ac8a4e0ef1b942cc679f7ac9841",
-  "pages/editions/**": "d4f58a6ddec004d313b9525f959773ba99ad09680f4f28694ec3caa82527ab8f",
-  "pages/ink/**": "14cdb093c2dda3e50f6f32e5f44040ca6a4c4711f48bb59a2cee42e99c3bcc54",
-  "pages/login.tsx": "e239e86284b99f392839dc031346a28dad1f6e20bd170e90172cd6610bf58abb",
-  "pages/planners/**": "77d2a90dbbc1e3b882f8190942ae6e9882eff01bf07855d3027eafc4cd6c7cb0",
-  "pages/shop/**": "ff570a7bbf7f1100726c09b917b370a2f8ac3d6cb64222985f694fbce7ece846",
-  "pages/store/**": "68d3c38501be0e84df366c63e196960b331c133a53a2dafb09eb26052cbaaa32",
-  "pages/studios/**": "eaa989d69757d6f1c1957f4d9f97f4ca98dce02e6340523baf2fd18be7290a10",
-  "pages/super/*.tsx": "cc4cb43cb9960e1e6f37d9c0bb5ce0396a9bc247f05313b34f96cbda96fb0bd1",
-  "pages/super/WorldSmithHome.tsx": "6d27f66e6b1fdfe607632a064853e0a09da17ed8f798cd063b57d60270b43fd2",
-  "pages/super/worldsmith-editorial/**": "a235ef7977b42066daf4b4f25c13d38402989f8db63f484288d6f80e6744d2c7",
-  "pages/unauthorized.tsx": "41c929b6345aa5101259cd8e1c05ee0fb8f8757547098c97240a33897b2c8032",
+  "components/CopilotPanel.tsx": "87a2412a0c7b0ea8971a52ef1dace6b2c4e6fe81121fc4a6d244e566f5ffa562",
+  "components/EditorialRichText.tsx": "8618e0fd53a85254cf88c1babc9a12211c00e2bb1642958d0e5658f80f029845",
+  "components/FontLibraryPicker.tsx": "5ba7fcbfd02481c4b48b847d470d5e30aed563b3458083f539c9207bb6a4705b",
+  "components/PaletteLibraryPicker.tsx": "f0165c99ecb8d466f01bbf899d7ec0e4cd1f9003fa42d53dc427ed71431ac2a3",
+  "components/help/**": "d90f4b0f38717752ceb25d2cad7a89842af5a55248e778b968ae9879381e206b",
+  "components/layout/**": "068e3ec5e547ca73a38627f980c283d11bb5269225ed506206be0ebdb2860cfb",
+  "components/shared/index.tsx": "62fb6848ade487398bab7ff26768b985bda3019e5b52ef8cb9d005d3b3ed74c6",
+  "components/shared/ClaudeHeader.tsx": "bc398b8e25ea096c3ecce65d1eaead79a02a8c3a537bf8d31d84a69eae71b804",
+  "components/studio/**": "e07b2781fce436e02e924bb63acc9d3edc40214f9b50ae644628710f11cef6e3",
+  "components/ui/**": "c53d63dfb045ddb756de6b4854be2b2f22de11a3add581dd81451ee3377f25fb",
+  "pages/build/**": "fd75b704ffc371239fe6dfa60694e920e334a8a5df3701d91325f03364a59890",
+  "pages/catalog/**": "22d4d90c49d001431c43e74c016daf7885689922d8711911b8bcb9992723c816",
+  "pages/editions/**": "9e497867444f2d0a0ec83a40b6688e5a194098db7e3e386effedc4e2e699b770",
+  "pages/ink/**": "2fd485580df0e1e8b66f98a6d8ad60b2bfebf6ef9c81306ca637ffda241f6aba",
+  "pages/login.tsx": "edc73ed2ff7c303891ee3002ec7aa9a4cc5ebf7f1323b93408cee38923e5caf9",
+  "pages/planners/**": "06f166e7903fca2030548002d6d8a0af6153bd0a69b1515b03644d351efe108b",
+  "pages/shop/**": "2c0f467bff653904db93edb11be46400601adc46706037a807487e3fa6774cea",
+  "pages/store/**": "8686d1ffd54eba9d9ad4cd9c4748e48c32232a7b06e050efe28bc46ae9a94474",
+  "pages/studios/**": "208c05b7446160413051bf62b968ff52568a265fada4df368062fd7cbc33ee4b",
+  "pages/super/*.tsx": "86607ea41b15def50d43014235a952b2568a46c6804d78a01f2bf9c21b4a15de",
+  "pages/super/worldsmith-editorial/**": "5fced22a127351fafaaa0e0502e5a0cd94b27c9f30420e426c15273dbeb00a27",
+  "pages/unauthorized.tsx": "5c25bf76636602c123745ba6a8a3a2adf5fbd0539430d2bed52e6e54380fb7b8",
 };
 
 function scopePattern(scope: string): RegExp {
@@ -261,7 +256,7 @@ describe("admin colour tokens", () => {
             .filter((match) => exceptionMatches(exception, match))
             .map(
               (match) =>
-                `${match.file}:${match.line}:${match.value.toLowerCase()}:${match.lineText.trim()}`,
+                `${match.file}:${match.value.toLowerCase()}:${match.lineText.trim()}`,
             )
             .sort()
             .join("\n"),

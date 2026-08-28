@@ -243,7 +243,7 @@ function LibraryRow({
           Your library
         </p>
         <p className="text-[11px] text-muted-foreground/70">
-          Click one to edit, or start fresh below
+          Select one to load it below, or start fresh
         </p>
       </div>
       <div className="flex gap-3 overflow-x-auto pb-1" style={THIN_SCROLL}>
@@ -297,11 +297,9 @@ function LibraryRow({
                 }`}>
                   {item.name}
                 </p>
-                {item.descriptor && (
-                  <p className="text-[10.5px] text-muted-foreground truncate leading-tight">
-                    {item.descriptor}
-                  </p>
-                )}
+                <p className={`text-[10.5px] truncate leading-tight ${isActive ? "font-semibold text-[#A85B48]" : "text-muted-foreground"}`}>
+                  {isActive ? "Selected · edit below" : item.descriptor ?? "Select to edit"}
+                </p>
               </div>
             </button>
           );
@@ -327,6 +325,7 @@ function LibraryRow({
 function BuildPanel({
   eyebrow,
   prompt, onPromptChange, onAskClaude, askLoading,
+  selectedItemName, onClearSelected,
   children,
 }: {
   eyebrow: string;
@@ -334,6 +333,8 @@ function BuildPanel({
   onPromptChange: (v: string) => void;
   onAskClaude: () => void;
   askLoading?: boolean;
+  selectedItemName?: string;
+  onClearSelected?: () => void;
   /** Variant/palette/option rows rendered inside the panel */
   children?: React.ReactNode;
 }) {
@@ -345,9 +346,21 @@ function BuildPanel({
       style={{ borderColor: "hsl(var(--border))", background: PAPER_TINT }}
     >
       {/* Eyebrow */}
-      <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-        {eyebrow}
-      </p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          {eyebrow}
+        </p>
+        {selectedItemName && (
+          <button
+            type="button"
+            onClick={onClearSelected}
+            className="max-w-[55%] truncate rounded-full border border-[#E8CFC7] bg-[#FEF0ED] px-2.5 py-1 text-[10px] font-semibold text-[#A85B48] hover:bg-[#FBE3DC]"
+            title={`Editing ${selectedItemName}`}
+          >
+            Editing · {selectedItemName} · clear
+          </button>
+        )}
+      </div>
 
       {/* Drop zone */}
       <button
@@ -2154,6 +2167,14 @@ function InsertsCompose() {
   }));
 
   const expl = INSERT_EXPLANATIONS[kind];
+  const selectedInsert = (rawInserts as any[]).find((ins: any) => ins.id === selectedId);
+  const selectInsert = (id: string) => {
+    setSelectedId(id);
+    const insert = (rawInserts as any[]).find((item: any) => item.id === id);
+    if (insert) {
+      setPrompt(`Edit "${insert.name ?? id}" — describe the layout, content, and visual changes you want.`);
+    }
+  };
 
   const handleAsk = async () => {
     if (!prompt.trim()) return;
@@ -2190,8 +2211,8 @@ function InsertsCompose() {
       <LibraryRow
         items={libraryItems}
         selected={selectedId}
-        onSelect={setSelectedId}
-        onNew={() => setSelectedId("")}
+        onSelect={selectInsert}
+        onNew={() => { setSelectedId(""); setPrompt(""); }}
         loading={isLoading}
       />
 
@@ -2201,6 +2222,8 @@ function InsertsCompose() {
         onPromptChange={setPrompt}
         onAskClaude={handleAsk}
         askLoading={askLoading}
+        selectedItemName={selectedInsert?.name}
+        onClearSelected={() => { setSelectedId(""); setPrompt(""); }}
       >
         <div className="space-y-3 pt-1">
           <div className="space-y-1.5">
@@ -2384,6 +2407,12 @@ function ThemeCompose() {
     descriptor: "Colour palette",
     thumbBg: t.colors?.[0] ?? "#E8EDE9",
   }));
+  const selectedTheme = themes.find((theme: any) => theme.id === selectedId);
+  const selectTheme = (id: string) => {
+    setSelectedId(id);
+    const theme = themes.find((item: any) => item.id === id);
+    if (theme) setPrompt(`Edit "${theme.name ?? id}" — describe the colour, pattern, or typography changes you want.`);
+  };
 
   const THEME_STYLE_EXPLANATIONS: Record<string, string> = {
     palette:    "A cohesive 6-colour set — primary, secondary, accent, background, surface, and text — applied across all pages.",
@@ -2415,8 +2444,8 @@ function ThemeCompose() {
       <LibraryRow
         items={libraryItems}
         selected={selectedId}
-        onSelect={setSelectedId}
-        onNew={() => setSelectedId("")}
+        onSelect={selectTheme}
+        onNew={() => { setSelectedId(""); setPrompt(""); }}
         loading={isLoading}
       />
 
@@ -2426,6 +2455,8 @@ function ThemeCompose() {
         onPromptChange={setPrompt}
         onAskClaude={async () => { setAskLoading(true); try { await aiApi.complete("You are a colour system designer.", prompt); } catch {} finally { setAskLoading(false); } }}
         askLoading={askLoading}
+        selectedItemName={selectedTheme?.name}
+        onClearSelected={() => { setSelectedId(""); setPrompt(""); }}
       >
         <div className="space-y-3 pt-1">
           <div className="space-y-1.5">
@@ -2470,6 +2501,12 @@ function DividersCompose() {
     { id: "dt-2", name: "Corner index",   descriptor: "Edge index",    thumbBg: "#D4D4E8", thumbIcon: <Layers className="w-5 h-5 text-[#6B6BA0]/60" /> },
     { id: "dt-3", name: "Section art",    descriptor: "Section divider",thumbBg: "#E8D4C8", thumbIcon: <Layers className="w-5 h-5 text-[#A0856A]/60" /> },
   ];
+  const selectedDivider = mockItems.find(item => item.id === selectedId);
+  const selectDivider = (id: string) => {
+    setSelectedId(id);
+    const divider = mockItems.find(item => item.id === id);
+    if (divider) setPrompt(`Edit "${divider.name}" — describe the divider, tab, or bookmark changes you want.`);
+  };
 
   return (
     <div style={{ minWidth: 0 }}>
@@ -2496,8 +2533,8 @@ function DividersCompose() {
       <LibraryRow
         items={mockItems}
         selected={selectedId}
-        onSelect={setSelectedId}
-        onNew={() => setSelectedId("")}
+        onSelect={selectDivider}
+        onNew={() => { setSelectedId(""); setPrompt(""); }}
       />
 
       <BuildPanel
@@ -2506,6 +2543,8 @@ function DividersCompose() {
         onPromptChange={setPrompt}
         onAskClaude={async () => { setAskLoading(true); try { await aiApi.complete("You are a planner tab designer.", prompt); } catch {} finally { setAskLoading(false); } }}
         askLoading={askLoading}
+        selectedItemName={selectedDivider?.name}
+        onClearSelected={() => { setSelectedId(""); setPrompt(""); }}
       >
         <div className="space-y-3 pt-1">
           <PaletteRow value={palette} onChange={setPalette} />

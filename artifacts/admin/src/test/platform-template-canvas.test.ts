@@ -5,6 +5,15 @@ import {
   reorderPlannerPages,
 } from "@/pages/studios/PlatformTemplateCanvas";
 import type { PlannerWidgetPlacement } from "@/lib/api";
+import {
+  LEGACY_PLANNER_LAYOUT,
+  STARTER_PLANNER_LAYOUTS,
+  STARTER_WIDGET_COUNTS,
+  buildMatchingLayoutPlacementDefaults,
+  buildPageLayoutPlacementState,
+  resolvePlannerPageLayout,
+  validatePlannerPageLayout,
+} from "@/lib/planner-page-layouts";
 
 describe("platform template bounded widget grid", () => {
   it("creates eight non-overlapping slots inside the production safe area", () => {
@@ -47,6 +56,113 @@ describe("platform template bounded widget grid", () => {
     };
 
     expect(placementSlotIndex(placement, slots)).toBe(5);
+  });
+});
+
+describe("reusable planner page layouts", () => {
+  it("uses the legacy eight-space layout for existing compositions", () => {
+    expect(resolvePlannerPageLayout(
+      { version: 1, placements: [] },
+      "weekly",
+      0,
+    )).toEqual(LEGACY_PLANNER_LAYOUT);
+  });
+
+  it("uses the most recent applicable layout snapshot", () => {
+    const first = { id: "one", name: "One", sections: [{ id: "a", x: 0.06, y: 0.06, w: 0.88, h: 0.88 }] };
+    const second = { id: "two", name: "Two", sections: [
+      { id: "a", x: 0.06, y: 0.06, w: 0.431, h: 0.88 },
+      { id: "b", x: 0.509, y: 0.06, w: 0.431, h: 0.88 },
+    ] };
+    expect(resolvePlannerPageLayout({
+      version: 2,
+      placements: [],
+      layouts: [
+        { id: "all", layout: first, pageType: "weekly", pageIndex: 0, scope: "matching" },
+        { id: "page", layout: second, pageType: "weekly", pageIndex: 3, scope: "page" },
+      ],
+    }, "weekly", 3)).toEqual(second);
+  });
+
+  it("rejects imported layouts outside the safe area", () => {
+    expect(() => validatePlannerPageLayout({
+      name: "Unsafe",
+      sections: [{ id: "edge", x: 0.01, y: 0.06, w: 0.2, h: 0.2 }],
+    })).toThrow("safe area");
+  });
+
+  it("keeps one widget and hides collisions when eight spaces shrink to one", () => {
+    const placements = LEGACY_PLANNER_LAYOUT.sections.map((section, index): PlannerWidgetPlacement => ({
+      id: `placement-${index}`,
+      widgetId: `widget-${index}`,
+      pageType: "weekly",
+      pageIndex: 0,
+      x: section.x,
+      y: section.y,
+      w: section.w,
+      h: section.h,
+      scope: "page",
+    }));
+    const state = buildPageLayoutPlacementState(
+      placements,
+      [{ type: "weekly", index: 0 }],
+      STARTER_PLANNER_LAYOUTS.find((layout) => layout.id === "starter-1-grid")!,
+    );
+    expect(Object.keys(state.pagePlacementSections["weekly:0"])).toHaveLength(1);
+    expect(state.pageHiddenPlacementIds["weekly:0"]).toHaveLength(7);
+  });
+
+  it("never binds more than one widget to each section when shrinking to two", () => {
+    const placements = LEGACY_PLANNER_LAYOUT.sections.map((section, index): PlannerWidgetPlacement => ({
+      id: `placement-${index}`,
+      widgetId: `widget-${index}`,
+      pageType: "weekly",
+      pageIndex: 0,
+      x: section.x,
+      y: section.y,
+      w: section.w,
+      h: section.h,
+      scope: "page",
+    }));
+    const state = buildPageLayoutPlacementState(
+      placements,
+      [{ type: "weekly", index: 0 }],
+      STARTER_PLANNER_LAYOUTS.find((layout) => layout.id === "starter-2-wide")!,
+    );
+    const bindings = Object.values(state.pagePlacementSections["weekly:0"]);
+    expect(bindings).toHaveLength(2);
+    expect(new Set(bindings).size).toBe(2);
+    expect(state.pageHiddenPlacementIds["weekly:0"]).toHaveLength(6);
+  });
+
+  it("creates collision-safe defaults for matching pages generated later", () => {
+    const placements = LEGACY_PLANNER_LAYOUT.sections.map((section, index): PlannerWidgetPlacement => ({
+      id: `matching-${index}`,
+      widgetId: `widget-${index}`,
+      pageType: "daily",
+      pageIndex: 0,
+      x: section.x,
+      y: section.y,
+      w: section.w,
+      h: section.h,
+      scope: "matching",
+    }));
+    const defaults = buildMatchingLayoutPlacementDefaults(
+      placements,
+      "daily",
+      STARTER_PLANNER_LAYOUTS.find((layout) => layout.id === "starter-1-grid")!,
+    );
+    expect(Object.keys(defaults.placementSections)).toHaveLength(1);
+    expect(defaults.hiddenPlacementIds).toHaveLength(7);
+  });
+
+  it("offers every supplied widget count from 1 through 12 except 10", () => {
+    expect([...STARTER_WIDGET_COUNTS]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12]);
+    expect(new Set(STARTER_PLANNER_LAYOUTS.map((layout) => layout.sections.length)))
+      .toEqual(new Set(STARTER_WIDGET_COUNTS));
+    for (const layout of STARTER_PLANNER_LAYOUTS) {
+      expect(() => validatePlannerPageLayout(layout)).not.toThrow();
+    }
   });
 });
 

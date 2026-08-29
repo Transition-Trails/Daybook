@@ -33,6 +33,12 @@ The Super Admin template canvas uses two persistent panels: Planner personalizat
 
 **How to apply:** Keep both panels mounted while switching tabs so unsaved local form state is preserved.
 
+Reusable page layouts are immutable snapshots assigned by page, range, or matching page type. Bind scoped widgets to sections on the layout assignment—not on the global widget placement—and hide incompatible widgets per assignment.
+
+**Why:** A matching widget may appear on hundreds of pages. Mutating or deleting its global placement when only one page changes layout silently alters every unaffected page and makes canvas/PDF geometry diverge.
+
+**How to apply:** Resolve the latest applicable assignment in canvas and PDF. Store page-keyed bindings/hides for mixed scopes plus collision-safe defaults for matching placements so future generated pages inherit the same bounds.
+
 The Planner Studio assistant receives a compact, template-scoped snapshot only when a question is sent. It includes the active page, bounded-slot state, selected widget, and current personalization/system/output choices, but never raw assets or PDF data.
 
 **Why:** Recommendations need to follow the user’s exact page and unsaved settings without leaking stale state when templates or studio modes change.

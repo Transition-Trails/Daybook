@@ -42,7 +42,7 @@ import type {
 } from "@workspace/db";
 import { getPlannerPageCounts } from "@workspace/db/planner-pages";
 import { sanitizeSvg } from "./svg-contract";
-import { placementAppliesToPage } from "./planner-composition";
+import { placementAppliesToPage, placementHiddenByLayout, resolvePlacementGeometry } from "./planner-composition";
 import {
   type PageIdMap,
   type PageRole,
@@ -172,14 +172,16 @@ async function stampWidgetComposition(
     for (const placement of placements) {
       if (
         placement.settings?.visible === false ||
-        !placementAppliesToPage(placement, target.pageType, target.pageIndex)
+        !placementAppliesToPage(placement, target.pageType, target.pageIndex) ||
+        placementHiddenByLayout(placement, style.composition, target.pageType, target.pageIndex)
       ) continue;
       const image = images.get(`${placement.widgetId}:${placement.settings?.paletteSlot ?? "accent"}`);
       if (!image) throw new Error(`Widget ${placement.widgetId} cannot be rendered`);
-      const x = placement.x * pageWidth;
-      const y = pageHeight - (placement.y + placement.h) * pageHeight;
-      const width = placement.w * pageWidth;
-      const height = placement.h * pageHeight;
+      const geometry = resolvePlacementGeometry(placement, style.composition, target.pageType, target.pageIndex);
+      const x = geometry.x * pageWidth;
+      const y = pageHeight - (geometry.y + geometry.h) * pageHeight;
+      const width = geometry.w * pageWidth;
+      const height = geometry.h * pageHeight;
       entry.page.drawImage(image, {
         x, y, width, height,
       });

@@ -17,6 +17,11 @@ export interface PlannerCanvasAiContext {
       widgetName: string;
     }>;
   };
+  layout?: {
+    id: string;
+    name: string;
+    sections: number;
+  };
   selectedWidget: {
     id: string;
     name: string;
@@ -112,6 +117,9 @@ export function formatPlannerAiContext(input: PlannerAiContextInput): string {
     canvas
       ? `Widget slots: ${canvas.slots.occupied.length} occupied, ${canvas.slots.available} available of ${canvas.slots.total}.`
       : "Widget slots: unavailable.",
+    canvas?.layout
+      ? `Page layout: ${safeText(canvas.layout.name)} (${canvas.layout.sections} sections; ${safeText(canvas.layout.id)}).`
+      : "Page layout: legacy bounded grid.",
     canvas && canvas.slots.occupied.length
       ? `Occupied widgets: ${canvas.slots.occupied
           .slice(0, 8)

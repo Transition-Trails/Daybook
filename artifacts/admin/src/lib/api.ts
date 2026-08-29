@@ -1542,6 +1542,7 @@ export interface PlannerWidgetPlacement {
   y: number;
   w: number;
   h: number;
+  layoutSectionId?: string;
   scope: PlannerWidgetPlacementScope;
   rangeStart?: number;
   rangeEnd?: number;
@@ -1553,9 +1554,38 @@ export interface PlannerWidgetPlacement {
   };
 }
 
+export interface PlannerLayoutSection {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface PlannerPageLayout {
+  id: string;
+  name: string;
+  sections: PlannerLayoutSection[];
+}
+
+export interface PlannerPageLayoutAssignment {
+  id: string;
+  layout: PlannerPageLayout;
+  pageType: string;
+  pageIndex: number;
+  scope: PlannerWidgetPlacementScope;
+  rangeStart?: number;
+  rangeEnd?: number;
+  placementSections?: Record<string, string>;
+  hiddenPlacementIds?: string[];
+  pagePlacementSections?: Record<string, Record<string, string>>;
+  pageHiddenPlacementIds?: Record<string, string[]>;
+}
+
 export interface StorePlannerComposition {
-  version: 1;
+  version: 1 | 2;
   placements: PlannerWidgetPlacement[];
+  layouts?: PlannerPageLayoutAssignment[];
 }
 
 export interface PlannerPageOrderItem {

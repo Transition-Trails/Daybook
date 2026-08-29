@@ -32,6 +32,8 @@ export type PlannerWidgetPlacement = {
   y: number;
   w: number;
   h: number;
+  /** Version 2 section identity; geometry resolves from the effective page layout. */
+  layoutSectionId?: string;
   scope: PlannerWidgetPlacementScope;
   rangeStart?: number;
   rangeEnd?: number;
@@ -43,9 +45,44 @@ export type PlannerWidgetPlacement = {
   };
 };
 
+export type PlannerLayoutSection = {
+  id: string;
+  /** Normalized coordinates measured from the top-left of the page. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+export type PlannerPageLayout = {
+  id: string;
+  name: string;
+  sections: PlannerLayoutSection[];
+};
+
+export type PlannerPageLayoutAssignment = {
+  id: string;
+  /** Snapshot keeps assigned pages intact if a saved layout is renamed/deleted. */
+  layout: PlannerPageLayout;
+  pageType: string;
+  pageIndex: number;
+  scope: PlannerWidgetPlacementScope;
+  rangeStart?: number;
+  rangeEnd?: number;
+  /** Per-layout binding keeps broad widget scopes unchanged on unaffected pages. */
+  placementSections?: Record<string, string>;
+  /** Scoped placements hidden only on pages receiving this layout. */
+  hiddenPlacementIds?: string[];
+  /** Page-specific bindings prevent collisions when a range has mixed placement scopes. */
+  pagePlacementSections?: Record<string, Record<string, string>>;
+  pageHiddenPlacementIds?: Record<string, string[]>;
+};
+
 export type PlannerComposition = {
-  version: 1;
+  version: 1 | 2;
   placements: PlannerWidgetPlacement[];
+  /** Version 2 page-specific bounded section layouts. */
+  layouts?: PlannerPageLayoutAssignment[];
 };
 
 export type PlannerPageOrderItem = {

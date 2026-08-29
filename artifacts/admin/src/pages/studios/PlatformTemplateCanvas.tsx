@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, GripVertical, Grid2X2, Plus, Save, Search, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Bookmark, Check, FileUp, GripVertical, Grid2X2, LayoutTemplate, Plus, Save, Search, Trash2, X } from "lucide-react";
 import { getPlannerPageCounts, getPlannerPageDescriptors, type PlannerPageType } from "@workspace/db/planner-pages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import {
   platformPlannersApi,
+  type PlannerPageLayout,
+  type PlannerPageLayoutAssignment,
   type PlannerPageOrderItem,
   type PlannerWidgetPlacement,
   type PlatformPlannerConfig,
@@ -14,6 +16,17 @@ import {
   type Widget,
 } from "@/lib/api";
 import type { PlannerCanvasAiContext } from "@/lib/planner-ai-context";
+import {
+  LEGACY_PLANNER_LAYOUT,
+  STARTER_PLANNER_LAYOUTS,
+  STARTER_WIDGET_COUNTS,
+  buildMatchingLayoutPlacementDefaults,
+  buildPageLayoutPlacementState,
+  placementSectionIndex,
+  resolvePlannerPageLayout,
+  resolvePlannerPageLayoutAssignment,
+  validatePlannerPageLayout,
+} from "@/lib/planner-page-layouts";
 
 const SAFE_INSET = 0.06;
 const SLOT_GAP = 0.018;
@@ -152,7 +165,6 @@ export default function PlatformTemplateCanvas({
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const slots = useMemo(() => createPlannerGridSlots(), []);
   const [pages, setPages] = useState<PageDescriptor[]>(() => pagesFor(template));
   const [pagePosition, setPagePosition] = useState(0);
   const [draggedPageKey, setDraggedPageKey] = useState<string | null>(null);
@@ -161,6 +173,24 @@ export default function PlatformTemplateCanvas({
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"compose" | "preview">("compose");
   const [activeTab, setActiveTab] = useState<"personalization" | "system">("personalization");
+  const [layoutSelectorOpen, setLayoutSelectorOpen] = useState(false);
+  const [layoutSource, setLayoutSource] = useState<"file" | "starter" | "saved">("starter");
+  const [starterWidgetCount, setStarterWidgetCount] = useState(8);
+  const [selectedLayout, setSelectedLayout] = useState<PlannerPageLayout>(LEGACY_PLANNER_LAYOUT);
+  const [layoutTarget, setLayoutTarget] = useState<"page" | "selected" | "range" | "matching">("page");
+  const [rangeStart, setRangeStart] = useState(0);
+  const [rangeEnd, setRangeEnd] = useState(0);
+  const [selectedPageKeys, setSelectedPageKeys] = useState<Set<string>>(new Set());
+  const [savedLayouts, setSavedLayouts] = useState<PlannerPageLayout[]>(() => {
+    try {
+      const raw = localStorage.getItem("daybook:planner-page-layouts");
+      return raw ? (JSON.parse(raw) as unknown[]).map(validatePlannerPageLayout) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [saveLayoutName, setSaveLayoutName] = useState("");
+  const [importError, setImportError] = useState("");
   const [composition, setComposition] = useState<StorePlannerComposition>(
     template.style.composition ?? { version: 1, placements: [] },
   );
@@ -176,7 +206,12 @@ export default function PlatformTemplateCanvas({
     setPagePosition(0);
     setDraggedPageKey(null);
     setSelectedPlacementId(null);
+    setSelectedPageKeys(new Set());
   }, [template.id]);
+
+  useEffect(() => {
+    localStorage.setItem("daybook:planner-page-layouts", JSON.stringify(savedLayouts));
+  }, [savedLayouts]);
 
   useEffect(() => {
     setPages((current) => pagesFor({
@@ -195,9 +230,29 @@ export default function PlatformTemplateCanvas({
     staleTime: 0,
   });
   const page = pages[pagePosition] ?? pages[0];
+  const activeLayout = page
+    ? resolvePlannerPageLayout(composition, page.type, page.index)
+    : LEGACY_PLANNER_LAYOUT;
+  const activeLayoutAssignment = page
+    ? resolvePlannerPageLayoutAssignment(composition, page.type, page.index)
+    : undefined;
+  const slots = useMemo(
+    () => activeLayout.sections.map((section, index) => ({
+      ...section,
+      index,
+      row: index,
+      column: 0,
+    })),
+    [activeLayout],
+  );
   const pagePlacements = useMemo(
     () => composition.placements.filter((placement) =>
       placement.pageType === page?.type &&
+      !(
+        activeLayoutAssignment?.pageHiddenPlacementIds?.[`${page?.type}:${page?.index}`]?.includes(placement.id) ??
+        activeLayoutAssignment?.hiddenPlacementIds?.includes(placement.id) ??
+        false
+      ) &&
       (
         placement.scope === "matching" ||
         (placement.scope === "range" &&
@@ -206,20 +261,38 @@ export default function PlatformTemplateCanvas({
         (placement.scope === "page" && placement.pageIndex === page?.index)
       )
     ),
-    [composition.placements, page],
+    [activeLayoutAssignment, composition.placements, page],
   );
   const occupied = useMemo(() => {
     const next = new Map<number, PlannerWidgetPlacement>();
     for (const placement of pagePlacements) {
-      const slotIndex = placementSlotIndex(placement, slots);
+      const assignedSectionId =
+        activeLayoutAssignment?.pagePlacementSections?.[`${page.type}:${page.index}`]?.[placement.id] ??
+        activeLayoutAssignment?.placementSections?.[placement.id];
+      const sectionIndex = assignedSectionId
+        ? activeLayout.sections.findIndex((section) => section.id === assignedSectionId)
+        : -1;
+      const slotIndex = sectionIndex >= 0 ? sectionIndex : placementSlotIndex(placement, slots);
       if (slotIndex !== null && !next.has(slotIndex)) next.set(slotIndex, placement);
     }
     return next;
-  }, [pagePlacements, slots]);
+  }, [activeLayout.sections, activeLayoutAssignment, pagePlacements, slots]);
   const filteredWidgets = widgets.filter((widget) =>
     widget.name.toLowerCase().includes(query.trim().toLowerCase())
   );
   const selectedWidget = widgets.find((widget) => widget.id === selectedWidgetId) ?? null;
+  const starterLayouts = STARTER_PLANNER_LAYOUTS.filter((layout) => layout.sections.length === starterWidgetCount);
+  const chooseStarterWidgetCount = (count: number) => {
+    const next = STARTER_PLANNER_LAYOUTS.find((layout) => layout.sections.length === count);
+    if (!next) return;
+    setStarterWidgetCount(count);
+    setSelectedLayout(next);
+  };
+  const moveStarterWidgetCount = (direction: -1 | 1) => {
+    const currentIndex = STARTER_WIDGET_COUNTS.findIndex((count) => count === starterWidgetCount);
+    const nextIndex = Math.max(0, Math.min(STARTER_WIDGET_COUNTS.length - 1, currentIndex + direction));
+    chooseStarterWidgetCount(STARTER_WIDGET_COUNTS[nextIndex]);
+  };
 
   const movePage = (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
@@ -232,6 +305,146 @@ export default function PlatformTemplateCanvas({
       }
       return next;
     });
+  };
+
+  const openLayoutSelector = () => {
+    setSelectedLayout(activeLayout);
+    setRangeStart(page.index);
+    setRangeEnd(page.index);
+    setImportError("");
+    setLayoutSelectorOpen(true);
+  };
+
+  const targetPages = () => {
+    if (layoutTarget === "matching") return pages.filter((candidate) => candidate.type === page.type);
+    if (layoutTarget === "range") {
+      return pages.filter((candidate) =>
+        candidate.type === page.type && candidate.index >= rangeStart && candidate.index <= rangeEnd
+      );
+    }
+    if (layoutTarget === "selected") {
+      return pages.filter((candidate) => selectedPageKeys.has(pageKey(candidate)));
+    }
+    return [page];
+  };
+
+  const applyLayout = () => {
+    if (layoutTarget === "range" && rangeStart > rangeEnd) {
+      toast({ title: "Choose a valid range", description: "The Through page must come after the From page.", variant: "destructive" });
+      return;
+    }
+    const targets = targetPages();
+    if (!targets.length) {
+      toast({ title: "Choose at least one page", description: "Select pages in the page rail before applying this layout.", variant: "destructive" });
+      return;
+    }
+    const placementState = buildPageLayoutPlacementState(composition.placements, targets, selectedLayout);
+    const hiddenIds = [...new Set(Object.values(placementState.pageHiddenPlacementIds).flat())];
+    const superseded = (composition.layouts ?? []).filter((existing) =>
+      targets.some((target) =>
+        existing.pageType === target.type &&
+        (
+          existing.scope === "matching" ||
+          (existing.scope === "range" && target.index >= (existing.rangeStart ?? 0) && target.index <= (existing.rangeEnd ?? -1)) ||
+          (existing.scope === "page" && existing.pageIndex === target.index)
+        )
+      )
+    );
+    if (
+      (hiddenIds.length > 0 || superseded.length > 0) &&
+      !window.confirm(
+        `${superseded.length ? `This replaces an existing layout on ${targets.length} page${targets.length === 1 ? "" : "s"}. ` : ""}${hiddenIds.length ? `${hiddenIds.length} widget placement${hiddenIds.length === 1 ? "" : "s"} will not fit without overlapping and will be hidden only on the affected pages. ` : ""}Apply this layout?`,
+      )
+    ) return;
+
+    const assignment = (
+      target: PageDescriptor,
+      scope: PlannerPageLayoutAssignment["scope"],
+      suffix = "",
+    ): PlannerPageLayoutAssignment => {
+      const matchingDefaults = scope === "matching"
+        ? buildMatchingLayoutPlacementDefaults(composition.placements, target.type, selectedLayout)
+        : { placementSections: {}, hiddenPlacementIds: [] };
+      return {
+        id: `${newPlacementId().replace("placement-", "layout-")}${suffix}`,
+        layout: structuredClone(selectedLayout),
+        pageType: target.type,
+        pageIndex: target.index,
+        scope,
+        ...(scope === "range" ? { rangeStart, rangeEnd } : {}),
+        ...(Object.keys(placementState.pagePlacementSections).length
+          ? { pagePlacementSections: placementState.pagePlacementSections }
+          : {}),
+        ...(Object.keys(placementState.pageHiddenPlacementIds).length
+          ? { pageHiddenPlacementIds: placementState.pageHiddenPlacementIds }
+          : {}),
+        ...(Object.keys(matchingDefaults.placementSections).length
+          ? { placementSections: matchingDefaults.placementSections }
+          : {}),
+        ...(matchingDefaults.hiddenPlacementIds.length
+          ? { hiddenPlacementIds: matchingDefaults.hiddenPlacementIds }
+          : {}),
+      };
+    };
+    let assignments: PlannerPageLayoutAssignment[];
+    if (layoutTarget === "matching") {
+      assignments = [assignment(page, "matching")];
+    } else if (layoutTarget === "range") {
+      assignments = [assignment(page, "range")];
+    } else {
+      assignments = targets.map((target, index) => assignment(target, "page", `-${index}`));
+    }
+    const targetKeys = new Set(targets.map(pageKey));
+    setComposition((current) => ({
+      version: 2,
+      placements: current.placements,
+      layouts: [
+        ...(current.layouts ?? []).filter((existing) => {
+          const existingTargets = pages.filter((candidate) =>
+            existing.pageType === candidate.type &&
+            (
+              existing.scope === "matching" ||
+              (existing.scope === "range" && candidate.index >= (existing.rangeStart ?? 0) && candidate.index <= (existing.rangeEnd ?? -1)) ||
+              (existing.scope === "page" && existing.pageIndex === candidate.index)
+            )
+          );
+          return !existingTargets.length || !existingTargets.every((candidate) => targetKeys.has(pageKey(candidate)));
+        }),
+        ...assignments,
+      ],
+    }));
+    setLayoutSelectorOpen(false);
+    toast({
+      title: "Page layout applied",
+      description: `${selectedLayout.name} created ${selectedLayout.sections.length} bounded section${selectedLayout.sections.length === 1 ? "" : "s"} on ${targets.length} page${targets.length === 1 ? "" : "s"}.`,
+    });
+  };
+
+  const importLayout = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      const layout = validatePlannerPageLayout(parsed);
+      setSelectedLayout({ ...layout, id: `file-${Date.now()}` });
+      setSaveLayoutName(layout.name);
+      setImportError("");
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "The layout file could not be read.");
+    }
+  };
+
+  const saveSelectedLayout = () => {
+    const name = saveLayoutName.trim();
+    if (!name) return;
+    const saved = validatePlannerPageLayout({
+      ...selectedLayout,
+      id: `saved-${Date.now()}`,
+      name,
+    });
+    setSavedLayouts((current) => [...current, saved]);
+    setSelectedLayout(saved);
+    setLayoutSource("saved");
+    setSaveLayoutName("");
   };
 
   const dropPageAt = (toIndex: number) => {
@@ -265,12 +478,18 @@ export default function PlatformTemplateCanvas({
           widgetName: widgets.find((widget) => widget.id === placement.widgetId)?.name ?? "Widget",
         })),
       },
+      layout: {
+        id: activeLayout.id,
+        name: activeLayout.name,
+        sections: activeLayout.sections.length,
+      },
       selectedWidget: selectedWidget
         ? { id: selectedWidget.id, name: selectedWidget.name }
         : null,
     });
   }, [
     activeTab,
+    activeLayout,
     onAiContextChange,
     occupied,
     page,
@@ -388,7 +607,16 @@ export default function PlatformTemplateCanvas({
         aria-label="Planner personalization"
         hidden={activeTab !== "personalization"}
       >
-        <div className="flex items-center justify-end border-b px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={openLayoutSelector} data-testid="open-page-layout-selector">
+              <LayoutTemplate className="mr-2 h-4 w-4" />
+              Page layout
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {activeLayout.name} · {activeLayout.sections.length} section{activeLayout.sections.length === 1 ? "" : "s"}
+            </span>
+          </div>
           <div className="rounded-full bg-muted p-1 flex">
             <button
               onClick={() => setView("compose")}
@@ -446,6 +674,20 @@ export default function PlatformTemplateCanvas({
                     <span className="w-7 h-9 shrink-0 rounded border bg-background flex items-end justify-center pb-1 text-[8px] text-muted-foreground">{index + 1}</span>
                     <span className="text-xs font-medium truncate">{candidate.label}</span>
                   </button>
+                  <input
+                    type="checkbox"
+                    checked={selectedPageKeys.has(candidateKey)}
+                    onChange={(event) => {
+                      setSelectedPageKeys((current) => {
+                        const next = new Set(current);
+                        if (event.target.checked) next.add(candidateKey);
+                        else next.delete(candidateKey);
+                        return next;
+                      });
+                    }}
+                    aria-label={`Select ${candidate.label} for layout changes`}
+                    className="h-3.5 w-3.5 shrink-0 accent-primary"
+                  />
                   <span className="flex flex-col opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                     <button
                       type="button"
@@ -492,16 +734,23 @@ export default function PlatformTemplateCanvas({
               ) : (
                 <div className="absolute left-[3%] top-0 bottom-0 w-[2%] bg-muted border-r" />
               )}
-              <div className="absolute inset-[6%] grid grid-cols-2 grid-rows-4 gap-[1.8%]" data-testid="widget-slot-grid">
+              <div className="absolute inset-0" data-testid="widget-slot-grid" data-layout-id={activeLayout.id}>
                 {slots.map((slot) => {
                   const placement = occupied.get(slot.index);
                   const widget = placement ? widgets.find((candidate) => candidate.id === placement.widgetId) : null;
                   const selected = placement?.id === selectedPlacementId;
+                  const slotStyle = {
+                    left: `${slot.x * 100}%`,
+                    top: `${slot.y * 100}%`,
+                    width: `${slot.w * 100}%`,
+                    height: `${slot.h * 100}%`,
+                  };
                   return placement ? (
                     <button
                       key={slot.index}
                       onClick={() => setSelectedPlacementId(placement.id)}
-                      className={`relative min-w-0 min-h-0 border rounded-md bg-background/80 p-2 overflow-hidden group ${selected ? "border-primary ring-2 ring-primary/20" : "border-primary/40"}`}
+                      style={slotStyle}
+                      className={`absolute min-w-0 min-h-0 border rounded-md bg-background/80 p-2 overflow-hidden group ${selected ? "border-primary ring-2 ring-primary/20" : "border-primary/40"}`}
                       data-testid={`occupied-widget-slot-${slot.index}`}
                     >
                       <div className="w-full h-full pointer-events-none" dangerouslySetInnerHTML={{ __html: cleanSvg(widget?.svgData ?? null) }} />
@@ -520,7 +769,8 @@ export default function PlatformTemplateCanvas({
                       key={slot.index}
                       onClick={() => addToSlot(slot)}
                       disabled={!selectedWidgetId}
-                      className="border border-dashed border-primary/30 rounded-md bg-background/40 hover:bg-background/80 disabled:hover:bg-background/40 flex flex-col items-center justify-center gap-1 text-primary disabled:text-muted-foreground"
+                      style={slotStyle}
+                      className="absolute border border-dashed border-primary/30 rounded-md bg-background/40 hover:bg-background/80 disabled:hover:bg-background/40 flex flex-col items-center justify-center gap-1 text-primary disabled:text-muted-foreground"
                       data-testid={`empty-widget-slot-${slot.index}`}
                     >
                       <Plus className="w-4 h-4" />
@@ -532,7 +782,7 @@ export default function PlatformTemplateCanvas({
             </div>
             <div className={`mt-3 w-full ${canvasWidthClass} rounded-lg border bg-background px-3 py-2 flex items-center gap-2 text-xs`}>
               <Grid2X2 className="w-4 h-4 text-primary" />
-              <span><b>Bounded layout:</b> every widget occupies one safe space. The grid cannot grow beyond the printable page.</span>
+              <span><b>{activeLayout.name}:</b> every widget occupies one of {activeLayout.sections.length} safe sections. The layout cannot grow beyond the printable page.</span>
             </div>
           </section>
 
@@ -574,6 +824,232 @@ export default function PlatformTemplateCanvas({
       >
         {settings}
       </div>
+
+      {layoutSelectorOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/35 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="page-layout-title"
+          data-testid="page-layout-selector"
+        >
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl">
+            <header className="flex items-start justify-between gap-3 border-b px-5 py-4">
+              <div>
+                <h3 id="page-layout-title" className="font-display text-lg font-semibold">Choose a page layout</h3>
+                <p className="text-xs text-muted-foreground">Choose the sections first, then decide which pages receive them.</p>
+              </div>
+              <button type="button" onClick={() => setLayoutSelectorOpen(false)} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close page layout selector">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+
+            <div className="flex gap-2 border-b px-5 py-3" role="tablist" aria-label="Layout sources">
+              {([
+                ["file", FileUp, "From File"],
+                ["starter", LayoutTemplate, "Starter"],
+                ["saved", Bookmark, "Saved"],
+              ] as const).map(([source, Icon, label]) => (
+                <button
+                  key={source}
+                  type="button"
+                  role="tab"
+                  aria-selected={layoutSource === source}
+                  onClick={() => setLayoutSource(source)}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${layoutSource === source ? "border-primary bg-primary text-primary-foreground" : "hover:border-primary"}`}
+                >
+                  <Icon className="h-4 w-4" />{label}
+                </button>
+              ))}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              {layoutSource === "file" && (
+                <div className="rounded-xl border border-dashed p-6 text-center">
+                  <FileUp className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm font-semibold">Import a layout definition</p>
+                  <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                    Upload JSON containing a name and 1–24 normalized sections. Files are validated against the printable safe area.
+                  </p>
+                  <label className="mt-4 inline-flex cursor-pointer items-center rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">
+                    Choose JSON file
+                    <input type="file" accept=".json,application/json" className="sr-only" onChange={(event) => importLayout(event.target.files?.[0])} />
+                  </label>
+                  {importError && <p className="mt-3 text-xs font-medium text-destructive">{importError}</p>}
+                  {selectedLayout.id.startsWith("file-") && (
+                    <p className="mt-3 text-xs font-semibold text-primary">
+                      Ready: {selectedLayout.name} · {selectedLayout.sections.length} sections
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {layoutSource === "starter" && (
+                <div>
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold">Number of widgets</p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">Choose a count, then select an arrangement.</p>
+                    </div>
+                    <div className="flex items-center rounded-lg border bg-background p-1" aria-label="Number of widgets">
+                      <button
+                        type="button"
+                        onClick={() => moveStarterWidgetCount(-1)}
+                        disabled={starterWidgetCount === STARTER_WIDGET_COUNTS[0]}
+                        className="h-7 w-7 rounded text-sm hover:bg-muted disabled:opacity-30"
+                        aria-label="Fewer widgets"
+                      >
+                        −
+                      </button>
+                      <span className="min-w-8 text-center text-xs font-semibold">{starterWidgetCount}</span>
+                      <button
+                        type="button"
+                        onClick={() => moveStarterWidgetCount(1)}
+                        disabled={starterWidgetCount === STARTER_WIDGET_COUNTS[STARTER_WIDGET_COUNTS.length - 1]}
+                        className="h-7 w-7 rounded text-sm hover:bg-muted disabled:opacity-30"
+                        aria-label="More widgets"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mb-4 flex flex-wrap gap-1" aria-label="Available widget counts">
+                    {STARTER_WIDGET_COUNTS.map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => chooseStarterWidgetCount(count)}
+                        className={`h-7 min-w-7 rounded-md px-2 text-[10px] font-semibold ${
+                          starterWidgetCount === count
+                            ? "bg-primary text-primary-foreground"
+                            : "border bg-background text-muted-foreground hover:border-primary hover:text-foreground"
+                        }`}
+                      >
+                        {count}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                    {starterLayouts.map((layout) => (
+                      <button
+                        key={layout.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedLayout(layout);
+                          setStarterWidgetCount(layout.sections.length);
+                        }}
+                        className={`rounded-xl border p-2 text-left transition ${selectedLayout.id === layout.id ? "border-primary ring-2 ring-primary/20" : "hover:border-primary"}`}
+                        aria-label={`Choose ${layout.name}, ${layout.sections.length} sections`}
+                      >
+                        <span className="relative block aspect-[.77/1] w-full rounded border bg-card">
+                          {layout.sections.map((section) => (
+                            <span
+                              key={section.id}
+                              className="absolute rounded-[2px] border border-primary/50 bg-primary/10"
+                              style={{
+                                left: `${section.x * 100}%`,
+                                top: `${section.y * 100}%`,
+                                width: `${section.w * 100}%`,
+                                height: `${section.h * 100}%`,
+                              }}
+                            />
+                          ))}
+                        </span>
+                        <span className="mt-2 block truncate text-[10px] font-semibold">{layout.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {layoutSource === "saved" && (
+                <div className="space-y-3">
+                  {!savedLayouts.length && (
+                    <div className="rounded-xl border border-dashed p-6 text-center text-xs text-muted-foreground">
+                      No saved layouts yet. Choose a Starter or import a file, then save it below.
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {savedLayouts.map((layout) => (
+                      <div key={layout.id} className={`rounded-xl border p-2 ${selectedLayout.id === layout.id ? "border-primary ring-2 ring-primary/20" : ""}`}>
+                        <button type="button" onClick={() => setSelectedLayout(layout)} className="w-full text-left">
+                          <span className="text-xs font-semibold">{layout.name}</span>
+                          <span className="block text-[10px] text-muted-foreground">{layout.sections.length} sections</span>
+                        </button>
+                        <div className="mt-2 flex gap-1">
+                          <button
+                            type="button"
+                            className="text-[10px] text-muted-foreground hover:text-foreground"
+                            onClick={() => {
+                              const name = window.prompt("Rename saved layout", layout.name)?.trim();
+                              if (name) setSavedLayouts((current) => current.map((item) => item.id === layout.id ? { ...item, name } : item));
+                            }}
+                          >
+                            Rename
+                          </button>
+                          <span className="text-muted-foreground">·</span>
+                          <button
+                            type="button"
+                            className="text-[10px] text-destructive"
+                            onClick={() => setSavedLayouts((current) => current.filter((item) => item.id !== layout.id))}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-5 grid gap-4 border-t pt-5 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-semibold" htmlFor="layout-target">Apply to</label>
+                  <select
+                    id="layout-target"
+                    value={layoutTarget}
+                    onChange={(event) => setLayoutTarget(event.target.value as typeof layoutTarget)}
+                    className="mt-2 h-9 w-full rounded-md border bg-background px-3 text-xs"
+                  >
+                    <option value="page">Current page</option>
+                    <option value="selected">Selected pages ({selectedPageKeys.size})</option>
+                    <option value="range">A range of {page.type} pages</option>
+                    <option value="matching">All {page.type} pages</option>
+                  </select>
+                  {layoutTarget === "range" && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <Input type="number" min={0} value={rangeStart} onChange={(event) => setRangeStart(Number(event.target.value))} aria-label="Layout range start" className="h-9" />
+                      <span className="text-xs text-muted-foreground">through</span>
+                      <Input type="number" min={rangeStart} value={rangeEnd} onChange={(event) => setRangeEnd(Number(event.target.value))} aria-label="Layout range end" className="h-9" />
+                    </div>
+                  )}
+                  <p className="mt-2 text-[10px] text-muted-foreground">
+                    {targetPages().length} page{targetPages().length === 1 ? "" : "s"} will receive this layout.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold" htmlFor="save-layout-name">Save for reuse</label>
+                  <div className="mt-2 flex gap-2">
+                    <Input id="save-layout-name" value={saveLayoutName} onChange={(event) => setSaveLayoutName(event.target.value)} placeholder={selectedLayout.name} className="h-9" />
+                    <Button type="button" variant="outline" size="sm" onClick={saveSelectedLayout} disabled={!saveLayoutName.trim()}>Save</Button>
+                  </div>
+                  <p className="mt-2 text-[10px] text-muted-foreground">Saved layouts are available when editing other platform planner templates on this device.</p>
+                </div>
+              </div>
+            </div>
+
+            <footer className="flex items-center justify-between gap-3 border-t px-5 py-4">
+              <p className="text-xs text-muted-foreground">
+                {selectedLayout.name} · {selectedLayout.sections.length} bounded section{selectedLayout.sections.length === 1 ? "" : "s"}
+              </p>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setLayoutSelectorOpen(false)}>Cancel</Button>
+                <Button type="button" onClick={applyLayout}>Apply layout</Button>
+              </div>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { PDFArray, PDFDocument, PDFRawStream } from "pdf-lib";
 import {
   InvalidPlannerCompositionError,
+  layoutAppliesToPage,
+  placementHiddenByLayout,
   placementAppliesToPage,
+  resolvePlacementGeometry,
   validateCompositionTargets,
   validatePlannerComposition,
 } from "../lib/planner-composition";
@@ -72,6 +75,83 @@ describe("planner widget composition", () => {
       version: 1,
       placements: [placement],
     });
+  });
+
+  it("accepts bounded version 2 layouts and resolves their scope", () => {
+    const assignment = {
+      id: "layout-assignment-1",
+      pageType: "daily",
+      pageIndex: 2,
+      scope: "range" as const,
+      rangeStart: 2,
+      rangeEnd: 4,
+      layout: {
+        id: "starter-two-columns",
+        name: "Two columns",
+        sections: [
+          { id: "left", x: 0.06, y: 0.06, w: 0.42, h: 0.88 },
+          { id: "right", x: 0.52, y: 0.06, w: 0.42, h: 0.88 },
+        ],
+      },
+    };
+    const validated = validatePlannerComposition({ version: 2, placements: [], layouts: [assignment] });
+    expect(validated.layouts).toEqual([assignment]);
+    expect(layoutAppliesToPage(assignment, "daily", 3)).toBe(true);
+    expect(layoutAppliesToPage(assignment, "daily", 5)).toBe(false);
+    expect(resolvePlacementGeometry(placement, validated, "daily", 3))
+      .toEqual(assignment.layout.sections[0]);
+    expect(resolvePlacementGeometry(placement, validated, "daily", 5))
+      .toEqual({ x: placement.x, y: placement.y, w: placement.w, h: placement.h });
+  });
+
+  it("rejects overlapping or unsafe layout sections", () => {
+    const layout = {
+      id: "layout-assignment-1",
+      pageType: "daily",
+      pageIndex: 0,
+      scope: "page",
+      layout: {
+        id: "bad-layout",
+        name: "Bad layout",
+        sections: [
+          { id: "a", x: 0.06, y: 0.06, w: 0.5, h: 0.5 },
+          { id: "b", x: 0.5, y: 0.4, w: 0.3, h: 0.3 },
+        ],
+      },
+    };
+    expect(() => validatePlannerComposition({ version: 2, placements: [], layouts: [layout] }))
+      .toThrow("cannot overlap");
+    expect(() => validatePlannerComposition({
+      version: 2,
+      placements: [],
+      layouts: [{ ...layout, layout: { ...layout.layout, sections: [{ id: "edge", x: 0.01, y: 0.06, w: 0.3, h: 0.3 }] } }],
+    })).toThrow("safe margin");
+  });
+
+  it("keeps a one-section matching layout collision-safe on pages generated later", () => {
+    const composition = validatePlannerComposition({
+      version: 2,
+      placements: [
+        { ...placement, id: "kept", pageType: "daily", scope: "matching" },
+        { ...placement, id: "hidden", widgetId: "widget-2", pageType: "daily", scope: "matching" },
+      ],
+      layouts: [{
+        id: "all-daily",
+        pageType: "daily",
+        pageIndex: 0,
+        scope: "matching",
+        layout: {
+          id: "one",
+          name: "One",
+          sections: [{ id: "only", x: 0.06, y: 0.06, w: 0.88, h: 0.88 }],
+        },
+        placementSections: { kept: "only" },
+        hiddenPlacementIds: ["hidden"],
+      }],
+    });
+    expect(resolvePlacementGeometry(composition.placements[0], composition, "daily", 500))
+      .toEqual({ id: "only", x: 0.06, y: 0.06, w: 0.88, h: 0.88 });
+    expect(placementHiddenByLayout(composition.placements[1], composition, "daily", 500)).toBe(true);
   });
 
   it("rejects placements that cross an unsafe page edge", () => {

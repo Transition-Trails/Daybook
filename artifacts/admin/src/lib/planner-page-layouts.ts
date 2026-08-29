@@ -1,6 +1,7 @@
 import type {
   PlannerLayoutSection,
   PlannerPageLayout,
+  PlannerPageGrid,
   PlannerPageLayoutAssignment,
   PlannerWidgetPlacement,
   StorePlannerComposition,
@@ -10,6 +11,8 @@ export const PLANNER_SAFE_INSET = 0.06;
 export const PLANNER_BINDING_INSET = 0.1;
 export const PLANNER_SLOT_GAP = 0.018;
 const GEOMETRY_EPSILON = 1e-9;
+export const MAX_PLANNER_GRID_ROWS = 6;
+export const MAX_PLANNER_GRID_COLUMNS = 4;
 
 export function containPlannerGeometryForBinding(
   geometry: Pick<PlannerLayoutSection, "x" | "y" | "w" | "h">,
@@ -31,6 +34,66 @@ export function containPlannerGeometryForBinding(
     w: Math.max(0, geometry.w - overflow),
     h: geometry.h,
   };
+}
+
+function gridSections(grid: PlannerPageGrid): PlannerLayoutSection[] {
+  const width = (grid.w - PLANNER_SLOT_GAP * (grid.columns - 1)) / grid.columns;
+  const height = (grid.h - PLANNER_SLOT_GAP * (grid.rows - 1)) / grid.rows;
+  const stable = (value: number) => Math.floor(value * 1_000_000) / 1_000_000;
+  return Array.from({ length: grid.rows * grid.columns }, (_, index) => {
+    const row = Math.floor(index / grid.columns);
+    const column = index % grid.columns;
+    return {
+      id: `${grid.id}-r${row + 1}-c${column + 1}`,
+      x: stable(grid.x + column * (width + PLANNER_SLOT_GAP)),
+      y: stable(grid.y + row * (height + PLANNER_SLOT_GAP)),
+      w: stable(width),
+      h: stable(height),
+    };
+  });
+}
+
+export function createEditablePlannerGridLayout(
+  id: string,
+  name: string,
+  spread: boolean,
+  rows = 4,
+  columns = 2,
+): PlannerPageLayout {
+  const grids: PlannerPageGrid[] = spread
+    ? [
+        { id: "left-grid", side: "left", rows, columns, x: 0.06, y: 0.06, w: 0.41, h: 0.88 },
+        { id: "right-grid", side: "right", rows, columns, x: 0.53, y: 0.06, w: 0.41, h: 0.88 },
+      ]
+    : [{ id: "page-grid", side: "page", rows, columns, x: 0.1, y: 0.06, w: 0.84, h: 0.88 }];
+  return { id, name, grids, sections: grids.flatMap(gridSections) };
+}
+
+export function updatePlannerGrid(
+  layout: PlannerPageLayout,
+  gridId: string,
+  patch: Partial<Pick<PlannerPageGrid, "rows" | "columns" | "x" | "y" | "w" | "h">>,
+): PlannerPageLayout {
+  if (!layout.grids?.length) return layout;
+  const grids = layout.grids.map((grid) => {
+    if (grid.id !== gridId) return grid;
+    const minX = grid.side === "left" ? 0.06 : grid.side === "right" ? 0.53 : 0.1;
+    const maxX = grid.side === "left" ? 0.47 : 0.94;
+    const x = Math.max(minX, Math.min(maxX - 0.12, patch.x ?? grid.x));
+    const y = Math.max(PLANNER_SAFE_INSET, Math.min(0.82, patch.y ?? grid.y));
+    return {
+      ...grid,
+      ...patch,
+      rows: Math.max(1, Math.min(MAX_PLANNER_GRID_ROWS, patch.rows ?? grid.rows)),
+      columns: Math.max(1, Math.min(MAX_PLANNER_GRID_COLUMNS, patch.columns ?? grid.columns)),
+      x,
+      y,
+      w: Math.max(0.12, Math.min(maxX - x, patch.w ?? grid.w)),
+      h: Math.max(0.12, Math.min(1 - PLANNER_SAFE_INSET - y, patch.h ?? grid.h)),
+    };
+  });
+  if (grids.reduce((total, grid) => total + grid.rows * grid.columns, 0) > 24) return layout;
+  return { ...layout, grids, sections: grids.flatMap(gridSections) };
 }
 
 function gridLayout(id: string, name: string, columns: number, rows: number): PlannerPageLayout {

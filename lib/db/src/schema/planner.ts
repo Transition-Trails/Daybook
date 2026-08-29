@@ -54,10 +54,24 @@ export type PlannerLayoutSection = {
   h: number;
 };
 
+export type PlannerPageGrid = {
+  id: string;
+  side: "left" | "right" | "page";
+  rows: number;
+  columns: number;
+  /** Normalized bounds inside the page or spread safe area. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
 export type PlannerPageLayout = {
   id: string;
   name: string;
   sections: PlannerLayoutSection[];
+  /** Optional editable grid metadata; sections remain the resolved render contract. */
+  grids?: PlannerPageGrid[];
 };
 
 export type PlannerPageLayoutAssignment = {

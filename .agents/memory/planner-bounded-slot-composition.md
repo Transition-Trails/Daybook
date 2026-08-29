@@ -39,6 +39,12 @@ Reusable page layouts are immutable snapshots assigned by page, range, or matchi
 
 **How to apply:** Resolve the latest applicable assignment in canvas and PDF. Store page-keyed bindings/hides for mixed scopes plus collision-safe defaults for matching placements so future generated pages inherit the same bounds.
 
+Editable planner grids are optional layout metadata layered over the immutable resolved sections contract. Landscape spreads own independent left/right grids; portrait pages own one page grid. Grid edits regenerate stable row/column section IDs without replacing normalized placement geometry.
+
+**Why:** The editor needs row, column, and bounded-size controls without breaking existing saved compositions or creating a second preview/export geometry model.
+
+**How to apply:** Keep each grid inside its page-side safe area, cap the combined result at 24 sections, preserve assignments whose section IDs survive an edit, and warn before removing occupied cells.
+
 The Planner Studio assistant receives a compact, template-scoped snapshot only when a question is sent. It includes the active page, bounded-slot state, selected widget, and current personalization/system/output choices, but never raw assets or PDF data.
 
 **Why:** Recommendations need to follow the user’s exact page and unsaved settings without leaking stale state when templates or studio modes change.

@@ -1562,10 +1562,22 @@ export interface PlannerLayoutSection {
   h: number;
 }
 
+export interface PlannerPageGrid {
+  id: string;
+  side: "left" | "right" | "page";
+  rows: number;
+  columns: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface PlannerPageLayout {
   id: string;
   name: string;
   sections: PlannerLayoutSection[];
+  grids?: PlannerPageGrid[];
 }
 
 export interface PlannerPageLayoutAssignment {

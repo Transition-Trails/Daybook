@@ -190,7 +190,49 @@ function validateLayout(layout: unknown, label: string): PlannerPageLayout {
       }
     }
   }
-  return { id: candidate.id.trim(), name: candidate.name.trim(), sections };
+  const grids = candidate.grids?.map((grid, index) => {
+    if (!grid || typeof grid !== "object") {
+      throw new InvalidPlannerCompositionError(`${label} grid ${index + 1} is invalid`);
+    }
+    if (typeof grid.id !== "string" || !grid.id.trim()) {
+      throw new InvalidPlannerCompositionError(`${label} grid ${index + 1} needs an id`);
+    }
+    if (!["left", "right", "page"].includes(grid.side)) {
+      throw new InvalidPlannerCompositionError(`${label} grid ${index + 1} has an invalid side`);
+    }
+    if (
+      !Number.isInteger(grid.rows) || grid.rows < 1 || grid.rows > 6 ||
+      !Number.isInteger(grid.columns) || grid.columns < 1 || grid.columns > 4
+    ) {
+      throw new InvalidPlannerCompositionError(`${label} grid ${index + 1} has invalid dimensions`);
+    }
+    if (![grid.x, grid.y, grid.w, grid.h].every(finite)) {
+      throw new InvalidPlannerCompositionError(`${label} grid ${index + 1} coordinates must be numbers`);
+    }
+    const minX = grid.side === "left" ? SAFE_INSET : grid.side === "right" ? 0.53 : 0.1;
+    const maxX = grid.side === "left" ? 0.47 : 1 - SAFE_INSET;
+    if (
+      grid.w < MIN_SIZE || grid.h < MIN_SIZE ||
+      grid.x < minX || grid.y < SAFE_INSET ||
+      grid.x + grid.w > maxX + GEOMETRY_EPSILON ||
+      grid.y + grid.h > 1 - SAFE_INSET + GEOMETRY_EPSILON
+    ) {
+      throw new InvalidPlannerCompositionError(`${label} grid ${index + 1} must stay inside its page safe area`);
+    }
+    return { ...grid, id: grid.id.trim() };
+  });
+  if (grids?.length) {
+    if (grids.length > 2 || new Set(grids.map((grid) => grid.id)).size !== grids.length) {
+      throw new InvalidPlannerCompositionError(`${label} grids need unique ids`);
+    }
+    if (new Set(grids.map((grid) => grid.side)).size !== grids.length) {
+      throw new InvalidPlannerCompositionError(`${label} can only contain one grid per page side`);
+    }
+    if (grids.reduce((total, grid) => total + grid.rows * grid.columns, 0) !== sections.length) {
+      throw new InvalidPlannerCompositionError(`${label} grid cells must match its resolved sections`);
+    }
+  }
+  return { id: candidate.id.trim(), name: candidate.name.trim(), sections, ...(grids?.length ? { grids } : {}) };
 }
 
 function validateLayoutAssignments(input: unknown): PlannerPageLayoutAssignment[] {

@@ -12,7 +12,9 @@ import {
   buildMatchingLayoutPlacementDefaults,
   buildPageLayoutPlacementState,
   containPlannerGeometryForBinding,
+  createEditablePlannerGridLayout,
   resolvePlannerPageLayout,
+  updatePlannerGrid,
   validatePlannerPageLayout,
 } from "@/lib/planner-page-layouts";
 
@@ -177,6 +179,41 @@ describe("reusable planner page layouts", () => {
     for (const layout of STARTER_PLANNER_LAYOUTS) {
       expect(() => validatePlannerPageLayout(layout)).not.toThrow();
     }
+  });
+
+  it("creates independent bounded grids for both pages of a spread", () => {
+    const layout = createEditablePlannerGridLayout("spread", "Spread", true);
+    expect(layout.grids).toHaveLength(2);
+    expect(layout.sections).toHaveLength(16);
+    expect(layout.grids?.map((grid) => grid.side)).toEqual(["left", "right"]);
+    expect(Math.max(...layout.sections.slice(0, 8).map((section) => section.x + section.w))).toBeLessThanOrEqual(0.47);
+    expect(Math.min(...layout.sections.slice(8).map((section) => section.x))).toBeGreaterThanOrEqual(0.53);
+  });
+
+  it("preserves stable cells while adding and removing grid rows", () => {
+    const layout = createEditablePlannerGridLayout("spread", "Spread", true);
+    const left = layout.grids![0];
+    const expanded = updatePlannerGrid(layout, left.id, { rows: 3 });
+    expect(expanded.sections.map((section) => section.id)).toEqual(expect.arrayContaining([
+      "left-grid-r1-c1",
+      "left-grid-r1-c2",
+      "left-grid-r2-c1",
+      "left-grid-r2-c2",
+    ]));
+    const shrunk = updatePlannerGrid(expanded, left.id, { rows: 1 });
+    expect(shrunk.sections.map((section) => section.id)).toContain("left-grid-r1-c1");
+    expect(shrunk.sections.map((section) => section.id)).not.toContain("left-grid-r2-c1");
+  });
+
+  it("clamps editable grid geometry and refuses changes beyond 24 cells", () => {
+    const layout = createEditablePlannerGridLayout("spread", "Spread", true);
+    const left = layout.grids![0];
+    const bounded = updatePlannerGrid(layout, left.id, { w: 2, h: 2 });
+    expect(bounded.grids![0].x + bounded.grids![0].w).toBeLessThanOrEqual(0.47);
+    expect(bounded.grids![0].y + bounded.grids![0].h).toBeLessThanOrEqual(0.94);
+    const atLimit = updatePlannerGrid(bounded, left.id, { rows: 4, columns: 4 });
+    expect(atLimit.sections).toHaveLength(24);
+    expect(updatePlannerGrid(atLimit, left.id, { rows: 5, columns: 4 })).toBe(atLimit);
   });
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Bookmark, Check, FileUp, GripVertical, Grid2X2, LayoutTemplate, Plus, Save, Search, Trash2, X } from "lucide-react";
 import { getPlannerPageCounts, getPlannerPageDescriptors, type PlannerPageType } from "@workspace/db/planner-pages";
@@ -23,9 +23,11 @@ import {
   buildMatchingLayoutPlacementDefaults,
   buildPageLayoutPlacementState,
   containPlannerGeometryForBinding,
+  createEditablePlannerGridLayout,
   placementSectionIndex,
   resolvePlannerPageLayout,
   resolvePlannerPageLayoutAssignment,
+  updatePlannerGrid,
   validatePlannerPageLayout,
 } from "@/lib/planner-page-layouts";
 
@@ -171,6 +173,17 @@ export default function PlatformTemplateCanvas({
   const [draggedPageKey, setDraggedPageKey] = useState<string | null>(null);
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
   const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
+  const [selectedGridId, setSelectedGridId] = useState<string | null>(null);
+  const [draftGridLayout, setDraftGridLayout] = useState<PlannerPageLayout | null>(null);
+  const [gridResize, setGridResize] = useState<{
+    gridId: string;
+    axis: "width" | "height" | "both";
+    startX: number;
+    startY: number;
+    startW: number;
+    startH: number;
+  } | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"compose" | "preview">("compose");
   const [activeTab, setActiveTab] = useState<"personalization" | "system">("personalization");
@@ -231,9 +244,18 @@ export default function PlatformTemplateCanvas({
     staleTime: 0,
   });
   const page = pages[pagePosition] ?? pages[0];
-  const activeLayout = page
+  const isTwoPageSpread = (layoutOrientation ?? template.setup.orientation) === "landscape";
+  const resolvedLayout = page
     ? resolvePlannerPageLayout(composition, page.type, page.index)
     : LEGACY_PLANNER_LAYOUT;
+  const baseLayout = resolvedLayout.grids?.length || resolvedLayout.id !== LEGACY_PLANNER_LAYOUT.id
+    ? resolvedLayout
+    : createEditablePlannerGridLayout(
+        `editable-${isTwoPageSpread ? "spread" : "page"}`,
+        isTwoPageSpread ? "Left and right page grids" : "Page grid",
+        isTwoPageSpread,
+      );
+  const activeLayout = draftGridLayout ?? baseLayout;
   const activeLayoutAssignment = page
     ? resolvePlannerPageLayoutAssignment(composition, page.type, page.index)
     : undefined;
@@ -282,6 +304,9 @@ export default function PlatformTemplateCanvas({
     widget.name.toLowerCase().includes(query.trim().toLowerCase())
   );
   const selectedWidget = widgets.find((widget) => widget.id === selectedWidgetId) ?? null;
+  const selectedGrid = activeLayout.grids?.find((grid) => grid.id === selectedGridId)
+    ?? activeLayout.grids?.[0]
+    ?? null;
   const starterLayouts = STARTER_PLANNER_LAYOUTS.filter((layout) => layout.sections.length === starterWidgetCount);
   const chooseStarterWidgetCount = (count: number) => {
     const next = STARTER_PLANNER_LAYOUTS.find((layout) => layout.sections.length === count);
@@ -293,6 +318,105 @@ export default function PlatformTemplateCanvas({
     const currentIndex = STARTER_WIDGET_COUNTS.findIndex((count) => count === starterWidgetCount);
     const nextIndex = Math.max(0, Math.min(STARTER_WIDGET_COUNTS.length - 1, currentIndex + direction));
     chooseStarterWidgetCount(STARTER_WIDGET_COUNTS[nextIndex]);
+  };
+
+  useEffect(() => {
+    setDraftGridLayout(null);
+    setGridResize(null);
+    setSelectedGridId(null);
+  }, [pagePosition, isTwoPageSpread]);
+
+  const persistGridLayout = (nextLayout: PlannerPageLayout, removedSectionIds = new Set<string>()) => {
+    if (!page) return;
+    const affectedPlacementIds = new Set<string>();
+    const bindings: Record<string, string> = {};
+    for (const [slotIndex, placement] of occupied) {
+      const sectionId = slots[slotIndex]?.id;
+      if (!sectionId) continue;
+      if (removedSectionIds.has(sectionId)) affectedPlacementIds.add(placement.id);
+      else if (nextLayout.sections.some((section) => section.id === sectionId)) bindings[placement.id] = sectionId;
+    }
+    if (
+      affectedPlacementIds.size &&
+      !window.confirm(
+        `${affectedPlacementIds.size} occupied widget space${affectedPlacementIds.size === 1 ? "" : "s"} will be removed. Continue?`,
+      )
+    ) return;
+    const key = pageKey(page);
+    const assignment: PlannerPageLayoutAssignment = {
+      id: `${newPlacementId().replace("placement-", "layout-")}-grid`,
+      pageType: page.type,
+      pageIndex: page.index,
+      scope: "page",
+      layout: structuredClone(nextLayout),
+      ...(Object.keys(bindings).length ? { pagePlacementSections: { [key]: bindings } } : {}),
+    };
+    setComposition((current) => ({
+      version: 2,
+      placements: current.placements.filter((placement) => !affectedPlacementIds.has(placement.id)),
+      layouts: [
+        ...(current.layouts ?? []).filter((existing) =>
+          !(existing.scope === "page" && existing.pageType === page.type && existing.pageIndex === page.index)
+        ),
+        assignment,
+      ],
+    }));
+    if (selectedPlacementId && affectedPlacementIds.has(selectedPlacementId)) setSelectedPlacementId(null);
+    setDraftGridLayout(null);
+  };
+
+  const changeGridCount = (axis: "rows" | "columns", delta: number) => {
+    if (!selectedGrid) return;
+    const nextLayout = updatePlannerGrid(activeLayout, selectedGrid.id, {
+      [axis]: selectedGrid[axis] + delta,
+    });
+    if (nextLayout === activeLayout) return;
+    const nextIds = new Set(nextLayout.sections.map((section) => section.id));
+    const removed = new Set(activeLayout.sections.filter((section) => !nextIds.has(section.id)).map((section) => section.id));
+    persistGridLayout(nextLayout, removed);
+  };
+
+  const beginGridResize = (
+    event: PointerEvent<HTMLElement>,
+    gridId: string,
+    axis: "width" | "height" | "both",
+  ) => {
+    const grid = activeLayout.grids?.find((candidate) => candidate.id === gridId);
+    const bounds = canvasRef.current?.getBoundingClientRect();
+    if (!grid || !bounds) return;
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSelectedGridId(gridId);
+    setDraftGridLayout(activeLayout);
+    setGridResize({
+      gridId,
+      axis,
+      startX: event.clientX / bounds.width,
+      startY: event.clientY / bounds.height,
+      startW: grid.w,
+      startH: grid.h,
+    });
+  };
+
+  const resizeGrid = (event: PointerEvent<HTMLDivElement>) => {
+    if (!gridResize || !draftGridLayout) return;
+    const bounds = canvasRef.current?.getBoundingClientRect();
+    const grid = draftGridLayout.grids?.find((candidate) => candidate.id === gridResize.gridId);
+    if (!bounds || !grid) return;
+    const dx = event.clientX / bounds.width - gridResize.startX;
+    const dy = event.clientY / bounds.height - gridResize.startY;
+    const maxRight = grid.side === "left" ? 0.47 : 0.94;
+    const maxBottom = 0.94;
+    const patch = {
+      ...(gridResize.axis !== "height" ? { w: Math.max(0.12, Math.min(maxRight - grid.x, gridResize.startW + dx)) } : {}),
+      ...(gridResize.axis !== "width" ? { h: Math.max(0.12, Math.min(maxBottom - grid.y, gridResize.startH + dy)) } : {}),
+    };
+    setDraftGridLayout(updatePlannerGrid(draftGridLayout, grid.id, patch));
+  };
+
+  const finishGridResize = () => {
+    if (gridResize && draftGridLayout) persistGridLayout(draftGridLayout);
+    setGridResize(null);
   };
 
   const movePage = (fromIndex: number, toIndex: number) => {
@@ -551,7 +675,6 @@ export default function PlatformTemplateCanvas({
 
   if (!page) return null;
   const freeCount = slots.length - occupied.size;
-  const isTwoPageSpread = (layoutOrientation ?? template.setup.orientation) === "landscape";
   const canvasWidthClass = isTwoPageSpread ? "max-w-[900px]" : "max-w-[560px]";
   const pageNoun = isTwoPageSpread ? "Spread" : "Page";
 
@@ -719,10 +842,34 @@ export default function PlatformTemplateCanvas({
               <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">{pageNoun} {pagePosition + 1} of {pages.length}</p><h3 className="font-display text-lg font-semibold">{page.label}</h3></div>
               <div className="text-right"><p className="text-xs font-semibold">{freeCount} of {slots.length} spaces available</p><p className="text-[10px] text-muted-foreground">Delete a widget to free its space</p></div>
             </div>
+            {selectedGrid && (
+              <div className={`w-full ${canvasWidthClass} mb-3 rounded-lg border bg-background p-2 flex flex-wrap items-center gap-2`} data-testid="planner-grid-controls">
+                <span className="mr-auto px-1 text-xs font-semibold">
+                  {selectedGrid.side === "left" ? "Left page" : selectedGrid.side === "right" ? "Right page" : "Page"} grid
+                  <span className="ml-1 font-normal text-muted-foreground">{selectedGrid.rows} × {selectedGrid.columns}</span>
+                </span>
+                <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => changeGridCount("rows", -1)} disabled={selectedGrid.rows <= 1}>
+                  − Row
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => changeGridCount("rows", 1)} disabled={activeLayout.sections.length + selectedGrid.columns > 24}>
+                  + Row
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => changeGridCount("columns", -1)} disabled={selectedGrid.columns <= 1}>
+                  − Column
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => changeGridCount("columns", 1)} disabled={activeLayout.sections.length + selectedGrid.rows > 24}>
+                  + Column
+                </Button>
+              </div>
+            )}
             <div
+              ref={canvasRef}
               className={`relative w-full ${canvasWidthClass} bg-card border shadow-lg overflow-hidden`}
               style={{ aspectRatio: isTwoPageSpread ? "1.54 / 1" : ".77 / 1" }}
               data-planner-layout={isTwoPageSpread ? "two-page" : "vertical"}
+              onPointerMove={resizeGrid}
+              onPointerUp={finishGridResize}
+              onPointerCancel={finishGridResize}
             >
               {isTwoPageSpread ? (
                 <>
@@ -785,6 +932,48 @@ export default function PlatformTemplateCanvas({
                   );
                 })}
               </div>
+              {activeLayout.grids?.map((grid) => {
+                const selected = grid.id === selectedGrid?.id;
+                return (
+                  <div
+                    key={grid.id}
+                    className={`absolute z-40 rounded-md border-2 pointer-events-none ${selected ? "border-primary" : "border-transparent hover:border-primary/40"}`}
+                    style={{ left: `${grid.x * 100}%`, top: `${grid.y * 100}%`, width: `${grid.w * 100}%`, height: `${grid.h * 100}%` }}
+                    data-testid={`editable-grid-${grid.side}`}
+                  >
+                    <button
+                      type="button"
+                      aria-label={`Select ${grid.side} grid`}
+                      className="absolute left-1 top-1 rounded border bg-background/95 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide pointer-events-auto shadow-sm"
+                      onClick={() => setSelectedGridId(grid.id)}
+                    >
+                      Edit {grid.side}
+                    </button>
+                    {selected && (
+                      <>
+                        <button
+                          type="button"
+                          aria-label="Resize grid width"
+                          className="absolute z-10 right-[-6px] top-1/2 h-8 w-3 -translate-y-1/2 rounded-full border-2 border-primary bg-background pointer-events-auto cursor-ew-resize"
+                          onPointerDown={(event) => beginGridResize(event, grid.id, "width")}
+                        />
+                        <button
+                          type="button"
+                          aria-label="Resize grid height"
+                          className="absolute z-10 bottom-[-6px] left-1/2 h-3 w-8 -translate-x-1/2 rounded-full border-2 border-primary bg-background pointer-events-auto cursor-ns-resize"
+                          onPointerDown={(event) => beginGridResize(event, grid.id, "height")}
+                        />
+                        <button
+                          type="button"
+                          aria-label="Resize grid"
+                          className="absolute z-20 bottom-[-7px] right-[-7px] h-4 w-4 rounded-sm border-2 border-primary bg-background pointer-events-auto cursor-nwse-resize"
+                          onPointerDown={(event) => beginGridResize(event, grid.id, "both")}
+                        />
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className={`mt-3 w-full ${canvasWidthClass} rounded-lg border bg-background px-3 py-2 flex items-center gap-2 text-xs`}>
               <Grid2X2 className="w-4 h-4 text-primary" />

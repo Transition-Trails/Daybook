@@ -188,7 +188,7 @@ export default function PlatformTemplateCanvas({
   } | null>(null);
   const [cellResize, setCellResize] = useState<{
     cellId: string;
-    axis: "width" | "height" | "both";
+    axis: "left" | "width" | "height" | "both";
     startX: number;
     startY: number;
     startW: number;
@@ -417,7 +417,7 @@ export default function PlatformTemplateCanvas({
   const beginCellResize = (
     event: PointerEvent<HTMLElement>,
     cellId: string,
-    axis: "width" | "height" | "both",
+    axis: "left" | "width" | "height" | "both",
   ) => {
     const cell = activeLayout.sections.find((section) => section.id === cellId);
     const bounds = canvasRef.current?.getBoundingClientRect();
@@ -461,7 +461,10 @@ export default function PlatformTemplateCanvas({
     const dx = event.clientX / bounds.width - cellResize.startX;
     const dy = event.clientY / bounds.height - cellResize.startY;
     setDraftGridLayout(updatePlannerCell(draftGridLayout, cell.id, {
-      w: cellResize.axis === "height" ? cell.w : cellResize.startW + dx,
+      x: cellResize.axis === "left" ? cell.x + dx : cell.x,
+      w: cellResize.axis === "left"
+        ? cellResize.startW - dx
+        : cellResize.axis === "height" ? cell.w : cellResize.startW + dx,
       h: cellResize.axis === "width" ? cell.h : cellResize.startH + dy,
     }));
   };
@@ -1045,7 +1048,13 @@ export default function PlatformTemplateCanvas({
                           >
                             <button
                               type="button"
-                              aria-label={`Resize ${grid.side} widget area ${cell.id}`}
+                              aria-label={`Resize ${grid.side} widget area ${cell.id} from left edge`}
+                              className="absolute left-[-5px] top-1/2 h-7 w-2.5 -translate-y-1/2 rounded-full border-2 border-accent bg-background pointer-events-auto cursor-ew-resize"
+                              onPointerDown={(event) => beginCellResize(event, cell.id, "left")}
+                            />
+                            <button
+                              type="button"
+                              aria-label={`Resize ${grid.side} widget area ${cell.id} from right edge`}
                               className="absolute right-[-5px] top-1/2 h-7 w-2.5 -translate-y-1/2 rounded-full border-2 border-accent bg-background pointer-events-auto cursor-ew-resize"
                               onPointerDown={(event) => beginCellResize(event, cell.id, "width")}
                             />

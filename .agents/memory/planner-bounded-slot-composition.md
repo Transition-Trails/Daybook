@@ -45,11 +45,11 @@ Editable planner grids are optional layout metadata layered over the immutable r
 
 **How to apply:** Keep each grid inside its page-side safe area, cap the combined result at 24 sections, preserve assignments whose section IDs survive an edit, and warn before removing occupied cells.
 
-Individual grid cells may override their generated width and height while retaining the same stable section ID. Cell resizing must stop at the page-side boundary or the next cell and remain part of the resolved sections contract.
+Individual grid cells may override their generated horizontal position, width, and height while retaining the same stable section ID. Left- and right-edge resizing must stop at the page-side boundary or neighboring cell and remain part of the resolved sections contract.
 
 **Why:** Equal-size grid controls are not sufficient for mixed widget proportions, but freeform movement would reintroduce overlap and gutter-crossing risks.
 
-**How to apply:** Persist cell sizes as optional overrides keyed by section ID, validate those keys and dimensions at the API boundary, and reset overrides when the parent grid structure changes.
+**How to apply:** Persist cell geometry as optional overrides keyed by section ID, accept legacy width/height-only overrides, validate values at the API boundary, and reset overrides when the parent grid structure changes.
 
 Landscape layout dimensions are per page, not per spread. For example, a two-column layout creates two columns on the left page and two columns on the right page.
 

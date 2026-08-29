@@ -158,7 +158,7 @@ export function updatePlannerGrid(
 export function updatePlannerCell(
   layout: PlannerPageLayout,
   cellId: string,
-  patch: Pick<PlannerLayoutSection, "w" | "h">,
+  patch: Pick<PlannerLayoutSection, "x" | "w" | "h">,
 ): PlannerPageLayout {
   if (!layout.grids?.length) return layout;
   const grid = layout.grids.find((candidate) =>
@@ -175,6 +175,9 @@ export function updatePlannerCell(
   const horizontalPeers = peers.filter((section) =>
     current.y < section.y + section.h && current.y + current.h > section.y && section.x > current.x
   );
+  const leftPeers = peers.filter((section) =>
+    current.y < section.y + section.h && current.y + current.h > section.y && section.x < current.x
+  );
   const verticalPeers = peers.filter((section) =>
     current.x < section.x + section.w && current.x + current.w > section.x && section.y > current.y
   );
@@ -186,7 +189,12 @@ export function updatePlannerCell(
     gridBottom,
     ...verticalPeers.map((section) => section.y - PLANNER_SLOT_GAP),
   );
-  const w = Math.max(0.05, Math.min(maxRight - current.x, patch.w));
+  const minLeft = Math.max(
+    grid.x,
+    ...leftPeers.map((section) => section.x + section.w + PLANNER_SLOT_GAP),
+  );
+  const x = Math.max(minLeft, Math.min(maxRight - 0.05, patch.x));
+  const w = Math.max(0.05, Math.min(maxRight - x, patch.w));
   const h = Math.max(0.05, Math.min(maxBottom - current.y, patch.h));
   const grids = layout.grids.map((candidate) => candidate.id !== grid.id
     ? candidate
@@ -194,7 +202,7 @@ export function updatePlannerCell(
         ...candidate,
         cellOverrides: {
           ...(candidate.cellOverrides ?? {}),
-          [cellId]: { w, h },
+          [cellId]: { x, w, h },
         },
       });
   return { ...layout, grids, sections: grids.flatMap(gridSections) };
@@ -354,9 +362,15 @@ export function validatePlannerPageLayout(input: unknown): PlannerPageLayout {
           if (
             !validCellIds.has(cellId) ||
             !override || typeof override !== "object" ||
-            ![override.w, override.h].every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0.05)
+            (override.x !== undefined && (typeof override.x !== "number" || !Number.isFinite(override.x))) ||
+            ![override.w, override.h].every((value) => typeof value === "number" && Number.isFinite(value)) ||
+            override.w < 0.05 || override.h < 0.05
           ) throw new Error(`Grid ${index + 1} has an invalid cell size override.`);
-          return [cellId, { w: override.w, h: override.h }];
+          return [cellId, {
+            ...(override.x === undefined ? {} : { x: override.x }),
+            w: override.w,
+            h: override.h,
+          }];
         }))
       : undefined;
     return { ...grid, id: grid.id.trim(), ...(cellOverrides ? { cellOverrides } : {}) };

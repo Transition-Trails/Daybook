@@ -145,7 +145,7 @@ describe("planner widget composition", () => {
           w: 0.41,
           h: 0.88,
           cellOverrides: {
-            "editable-grid-left-r1-c1": { w: 0.15, h: 0.7 },
+            "editable-grid-left-r1-c1": { x: 0.06, w: 0.15, h: 0.7 },
           },
         }],
       },

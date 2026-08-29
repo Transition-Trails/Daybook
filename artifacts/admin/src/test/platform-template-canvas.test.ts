@@ -261,13 +261,19 @@ describe("reusable planner page layouts", () => {
     const leftCells = layout.sections.filter((section) => section.id.startsWith("starter-2-wide-left-grid-"));
     const first = leftCells[0];
     const sibling = leftCells[1];
-    const resized = updatePlannerCell(layout, first.id, { w: first.w * 0.7, h: first.h * 0.8 });
+    const resized = updatePlannerCell(layout, first.id, {
+      x: first.x + 0.02,
+      w: first.w * 0.7,
+      h: first.h * 0.8,
+    });
     expect(resized.sections.find((section) => section.id === first.id)).toMatchObject({
+      x: expect.closeTo(first.x + 0.02, 6),
       w: expect.closeTo(first.w * 0.7, 6),
       h: expect.closeTo(first.h * 0.8, 6),
     });
     expect(resized.sections.find((section) => section.id === sibling.id)).toEqual(sibling);
     expect(resized.grids?.[0].cellOverrides?.[first.id]).toEqual({
+      x: expect.closeTo(first.x + 0.02, 6),
       w: expect.closeTo(first.w * 0.7, 6),
       h: expect.closeTo(first.h * 0.8, 6),
     });

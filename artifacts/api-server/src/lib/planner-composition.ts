@@ -231,11 +231,17 @@ function validateLayout(layout: unknown, label: string): PlannerPageLayout {
           if (
             !validCellIds.has(cellId) ||
             !override || typeof override !== "object" ||
-            ![override.w, override.h].every((value) => finite(value) && value >= MIN_SIZE)
+            (override.x !== undefined && !finite(override.x)) ||
+            ![override.w, override.h].every(finite) ||
+            override.w < MIN_SIZE || override.h < MIN_SIZE
           ) {
             throw new InvalidPlannerCompositionError(`${label} grid ${index + 1} has an invalid cell size override`);
           }
-          return [cellId, { w: override.w, h: override.h }];
+          return [cellId, {
+            ...(override.x === undefined ? {} : { x: override.x }),
+            w: override.w,
+            h: override.h,
+          }];
         }))
       : undefined;
     return {

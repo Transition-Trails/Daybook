@@ -1571,7 +1571,10 @@ export interface PlannerPageGrid {
   y: number;
   w: number;
   h: number;
-  cellOverrides?: Record<string, Pick<PlannerLayoutSection, "w" | "h">>;
+  cellOverrides?: Record<
+    string,
+    Pick<PlannerLayoutSection, "w" | "h"> & Partial<Pick<PlannerLayoutSection, "x">>
+  >;
 }
 
 export interface PlannerPageLayout {

@@ -11,6 +11,7 @@ import {
   STARTER_WIDGET_COUNTS,
   buildMatchingLayoutPlacementDefaults,
   buildPageLayoutPlacementState,
+  containPlannerGeometryForBinding,
   resolvePlannerPageLayout,
   validatePlannerPageLayout,
 } from "@/lib/planner-page-layouts";
@@ -60,6 +61,19 @@ describe("platform template bounded widget grid", () => {
 });
 
 describe("reusable planner page layouts", () => {
+  it("keeps layout artwork clear of either binding edge", () => {
+    expect(containPlannerGeometryForBinding(
+      { x: 0.06, y: 0.06, w: 0.88, h: 0.88 },
+      "left",
+    )).toEqual({ x: 0.1, y: 0.06, w: 0.84, h: 0.88 });
+    const rightBound = containPlannerGeometryForBinding(
+      { x: 0.06, y: 0.06, w: 0.88, h: 0.88 },
+      "right",
+    );
+    expect(rightBound).toMatchObject({ x: 0.06, y: 0.06, h: 0.88 });
+    expect(rightBound.w).toBeCloseTo(0.84, 12);
+  });
+
   it("uses the legacy eight-space layout for existing compositions", () => {
     expect(resolvePlannerPageLayout(
       { version: 1, placements: [] },

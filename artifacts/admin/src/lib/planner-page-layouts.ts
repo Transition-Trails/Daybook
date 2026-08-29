@@ -7,8 +7,31 @@ import type {
 } from "@/lib/api";
 
 export const PLANNER_SAFE_INSET = 0.06;
+export const PLANNER_BINDING_INSET = 0.1;
 export const PLANNER_SLOT_GAP = 0.018;
 const GEOMETRY_EPSILON = 1e-9;
+
+export function containPlannerGeometryForBinding(
+  geometry: Pick<PlannerLayoutSection, "x" | "y" | "w" | "h">,
+  bindingEdge: "left" | "right",
+) {
+  if (bindingEdge === "left") {
+    const shift = Math.max(0, PLANNER_BINDING_INSET - geometry.x);
+    return {
+      x: geometry.x + shift,
+      y: geometry.y,
+      w: Math.max(0, geometry.w - shift),
+      h: geometry.h,
+    };
+  }
+  const overflow = Math.max(0, geometry.x + geometry.w - (1 - PLANNER_BINDING_INSET));
+  return {
+    x: geometry.x,
+    y: geometry.y,
+    w: Math.max(0, geometry.w - overflow),
+    h: geometry.h,
+  };
+}
 
 function gridLayout(id: string, name: string, columns: number, rows: number): PlannerPageLayout {
   const usableWidth = 1 - PLANNER_SAFE_INSET * 2;

@@ -22,6 +22,7 @@ import {
   STARTER_WIDGET_COUNTS,
   buildMatchingLayoutPlacementDefaults,
   buildPageLayoutPlacementState,
+  containPlannerGeometryForBinding,
   placementSectionIndex,
   resolvePlannerPageLayout,
   resolvePlannerPageLayoutAssignment,
@@ -727,7 +728,9 @@ export default function PlatformTemplateCanvas({
                 <>
                   <div className="absolute inset-y-0 left-0 w-1/2 border-r bg-card" />
                   <div className="absolute inset-y-0 right-0 w-1/2 bg-card" />
-                  <div className="absolute inset-y-0 left-1/2 z-10 w-[3%] -translate-x-1/2 border-x bg-gradient-to-r from-muted/70 via-background to-muted/70 shadow-sm" />
+                  <div className="absolute inset-[6%_54%_6%_6%] z-20 rounded-sm border border-dashed border-primary/30 pointer-events-none" aria-hidden="true" />
+                  <div className="absolute inset-[6%_6%_6%_54%] z-20 rounded-sm border border-dashed border-primary/30 pointer-events-none" aria-hidden="true" />
+                  <div className="absolute inset-y-0 left-1/2 z-30 w-[6%] -translate-x-1/2 border-x bg-gradient-to-r from-muted via-background to-muted shadow-md pointer-events-none" data-testid="planner-spread-gutter" />
                   <span className="absolute left-[7%] top-[2.5%] text-[8px] font-bold uppercase tracking-[.16em] text-muted-foreground">Left page</span>
                   <span className="absolute left-[54%] top-[2.5%] text-[8px] font-bold uppercase tracking-[.16em] text-muted-foreground">Right page</span>
                 </>
@@ -739,11 +742,14 @@ export default function PlatformTemplateCanvas({
                   const placement = occupied.get(slot.index);
                   const widget = placement ? widgets.find((candidate) => candidate.id === placement.widgetId) : null;
                   const selected = placement?.id === selectedPlacementId;
+                  const safeSlot = isTwoPageSpread
+                    ? slot
+                    : containPlannerGeometryForBinding(slot, pagePosition % 2 === 0 ? "left" : "right");
                   const slotStyle = {
-                    left: `${slot.x * 100}%`,
-                    top: `${slot.y * 100}%`,
-                    width: `${slot.w * 100}%`,
-                    height: `${slot.h * 100}%`,
+                    left: `${safeSlot.x * 100}%`,
+                    top: `${safeSlot.y * 100}%`,
+                    width: `${safeSlot.w * 100}%`,
+                    height: `${safeSlot.h * 100}%`,
                   };
                   return placement ? (
                     <button

@@ -42,7 +42,12 @@ import type {
 } from "@workspace/db";
 import { getPlannerPageCounts } from "@workspace/db/planner-pages";
 import { sanitizeSvg } from "./svg-contract";
-import { placementAppliesToPage, placementHiddenByLayout, resolvePlacementGeometry } from "./planner-composition";
+import {
+  containGeometryForBinding,
+  placementAppliesToPage,
+  placementHiddenByLayout,
+  resolvePlacementGeometry,
+} from "./planner-composition";
 import {
   type PageIdMap,
   type PageRole,
@@ -166,7 +171,7 @@ async function stampWidgetComposition(
     images.set(imageKey, await pdfDoc.embedPng(png));
   }
 
-  for (const [id, entry] of pageMap) {
+  for (const [physicalPageIndex, [id, entry]] of Array.from(pageMap).entries()) {
     const target = pageTarget(map, id);
     if (!target) continue;
     for (const placement of placements) {
@@ -177,7 +182,10 @@ async function stampWidgetComposition(
       ) continue;
       const image = images.get(`${placement.widgetId}:${placement.settings?.paletteSlot ?? "accent"}`);
       if (!image) throw new Error(`Widget ${placement.widgetId} cannot be rendered`);
-      const geometry = resolvePlacementGeometry(placement, style.composition, target.pageType, target.pageIndex);
+      const geometry = containGeometryForBinding(
+        resolvePlacementGeometry(placement, style.composition, target.pageType, target.pageIndex),
+        physicalPageIndex % 2 === 0 ? "left" : "right",
+      );
       const x = geometry.x * pageWidth;
       const y = pageHeight - (geometry.y + geometry.h) * pageHeight;
       const width = geometry.w * pageWidth;

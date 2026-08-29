@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PDFArray, PDFDocument, PDFRawStream } from "pdf-lib";
 import {
   InvalidPlannerCompositionError,
+  containGeometryForBinding,
   layoutAppliesToPage,
   placementHiddenByLayout,
   placementAppliesToPage,
@@ -34,6 +35,23 @@ function pageContentBytes(document: PDFDocument, pageIndex: number): Buffer {
 }
 
 describe("planner widget composition", () => {
+  it("reserves the binding edge without moving artwork already inside the gutter-safe area", () => {
+    expect(containGeometryForBinding(
+      { x: 0.06, y: 0.06, w: 0.88, h: 0.88 },
+      "left",
+    )).toEqual({ x: 0.1, y: 0.06, w: 0.84, h: 0.88 });
+    const rightBound = containGeometryForBinding(
+      { x: 0.06, y: 0.06, w: 0.88, h: 0.88 },
+      "right",
+    );
+    expect(rightBound).toMatchObject({ x: 0.06, y: 0.06, h: 0.88 });
+    expect(rightBound.w).toBeCloseTo(0.84, 12);
+    expect(containGeometryForBinding(
+      { x: 0.12, y: 0.2, w: 0.3, h: 0.2 },
+      "left",
+    )).toEqual({ x: 0.12, y: 0.2, w: 0.3, h: 0.2 });
+  });
+
   it.each([
     { weekStart: "mon" as const, startMonth: 0, startYear: 2027, monthCount: 1, sections: [] as string[], notePaper: "dot" as const },
     { weekStart: "sun" as const, startMonth: 11, startYear: 2027, monthCount: 2, sections: ["Goals", "Projects"], notePaper: "mixed" as const },

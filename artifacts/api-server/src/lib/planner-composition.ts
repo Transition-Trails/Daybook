@@ -15,6 +15,35 @@ const MAX_PLACEMENTS = 100;
 const MAX_LAYOUTS = 1_000;
 const MAX_LAYOUT_SECTIONS = 24;
 const GEOMETRY_EPSILON = 1e-9;
+export const PLANNER_BINDING_INSET = 0.1;
+
+type PlacementGeometry = Pick<PlannerWidgetPlacement, "x" | "y" | "w" | "h">;
+
+/**
+ * Reflows safe-area geometry into a page-side-aware content box. Coordinates
+ * remain normalized, but the binding edge receives extra breathing room.
+ */
+export function containGeometryForBinding(
+  geometry: PlacementGeometry,
+  bindingEdge: "left" | "right",
+): PlacementGeometry {
+  if (bindingEdge === "left") {
+    const shift = Math.max(0, PLANNER_BINDING_INSET - geometry.x);
+    return {
+      x: geometry.x + shift,
+      y: geometry.y,
+      w: Math.max(0, geometry.w - shift),
+      h: geometry.h,
+    };
+  }
+  const overflow = Math.max(0, geometry.x + geometry.w - (1 - PLANNER_BINDING_INSET));
+  return {
+    x: geometry.x,
+    y: geometry.y,
+    w: Math.max(0, geometry.w - overflow),
+    h: geometry.h,
+  };
+}
 
 export class InvalidPlannerCompositionError extends Error {
   readonly code = "INVALID_PLANNER_COMPOSITION";

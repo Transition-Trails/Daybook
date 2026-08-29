@@ -219,7 +219,30 @@ function validateLayout(layout: unknown, label: string): PlannerPageLayout {
     ) {
       throw new InvalidPlannerCompositionError(`${label} grid ${index + 1} must stay inside its page safe area`);
     }
-    return { ...grid, id: grid.id.trim() };
+    const validCellIds = new Set(
+      Array.from({ length: grid.rows * grid.columns }, (_, cellIndex) => {
+        const row = Math.floor(cellIndex / grid.columns) + 1;
+        const column = cellIndex % grid.columns + 1;
+        return `${grid.id}-r${row}-c${column}`;
+      }),
+    );
+    const cellOverrides = grid.cellOverrides
+      ? Object.fromEntries(Object.entries(grid.cellOverrides).map(([cellId, override]) => {
+          if (
+            !validCellIds.has(cellId) ||
+            !override || typeof override !== "object" ||
+            ![override.w, override.h].every((value) => finite(value) && value >= MIN_SIZE)
+          ) {
+            throw new InvalidPlannerCompositionError(`${label} grid ${index + 1} has an invalid cell size override`);
+          }
+          return [cellId, { w: override.w, h: override.h }];
+        }))
+      : undefined;
+    return {
+      ...grid,
+      id: grid.id.trim(),
+      ...(cellOverrides ? { cellOverrides } : {}),
+    };
   });
   if (grids?.length) {
     if (grids.length > 2 || new Set(grids.map((grid) => grid.id)).size !== grids.length) {

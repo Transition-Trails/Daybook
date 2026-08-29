@@ -122,6 +122,52 @@ describe("planner widget composition", () => {
       .toEqual({ x: placement.x, y: placement.y, w: placement.w, h: placement.h });
   });
 
+  it("accepts valid per-cell grid sizes and rejects unknown cell ids", () => {
+    const assignment = {
+      id: "layout-assignment-grid",
+      pageType: "daily",
+      pageIndex: 0,
+      scope: "page" as const,
+      layout: {
+        id: "editable-grid",
+        name: "Editable grid",
+        sections: [
+          { id: "editable-grid-left-r1-c1", x: 0.06, y: 0.06, w: 0.15, h: 0.7 },
+          { id: "editable-grid-left-r1-c2", x: 0.274, y: 0.06, w: 0.196, h: 0.88 },
+        ],
+        grids: [{
+          id: "editable-grid-left",
+          side: "left" as const,
+          rows: 1,
+          columns: 2,
+          x: 0.06,
+          y: 0.06,
+          w: 0.41,
+          h: 0.88,
+          cellOverrides: {
+            "editable-grid-left-r1-c1": { w: 0.15, h: 0.7 },
+          },
+        }],
+      },
+    };
+    expect(validatePlannerComposition({ version: 2, placements: [], layouts: [assignment] }).layouts)
+      .toEqual([assignment]);
+    expect(() => validatePlannerComposition({
+      version: 2,
+      placements: [],
+      layouts: [{
+        ...assignment,
+        layout: {
+          ...assignment.layout,
+          grids: [{
+            ...assignment.layout.grids[0],
+            cellOverrides: { unknown: { w: 0.15, h: 0.7 } },
+          }],
+        },
+      }],
+    })).toThrow("invalid cell size override");
+  });
+
   it("rejects overlapping or unsafe layout sections", () => {
     const layout = {
       id: "layout-assignment-1",

@@ -13,8 +13,10 @@ import {
   buildPageLayoutPlacementState,
   containPlannerGeometryForBinding,
   createEditablePlannerGridLayout,
+  expandPlannerLayoutForSpread,
   resolvePlannerPageLayout,
   updatePlannerGrid,
+  updatePlannerCell,
   validatePlannerPageLayout,
 } from "@/lib/planner-page-layouts";
 
@@ -186,8 +188,12 @@ describe("reusable planner page layouts", () => {
     expect(layout.grids).toHaveLength(2);
     expect(layout.sections).toHaveLength(16);
     expect(layout.grids?.map((grid) => grid.side)).toEqual(["left", "right"]);
-    expect(Math.max(...layout.sections.slice(0, 8).map((section) => section.x + section.w))).toBeLessThanOrEqual(0.47);
-    expect(Math.min(...layout.sections.slice(8).map((section) => section.x))).toBeGreaterThanOrEqual(0.53);
+    expect(layout.grids?.[0].x).toBeCloseTo(0.06, 12);
+    expect(layout.grids?.[0].w).toBeCloseTo(0.39, 12);
+    expect(layout.grids?.[1].x).toBeCloseTo(0.55, 12);
+    expect(layout.grids?.[1].w).toBeCloseTo(0.39, 12);
+    expect(Math.max(...layout.sections.slice(0, 8).map((section) => section.x + section.w))).toBeLessThanOrEqual(0.45);
+    expect(Math.min(...layout.sections.slice(8).map((section) => section.x))).toBeGreaterThanOrEqual(0.55);
   });
 
   it("preserves stable cells while adding and removing grid rows", () => {
@@ -195,25 +201,56 @@ describe("reusable planner page layouts", () => {
     const left = layout.grids![0];
     const expanded = updatePlannerGrid(layout, left.id, { rows: 3 });
     expect(expanded.sections.map((section) => section.id)).toEqual(expect.arrayContaining([
-      "left-grid-r1-c1",
-      "left-grid-r1-c2",
-      "left-grid-r2-c1",
-      "left-grid-r2-c2",
+      "spread-left-grid-r1-c1",
+      "spread-left-grid-r1-c2",
+      "spread-left-grid-r2-c1",
+      "spread-left-grid-r2-c2",
     ]));
     const shrunk = updatePlannerGrid(expanded, left.id, { rows: 1 });
-    expect(shrunk.sections.map((section) => section.id)).toContain("left-grid-r1-c1");
-    expect(shrunk.sections.map((section) => section.id)).not.toContain("left-grid-r2-c1");
+    expect(shrunk.sections.map((section) => section.id)).toContain("spread-left-grid-r1-c1");
+    expect(shrunk.sections.map((section) => section.id)).not.toContain("spread-left-grid-r2-c1");
   });
 
   it("clamps editable grid geometry and refuses changes beyond 24 cells", () => {
     const layout = createEditablePlannerGridLayout("spread", "Spread", true);
     const left = layout.grids![0];
     const bounded = updatePlannerGrid(layout, left.id, { w: 2, h: 2 });
-    expect(bounded.grids![0].x + bounded.grids![0].w).toBeLessThanOrEqual(0.47);
+    expect(bounded.grids![0].x + bounded.grids![0].w).toBeLessThanOrEqual(0.45);
     expect(bounded.grids![0].y + bounded.grids![0].h).toBeLessThanOrEqual(0.94);
     const atLimit = updatePlannerGrid(bounded, left.id, { rows: 4, columns: 4 });
     expect(atLimit.sections).toHaveLength(24);
     expect(updatePlannerGrid(atLimit, left.id, { rows: 5, columns: 4 })).toBe(atLimit);
+  });
+
+  it("expands a two-column layout to two columns on each spread page", () => {
+    const twoColumns = STARTER_PLANNER_LAYOUTS.find((layout) => layout.id === "starter-2-wide")!;
+    const spread = expandPlannerLayoutForSpread(twoColumns);
+    expect(spread.grids?.map((grid) => [grid.side, grid.rows, grid.columns])).toEqual([
+      ["left", 1, 2],
+      ["right", 1, 2],
+    ]);
+    expect(spread.sections).toHaveLength(4);
+    expect(spread.sections.filter((section) => section.x < 0.5)).toHaveLength(2);
+    expect(spread.sections.filter((section) => section.x >= 0.5)).toHaveLength(2);
+  });
+
+  it("resizes one cell without changing its sibling cell", () => {
+    const layout = expandPlannerLayoutForSpread(
+      STARTER_PLANNER_LAYOUTS.find((candidate) => candidate.id === "starter-2-wide")!,
+    );
+    const leftCells = layout.sections.filter((section) => section.id.startsWith("starter-2-wide-left-grid-"));
+    const first = leftCells[0];
+    const sibling = leftCells[1];
+    const resized = updatePlannerCell(layout, first.id, { w: first.w * 0.7, h: first.h * 0.8 });
+    expect(resized.sections.find((section) => section.id === first.id)).toMatchObject({
+      w: expect.closeTo(first.w * 0.7, 6),
+      h: expect.closeTo(first.h * 0.8, 6),
+    });
+    expect(resized.sections.find((section) => section.id === sibling.id)).toEqual(sibling);
+    expect(resized.grids?.[0].cellOverrides?.[first.id]).toEqual({
+      w: expect.closeTo(first.w * 0.7, 6),
+      h: expect.closeTo(first.h * 0.8, 6),
+    });
   });
 });
 

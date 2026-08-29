@@ -9,6 +9,7 @@ import type {
 
 export const PLANNER_SAFE_INSET = 0.06;
 export const PLANNER_BINDING_INSET = 0.1;
+export const PLANNER_SPREAD_INNER_INSET = PLANNER_BINDING_INSET / 2;
 export const PLANNER_SLOT_GAP = 0.018;
 const GEOMETRY_EPSILON = 1e-9;
 export const MAX_PLANNER_GRID_ROWS = 6;
@@ -43,13 +44,15 @@ function gridSections(grid: PlannerPageGrid): PlannerLayoutSection[] {
   return Array.from({ length: grid.rows * grid.columns }, (_, index) => {
     const row = Math.floor(index / grid.columns);
     const column = index % grid.columns;
-    return {
+    const section = {
       id: `${grid.id}-r${row + 1}-c${column + 1}`,
       x: stable(grid.x + column * (width + PLANNER_SLOT_GAP)),
       y: stable(grid.y + row * (height + PLANNER_SLOT_GAP)),
       w: stable(width),
       h: stable(height),
     };
+    const override = grid.cellOverrides?.[section.id];
+    return override ? { ...section, ...override } : section;
   });
 }
 
@@ -62,11 +65,39 @@ export function createEditablePlannerGridLayout(
 ): PlannerPageLayout {
   const grids: PlannerPageGrid[] = spread
     ? [
-        { id: "left-grid", side: "left", rows, columns, x: 0.06, y: 0.06, w: 0.41, h: 0.88 },
-        { id: "right-grid", side: "right", rows, columns, x: 0.53, y: 0.06, w: 0.41, h: 0.88 },
+        {
+          id: `${id}-left-grid`,
+          side: "left",
+          rows,
+          columns,
+          x: PLANNER_SAFE_INSET,
+          y: PLANNER_SAFE_INSET,
+          w: 0.5 - PLANNER_SPREAD_INNER_INSET - PLANNER_SAFE_INSET,
+          h: 0.88,
+        },
+        {
+          id: `${id}-right-grid`,
+          side: "right",
+          rows,
+          columns,
+          x: 0.5 + PLANNER_SPREAD_INNER_INSET,
+          y: PLANNER_SAFE_INSET,
+          w: 0.94 - (0.5 + PLANNER_SPREAD_INNER_INSET),
+          h: 0.88,
+        },
       ]
-    : [{ id: "page-grid", side: "page", rows, columns, x: 0.1, y: 0.06, w: 0.84, h: 0.88 }];
+    : [{ id: `${id}-page-grid`, side: "page", rows, columns, x: 0.1, y: 0.06, w: 0.84, h: 0.88 }];
   return { id, name, grids, sections: grids.flatMap(gridSections) };
+}
+
+export function expandPlannerLayoutForSpread(layout: PlannerPageLayout): PlannerPageLayout {
+  if (layout.grids?.length) return layout;
+  const xColumns = new Set(layout.sections.map((section) => Math.round(section.x * 1_000_000)));
+  const yRows = new Set(layout.sections.map((section) => Math.round(section.y * 1_000_000)));
+  const columns = Math.max(1, Math.min(MAX_PLANNER_GRID_COLUMNS, xColumns.size));
+  const rows = Math.max(1, Math.min(MAX_PLANNER_GRID_ROWS, yRows.size));
+  if (columns * rows !== layout.sections.length) return layout;
+  return createEditablePlannerGridLayout(layout.id, layout.name, true, rows, columns);
 }
 
 export function updatePlannerGrid(
@@ -77,8 +108,12 @@ export function updatePlannerGrid(
   if (!layout.grids?.length) return layout;
   const grids = layout.grids.map((grid) => {
     if (grid.id !== gridId) return grid;
-    const minX = grid.side === "left" ? 0.06 : grid.side === "right" ? 0.53 : 0.1;
-    const maxX = grid.side === "left" ? 0.47 : 0.94;
+    const minX = grid.side === "left"
+      ? PLANNER_SAFE_INSET
+      : grid.side === "right"
+        ? 0.5 + PLANNER_SPREAD_INNER_INSET
+        : 0.1;
+    const maxX = grid.side === "left" ? 0.5 - PLANNER_SPREAD_INNER_INSET : 0.94;
     const x = Math.max(minX, Math.min(maxX - 0.12, patch.x ?? grid.x));
     const y = Math.max(PLANNER_SAFE_INSET, Math.min(0.82, patch.y ?? grid.y));
     return {
@@ -90,9 +125,55 @@ export function updatePlannerGrid(
       y,
       w: Math.max(0.12, Math.min(maxX - x, patch.w ?? grid.w)),
       h: Math.max(0.12, Math.min(1 - PLANNER_SAFE_INSET - y, patch.h ?? grid.h)),
+      ...(grid.cellOverrides ? { cellOverrides: undefined } : {}),
     };
   });
   if (grids.reduce((total, grid) => total + grid.rows * grid.columns, 0) > 24) return layout;
+  return { ...layout, grids, sections: grids.flatMap(gridSections) };
+}
+
+export function updatePlannerCell(
+  layout: PlannerPageLayout,
+  cellId: string,
+  patch: Pick<PlannerLayoutSection, "w" | "h">,
+): PlannerPageLayout {
+  if (!layout.grids?.length) return layout;
+  const grid = layout.grids.find((candidate) =>
+    layout.sections.some((section) => section.id === cellId && section.id.startsWith(`${candidate.id}-r`))
+  );
+  const current = layout.sections.find((section) => section.id === cellId);
+  if (!grid || !current) return layout;
+
+  const gridRight = grid.x + grid.w;
+  const gridBottom = grid.y + grid.h;
+  const peers = layout.sections.filter((section) =>
+    section.id !== cellId && section.id.startsWith(`${grid.id}-r`)
+  );
+  const horizontalPeers = peers.filter((section) =>
+    current.y < section.y + section.h && current.y + current.h > section.y && section.x > current.x
+  );
+  const verticalPeers = peers.filter((section) =>
+    current.x < section.x + section.w && current.x + current.w > section.x && section.y > current.y
+  );
+  const maxRight = Math.min(
+    gridRight,
+    ...horizontalPeers.map((section) => section.x - PLANNER_SLOT_GAP),
+  );
+  const maxBottom = Math.min(
+    gridBottom,
+    ...verticalPeers.map((section) => section.y - PLANNER_SLOT_GAP),
+  );
+  const w = Math.max(0.05, Math.min(maxRight - current.x, patch.w));
+  const h = Math.max(0.05, Math.min(maxBottom - current.y, patch.h));
+  const grids = layout.grids.map((candidate) => candidate.id !== grid.id
+    ? candidate
+    : {
+        ...candidate,
+        cellOverrides: {
+          ...(candidate.cellOverrides ?? {}),
+          [cellId]: { w, h },
+        },
+      });
   return { ...layout, grids, sections: grids.flatMap(gridSections) };
 }
 
@@ -229,7 +310,43 @@ export function validatePlannerPageLayout(input: unknown): PlannerPageLayout {
   const id = typeof candidate.id === "string" && candidate.id.trim()
     ? candidate.id.trim()
     : `imported-${Date.now()}`;
-  return { id, name, sections };
+  const grids = candidate.grids?.map((grid, index) => {
+    if (!grid || typeof grid !== "object") throw new Error(`Grid ${index + 1} is invalid.`);
+    if (
+      typeof grid.id !== "string" || !grid.id.trim() ||
+      !["left", "right", "page"].includes(grid.side) ||
+      !Number.isInteger(grid.rows) || grid.rows < 1 || grid.rows > MAX_PLANNER_GRID_ROWS ||
+      !Number.isInteger(grid.columns) || grid.columns < 1 || grid.columns > MAX_PLANNER_GRID_COLUMNS ||
+      ![grid.x, grid.y, grid.w, grid.h].every((value) => typeof value === "number" && Number.isFinite(value))
+    ) throw new Error(`Grid ${index + 1} is invalid.`);
+    const validCellIds = new Set(
+      Array.from({ length: grid.rows * grid.columns }, (_, cellIndex) => {
+        const row = Math.floor(cellIndex / grid.columns) + 1;
+        const column = cellIndex % grid.columns + 1;
+        return `${grid.id}-r${row}-c${column}`;
+      }),
+    );
+    const cellOverrides = grid.cellOverrides
+      ? Object.fromEntries(Object.entries(grid.cellOverrides).map(([cellId, override]) => {
+          if (
+            !validCellIds.has(cellId) ||
+            !override || typeof override !== "object" ||
+            ![override.w, override.h].every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0.05)
+          ) throw new Error(`Grid ${index + 1} has an invalid cell size override.`);
+          return [cellId, { w: override.w, h: override.h }];
+        }))
+      : undefined;
+    return { ...grid, id: grid.id.trim(), ...(cellOverrides ? { cellOverrides } : {}) };
+  });
+  if (grids?.length) {
+    if (
+      grids.length > 2 ||
+      new Set(grids.map((grid) => grid.id)).size !== grids.length ||
+      new Set(grids.map((grid) => grid.side)).size !== grids.length ||
+      grids.reduce((total, grid) => total + grid.rows * grid.columns, 0) !== sections.length
+    ) throw new Error("Editable grids must have unique page sides and match the resolved sections.");
+  }
+  return { id, name, sections, ...(grids?.length ? { grids } : {}) };
 }
 
 export function assignmentAppliesToPage(

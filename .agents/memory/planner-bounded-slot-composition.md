@@ -45,6 +45,24 @@ Editable planner grids are optional layout metadata layered over the immutable r
 
 **How to apply:** Keep each grid inside its page-side safe area, cap the combined result at 24 sections, preserve assignments whose section IDs survive an edit, and warn before removing occupied cells.
 
+Individual grid cells may override their generated width and height while retaining the same stable section ID. Cell resizing must stop at the page-side boundary or the next cell and remain part of the resolved sections contract.
+
+**Why:** Equal-size grid controls are not sufficient for mixed widget proportions, but freeform movement would reintroduce overlap and gutter-crossing risks.
+
+**How to apply:** Persist cell sizes as optional overrides keyed by section ID, validate those keys and dimensions at the API boundary, and reset overrides when the parent grid structure changes.
+
+Landscape layout dimensions are per page, not per spread. For example, a two-column layout creates two columns on the left page and two columns on the right page.
+
+**Why:** Treating a spread-level “two-column” choice as two cells total produces only one usable column per physical page and contradicts the layout label.
+
+**How to apply:** Infer rows and columns from legacy non-grid layouts, create independent left/right grids with those dimensions, and keep grid and cell IDs layout-scoped so saved assignments remain collision-safe.
+
+New landscape defaults reserve half of the binding inset at the spread seam on each page; with the current 10% binding inset, content ends at 45% on the left and begins at 55% on the right.
+
+**Why:** The center seam needs a protected interior margin on both physical pages, not only the visible spine strip.
+
+**How to apply:** Keep the editor’s dotted safe-area guides, center gutter, and new default grid bounds aligned; do not invalidate older saved layouts that used the narrower legacy seam.
+
 The Planner Studio assistant receives a compact, template-scoped snapshot only when a question is sent. It includes the active page, bounded-slot state, selected widget, and current personalization/system/output choices, but never raw assets or PDF data.
 
 **Why:** Recommendations need to follow the user’s exact page and unsaved settings without leaking stale state when templates or studio modes change.

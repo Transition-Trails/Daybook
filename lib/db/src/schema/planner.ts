@@ -64,6 +64,8 @@ export type PlannerPageGrid = {
   y: number;
   w: number;
   h: number;
+  /** Optional per-cell size overrides keyed by generated stable section id. */
+  cellOverrides?: Record<string, Pick<PlannerLayoutSection, "w" | "h">>;
 };
 
 export type PlannerPageLayout = {

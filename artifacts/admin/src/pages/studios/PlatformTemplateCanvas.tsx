@@ -24,9 +24,12 @@ import {
   buildPageLayoutPlacementState,
   containPlannerGeometryForBinding,
   createEditablePlannerGridLayout,
+  expandPlannerLayoutForSpread,
+  PLANNER_SPREAD_INNER_INSET,
   placementSectionIndex,
   resolvePlannerPageLayout,
   resolvePlannerPageLayoutAssignment,
+  updatePlannerCell,
   updatePlannerGrid,
   validatePlannerPageLayout,
 } from "@/lib/planner-page-layouts";
@@ -183,6 +186,14 @@ export default function PlatformTemplateCanvas({
     startW: number;
     startH: number;
   } | null>(null);
+  const [cellResize, setCellResize] = useState<{
+    cellId: string;
+    axis: "width" | "height" | "both";
+    startX: number;
+    startY: number;
+    startW: number;
+    startH: number;
+  } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"compose" | "preview">("compose");
@@ -248,13 +259,17 @@ export default function PlatformTemplateCanvas({
   const resolvedLayout = page
     ? resolvePlannerPageLayout(composition, page.type, page.index)
     : LEGACY_PLANNER_LAYOUT;
-  const baseLayout = resolvedLayout.grids?.length || resolvedLayout.id !== LEGACY_PLANNER_LAYOUT.id
-    ? resolvedLayout
-    : createEditablePlannerGridLayout(
-        `editable-${isTwoPageSpread ? "spread" : "page"}`,
-        isTwoPageSpread ? "Left and right page grids" : "Page grid",
-        isTwoPageSpread,
-      );
+  const baseLayout = useMemo(() => (
+    resolvedLayout.id === LEGACY_PLANNER_LAYOUT.id
+      ? createEditablePlannerGridLayout(
+          `editable-${isTwoPageSpread ? "spread" : "page"}`,
+          isTwoPageSpread ? "Left and right page grids" : "Page grid",
+          isTwoPageSpread,
+        )
+      : isTwoPageSpread
+        ? expandPlannerLayoutForSpread(resolvedLayout)
+        : resolvedLayout
+  ), [isTwoPageSpread, resolvedLayout]);
   const activeLayout = draftGridLayout ?? baseLayout;
   const activeLayoutAssignment = page
     ? resolvePlannerPageLayoutAssignment(composition, page.type, page.index)
@@ -323,6 +338,7 @@ export default function PlatformTemplateCanvas({
   useEffect(() => {
     setDraftGridLayout(null);
     setGridResize(null);
+    setCellResize(null);
     setSelectedGridId(null);
   }, [pagePosition, isTwoPageSpread]);
 
@@ -398,6 +414,29 @@ export default function PlatformTemplateCanvas({
     });
   };
 
+  const beginCellResize = (
+    event: PointerEvent<HTMLElement>,
+    cellId: string,
+    axis: "width" | "height" | "both",
+  ) => {
+    const cell = activeLayout.sections.find((section) => section.id === cellId);
+    const bounds = canvasRef.current?.getBoundingClientRect();
+    if (!cell || !bounds) return;
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setGridResize(null);
+    setSelectedGridId(activeLayout.grids?.find((grid) => cellId.startsWith(`${grid.id}-r`))?.id ?? null);
+    setDraftGridLayout(activeLayout);
+    setCellResize({
+      cellId,
+      axis,
+      startX: event.clientX / bounds.width,
+      startY: event.clientY / bounds.height,
+      startW: cell.w,
+      startH: cell.h,
+    });
+  };
+
   const resizeGrid = (event: PointerEvent<HTMLDivElement>) => {
     if (!gridResize || !draftGridLayout) return;
     const bounds = canvasRef.current?.getBoundingClientRect();
@@ -405,7 +444,7 @@ export default function PlatformTemplateCanvas({
     if (!bounds || !grid) return;
     const dx = event.clientX / bounds.width - gridResize.startX;
     const dy = event.clientY / bounds.height - gridResize.startY;
-    const maxRight = grid.side === "left" ? 0.47 : 0.94;
+     const maxRight = grid.side === "left" ? 0.5 - PLANNER_SPREAD_INNER_INSET : 0.94;
     const maxBottom = 0.94;
     const patch = {
       ...(gridResize.axis !== "height" ? { w: Math.max(0.12, Math.min(maxRight - grid.x, gridResize.startW + dx)) } : {}),
@@ -414,9 +453,24 @@ export default function PlatformTemplateCanvas({
     setDraftGridLayout(updatePlannerGrid(draftGridLayout, grid.id, patch));
   };
 
+  const resizeCell = (event: PointerEvent<HTMLDivElement>) => {
+    if (!cellResize || !draftGridLayout) return;
+    const bounds = canvasRef.current?.getBoundingClientRect();
+    const cell = draftGridLayout.sections.find((section) => section.id === cellResize.cellId);
+    if (!bounds || !cell) return;
+    const dx = event.clientX / bounds.width - cellResize.startX;
+    const dy = event.clientY / bounds.height - cellResize.startY;
+    setDraftGridLayout(updatePlannerCell(draftGridLayout, cell.id, {
+      w: cellResize.axis === "height" ? cell.w : cellResize.startW + dx,
+      h: cellResize.axis === "width" ? cell.h : cellResize.startH + dy,
+    }));
+  };
+
   const finishGridResize = () => {
     if (gridResize && draftGridLayout) persistGridLayout(draftGridLayout);
+    if (cellResize && draftGridLayout) persistGridLayout(draftGridLayout);
     setGridResize(null);
+    setCellResize(null);
   };
 
   const movePage = (fromIndex: number, toIndex: number) => {
@@ -459,11 +513,14 @@ export default function PlatformTemplateCanvas({
       return;
     }
     const targets = targetPages();
+    const layoutToApply = isTwoPageSpread
+      ? expandPlannerLayoutForSpread(selectedLayout)
+      : selectedLayout;
     if (!targets.length) {
       toast({ title: "Choose at least one page", description: "Select pages in the page rail before applying this layout.", variant: "destructive" });
       return;
     }
-    const placementState = buildPageLayoutPlacementState(composition.placements, targets, selectedLayout);
+    const placementState = buildPageLayoutPlacementState(composition.placements, targets, layoutToApply);
     const hiddenIds = [...new Set(Object.values(placementState.pageHiddenPlacementIds).flat())];
     const superseded = (composition.layouts ?? []).filter((existing) =>
       targets.some((target) =>
@@ -488,11 +545,11 @@ export default function PlatformTemplateCanvas({
       suffix = "",
     ): PlannerPageLayoutAssignment => {
       const matchingDefaults = scope === "matching"
-        ? buildMatchingLayoutPlacementDefaults(composition.placements, target.type, selectedLayout)
+        ? buildMatchingLayoutPlacementDefaults(composition.placements, target.type, layoutToApply)
         : { placementSections: {}, hiddenPlacementIds: [] };
       return {
         id: `${newPlacementId().replace("placement-", "layout-")}${suffix}`,
-        layout: structuredClone(selectedLayout),
+        layout: structuredClone(layoutToApply),
         pageType: target.type,
         pageIndex: target.index,
         scope,
@@ -541,7 +598,7 @@ export default function PlatformTemplateCanvas({
     setLayoutSelectorOpen(false);
     toast({
       title: "Page layout applied",
-      description: `${selectedLayout.name} created ${selectedLayout.sections.length} bounded section${selectedLayout.sections.length === 1 ? "" : "s"} on ${targets.length} page${targets.length === 1 ? "" : "s"}.`,
+      description: `${layoutToApply.name} created ${layoutToApply.sections.length} bounded section${layoutToApply.sections.length === 1 ? "" : "s"} on ${targets.length} page${targets.length === 1 ? "" : "s"}.`,
     });
   };
 
@@ -867,7 +924,10 @@ export default function PlatformTemplateCanvas({
               className={`relative w-full ${canvasWidthClass} bg-card border shadow-lg overflow-hidden`}
               style={{ aspectRatio: isTwoPageSpread ? "1.54 / 1" : ".77 / 1" }}
               data-planner-layout={isTwoPageSpread ? "two-page" : "vertical"}
-              onPointerMove={resizeGrid}
+              onPointerMove={(event) => {
+                resizeGrid(event);
+                resizeCell(event);
+              }}
               onPointerUp={finishGridResize}
               onPointerCancel={finishGridResize}
             >
@@ -875,9 +935,9 @@ export default function PlatformTemplateCanvas({
                 <>
                   <div className="absolute inset-y-0 left-0 w-1/2 border-r bg-card" />
                   <div className="absolute inset-y-0 right-0 w-1/2 bg-card" />
-                  <div className="absolute inset-[6%_54%_6%_6%] z-20 rounded-sm border border-dashed border-primary/30 pointer-events-none" aria-hidden="true" />
-                  <div className="absolute inset-[6%_6%_6%_54%] z-20 rounded-sm border border-dashed border-primary/30 pointer-events-none" aria-hidden="true" />
-                  <div className="absolute inset-y-0 left-1/2 z-30 w-[6%] -translate-x-1/2 border-x bg-gradient-to-r from-muted via-background to-muted shadow-md pointer-events-none" data-testid="planner-spread-gutter" />
+                   <div className="absolute inset-[6%_55%_6%_6%] z-20 rounded-sm border border-dashed border-primary/30 pointer-events-none" aria-hidden="true" />
+                   <div className="absolute inset-[6%_6%_6%_55%] z-20 rounded-sm border border-dashed border-primary/30 pointer-events-none" aria-hidden="true" />
+                   <div className="absolute inset-y-0 left-1/2 z-30 w-[10%] -translate-x-1/2 border-x bg-gradient-to-r from-muted via-background to-muted shadow-md pointer-events-none" data-testid="planner-spread-gutter" />
                   <span className="absolute left-[7%] top-[2.5%] text-[8px] font-bold uppercase tracking-[.16em] text-muted-foreground">Left page</span>
                   <span className="absolute left-[54%] top-[2.5%] text-[8px] font-bold uppercase tracking-[.16em] text-muted-foreground">Right page</span>
                 </>
@@ -934,6 +994,9 @@ export default function PlatformTemplateCanvas({
               </div>
               {activeLayout.grids?.map((grid) => {
                 const selected = grid.id === selectedGrid?.id;
+                const gridCells = activeLayout.sections.filter((section) =>
+                  section.id.startsWith(`${grid.id}-r`)
+                );
                 return (
                   <div
                     key={grid.id}
@@ -969,6 +1032,37 @@ export default function PlatformTemplateCanvas({
                           className="absolute z-20 bottom-[-7px] right-[-7px] h-4 w-4 rounded-sm border-2 border-primary bg-background pointer-events-auto cursor-nwse-resize"
                           onPointerDown={(event) => beginGridResize(event, grid.id, "both")}
                         />
+                        {gridCells.map((cell) => (
+                          <div
+                            key={`cell-resize-${cell.id}`}
+                            className="absolute z-30 pointer-events-none"
+                            style={{
+                              left: `${(cell.x - grid.x) / grid.w * 100}%`,
+                              top: `${(cell.y - grid.y) / grid.h * 100}%`,
+                              width: `${cell.w / grid.w * 100}%`,
+                              height: `${cell.h / grid.h * 100}%`,
+                            }}
+                          >
+                            <button
+                              type="button"
+                              aria-label={`Resize ${grid.side} widget area ${cell.id}`}
+                              className="absolute right-[-5px] top-1/2 h-7 w-2.5 -translate-y-1/2 rounded-full border-2 border-accent bg-background pointer-events-auto cursor-ew-resize"
+                              onPointerDown={(event) => beginCellResize(event, cell.id, "width")}
+                            />
+                            <button
+                              type="button"
+                              aria-label={`Resize ${grid.side} widget area ${cell.id} height`}
+                              className="absolute bottom-[-5px] left-1/2 h-2.5 w-7 -translate-x-1/2 rounded-full border-2 border-accent bg-background pointer-events-auto cursor-ns-resize"
+                              onPointerDown={(event) => beginCellResize(event, cell.id, "height")}
+                            />
+                            <button
+                              type="button"
+                              aria-label={`Resize ${grid.side} widget area ${cell.id} size`}
+                              className="absolute bottom-[-6px] right-[-6px] h-3.5 w-3.5 rounded-sm border-2 border-accent bg-background pointer-events-auto cursor-nwse-resize"
+                              onPointerDown={(event) => beginCellResize(event, cell.id, "both")}
+                            />
+                          </div>
+                        ))}
                       </>
                     )}
                   </div>

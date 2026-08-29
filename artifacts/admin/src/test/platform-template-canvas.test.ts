@@ -189,11 +189,11 @@ describe("reusable planner page layouts", () => {
     expect(layout.sections).toHaveLength(16);
     expect(layout.grids?.map((grid) => grid.side)).toEqual(["left", "right"]);
     expect(layout.grids?.[0].x).toBeCloseTo(0.06, 12);
-    expect(layout.grids?.[0].w).toBeCloseTo(0.39, 12);
-    expect(layout.grids?.[1].x).toBeCloseTo(0.55, 12);
-    expect(layout.grids?.[1].w).toBeCloseTo(0.39, 12);
-    expect(Math.max(...layout.sections.slice(0, 8).map((section) => section.x + section.w))).toBeLessThanOrEqual(0.45);
-    expect(Math.min(...layout.sections.slice(8).map((section) => section.x))).toBeGreaterThanOrEqual(0.55);
+    expect(layout.grids?.[0].w).toBeCloseTo(0.41, 12);
+    expect(layout.grids?.[1].x).toBeCloseTo(0.53, 12);
+    expect(layout.grids?.[1].w).toBeCloseTo(0.41, 12);
+    expect(Math.max(...layout.sections.slice(0, 8).map((section) => section.x + section.w))).toBeLessThanOrEqual(0.47);
+    expect(Math.min(...layout.sections.slice(8).map((section) => section.x))).toBeGreaterThanOrEqual(0.53);
   });
 
   it("preserves stable cells while adding and removing grid rows", () => {
@@ -215,7 +215,7 @@ describe("reusable planner page layouts", () => {
     const layout = createEditablePlannerGridLayout("spread", "Spread", true);
     const left = layout.grids![0];
     const bounded = updatePlannerGrid(layout, left.id, { w: 2, h: 2 });
-    expect(bounded.grids![0].x + bounded.grids![0].w).toBeLessThanOrEqual(0.45);
+    expect(bounded.grids![0].x + bounded.grids![0].w).toBeLessThanOrEqual(0.47);
     expect(bounded.grids![0].y + bounded.grids![0].h).toBeLessThanOrEqual(0.94);
     const atLimit = updatePlannerGrid(bounded, left.id, { rows: 4, columns: 4 });
     expect(atLimit.sections).toHaveLength(24);
@@ -232,6 +232,26 @@ describe("reusable planner page layouts", () => {
     expect(spread.sections).toHaveLength(4);
     expect(spread.sections.filter((section) => section.x < 0.5)).toHaveLength(2);
     expect(spread.sections.filter((section) => section.x >= 0.5)).toHaveLength(2);
+  });
+
+  it("repairs the rejected 10% default gutter without changing stable cell ids", () => {
+    const wide = createEditablePlannerGridLayout("wide", "Wide", true, 1, 2);
+    const oldGrids = wide.grids!.map((grid) => grid.side === "left"
+      ? { ...grid, w: 0.39 }
+      : grid.side === "right"
+        ? { ...grid, x: 0.55, w: 0.39 }
+        : grid);
+    const oldLayout = {
+      ...wide,
+      grids: oldGrids,
+      sections: wide.sections.map((section) => section.id.includes("-right-grid-")
+        ? { ...section, x: section.x + 0.02 }
+        : section),
+    };
+    const repaired = expandPlannerLayoutForSpread(oldLayout);
+    expect(repaired.grids?.[0].x + repaired.grids![0].w).toBeCloseTo(0.47, 12);
+    expect(repaired.grids?.[1].x).toBeCloseTo(0.53, 12);
+    expect(repaired.sections.map((section) => section.id)).toEqual(oldLayout.sections.map((section) => section.id));
   });
 
   it("resizes one cell without changing its sibling cell", () => {

@@ -57,11 +57,11 @@ Landscape layout dimensions are per page, not per spread. For example, a two-col
 
 **How to apply:** Infer rows and columns from legacy non-grid layouts, create independent left/right grids with those dimensions, and keep grid and cell IDs layout-scoped so saved assignments remain collision-safe.
 
-New landscape defaults reserve half of the binding inset at the spread seam on each page; with the current 10% binding inset, content ends at 45% on the left and begins at 55% on the right.
+New landscape defaults reserve a 6% total ring zone at the spread seam: content ends at 47% on the left and begins at 53% on the right.
 
-**Why:** The center seam needs a protected interior margin on both physical pages, not only the visible spine strip.
+**Why:** The ring hardware occupies one shared center zone. Reusing the separate 10% physical binding-containment value as a spread gutter makes the two page designs look artificially far apart.
 
-**How to apply:** Keep the editor’s dotted safe-area guides, center gutter, and new default grid bounds aligned; do not invalidate older saved layouts that used the narrower legacy seam.
+**How to apply:** Keep the editor’s dotted safe-area guides, center gutter, and default grid bounds aligned at 47%/53%. Preserve the separate alternating 10% binding-edge containment rule for physical export.
 
 The Planner Studio assistant receives a compact, template-scoped snapshot only when a question is sent. It includes the active page, bounded-slot state, selected widget, and current personalization/system/output choices, but never raw assets or PDF data.
 

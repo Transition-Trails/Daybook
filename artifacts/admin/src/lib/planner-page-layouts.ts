@@ -9,7 +9,9 @@ import type {
 
 export const PLANNER_SAFE_INSET = 0.06;
 export const PLANNER_BINDING_INSET = 0.1;
-export const PLANNER_SPREAD_INNER_INSET = PLANNER_BINDING_INSET / 2;
+/** Normalized default ring zone across a landscape spread. */
+export const PLANNER_SPREAD_GUTTER = 0.06;
+export const PLANNER_SPREAD_INNER_INSET = PLANNER_SPREAD_GUTTER / 2;
 export const PLANNER_SLOT_GAP = 0.018;
 const GEOMETRY_EPSILON = 1e-9;
 export const MAX_PLANNER_GRID_ROWS = 6;
@@ -91,7 +93,28 @@ export function createEditablePlannerGridLayout(
 }
 
 export function expandPlannerLayoutForSpread(layout: PlannerPageLayout): PlannerPageLayout {
-  if (layout.grids?.length) return layout;
+  if (layout.grids?.length) {
+    const left = layout.grids.find((grid) => grid.side === "left");
+    const right = layout.grids.find((grid) => grid.side === "right");
+    const isRejectedWideDefault =
+      left && right &&
+      Math.abs(left.x - PLANNER_SAFE_INSET) < GEOMETRY_EPSILON &&
+      Math.abs(left.x + left.w - 0.45) < GEOMETRY_EPSILON &&
+      Math.abs(right.x - 0.55) < GEOMETRY_EPSILON &&
+      Math.abs(right.x + right.w - 0.94) < GEOMETRY_EPSILON;
+    if (!isRejectedWideDefault) return layout;
+    const grids = layout.grids.map((grid) => {
+      if (grid.side === "left") {
+        return { ...grid, w: 0.5 - PLANNER_SPREAD_INNER_INSET - grid.x };
+      }
+      if (grid.side === "right") {
+        const x = 0.5 + PLANNER_SPREAD_INNER_INSET;
+        return { ...grid, x, w: 0.94 - x };
+      }
+      return grid;
+    });
+    return { ...layout, grids, sections: grids.flatMap(gridSections) };
+  }
   const xColumns = new Set(layout.sections.map((section) => Math.round(section.x * 1_000_000)));
   const yRows = new Set(layout.sections.map((section) => Math.round(section.y * 1_000_000)));
   const columns = Math.max(1, Math.min(MAX_PLANNER_GRID_COLUMNS, xColumns.size));

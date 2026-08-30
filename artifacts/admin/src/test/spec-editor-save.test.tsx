@@ -49,6 +49,7 @@ function makeSpec(overrides: Record<string, unknown> = {}) {
     id: "spec-test-001",
     worldId: "world-001",
     collectionId: null,
+    volumeId: null,
     productionItem: "Hero Paper 001: The Library Table",
     specId: "WYC-HRP-001",
     componentType: "Hero Paper",
@@ -81,6 +82,8 @@ function makeSpec(overrides: Record<string, unknown> = {}) {
 
 function makeRelationships() {
   return {
+    collection: null,
+    volume: null,
     style_guide: null,
     component_spec: null,
     canon_records: [],
@@ -123,6 +126,8 @@ describe("SpecEditor save flow (Wave 2 Item 5)", () => {
         return Promise.resolve(makeSpecResponse());
       }
       if (path.startsWith("/v1/editorial/style-guides")) return Promise.resolve({ style_guides: [] });
+      if (path.startsWith("/v1/editorial/collections")) return Promise.resolve({ collections: [] });
+      if (path.startsWith("/v1/editorial/volumes")) return Promise.resolve({ volumes: [] });
       if (path.startsWith("/v1/editorial/component-specs")) return Promise.resolve({ component_specs: [] });
       if (path.startsWith("/v1/editorial/canon-records")) return Promise.resolve({ canon_records: [] });
       if (path.startsWith("/v1/editorial/prompt-modules")) return Promise.resolve({ prompt_modules: [] });
@@ -153,6 +158,54 @@ describe("SpecEditor save flow (Wave 2 Item 5)", () => {
       expect(patchCall).toBeDefined();
       expect(JSON.parse(String(patchCall![1]?.body))).toMatchObject({
         production_item: "Victorian Garden Journals Volume II",
+      });
+    });
+  });
+
+  it("links a collection and volume from Canon & Governance", async () => {
+    apiFetch.mockImplementation((path: string) => {
+      if (path === "/v1/editorial/specs/spec-test-001") return Promise.resolve(makeSpecResponse());
+      if (path.startsWith("/v1/editorial/collections")) {
+        return Promise.resolve({ collections: [{ id: "collection-001", name: "Curator's Desk" }] });
+      }
+      if (path.startsWith("/v1/editorial/volumes")) {
+        return Promise.resolve({
+          volumes: [{ id: "volume-001", name: "Visual Language", code: "V01", collectionId: "collection-001" }],
+        });
+      }
+      if (path.startsWith("/v1/editorial/style-guides")) return Promise.resolve({ style_guides: [] });
+      if (path.startsWith("/v1/editorial/component-specs")) return Promise.resolve({ component_specs: [] });
+      if (path.startsWith("/v1/editorial/canon-records")) return Promise.resolve({ canon_records: [] });
+      if (path.startsWith("/v1/editorial/prompt-modules")) return Promise.resolve({ prompt_modules: [] });
+      return Promise.resolve({});
+    });
+
+    renderEditor();
+    await screen.findByText("Hero Paper 001: The Library Table");
+    fireEvent.click(screen.getByRole("button", { name: /Canon & Governance/i }));
+
+    await screen.findByRole("option", { name: "Curator's Desk" });
+    fireEvent.change(await screen.findByRole("combobox", { name: "Collection" }), {
+      target: { value: "collection-001" },
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Collection" })).toHaveValue("collection-001");
+    });
+    await screen.findByRole("option", { name: "V01 · Visual Language" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Volume" }), {
+      target: { value: "volume-001" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save Changes/i }));
+
+    await waitFor(() => {
+      const patchCall = apiFetch.mock.calls.find(
+        ([path, opts]: [string, RequestInit | undefined]) =>
+          path === "/v1/editorial/specs/spec-test-001" && opts?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      expect(JSON.parse(String(patchCall![1]?.body))).toMatchObject({
+        collection_id: "collection-001",
+        volume_id: "volume-001",
       });
     });
   });

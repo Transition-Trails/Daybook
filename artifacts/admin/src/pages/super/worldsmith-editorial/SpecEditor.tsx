@@ -72,6 +72,8 @@ interface Spec {
 interface SpecResponse {
   spec: Spec;
   relationships: {
+    collection: { id: string; name: string } | null;
+    volume: { id: string; name: string; code?: string | null } | null;
     style_guide: { id: string; name: string } | null;
     component_spec: { id: string; name: string; componentType: string } | null;
     canon_records: { id: string; name: string; status: string; canonType: string }[];
@@ -93,6 +95,8 @@ interface LocalSpecPreview {
 function DependencyGraph({ spec, rels }: { spec: Spec; rels: SpecResponse["relationships"] }) {
   const nodes = [
     { id: "spec", label: (spec.productionItem ?? "Untitled Spec").slice(0, 18), health: "green", cx: 90, cy: 90, r: 22, main: true },
+    rels.collection && { id: "collection", label: "Collection", sublabel: rels.collection.name.slice(0, 14), health: "green", cx: 25, cy: 35 },
+    rels.volume && { id: "volume", label: "Volume", sublabel: rels.volume.name.slice(0, 14), health: "green", cx: 28, cy: 100 },
     rels.style_guide && { id: "sg", label: "Style Guide", sublabel: rels.style_guide.name.slice(0, 14), health: "green", cx: 155, cy: 35 },
     rels.component_spec && { id: "cs", label: "Component Spec", sublabel: rels.component_spec.name.slice(0, 14), health: "green", cx: 170, cy: 100 },
     ...(rels.canon_records.map((cr, i) => ({
@@ -262,6 +266,20 @@ function CompletionSidebar({
             </span>
           </div>
         ))}
+        {rels.collection && (
+          <div className="flex items-center gap-2 mb-1.5">
+            <BookOpen className="w-3 h-3 text-gray-400 shrink-0" />
+            <span className="text-xs text-gray-600 flex-1 truncate">{rels.collection.name}</span>
+            <span className="text-[9px] bg-amber-50 text-amber-700 rounded-full px-1.5 py-0.5">Collection</span>
+          </div>
+        )}
+        {rels.volume && (
+          <div className="flex items-center gap-2 mb-1.5">
+            <BookOpen className="w-3 h-3 text-gray-400 shrink-0" />
+            <span className="text-xs text-gray-600 flex-1 truncate">{rels.volume.name}</span>
+            <span className="text-[9px] bg-orange-50 text-orange-700 rounded-full px-1.5 py-0.5">Volume</span>
+          </div>
+        )}
         {rels.style_guide && (
           <div className="flex items-center gap-2 mb-1.5">
             <FileText className="w-3 h-3 text-gray-400 shrink-0" />
@@ -276,7 +294,7 @@ function CompletionSidebar({
             <span className="text-[9px] bg-violet-50 text-violet-600 rounded-full px-1.5 py-0.5">Module</span>
           </div>
         ))}
-        {rels.canon_records.length === 0 && !rels.style_guide && rels.prompt_modules.length === 0 && (
+        {rels.canon_records.length === 0 && !rels.collection && !rels.volume && !rels.style_guide && rels.prompt_modules.length === 0 && (
           <p className="text-xs text-gray-400">No linked records.</p>
         )}
       </div>
@@ -574,6 +592,14 @@ function CanonTab({
     queryKey: ["editorial-style-guides", spec.worldId],
     queryFn: () => apiFetch<{ style_guides: { id: string; name: string }[] }>(`/v1/editorial/style-guides?world_id=${spec.worldId}`),
   });
+  const { data: collectionData } = useQuery({
+    queryKey: ["editorial-collections", spec.worldId],
+    queryFn: () => apiFetch<{ collections: { id: string; name: string }[] }>(`/v1/editorial/collections?world_id=${spec.worldId}`),
+  });
+  const { data: volumeData } = useQuery({
+    queryKey: ["editorial-volumes", spec.worldId],
+    queryFn: () => apiFetch<{ volumes: { id: string; name: string; code?: string | null; collectionId?: string | null }[] }>(`/v1/editorial/volumes?world_id=${spec.worldId}`),
+  });
   const { data: csData } = useQuery({
     queryKey: ["editorial-component-specs", spec.worldId],
     queryFn: () => apiFetch<{ component_specs: { id: string; name: string; componentType: string }[] }>(`/v1/editorial/component-specs?world_id=${spec.worldId}`),
@@ -593,12 +619,50 @@ function CanonTab({
     <div className="space-y-3">
       <EditorialSection {...sectionProps}
         title="Governance & Links"
-        hint="Canon dependency level, style guide, and component spec."
+        hint="Collection, volume, canon dependency, style guide, and component spec."
         open={openSection === "links"}
         onToggle={() => toggle("links")}
         preview={spec.canonDependency !== "None" ? spec.canonDependency : undefined}
       >
         <div className="space-y-4">
+          <Field
+            label="Collection or Volume"
+            hint="Link this Production Spec to the collection or volume where it belongs."
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <select
+                aria-label="Collection"
+                value={spec.collectionId ?? ""}
+                onChange={event => onChange({ collectionId: event.target.value || null, volumeId: null })}
+                className={selectCls}
+              >
+                <option value="">No collection</option>
+                {(collectionData?.collections ?? []).map(collection => (
+                  <option key={collection.id} value={collection.id}>{collection.name}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Volume"
+                value={spec.volumeId ?? ""}
+                onChange={event => onChange({ volumeId: event.target.value || null })}
+                className={selectCls}
+              >
+                <option value="">No volume</option>
+                {(volumeData?.volumes ?? [])
+                  .filter(volume => !spec.collectionId || !volume.collectionId || volume.collectionId === spec.collectionId)
+                  .map(volume => (
+                    <option key={volume.id} value={volume.id}>
+                      {volume.code ? `${volume.code} · ` : ""}{volume.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            {(collectionData?.collections ?? []).length === 0 && (volumeData?.volumes ?? []).length === 0 && (
+              <p className="mt-1.5 text-xs text-amber-700">
+                This world has no collection or volume records yet. Create them in the Editorial Suite world context first.
+              </p>
+            )}
+          </Field>
           <Field label="Canon Dependency">
             {/* Immutable after creation — not in the PATCH mutable-fields contract */}
             <div className="flex items-center gap-2">
@@ -809,6 +873,8 @@ export default function SpecEditor({ specId }: { specId: string }) {
       localSpec.writingSpacePercent !== data.spec.writingSpacePercent ||
       localSpec.orientation !== data.spec.orientation ||
       localSpec.frontBackStyle !== data.spec.frontBackStyle ||
+      localSpec.collectionId !== data.spec.collectionId ||
+      localSpec.volumeId !== data.spec.volumeId ||
       JSON.stringify(localSpec.canonRecordIds) !== JSON.stringify(data.spec.canonRecordIds) ||
       JSON.stringify(localSpec.promptModuleIds) !== JSON.stringify(data.spec.promptModuleIds) ||
       localSpec.styleGuideId !== data.spec.styleGuideId ||
@@ -898,6 +964,8 @@ export default function SpecEditor({ specId }: { specId: string }) {
           front_back_style:  s.frontBackStyle,
           prompt_payload:    s.promptPayload,
           payload_version:   s.payloadVersion,
+          collection_id:     s.collectionId,
+          volume_id:         s.volumeId,
           canon_record_ids:  s.canonRecordIds,
           prompt_module_ids: s.promptModuleIds,
           style_guide_id:    s.styleGuideId,
@@ -982,7 +1050,14 @@ export default function SpecEditor({ specId }: { specId: string }) {
   };
 
   const spec = localSpec ?? data?.spec;
-  const rels = data?.relationships ?? { style_guide: null, component_spec: null, canon_records: [], prompt_modules: [] };
+  const rels = data?.relationships ?? {
+    collection: null,
+    volume: null,
+    style_guide: null,
+    component_spec: null,
+    canon_records: [],
+    prompt_modules: [],
+  };
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-full">

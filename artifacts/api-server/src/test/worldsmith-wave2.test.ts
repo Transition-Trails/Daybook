@@ -302,6 +302,8 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import {
   worldsmithWorldsTable,
+  wsCollectionsTable,
+  wsVolumesTable,
   wsProductionSpecsTable,
   worldsmithRunsTable,
   worldsmithProductionPackagesTable,
@@ -444,6 +446,52 @@ describe("Item 5 — PATCH /v1/editorial/specs/:id saves mutable linkage fields"
 
     expect(res.status).toBe(200);
     expect(res.body.spec.productionItem).toBe("Corrected Production Name");
+  });
+
+  it("PATCH links a collection and volume and returns their relationship names", async () => {
+    const collectionId = randomUUID();
+    const volumeId = randomUUID();
+    await db.insert(wsCollectionsTable).values({
+      id: collectionId,
+      worldId,
+      name: "Wave2 Collection",
+    });
+    await db.insert(wsVolumesTable).values({
+      id: volumeId,
+      worldId,
+      collectionId,
+      name: "Wave2 Volume",
+      code: "V01",
+    });
+
+    try {
+      const patchRes = await request(app)
+        .patch(`/v1/editorial/specs/${specId}`)
+        .send({ collection_id: collectionId, volume_id: volumeId });
+
+      expect(patchRes.status).toBe(200);
+      expect(patchRes.body.spec.collectionId).toBe(collectionId);
+      expect(patchRes.body.spec.volumeId).toBe(volumeId);
+
+      const getRes = await request(app).get(`/v1/editorial/specs/${specId}`);
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.relationships.collection).toMatchObject({
+        id: collectionId,
+        name: "Wave2 Collection",
+      });
+      expect(getRes.body.relationships.volume).toMatchObject({
+        id: volumeId,
+        name: "Wave2 Volume",
+        code: "V01",
+      });
+    } finally {
+      const { eq } = await import("drizzle-orm");
+      await db.update(wsProductionSpecsTable)
+        .set({ collectionId: null, volumeId: null })
+        .where(eq(wsProductionSpecsTable.id, specId));
+      await db.delete(wsVolumesTable).where(eq(wsVolumesTable.id, volumeId));
+      await db.delete(wsCollectionsTable).where(eq(wsCollectionsTable.id, collectionId));
+    }
   });
 });
 

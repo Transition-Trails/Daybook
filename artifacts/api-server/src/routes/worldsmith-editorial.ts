@@ -449,6 +449,27 @@ router.patch("/v1/editorial/collections/:id", async (req: Request, res: Response
   }
 });
 
+// ── Volumes ────────────────────────────────────────────────────────────────────
+
+router.get("/v1/editorial/volumes", async (req: Request, res: Response) => {
+  const worldId = req.query.world_id as string | undefined;
+  const collectionId = req.query.collection_id as string | undefined;
+  try {
+    const conditions = [];
+    if (worldId) conditions.push(eq(wsVolumesTable.worldId, worldId));
+    if (collectionId) conditions.push(eq(wsVolumesTable.collectionId, collectionId));
+    const rows = await db
+      .select()
+      .from(wsVolumesTable)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(wsVolumesTable.name);
+    res.json({ volumes: rows });
+  } catch (err) {
+    logger.error({ err }, "editorial: list volumes");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── Canon Records ─────────────────────────────────────────────────────────────
 
 router.get("/v1/editorial/canon-records", async (req: Request, res: Response) => {
@@ -2293,7 +2314,15 @@ router.get("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
     if (!spec) { res.status(404).json({ error: "Spec not found" }); return; }
 
     // Enrich: resolve linked records for the relationships panel
-    const [styleGuide, componentSpec, canonRecords, promptModules] = await Promise.all([
+    const [collection, volume, styleGuide, componentSpec, canonRecords, promptModules] = await Promise.all([
+      spec.collectionId
+        ? db.select({ id: wsCollectionsTable.id, name: wsCollectionsTable.name })
+            .from(wsCollectionsTable).where(eq(wsCollectionsTable.id, spec.collectionId)).limit(1)
+        : Promise.resolve([]),
+      spec.volumeId
+        ? db.select({ id: wsVolumesTable.id, name: wsVolumesTable.name, code: wsVolumesTable.code })
+            .from(wsVolumesTable).where(eq(wsVolumesTable.id, spec.volumeId)).limit(1)
+        : Promise.resolve([]),
       spec.styleGuideId
         ? db.select().from(wsStyleGuidesTable).where(eq(wsStyleGuidesTable.id, spec.styleGuideId)).limit(1)
         : Promise.resolve([]),
@@ -2317,6 +2346,8 @@ router.get("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
     res.json({
       spec,
       relationships: {
+        collection: collection[0] ?? null,
+        volume: volume[0] ?? null,
         style_guide: styleGuide[0] ?? null,
         component_spec: componentSpec[0] ?? null,
         canon_records: canonRecords,
@@ -2386,6 +2417,8 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
       addString("front_back_style", "frontBackStyle");
       addString("payload_version", "payloadVersion");
       addString("prompt_payload", "promptPayload", false, false);
+      addString("collection_id", "collectionId");
+      addString("volume_id", "volumeId");
       addString("style_guide_id", "styleGuideId");
       addString("component_spec_id", "componentSpecId");
       addArray("canon_record_ids", "canonRecordIds");
@@ -2432,6 +2465,8 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
       }
       addString("prompt_payload", "promptPayload", false, false);
       addString("payload_version", "payloadVersion");
+      addString("collection_id", "collectionId");
+      addString("volume_id", "volumeId");
       addArray("canon_record_ids", "canonRecordIds");
       addArray("prompt_module_ids", "promptModuleIds");
       addString("style_guide_id", "styleGuideId");
@@ -2450,12 +2485,13 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
               "design_intent", "narrative_purpose", "required_content", "review_criteria",
               "writing_space_percent", "orientation", "front_back_style",
               "canon_dependency", "canon_record_ids", "payload_version", "prompt_payload",
+              "collection_id", "volume_id",
               "style_guide_id", "component_spec_id", "prompt_module_ids", "wizard_step",
             ]
           : [
               "production_item", "spec_id", "component_type", "component_set",
               "orientation", "front_back_style", "current_version", "writing_space_percent",
-              "prompt_payload", "payload_version", "canon_record_ids",
+              "prompt_payload", "payload_version", "collection_id", "volume_id", "canon_record_ids",
               "prompt_module_ids", "style_guide_id", "component_spec_id",
             ],
       });

@@ -9,6 +9,10 @@
  * GET/POST   /v1/editorial/collections
  * GET/PATCH  /v1/editorial/collections/:id
  *
+ * Volumes:
+ * GET/POST   /v1/editorial/volumes
+ * GET/PATCH  /v1/editorial/volumes/:id
+ *
  * Canon Records:
  * GET/POST   /v1/editorial/canon-records
  * GET/PATCH  /v1/editorial/canon-records/:id
@@ -466,6 +470,82 @@ router.get("/v1/editorial/volumes", async (req: Request, res: Response) => {
     res.json({ volumes: rows });
   } catch (err) {
     logger.error({ err }, "editorial: list volumes");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/v1/editorial/volumes", async (req: Request, res: Response) => {
+  const { world_id, collection_id, name, code, description } = req.body;
+  if (!world_id || !name?.trim()) {
+    res.status(400).json({ error: "world_id and name are required" });
+    return;
+  }
+  try {
+    if (collection_id) {
+      const [collection] = await db.select({ id: wsCollectionsTable.id })
+        .from(wsCollectionsTable)
+        .where(and(eq(wsCollectionsTable.id, collection_id), eq(wsCollectionsTable.worldId, world_id)))
+        .limit(1);
+      if (!collection) {
+        res.status(400).json({ error: "collection_id must belong to world_id" });
+        return;
+      }
+    }
+    const id = randomUUID();
+    const [row] = await db.insert(wsVolumesTable).values({
+      id,
+      worldId: world_id,
+      collectionId: collection_id || null,
+      name: name.trim(),
+      code: code?.trim() || null,
+      description: description ?? "",
+    }).returning();
+    res.status(201).json({ volume: row });
+  } catch (err) {
+    logger.error({ err }, "editorial: create volume");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/v1/editorial/volumes/:id", async (req: Request, res: Response) => {
+  try {
+    const [row] = await db.select().from(wsVolumesTable)
+      .where(eq(wsVolumesTable.id, req.params.id as string)).limit(1);
+    if (!row) { res.status(404).json({ error: "Volume not found" }); return; }
+    res.json({ volume: row });
+  } catch (err) {
+    logger.error({ err }, "editorial: get volume");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/v1/editorial/volumes/:id", async (req: Request, res: Response) => {
+  const { collection_id, name, code, description, status } = req.body;
+  try {
+    const [existing] = await db.select({ id: wsVolumesTable.id, worldId: wsVolumesTable.worldId })
+      .from(wsVolumesTable)
+      .where(eq(wsVolumesTable.id, req.params.id as string)).limit(1);
+    if (!existing) { res.status(404).json({ error: "Volume not found" }); return; }
+    if (collection_id) {
+      const [collection] = await db.select({ id: wsCollectionsTable.id })
+        .from(wsCollectionsTable)
+        .where(and(eq(wsCollectionsTable.id, collection_id), eq(wsCollectionsTable.worldId, existing.worldId)))
+        .limit(1);
+      if (!collection) {
+        res.status(400).json({ error: "collection_id must belong to the volume's world" });
+        return;
+      }
+    }
+    const [row] = await db.update(wsVolumesTable).set({
+      ...(name !== undefined ? { name: name.trim() } : {}),
+      ...(code !== undefined ? { code: code?.trim() || null } : {}),
+      ...(description !== undefined ? { description } : {}),
+      ...(status !== undefined ? { status } : {}),
+      ...(collection_id !== undefined ? { collectionId: collection_id || null } : {}),
+    }).where(eq(wsVolumesTable.id, req.params.id as string)).returning();
+    res.json({ volume: row });
+  } catch (err) {
+    logger.error({ err }, "editorial: update volume");
     res.status(500).json({ error: "Internal server error" });
   }
 });

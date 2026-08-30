@@ -151,6 +151,7 @@ import {
   WorldBibleStudio,
   ImageTargets,
   ComponentSpecs,
+  Collections,
 } from "@/pages/super/worldsmith-editorial";
 
 const queryClient = new QueryClient({
@@ -384,6 +385,11 @@ function RootRouter() {
       <Route path="/super/worldsmith/editorial/component-specs">
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="component-specs"><ComponentSpecs /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/collections">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="collections"><Collections /></EditorialShell>
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/canon/new">

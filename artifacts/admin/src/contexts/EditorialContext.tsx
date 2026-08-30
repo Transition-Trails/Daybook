@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { apiFetch } from "@/lib/api";
 import { worldsmithStorage } from "@/lib/worldsmith/storage";
 
@@ -36,6 +36,7 @@ interface EditorialContextValue {
   updateWorld: (world: WorldRecord) => void;
   collections: CollectionRecord[];
   collectionsLoading: boolean;
+  refreshCollections: () => Promise<void>;
   selectedCollectionId: string | null;
   setSelectedCollectionId: (id: string | null) => void;
   syncStatus: "synced" | "pending" | "error";
@@ -78,15 +79,28 @@ export function EditorialProvider({ children }: { children: ReactNode }) {
     if (selectedWorldId) worldsmithStorage.setSelectedWorld(selectedWorldId);
   }, [selectedWorldId]);
 
+  const refreshCollections = useCallback(async () => {
+    if (!selectedWorldId) {
+      setCollections([]);
+      return;
+    }
+    setCollectionsLoading(true);
+    try {
+      const data = await apiFetch<{ collections: CollectionRecord[] }>(
+        `/v1/editorial/collections?world_id=${selectedWorldId}`,
+      );
+      setCollections(data.collections);
+    } catch {
+      setCollections([]);
+    } finally {
+      setCollectionsLoading(false);
+    }
+  }, [selectedWorldId]);
+
   // Load collections when world changes
   useEffect(() => {
-    if (!selectedWorldId) { setCollections([]); return; }
-    setCollectionsLoading(true);
-    apiFetch<{ collections: CollectionRecord[] }>(`/v1/editorial/collections?world_id=${selectedWorldId}`)
-      .then(data => setCollections(data.collections))
-      .catch(() => setCollections([]))
-      .finally(() => setCollectionsLoading(false));
-  }, [selectedWorldId]);
+    void refreshCollections();
+  }, [refreshCollections]);
 
   // Persist collection selection
   useEffect(() => {
@@ -109,6 +123,7 @@ export function EditorialProvider({ children }: { children: ReactNode }) {
       updateWorld,
       collections,
       collectionsLoading,
+      refreshCollections,
       selectedCollectionId,
       setSelectedCollectionId,
       syncStatus: "synced",

@@ -23,3 +23,4 @@ export { default as StoryConnections } from "./StoryConnections";
 export { default as WorldBibleStudio } from "./WorldBibleStudio";
 export { default as ImageTargets } from "./ImageTargets";
 export { default as ComponentSpecs } from "./ComponentSpecs";
+export { default as Collections } from "./Collections";

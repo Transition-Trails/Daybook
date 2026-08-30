@@ -40,6 +40,8 @@ interface FormState {
   writingSpacePercent: string;
   reviewCriteria: string;
   // Canon
+  collectionId: string;
+  volumeId: string;
   canonDependency: string;
   canonRecordIds: string[];
   styleGuideId: string;
@@ -62,6 +64,8 @@ const EMPTY: FormState = {
   frontBackStyle: "",
   writingSpacePercent: "",
   reviewCriteria: "",
+  collectionId: "",
+  volumeId: "",
   canonDependency: "None",
   canonRecordIds: [],
   styleGuideId: "",
@@ -426,6 +430,16 @@ function CanonSection({
     queryFn: () => apiFetch<{ style_guides: { id: string; name: string }[] }>(`/v1/editorial/style-guides?world_id=${worldId}`),
     enabled: !!worldId,
   });
+  const { data: collectionData } = useQuery({
+    queryKey: ["editorial-collections", worldId],
+    queryFn: () => apiFetch<{ collections: { id: string; name: string }[] }>(`/v1/editorial/collections?world_id=${worldId}`),
+    enabled: !!worldId,
+  });
+  const { data: volumeData } = useQuery({
+    queryKey: ["editorial-volumes", worldId],
+    queryFn: () => apiFetch<{ volumes: { id: string; name: string; code?: string | null; collectionId?: string | null }[] }>(`/v1/editorial/volumes?world_id=${worldId}`),
+    enabled: !!worldId,
+  });
   const { data: csData } = useQuery({
     queryKey: ["editorial-component-specs", worldId],
     queryFn: () => apiFetch<{ component_specs: { id: string; name: string; componentType: string }[] }>(`/v1/editorial/component-specs?world_id=${worldId}`),
@@ -439,6 +453,40 @@ function CanonSection({
 
   return (
     <div className="space-y-4">
+      <Field label="Collection or Volume" hint="Link this Production Spec to its collection or volume.">
+        <div className="grid grid-cols-2 gap-3">
+          <select
+            aria-label="Collection"
+            value={f.collectionId}
+            onChange={event => {
+              set("collectionId", event.target.value);
+              set("volumeId", "");
+            }}
+            className={selectCls}
+          >
+            <option value="">No collection linked</option>
+            {(collectionData?.collections ?? []).map(collection => (
+              <option key={collection.id} value={collection.id}>{collection.name}</option>
+            ))}
+          </select>
+          <select
+            aria-label="Volume"
+            value={f.volumeId}
+            onChange={event => set("volumeId", event.target.value)}
+            className={selectCls}
+          >
+            <option value="">No volume linked</option>
+            {(volumeData?.volumes ?? [])
+              .filter(volume => !f.collectionId || !volume.collectionId || volume.collectionId === f.collectionId)
+              .map(volume => (
+                <option key={volume.id} value={volume.id}>
+                  {volume.code ? `${volume.code} · ` : ""}{volume.name}
+                </option>
+              ))}
+          </select>
+        </div>
+      </Field>
+
       <Field label="Canon Dependency" hint="How strongly does this spec depend on approved canon records?">
         <select value={f.canonDependency} onChange={e => set("canonDependency", e.target.value)} className={selectCls}>
           <option value="None">None — visually inspired, no specific references</option>
@@ -619,6 +667,7 @@ function LegacyNewSpecFlow() {
         body: JSON.stringify({
           world_id: selectedWorldId,
           collection_id: selectedCollectionId || undefined,
+          volume_id: form.volumeId || undefined,
           production_item: form.productionItem,
           spec_id: form.specId || undefined,
           component_type: form.componentType,
@@ -821,6 +870,8 @@ function formFromDraft(spec: DraftSpec): FormState {
     writingSpacePercent: spec.writingSpacePercent == null ? "" : String(spec.writingSpacePercent),
     reviewCriteria: spec.reviewCriteria ?? "",
     canonDependency: spec.canonDependency ?? "None",
+    collectionId: spec.collectionId ?? "",
+    volumeId: spec.volumeId ?? "",
     canonRecordIds: spec.canonRecordIds ?? [],
     styleGuideId: spec.styleGuideId ?? "",
     componentSpecId: spec.componentSpecId ?? "",
@@ -844,6 +895,8 @@ function draftPayload(form: FormState, wizardStep: number, finalize = false) {
     writing_space_percent: form.writingSpacePercent ? parseFloat(form.writingSpacePercent) : null,
     review_criteria: form.reviewCriteria,
     canon_dependency: form.canonDependency,
+    collection_id: form.collectionId,
+    volume_id: form.volumeId,
     canon_record_ids: form.canonRecordIds,
     style_guide_id: form.styleGuideId,
     component_spec_id: form.componentSpecId,
@@ -895,9 +948,9 @@ export default function NewSpecFlow() {
       method: "POST",
       body: JSON.stringify({
         world_id: selectedWorldId,
-        collection_id: selectedCollectionId || undefined,
         draft: true,
         ...draftPayload(EMPTY, 0),
+        collection_id: selectedCollectionId || "",
       }),
     }),
     onSuccess: ({ spec }) => {
@@ -955,7 +1008,7 @@ export default function NewSpecFlow() {
   const checks = readinessChecks({
     ...form,
     worldId: selectedWorldId,
-    collectionId: selectedCollectionId,
+    collectionId: form.collectionId,
   });
   const overallScore = readinessScore(checks);
   const isPayloadReady = payloadReady(checks);

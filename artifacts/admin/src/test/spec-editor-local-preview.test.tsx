@@ -116,6 +116,7 @@ describe("SpecEditor local specification board", () => {
         body: JSON.stringify({
           production_spec_id: "spec-local",
           prompt_hash: "local-hash",
+          force_new: true,
         }),
       }),
     );

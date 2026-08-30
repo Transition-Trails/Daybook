@@ -247,8 +247,10 @@ interface SpecPreviewResult {
   status: "success" | "dry_run" | "upload_success_status_failed" | "failed";
   production_item: string;
   spec_page_id: string;
-  notion_page_id: string;
-  notion_page_url: string;
+  source?: "local" | "notion";
+  notion_page_id?: string;
+  notion_page_url?: string;
+  preview_url?: string;
   preview_filename?: string;
   provider?: string;
   model?: string;
@@ -308,11 +310,11 @@ const worldsmithApi = {
   listAssets: () =>
     apiFetch<{ assets: Array<{ id: string; asset_name: string; component_type: string; world: string; current_version: string; readiness_state: string; updated_at: string }> }>("/v1/worldsmith/assets"),
 
-  generatePreview: (specId: string, promptHash: string, forceNew = false, dryRun = false) =>
+  generatePreview: (specId: string, promptHash: string, forceNew = false, dryRun = false, local = false) =>
     apiFetch<SpecPreviewResult>("/v1/worldsmith/spec-preview", {
       method: "POST",
       body: JSON.stringify({
-        spec_page_id: specId,
+        [local ? "production_spec_id" : "spec_page_id"]: specId,
         prompt_hash: promptHash,
         force_new: forceNew,
         dry_run: dryRun,
@@ -556,7 +558,13 @@ export default function WorldSmithCompiler() {
       hash: string;
       forceNew?: boolean;
       isDryRun?: boolean;
-    }) => worldsmithApi.generatePreview(specId, hash, forceNew ?? false, isDryRun ?? false),
+    }) => worldsmithApi.generatePreview(
+      specId,
+      hash,
+      forceNew ?? false,
+      isDryRun ?? false,
+      !result?.provenance?.production_spec_notion_id,
+    ),
     onSuccess: (res) => {
       setPreviewResult(res);
       setPreviewError(null);
@@ -3673,6 +3681,7 @@ function SpecificationReviewPanel({
 }) {
   const { toast } = useToast();
   const uploadPartial = previewResult.status === "upload_success_status_failed";
+  const isLocal = previewResult.source === "local";
 
   return (
     <div className="space-y-4">
@@ -3706,6 +3715,18 @@ function SpecificationReviewPanel({
           </div>
         </CardContent>
       </Card>
+
+      {previewResult.preview_url && (
+        <Card className="overflow-hidden">
+          <CardContent className="p-3">
+            <img
+              src={previewResult.preview_url}
+              alt={`Specification Board for ${previewResult.production_item}`}
+              className="w-full rounded border border-border bg-white object-contain"
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Concept-image placeholder warning — shown when generation did not complete */}
       {previewResult.dalle_skipped && (
@@ -3796,11 +3817,14 @@ function SpecificationReviewPanel({
           {/* Copy hash */}
           <div className="flex items-start gap-2 p-3 rounded-md border border-border bg-muted/20">
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Notion Page ID</p>
-              <code className="text-xs font-mono break-all">{previewResult.notion_page_id}</code>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">{isLocal ? "Production Spec ID" : "Notion Page ID"}</p>
+              <code className="text-xs font-mono break-all">{previewResult.notion_page_id ?? previewResult.spec_page_id}</code>
             </div>
             <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0"
-              onClick={() => { navigator.clipboard.writeText(previewResult.notion_page_id); toast({ title: "Notion page ID copied" }); }}>
+              onClick={() => {
+                navigator.clipboard.writeText(previewResult.notion_page_id ?? previewResult.spec_page_id);
+                toast({ title: `${isLocal ? "Production Spec" : "Notion page"} ID copied` });
+              }}>
               <Copy className="w-3 h-3" />
             </Button>
           </div>
@@ -3813,7 +3837,9 @@ function SpecificationReviewPanel({
         <div className="space-y-1">
           <p className="text-sm font-semibold text-[#1B2A4A]">Awaiting Human Review</p>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Open the Notion record to review the generated Specification Board. Once approved, the asset will advance to artwork generation.
+            {isLocal
+              ? "Review the generated Specification Board here. Publish the Production Specification before advancing it through the Notion approval workflow."
+              : "Open the Notion record to review the generated Specification Board. Once approved, the asset will advance to artwork generation."}
           </p>
         </div>
         {previewResult.notion_page_url && (
@@ -5048,8 +5074,10 @@ function PreviewSuccessScreen({
           size="sm"
           className="ml-auto text-muted-foreground"
           onClick={() => {
-            navigator.clipboard.writeText(result.notion_page_url);
-            toast({ title: "Notion URL copied" });
+            if (result.notion_page_url) {
+              navigator.clipboard.writeText(result.notion_page_url);
+              toast({ title: "Notion URL copied" });
+            }
           }}
         >
           <Copy className="w-3.5 h-3.5 mr-1.5" />

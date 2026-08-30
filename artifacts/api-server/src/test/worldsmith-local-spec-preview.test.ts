@@ -10,6 +10,7 @@ const {
   mockDbSelect,
   mockDbInsert,
   mockStorageSave,
+  mockGenerateWorldsmithImage,
   MockInheritanceError,
 } = vi.hoisted(() => {
   class MockInheritanceError extends Error {
@@ -32,6 +33,7 @@ const {
     mockDbSelect: vi.fn(),
     mockDbInsert: vi.fn(),
     mockStorageSave: vi.fn(),
+    mockGenerateWorldsmithImage: vi.fn(),
     MockInheritanceError,
   };
 });
@@ -66,9 +68,20 @@ vi.mock("../lib/notion-client.js", () => ({
 vi.mock("../lib/worldsmith/spec-board-template.js", () => ({
   TEMPLATE_VERSION: "test-v1",
   CONCEPT_IMAGE_AREA: { x: 0, y: 0, width: 1, height: 1 },
+  CONCEPT_IMAGE_RENDER_AREA: { x: 0, y: 0, width: 1, height: 1 },
+  getDetailCropSourceRects: vi.fn(() => []),
   DETAIL_CROP_SOURCE_RECTS: [],
   DETAIL_CROP_DEST_AREAS: [],
   renderSpecBoardToPng: mockRenderBoard,
+}));
+
+vi.mock("../lib/worldsmith/image-generation-service.js", () => ({
+  resolveWorldsmithImageGeneration: vi.fn().mockResolvedValue({
+    target: { size: "1808x1808", dpi: 150, requestedDpi: 150 },
+  }),
+  generateWorldsmithImage: mockGenerateWorldsmithImage,
+  saveWorldsmithImageAudit: vi.fn(),
+  uploadWorldsmithImage: vi.fn(),
 }));
 
 vi.mock("../lib/worldsmith/image-generation.js", () => ({
@@ -170,7 +183,12 @@ beforeEach(() => {
     };
   });
   mockDbInsert.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
-  mockRenderBoard.mockResolvedValue(Buffer.from("PNG"));
+  const onePixelPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+  mockRenderBoard.mockResolvedValue(onePixelPng);
+  mockGenerateWorldsmithImage.mockResolvedValue({
+    buffer: onePixelPng,
+    metadata: { provider: "OpenAI", model: "gpt-image-2" },
+  });
 });
 
 describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
@@ -178,7 +196,7 @@ describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
     let renderedBoard: SpecBoardData | undefined;
     mockRenderBoard.mockImplementation(async (data: SpecBoardData) => {
       renderedBoard = data;
-      return Buffer.from("PNG");
+      return Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
     });
 
     const result = await runSpecPreview({
@@ -212,7 +230,7 @@ describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
     expect(mockAttach).not.toHaveBeenCalled();
     expect(mockUpdatePage).not.toHaveBeenCalled();
     expect(mockStorageSave).toHaveBeenCalledWith(
-      Buffer.from("PNG"),
+      expect.any(Buffer),
       expect.objectContaining({ metadata: expect.objectContaining({ contentType: "image/png" }) }),
     );
   });

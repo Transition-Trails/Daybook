@@ -1015,6 +1015,7 @@ export default function SpecEditor({ specId }: { specId: string }) {
         body: JSON.stringify({
           production_spec_id: specId,
           prompt_hash: compilation.prompt_hash,
+          force_new: true,
         }),
       });
     },

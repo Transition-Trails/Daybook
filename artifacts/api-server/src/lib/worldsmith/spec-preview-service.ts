@@ -196,6 +196,8 @@ function extractLocalBoardData(
   const worldContext = compiledSectionContent(sectionRecords, "world_and_collection_context");
   const componentRequirements = compiledSectionContent(sectionRecords, "component_requirements");
   const intent = compiledSectionContent(sectionRecords, "asset_specific_intent");
+  const styleSystem = compiledSectionContent(sectionRecords, "style_system");
+  const typography = compiledSectionContent(sectionRecords, "typography");
   const composition = compiledSectionContent(sectionRecords, "front_prompt", "composition_and_content");
   const materials = compiledSectionContent(sectionRecords, "material_world", "materials_and_lighting");
   const textPolicy = compiledSectionContent(sectionRecords, "text_policy");
@@ -222,18 +224,18 @@ function extractLocalBoardData(
     assetRole: creativeTask,
     composition,
     materials,
-    visualHierarchy: "",
+    visualHierarchy: styleSystem,
     textRule: textPolicy,
     canonRule: canonPolicy,
     printRule: printRequirements,
     negativeConstraints,
     illustratedNarrative: composition.slice(0, 900) || undefined,
-    focalHierarchy: [composition, "", materials, negativeConstraints].filter(Boolean),
-    componentSpecName: undefined,
-    componentSpecContent: undefined,
-    styleGuideName: undefined,
-    styleGuideContent: undefined,
-    promptModuleCount: 0,
+    focalHierarchy: [composition, styleSystem, materials, negativeConstraints].filter(Boolean),
+    componentSpecName: componentRequirements ? spec.componentType : undefined,
+    componentSpecContent: componentRequirements || undefined,
+    styleGuideName: styleSystem ? "Compiled Style System" : undefined,
+    styleGuideContent: [styleSystem, typography].filter(Boolean).join("\n\n"),
+    promptModuleCount: sectionRecords.filter((record) => /prompt module/i.test(record.source)).length,
     canonDependency: spec.canonDependency,
     canonRecordCount: canonPolicy ? 1 : 0,
     canonNames: canonPolicy ? [canonPolicy] : [],
@@ -646,13 +648,56 @@ async function runLocalSpecPreview(
     throw new SpecPreviewError("GENERATION_FAILED", `Spec board render failed: ${String(err)}`);
   }
 
+  let finalPng: Buffer;
+  let generationMetadata: WorldsmithImageGeneration["metadata"];
+  try {
+    const generatedImage = await generateWorldsmithImage({
+      prompt: buildConceptImagePrompt(boardData),
+      componentType: boardData.componentType,
+      orientation: boardData.orientation,
+      logContext: { specPageId },
+    });
+    generationMetadata = generatedImage.metadata;
+    if (generatedImage.error) throw new Error(generatedImage.error);
+    if (!generatedImage.buffer) throw new Error("Image generation returned no image data");
+
+    const resized = await sharp(generatedImage.buffer)
+      .resize(CONCEPT_IMAGE_RENDER_AREA.width, CONCEPT_IMAGE_RENDER_AREA.height, {
+        fit: "inside",
+        withoutEnlargement: false,
+      })
+      .png()
+      .toBuffer();
+    const meta = await sharp(resized).metadata();
+    const imgW = meta.width ?? CONCEPT_IMAGE_RENDER_AREA.width;
+    const imgH = meta.height ?? CONCEPT_IMAGE_RENDER_AREA.height;
+    const left = CONCEPT_IMAGE_RENDER_AREA.x + Math.floor((CONCEPT_IMAGE_RENDER_AREA.width - imgW) / 2);
+    const top = CONCEPT_IMAGE_RENDER_AREA.y + Math.floor((CONCEPT_IMAGE_RENDER_AREA.height - imgH) / 2);
+    finalPng = await sharp(boardPng)
+      .composite([{ input: resized, left, top, blend: "over" }])
+      .png()
+      .toBuffer();
+  } catch (err) {
+    await savePreviewRecord({
+      specPageId,
+      promptHash,
+      status: "failed",
+      productionItem: boardData.productionItem,
+      error: `Concept image generation failed: ${String(err)}`,
+    });
+    throw new SpecPreviewError(
+      "CONCEPT_IMAGE_GENERATION_FAILED",
+      `The Specification Board artwork could not be generated. No placeholder board was saved. ${String(err)}`,
+    );
+  }
+
   // An unpublished Editorial Suite spec has no safe Notion target for an image
   // attachment or workflow transition. Persist it in protected App Storage
   // instead, while keeping all Notion writes deferred until publication.
   const filename = buildPreviewFilename(boardData);
   let previewObjectPath: string;
   try {
-    previewObjectPath = await storeLocalPreviewBoard(boardPng, filename);
+    previewObjectPath = await storeLocalPreviewBoard(finalPng, filename);
   } catch (err) {
     await savePreviewRecord({
       specPageId,
@@ -672,15 +717,15 @@ async function runLocalSpecPreview(
     status: "success",
     previewFilename: filename,
     previewObjectPath,
-    provider: "local",
-    model: "spec-board",
+    provider: generationMetadata?.provider,
+    model: generationMetadata?.model,
     productionItem: boardData.productionItem,
     previousStatus: boardData.status,
     newStatus: boardData.status,
     error: localStatusNote,
   });
   logger.info(
-    { specPageId, promptHash, filename, previewObjectPath, bytes: boardPng.length },
+    { specPageId, promptHash, filename, previewObjectPath, bytes: finalPng.length },
     "WorldSmith local spec preview stored without Notion write-back",
   );
 
@@ -692,13 +737,13 @@ async function runLocalSpecPreview(
     preview_filename: filename,
     preview_object_path: previewObjectPath,
     preview_url: localPreviewUrl(previewObjectPath),
-    provider: "local",
-    model: "spec-board",
+    provider: generationMetadata?.provider,
+    model: generationMetadata?.model,
     prompt_hash: promptHash,
     previous_status: boardData.status,
     new_status: boardData.status,
     upload_status: "skipped",
-    dalle_skipped: true,
+    dalle_skipped: false,
   };
 }
 

@@ -1,0 +1,10 @@
+---
+name: Local spec board integrity
+description: Reliability rules for locally generated WorldSmith Specification Boards.
+---
+
+Local Specification Board generation must fail explicitly when concept-image generation or compositing fails; it must not persist a placeholder board with a successful status. An explicit “Generate new board” action must bypass the idempotent cached preview.
+
+**Why:** A cached placeholder looked like a successful board and kept being reopened even after the rendering pipeline was repaired, hiding both compiled content and the intended hero artwork.
+
+**How to apply:** Preserve idempotency for ordinary reloads, but send a force-new request for an operator-initiated regeneration. Only persist success after the generated image has been composited into the rendered board.

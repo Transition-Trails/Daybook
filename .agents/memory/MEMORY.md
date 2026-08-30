@@ -80,3 +80,4 @@
 - [Planner bounded-slot composition](planner-bounded-slot-composition.md) — Super Admin template editing uses explicit safe-area slots; adding consumes one and deleting frees it
 - [Planner binding gutters](planner-binding-gutters.md) — widget artwork reserves extra space on alternating binding edges; editor and PDF geometry must stay aligned
 - [Wizard draft hydration](wizard-draft-hydration.md) — resumable forms must bypass stale query cache on first load without allowing focus refetches to overwrite unsaved input
+- [Local spec board integrity](local-spec-board-integrity.md) — local boards must force fresh generation on explicit retry and must never save image-generation placeholders as success

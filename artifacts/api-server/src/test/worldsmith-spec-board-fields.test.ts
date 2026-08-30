@@ -498,6 +498,24 @@ describe("buildSpecBoardSvg — production board contract", () => {
     expect(svg).toContain("Moss Green");
     expect(svg).toContain('width="2400" height="2500"');
   });
+
+  it("curates raw inherited prose into clean, ellipsis-free checks and suppresses empty palette states", () => {
+    const svg = buildSpecBoardSvg(makeBoard({
+      styleLock: "STYLE GUIDE: Watercolour washes are mandatory. Type: Use fine ink contours. Scope: Keep the surface visibly handmade.",
+      reviewCriteria: "Focal object is immediately legible. Writing area remains clear; No modern objects appear.",
+      technicalRequirements: "FORMAT & COMPOSITION: portrait PNG master",
+      colorSwatches: [],
+    }));
+
+    expect(svg).not.toContain("STYLE GUIDE:");
+    expect(svg).not.toContain("FORMAT &amp; COMPOSITION:");
+    expect(svg).not.toContain("…");
+    expect(svg).not.toContain("No palette specified");
+    expect(svg).not.toContain("6. COLOR PALETTE (GUIDE)");
+    expect(svg).toContain("PASS / FAIL — Focal object is immediately legible.");
+    expect(svg).toContain("PASS / FAIL — Writing area remains clear");
+    expect(svg).toContain("PASS / FAIL — No modern objects appear.");
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

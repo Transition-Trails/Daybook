@@ -124,7 +124,6 @@ function buildConceptImagePrompt(data: SpecBoardData): string {
   const bible = data.worldBible;
   const parts = [
     data.styleLock,
-    "Create one finished scene illustration only. Do not render a specification sheet, mood board, style guide, typography sample, labels, captions, swatch chart, UI, border, or page layout.",
     scene,
     data.composition ? `Composition: ${data.composition}.` : "",
     data.materials ? `Visual materials: ${data.materials}.` : "",
@@ -137,6 +136,35 @@ function buildConceptImagePrompt(data: SpecBoardData): string {
     "Concept preview for editorial review — not final artwork.",
   ].filter(Boolean);
   return parts.join(" ").slice(0, 3800);
+}
+
+async function compositeDetailReferences(
+  boardPng: Buffer,
+  sourceRects: ReadonlyArray<{ x: number; y: number; width: number; height: number }>,
+  specPageId: string,
+): Promise<Buffer> {
+  if (sourceRects.length === 0) return boardPng;
+  const composites = (await Promise.all(
+    sourceRects.map(async (src, i) => {
+      const dest = DETAIL_CROP_DEST_AREAS[i];
+      if (!dest) return null;
+      try {
+        const cropped = await sharp(boardPng)
+          .extract({ left: src.x, top: src.y, width: src.width, height: src.height })
+          .resize(dest.width - 4, dest.height - 4, { fit: "cover", position: "centre" })
+          .png()
+          .toBuffer();
+        return { input: cropped, left: dest.x + 2, top: dest.y + 2, blend: "over" as const };
+      } catch (cropErr) {
+        logger.warn({ err: cropErr, index: i, specPageId }, "Detail crop failed — skipping thumbnail");
+        return null;
+      }
+    }),
+  )).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  if (composites.length === 0) return boardPng;
+  const result = await sharp(boardPng).composite(composites).png().toBuffer();
+  logger.info({ specPageId, count: composites.length }, "Detail reference crops composited into spec board");
+  return result;
 }
 
 interface LocalCompileSnapshot {
@@ -284,8 +312,8 @@ function extractLocalBoardData(
     payloadVersion: spec.payloadVersion,
     currentVersion: spec.currentVersion,
     status: spec.status,
-    designIntent: intent,
-    narrativePurpose: [intent, worldContext].filter(Boolean).join("\n\n"),
+    designIntent: spec.designIntent || intent,
+    narrativePurpose: spec.narrativePurpose || intent,
     requiredContent: componentRequirements,
     reviewCriteria: spec.reviewCriteria || printRequirements,
     assetRole: creativeTask,
@@ -307,8 +335,8 @@ function extractLocalBoardData(
       styleGuideNames[0] ? `Maintain the approved ${styleGuideNames[0]} visual language.` : "",
       canonNames.length ? `Preserve continuity with ${canonNames.join(", ")}.` : "",
     ].filter(Boolean).join("\n"),
-    illustratedNarrative: composition.slice(0, 900) || undefined,
-    focalHierarchy: [composition, styleSystem, materials, negativeConstraints].filter(Boolean),
+    illustratedNarrative: [spec.narrativePurpose || intent, composition, componentRequirements, canonPolicy].filter(Boolean).join("\n") || undefined,
+    focalHierarchy: [composition, componentRequirements, materials, writingSpace || negativeConstraints].filter(Boolean),
     componentSpecName: componentSpecNames[0],
     componentSpecContent: componentRequirements || undefined,
     styleGuideName: styleGuideNames[0],
@@ -764,6 +792,11 @@ async function runLocalSpecPreview(
       .composite([{ input: resized, left, top, blend: "over" }])
       .png()
       .toBuffer();
+    finalPng = await compositeDetailReferences(
+      finalPng,
+      getDetailCropSourceRects({ x: left, y: top, width: imgW, height: imgH }),
+      specPageId,
+    );
   } catch (err) {
     await savePreviewRecord({
       specPageId,
@@ -1099,30 +1132,7 @@ export async function runSpecPreview(
   // into the DETAIL_CROP_DEST_AREAS in the bottom technical strip.
   if (conceptImageApplied) {
     try {
-      const composites: Array<{ input: Buffer; left: number; top: number; blend: "over" }> = [];
-      await Promise.all(
-        detailCropSourceRects.map(async (src, i) => {
-          const dest = DETAIL_CROP_DEST_AREAS[i];
-          if (!dest) return;
-          try {
-            const cropped = await sharp(finalPng)
-              .extract({ left: src.x, top: src.y, width: src.width, height: src.height })
-              .resize(dest.width - 4, dest.height - 4, { fit: "cover", position: "centre" })
-              .png()
-              .toBuffer();
-            composites.push({ input: cropped, left: dest.x + 2, top: dest.y + 2, blend: "over" });
-          } catch (cropErr) {
-            logger.warn({ err: cropErr, index: i, specPageId }, "Detail crop failed — skipping thumbnail");
-          }
-        }),
-      );
-      if (composites.length > 0) {
-        finalPng = await sharp(finalPng)
-          .composite(composites)
-          .png()
-          .toBuffer();
-        logger.info({ specPageId, count: composites.length }, "Detail reference crops composited into spec board");
-      }
+      finalPng = await compositeDetailReferences(finalPng, detailCropSourceRects, specPageId);
     } catch (cropErr) {
       logger.warn({ err: cropErr, specPageId }, "Detail crop compositing failed — non-fatal, continuing");
     }

@@ -1,0 +1,94 @@
+Refine the WorldSmith Specification Board. Do not redesign its overall layout or generation architecture. The current board is substantially correct. This pass is about editorial hierarchy, deduplication, and production usability.
+
+The large generated visual reference is now successful and should remain the dominant visual element. It already communicates much of the Style Guide visually. The surrounding specification should therefore complement the visual rather than duplicate everything contained inside it.
+
+1. Tighten compiled prose
+
+Do not display raw database fields, serialized content, field labels, or long inherited text verbatim.
+
+Each section should synthesize its sources into concise production language. Remove prefixes such as STYLE GUIDE:, Type:, Scope:, PURPOSE, FORMAT & COMPOSITION, etc. when those labels are already represented by the board's section hierarchy.
+
+Never truncate compiled prose with ... on the final board. Instead, summarize it to fit the available space.
+
+2. Reduce duplication with the generated visual
+
+Treat the large generated visual as the primary visual articulation of style, palette, materials, typography, and atmosphere.
+
+The surrounding board should contain the asset-specific production instructions required to execute and review this particular asset.
+
+Do not repeat the entire Style Guide in multiple sections.
+
+3. Make asset-specific information dominant
+
+Prioritize:
+
+what this asset is;
+why it exists;
+what scene/content it must contain;
+primary focal point;
+supporting elements;
+negative/writing space;
+canon constraints;
+technical requirements;
+prohibited treatments;
+QA/pass-fail criteria;
+continuity requirements.
+
+Inherited Style Guide information should support these instructions rather than overwhelm them.
+
+4. Improve section hierarchy
+
+The most important textual sections should be:
+
+STYLE LOCK
+2 to 4 sentences containing only the non-negotiable visual treatment.
+
+ASSET PURPOSE
+A concise paragraph explaining why this specific production asset exists.
+
+ILLUSTRATED NARRATIVE
+One concise scene description synthesized from Narrative Purpose + Required Content + applicable Canon.
+
+COMPOSITION & LAYOUT
+4 to 6 actionable instructions, not database excerpts.
+
+TECHNICAL REQUIREMENTS
+Compact factual production data.
+
+PROHIBITED TREATMENTS
+5 to 8 high-value prohibitions synthesized from all negative constraints. Deduplicate similar prohibitions.
+
+QA REVIEW CRITERIA
+Render the actual Production Spec review criteria as individual pass/fail checklist items. Do not collapse them into one sentence.
+
+5. Treat supporting sections as compact reference material
+
+Visual Characteristics, Materials & Lighting, Color Palette, Negative Space & Usability, Detail References, and Series Continuity should be concise supporting panels.
+
+If no structured palette exists, do not display a large empty panel saying no palette was specified. Either derive the palette only when the linked Style Guide contains structured approved palette data, or collapse/omit the section.
+
+Likewise, do not show empty Detail & Element Reference placeholders unless actual references are available.
+
+6. Fix text overflow and truncation
+
+No final Specification Board should contain clipped text, ellipses caused by UI truncation, overlapping text, raw serialization, or content hidden because a panel has insufficient space.
+
+Content should be intelligently summarized to fit the board.
+
+7. Preserve provenance and inheritance
+
+Continue compiling from Production Spec, Collection, Volume, Style Guide, Component Spec, Canon Records, Prompt Modules, and Prompt Payload.
+
+Do not duplicate inherited information simply because it appears in multiple sources. Resolve duplicate instructions into one concise instruction while retaining provenance internally.
+
+8. Keep the visual reference
+
+Keep the current large generated visual and its prominent placement. It is now a successful part of the board.
+
+The surrounding specification should answer:
+
+“What does the production artist or image generator need to know that cannot be understood reliably from this visual alone?”
+
+That is the information that deserves space around the image.
+
+Acceptance criterion: A reviewer should be able to understand the asset visually within a few seconds, then use the surrounding text to determine exactly what must be generated, what cannot be changed, and whether the resulting artwork passes production review. The board should feel curated rather than database-generated.

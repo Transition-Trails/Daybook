@@ -104,7 +104,8 @@ describe("Step 10 remainder — spec-board: no invented palette or constraints",
   it("renders an explicit empty palette state when the spec has no color swatches", () => {
     const svg = buildSpecBoardSvg(minimalBoard());
 
-    expect(svg).toContain("No palette specified for this spec.");
+    expect(svg).not.toContain("No palette specified for this spec.");
+    expect(svg).not.toContain("6. COLOR PALETTE (GUIDE)");
     expect(svg).not.toContain("Antique Ivory");
     expect(svg).not.toContain("Parchment Cream");
     expect(svg).not.toContain("Sage Gray");

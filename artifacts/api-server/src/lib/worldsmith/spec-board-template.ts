@@ -15,7 +15,7 @@
  */
 
 /** Exported version string — bump when the layout contract changes. */
-export const TEMPLATE_VERSION = "3.1";
+export const TEMPLATE_VERSION = "3.2";
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -177,13 +177,72 @@ function esc(s: string | undefined | null): string {
     .replace(/'/g, "&#39;");
 }
 
+function cleanProse(s: string | undefined | null): string {
+  let source = (s ?? "").trim();
+  if (/^[{\[]/.test(source)) {
+    try {
+      const parsed: unknown = JSON.parse(source);
+      const values: string[] = [];
+      const collect = (value: unknown): void => {
+        if (typeof value === "string") values.push(value);
+        else if (Array.isArray(value)) value.forEach(collect);
+        else if (value && typeof value === "object") Object.values(value).forEach(collect);
+      };
+      collect(parsed);
+      source = values.join(". ");
+    } catch {
+      // Preserve non-JSON prose that happens to begin with punctuation.
+    }
+  }
+  return source
+    .replace(/\b(?:STYLE GUIDE|TYPE|SCOPE|PURPOSE|PRIMARY FOCAL POINT|SECONDARY CLUSTER|SUPPORTING FIELD|FORMAT & COMPOSITION|MATERIALS & LIGHTING|RENDERING|COLOUR PALETTE|COLOR PALETTE|NEGATIVE CONSTRAINTS?)\s*:?\s*/gi, "")
+    .replace(/^[\s*•\-]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function summarizeProse(
+  raw: string | undefined | null,
+  maxChars: number,
+  maxSentences: number,
+): string {
+  const text = cleanProse(raw);
+  if (!text) return "";
+  const thoughts = text
+    .split(/(?<=[.!?])\s+|[\n;•]+/)
+    .map((thought) => cleanProse(thought))
+    .filter(Boolean);
+  const selected: string[] = [];
+  for (const thought of thoughts) {
+    if (selected.length >= maxSentences) break;
+    const candidate = [...selected, thought].join(". ");
+    if (candidate.length > maxChars) break;
+    selected.push(thought);
+  }
+  if (selected.length) {
+    return selected.map((thought) => /[.!?]$/.test(thought) ? thought : `${thought}.`).join(" ");
+  }
+  return trunc(text, maxChars);
+}
+
+/** Keep a complete thought where possible; never add a UI-style ellipsis. */
 function trunc(s: string | undefined | null, max: number): string {
-  const t = (s ?? "").trim();
-  return t.length > max ? t.slice(0, max - 1) + "\u2026" : t;
+  const t = cleanProse(s);
+  if (t.length <= max) return t;
+  const sentence = t.split(/(?<=[.!?])\s+/)[0]?.trim();
+  if (sentence && sentence.length <= max) return sentence;
+  const words = t.split(/\s+/);
+  const kept: string[] = [];
+  for (const word of words) {
+    const next = kept.length ? `${kept.join(" ")} ${word}` : word;
+    if (next.length > max) break;
+    kept.push(word);
+  }
+  return kept.join(" ") || words[0]?.slice(0, max) || "";
 }
 
 function wrapText(raw: string | undefined | null, maxChars: number, maxLines: number): string[] {
-  const text = (raw ?? "").trim();
+  const text = cleanProse(raw);
   if (!text) return ["—"];
   const lines: string[] = [];
   for (const para of text.split(/\n+/)) {
@@ -194,17 +253,22 @@ function wrapText(raw: string | undefined | null, maxChars: number, maxLines: nu
       if (lines.length >= maxLines) break;
       if ((cur ? cur + " " + word : word).length > maxChars) {
         if (cur) lines.push(cur);
-        cur = word.length > maxChars ? word.slice(0, maxChars - 1) + "\u2026" : word;
+        cur = word.length > maxChars ? word.slice(0, maxChars) : word;
       } else {
         cur = cur ? cur + " " + word : word;
       }
     }
     if (cur && lines.length < maxLines) lines.push(cur);
   }
-  if (lines.length === maxLines && text.length > lines.join(" ").length + 5) {
-    lines[maxLines - 1] = (lines[maxLines - 1] ?? "").replace(/\s*\S+$/, "\u2026");
-  }
   return lines.length ? lines : ["—"];
+}
+
+function compactList(raw: string | undefined | null, maxItems: number, maxChars: number): string[] {
+  return (raw ?? "")
+    .split(/(?:\r?\n|[;•])+/)
+    .map((item) => trunc(item, maxChars))
+    .filter(Boolean)
+    .slice(0, maxItems);
 }
 
 function tspans(lines: string[], anchorX: number, lineH = 18): string {
@@ -274,7 +338,7 @@ function headerBar(world: string, collection: string | undefined, volume: string
 function leftPanel(data: SpecBoardData): string {
   const { productionItem, componentType, world, narrativePurpose, designIntent,
           illustratedNarrative, composition, visualHierarchy,
-          materials, negativeConstraints, focalHierarchy } = data;
+          requiredContent, materials, negativeConstraints, focalHierarchy } = data;
 
   const x = LFT_X;
   const w = LFT_W;
@@ -324,8 +388,12 @@ function leftPanel(data: SpecBoardData): string {
   // ── Narrative Role section (~312px tall) ──────────────────────────────────
   const narY = IMG_Y + titleBlockH;
   const narH = 312;
-  const styleLockLines = wrapText(data.styleLock || data.styleGuideContent || "Not specified.", Math.floor((w - 30) / 7.2), 5);
-  const narText = illustratedNarrative || narrativePurpose || designIntent || "Not specified.";
+  const styleLockLines = wrapText(
+    summarizeProse(data.styleLock || data.styleGuideContent || "Not specified.", 360, 4),
+    Math.floor((w - 30) / 7.2),
+    5,
+  );
+  const narText = summarizeProse(illustratedNarrative || narrativePurpose || designIntent || "Not specified.", 360, 3);
   const narLines = wrapText(narText, Math.floor((w - 30) / 7.2), 5);
 
   const narrativeSection = [
@@ -351,19 +419,19 @@ function leftPanel(data: SpecBoardData): string {
   const focalItems: Array<{ label: string; text: string }> = [
     {
       label: "Primary Focal Point",
-      text:  rawFocal[0] || composition || "Not specified.",
+      text:  trunc(rawFocal[0] || composition || "Not specified.", 150),
     },
     {
       label: "Secondary Cluster",
-      text:  rawFocal[1] || visualHierarchy || (data.usesCompiledSections ? "Not specified." : narrativePurpose || "—"),
+      text:  trunc(rawFocal[1] || requiredContent || (data.usesCompiledSections ? "Not specified." : narrativePurpose || "—"), 150),
     },
     {
       label: "Supporting Field",
-      text:  rawFocal[2] || materials || (data.usesCompiledSections ? "Not specified." : "—"),
+      text:  trunc(rawFocal[2] || materials || (data.usesCompiledSections ? "Not specified." : "—"), 150),
     },
     {
       label: "Negative Space",
-      text:  rawFocal[3] || negativeConstraints || (data.usesCompiledSections ? "Not specified." : "Preserve open paper areas."),
+      text:  trunc(rawFocal[3] || data.negativeSpaceGuidance || negativeConstraints || (data.usesCompiledSections ? "Not specified." : "Preserve open paper areas."), 150),
     },
   ];
 
@@ -437,7 +505,7 @@ function midSection(data: SpecBoardData): string {
   // ── Col 1: Required Elements Checklist ─────────────────────────────────
   const reqItems = ((data.visualCharacteristics?.join("\n")) || requiredContent || "")
     .split(/[;\n,]+/)
-    .map(s => s.trim())
+    .map(s => trunc(s.trim(), 92))
     .filter(Boolean)
     .slice(0, 10);
   // Show a placeholder only if the spec has no required elements at all — never
@@ -461,11 +529,7 @@ function midSection(data: SpecBoardData): string {
   }).join("\n");
 
   // ── Col 2: Material & Lighting Notes ───────────────────────────────────
-  const matBullets = (materials || "")
-    .split(/[;\n•]+/)
-    .map(s => s.trim())
-    .filter(Boolean)
-    .slice(0, 7);
+  const matBullets = compactList(materials, 7, 100);
   if (matBullets.length === 0) matBullets.push("—");
 
   const charsC2 = Math.floor((colW - 28) / 6.4);
@@ -483,11 +547,7 @@ function midSection(data: SpecBoardData): string {
   }).join("\n");
 
   // ── Col 3: Negative Space Guidance ─────────────────────────────────────
-  const negBullets = (data.negativeSpaceGuidance || "")
-    .split(/[;\n•]+/)
-    .map(s => s.trim())
-    .filter(Boolean)
-    .slice(0, 6);
+  const negBullets = compactList(data.negativeSpaceGuidance, 6, 100);
   if (negBullets.length === 0) negBullets.push("—");
 
   const charsC3 = Math.floor((colW - 28) / 6.4);
@@ -506,12 +566,18 @@ function midSection(data: SpecBoardData): string {
 
   // ── Col 4: Design Constraints ───────────────────────────────────────────
   const constraints: string[] = [];
-  if (negativeConstraints) constraints.push(...negativeConstraints.split(/[;\n•]+/).filter(Boolean));
-  if (textRule) constraints.push(textRule);
-  if (canonRule) constraints.push(canonRule);
+  if (negativeConstraints) constraints.push(...compactList(negativeConstraints, 6, 100));
+  if (textRule) constraints.push(trunc(textRule, 100));
+  if (canonRule) constraints.push(trunc(canonRule, 100));
+  const uniqueConstraints = Array.from(new Map(
+    constraints
+      .map((constraint) => cleanProse(constraint))
+      .filter(Boolean)
+      .map((constraint) => [constraint.toLowerCase().replace(/[^a-z0-9]+/g, " "), constraint]),
+  ).values());
   const charsC4 = Math.floor((colW - 30) / 6.4);
   let cy4 = MID_Y + 46;
-  const col4Items = constraints.filter(Boolean).slice(0, 8).map(c => {
+  const col4Items = uniqueConstraints.slice(0, 8).map(c => {
     const lines = wrapText(c, charsC4, 2);
     const result = [
       `<text x="${cols[3] + 14}" y="${cy4}" font-family="Instrument Sans" font-size="13" fill="${CLAY}" opacity="0.75">×</text>`,
@@ -598,11 +664,13 @@ function bottomStrip(data: SpecBoardData): string {
           `<text x="${sx + swatchSz / 2}" y="${sy + swatchSz + 24}" text-anchor="middle" font-family="Instrument Sans" font-size="8.5" fill="${MUTED}">${esc(sw.hex)}</text>`,
         ].join("\n");
       }).join("\n")
-    : `<text x="${palX + palW / 2}" y="${BTM_Y + 112}" text-anchor="middle" font-family="Spectral" font-size="13" fill="${MUTED}" font-style="italic">No palette specified for this spec.</text>`;
+    : "";
 
   // ── Section 3: Detail & Element References (thumbnail placeholders) ─────
   const detX = palX + palW + 12;
   const detW = BOARD_W - detX - MARGIN;
+  const detPanelX = effective.length > 0 ? detX : palX;
+  const detPanelW = BOARD_W - detPanelX - MARGIN;
   const thumbLabels = focalHierarchy ?? [];
   const defaultLabels = ["Primary focal area", "Secondary element", "Material & texture detail", "Supporting / archival detail"];
   const thumbDests = DETAIL_CROP_DEST_AREAS;
@@ -624,19 +692,23 @@ function bottomStrip(data: SpecBoardData): string {
   return [
     // Background rects
     `<rect x="${techX}" y="${BTM_Y}" width="${techW}" height="${BTM_H}" fill="${CREAM}" stroke="${RULE}" stroke-width="0.4" opacity="0.7" rx="1"/>`,
-    `<rect x="${palX}" y="${BTM_Y}" width="${palW}" height="${BTM_H}" fill="${CREAM}" stroke="${RULE}" stroke-width="0.4" opacity="0.7" rx="1"/>`,
-    `<rect x="${detX}" y="${BTM_Y}" width="${detW}" height="${BTM_H}" fill="${CREAM}" stroke="${RULE}" stroke-width="0.4" opacity="0.7" rx="1"/>`,
+    effective.length > 0
+      ? `<rect x="${palX}" y="${BTM_Y}" width="${palW}" height="${BTM_H}" fill="${CREAM}" stroke="${RULE}" stroke-width="0.4" opacity="0.7" rx="1"/>`
+      : "",
+    `<rect x="${detPanelX}" y="${BTM_Y}" width="${detPanelW}" height="${BTM_H}" fill="${CREAM}" stroke="${RULE}" stroke-width="0.4" opacity="0.7" rx="1"/>`,
     // Headings
     sectionHead(techX + 14, BTM_Y + 20, techW - 28, "8. Technical Requirements", NAVY),
-    sectionHead(palX  + 14, BTM_Y + 20, palW - 28,  "6. Color Palette (Guide)", NAVY),
-    sectionHead(detX  + 14, BTM_Y + 20, detW - 28,  "Detail & Element References", NAVY),
+    effective.length > 0
+      ? sectionHead(palX + 14, BTM_Y + 20, palW - 28, "6. Color Palette (Guide)", NAVY)
+      : "",
+    sectionHead(detPanelX + 14, BTM_Y + 20, detPanelW - 28, "Detail & Element References", NAVY),
     techSvg,
     swatchSvg,
     detailSvg,
     // Palette note / explicit empty state
     effective.length > 0
-      ? `<text x="${palX + 14}" y="${BTM_Y + BTM_H - 12}" font-family="Spectral" font-size="9.5" fill="${MUTED}" font-style="italic">Palette must feel cohesive, muted, and authentically aged.</text>`
-      : `<text x="${palX + 14}" y="${BTM_Y + BTM_H - 12}" font-family="Spectral" font-size="9.5" fill="${MUTED}" font-style="italic">No spec-level palette provided.</text>`,
+      ? `<text x="${palX + 14}" y="${BTM_Y + BTM_H - 12}" font-family="Spectral" font-size="9.5" fill="${MUTED}" font-style="italic">Approved hues support the visual reference; do not introduce unrelated accents.</text>`
+      : "",
   ].join("\n");
 }
 
@@ -668,20 +740,27 @@ function companionRow(data: SpecBoardData): string {
   // to narrativePurpose.  Never invent placeholder phrases here.
   const emotionalRaw = (designIntent || narrativePurpose || "").trim() ||
     (data.usesCompiledSections ? "Not specified." : "—");
-  const emotionalLines = wrapText(trunc(emotionalRaw, 300), Math.floor((colW - 48) / 6.4), 12);
+  const emotionalLines = wrapText(summarizeProse(emotionalRaw, 260, 3), Math.floor((colW - 48) / 6.4), 8);
   const emoY = CMP_Y + 44;
   const col2Svg = `<text x="${cols[1] + 24}" y="${emoY}" font-family="Spectral" font-size="13" fill="${INK}" opacity="0.78" font-style="italic">` +
     tspans(emotionalLines, cols[1] + 24, 20) +
     `</text>`;
 
   // ── Col 3: Notes for Artist ─────────────────────────────────────────────
-  const artistNotes = data.usesCompiledSections
-    ? [reviewCriteria ? trunc(reviewCriteria, 90) : "Not specified."]
-    : [
-        styleGuideName ? `Follow style guide: ${styleGuideName}` : "Maintain historical accuracy in materials, tools, and bindings.",
-        "Keep text minimal and suggestive — no legible names, dates, or invented content.",
-        reviewCriteria ? trunc(reviewCriteria, 90) : "Scene should feel active, not staged — research in progress.",
-      ];
+  const qaItems = (reviewCriteria ?? "")
+    .split(/(?<=[.!?])\s+|[\n;•]+/)
+    .map((item) => trunc(item, 110))
+    .filter(Boolean)
+    .slice(0, 6);
+  const artistNotes = qaItems.length
+    ? qaItems.map((item) => `PASS / FAIL — ${item}`)
+    : data.usesCompiledSections
+      ? ["PASS / FAIL — Review criteria not specified."]
+      : [
+          `PASS / FAIL — ${styleGuideName ? `Conforms to ${styleGuideName}.` : "Materials and bindings remain historically coherent."}`,
+          "PASS / FAIL — Text stays minimal and no unapproved names or dates appear.",
+          "PASS / FAIL — The scene reads as active rather than staged.",
+        ];
   const artistLines = artistNotes.map(n => wrapText(n, Math.floor((colW - 28) / 6.4), 3));
 
   let col3Y = CMP_Y + 44;

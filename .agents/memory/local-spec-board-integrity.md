@@ -14,3 +14,9 @@ Specification Board font resolution must work from both the source module direct
 **Why:** Source-level glyph tests passed while the built server emitted nearly blank boards because the build copied fonts beside the bundle, not into the source-relative location.
 
 **How to apply:** Resolve the existing source font directory during tests/development and the bundle-local font directory in production; verify one board through the built workflow, not only through source-level renderer tests.
+
+Final Specification Boards must curate inherited prose rather than reproduce compiler records verbatim. Local previews must composite the same real detail crops as Notion-backed previews.
+
+**Why:** A structurally correct board still felt database-generated when it repeated field prefixes, collapsed QA into prose, and left local detail frames empty.
+
+**How to apply:** Summarize complete thoughts without ellipses, prioritize asset-specific instructions, render review criteria as separate checks, suppress empty supporting states, deduplicate constraints, and verify the built local path visually.

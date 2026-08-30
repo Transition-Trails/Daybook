@@ -222,7 +222,9 @@ describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
     });
     expect(mockLocalResolver).toHaveBeenCalledWith("local-spec");
     expect(renderedBoard?.worldBible?.visualPalette).toContain("Moss green");
-    expect(renderedBoard?.illustratedNarrative).toBe("Compiled gate scene.");
+    expect(renderedBoard?.illustratedNarrative).toContain("Compiled gate scene.");
+    expect(renderedBoard?.illustratedNarrative).toContain("Compiled component requirements.");
+    expect(renderedBoard?.illustratedNarrative).toContain("Compiled Quiet Gate canon policy.");
     expect(renderedBoard?.composition).toBe("Compiled gate scene.");
     expect(renderedBoard?.materials).toBe("Compiled wet stone and iron.");
     expect(renderedBoard?.negativeConstraints).toBe("Compiled no text.");

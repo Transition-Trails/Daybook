@@ -10,6 +10,8 @@ White-label SaaS for digital planner creators. Platform admins author the constr
 | `GOOGLE_CLIENT_ID` | Already set | Google OAuth sign-in for admin console |
 | `GOOGLE_CLIENT_SECRET` | Already set | Google OAuth sign-in |
 | `SESSION_SECRET` | Already set | Session cookie signing |
+| `ADMIN_EMAIL` | Optional | Email for the password-based platform admin bootstrap |
+| `ADMIN_PASSWORD` | Optional | Password for the password-based platform admin bootstrap (12+ characters) |
 | `RESEND_API_KEY` | Already set | Transactional email (support, order receipts) |
 | `RESEND_WEBHOOK_SECRET` | Already set | Inbound webhook verification |
 | `DEFAULT_OBJECT_STORAGE_BUCKET_ID` | Already set | Object storage for uploaded assets |

@@ -6,29 +6,35 @@ import { warmFontCache } from "./lib/font-warmup";
 import { schedulePeriodicDomainVerify } from "./lib/email/domain-recheck";
 import { recoverStaleRuns } from "./lib/worldsmith/run-repository";
 import { checkBillingConfiguration } from "./lib/billing-config";
+import { bootstrapAdminAccount } from "./lib/bootstrap-admin";
 
-const rawPort = process.env["PORT"];
+async function start(): Promise<void> {
+  const rawPort = process.env["PORT"];
 
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
-
-validateImageGenerationConfiguration();
-validateWorldsmithPreviewGenerationConfiguration();
-
-app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
+  if (!rawPort) {
+    throw new Error(
+      "PORT environment variable is required but was not provided.",
+    );
   }
+
+  const port = Number(rawPort);
+
+  if (Number.isNaN(port) || port <= 0) {
+    throw new Error(`Invalid PORT value: "${rawPort}"`);
+  }
+
+  validateImageGenerationConfiguration();
+  validateWorldsmithPreviewGenerationConfiguration();
+
+  // Ensure a configured password-based admin can log in before accepting
+  // requests. With no ADMIN_* secrets configured this is a no-op.
+  await bootstrapAdminAccount();
+
+  const server = app.listen(port);
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
 
   logger.info({ port }, "Server listening");
 
@@ -69,4 +75,9 @@ app.listen(port, (err) => {
       logger.error({ err }, "WorldSmith: periodic stale-run sweep failed");
     });
   }, 5 * 60 * 1000);
+}
+
+start().catch((err) => {
+  logger.error({ err }, "API server failed to start");
+  process.exit(1);
 });

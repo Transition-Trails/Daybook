@@ -23,7 +23,7 @@ import { normalizeNotionId } from "../lib/worldsmith/normalize-id";
 import { db } from "@workspace/db";
 import {
   fontsTable, palettesTable, storeFlagsTable, storesTable, worldsmithAssetsTable,
-  worldsmithRunsTable, worldsmithWorldsTable,
+  worldsmithProductionPackagesTable, worldsmithRunsTable, worldsmithWorldsTable,
   wsCanonRecordsTable, wsComponentSpecsTable, wsPromptModulesTable, wsStyleGuidesTable,
 } from "@workspace/db";
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
@@ -296,6 +296,8 @@ router.post("/v1/production-packages", requireAuth, requireSuperAdmin, async (re
     notion_production_spec_id?: string;
     dry_run?: boolean;
     generation_settings?: { quality?: unknown };
+    production_package_id?: string;
+    force_new?: boolean;
   };
 
   if (!body.production_spec_id && !body.notion_production_spec_id) {
@@ -342,6 +344,8 @@ router.post("/v1/production-packages", requireAuth, requireSuperAdmin, async (re
         generation_settings: body.generation_settings?.quality
           ? { quality: body.generation_settings.quality as "low" | "medium" | "high" | "standard" | "hd" }
           : undefined,
+        production_package_id: body.production_package_id?.trim() || undefined,
+        force_new: body.force_new === true,
       },
       (req.user as User | undefined)?.id ?? "anonymous",
     );
@@ -362,6 +366,41 @@ router.post("/v1/production-packages", requireAuth, requireSuperAdmin, async (re
     req.log.error({ err, specId: resolvedSpecId }, "WorldSmith production package endpoint error");
     res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
   }
+});
+
+router.get("/v1/production-packages", requireAuth, requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const productionSpecId = String(req.query.production_spec_id ?? "").trim();
+  if (!productionSpecId) {
+    res.status(400).json({ error: "production_spec_id is required", code: "MISSING_SPEC_ID" });
+    return;
+  }
+  const rows = await db
+    .select()
+    .from(worldsmithProductionPackagesTable)
+    .where(eq(worldsmithProductionPackagesTable.productionSpecId, productionSpecId))
+    .orderBy(desc(worldsmithProductionPackagesTable.createdAt));
+  const serialize = (row: typeof rows[number] | undefined) => row ? {
+    id: row.id,
+    status: row.status,
+    production_art_status: row.productionArtStatus,
+    idempotent: true,
+    filename: row.filename,
+    notion_upload_id: row.notionUploadId ?? undefined,
+    visual_asset_id: row.visualAssetNotionId ?? undefined,
+    local_object_path: row.providerRequestId?.startsWith("/objects/") ? row.providerRequestId : undefined,
+    artwork_url: row.providerRequestId?.startsWith("/objects/") ? `/api/storage${row.providerRequestId}` : undefined,
+    provider: row.provider,
+    model: row.modelName,
+    model_version: row.modelVersion || undefined,
+    effective_size: row.effectiveSize,
+    quality: row.quality,
+    estimated_cost_usd: row.estimatedCostUsd,
+    error: row.error ?? undefined,
+  } : null;
+  res.json({
+    package: serialize(rows[0]),
+    last_successful: serialize(rows.find(row => row.status === "success")),
+  });
 });
 
 // ── GET /api/v1/runs/:run_id ──────────────────────────────────────────────────

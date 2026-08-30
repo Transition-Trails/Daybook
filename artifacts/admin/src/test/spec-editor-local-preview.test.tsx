@@ -66,6 +66,9 @@ describe("SpecEditor local specification board", () => {
       if (path === "/v1/worldsmith/spec-preview/local/spec-local") {
         return Promise.resolve({ preview: null });
       }
+      if (path === "/v1/production-packages?production_spec_id=spec-local") {
+        return Promise.resolve({ package: null, last_successful: null });
+      }
       if (path === "/v1/prompt-compilations") {
         return Promise.resolve({ status: "compiled", prompt_hash: "local-hash" });
       }
@@ -157,6 +160,63 @@ describe("SpecEditor local specification board", () => {
       expect(screen.getByAltText("Specification board for Thornvale Hero Paper")).toHaveAttribute(
         "src",
         "/api/storage/objects/worldsmith/spec-previews/existing.png",
+      );
+    });
+  });
+
+  it("generates final artwork from the local spec and displays its protected image", async () => {
+    const approvedSpec = { ...spec, status: "approved" };
+    apiFetch.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === "/v1/editorial/specs/spec-local") {
+        return Promise.resolve({
+          spec: approvedSpec,
+          relationships: { style_guide: null, component_spec: null, canon_records: [], prompt_modules: [] },
+        });
+      }
+      if (path === "/v1/editorial/component-sets?world_id=world-1") {
+        return Promise.resolve({ component_sets: [] });
+      }
+      if (path === "/v1/worldsmith/spec-preview/local/spec-local") {
+        return Promise.resolve({ preview: null });
+      }
+      if (path === "/v1/production-packages?production_spec_id=spec-local") {
+        return Promise.resolve({ package: null, last_successful: null });
+      }
+      if (path === "/v1/production-packages" && options?.method === "POST") {
+        return Promise.resolve({
+          production_package: {
+            id: "package-local",
+            status: "success",
+            production_art_status: "artwork_review",
+            filename: "thornvale-final.png",
+            artwork_url: "/api/storage/objects/worldsmith/final-artwork/thornvale-final.png",
+            provider: "replit_ai_integrations",
+            model: "gpt-image-2",
+            effective_size: "1440x1440",
+            quality: "medium",
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SpecEditor specId="spec-local" />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Generate final artwork" }));
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        "/v1/production-packages",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            production_spec_id: "spec-local",
+            force_new: false,
+          }),
+        }),
       );
     });
   });

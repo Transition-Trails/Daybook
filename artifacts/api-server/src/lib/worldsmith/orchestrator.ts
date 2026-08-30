@@ -41,6 +41,7 @@ import { generateImage, type ImageGenerationMetadata } from "../ai-proxy";
 import { db, worldsmithProductionPackagesTable, worldsmithWorldsTable } from "@workspace/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { objectStorageClient, ObjectStorageService } from "../objectStorage";
 
 const VISUAL_ASSETS_DB = () => process.env.NOTION_VISUAL_ASSETS_DB_ID ?? "";
 
@@ -59,7 +60,8 @@ export async function runCompilation(
 ): Promise<CompileResponse> {
   const specId = req.production_spec_id ?? req.notion_production_spec_id ?? "";
   const { dry_run: dryRun = false } = req;
-  const useLocalResolver = isLocalResolverEnabled();
+  const isLocalProductionRequest = Boolean(req.production_spec_id);
+  const useLocalResolver = isLocalProductionRequest;
 
   // ── Stage 1: Authenticate / validate request ─────────────────────────────
   if (!specId || specId.trim() === "") {
@@ -278,7 +280,7 @@ export async function runCompilation(
         completedAt: new Date(),
       });
 
-        if (!dryRun && spec.notionPageId) {
+        if (!dryRun && spec.notionPageId && !isLocalProductionRequest) {
           await writeCompiledPromptStatus(spec.notionPageId, compiledStatus);
       }
 
@@ -314,7 +316,7 @@ export async function runCompilation(
         completedAt: new Date(),
       });
 
-      if (!dryRun && spec.notionPageId) {
+      if (!dryRun && spec.notionPageId && !isLocalProductionRequest) {
         await writeCompiledPromptStatus(spec.notionPageId, compiledStatus);
       }
 
@@ -385,15 +387,19 @@ export async function runCompilation(
     // repeated production request. This preserves the same final artifact as
     // the idempotency record rather than creating an extra shell page.
     const existingProductionPackage = !dryRun && req.operation === "compile_and_generate"
-      ? await getExistingProductionPackage({
-          productionSpecId: specId,
-          promptHash,
-          provider: generationMetadata.provider,
-          model: generationMetadata.model,
-          modelVersion: generationMetadata.modelVersion ?? "",
-          effectiveSize: generationMetadata.settings.size,
-          quality: generationMetadata.settings.quality,
-        })
+      ? req.production_package_id
+        ? await getProductionPackageById(req.production_package_id, specId)
+        : req.force_new
+          ? null
+          : await getExistingProductionPackage({
+              productionSpecId: specId,
+              promptHash,
+              provider: generationMetadata.provider,
+              model: generationMetadata.model,
+              modelVersion: generationMetadata.modelVersion ?? "",
+              effectiveSize: generationMetadata.settings.size,
+              quality: generationMetadata.settings.quality,
+            })
       : null;
 
     // Final renders are billable and must come from a human-approved
@@ -442,7 +448,7 @@ export async function runCompilation(
       };
     }
     let visualAssetNotionId: string | null = existingProductionPackage?.visualAssetNotionId ?? null;
-    if (!dryRun && spec.notionPageId) {
+    if (!dryRun && spec.notionPageId && !isLocalProductionRequest) {
       try {
         if (!visualAssetNotionId) {
           visualAssetNotionId = await upsertVisualAsset(chain, compiled.fullPrompt, promptHash, assetId, filename);
@@ -473,6 +479,9 @@ export async function runCompilation(
         compiledPrompt: compiled.fullPrompt,
         filename,
         visualAssetNotionId,
+        isLocal: isLocalProductionRequest,
+        productionPackageId: req.production_package_id,
+        forceNew: req.force_new === true,
         target: generationTarget,
         generation: generationMetadata,
       });
@@ -509,7 +518,7 @@ export async function runCompilation(
 
     // ── Stage 19: Upsert asset in Daybook ───────────────────────────────
     let daybookAssetId: string | null = null;
-    if (!dryRun && spec.notionPageId) {
+    if (!dryRun && spec.notionPageId && !isLocalProductionRequest) {
       try {
         const daybookResult = await upsertAsset({
           asset_id: assetId,
@@ -534,7 +543,7 @@ export async function runCompilation(
     }
 
     // ── Stage 20: Update Production Specification status ─────────────────
-    if (!dryRun) {
+    if (!dryRun && !isLocalProductionRequest) {
       try {
         if (spec.notionPageId) await updatePage(spec.notionPageId, {
           ...(spec.compiledPromptStatus !== "Compiled" ? { "Compiled Prompt Status": selectProp("Compiled") } : {}),
@@ -712,6 +721,9 @@ type FinalArtworkInput = {
   compiledPrompt: string;
   filename: string;
   visualAssetNotionId: string | null;
+  isLocal?: boolean;
+  productionPackageId?: string;
+  forceNew?: boolean;
   target: {
     size: string;
     dpi: number;
@@ -753,6 +765,18 @@ async function getExistingProductionPackage(identity: ProductionPackageIdentity)
   return row ?? null;
 }
 
+async function getProductionPackageById(id: string, productionSpecId: string) {
+  const [row] = await db
+    .select()
+    .from(worldsmithProductionPackagesTable)
+    .where(and(
+      eq(worldsmithProductionPackagesTable.id, id),
+      eq(worldsmithProductionPackagesTable.productionSpecId, productionSpecId),
+    ))
+    .limit(1);
+  return row ?? null;
+}
+
 function configuredProductionEstimate(): { cost: number | null; note?: string } {
   const raw = process.env.WS_IMAGE_ESTIMATED_COST_USD?.trim();
   if (!raw) {
@@ -778,6 +802,7 @@ function packageResponse(
     productionArtStatus: string;
     filename: string;
     notionUploadId: string | null;
+    providerRequestId: string | null;
     visualAssetNotionId: string | null;
     provider: string;
     modelName: string;
@@ -798,6 +823,8 @@ function packageResponse(
     filename: row.filename,
     notion_upload_id: row.notionUploadId ?? undefined,
     visual_asset_id: row.visualAssetNotionId ?? undefined,
+    local_object_path: row.providerRequestId?.startsWith("/objects/") ? row.providerRequestId : undefined,
+    artwork_url: row.providerRequestId?.startsWith("/objects/") ? `/api/storage${row.providerRequestId}` : undefined,
     provider: row.provider,
     model: row.modelName,
     model_version: row.modelVersion || undefined,
@@ -818,6 +845,26 @@ function decodeGeneratedImage(dataUrl: string): Buffer {
   const match = /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
   if (!match) throw new Error("Image generation returned an unsupported image payload.");
   return Buffer.from(match[1]!, "base64");
+}
+
+const objectStorageService = new ObjectStorageService();
+
+async function storeLocalFinalArtwork(image: Buffer, packageId: string, filename: string): Promise<string> {
+  const privateDir = objectStorageService.getPrivateObjectDir().replace(/^\/+|\/+$/g, "");
+  const [bucketName, ...prefix] = privateDir.split("/");
+  if (!bucketName) throw new Error("PRIVATE_OBJECT_DIR does not contain an App Storage bucket.");
+  const safeFilename = filename.replace(/[^A-Za-z0-9._-]+/g, "-");
+  const entityPath = `worldsmith/final-artwork/${packageId}-${safeFilename}`;
+  const objectName = [...prefix, entityPath].filter(Boolean).join("/");
+  await objectStorageClient.bucket(bucketName).file(objectName).save(image, {
+    resumable: false,
+    metadata: {
+      contentType: "image/png",
+      contentDisposition: `inline; filename="${safeFilename}"`,
+      cacheControl: "private, max-age=3600",
+    },
+  });
+  return `/objects/${entityPath}`;
 }
 
 export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkResult> {
@@ -854,7 +901,7 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
     };
   }
 
-  if (!input.visualAssetNotionId) {
+  if (!input.isLocal && !input.visualAssetNotionId) {
     return {
       id: input.runId,
       status: "upload_failed",
@@ -880,9 +927,12 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
     };
   }
 
+  const packagePromptHash = input.forceNew
+    ? `${input.promptHash}:regeneration:${randomUUID()}`
+    : input.promptHash;
   const identity = productionPackageIdentity({
     productionSpecId: input.productionSpecId,
-    promptHash: input.promptHash,
+    promptHash: packagePromptHash,
     provider: generation.provider,
     model: generation.model,
     modelVersion: version,
@@ -890,12 +940,19 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
     quality: generation.settings.quality,
   });
 
-  const [created] = await db
+  const requestedPackage = input.productionPackageId
+    ? await getProductionPackageById(input.productionPackageId, input.productionSpecId)
+    : null;
+  if (input.productionPackageId && !requestedPackage) {
+    throw new Error("The requested production package does not belong to this specification.");
+  }
+
+  const [created] = requestedPackage ? [] : await db
     .insert(worldsmithProductionPackagesTable)
     .values({
       id: randomUUID(),
       productionSpecId: input.productionSpecId,
-      promptHash: input.promptHash,
+      promptHash: packagePromptHash,
       provider: generation.provider,
       modelName: generation.model,
       modelVersion: version,
@@ -910,7 +967,35 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
     .onConflictDoNothing()
     .returning();
 
-  let packageRow = created;
+  let packageRow = created ?? requestedPackage;
+  if (requestedPackage) {
+    if (packageRow!.status === "success") {
+      return packageResponse(packageRow!, target, true);
+    }
+    if (packageRow!.status === "generating") {
+      return {
+        ...packageResponse(packageRow!, target, true),
+        status: "in_progress",
+        estimate_note: "This final-art request is already in progress.",
+      };
+    }
+    const [reclaimed] = await db
+      .update(worldsmithProductionPackagesTable)
+      .set({ status: "generating", error: null, updatedAt: new Date() })
+      .where(and(
+        eq(worldsmithProductionPackagesTable.id, packageRow!.id),
+        inArray(worldsmithProductionPackagesTable.status, ["generation_failed", "upload_failed"]),
+      ))
+      .returning();
+    if (!reclaimed) {
+      return {
+        ...packageResponse(packageRow!, target, true),
+        status: "in_progress",
+        estimate_note: "This final-art request is already in progress.",
+      };
+    }
+    packageRow = reclaimed;
+  }
   if (!packageRow) {
     const [existing] = await db
       .select()
@@ -935,7 +1020,7 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
     // that status write only; regenerating here would bill again needlessly.
     if (packageRow.status === "uploaded_status_pending" && packageRow.notionUploadId) {
       try {
-        await updatePage(input.visualAssetNotionId, {
+        await updatePage(input.visualAssetNotionId!, {
           "Status": selectProp("Artwork Review"),
           "Next Action": richTextProp("Review final artwork"),
         });
@@ -968,7 +1053,7 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
     if (packageRow.status === "upload_failed" && packageRow.notionUploadId) {
       try {
         await attachUploadToPageProperty(
-          input.visualAssetNotionId,
+          input.visualAssetNotionId!,
           "Final Artwork",
           packageRow.notionUploadId,
           packageRow.filename,
@@ -980,7 +1065,7 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
           .returning();
         packageRow = uploaded ?? packageRow;
 
-        await updatePage(input.visualAssetNotionId, {
+        await updatePage(input.visualAssetNotionId!, {
           "Status": selectProp("Artwork Review"),
           "Next Action": richTextProp("Review final artwork"),
         });
@@ -1066,8 +1151,27 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
   let uploadId: string | undefined;
   try {
     const imageBuffer = decodeGeneratedImage(generated.dataUrl);
+    if (input.isLocal) {
+      const localObjectPath = await storeLocalFinalArtwork(imageBuffer, packageRow.id, input.filename);
+      const [completed] = await db
+        .update(worldsmithProductionPackagesTable)
+        .set({
+          status: "success",
+          productionArtStatus: "artwork_review",
+          providerRequestId: localObjectPath,
+          error: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(worldsmithProductionPackagesTable.id, packageRow.id))
+        .returning();
+      await updateRun(input.runId, {
+        status: "complete",
+        generatedFilename: input.filename,
+      });
+      return packageResponse(completed ?? packageRow, target, false);
+    }
     uploadId = await uploadFileToNotion(imageBuffer, input.filename, "image/png");
-    await attachUploadToPageProperty(input.visualAssetNotionId, "Final Artwork", uploadId, input.filename);
+    await attachUploadToPageProperty(input.visualAssetNotionId!, "Final Artwork", uploadId, input.filename);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const [updated] = await db
@@ -1111,7 +1215,7 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
 
   // Stages 17–18: final-art review is distinct from a concept-board status.
   try {
-    await updatePage(input.visualAssetNotionId, {
+    await updatePage(input.visualAssetNotionId!, {
       "Status": selectProp("Artwork Review"),
       "Next Action": richTextProp("Review final artwork"),
     });

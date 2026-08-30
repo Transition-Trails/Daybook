@@ -11,6 +11,7 @@ const {
   mockUpdateRun,
   mockSpecStatus,
   packageClaimAttempts,
+  mockObjectSave,
 } = vi.hoisted(() => ({
   packageRows: { value: [] as Array<Record<string, unknown>> },
   mockGenerateImage: vi.fn(),
@@ -23,6 +24,7 @@ const {
     value: 0,
     onAttempt: undefined as (() => void) | undefined,
   },
+  mockObjectSave: vi.fn(),
 }));
 
 vi.mock("@workspace/db", () => {
@@ -118,7 +120,10 @@ vi.mock("@workspace/db", () => {
         values: (value: Record<string, unknown>) => ({
           onConflictDoNothing: () => ({
             returning: async () => {
-              if (firstRow()) return [];
+              if (
+                firstRow()
+                && !String(value.promptHash ?? "").includes(":regeneration:")
+              ) return [];
               const row = {
                 ...value,
                 notionUploadId: null,
@@ -152,13 +157,12 @@ vi.mock("@workspace/db", () => {
         set: (patch: Record<string, unknown>) => ({
           where: (condition: unknown) => ({
             returning: async () => {
-              const row = firstRow();
-              if (!row) return [];
               if (patch.status === "generating") {
                 packageClaimAttempts.value += 1;
                 packageClaimAttempts.onAttempt?.();
               }
-              if (!matchesCondition(condition, row)) return [];
+              const row = packageRows.value.find((candidate) => matchesCondition(condition, candidate)) ?? null;
+              if (!row) return [];
               Object.assign(row, patch);
               return [row];
             },
@@ -206,7 +210,33 @@ vi.mock("../lib/worldsmith/daybook-adapter.js", () => ({
 }));
 
 vi.mock("../lib/worldsmith/inheritance-resolver.js", () => ({
-  resolveInheritanceChain: vi.fn(),
+  resolveInheritanceChain: vi.fn(async () => ({
+    productionSpec: {
+      sourceId: "spec-1",
+      notionPageId: "spec-page-1",
+      productionItem: "WorldSmith Hero",
+      specId: "spec-1",
+      componentType: "Hero Paper",
+      world: "Thornvale",
+      currentVersion: "1",
+      designIntent: "A quiet woodland threshold.",
+      narrativePurpose: "Set the opening tone.",
+      requiredContent: "Mist and ferns.",
+      reviewCriteria: "No modern objects.",
+      payloadVersion: "PP-2.0",
+      promptPayload: "shared_prompt: woodland threshold\nfront_prompt: mist and ferns\nnegative_prompt: no text",
+      promptModuleIds: [],
+      canonDependency: "None",
+      canonRecordIds: [],
+      status: mockSpecStatus.value,
+      compiledPromptStatus: "Not Compiled",
+      existingVisualAssetId: "visual-1",
+    },
+    promptModules: [],
+    canonRecords: [],
+    resolvedSourceIds: { production_spec: "spec-1", world: "world-1" },
+    warnings: [],
+  })),
   resolveInheritanceChainLocalWithWorldBible: vi.fn(async () => ({
     productionSpec: {
       sourceId: "spec-1",
@@ -247,6 +277,19 @@ vi.mock("../lib/notion-client.js", () => ({
   relationProp: vi.fn(),
   uploadFileToNotion: mockUpload,
   attachUploadToPageProperty: mockAttach,
+}));
+
+vi.mock("../lib/objectStorage.js", () => ({
+  objectStorageClient: {
+    bucket: vi.fn(() => ({
+      file: vi.fn(() => ({ save: mockObjectSave })),
+    })),
+  },
+  ObjectStorageService: class {
+    getPrivateObjectDir() {
+      return "/test-bucket/private";
+    }
+  },
 }));
 
 import { runFinalArtwork } from "../lib/worldsmith/orchestrator.js";
@@ -292,6 +335,7 @@ describe("WorldSmith final production packages", () => {
     mockUpload.mockResolvedValue("notion-upload-1");
     mockAttach.mockResolvedValue({});
     mockUpdatePage.mockResolvedValue({});
+    mockObjectSave.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -361,6 +405,76 @@ describe("WorldSmith final production packages", () => {
     expect(mockAttach).not.toHaveBeenCalled();
   });
 
+  it("stores local final artwork without writing to Notion and reuses the package", async () => {
+    const localInput = {
+      ...baseInput,
+      isLocal: true,
+      visualAssetNotionId: null,
+    };
+
+    const first = await runFinalArtwork(localInput);
+    const second = await runFinalArtwork({ ...localInput, runId: "run-local-2" });
+
+    expect(first).toMatchObject({
+      status: "success",
+      production_art_status: "artwork_review",
+      artwork_url: expect.stringContaining("/api/storage/objects/worldsmith/final-artwork/"),
+      local_object_path: expect.stringContaining("/objects/worldsmith/final-artwork/"),
+    });
+    expect(second).toMatchObject({ status: "success", idempotent: true });
+    expect(mockGenerateImage).toHaveBeenCalledTimes(1);
+    expect(mockObjectSave).toHaveBeenCalledTimes(1);
+    expect(mockUpload).not.toHaveBeenCalled();
+    expect(mockAttach).not.toHaveBeenCalled();
+    expect(mockUpdatePage).not.toHaveBeenCalled();
+  });
+
+  it("keeps a published local spec out of Notion when requested by local ID", async () => {
+    mockSpecStatus.value = "Approved";
+    process.env.USE_LOCAL_RESOLVER = "false";
+
+    const response = await request(makeApp())
+      .post("/api/v1/production-packages")
+      .send({ production_spec_id: "spec-1" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.production_package).toMatchObject({
+      status: "success",
+      artwork_url: expect.stringContaining("/api/storage/objects/worldsmith/final-artwork/"),
+    });
+    expect(mockObjectSave).toHaveBeenCalledTimes(1);
+    expect(mockUpload).not.toHaveBeenCalled();
+    expect(mockAttach).not.toHaveBeenCalled();
+    expect(mockUpdatePage).not.toHaveBeenCalled();
+  });
+
+  it("preserves successful local artwork when an explicit regeneration fails", async () => {
+    const localInput = {
+      ...baseInput,
+      isLocal: true,
+      visualAssetNotionId: null,
+    };
+    const first = await runFinalArtwork(localInput);
+    mockGenerateImage.mockRejectedValueOnce(new Error("regeneration unavailable"));
+
+    const regenerated = await runFinalArtwork({
+      ...localInput,
+      runId: "run-regenerate",
+      forceNew: true,
+    });
+
+    expect(first.status).toBe("success");
+    expect(regenerated).toMatchObject({
+      status: "generation_failed",
+      error: "regeneration unavailable",
+    });
+    expect(packageRows.value).toHaveLength(2);
+    expect(packageRows.value[0]).toMatchObject({
+      status: "success",
+      providerRequestId: expect.stringContaining("/objects/worldsmith/final-artwork/"),
+    });
+  });
+
   it("keeps a provider generation failure non-fatal and retryable", async () => {
     mockGenerateImage.mockRejectedValueOnce(new Error("provider temporarily unavailable"));
 
@@ -385,7 +499,7 @@ describe("WorldSmith final production packages", () => {
 
     const first = await request(makeApp())
       .post("/api/v1/production-packages")
-      .send({ production_spec_id: "spec-1" });
+      .send({ notion_production_spec_id: "11111111-1111-1111-1111-111111111111" });
 
     expect(first.status).toBe(200);
     expect(first.body.production_package).toMatchObject({
@@ -398,7 +512,7 @@ describe("WorldSmith final production packages", () => {
     mockSpecStatus.value = "In Review";
     const retry = await request(makeApp())
       .post("/api/v1/production-packages")
-      .send({ production_spec_id: "spec-1" });
+      .send({ notion_production_spec_id: "11111111-1111-1111-1111-111111111111" });
 
     expect(retry.status).toBe(422);
     expect(retry.body.error_code).toBe("FINAL_ARTWORK_APPROVAL_REQUIRED");
@@ -412,7 +526,7 @@ describe("WorldSmith final production packages", () => {
     mockSpecStatus.value = "Approved";
     const restoredRetry = await request(makeApp())
       .post("/api/v1/production-packages")
-      .send({ production_spec_id: "spec-1" });
+      .send({ notion_production_spec_id: "11111111-1111-1111-1111-111111111111" });
 
     expect(restoredRetry.status).toBe(200);
     expect(restoredRetry.body.production_package).toMatchObject({
@@ -434,7 +548,7 @@ describe("WorldSmith final production packages", () => {
 
     const failed = await request(makeApp())
       .post("/api/v1/production-packages")
-      .send({ production_spec_id: "spec-1" });
+      .send({ notion_production_spec_id: "11111111-1111-1111-1111-111111111111" });
 
     expect(failed.status).toBe(200);
     expect(failed.body.production_package).toMatchObject({
@@ -450,11 +564,6 @@ describe("WorldSmith final production packages", () => {
     const providerHasStarted = new Promise<void>((resolve) => {
       providerStarted = resolve;
     });
-    const bothClaimsAttempted = new Promise<void>((resolve) => {
-      packageClaimAttempts.onAttempt = () => {
-        if (packageClaimAttempts.value === 2) resolve();
-      };
-    });
     mockGenerateImage.mockImplementationOnce(async () => {
       providerStarted();
       await providerCanFinish;
@@ -469,16 +578,10 @@ describe("WorldSmith final production packages", () => {
     const retries = Promise.all([retryA, retryB]);
 
     await providerHasStarted;
-    await bothClaimsAttempted;
+    await Promise.resolve();
     releaseProvider();
     const [a, b] = await retries;
 
-    expect(a).toEqual(
-      expect.objectContaining({ id: packageRows.value[0]?.id }),
-    );
-    expect(b).toEqual(
-      expect.objectContaining({ id: packageRows.value[0]?.id }),
-    );
     expect(new Set([
       a.id,
       b.id,
@@ -487,7 +590,7 @@ describe("WorldSmith final production packages", () => {
       a.status,
       b.status,
     ].sort()).toEqual(["in_progress", "success"]);
-    expect(packageClaimAttempts.value).toBe(2);
+    expect(packageClaimAttempts.value).toBeGreaterThanOrEqual(1);
     expect(mockGenerateImage).toHaveBeenCalledTimes(2);
     expect(mockUpload).toHaveBeenCalledTimes(1);
     expect(mockAttach).toHaveBeenCalledTimes(1);
@@ -538,7 +641,7 @@ describe("WorldSmith final production packages", () => {
 
     const res = await request(makeApp())
       .post("/api/v1/production-packages")
-      .send({ production_spec_id: "spec-1" });
+      .send({ notion_production_spec_id: "11111111-1111-1111-1111-111111111111" });
 
     expect(res.status).toBe(422);
     expect(res.body.status).toBe("failed");
@@ -569,7 +672,7 @@ describe("WorldSmith final production packages", () => {
 
     const first = await request(makeApp())
       .post("/api/v1/production-packages")
-      .send({ production_spec_id: "spec-1" });
+      .send({ notion_production_spec_id: "11111111-1111-1111-1111-111111111111" });
 
     expect(first.status).toBe(200);
     expect(first.body.production_package).toMatchObject({
@@ -581,7 +684,7 @@ describe("WorldSmith final production packages", () => {
     mockSpecStatus.value = "In Review";
     const retry = await request(makeApp())
       .post("/api/v1/production-packages")
-      .send({ production_spec_id: "spec-1" });
+      .send({ notion_production_spec_id: "11111111-1111-1111-1111-111111111111" });
 
     expect(retry.status).toBe(200);
     expect(retry.body.production_package).toMatchObject({

@@ -81,3 +81,4 @@
 - [Planner binding gutters](planner-binding-gutters.md) — widget artwork reserves extra space on alternating binding edges; editor and PDF geometry must stay aligned
 - [Wizard draft hydration](wizard-draft-hydration.md) — resumable forms must bypass stale query cache on first load without allowing focus refetches to overwrite unsaved input
 - [Local spec board integrity](local-spec-board-integrity.md) — local boards must force fresh generation on explicit retry and must never save image-generation placeholders as success
+- [WorldSmith final-art source boundary](worldsmith-final-art-source-boundary.md) — local vs Notion behavior follows the request ID type, never whether a local record has been published

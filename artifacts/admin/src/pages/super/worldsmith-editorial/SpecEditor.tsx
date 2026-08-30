@@ -90,6 +90,25 @@ interface LocalSpecPreview {
   preview_url: string;
 }
 
+interface ProductionPackage {
+  id: string;
+  status: "in_progress" | "generation_failed" | "upload_failed" | "uploaded_status_pending" | "success";
+  production_art_status: "not_started" | "artwork_review";
+  filename: string;
+  artwork_url?: string;
+  visual_asset_id?: string;
+  provider: string;
+  model: string;
+  effective_size: string;
+  quality: string;
+  error?: string;
+}
+
+interface ProductionPackageState {
+  package: ProductionPackage | null;
+  last_successful: ProductionPackage | null;
+}
+
 // ── Radial dependency graph ───────────────────────────────────────────────────
 
 function DependencyGraph({ spec, rels }: { spec: Spec; rels: SpecResponse["relationships"] }) {
@@ -153,6 +172,9 @@ function CompletionSidebar({
   isGeneratingPreview,
   preview,
   previewDisabled,
+  artworkState,
+  onGenerateArtwork,
+  isGeneratingArtwork,
 }: {
   spec: Spec;
   rels: SpecResponse["relationships"];
@@ -162,6 +184,9 @@ function CompletionSidebar({
   isGeneratingPreview: boolean;
   preview: LocalSpecPreview | null;
   previewDisabled: boolean;
+  artworkState?: ProductionPackageState;
+  onGenerateArtwork: (options?: { forceNew?: boolean; packageId?: string }) => void;
+  isGeneratingArtwork: boolean;
 }) {
   const checks = readinessChecks(spec);
   const done = checks.filter(c => c.done).length;
@@ -179,6 +204,11 @@ function CompletionSidebar({
       ? "#0D9488"
       : score >= BANDS.payloadReady ? "#F59E0B" : "#9CA3AF";
   const readinessLabel = !isCanonClear ? "Canon needed" : isPayloadReady ? "Canon clear" : "In progress";
+  const artworkPackage = artworkState?.package ?? null;
+  const successfulArtwork = artworkPackage?.status === "success"
+    ? artworkPackage
+    : artworkState?.last_successful ?? null;
+  const artworkApproved = spec.status.trim().toLowerCase() === "approved";
 
   return (
     <aside
@@ -244,7 +274,7 @@ function CompletionSidebar({
       )}
 
       {/* Dependency graph */}
-      <div className="px-4 py-3 border-b" style={{ borderColor: "#F3F4F6" }}>
+      <div className="px-4 py-3 border-b border-[var(--admin-row-divider)]">
         <DependencyGraph spec={spec} rels={rels} />
       </div>
 
@@ -338,6 +368,77 @@ function CompletionSidebar({
         </button>
         {previewDisabled && (
           <p className="mt-2 text-[11px] text-amber-700">Save your edits before generating a board.</p>
+        )}
+      </div>
+
+      {/* Final production artwork */}
+      <div className="px-4 py-3 border-b" style={{ borderColor: "#F3F4F6" }}>
+        <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Final Artwork</p>
+        {successfulArtwork?.artwork_url && (
+          <a href={successfulArtwork.artwork_url} target="_blank" rel="noopener noreferrer" className="block mb-2">
+            <img
+              src={successfulArtwork.artwork_url}
+              alt={`Final production artwork for ${spec.productionItem ?? "this specification"}`}
+              className="w-full rounded-md border border-gray-200 bg-[var(--admin-card-subtle)]"
+            />
+          </a>
+        )}
+        {artworkPackage ? (
+          <div className="mb-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-gray-700">
+                {artworkPackage.status === "success" ? "Ready for artwork review" : artworkPackage.status.replaceAll("_", " ")}
+              </span>
+              <span className="text-[10px] text-gray-400">{artworkPackage.effective_size}</span>
+            </div>
+            {artworkPackage.error && (
+              <p className="mt-1 text-[11px] leading-relaxed text-red-600">{artworkPackage.error}</p>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs leading-relaxed text-gray-500 mb-3">
+            Generate the production image from the approved, compiled specification. This is separate from the review board.
+          </p>
+        )}
+        {!artworkApproved && (
+          <p className="mb-2 text-[11px] leading-relaxed text-amber-700">
+            Approve the Specification Board before generating final artwork.
+          </p>
+        )}
+        {artworkPackage?.status === "generation_failed" || artworkPackage?.status === "upload_failed" ? (
+          <button
+            type="button"
+            onClick={() => onGenerateArtwork({ packageId: artworkPackage.id })}
+            disabled={!artworkApproved || previewDisabled || isGeneratingArtwork}
+            className="w-full flex items-center justify-center gap-2 py-2 text-sm rounded-lg font-medium disabled:opacity-40 border border-[var(--admin-ink)] text-[var(--admin-ink)] hover:bg-[var(--admin-card-subtle)]"
+          >
+            {isGeneratingArtwork ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Retry final artwork
+          </button>
+        ) : artworkPackage?.status === "success" ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm("Generate a new final artwork? The current successful artwork will be preserved.")) {
+                onGenerateArtwork({ forceNew: true });
+              }
+            }}
+            disabled={!artworkApproved || previewDisabled || isGeneratingArtwork}
+            className="w-full flex items-center justify-center gap-2 py-2 text-sm rounded-lg font-medium disabled:opacity-40 border border-[var(--admin-ink)] text-[var(--admin-ink)] hover:bg-[var(--admin-card-subtle)]"
+          >
+            {isGeneratingArtwork ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Generate new artwork
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onGenerateArtwork()}
+            disabled={!artworkApproved || previewDisabled || isGeneratingArtwork || artworkPackage?.status === "in_progress"}
+            className="w-full flex items-center justify-center gap-2 py-2 text-sm rounded-lg font-medium disabled:opacity-40 bg-[var(--admin-ink)] text-white hover:opacity-90"
+          >
+            {isGeneratingArtwork ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Image className="w-3.5 h-3.5" />}
+            Generate final artwork
+          </button>
         )}
       </div>
 
@@ -1029,6 +1130,44 @@ export default function SpecEditor({ specId }: { specId: string }) {
     },
   });
 
+  const artworkQuery = useQuery<ProductionPackageState>({
+    queryKey: ["editorial-production-package", specId],
+    queryFn: () => apiFetch(`/v1/production-packages?production_spec_id=${encodeURIComponent(specId)}`),
+    staleTime: 15_000,
+  });
+
+  const artworkMutation = useMutation({
+    mutationFn: (options?: { forceNew?: boolean; packageId?: string }) =>
+      apiFetch<{ production_package?: ProductionPackage }>("/v1/production-packages", {
+        method: "POST",
+        body: JSON.stringify({
+          production_spec_id: specId,
+          force_new: options?.forceNew === true,
+          production_package_id: options?.packageId,
+        }),
+      }),
+    onSuccess: (response) => {
+      qc.invalidateQueries({ queryKey: ["editorial-production-package", specId] });
+      const result = response.production_package;
+      if (result?.status === "success") {
+        toast({ title: "Final artwork ready", description: "The image is ready for a separate artwork review." });
+      } else if (result?.status === "in_progress") {
+        toast({ title: "Final artwork is already generating" });
+      } else {
+        toast({
+          title: "Final artwork was not completed",
+          description: result?.error ?? "The request can be retried from the sidebar.",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (err: Error) => toast({
+      title: "Final artwork request failed",
+      description: err.message,
+      variant: "destructive",
+    }),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: () => apiFetch(`/v1/editorial/specs/${specId}`, { method: "DELETE" }),
     onSuccess: () => {
@@ -1185,6 +1324,9 @@ export default function SpecEditor({ specId }: { specId: string }) {
           isGeneratingPreview={previewMutation.isPending}
           preview={previewMutation.data ?? existingPreviewQuery.data?.preview ?? null}
           previewDisabled={hasUnsavedChanges}
+          artworkState={artworkQuery.data}
+          onGenerateArtwork={(options) => artworkMutation.mutate(options)}
+          isGeneratingArtwork={artworkMutation.isPending}
         />
       </div>
     </div>

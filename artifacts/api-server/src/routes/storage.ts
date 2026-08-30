@@ -145,6 +145,36 @@ router.get(
   },
 );
 
+router.get(
+  '/storage/objects/worldsmith/final-artwork/*path',
+  requireAuth,
+  requireSuperAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const raw = req.params.path;
+      const wildcardPath = Array.isArray(raw) ? raw.join('/') : raw;
+      const objectFile = await objectStorageService.getObjectEntityFile(
+        `/objects/worldsmith/final-artwork/${wildcardPath}`,
+      );
+      const response = await objectStorageService.downloadObject(objectFile);
+      res.status(response.status);
+      response.headers.forEach((value, key) => res.setHeader(key, value));
+      if (response.body) {
+        Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
+      } else {
+        res.end();
+      }
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        res.status(404).json({ error: 'Object not found' });
+        return;
+      }
+      req.log.error({ err: error }, 'Error serving protected WorldSmith final artwork');
+      res.status(500).json({ error: 'Failed to serve final artwork' });
+    }
+  },
+);
+
 router.get('/storage/objects/*path', async (req: Request, res: Response) => {
   try {
     const raw = req.params.path;

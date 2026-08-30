@@ -415,6 +415,10 @@ export interface CompileRequest {
   generation_settings?: {
     quality?: "low" | "medium" | "high" | "standard" | "hd";
   };
+  /** Retry one previously reserved production package without creating a new identity. */
+  production_package_id?: string;
+  /** Create a new artwork identity while preserving previous successful artwork. */
+  force_new?: boolean;
   dry_run?: boolean;
 }
 
@@ -466,6 +470,8 @@ export interface ProductionPackageResult {
   filename: string;
   notion_upload_id?: string;
   visual_asset_id?: string;
+  local_object_path?: string;
+  artwork_url?: string;
   provider: string;
   model: string;
   model_version?: string;

@@ -566,6 +566,7 @@ function CanonTab({
   readOnly?: boolean;
 }) {
   const [openSection, setOpenSection] = useState<string | null>("links");
+  const [, navigate] = useLocation();
   const sectionProps = { contentReadOnly: readOnly };
   const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
 
@@ -627,6 +628,13 @@ function CanonTab({
               <option value="">None</option>
               {(csData?.component_specs ?? []).map(cs => <option key={cs.id} value={cs.id}>{cs.name}</option>)}
             </select>
+            <button
+              type="button"
+              onClick={() => navigate("/super/worldsmith/editorial/component-specs")}
+              className="mt-1.5 text-xs font-medium text-[#1B2A4A] hover:underline"
+            >
+              Create or manage component specs →
+            </button>
           </Field>
         </div>
       </EditorialSection>

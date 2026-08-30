@@ -150,6 +150,7 @@ import {
   StoryConnections,
   WorldBibleStudio,
   ImageTargets,
+  ComponentSpecs,
 } from "@/pages/super/worldsmith-editorial";
 
 const queryClient = new QueryClient({
@@ -379,6 +380,11 @@ function RootRouter() {
             </EditorialShell>
           </RequireSuperAdmin>
         )}
+      </Route>
+      <Route path="/super/worldsmith/editorial/component-specs">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="component-specs"><ComponentSpecs /></EditorialShell>
+        </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/canon/new">
         <RequireSuperAdmin state={state}>

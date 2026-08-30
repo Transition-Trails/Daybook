@@ -19,7 +19,7 @@ import { worldsmithStorage } from "@/lib/worldsmith/storage";
 
 interface EditorialShellProps {
   children: ReactNode;
-  activePage?: "board" | "bible" | "stories" | "connections" | "specs" | "canon" | "style-guides" | "modules" | "image-targets";
+  activePage?: "board" | "bible" | "stories" | "connections" | "specs" | "canon" | "style-guides" | "component-specs" | "modules" | "image-targets";
 }
 
 export interface EditorialPageFilters {
@@ -62,6 +62,7 @@ const PAGE_LABELS: Record<string, string> = {
   specs: "Production Specs",
   canon: "Canon Records",
   "style-guides": "Style Guides",
+  "component-specs": "Component Specs",
   modules: "Prompt Modules",
   "image-targets": "Print Targets",
 };
@@ -672,6 +673,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
           )}
           {navItem("Production Specs", FileText, "/super/worldsmith/editorial/specs", "specs")}
           {navItem("Style Guides", Layers, "/super/worldsmith/editorial/style-guides", "style-guides")}
+          {navItem("Component Specs", FileText, "/super/worldsmith/editorial/component-specs", "component-specs")}
           {navItem("Prompt Modules", Puzzle, "/super/worldsmith/editorial/modules", "modules")}
           {navItem("Print Targets", Ruler, "/super/worldsmith/editorial/image-targets", "image-targets")}
         </nav>

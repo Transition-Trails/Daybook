@@ -22,3 +22,4 @@ export { default as StorylineEditor } from "./StorylineEditor";
 export { default as StoryConnections } from "./StoryConnections";
 export { default as WorldBibleStudio } from "./WorldBibleStudio";
 export { default as ImageTargets } from "./ImageTargets";
+export { default as ComponentSpecs } from "./ComponentSpecs";

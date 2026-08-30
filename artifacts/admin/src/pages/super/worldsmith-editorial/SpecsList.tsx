@@ -38,6 +38,7 @@ const STATUS_META: Record<string, { label: string; bg: string; text: string }> =
   payload_ready: { label: "Payload Ready", bg: "#DBEAFE", text: "#1D4ED8" },
   canon_clear:   { label: "Canon Clear",   bg: "#EDE9FE", text: "#6D28D9" },
   compiled:      { label: "Compiled",      bg: "#CCFBF1", text: "#0F766E" },
+  approved:      { label: "Approved",      bg: "var(--admin-card-subtle)", text: "var(--admin-ink)" },
   published:     { label: "Published",     bg: "#D1FAE5", text: "#065F46" },
   blocked:       { label: "Blocked",       bg: "#FEE2E2", text: "#B91C1C" },
 };

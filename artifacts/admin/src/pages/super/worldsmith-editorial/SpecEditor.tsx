@@ -60,6 +60,7 @@ interface Spec {
   styleGuideId?: string | null;
   componentSpecId?: string | null;
   promptModuleIds: string[];
+  wizardComplete?: boolean;
   status: string;
   compiledPromptStatus: string;
   readinessScore: number;
@@ -172,6 +173,9 @@ function CompletionSidebar({
   isGeneratingPreview,
   preview,
   previewDisabled,
+  onApprove,
+  isApproving,
+  approvalDisabled,
   artworkState,
   onGenerateArtwork,
   isGeneratingArtwork,
@@ -184,6 +188,9 @@ function CompletionSidebar({
   isGeneratingPreview: boolean;
   preview: LocalSpecPreview | null;
   previewDisabled: boolean;
+  onApprove: () => void;
+  isApproving: boolean;
+  approvalDisabled: boolean;
   artworkState?: ProductionPackageState;
   onGenerateArtwork: (options?: { forceNew?: boolean; packageId?: string }) => void;
   isGeneratingArtwork: boolean;
@@ -209,6 +216,23 @@ function CompletionSidebar({
     ? artworkPackage
     : artworkState?.last_successful ?? null;
   const artworkApproved = spec.status.trim().toLowerCase() === "approved";
+  const boardApproved = artworkApproved;
+  const boardCompiled = spec.compiledPromptStatus.trim().toLowerCase() === "compiled";
+  const approvalReady = spec.wizardComplete === true
+    && boardCompiled
+    && isPayloadReady
+    && isCanonClear;
+  const approvalReason = approvalDisabled
+    ? "Save your changes before approving the board."
+    : !approvalReady
+      ? !spec.wizardComplete
+        ? "Complete the Production Spec record before approving the board."
+        : !boardCompiled
+          ? "Compile the Specification Board before approving it."
+          : !isPayloadReady
+            ? "Complete the prompt payload and link its prompt modules first."
+            : "Resolve the canon dependency before approving the board."
+      : null;
 
   return (
     <aside
@@ -279,7 +303,7 @@ function CompletionSidebar({
       </div>
 
       {/* Linked records summary */}
-      <div className="px-4 py-3 border-b" style={{ borderColor: "#F3F4F6" }}>
+      <div className="border-b border-gray-100 px-4 py-3">
         <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Linked Records</p>
         {rels.canon_records.map(cr => (
           <div key={cr.id} className="flex items-center gap-2 mb-1.5">
@@ -368,6 +392,45 @@ function CompletionSidebar({
         </button>
         {previewDisabled && (
           <p className="mt-2 text-[11px] text-amber-700">Save your edits before generating a board.</p>
+        )}
+      </div>
+
+      {/* Specification Board approval */}
+      <div className="px-4 py-3 border-b" style={{ borderColor: "#F3F4F6" }}>
+        <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Board approval</p>
+        {boardApproved ? (
+          <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            <div>
+              <p className="text-xs font-semibold text-emerald-800">Specification Board approved</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-emerald-700">
+                Final artwork is unlocked. Artwork review remains a separate step.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="text-xs leading-relaxed text-gray-500 mb-2">
+              Approve the reviewed board from this record to unlock final production artwork.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Approve this Specification Board? This will unlock final artwork generation.")) {
+                  onApprove();
+                }
+              }}
+              disabled={!approvalReady || approvalDisabled || isApproving}
+              title={approvalReason ?? undefined}
+              className="w-full flex items-center justify-center gap-2 py-2 text-sm rounded-lg font-medium disabled:opacity-40 bg-[var(--admin-ink)] text-white hover:opacity-90"
+            >
+              {isApproving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              Approve Specification Board
+            </button>
+            {approvalReason && (
+              <p className="mt-2 text-[11px] leading-relaxed text-amber-700">{approvalReason}</p>
+            )}
+          </>
         )}
       </div>
 
@@ -1092,6 +1155,26 @@ export default function SpecEditor({ specId }: { specId: string }) {
     },
   });
 
+  const approveMutation = useMutation<{ spec: Spec; already_approved?: boolean }>({
+    mutationFn: () => apiFetch(`/v1/editorial/specs/${specId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+    onSuccess: ({ spec: approvedSpec }) => {
+      setLocalSpec(approvedSpec);
+      qc.setQueryData<SpecResponse>(["editorial-spec", specId], previous => (
+        previous ? { ...previous, spec: approvedSpec } : previous
+      ));
+      qc.invalidateQueries({ queryKey: ["editorial/specs/list"] });
+      toast({ title: "Specification Board approved", description: "Final artwork is now unlocked." });
+    },
+    onError: (err: Error) => toast({
+      title: "Approval failed",
+      description: err.message,
+      variant: "destructive",
+    }),
+  });
+
   const existingPreviewQuery = useQuery<{ preview: LocalSpecPreview | null }>({
     queryKey: ["editorial-spec-preview", specId],
     queryFn: () => apiFetch(`/v1/worldsmith/spec-preview/local/${encodeURIComponent(specId)}`),
@@ -1324,6 +1407,9 @@ export default function SpecEditor({ specId }: { specId: string }) {
           isGeneratingPreview={previewMutation.isPending}
           preview={previewMutation.data ?? existingPreviewQuery.data?.preview ?? null}
           previewDisabled={hasUnsavedChanges}
+          onApprove={() => approveMutation.mutate()}
+          isApproving={approveMutation.isPending}
+          approvalDisabled={hasUnsavedChanges}
           artworkState={artworkQuery.data}
           onGenerateArtwork={(options) => artworkMutation.mutate(options)}
           isGeneratingArtwork={artworkMutation.isPending}

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { apiFetch, navigate } = vi.hoisted(() => ({
   apiFetch: vi.fn(),
@@ -45,7 +45,32 @@ const spec = {
   updatedAt: "2026-08-23T00:00:00.000Z",
 };
 
+const approvalReadySpec = {
+  ...spec,
+  specId: "TH-HRP-001",
+  collectionId: "collection-1",
+  designIntent: "A rain-softened woodland threshold.",
+  narrativePurpose: "Set a quiet opening tone.",
+  requiredContent: "Ferns and a weathered gate.",
+  reviewCriteria: "No text or modern objects.",
+  orientation: "portrait",
+  canonDependency: "None",
+  canonRecordIds: [],
+  payloadVersion: "PP-2.0",
+  promptPayload: "shared_prompt: rain-dark woodland threshold with an archival paper texture",
+  promptModuleIds: ["module-1"],
+  styleGuideId: "style-1",
+  componentSpecId: "component-1",
+  wizardComplete: true,
+  status: "compiled",
+  compiledPromptStatus: "Compiled",
+};
+
 describe("SpecEditor local specification board", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     apiFetch.mockReset();
     apiFetch.mockImplementation((path: string) => {
@@ -219,5 +244,100 @@ describe("SpecEditor local specification board", () => {
         }),
       );
     });
+  });
+
+  it("keeps board approval disabled while prerequisites are incomplete", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SpecEditor specId="spec-local" />
+      </QueryClientProvider>,
+    );
+
+    const approveButton = await screen.findByRole("button", { name: "Approve Specification Board" });
+    expect(approveButton).toBeDisabled();
+    expect(screen.getByText("Complete the Production Spec record before approving the board.")).toBeInTheDocument();
+  });
+
+  it("confirms approval, persists the returned record in the editor, and unlocks final artwork", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    apiFetch.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === "/v1/editorial/specs/spec-local" && !options?.method) {
+        return Promise.resolve({
+          spec: approvalReadySpec,
+          relationships: { style_guide: null, component_spec: null, canon_records: [], prompt_modules: [] },
+        });
+      }
+      if (path === "/v1/editorial/specs/spec-local/approve" && options?.method === "POST") {
+        return Promise.resolve({
+          spec: { ...approvalReadySpec, status: "approved" },
+          already_approved: false,
+        });
+      }
+      if (path === "/v1/editorial/component-sets?world_id=world-1") {
+        return Promise.resolve({ component_sets: [] });
+      }
+      if (path === "/v1/worldsmith/spec-preview/local/spec-local") {
+        return Promise.resolve({ preview: null });
+      }
+      if (path === "/v1/production-packages?production_spec_id=spec-local") {
+        return Promise.resolve({ package: null, last_successful: null });
+      }
+      return Promise.resolve({});
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SpecEditor specId="spec-local" />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Approve Specification Board" }));
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        "/v1/editorial/specs/spec-local/approve",
+        { method: "POST", body: JSON.stringify({}) },
+      );
+    });
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Approve this Specification Board? This will unlock final artwork generation.",
+    );
+    expect(await screen.findByText("Specification Board approved")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate final artwork" })).toBeEnabled();
+  });
+
+  it("does not approve when the confirmation is declined", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    apiFetch.mockImplementation((path: string) => {
+      if (path === "/v1/editorial/specs/spec-local") {
+        return Promise.resolve({
+          spec: approvalReadySpec,
+          relationships: { style_guide: null, component_spec: null, canon_records: [], prompt_modules: [] },
+        });
+      }
+      if (path === "/v1/editorial/component-sets?world_id=world-1") {
+        return Promise.resolve({ component_sets: [] });
+      }
+      if (path === "/v1/worldsmith/spec-preview/local/spec-local") {
+        return Promise.resolve({ preview: null });
+      }
+      if (path === "/v1/production-packages?production_spec_id=spec-local") {
+        return Promise.resolve({ package: null, last_successful: null });
+      }
+      return Promise.resolve({});
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SpecEditor specId="spec-local" />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Approve Specification Board" }));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(apiFetch).not.toHaveBeenCalledWith(
+      "/v1/editorial/specs/spec-local/approve",
+      expect.anything(),
+    );
   });
 });

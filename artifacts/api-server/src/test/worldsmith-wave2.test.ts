@@ -304,6 +304,9 @@ import { db } from "@workspace/db";
 import {
   worldsmithWorldsTable,
   wsCollectionsTable,
+  wsStyleGuidesTable,
+  wsComponentSpecsTable,
+  wsPromptModulesTable,
   wsVolumesTable,
   wsProductionSpecsTable,
   worldsmithRunsTable,
@@ -357,6 +360,10 @@ describe("Item 6 — editorial 500 handlers: FK violation returns 422", () => {
 describe("Item 5 — PATCH /v1/editorial/specs/:id saves mutable linkage fields", () => {
   let worldId: string;
   let specId: string;
+  const approvalCollectionId = randomUUID();
+  const approvalStyleGuideId = randomUUID();
+  const approvalComponentSpecId = randomUUID();
+  const approvalPromptModuleId = randomUUID();
 
   beforeAll(async () => {
     // Insert a world for FK integrity
@@ -380,12 +387,46 @@ describe("Item 5 — PATCH /v1/editorial/specs/:id saves mutable linkage fields"
       });
     expect(createRes.status).toBe(201);
     specId = createRes.body.spec.id;
+
+    await db.insert(wsCollectionsTable).values({
+      id: approvalCollectionId,
+      worldId,
+      name: "Approval Collection",
+    });
+    await db.insert(wsStyleGuidesTable).values({
+      id: approvalStyleGuideId,
+      worldId,
+      name: "Approval Style Guide",
+    });
+    await db.insert(wsComponentSpecsTable).values({
+      id: approvalComponentSpecId,
+      worldId,
+      name: "Approval Component Spec",
+      componentType: "Hero Paper",
+    });
+    await db.insert(wsPromptModulesTable).values({
+      id: approvalPromptModuleId,
+      worldId,
+      name: "Approval Prompt Module",
+    });
   });
 
   afterAll(async () => {
     // Teardown
     await db.delete(wsProductionSpecsTable).where(
       (await import("drizzle-orm")).eq(wsProductionSpecsTable.id, specId),
+    ).catch(() => {});
+    await db.delete(wsPromptModulesTable).where(
+      (await import("drizzle-orm")).eq(wsPromptModulesTable.id, approvalPromptModuleId),
+    ).catch(() => {});
+    await db.delete(wsComponentSpecsTable).where(
+      (await import("drizzle-orm")).eq(wsComponentSpecsTable.id, approvalComponentSpecId),
+    ).catch(() => {});
+    await db.delete(wsStyleGuidesTable).where(
+      (await import("drizzle-orm")).eq(wsStyleGuidesTable.id, approvalStyleGuideId),
+    ).catch(() => {});
+    await db.delete(wsCollectionsTable).where(
+      (await import("drizzle-orm")).eq(wsCollectionsTable.id, approvalCollectionId),
     ).catch(() => {});
     await db.delete(worldsmithWorldsTable).where(
       (await import("drizzle-orm")).eq(worldsmithWorldsTable.id, worldId),
@@ -493,6 +534,118 @@ describe("Item 5 — PATCH /v1/editorial/specs/:id saves mutable linkage fields"
       await db.delete(wsVolumesTable).where(eq(wsVolumesTable.id, volumeId));
       await db.delete(wsCollectionsTable).where(eq(wsCollectionsTable.id, collectionId));
     }
+  });
+
+  it("approval rejects a completed-looking spec until its board has compiled", async () => {
+    const response = await request(app)
+      .post(`/v1/editorial/specs/${specId}/approve`)
+      .send({});
+
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe("SPEC_APPROVAL_PREREQUISITES");
+    expect(response.body.prerequisites).toContain("Compile the Specification Board");
+  });
+
+  it("approval persists locally, leaves the Notion link untouched, and is repeat-safe", async () => {
+    const { eq } = await import("drizzle-orm");
+    await db.update(wsProductionSpecsTable)
+      .set({
+        notionPageId: "notion-page-that-must-not-be-written",
+        productionItem: "Approval Ready Spec",
+        specId: "APP-HRP-001",
+        componentType: "Hero Paper",
+        designIntent: "A warm archival paper surface.",
+        narrativePurpose: "Supports a quiet reading scene.",
+        requiredContent: "Paper grain and a restrained border.",
+        reviewCriteria: "Must remain legible and tactile.",
+        orientation: "portrait",
+        collectionId: approvalCollectionId,
+        styleGuideId: approvalStyleGuideId,
+        componentSpecId: approvalComponentSpecId,
+        canonDependency: "None",
+        payloadVersion: "PP-2.0",
+        promptPayload: [
+          "shared_prompt: A warm archival paper surface with visible cotton rag texture.",
+          "asset_role: background",
+        ].join("\n"),
+        promptModuleIds: [approvalPromptModuleId],
+        wizardComplete: true,
+        compiledPromptStatus: "Compiled",
+        status: "compiled",
+      })
+      .where(eq(wsProductionSpecsTable.id, specId));
+
+    const first = await request(app)
+      .post(`/v1/editorial/specs/${specId}/approve`)
+      .send({});
+
+    expect(first.status).toBe(200);
+    expect(first.body.spec.status).toBe("approved");
+    expect(first.body.spec.notionPageId).toBe("notion-page-that-must-not-be-written");
+    expect(first.body.already_approved).toBe(false);
+
+    const persisted = await request(app).get(`/v1/editorial/specs/${specId}`);
+    expect(persisted.status).toBe(200);
+    expect(persisted.body.spec.status).toBe("approved");
+    expect(persisted.body.spec.notionPageId).toBe("notion-page-that-must-not-be-written");
+
+    const repeat = await request(app)
+      .post(`/v1/editorial/specs/${specId}/approve`)
+      .send({});
+
+    expect(repeat.status).toBe(200);
+    expect(repeat.body.spec.status).toBe("approved");
+    expect(repeat.body.already_approved).toBe(true);
+
+    const corrected = await request(app)
+      .patch(`/v1/editorial/specs/${specId}`)
+      .send({ production_item: "Approval Ready Spec — corrected" });
+    expect(corrected.status).toBe(200);
+    expect(corrected.body.spec.productionItem).toBe("Approval Ready Spec — corrected");
+    expect(corrected.body.spec.status).toBe("approved");
+
+    const afterCorrection = await request(app).get(`/v1/editorial/specs/${specId}`);
+    expect(afterCorrection.body.spec.status).toBe("approved");
+  });
+
+  it("revalidates prerequisites after waiting for a concurrent record update", async () => {
+    const { eq, sql } = await import("drizzle-orm");
+    await db.update(wsProductionSpecsTable)
+      .set({ status: "compiled", compiledPromptStatus: "Compiled" })
+      .where(eq(wsProductionSpecsTable.id, specId));
+
+    let rowLocked!: () => void;
+    const locked = new Promise<void>(resolve => { rowLocked = resolve; });
+    let releaseUpdate!: () => void;
+    const release = new Promise<void>(resolve => { releaseUpdate = resolve; });
+
+    const concurrentUpdate = db.transaction(async (tx) => {
+      await tx.execute(sql`
+        select id
+        from ${wsProductionSpecsTable}
+        where ${wsProductionSpecsTable.id} = ${specId}
+        for update
+      `);
+      rowLocked();
+      await release;
+      await tx.update(wsProductionSpecsTable)
+        .set({ compiledPromptStatus: "Not Compiled", status: "draft" })
+        .where(eq(wsProductionSpecsTable.id, specId));
+    });
+
+    await locked;
+    const approvalRequest = request(app)
+      .post(`/v1/editorial/specs/${specId}/approve`)
+      .send({})
+      .then(response => response);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    releaseUpdate();
+    await concurrentUpdate;
+
+    const approval = await approvalRequest;
+    expect(approval.status).toBe(422);
+    expect(approval.body.code).toBe("SPEC_APPROVAL_PREREQUISITES");
+    expect(approval.body.prerequisites).toContain("Compile the Specification Board");
   });
 });
 

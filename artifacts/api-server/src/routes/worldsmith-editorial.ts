@@ -2621,10 +2621,14 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
     }
     const readinessScore = computeReadinessScore(merged);
     const status = derivePipelineStatus(merged, readinessScore);
+    const persistedStatus = sql<string>`case
+      when lower(${wsProductionSpecsTable.status}) = 'approved' then 'approved'
+      else ${status}
+    end`;
 
     const [updated] = await db
       .update(wsProductionSpecsTable)
-      .set({ ...mutableUpdate, readinessScore, status, updatedAt: new Date() })
+      .set({ ...mutableUpdate, readinessScore, status: persistedStatus, updatedAt: new Date() })
       .where(eq(wsProductionSpecsTable.id, specId))
       .returning();
 
@@ -2635,6 +2639,77 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
       return;
     }
     editorialDbError(err, res, "patch spec");
+  }
+});
+
+router.post("/v1/editorial/specs/:id/approve", async (req: Request, res: Response) => {
+  const specId = req.params.id as string;
+  try {
+    const outcome = await db.transaction(async (tx) => {
+      // Serialize approval with any concurrent record update. The row is read
+      // again only after the lock is held, so prerequisites and transition are
+      // evaluated against one durable version.
+      await tx.execute(sql`
+        select id
+        from ${wsProductionSpecsTable}
+        where ${wsProductionSpecsTable.id} = ${specId}
+        for update
+      `);
+      const [existing] = await tx
+        .select()
+        .from(wsProductionSpecsTable)
+        .where(eq(wsProductionSpecsTable.id, specId))
+        .limit(1);
+
+      if (!existing) return { kind: "missing" as const };
+      if (existing.status.trim().toLowerCase() === "approved") {
+        return { kind: "approved" as const, spec: existing, alreadyApproved: true };
+      }
+
+      const checks = readinessChecks(existing);
+      const isCompiled = existing.compiledPromptStatus.trim().toLowerCase() === "compiled";
+      const approvalBlocked = existing.wizardComplete !== true
+        || !isCompiled
+        || !payloadReady(checks)
+        || !canonClear(checks);
+
+      if (approvalBlocked) {
+        return {
+          kind: "blocked" as const,
+          missing: checks.filter(check => !check.done).map(check => check.label),
+          prerequisites: [
+            ...(existing.wizardComplete !== true ? ["Complete the Production Spec record"] : []),
+            ...(!isCompiled ? ["Compile the Specification Board"] : []),
+            ...(!payloadReady(checks) ? ["Complete the prompt payload and link its prompt modules"] : []),
+            ...(!canonClear(checks) ? ["Resolve the canon dependency"] : []),
+          ],
+        };
+      }
+
+      const [updated] = await tx
+        .update(wsProductionSpecsTable)
+        .set({ status: "approved", updatedAt: new Date() })
+        .where(eq(wsProductionSpecsTable.id, specId))
+        .returning();
+      return { kind: "approved" as const, spec: updated, alreadyApproved: false };
+    });
+
+    if (outcome.kind === "missing") {
+      res.status(404).json({ error: "Spec not found", code: "SPEC_NOT_FOUND" });
+      return;
+    }
+    if (outcome.kind === "blocked") {
+      res.status(422).json({
+        error: "The Specification Board is not ready for approval.",
+        code: "SPEC_APPROVAL_PREREQUISITES",
+        missing: outcome.missing,
+        prerequisites: outcome.prerequisites,
+      });
+      return;
+    }
+    res.json({ spec: outcome.spec, already_approved: outcome.alreadyApproved });
+  } catch (err) {
+    editorialDbError(err, res, "approve spec");
   }
 });
 

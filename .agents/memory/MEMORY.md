@@ -82,3 +82,4 @@
 - [Wizard draft hydration](wizard-draft-hydration.md) — resumable forms must bypass stale query cache on first load without allowing focus refetches to overwrite unsaved input
 - [Local spec board integrity](local-spec-board-integrity.md) — local boards must force fresh generation on explicit retry and must never save image-generation placeholders as success
 - [WorldSmith final-art source boundary](worldsmith-final-art-source-boundary.md) — local vs Notion behavior follows the request ID type, never whether a local record has been published
+- [WorldSmith board approval](worldsmith-board-approval.md) — board approval is a guarded local record transition and stays separate from final-artwork review

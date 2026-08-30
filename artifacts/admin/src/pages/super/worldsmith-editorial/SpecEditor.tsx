@@ -1,6 +1,6 @@
 /**
- * SpecEditor — three-panel read-only record viewer for a Production Spec.
- * Left: immutable creation record (Identity, Creative, Canon, Payload tabs)
+ * SpecEditor — three-panel record viewer and editor for a Production Spec.
+ * Left: editable identity plus Creative, Canon, and Payload tabs
  * Right: Completion sidebar with dependency health graph and relationships panel
  */
 import { useState, useEffect, useRef } from "react";
@@ -783,8 +783,8 @@ export default function SpecEditor({ specId }: { specId: string }) {
     if (data?.spec) setLocalSpec(data.spec);
   }, [data?.spec]);
 
-  // Mutable fields — payload, canon links, prompt modules.
-  // Identity and creative-direction fields stay locked (readOnly on those tabs).
+  // Identity correction fields, payload, canon links, and prompt modules are
+  // editable. Creative-direction fields remain locked after creation.
   const onChange = (patch: Partial<Spec>) =>
     setLocalSpec(prev => prev ? { ...prev, ...patch } : null);
 
@@ -793,6 +793,14 @@ export default function SpecEditor({ specId }: { specId: string }) {
     data?.spec && localSpec && (
       localSpec.promptPayload !== data.spec.promptPayload ||
       localSpec.payloadVersion !== data.spec.payloadVersion ||
+      localSpec.productionItem !== data.spec.productionItem ||
+      localSpec.specId !== data.spec.specId ||
+      localSpec.componentType !== data.spec.componentType ||
+      localSpec.componentSet !== data.spec.componentSet ||
+      localSpec.currentVersion !== data.spec.currentVersion ||
+      localSpec.writingSpacePercent !== data.spec.writingSpacePercent ||
+      localSpec.orientation !== data.spec.orientation ||
+      localSpec.frontBackStyle !== data.spec.frontBackStyle ||
       JSON.stringify(localSpec.canonRecordIds) !== JSON.stringify(data.spec.canonRecordIds) ||
       JSON.stringify(localSpec.promptModuleIds) !== JSON.stringify(data.spec.promptModuleIds) ||
       localSpec.styleGuideId !== data.spec.styleGuideId ||
@@ -872,6 +880,14 @@ export default function SpecEditor({ specId }: { specId: string }) {
       apiFetch(`/v1/editorial/specs/${specId}`, {
         method: "PATCH",
         body: JSON.stringify({
+          production_item:  s.productionItem,
+          spec_id:           s.specId,
+          component_type:    s.componentType,
+          component_set:     s.componentSet,
+          current_version:   s.currentVersion,
+          writing_space_percent: s.writingSpacePercent,
+          orientation:       s.orientation,
+          front_back_style:  s.frontBackStyle,
           prompt_payload:    s.promptPayload,
           payload_version:   s.payloadVersion,
           canon_record_ids:  s.canonRecordIds,
@@ -945,7 +961,11 @@ export default function SpecEditor({ specId }: { specId: string }) {
       toast({ title: "Spec deleted" });
       navigate("/super/worldsmith/editorial/board");
     },
-    onError: () => toast({ title: "Delete failed", variant: "destructive" }),
+    onError: (err: Error) => toast({
+      title: "Delete failed",
+      description: err.message,
+      variant: "destructive",
+    }),
   });
 
   const handleDelete = () => {
@@ -1016,13 +1036,17 @@ export default function SpecEditor({ specId }: { specId: string }) {
           )}
           <button
             onClick={handleDelete}
+            disabled={deleteMutation.isPending}
             className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
+            aria-label="Delete production spec"
             title="Delete spec"
           >
-            <Trash2 className="w-4 h-4" />
+            {deleteMutation.isPending
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <Trash2 className="w-4 h-4" />}
           </button>
           <span className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--admin-border)] bg-[var(--admin-card-subtle)] px-3 py-1.5 text-xs font-semibold text-[#786D60]">
-            <Lock className="h-3.5 w-3.5" /> Identity locked
+            <Lock className="h-3.5 w-3.5" /> Creative direction locked
           </span>
         </div>
       </div>
@@ -1055,11 +1079,11 @@ export default function SpecEditor({ specId }: { specId: string }) {
             <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card)] px-4 py-3 text-xs leading-relaxed text-[#786D60]">
               <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#C87560]" />
               <span>
-                Identity and creative-direction fields are locked after creation.{" "}
-                Payload, canon links, and prompt modules can be updated — save your changes with the button above.
+                Production item identity and print metadata can be corrected after creation.{" "}
+                Creative direction stays locked; payload, canon links, and prompt modules can also be updated.
               </span>
             </div>
-            {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} readOnly />}
+            {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} />}
             {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} readOnly />}
             {/* Canon and Payload tabs have mutable linkage fields — not readOnly */}
             {activeTab === "canon"   && <CanonTab   spec={spec} onChange={onChange} />}

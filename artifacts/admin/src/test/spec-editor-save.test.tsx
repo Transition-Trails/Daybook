@@ -137,6 +137,41 @@ describe("SpecEditor save flow (Wave 2 Item 5)", () => {
     expect(screen.queryByRole("button", { name: /Save Changes/i })).not.toBeInTheDocument();
   });
 
+  it("allows correcting and saving the production item name", async () => {
+    renderEditor();
+    const nameInput = await screen.findByDisplayValue("Hero Paper 001: The Library Table");
+
+    expect(nameInput).not.toBeDisabled();
+    fireEvent.change(nameInput, { target: { value: "Victorian Garden Journals Volume II" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Save Changes/i }));
+
+    await waitFor(() => {
+      const patchCall = apiFetch.mock.calls.find(
+        ([path, opts]: [string, RequestInit | undefined]) =>
+          path === "/v1/editorial/specs/spec-test-001" && opts?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      expect(JSON.parse(String(patchCall![1]?.body))).toMatchObject({
+        production_item: "Victorian Garden Journals Volume II",
+      });
+    });
+  });
+
+  it("deletes a clean production spec and returns to the board", async () => {
+    renderEditor();
+    await screen.findByText("Hero Paper 001: The Library Table");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete production spec" }));
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        "/v1/editorial/specs/spec-test-001",
+        { method: "DELETE" },
+      );
+      expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/board");
+    });
+  });
+
   it("explains the prompt payload and module requirement when Publish is disabled", async () => {
     renderEditor();
     await waitFor(() => expect(screen.getByText("Hero Paper 001: The Library Table")).toBeInTheDocument());

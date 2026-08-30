@@ -16,7 +16,7 @@
  *
  * Production Specs:
  * GET/POST   /v1/editorial/specs
- * GET/DELETE /v1/editorial/specs/:id (immutable after creation)
+ * GET/PATCH/DELETE /v1/editorial/specs/:id
  * POST       /v1/editorial/specs/:id/publish
  *
  * Style Guides, Component Specs, Prompt Modules (CRUD pattern):
@@ -46,6 +46,8 @@ import {
   wsComponentSpecsTable,
   wsPromptModulesTable,
   wsProductionSpecsTable,
+  worldsmithRunsTable,
+  worldsmithProductionPackagesTable,
   wsPromptPayloadsTable,
   worldsmithWorldsTable,
   palettesTable,
@@ -2411,8 +2413,23 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
         throw new Error("finalize must be a boolean");
       }
     } else {
-      // Completed and pipeline-ready records retain the original edit contract:
-      // only linkage and payload fields may be changed after identity creation.
+      // Completed records still protect creative direction, but admins can
+      // correct the visible identity and print metadata when a record was
+      // created with a typo or wrong component label.
+      addString("production_item", "productionItem");
+      addString("spec_id", "specId");
+      addString("component_type", "componentType");
+      addString("component_set", "componentSet");
+      addString("orientation", "orientation");
+      addString("front_back_style", "frontBackStyle");
+      addString("current_version", "currentVersion", false, false);
+      if (body.writing_space_percent !== undefined) {
+        const value = body.writing_space_percent;
+        if (value !== null && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100)) {
+          throw new Error("writing_space_percent must be between 0 and 100");
+        }
+        mutableUpdate.writingSpacePercent = value;
+      }
       addString("prompt_payload", "promptPayload", false, false);
       addString("payload_version", "payloadVersion");
       addArray("canon_record_ids", "canonRecordIds");
@@ -2425,7 +2442,7 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
       res.status(400).json({
         error: isDraft
           ? "No draft fields provided."
-          : "No mutable fields provided. Identity and creative-direction fields are immutable after creation.",
+          : "No editable fields provided.",
         code: "NO_MUTABLE_FIELDS",
         mutable_fields: isDraft
           ? [
@@ -2435,12 +2452,24 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
               "canon_dependency", "canon_record_ids", "payload_version", "prompt_payload",
               "style_guide_id", "component_spec_id", "prompt_module_ids", "wizard_step",
             ]
-          : ["prompt_payload", "payload_version", "canon_record_ids", "prompt_module_ids", "style_guide_id", "component_spec_id"],
+          : [
+              "production_item", "spec_id", "component_type", "component_set",
+              "orientation", "front_back_style", "current_version", "writing_space_percent",
+              "prompt_payload", "payload_version", "canon_record_ids",
+              "prompt_module_ids", "style_guide_id", "component_spec_id",
+            ],
       });
       return;
     }
 
     const merged = { ...existing, ...mutableUpdate };
+    if (!isDraft && (!merged.productionItem?.trim() || !merged.componentType?.trim())) {
+      res.status(400).json({
+        error: "production_item and component_type are required for a completed spec",
+        code: "INCOMPLETE_IDENTITY",
+      });
+      return;
+    }
     const linkError = await validateProductionSpecLinks(merged);
     if (linkError) {
       res.status(422).json({ error: linkError, code: "LINKED_RECORD_NOT_FOUND" });
@@ -2495,10 +2524,18 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
 
 router.delete("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
   try {
-    const [deleted] = await db
-      .delete(wsProductionSpecsTable)
-      .where(eq(wsProductionSpecsTable.id, req.params.id as string))
-      .returning();
+    const deleted = await db.transaction(async (tx) => {
+      const id = req.params.id as string;
+      await tx.delete(worldsmithProductionPackagesTable)
+        .where(eq(worldsmithProductionPackagesTable.productionSpecId, id));
+      await tx.delete(worldsmithRunsTable)
+        .where(eq(worldsmithRunsTable.productionSpecId, id));
+      const [row] = await tx
+        .delete(wsProductionSpecsTable)
+        .where(eq(wsProductionSpecsTable.id, id))
+        .returning();
+      return row;
+    });
     if (!deleted) { res.status(404).json({ error: "Spec not found" }); return; }
     res.json({ deleted: true });
   } catch (err) {

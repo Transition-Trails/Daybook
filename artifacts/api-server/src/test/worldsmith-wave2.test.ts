@@ -303,6 +303,8 @@ import { db } from "@workspace/db";
 import {
   worldsmithWorldsTable,
   wsProductionSpecsTable,
+  worldsmithRunsTable,
+  worldsmithProductionPackagesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
 
@@ -435,13 +437,60 @@ describe("Item 5 — PATCH /v1/editorial/specs/:id saves mutable linkage fields"
     expect(scoreAfter).toBeGreaterThanOrEqual(scoreBefore - 5); // allow minor fluctuation
   });
 
-  it("PATCH returns 400 when no mutable fields are provided", async () => {
+  it("PATCH lets an admin correct a completed spec production name", async () => {
     const res = await request(app)
       .patch(`/v1/editorial/specs/${specId}`)
-      .send({ production_item: "Should be rejected" }); // immutable field only
+      .send({ production_item: "Corrected Production Name" });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/mutable|no.*field|immutable/i);
+    expect(res.status).toBe(200);
+    expect(res.body.spec.productionItem).toBe("Corrected Production Name");
+  });
+});
+
+describe("DELETE /v1/editorial/specs/:id removes owned generation history", () => {
+  it("deletes a spec that already has a run and generated package", async () => {
+    const worldId = randomUUID();
+    const specId = randomUUID();
+    const runId = randomUUID();
+    const packageId = randomUUID();
+    const { eq } = await import("drizzle-orm");
+
+    await db.insert(worldsmithWorldsTable).values({
+      id: worldId,
+      name: "Delete Test World",
+      code: "DEL",
+      status: "active",
+    });
+    await db.insert(wsProductionSpecsTable).values({
+      id: specId,
+      worldId,
+      productionItem: "Delete Test Spec",
+      componentType: "Hero Paper",
+    });
+    await db.insert(worldsmithRunsTable).values({
+      id: runId,
+      productionSpecId: specId,
+      operation: "validate_and_compile",
+    });
+    await db.insert(worldsmithProductionPackagesTable).values({
+      id: packageId,
+      productionSpecId: specId,
+      promptHash: "delete-test-hash",
+      provider: "test",
+      modelName: "test-model",
+      effectiveSize: "1024x1024",
+      quality: "medium",
+      filename: "delete-test.png",
+    });
+
+    const response = await request(app).delete(`/v1/editorial/specs/${specId}`);
+    expect(response.status).toBe(200);
+    expect(response.body.deleted).toBe(true);
+    expect(await db.select().from(worldsmithRunsTable).where(eq(worldsmithRunsTable.id, runId))).toHaveLength(0);
+    expect(await db.select().from(worldsmithProductionPackagesTable).where(eq(worldsmithProductionPackagesTable.id, packageId))).toHaveLength(0);
+    expect(await db.select().from(wsProductionSpecsTable).where(eq(wsProductionSpecsTable.id, specId))).toHaveLength(0);
+
+    await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
   });
 });
 
@@ -524,7 +573,7 @@ describe("Production Spec wizard drafts", () => {
     expect(publish.body.code).toBe("INCOMPLETE_DRAFT");
   });
 
-  it("finalizes a valid draft and restores the completed-record edit contract", async () => {
+  it("finalizes a valid draft and allows later identity corrections", async () => {
     const finalize = await request(app)
       .patch(`/v1/editorial/specs/${draftId}`)
       .send({
@@ -538,11 +587,11 @@ describe("Production Spec wizard drafts", () => {
     expect(finalize.body.spec.wizardComplete).toBe(true);
     expect(finalize.body.spec.specId).toMatch(/^DRW-HRP-\d{3}$/);
 
-    const immutable = await request(app)
+    const corrected = await request(app)
       .patch(`/v1/editorial/specs/${draftId}`)
       .send({ production_item: "Changed after completion" });
-    expect(immutable.status).toBe(400);
-    expect(immutable.body.code).toBe("NO_MUTABLE_FIELDS");
+    expect(corrected.status).toBe(200);
+    expect(corrected.body.spec.productionItem).toBe("Changed after completion");
   });
 
   it("rejects a draft relationship that belongs to another world", async () => {

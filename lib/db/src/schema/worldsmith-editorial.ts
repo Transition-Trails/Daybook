@@ -188,9 +188,10 @@ export const wsProductionSpecsTable = pgTable("ws_production_specs", {
   volumeId: text("volume_id"),
 
   // Identity
-  productionItem: text("production_item").notNull(),
+  // Drafts may be opened before the identity screen is complete.
+  productionItem: text("production_item"),
   specId: text("spec_id"), // e.g. "V01·HP·004"
-  componentType: text("component_type").notNull(),
+  componentType: text("component_type"),
   componentSet: text("component_set"),
   heroFamily: text("hero_family"),
   currentVersion: text("current_version").notNull().default("1"),
@@ -227,6 +228,10 @@ export const wsProductionSpecsTable = pgTable("ws_production_specs", {
   compiledPromptStatus: text("compiled_prompt_status").notNull().default("Not Compiled"),
   // 0–100 — recomputed on every save via computeReadinessScore()
   readinessScore: integer("readiness_score").notNull().default(0),
+  // Last screen reached in the progressive New Spec wizard (0–4).
+  wizardStep: integer("wizard_step").notNull().default(0),
+  // Existing records are complete; newly bootstrapped wizard drafts set false.
+  wizardComplete: boolean("wizard_complete").notNull().default(true),
 
   // Notion sync
   notionPageId: text("notion_page_id"),

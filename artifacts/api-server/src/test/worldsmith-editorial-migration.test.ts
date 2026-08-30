@@ -36,6 +36,32 @@ async function inIsolatedSchema(
 }
 
 describe("WorldSmith Editorial Suite migration", () => {
+  it("allows incomplete Production Spec identity and persists wizard progress", async () => {
+    await inIsolatedSchema(async (client, schema) => {
+      await applyWorldsmithEditorialMigration(client, schema);
+      await client.query(`
+        INSERT INTO ws_production_specs (id, world_id, wizard_step, wizard_complete)
+        VALUES ('draft-1', 'world-1', 3, FALSE)
+      `);
+      const draft = await client.query<{
+        production_item: string | null;
+        component_type: string | null;
+        wizard_step: number;
+        wizard_complete: boolean;
+      }>(`
+        SELECT production_item, component_type, wizard_step, wizard_complete
+        FROM ws_production_specs
+        WHERE id = 'draft-1'
+      `);
+      expect(draft.rows).toEqual([{
+        production_item: null,
+        component_type: null,
+        wizard_step: 3,
+        wizard_complete: false,
+      }]);
+    });
+  });
+
   it("adds the compiler section and its constraint only to prompt modules on a clean schema", async () => {
     await inIsolatedSchema(async (client, schema) => {
       await applyWorldsmithEditorialMigration(client, schema);

@@ -255,9 +255,9 @@ export async function applyWorldsmithEditorialMigration(client, schema = "public
       world_id              TEXT NOT NULL,
       collection_id         TEXT,
       volume_id             TEXT,
-      production_item       TEXT NOT NULL,
+      production_item       TEXT,
       spec_id               TEXT,
-      component_type        TEXT NOT NULL,
+      component_type        TEXT,
       component_set         TEXT,
       hero_family           TEXT,
       current_version       TEXT NOT NULL DEFAULT '1',
@@ -278,6 +278,8 @@ export async function applyWorldsmithEditorialMigration(client, schema = "public
       status                TEXT NOT NULL DEFAULT 'draft',
       compiled_prompt_status TEXT NOT NULL DEFAULT 'Not Compiled',
       readiness_score       INTEGER NOT NULL DEFAULT 0,
+      wizard_step           INTEGER NOT NULL DEFAULT 0,
+      wizard_complete       BOOLEAN NOT NULL DEFAULT TRUE,
       notion_page_id        TEXT,
       synced_at             TIMESTAMPTZ,
       created_by            TEXT,
@@ -288,6 +290,10 @@ export async function applyWorldsmithEditorialMigration(client, schema = "public
   await client.query(`CREATE INDEX IF NOT EXISTS ws_production_specs_world_idx ON ws_production_specs(world_id);`);
   await client.query(`CREATE INDEX IF NOT EXISTS ws_production_specs_status_idx ON ws_production_specs(status);`);
   await client.query(`CREATE INDEX IF NOT EXISTS ws_production_specs_collection_idx ON ws_production_specs(collection_id);`);
+  await client.query(`ALTER TABLE ws_production_specs ALTER COLUMN production_item DROP NOT NULL;`);
+  await client.query(`ALTER TABLE ws_production_specs ALTER COLUMN component_type DROP NOT NULL;`);
+  await client.query(`ALTER TABLE ws_production_specs ADD COLUMN IF NOT EXISTS wizard_step INTEGER NOT NULL DEFAULT 0;`);
+  await client.query(`ALTER TABLE ws_production_specs ADD COLUMN IF NOT EXISTS wizard_complete BOOLEAN NOT NULL DEFAULT TRUE;`);
 
   // ── Prompt Payload Revisions ──────────────────────────────────────────────
   await client.query(`

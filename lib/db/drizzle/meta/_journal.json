@@ -225,6 +225,13 @@
       "when": 1787798000000,
       "tag": "0031_eink_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1788120000000,
+      "tag": "0032_worldsmith_spec_drafts",
+      "breakpoints": true
     }
   ]
 }

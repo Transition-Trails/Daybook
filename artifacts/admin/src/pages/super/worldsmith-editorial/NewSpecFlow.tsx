@@ -2,9 +2,9 @@
  * NewSpecFlow — progressive 5-section creation form for Production Specs.
  * Sections unlock sequentially; completion sidebar tracks readiness score.
  */
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useLocation } from "wouter";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight, CheckCircle2, Circle, Loader2, ArrowLeft,
   BookOpen, Layers, Zap, FileText, GitBranch, X, Plus,
@@ -581,7 +581,7 @@ function ReviewSection({ f, set, onFocus }: { f: FormState; set: (k: keyof FormS
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function NewSpecFlow() {
+function LegacyNewSpecFlow() {
   const [, navigate] = useLocation();
   const { selectedWorldId, selectedCollectionId } = useEditorial();
   const { toast } = useToast();
@@ -794,6 +794,378 @@ export default function NewSpecFlow() {
               />
             )}
             {activeSection === 4 && <ReviewSection f={form} set={set} />}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type DraftSpec = Partial<FormState> & {
+  id: string;
+  wizardStep?: number | null;
+};
+
+function formFromDraft(spec: DraftSpec): FormState {
+  return {
+    productionItem: spec.productionItem ?? "",
+    specId: spec.specId ?? "",
+    componentType: spec.componentType ?? "",
+    componentSet: spec.componentSet ?? "",
+    designIntent: spec.designIntent ?? "",
+    narrativePurpose: spec.narrativePurpose ?? "",
+    requiredContent: spec.requiredContent ?? "",
+    orientation: spec.orientation ?? "",
+    frontBackStyle: spec.frontBackStyle ?? "",
+    writingSpacePercent: spec.writingSpacePercent == null ? "" : String(spec.writingSpacePercent),
+    reviewCriteria: spec.reviewCriteria ?? "",
+    canonDependency: spec.canonDependency ?? "None",
+    canonRecordIds: spec.canonRecordIds ?? [],
+    styleGuideId: spec.styleGuideId ?? "",
+    componentSpecId: spec.componentSpecId ?? "",
+    payloadVersion: spec.payloadVersion ?? "PP-2.0",
+    promptPayload: spec.promptPayload ?? "",
+    promptModuleIds: spec.promptModuleIds ?? [],
+  };
+}
+
+function draftPayload(form: FormState, wizardStep: number, finalize = false) {
+  return {
+    production_item: form.productionItem,
+    spec_id: form.specId,
+    component_type: form.componentType,
+    component_set: form.componentSet,
+    design_intent: form.designIntent,
+    narrative_purpose: form.narrativePurpose,
+    required_content: form.requiredContent,
+    orientation: form.orientation,
+    front_back_style: form.frontBackStyle,
+    writing_space_percent: form.writingSpacePercent ? parseFloat(form.writingSpacePercent) : null,
+    review_criteria: form.reviewCriteria,
+    canon_dependency: form.canonDependency,
+    canon_record_ids: form.canonRecordIds,
+    style_guide_id: form.styleGuideId,
+    component_spec_id: form.componentSpecId,
+    payload_version: form.payloadVersion,
+    prompt_payload: form.promptPayload,
+    prompt_module_ids: form.promptModuleIds,
+    wizard_step: wizardStep,
+    finalize,
+  };
+}
+
+export default function NewSpecFlow() {
+  const [, navigate] = useLocation();
+  const { selectedWorldId, selectedCollectionId } = useEditorial();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState<FormState>({ ...EMPTY });
+  const [activeSection, setActiveSection] = useState(0);
+  const [draftId, setDraftId] = useState<string | null>(() => (
+    new URLSearchParams(window.location.search).get("draft")
+  ));
+  const bootstrapStarted = useRef(false);
+  const hydratedDraftId = useRef<string | null>(null);
+
+  const set = (key: keyof FormState, value: string) =>
+    setForm(previous => ({ ...previous, [key]: value }));
+  const toggleId = (key: "canonRecordIds" | "promptModuleIds", id: string) => {
+    setForm(previous => {
+      const values = previous[key];
+      return {
+        ...previous,
+        [key]: values.includes(id) ? values.filter(value => value !== id) : [...values, id],
+      };
+    });
+  };
+
+  const draftQuery = useQuery<{ spec: DraftSpec }>({
+    queryKey: ["editorial-spec-draft", draftId],
+    queryFn: () => apiFetch(`/v1/editorial/specs/${draftId}`),
+    enabled: !!draftId,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+
+  const bootstrapMutation = useMutation({
+    mutationFn: () => apiFetch<{ spec: DraftSpec }>("/v1/editorial/specs", {
+      method: "POST",
+      body: JSON.stringify({
+        world_id: selectedWorldId,
+        collection_id: selectedCollectionId || undefined,
+        draft: true,
+        ...draftPayload(EMPTY, 0),
+      }),
+    }),
+    onSuccess: ({ spec }) => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("draft", spec.id);
+      window.history.replaceState(window.history.state, "", url);
+      hydratedDraftId.current = spec.id;
+      setDraftId(spec.id);
+      setForm(formFromDraft(spec));
+      setActiveSection(Math.min(4, Math.max(0, spec.wizardStep ?? 0)));
+      toast({
+        title: "Draft started",
+        description: "Your progress will be saved as you move through the screens.",
+      });
+    },
+    onError: () => toast({
+      title: "Failed to start draft",
+      description: "Your form cannot be saved until the draft is created.",
+      variant: "destructive",
+    }),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: ({ id, values, wizardStep, finalize = false }: {
+      id: string;
+      values: FormState;
+      wizardStep: number;
+      finalize?: boolean;
+    }) =>
+      apiFetch<{ spec: DraftSpec }>(`/v1/editorial/specs/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(draftPayload(values, wizardStep, finalize)),
+      }),
+    onError: () => toast({
+      title: "Draft save failed",
+      description: "The screen was not changed. Try again.",
+      variant: "destructive",
+    }),
+  });
+
+  useEffect(() => {
+    if (!selectedWorldId || draftId || bootstrapStarted.current) return;
+    bootstrapStarted.current = true;
+    bootstrapMutation.mutate();
+  }, [selectedWorldId, draftId]);
+
+  useEffect(() => {
+    const spec = draftQuery.data?.spec;
+    if (!spec || draftQuery.isFetching || hydratedDraftId.current === spec.id) return;
+    hydratedDraftId.current = spec.id;
+    setForm(formFromDraft(spec));
+    setActiveSection(Math.min(4, Math.max(0, spec.wizardStep ?? 0)));
+  }, [draftQuery.data?.spec, draftQuery.isFetching]);
+
+  const checks = readinessChecks({
+    ...form,
+    worldId: selectedWorldId,
+    collectionId: selectedCollectionId,
+  });
+  const overallScore = readinessScore(checks);
+  const isPayloadReady = payloadReady(checks);
+  const isCanonClear = canonClear(checks);
+  const readinessLabel = !isCanonClear ? "Canon needed" : isPayloadReady ? "Canon clear" : "In progress";
+  const readinessColor = !isCanonClear
+    ? "#C87560"
+    : isPayloadReady
+      ? "#0D9488"
+      : overallScore >= BANDS.payloadReady ? "#F59E0B" : "#9CA3AF";
+
+  const saveDraft = async (wizardStep: number) => {
+    if (!draftId) {
+      toast({
+        title: "Draft is still starting",
+        description: "Wait until the draft status shows Saved, then try again.",
+        variant: "destructive",
+      });
+      return false;
+    }
+    try {
+      await saveMutation.mutateAsync({ id: draftId, values: form, wizardStep });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const changeSection = async (nextSection: number) => {
+    if (nextSection === activeSection || saveMutation.isPending) return;
+    if (await saveDraft(nextSection)) setActiveSection(nextSection);
+  };
+  const leaveWizard = async () => {
+    if (await saveDraft(activeSection)) {
+      await queryClient.invalidateQueries({ queryKey: ["editorial/specs/list"] });
+      navigate("/super/worldsmith/editorial/specs");
+    }
+  };
+  const finishWizard = async () => {
+    if (!draftId || !form.productionItem.trim() || !form.componentType.trim()) return;
+    try {
+      await saveMutation.mutateAsync({
+        id: draftId,
+        values: form,
+        wizardStep: 4,
+        finalize: true,
+      });
+      toast({ title: "Production spec saved" });
+      navigate(`/super/worldsmith/editorial/specs/${draftId}`);
+    } catch {
+      // The mutation reports the error and leaves the operator on this screen.
+    }
+  };
+
+  const busy = bootstrapMutation.isPending || saveMutation.isPending || draftQuery.isLoading;
+  const canSubmit = !!(draftId && selectedWorldId && form.productionItem.trim() && form.componentType.trim());
+  const currentSection = SECTIONS[activeSection];
+
+  return (
+    <div className="flex h-full overflow-hidden" style={{ background: "var(--admin-card-subtle)" }}>
+      <aside className="flex flex-col border-r bg-white" style={{ width: 220, borderColor: "#E5E7EB" }}>
+        <div className="px-4 pt-5 pb-3 border-b" style={{ borderColor: "#F3F4F6" }}>
+          <div className="text-xs uppercase tracking-widest text-gray-400 mb-1">Draft Asset</div>
+          <div className="font-medium text-gray-800" style={{ fontFamily: "'Playfair Display', serif", fontSize: 16 }}>
+            {form.productionItem.trim() || "Untitled Spec"}
+          </div>
+          {form.componentType && <div className="text-xs text-[#C87560] mt-0.5">{form.componentType}</div>}
+        </div>
+
+        <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: "#F3F4F6" }}>
+          <CircleScore score={overallScore} color={readinessColor} size={48} />
+          <div>
+            <div className="text-xs text-gray-500">Readiness</div>
+            <div className="text-sm font-semibold" style={{ color: readinessColor }}>{readinessLabel}</div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto py-2">
+          {SECTIONS.map((section, index) => {
+            const score = sectionScore(checks, section.id);
+            const isActive = index === activeSection;
+            const Icon = section.icon;
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => changeSection(index)}
+                disabled={busy}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-colors disabled:opacity-50"
+                style={isActive ? { background: "rgba(200,117,96,0.08)", borderLeft: "2px solid #C87560" } : { borderLeft: "2px solid transparent" }}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: isActive ? "#C87560" : "#9CA3AF" }} />
+                <span className="flex-1 text-sm" style={{ color: isActive ? "#C87560" : "#4B5563", fontWeight: isActive ? 500 : 400 }}>
+                  {section.label}
+                </span>
+                {score === 100
+                  ? <CheckCircle2 className="w-3.5 h-3.5 text-teal-500 shrink-0" />
+                  : <span className="text-[10px] text-gray-400 shrink-0">{score}%</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="border-t px-4 py-3" style={{ borderColor: "#F3F4F6" }}>
+          <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Next required</p>
+          {SECTIONS.flatMap(section => checks.filter(check => check.section === section.id && !check.done)).slice(0, 3).map(check => (
+            <p key={check.id} className="text-xs text-gray-500 flex items-start gap-1.5 mb-1">
+              <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+              {check.label}
+            </p>
+          ))}
+          {checks.every(check => check.done) && <p className="text-xs text-teal-600">All checks passed ✓</p>}
+        </div>
+      </aside>
+
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        <div className="bg-white border-b px-6 py-3 flex items-center justify-between shrink-0" style={{ borderColor: "#E5E7EB" }}>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={leaveWizard}
+              disabled={busy || !draftId}
+              aria-label="Save draft and return to Production Specs"
+              className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-30"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div>
+              <h1 className="text-base font-semibold text-[#1B2A4A]">{currentSection.label}</h1>
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                <span>Step {activeSection + 1} of {SECTIONS.length}</span>
+                <span>·</span>
+                <span className={bootstrapMutation.isError || saveMutation.isError || draftQuery.isError ? "text-red-500" : "text-teal-600"}>
+                  {bootstrapMutation.isPending
+                    ? "Starting draft…"
+                    : saveMutation.isPending
+                      ? "Saving…"
+                      : draftId
+                        ? "Saved as draft"
+                        : "Waiting to save"}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => changeSection(Math.max(0, activeSection - 1))}
+              disabled={activeSection === 0 || busy}
+              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Back
+            </button>
+            {activeSection < SECTIONS.length - 1 ? (
+              <button
+                type="button"
+                onClick={() => changeSection(activeSection + 1)}
+                disabled={busy || !draftId}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg font-medium text-white transition-colors disabled:opacity-50"
+                style={{ background: "#1B2A4A" }}
+              >
+                {saveMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                Next
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={finishWizard}
+                disabled={!canSubmit || busy}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-lg font-medium text-white disabled:opacity-50"
+                style={{ background: "#C87560" }}
+              >
+                {saveMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Create Spec
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-1 overflow-y-auto p-8 min-w-0">
+            <div style={{ maxWidth: 640, margin: "0 auto" }}>
+              {draftQuery.isError ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  This draft could not be loaded. Return to Production Specs and try again.
+                </div>
+              ) : (
+                <>
+                  {activeSection === 0 && <IdentitySection f={form} set={set} worldId={selectedWorldId} />}
+                  {activeSection === 1 && <CreativeSection f={form} set={set} />}
+                  {activeSection === 2 && (
+                    <CanonSection
+                      f={form}
+                      set={set}
+                      worldId={selectedWorldId}
+                      onToggleCanonId={id => toggleId("canonRecordIds", id)}
+                    />
+                  )}
+                  {activeSection === 3 && (
+                    <PayloadSection
+                      f={form}
+                      set={set}
+                      worldId={selectedWorldId}
+                      onToggleModuleId={id => toggleId("promptModuleIds", id)}
+                    />
+                  )}
+                  {activeSection === 4 && <ReviewSection f={form} set={set} />}
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -79,3 +79,4 @@
 - [Admin test session flush](admin-test-session-flush.md) — browser test login must persist the Passport session before responding or reload can lose authorization
 - [Planner bounded-slot composition](planner-bounded-slot-composition.md) — Super Admin template editing uses explicit safe-area slots; adding consumes one and deleting frees it
 - [Planner binding gutters](planner-binding-gutters.md) — widget artwork reserves extra space on alternating binding edges; editor and PDF geometry must stay aligned
+- [Wizard draft hydration](wizard-draft-hydration.md) — resumable forms must bypass stale query cache on first load without allowing focus refetches to overwrite unsaved input

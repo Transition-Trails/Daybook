@@ -17,9 +17,10 @@ import { useEditorialPageFilters } from "./EditorialShell";
 
 interface ProductionSpec {
   id: string;
-  productionItem: string;
-  componentType: string;
+  productionItem: string | null;
+  componentType: string | null;
   status: string;
+  wizardComplete?: boolean;
   readinessScore: number;
   updatedAt: string;
   specId?: string | null;
@@ -205,8 +206,8 @@ export default function SpecsList() {
     if (q.trim()) {
       const term = q.trim().toLowerCase();
       rows = rows.filter(s =>
-        s.productionItem.toLowerCase().includes(term) ||
-        s.componentType.toLowerCase().includes(term) ||
+        (s.productionItem ?? "").toLowerCase().includes(term) ||
+        (s.componentType ?? "").toLowerCase().includes(term) ||
         (s.specId ?? "").toLowerCase().includes(term),
       );
     }
@@ -392,7 +393,11 @@ export default function SpecsList() {
                 return (
                   <tr
                     key={spec.id}
-                    onClick={() => navigate(`/super/worldsmith/editorial/specs/${spec.id}`)}
+                    onClick={() => navigate(
+                      spec.wizardComplete === false
+                        ? `/super/worldsmith/editorial/specs/new?draft=${encodeURIComponent(spec.id)}`
+                        : `/super/worldsmith/editorial/specs/${spec.id}`,
+                    )}
                     className="cursor-pointer transition-colors hover:bg-[#FAF5F3]"
                     style={{ background: isEven ? "white" : "#FAFAF9", borderBottom: "1px solid #F3F4F6" }}
                   >
@@ -400,7 +405,7 @@ export default function SpecsList() {
                     <td className="px-6 py-3">
                       <div className="flex flex-col gap-0.5">
                         <span className="font-medium text-[#1B2A4A] leading-snug truncate max-w-[280px]">
-                          {spec.productionItem}
+                          {spec.productionItem || "Untitled Spec"}
                         </span>
                         {spec.specId && (
                           <span className="text-[11px] text-gray-400 font-mono">{spec.specId}</span>
@@ -414,7 +419,7 @@ export default function SpecsList() {
                         className="inline-block text-xs font-medium px-2 py-0.5 rounded-full"
                         style={{ background: "rgba(200,117,96,0.10)", color: "#C87560" }}
                       >
-                        {spec.componentType}
+                        {spec.componentType || "Not selected"}
                       </span>
                     </td>
 

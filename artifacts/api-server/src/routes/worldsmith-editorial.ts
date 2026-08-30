@@ -2105,6 +2105,75 @@ const SPEC_TYPE_ABBR: Record<string, string> = {
   "Washi Tape":          "WSH",
 };
 
+async function generateProductionSpecId(
+  worldId: string,
+  worldCode: string,
+  componentType: string,
+): Promise<string> {
+  const typeAbbr = SPEC_TYPE_ABBR[componentType] ?? componentType.slice(0, 3).toUpperCase();
+  const [{ cnt }] = await db
+    .select({ cnt: sql<number>`count(*)::int` })
+    .from(wsProductionSpecsTable)
+    .where(and(
+      eq(wsProductionSpecsTable.worldId, worldId),
+      eq(wsProductionSpecsTable.componentType, componentType),
+    ));
+  return `${worldCode.toUpperCase()}-${typeAbbr}-${String((cnt ?? 0) + 1).padStart(3, "0")}`;
+}
+
+async function validateProductionSpecLinks(
+  spec: Partial<InsertWsProductionSpec>,
+): Promise<string | null> {
+  if (!spec.worldId) return "World is required.";
+  const canonIds = [...new Set((spec.canonRecordIds ?? []) as string[])];
+  const moduleIds = [...new Set((spec.promptModuleIds ?? []) as string[])];
+  const [collection, volume, styleGuide, componentSpec, canonRecords, promptModules] = await Promise.all([
+    spec.collectionId
+      ? db.select({ id: wsCollectionsTable.id, worldId: wsCollectionsTable.worldId })
+          .from(wsCollectionsTable).where(eq(wsCollectionsTable.id, spec.collectionId)).limit(1)
+      : Promise.resolve([]),
+    spec.volumeId
+      ? db.select({ id: wsVolumesTable.id, worldId: wsVolumesTable.worldId })
+          .from(wsVolumesTable).where(eq(wsVolumesTable.id, spec.volumeId)).limit(1)
+      : Promise.resolve([]),
+    spec.styleGuideId
+      ? db.select({ id: wsStyleGuidesTable.id, worldId: wsStyleGuidesTable.worldId })
+          .from(wsStyleGuidesTable).where(eq(wsStyleGuidesTable.id, spec.styleGuideId)).limit(1)
+      : Promise.resolve([]),
+    spec.componentSpecId
+      ? db.select({ id: wsComponentSpecsTable.id, worldId: wsComponentSpecsTable.worldId })
+          .from(wsComponentSpecsTable).where(eq(wsComponentSpecsTable.id, spec.componentSpecId)).limit(1)
+      : Promise.resolve([]),
+    canonIds.length
+      ? db.select({ id: wsCanonRecordsTable.id, worldId: wsCanonRecordsTable.worldId })
+          .from(wsCanonRecordsTable).where(inArray(wsCanonRecordsTable.id, canonIds))
+      : Promise.resolve([] as Array<{ id: string; worldId: string }>),
+    moduleIds.length
+      ? db.select({ id: wsPromptModulesTable.id, worldId: wsPromptModulesTable.worldId })
+          .from(wsPromptModulesTable).where(inArray(wsPromptModulesTable.id, moduleIds))
+      : Promise.resolve([] as Array<{ id: string; worldId: string }>),
+  ]);
+
+  const singleLinks = [
+    ["Collection", spec.collectionId, collection[0]],
+    ["Volume", spec.volumeId, volume[0]],
+    ["Style guide", spec.styleGuideId, styleGuide[0]],
+    ["Component spec", spec.componentSpecId, componentSpec[0]],
+  ] as const;
+  for (const [label, id, record] of singleLinks) {
+    if (id && (!record || record.worldId !== spec.worldId)) {
+      return `${label} must exist and belong to the selected world.`;
+    }
+  }
+  if (canonRecords.length !== canonIds.length || canonRecords.some(record => record.worldId !== spec.worldId)) {
+    return "Every canon record must exist and belong to the selected world.";
+  }
+  if (promptModules.length !== moduleIds.length || promptModules.some(record => record.worldId !== spec.worldId)) {
+    return "Every prompt module must exist and belong to the selected world.";
+  }
+  return null;
+}
+
 router.post("/v1/editorial/specs", async (req: Request, res: Response) => {
   const {
     world_id, collection_id, volume_id,
@@ -2114,10 +2183,25 @@ router.post("/v1/editorial/specs", async (req: Request, res: Response) => {
     canon_dependency, canon_record_ids,
     payload_version, prompt_payload,
     style_guide_id, component_spec_id, prompt_module_ids,
+    wizard_step,
+    draft,
   } = req.body;
 
-  if (!world_id || !production_item?.trim() || !component_type?.trim()) {
+  if (!world_id || typeof world_id !== "string" || !world_id.trim()) {
+    res.status(400).json({ error: "world_id is required" });
+    return;
+  }
+  if (!draft && (!production_item?.trim() || !component_type?.trim())) {
     res.status(400).json({ error: "world_id, production_item, and component_type are required" });
+    return;
+  }
+  if (draft !== undefined && typeof draft !== "boolean") {
+    res.status(400).json({ error: "draft must be a boolean" });
+    return;
+  }
+  const resolvedWizardStep = wizard_step === undefined ? 0 : Number(wizard_step);
+  if (!Number.isInteger(resolvedWizardStep) || resolvedWizardStep < 0 || resolvedWizardStep > 4) {
+    res.status(400).json({ error: "wizard_step must be an integer between 0 and 4" });
     return;
   }
 
@@ -2138,29 +2222,21 @@ router.post("/v1/editorial/specs", async (req: Request, res: Response) => {
       return;
     }
 
-    // Auto-generate spec_id if the caller did not supply one
+    // Auto-generate spec_id only once the identity is complete. A draft can
+    // legitimately have no spec ID until its first screen is finished.
     let resolvedSpecId = spec_id?.trim() || null;
-    if (!resolvedSpecId) {
-      const worldCode = worldRecord.code.toUpperCase();
-      const typeAbbr = SPEC_TYPE_ABBR[component_type] ?? component_type.slice(0, 3).toUpperCase();
-      const [{ cnt }] = await db
-        .select({ cnt: sql<number>`count(*)::int` })
-        .from(wsProductionSpecsTable)
-        .where(and(
-          eq(wsProductionSpecsTable.worldId, world_id),
-          eq(wsProductionSpecsTable.componentType, component_type),
-        ));
-      resolvedSpecId = `${worldCode}-${typeAbbr}-${String((cnt ?? 0) + 1).padStart(3, "0")}`;
+    if (!resolvedSpecId && production_item?.trim() && component_type?.trim()) {
+      resolvedSpecId = await generateProductionSpecId(world_id, worldRecord.code, component_type.trim());
     }
 
     const partial: Partial<InsertWsProductionSpec> = {
       worldId: world_id,
       collectionId: collection_id,
       volumeId: volume_id,
-      productionItem: production_item.trim(),
+      productionItem: production_item?.trim() || null,
       specId: resolvedSpecId,
-      componentType: component_type.trim(),
-      componentSet: component_set,
+      componentType: component_type?.trim() || null,
+      componentSet: component_set?.trim() || null,
       designIntent: sanitizeEditorialRichText(design_intent ?? ""),
       narrativePurpose: sanitizeEditorialRichText(narrative_purpose ?? ""),
       requiredContent: sanitizeEditorialRichText(required_content ?? ""),
@@ -2175,10 +2251,17 @@ router.post("/v1/editorial/specs", async (req: Request, res: Response) => {
       styleGuideId: style_guide_id,
       componentSpecId: component_spec_id,
       promptModuleIds: prompt_module_ids ?? [],
+      wizardStep: resolvedWizardStep,
+      wizardComplete: !draft,
     };
 
     const readinessScore = computeReadinessScore(partial);
     const status = derivePipelineStatus(partial, readinessScore);
+    const linkError = await validateProductionSpecLinks(partial);
+    if (linkError) {
+      res.status(422).json({ error: linkError, code: "LINKED_RECORD_NOT_FOUND" });
+      return;
+    }
 
     const [row] = await db
       .insert(wsProductionSpecsTable)
@@ -2250,32 +2333,6 @@ router.get("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
 // the prompt identity (and its derived promptHash) stays stable.
 router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
   const specId = req.params.id as string;
-  const {
-    prompt_payload,
-    payload_version,
-    canon_record_ids,
-    prompt_module_ids,
-    style_guide_id,
-    component_spec_id,
-  } = req.body;
-
-  const mutableUpdate: Partial<InsertWsProductionSpec> = {};
-  if (prompt_payload    !== undefined) mutableUpdate.promptPayload    = prompt_payload;
-  if (payload_version   !== undefined) mutableUpdate.payloadVersion   = payload_version;
-  if (canon_record_ids  !== undefined) mutableUpdate.canonRecordIds   = canon_record_ids;
-  if (prompt_module_ids !== undefined) mutableUpdate.promptModuleIds  = prompt_module_ids;
-  if (style_guide_id    !== undefined) mutableUpdate.styleGuideId     = style_guide_id;
-  if (component_spec_id !== undefined) mutableUpdate.componentSpecId  = component_spec_id;
-
-  if (Object.keys(mutableUpdate).length === 0) {
-    res.status(400).json({
-      error: "No mutable fields provided. Identity and creative-direction fields are immutable after creation.",
-      code: "NO_MUTABLE_FIELDS",
-      mutable_fields: ["prompt_payload", "payload_version", "canon_record_ids", "prompt_module_ids", "style_guide_id", "component_spec_id"],
-    });
-    return;
-  }
-
   try {
     const [existing] = await db
       .select()
@@ -2284,7 +2341,139 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
       .limit(1);
     if (!existing) { res.status(404).json({ error: "Spec not found" }); return; }
 
+    const isDraft = !existing.wizardComplete;
+    const body = req.body ?? {};
+    const mutableUpdate: Partial<InsertWsProductionSpec> = {};
+
+    const addString = (
+      bodyKey: string,
+      column: keyof InsertWsProductionSpec,
+      sanitize = false,
+      emptyAsNull = true,
+    ) => {
+      if (body[bodyKey] === undefined) return;
+      if (body[bodyKey] !== null && typeof body[bodyKey] !== "string") {
+        throw new Error(`${bodyKey} must be a string or null`);
+      }
+      const value = body[bodyKey] === null ? null : body[bodyKey].trim();
+      (mutableUpdate as Record<string, unknown>)[column] = sanitize
+        ? sanitizeEditorialRichText(value ?? "")
+        : (emptyAsNull ? (value || null) : (value ?? ""));
+    };
+    const addArray = (bodyKey: string, column: keyof InsertWsProductionSpec) => {
+      if (body[bodyKey] === undefined) return;
+      if (body[bodyKey] !== null && !Array.isArray(body[bodyKey])) {
+        throw new Error(`${bodyKey} must be an array or null`);
+      }
+      if (body[bodyKey] !== null && body[bodyKey].some((value: unknown) => typeof value !== "string")) {
+        throw new Error(`${bodyKey} must contain only strings`);
+      }
+      (mutableUpdate as Record<string, unknown>)[column] = body[bodyKey] ?? [];
+    };
+
+    if (isDraft) {
+      addString("production_item", "productionItem");
+      addString("spec_id", "specId");
+      addString("component_type", "componentType");
+      addString("component_set", "componentSet");
+      addString("design_intent", "designIntent", true);
+      addString("narrative_purpose", "narrativePurpose", true);
+      addString("required_content", "requiredContent", true);
+      addString("review_criteria", "reviewCriteria", true);
+      addString("orientation", "orientation");
+      addString("front_back_style", "frontBackStyle");
+      addString("payload_version", "payloadVersion");
+      addString("prompt_payload", "promptPayload", false, false);
+      addString("style_guide_id", "styleGuideId");
+      addString("component_spec_id", "componentSpecId");
+      addArray("canon_record_ids", "canonRecordIds");
+      addArray("prompt_module_ids", "promptModuleIds");
+
+      if (body.writing_space_percent !== undefined) {
+        const value = body.writing_space_percent;
+        if (value !== null && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100)) {
+          throw new Error("writing_space_percent must be between 0 and 100");
+        }
+        mutableUpdate.writingSpacePercent = value;
+      }
+      if (body.canon_dependency !== undefined) {
+        if (typeof body.canon_dependency !== "string") throw new Error("canon_dependency must be a string");
+        mutableUpdate.canonDependency = body.canon_dependency.trim() || "None";
+      }
+      if (body.wizard_step !== undefined) {
+        const value = Number(body.wizard_step);
+        if (!Number.isInteger(value) || value < 0 || value > 4) {
+          throw new Error("wizard_step must be an integer between 0 and 4");
+        }
+        mutableUpdate.wizardStep = value;
+      }
+      if (body.finalize !== undefined && typeof body.finalize !== "boolean") {
+        throw new Error("finalize must be a boolean");
+      }
+    } else {
+      // Completed and pipeline-ready records retain the original edit contract:
+      // only linkage and payload fields may be changed after identity creation.
+      addString("prompt_payload", "promptPayload", false, false);
+      addString("payload_version", "payloadVersion");
+      addArray("canon_record_ids", "canonRecordIds");
+      addArray("prompt_module_ids", "promptModuleIds");
+      addString("style_guide_id", "styleGuideId");
+      addString("component_spec_id", "componentSpecId");
+    }
+
+    if (Object.keys(mutableUpdate).length === 0) {
+      res.status(400).json({
+        error: isDraft
+          ? "No draft fields provided."
+          : "No mutable fields provided. Identity and creative-direction fields are immutable after creation.",
+        code: "NO_MUTABLE_FIELDS",
+        mutable_fields: isDraft
+          ? [
+              "production_item", "spec_id", "component_type", "component_set",
+              "design_intent", "narrative_purpose", "required_content", "review_criteria",
+              "writing_space_percent", "orientation", "front_back_style",
+              "canon_dependency", "canon_record_ids", "payload_version", "prompt_payload",
+              "style_guide_id", "component_spec_id", "prompt_module_ids", "wizard_step",
+            ]
+          : ["prompt_payload", "payload_version", "canon_record_ids", "prompt_module_ids", "style_guide_id", "component_spec_id"],
+      });
+      return;
+    }
+
     const merged = { ...existing, ...mutableUpdate };
+    const linkError = await validateProductionSpecLinks(merged);
+    if (linkError) {
+      res.status(422).json({ error: linkError, code: "LINKED_RECORD_NOT_FOUND" });
+      return;
+    }
+    if (isDraft && body.finalize === true) {
+      if (!merged.productionItem?.trim() || !merged.componentType?.trim()) {
+        res.status(400).json({
+          error: "production_item and component_type are required to finish a draft",
+          code: "INCOMPLETE_IDENTITY",
+        });
+        return;
+      }
+      if (!merged.specId) {
+        const [world] = await db
+          .select({ code: worldsmithWorldsTable.code })
+          .from(worldsmithWorldsTable)
+          .where(eq(worldsmithWorldsTable.id, merged.worldId))
+          .limit(1);
+        if (!world) {
+          res.status(422).json({ error: "World not found", code: "LINKED_RECORD_NOT_FOUND" });
+          return;
+        }
+        mutableUpdate.specId = await generateProductionSpecId(
+          merged.worldId,
+          world.code,
+          merged.componentType,
+        );
+        merged.specId = mutableUpdate.specId;
+      }
+      mutableUpdate.wizardComplete = true;
+      merged.wizardComplete = true;
+    }
     const readinessScore = computeReadinessScore(merged);
     const status = derivePipelineStatus(merged, readinessScore);
 
@@ -2296,8 +2485,11 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
 
     res.json({ spec: updated });
   } catch (err) {
-    logger.error({ err }, "editorial: patch spec");
-    res.status(500).json({ error: "Internal server error" });
+    if (err instanceof Error && /must be/.test(err.message)) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    editorialDbError(err, res, "patch spec");
   }
 });
 
@@ -2328,6 +2520,13 @@ router.post("/v1/editorial/specs/:id/publish", async (req: Request, res: Respons
       .where(eq(wsProductionSpecsTable.id, specId))
       .limit(1);
     if (!spec) { res.status(404).json({ error: "Spec not found" }); return; }
+    if (!spec.wizardComplete || !spec.productionItem?.trim() || !spec.componentType?.trim()) {
+      res.status(422).json({
+        error: "Complete the Production Spec identity before publishing.",
+        code: "INCOMPLETE_DRAFT",
+      });
+      return;
+    }
 
     // Get world config for Notion DB ID
     const [world] = await db

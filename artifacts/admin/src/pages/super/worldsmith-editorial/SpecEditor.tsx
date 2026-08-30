@@ -41,9 +41,9 @@ interface Spec {
   worldId: string;
   collectionId?: string | null;
   volumeId?: string | null;
-  productionItem: string;
+  productionItem: string | null;
   specId?: string | null;
-  componentType: string;
+  componentType: string | null;
   componentSet?: string | null;
   currentVersion: string;
   designIntent: string;
@@ -92,7 +92,7 @@ interface LocalSpecPreview {
 
 function DependencyGraph({ spec, rels }: { spec: Spec; rels: SpecResponse["relationships"] }) {
   const nodes = [
-    { id: "spec", label: spec.productionItem.slice(0, 18), health: "green", cx: 90, cy: 90, r: 22, main: true },
+    { id: "spec", label: (spec.productionItem ?? "Untitled Spec").slice(0, 18), health: "green", cx: 90, cy: 90, r: 22, main: true },
     rels.style_guide && { id: "sg", label: "Style Guide", sublabel: rels.style_guide.name.slice(0, 14), health: "green", cx: 155, cy: 35 },
     rels.component_spec && { id: "cs", label: "Component Spec", sublabel: rels.component_spec.name.slice(0, 14), health: "green", cx: 170, cy: 100 },
     ...(rels.canon_records.map((cr, i) => ({
@@ -397,7 +397,7 @@ function IdentityTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec
       >
         <div className="space-y-4">
           <Field label="Production Item Name">
-            <input value={spec.productionItem} onChange={e => onChange({ productionItem: e.target.value })} onFocus={() => onFocus?.("productionItem", "Production Item Name")} className={inputCls} />
+            <input value={spec.productionItem ?? ""} onChange={e => onChange({ productionItem: e.target.value })} onFocus={() => onFocus?.("productionItem", "Production Item Name")} className={inputCls} />
           </Field>
           <div className="grid grid-cols-2 gap-4">
             <Field label="Spec ID" hint="Auto-generated on creation — override here if needed.">
@@ -420,7 +420,7 @@ function IdentityTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Field label="Component Type">
-              <select value={spec.componentType} onChange={e => onChange({ componentType: e.target.value })} className={selectCls}>
+              <select value={spec.componentType ?? ""} onChange={e => onChange({ componentType: e.target.value })} className={selectCls}>
                 <option>Hero Paper</option>
                 <option>Decorative Paper</option>
                 <option>Journal Card</option>
@@ -981,12 +981,12 @@ export default function SpecEditor({ specId }: { specId: string }) {
               className="font-semibold text-[#1B2A4A] truncate"
               style={{ fontFamily: "'Playfair Display', serif", fontSize: 17 }}
             >
-              {spec.productionItem}
+              {spec.productionItem || "Untitled Spec"}
             </h1>
             <div className="flex items-center gap-2 text-xs text-gray-400">
               {spec.specId && <span>{spec.specId}</span>}
               <span>·</span>
-              <span>{spec.componentType}</span>
+              <span>{spec.componentType || "Component type not set"}</span>
             </div>
           </div>
         </div>

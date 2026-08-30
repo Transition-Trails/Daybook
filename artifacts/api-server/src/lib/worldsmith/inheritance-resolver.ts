@@ -772,6 +772,20 @@ export async function resolveInheritanceChainLocal(specId: string): Promise<Inhe
     resolvedSourceIds.volume = volume.id;
   }
 
+  if (localSpec.wizardComplete === false) {
+    throw localDependencyError(
+      "Local Production Specification is still an incomplete wizard draft.",
+      "validate_draft_completion",
+      "INCOMPLETE_DRAFT",
+    );
+  }
+  if (!localSpec.productionItem) {
+    throw localDependencyError(
+      "Local Production Specification is missing required field: Production Item.",
+      "resolve_production_item",
+      "MISSING_PRODUCTION_ITEM",
+    );
+  }
   if (!localSpec.componentType) {
     throw localDependencyError(
       "Local Production Specification is missing required field: Component Type.",
@@ -955,6 +969,21 @@ export async function resolveInheritanceChainLocal(specId: string): Promise<Inhe
     resolvedSourceIds.canon_records = localSpec.canonRecordIds;
   }
 
+  if (!localSpec.productionItem || !localSpec.componentType) {
+    throw localDependencyError(
+      "Local Production Specification must complete Identity before preview generation.",
+      "resolve_spec_identity",
+      "MISSING_SPEC_IDENTITY",
+    );
+  }
+  if (!localSpec.productionItem || !localSpec.componentType) {
+    throw localDependencyError(
+      "Local Production Specification must complete Identity before preview generation.",
+      "resolve_spec_identity",
+      "MISSING_SPEC_IDENTITY",
+    );
+  }
+
   return {
     productionSpec,
     styleGuide,
@@ -1054,6 +1083,20 @@ export async function resolveLocalPreviewContextWithWorldBible(
       `Local Production Specification ${specId} was not found.`,
       "fetch_production_spec",
       "LOCAL_SPEC_NOT_FOUND",
+    );
+  }
+  if (localSpec.wizardComplete === false) {
+    throw localDependencyError(
+      "Local Production Specification is still an incomplete wizard draft.",
+      "validate_draft_completion",
+      "INCOMPLETE_DRAFT",
+    );
+  }
+  if (!localSpec.productionItem || !localSpec.componentType) {
+    throw localDependencyError(
+      "Local Production Specification must complete Identity before preview generation.",
+      "resolve_spec_identity",
+      "MISSING_SPEC_IDENTITY",
     );
   }
 

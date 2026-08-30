@@ -23,6 +23,7 @@ import {
   buildSpecBoardSvg,
 } from "../lib/worldsmith/spec-board-template.js";
 import type { SpecBoardData } from "../lib/worldsmith/types.js";
+import { resolveLocalPreviewContextWithWorldBible } from "../lib/worldsmith/inheritance-resolver.js";
 
 function minimalBoard(): SpecBoardData {
   return {
@@ -441,5 +442,131 @@ describe("Item 5 — PATCH /v1/editorial/specs/:id saves mutable linkage fields"
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/mutable|no.*field|immutable/i);
+  });
+});
+
+describe("Production Spec wizard drafts", () => {
+  let worldId: string;
+  let draftId: string;
+
+  beforeAll(async () => {
+    worldId = randomUUID();
+    await db.insert(worldsmithWorldsTable).values({
+      id: worldId,
+      name: "Draft Recovery World",
+      code: "DRW",
+      status: "active",
+    });
+  });
+
+  afterAll(async () => {
+    if (draftId) {
+      await db.delete(wsProductionSpecsTable).where(
+        (await import("drizzle-orm")).eq(wsProductionSpecsTable.id, draftId),
+      ).catch(() => {});
+    }
+    await db.delete(worldsmithWorldsTable).where(
+      (await import("drizzle-orm")).eq(worldsmithWorldsTable.id, worldId),
+    ).catch(() => {});
+  });
+
+  it("bootstraps and restores an incomplete local draft", async () => {
+    const create = await request(app)
+      .post("/v1/editorial/specs")
+      .send({ world_id: worldId, draft: true, wizard_step: 0 });
+
+    expect(create.status).toBe(201);
+    expect(create.body.spec.productionItem).toBeNull();
+    expect(create.body.spec.componentType).toBeNull();
+    expect(create.body.spec.wizardComplete).toBe(false);
+    expect(create.body.spec.status).toBe("draft");
+    draftId = create.body.spec.id;
+    await expect(resolveLocalPreviewContextWithWorldBible(draftId)).rejects.toMatchObject({
+      errorCode: "INCOMPLETE_DRAFT",
+    });
+
+    const save = await request(app)
+      .patch(`/v1/editorial/specs/${draftId}`)
+      .send({
+        production_item: "Recoverable Hero Paper",
+        component_type: "Hero Paper",
+        design_intent: "<script>bad()</script><p>Quiet archival paper.</p>",
+        wizard_step: 2,
+      });
+
+    expect(save.status).toBe(200);
+    expect(save.body.spec.productionItem).toBe("Recoverable Hero Paper");
+    expect(save.body.spec.designIntent).not.toContain("<script");
+    expect(save.body.spec.wizardStep).toBe(2);
+    expect(save.body.spec.wizardComplete).toBe(false);
+    expect(save.body.spec.status).toBe("draft");
+
+    const restored = await request(app).get(`/v1/editorial/specs/${draftId}`);
+    expect(restored.status).toBe(200);
+    expect(restored.body.spec.productionItem).toBe("Recoverable Hero Paper");
+    expect(restored.body.spec.wizardStep).toBe(2);
+  });
+
+  it("rejects invalid progress and prevents incomplete drafts from publishing", async () => {
+    const invalidStep = await request(app)
+      .patch(`/v1/editorial/specs/${draftId}`)
+      .send({ wizard_step: 8 });
+    expect(invalidStep.status).toBe(400);
+    expect(invalidStep.body.error).toMatch(/wizard_step/);
+
+    await request(app)
+      .patch(`/v1/editorial/specs/${draftId}`)
+      .send({ production_item: "", component_type: "" });
+    const publish = await request(app)
+      .post(`/v1/editorial/specs/${draftId}/publish`)
+      .send({});
+    expect(publish.status).toBe(422);
+    expect(publish.body.code).toBe("INCOMPLETE_DRAFT");
+  });
+
+  it("finalizes a valid draft and restores the completed-record edit contract", async () => {
+    const finalize = await request(app)
+      .patch(`/v1/editorial/specs/${draftId}`)
+      .send({
+        production_item: "Final Hero Paper",
+        component_type: "Hero Paper",
+        wizard_step: 4,
+        finalize: true,
+      });
+
+    expect(finalize.status).toBe(200);
+    expect(finalize.body.spec.wizardComplete).toBe(true);
+    expect(finalize.body.spec.specId).toMatch(/^DRW-HRP-\d{3}$/);
+
+    const immutable = await request(app)
+      .patch(`/v1/editorial/specs/${draftId}`)
+      .send({ production_item: "Changed after completion" });
+    expect(immutable.status).toBe(400);
+    expect(immutable.body.code).toBe("NO_MUTABLE_FIELDS");
+  });
+
+  it("rejects a draft relationship that belongs to another world", async () => {
+    const foreignWorldId = randomUUID();
+    await db.insert(worldsmithWorldsTable).values({
+      id: foreignWorldId,
+      name: "Foreign Draft World",
+      code: "FDW",
+      status: "active",
+    });
+    try {
+      const create = await request(app)
+        .post("/v1/editorial/specs")
+        .send({
+          world_id: worldId,
+          collection_id: randomUUID(),
+          draft: true,
+        });
+      expect(create.status).toBe(422);
+      expect(create.body.code).toBe("LINKED_RECORD_NOT_FOUND");
+    } finally {
+      await db.delete(worldsmithWorldsTable).where(
+        (await import("drizzle-orm")).eq(worldsmithWorldsTable.id, foreignWorldId),
+      );
+    }
   });
 });

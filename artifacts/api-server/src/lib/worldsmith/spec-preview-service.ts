@@ -105,23 +105,13 @@ function localPreviewUrl(objectPath: string): string {
   return `/api/storage${objectPath}`;
 }
 
-// Victorian hand-illustrated style preamble prepended to every prompt (V3 spec requirement)
-const VICTORIAN_STYLE_PREAMBLE =
-  "Hand-illustrated Victorian archival artwork. " +
-  "Medium: watercolour washes, gouache highlights, fine ink linework, and graphite construction lines. " +
-  "Surface: aged rag paper with visible tooth, restrained foxing, and subtle water staining. " +
-  "Rendering: softened edges, layered pigment, tactile illustrated materials, muted and authentically aged palette. " +
-  "Strictly NO photorealism, NO cinematic depth of field, NO glossy digital painting, " +
-  "NO razor-sharp focus, NO modern objects, NO high-contrast commercial lighting. " +
-  "Style must read as hand-made illustration, never as a photograph or 3D render.";
-
-/** Derive a prompt for the central concept visual using Victorian archival style. */
+/** Derive the concept visual strictly from this spec's compiled style and payload. */
 function buildConceptImagePrompt(data: SpecBoardData): string {
   const isConstruction = /pocket|envelope|tag\b|tab\b|label|tuck/i.test(data.componentType);
 
   if (isConstruction) {
     const parts = [
-      VICTORIAN_STYLE_PREAMBLE,
+      data.styleLock,
       `Flat technical illustration for a ${data.componentType}.`,
       data.composition ? data.composition : "",
       data.printRule ? data.printRule : "",
@@ -133,7 +123,8 @@ function buildConceptImagePrompt(data: SpecBoardData): string {
   const scene = data.illustratedNarrative || data.designIntent || `${data.componentType} scene`;
   const bible = data.worldBible;
   const parts = [
-    VICTORIAN_STYLE_PREAMBLE,
+    data.styleLock,
+    "Create one finished scene illustration only. Do not render a specification sheet, mood board, style guide, typography sample, labels, captions, swatch chart, UI, border, or page layout.",
     scene,
     data.composition ? `Composition: ${data.composition}.` : "",
     data.materials ? `Visual materials: ${data.materials}.` : "",
@@ -141,18 +132,27 @@ function buildConceptImagePrompt(data: SpecBoardData): string {
     bible?.atmosphericNotes ? `World atmosphere: ${bible.atmosphericNotes}.` : "",
     bible?.materialWorld ? `World materials: ${bible.materialWorld}.` : "",
     data.requiredContent ? `Include: ${data.requiredContent}.` : "",
+    data.negativeConstraints ? `Do not include: ${data.negativeConstraints}.` : "",
     `Context: ${data.componentType} for the ${data.world}${data.volume ? " " + data.volume : ""} collection.`,
     "Concept preview for editorial review — not final artwork.",
   ].filter(Boolean);
   return parts.join(" ").slice(0, 3800);
 }
 
+interface LocalCompileSnapshot {
+  sections: CompiledSectionRecord[];
+  resolvedSourceIds: Record<string, string | string[]>;
+}
+
 async function getCompiledSectionsForLocalPreview(
   productionSpecId: string,
   promptHash: string,
-): Promise<CompiledSectionRecord[]> {
+): Promise<LocalCompileSnapshot> {
   const runs = await db
-    .select({ compiledSections: worldsmithRunsTable.compiledSections })
+    .select({
+      compiledSections: worldsmithRunsTable.compiledSections,
+      resolvedSourceIds: worldsmithRunsTable.resolvedSourceIds,
+    })
     .from(worldsmithRunsTable)
     .where(and(
       eq(worldsmithRunsTable.productionSpecId, productionSpecId),
@@ -161,15 +161,17 @@ async function getCompiledSectionsForLocalPreview(
     .orderBy(desc(worldsmithRunsTable.startedAt))
     .limit(10);
 
-  const sectionRecords = runs.find((run) => Array.isArray(run.compiledSections) && run.compiledSections.length > 0)
-    ?.compiledSections;
-  if (!sectionRecords) {
+  const run = runs.find((candidate) => Array.isArray(candidate.compiledSections) && candidate.compiledSections.length > 0);
+  if (!run?.compiledSections) {
     throw new SpecPreviewError(
       "COMPILED_SECTIONS_NOT_FOUND",
       "No compiled section records were found for this local specification and prompt hash. Compile the specification again before generating a preview.",
     );
   }
-  return sectionRecords;
+  return {
+    sections: run.compiledSections,
+    resolvedSourceIds: run.resolvedSourceIds ?? {},
+  };
 }
 
 function compiledSectionContent(
@@ -183,12 +185,48 @@ function compiledSectionContent(
   return "";
 }
 
+function sourceNames(sectionRecords: CompiledSectionRecord[], key: string): string[] {
+  return sectionRecords
+    .filter((record) => record.key === key)
+    .flatMap((record) => record.source.split(/\s*\+\s*|,\s*/))
+    .map((source) => source.replace(/^(Style Guide|Component Specification|Prompt Module|Canon Records?):\s*/i, "").trim())
+    .filter((source) => source && !/^no /i.test(source));
+}
+
+function paletteSwatches(raw: string): Array<{ name: string; hex: string }> {
+  const seen = new Set<string>();
+  const swatches: Array<{ name: string; hex: string }> = [];
+  for (const fragment of raw.split(/[\n;|]+/)) {
+    const match = fragment.match(/#([0-9a-f]{6}|[0-9a-f]{3})\b/i);
+    if (!match) continue;
+    const expanded = match[1].length === 3
+      ? match[1].split("").map((character) => character + character).join("")
+      : match[1];
+    const hex = `#${expanded}`.toUpperCase();
+    if (seen.has(hex)) continue;
+    seen.add(hex);
+    const name = fragment.replace(match[0], "").replace(/^[\s:–—-]+|[\s:–—-]+$/g, "").slice(0, 28)
+      || `Palette ${swatches.length + 1}`;
+    swatches.push({ name, hex });
+  }
+  return swatches.slice(0, 6);
+}
+
+function styleCharacteristics(style: string): string[] {
+  return style
+    .split(/[\n;•]+/)
+    .map((part) => part.replace(/^[\s*-]+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
 /** Map compiled section records and required local grounding into the spec-board contract. */
 function extractLocalBoardData(
   context: { productionSpec: ProductionSpec; worldBible: WorldBible },
   specId: string,
   promptHash: string,
   sectionRecords: CompiledSectionRecord[],
+  resolvedSourceIds: Record<string, string | string[]>,
 ): SpecBoardData {
   const spec = context.productionSpec;
   const bible = context.worldBible;
@@ -204,23 +242,52 @@ function extractLocalBoardData(
   const canonPolicy = compiledSectionContent(sectionRecords, "canon_policy");
   const printRequirements = compiledSectionContent(sectionRecords, "print_and_output_requirements");
   const negativeConstraints = compiledSectionContent(sectionRecords, "negative_prompt", "negative_constraints");
+  const visualPalette = compiledSectionContent(sectionRecords, "visual_palette");
+  const worldRules = compiledSectionContent(sectionRecords, "world_rules");
+  const moduleRecords = sectionRecords.filter((record) => record.key.startsWith("module_"));
+  const styleGuideNames = sourceNames(sectionRecords, "style_system");
+  const componentSpecNames = sourceNames(sectionRecords, "component_requirements");
+  const canonNames = sourceNames(sectionRecords, "canon_policy");
+  const resolvedCollection = typeof resolvedSourceIds.collection_name === "string"
+    ? resolvedSourceIds.collection_name
+    : spec.collection;
+  const resolvedVolume = typeof resolvedSourceIds.volume_name === "string"
+    ? resolvedSourceIds.volume_name
+    : spec.volume;
+  const writingSpace = spec.writingSpacePercent != null
+    ? `${spec.writingSpacePercent}% of the component must remain visually quiet and usable.`
+    : "";
+  const sectionProvenance: Record<string, string[]> = {
+    style_lock: sourceNames(sectionRecords, "style_system"),
+    asset_purpose: sourceNames(sectionRecords, "asset_specific_intent"),
+    narrative_scene: sourceNames(sectionRecords, "front_prompt"),
+    composition_layout: [...sourceNames(sectionRecords, "front_prompt"), ...sourceNames(sectionRecords, "component_requirements")],
+    visual_characteristics: sourceNames(sectionRecords, "style_system"),
+    color_palette: sourceNames(sectionRecords, "visual_palette"),
+    prohibited_treatments: [...sourceNames(sectionRecords, "negative_prompt"), ...sourceNames(sectionRecords, "world_rules")],
+    technical_requirements: sourceNames(sectionRecords, "print_and_output_requirements"),
+    negative_space_usability: sourceNames(sectionRecords, "component_requirements"),
+    qa_review: sourceNames(sectionRecords, "print_and_output_requirements"),
+    continuity: ["Production Spec", resolvedCollection ? "Collection" : "", resolvedVolume ? "Volume" : "", styleGuideNames[0] ? "Style Guide" : "", canonNames.length ? "Canon Records" : ""].filter(Boolean),
+  };
 
   return {
     specPageId: specId,
     productionItem: spec.productionItem,
     specId: spec.specId,
     world: spec.world,
-    volume: spec.volume,
-    collection: spec.collection,
+    volume: resolvedVolume,
+    collection: resolvedCollection,
     componentType: spec.componentType,
     orientation: spec.orientation,
+    frontBackStyle: spec.frontBackStyle,
     payloadVersion: spec.payloadVersion,
     currentVersion: spec.currentVersion,
     status: spec.status,
     designIntent: intent,
-    narrativePurpose: worldContext,
+    narrativePurpose: [intent, worldContext].filter(Boolean).join("\n\n"),
     requiredContent: componentRequirements,
-    reviewCriteria: printRequirements,
+    reviewCriteria: spec.reviewCriteria || printRequirements,
     assetRole: creativeTask,
     composition,
     materials,
@@ -228,20 +295,33 @@ function extractLocalBoardData(
     textRule: textPolicy,
     canonRule: canonPolicy,
     printRule: printRequirements,
-    negativeConstraints,
+    negativeConstraints: [negativeConstraints, worldRules].filter(Boolean).join("\n"),
+    styleLock: [styleSystem, ...moduleRecords.filter((record) => /style/i.test(record.source)).map((record) => record.content)].filter(Boolean).join("\n\n"),
+    negativeSpaceGuidance: [writingSpace, componentRequirements, composition].filter(Boolean).join("\n"),
+    technicalRequirements: printRequirements,
+    visualCharacteristics: styleCharacteristics(styleSystem),
+    continuityGuidance: [
+      resolvedCollection ? `Collection: ${resolvedCollection}` : "",
+      resolvedVolume ? `Volume: ${resolvedVolume}` : "",
+      spec.componentSet ? `Component Set: ${spec.componentSet}` : "",
+      styleGuideNames[0] ? `Maintain the approved ${styleGuideNames[0]} visual language.` : "",
+      canonNames.length ? `Preserve continuity with ${canonNames.join(", ")}.` : "",
+    ].filter(Boolean).join("\n"),
     illustratedNarrative: composition.slice(0, 900) || undefined,
     focalHierarchy: [composition, styleSystem, materials, negativeConstraints].filter(Boolean),
-    componentSpecName: componentRequirements ? spec.componentType : undefined,
+    componentSpecName: componentSpecNames[0],
     componentSpecContent: componentRequirements || undefined,
-    styleGuideName: styleSystem ? "Compiled Style System" : undefined,
+    styleGuideName: styleGuideNames[0],
     styleGuideContent: [styleSystem, typography].filter(Boolean).join("\n\n"),
-    promptModuleCount: sectionRecords.filter((record) => /prompt module/i.test(record.source)).length,
+    promptModuleCount: moduleRecords.length,
     canonDependency: spec.canonDependency,
-    canonRecordCount: canonPolicy ? 1 : 0,
-    canonNames: canonPolicy ? [canonPolicy] : [],
+    canonRecordCount: canonNames.length,
+    canonNames,
+    colorSwatches: paletteSwatches(visualPalette || bible.visualPalette || ""),
     promptHash,
     worldBible: bible,
     usesCompiledSections: true,
+    sectionProvenance,
   };
 }
 
@@ -556,7 +636,8 @@ async function runLocalSpecPreview(
     );
   }
 
-  const sectionRecords = await getCompiledSectionsForLocalPreview(specPageId, promptHash);
+  const compileSnapshot = await getCompiledSectionsForLocalPreview(specPageId, promptHash);
+  const sectionRecords = compileSnapshot.sections;
 
   if (!forceNew && !dryRun) {
     const existing = await findExistingPreview(specPageId, promptHash);
@@ -580,7 +661,13 @@ async function runLocalSpecPreview(
     }
   }
 
-  const localBoardData = extractLocalBoardData(context, specPageId, promptHash, sectionRecords);
+  const localBoardData = extractLocalBoardData(
+    context,
+    specPageId,
+    promptHash,
+    sectionRecords,
+    compileSnapshot.resolvedSourceIds,
+  );
   const localPreviewGeneration = await resolveWorldsmithImageGeneration(
     localBoardData.componentType,
     localBoardData.orientation,
@@ -723,6 +810,16 @@ async function runLocalSpecPreview(
     previousStatus: boardData.status,
     newStatus: boardData.status,
     error: localStatusNote,
+    outputMetadata: {
+      originalByteLength: finalPng.length,
+      finalByteLength: finalPng.length,
+      originalWidth: CONCEPT_IMAGE_AREA.x + CONCEPT_IMAGE_AREA.width,
+      originalHeight: CONCEPT_IMAGE_AREA.y + CONCEPT_IMAGE_AREA.height,
+      finalWidth: CONCEPT_IMAGE_AREA.x + CONCEPT_IMAGE_AREA.width,
+      finalHeight: CONCEPT_IMAGE_AREA.y + CONCEPT_IMAGE_AREA.height,
+      encoding: "lossless_png",
+      sectionProvenance: boardData.sectionProvenance,
+    },
   });
   logger.info(
     { specPageId, promptHash, filename, previewObjectPath, bytes: finalPng.length },

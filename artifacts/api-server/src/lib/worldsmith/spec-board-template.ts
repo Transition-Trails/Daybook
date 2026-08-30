@@ -19,9 +19,13 @@ export const TEMPLATE_VERSION = "3.1";
 
 import path from "path";
 import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 import type { SpecBoardData } from "./types";
 
-const FONT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fonts");
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SOURCE_FONT_DIR = path.join(MODULE_DIR, "..", "fonts");
+const BUNDLED_FONT_DIR = path.join(MODULE_DIR, "fonts");
+const FONT_DIR = existsSync(SOURCE_FONT_DIR) ? SOURCE_FONT_DIR : BUNDLED_FONT_DIR;
 
 // ── Canvas constants ─────────────────────────────────────────────────────────
 
@@ -320,16 +324,19 @@ function leftPanel(data: SpecBoardData): string {
   // ── Narrative Role section (~312px tall) ──────────────────────────────────
   const narY = IMG_Y + titleBlockH;
   const narH = 312;
-  const narText = data.usesCompiledSections
-    ? illustratedNarrative || "Not specified."
-    : illustratedNarrative || narrativePurpose || designIntent || "—";
-  const narLines = wrapText(narText, Math.floor((w - 30) / 7.2), 11);
+  const styleLockLines = wrapText(data.styleLock || data.styleGuideContent || "Not specified.", Math.floor((w - 30) / 7.2), 5);
+  const narText = illustratedNarrative || narrativePurpose || designIntent || "Not specified.";
+  const narLines = wrapText(narText, Math.floor((w - 30) / 7.2), 5);
 
   const narrativeSection = [
     `<rect x="${x}" y="${narY}" width="2.5" height="${narH}" fill="${FOREST}" opacity="0.45"/>`,
     leafIcon(x + 22, narY + 20, 10),
-    sectionHead(x + 36, narY + 22, w - 50, "Narrative Role", FOREST),
+    sectionHead(x + 36, narY + 22, w - 50, "1. Style Lock (Mandatory)", FOREST),
     `<text x="${x + 18}" y="${narY + 50}" font-family="Spectral" font-size="13.5" fill="${INK}" opacity="0.88">`,
+    tspans(styleLockLines, x + 18, 19),
+    `</text>`,
+    sectionHead(x + 18, narY + 158, w - 36, "3. Illustrated Narrative / Scene Summary", FOREST),
+    `<text x="${x + 18}" y="${narY + 186}" font-family="Spectral" font-size="13.5" fill="${INK}" opacity="0.88">`,
     tspans(narLines, x + 18, 19),
     `</text>`,
   ].join("\n");
@@ -387,7 +394,7 @@ function leftPanel(data: SpecBoardData): string {
   const compositionSection = [
     `<rect x="${x}" y="${compY}" width="2.5" height="${compH}" fill="${NAVY}" opacity="0.38"/>`,
     compIcon,
-    sectionHead(x + 36, compY + 18, w - 50, "Composition & Focal Hierarchy", NAVY),
+    sectionHead(x + 36, compY + 18, w - 50, "4. Composition & Layout", NAVY),
     focalSvg,
   ].join("\n");
 
@@ -428,7 +435,7 @@ function midSection(data: SpecBoardData): string {
   const cols  = [0, 1, 2, 3].map(i => MARGIN + i * (colW + 12));
 
   // ── Col 1: Required Elements Checklist ─────────────────────────────────
-  const reqItems = (requiredContent || "")
+  const reqItems = ((data.visualCharacteristics?.join("\n")) || requiredContent || "")
     .split(/[;\n,]+/)
     .map(s => s.trim())
     .filter(Boolean)
@@ -476,7 +483,7 @@ function midSection(data: SpecBoardData): string {
   }).join("\n");
 
   // ── Col 3: Negative Space Guidance ─────────────────────────────────────
-  const negBullets = (negativeConstraints || "")
+  const negBullets = (data.negativeSpaceGuidance || "")
     .split(/[;\n•]+/)
     .map(s => s.trim())
     .filter(Boolean)
@@ -499,8 +506,8 @@ function midSection(data: SpecBoardData): string {
 
   // ── Col 4: Design Constraints ───────────────────────────────────────────
   const constraints: string[] = [];
-  if (textRule)  constraints.push(textRule);
-  if (printRule) constraints.push(printRule);
+  if (negativeConstraints) constraints.push(...negativeConstraints.split(/[;\n•]+/).filter(Boolean));
+  if (textRule) constraints.push(textRule);
   if (canonRule) constraints.push(canonRule);
   const charsC4 = Math.floor((colW - 30) / 6.4);
   let cy4 = MID_Y + 46;
@@ -522,10 +529,10 @@ function midSection(data: SpecBoardData): string {
     `<rect x="${cols[2]}" y="${MID_Y}" width="${colW}" height="${MID_H}" fill="${PAPER}" stroke="${RULE}" stroke-width="0.4" opacity="0.6" rx="1"/>`,
     `<rect x="${cols[3]}" y="${MID_Y}" width="${colW}" height="${MID_H}" fill="${PAPER}" stroke="${RULE}" stroke-width="0.4" opacity="0.6" rx="1"/>`,
     // Column headings
-    sectionHead(cols[0] + 14, MID_Y + 20, colW - 28, "Required Elements Checklist", FOREST),
-    sectionHead(cols[1] + 14, MID_Y + 20, colW - 28, "Material & Lighting Notes",   CLAY),
-    sectionHead(cols[2] + 14, MID_Y + 20, colW - 28, "Negative Space Guidance",      NAVY),
-    sectionHead(cols[3] + 14, MID_Y + 20, colW - 28, "Design Constraints",           CLAY),
+    sectionHead(cols[0] + 14, MID_Y + 20, colW - 28, "5. Visual Characteristics", FOREST),
+    sectionHead(cols[1] + 14, MID_Y + 20, colW - 28, "Materials & Lighting", CLAY),
+    sectionHead(cols[2] + 14, MID_Y + 20, colW - 28, "9. Negative Space & Usability", NAVY),
+    sectionHead(cols[3] + 14, MID_Y + 20, colW - 28, "7. Prohibited Treatments", CLAY),
     // Column content
     col1Items, col2Items, col3Items, col4Items,
   ].join("\n");
@@ -554,11 +561,11 @@ function bottomStrip(data: SpecBoardData): string {
   const techLines: Array<[string, string]> = [
     ["Size",        componentSize],
     ["Render target", renderTarget],
-    ["Print reference", printReference],
+    ["Orientation", data.orientation || "Not specified"],
     ["Color",       "sRGB / RGB"],
     ["Format",      "PNG master"],
-    ["Focal Safety","0.25 in"],
-    ["PDF Deriv.",  "Printable PDF required"],
+    ["Production", trunc(data.technicalRequirements || data.printRule || printReference, 44)],
+    ["Sides", data.frontBackStyle || "Not specified"],
     ["Payload ver.",payloadVersion || "PP-2.0"],
   ];
   const techSvg = techLines.map(([label, value], i) => {
@@ -620,8 +627,8 @@ function bottomStrip(data: SpecBoardData): string {
     `<rect x="${palX}" y="${BTM_Y}" width="${palW}" height="${BTM_H}" fill="${CREAM}" stroke="${RULE}" stroke-width="0.4" opacity="0.7" rx="1"/>`,
     `<rect x="${detX}" y="${BTM_Y}" width="${detW}" height="${BTM_H}" fill="${CREAM}" stroke="${RULE}" stroke-width="0.4" opacity="0.7" rx="1"/>`,
     // Headings
-    sectionHead(techX + 14, BTM_Y + 20, techW - 28, "Technical Specifications", NAVY),
-    sectionHead(palX  + 14, BTM_Y + 20, palW - 28,  "Color Palette (Guide)",   NAVY),
+    sectionHead(techX + 14, BTM_Y + 20, techW - 28, "8. Technical Requirements", NAVY),
+    sectionHead(palX  + 14, BTM_Y + 20, palW - 28,  "6. Color Palette (Guide)", NAVY),
     sectionHead(detX  + 14, BTM_Y + 20, detW - 28,  "Detail & Element References", NAVY),
     techSvg,
     swatchSvg,
@@ -649,11 +656,11 @@ function companionRow(data: SpecBoardData): string {
   // ── Col 1: Relationship to companion assets ─────────────────────────────
   const companions = (canonNames ?? []).slice(0, 5);
   if (!data.usesCompiledSections && companions.length === 0 && componentType) companions.push(`${componentType} Series`);
-  const col1Text = companions.length
+  const col1Text = data.continuityGuidance || (companions.length
     ? companions.join("\n")
     : data.usesCompiledSections
     ? "Not specified."
-    : "See Canon Records for companion asset relationships.";
+    : "See Canon Records for companion asset relationships.");
   const col1Lines = wrapText(col1Text, Math.floor((colW - 28) / 6.4), 8);
 
   // ── Col 2: Emotional Intent — derived from real spec data ───────────────
@@ -691,9 +698,9 @@ function companionRow(data: SpecBoardData): string {
     `<rect x="${cols[1]}" y="${CMP_Y}" width="${colW}" height="${CMP_H}" fill="${PAPER}" stroke="${RULE}" stroke-width="0.35" opacity="0.6" rx="1"/>`,
     `<rect x="${cols[2]}" y="${CMP_Y}" width="${colW}" height="${CMP_H}" fill="${PAPER}" stroke="${RULE}" stroke-width="0.35" opacity="0.6" rx="1"/>`,
     // Headings
-    sectionHead(cols[0] + 14, CMP_Y + 18, colW - 28, "Relationship to Companion Assets", NAVY),
-    sectionHead(cols[1] + 14, CMP_Y + 18, colW - 28, "Emotional Intent",                 NAVY),
-    sectionHead(cols[2] + 14, CMP_Y + 18, colW - 28, "Notes for Artist",                 NAVY),
+    sectionHead(cols[0] + 14, CMP_Y + 18, colW - 28, "11. Continuity / Series Benchmark", NAVY),
+    sectionHead(cols[1] + 14, CMP_Y + 18, colW - 28, "2. Asset Purpose", NAVY),
+    sectionHead(cols[2] + 14, CMP_Y + 18, colW - 28, "10. QA Review Criteria", NAVY),
     // Col 1 content
     `<text x="${cols[0] + 14}" y="${CMP_Y + 44}" font-family="Spectral" font-size="12.5" fill="${INK}" opacity="0.83">`,
     tspans(col1Lines, cols[0] + 14, 17),

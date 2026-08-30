@@ -493,6 +493,7 @@ export interface SpecBoardData {
   volume?: string;
   componentType: string;
   orientation?: string;
+  frontBackStyle?: string;
   payloadVersion: string;
   currentVersion: string;
   status: string;
@@ -510,6 +511,16 @@ export interface SpecBoardData {
   canonRule: string;
   printRule: string;
   negativeConstraints: string;
+  /** Board-ready style lock assembled from the compiled style system and style modules. */
+  styleLock?: string;
+  /** Adapted functional negative-space/usability direction. */
+  negativeSpaceGuidance?: string;
+  /** Practical production metadata, separate from QA criteria. */
+  technicalRequirements?: string;
+  /** Rendering/media characteristics inherited from the compiled style system. */
+  visualCharacteristics?: string[];
+  /** Collection/volume/component continuity direction. */
+  continuityGuidance?: string;
   // Related records
   componentSpecName?: string;
   componentSpecContent?: string;
@@ -532,6 +543,8 @@ export interface SpecBoardData {
   worldBible?: WorldBible;
   /** Local board content came from persisted compiler section records. */
   usesCompiledSections?: boolean;
+  /** Compile-time source snapshot retained for later inspection of every board section. */
+  sectionProvenance?: Record<string, string[]>;
   /** Actual capped render target shown on the review board. */
   generationTarget?: {
     size: string;

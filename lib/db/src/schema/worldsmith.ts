@@ -198,6 +198,8 @@ export interface SpecPreviewOutputMetadata {
     modelVersion?: string;
     settings: { size: string; quality: string };
   };
+  /** Compile-time record sources used to assemble each rendered board section. */
+  sectionProvenance?: Record<string, string[]>;
 }
 
 export const worldsmithSpecPreviewsTable = pgTable("worldsmith_spec_previews", {

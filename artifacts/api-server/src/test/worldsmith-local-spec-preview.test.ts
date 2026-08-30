@@ -154,8 +154,10 @@ const localChain: InheritanceChain = {
 
 const compiledSections = [
   { key: "world_and_collection_context", label: "World And Collection Context", content: "World: Thornvale\nCompiled world context.", source: "Production Spec" },
-  { key: "component_requirements", label: "Component Requirements", content: "Compiled component requirements.", source: "Component Spec" },
-  { key: "canon_policy", label: "Canon Policy", content: "Compiled Quiet Gate canon policy.", source: "Canon Record" },
+  { key: "style_system", label: "Style System", content: "Watercolour washes; fine ink linework.", source: "Style Guide: Thornvale Style" },
+  { key: "visual_palette", label: "Visual Palette", content: "Moss Green #3D5A48; Faded Sepia #D8C6A4", source: "World Bible" },
+  { key: "component_requirements", label: "Component Requirements", content: "Compiled component requirements.", source: "Component Specification: Hero Paper" },
+  { key: "canon_policy", label: "Canon Policy", content: "Compiled Quiet Gate canon policy.", source: "Canon Records: The Quiet Gate" },
   { key: "front_prompt", label: "Front Prompt", content: "Compiled gate scene.", source: "Prompt Payload" },
   { key: "material_world", label: "Material World", content: "Compiled wet stone and iron.", source: "World Bible" },
   { key: "negative_prompt", label: "Negative Prompt", content: "Compiled no text.", source: "Prompt Payload" },
@@ -171,7 +173,13 @@ beforeEach(() => {
     const isCatalogQuery = !!fields && typeof fields === "object" && "printWidthIn" in fields;
     const rows = isCatalogQuery
       ? [{ printWidthIn: 12, printHeightIn: 12 }]
-      : [{ compiledSections }];
+      : [{
+          compiledSections,
+          resolvedSourceIds: {
+            collection_name: "Verdant Folio",
+            volume_name: "Volume I",
+          },
+        }];
     const limit = vi.fn().mockResolvedValue(rows);
     return {
       from: vi.fn().mockReturnValue({
@@ -219,7 +227,16 @@ describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
     expect(renderedBoard?.materials).toBe("Compiled wet stone and iron.");
     expect(renderedBoard?.negativeConstraints).toBe("Compiled no text.");
     expect(renderedBoard?.usesCompiledSections).toBe(true);
-    expect(renderedBoard?.canonNames).toEqual(["Compiled Quiet Gate canon policy."]);
+    expect(renderedBoard?.canonNames).toEqual(["The Quiet Gate"]);
+    expect(renderedBoard?.collection).toBe("Verdant Folio");
+    expect(renderedBoard?.volume).toBe("Volume I");
+    expect(renderedBoard?.styleGuideName).toBe("Thornvale Style");
+    expect(renderedBoard?.componentSpecName).toBe("Hero Paper");
+    expect(renderedBoard?.colorSwatches).toEqual([
+      { name: "Moss Green", hex: "#3D5A48" },
+      { name: "Faded Sepia", hex: "#D8C6A4" },
+    ]);
+    expect(renderedBoard?.sectionProvenance?.style_lock).toContain("Thornvale Style");
     expect(renderedBoard?.generationTarget).toMatchObject({
       size: "1808x1808",
       dpi: 150,

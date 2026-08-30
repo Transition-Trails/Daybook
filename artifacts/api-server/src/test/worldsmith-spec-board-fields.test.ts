@@ -298,8 +298,7 @@ describe("buildSpecBoardSvg — Section 3: Illustrated Narrative", () => {
 
   it("Section 3 title appears in the SVG output", () => {
     const svg = buildSpecBoardSvg(makeBoard({ illustratedNarrative: "A misty morning scene." }));
-    // V3 renamed the section from "Illustrated Narrative" to "Narrative Role"
-    expect(svg.toUpperCase()).toContain("NARRATIVE ROLE");
+    expect(svg.toUpperCase()).toContain("ILLUSTRATED NARRATIVE / SCENE SUMMARY");
   });
 
   it("uses the not-specified state for missing local compiled sections", () => {
@@ -385,8 +384,7 @@ describe("buildSpecBoardSvg — Section 13: Canon Lock", () => {
 
   it("Section in the companion row is labelled 'Relationship to Companion Assets'", () => {
     const svg = buildSpecBoardSvg(makeBoard({ canonNames: ["Verdant Veil Records"] }));
-    // V3 renamed the section from "Canon Lock" to "Relationship to Companion Assets"
-    expect(svg.toUpperCase()).toContain("COMPANION ASSETS");
+    expect(svg.toUpperCase()).toContain("CONTINUITY / SERIES BENCHMARK");
   });
 
   it("canon name appears in the companion column when canonNames is set", () => {
@@ -464,6 +462,41 @@ describe("buildSpecBoardSvg — effective image target", () => {
     expect(svg).toContain(`${target.size} px`);
     expect(svg).toContain(`${target.printWidthIn} × ${target.printHeightIn} in`);
     expect(svg).not.toContain(`${target.dpi} DPI`);
+  });
+});
+
+describe("buildSpecBoardSvg — production board contract", () => {
+  it("renders all eleven review sections and real palette swatches without changing board geometry", () => {
+    const svg = buildSpecBoardSvg(makeBoard({
+      styleLock: "Victorian illustrated archival work; never photographic.",
+      visualCharacteristics: ["Watercolour washes", "Fine ink linework", "Aged rag paper"],
+      negativeSpaceGuidance: "Keep 30% visually quiet for writing and protect crop-safe areas.",
+      technicalRequirements: "Orientation: portrait; 300 DPI; 0.125 in bleed; PNG master.",
+      continuityGuidance: "Remain consistent with Volume I and the approved visual language.",
+      colorSwatches: [
+        { name: "Moss Green", hex: "#3D5A48" },
+        { name: "Faded Sepia", hex: "#D8C6A4" },
+      ],
+    }));
+
+    for (const heading of [
+      "1. STYLE LOCK",
+      "2. ASSET PURPOSE",
+      "3. ILLUSTRATED NARRATIVE",
+      "4. COMPOSITION &AMP; LAYOUT",
+      "5. VISUAL CHARACTERISTICS",
+      "6. COLOR PALETTE",
+      "7. PROHIBITED TREATMENTS",
+      "8. TECHNICAL REQUIREMENTS",
+      "9. NEGATIVE SPACE &AMP; USABILITY",
+      "10. QA REVIEW CRITERIA",
+      "11. CONTINUITY / SERIES BENCHMARK",
+    ]) {
+      expect(svg.toUpperCase()).toContain(heading);
+    }
+    expect(svg).toContain("#3D5A48");
+    expect(svg).toContain("Moss Green");
+    expect(svg).toContain('width="2400" height="2500"');
   });
 });
 

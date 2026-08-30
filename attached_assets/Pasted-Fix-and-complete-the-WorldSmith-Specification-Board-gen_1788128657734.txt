@@ -1,0 +1,236 @@
+Fix and complete the WorldSmith Specification Board generator.
+
+We are testing a Production Spec that is 100% ready, 17/17 checks, Canon Clear. The Specification Board currently renders its page structure and successfully generates/displays the large reference image, but the board's textual content is missing or invisible. The goal is not simply to fix the missing text. The finished Specification Board should function as a production-ready visual art-direction document.
+
+Target behavior
+
+When the user generates a Specification Board from a Production Spec, Daybook should compile the Production Spec and all applicable linked/inherited records into a single visual production specification.
+
+Do not ask the user to re-enter information that already exists in linked WorldSmith records.
+
+The board should compile from:
+
+Production Spec
+Collection
+Volume
+Style Guide
+Component Spec
+Canon Records
+Prompt Modules
+Prompt Payload
+technical/print metadata
+
+The Production Spec remains the asset-specific record. Linked records provide inherited rules and context.
+
+Required Specification Board structure
+Header
+
+Display:
+
+WorldSmith Foundation
+Collection name
+Volume code and volume name
+Production item name
+Spec ID
+Production Spec version
+component type
+status/readiness where appropriate
+
+The hierarchy should be visually obvious:
+
+Collection → Volume → Production Item
+
+1. STYLE LOCK
+
+This is the strongest visual requirement on the board.
+
+Compile the mandatory visual treatment primarily from the linked Style Guide, supplemented by applicable Prompt Modules.
+
+It should clearly state what the asset must look like, not merely display the name of the Style Guide.
+
+Example behavior for our current test:
+
+This asset must be rendered as a Victorian illustrated archival work rather than a photograph. Materials, botanical elements, objects, paper, handwriting, and surface details should share a cohesive hand-illustrated character using the approved Volume I visual language.
+
+The actual wording should be generated from the linked data rather than hard-coded for Victorian Garden Journals.
+
+2. ASSET PURPOSE
+
+Compile primarily from:
+
+Production Spec Design Intent
+Production Spec Narrative Purpose
+Collection/Volume context where relevant
+
+Explain why this individual asset exists and what role it plays in the product.
+
+3. ILLUSTRATED NARRATIVE / SCENE SUMMARY
+
+Translate the Production Spec's narrative purpose, required content, relevant canon, and prompt payload into a concise description of the intended scene.
+
+This should describe what the viewer encounters, not repeat database fields verbatim.
+
+Do not invent canon.
+
+4. COMPOSITION & LAYOUT
+
+Compile actionable visual directions such as:
+
+primary focal point
+secondary narrative clusters
+orientation
+writing/negative-space requirement
+object placement
+visual hierarchy
+lighting direction when governed
+trim/crop safety
+
+Pull asset-specific instructions from the Production Spec and reusable production constraints from the Component Spec.
+
+5. ILLUSTRATION / VISUAL CHARACTERISTICS
+
+Compile the key rendering characteristics inherited from the Style Guide and relevant modules.
+
+Examples could include:
+
+watercolor
+gouache
+fine ink
+graphite
+engraving/hatching
+aged rag paper
+restrained pigment
+simplified illustrated forms
+
+These are examples, not hard-coded values. Different WorldSmith styles must generate different characteristics.
+
+When reference thumbnails or material samples are available, display them here.
+
+6. COLOR PALETTE
+
+Render the approved palette from the Style Guide as actual visible color swatches with labels and values where available.
+
+Do not render empty placeholder boxes when palette data exists.
+
+7. PROHIBITED TREATMENTS
+
+Compile this from:
+
+Style Guide negative constraints
+Production Spec negative prompt
+applicable Prompt Modules
+
+Present the most important visual prohibitions as a readable list.
+
+Do not simply dump the entire raw negative prompt.
+
+8. TECHNICAL REQUIREMENTS
+
+Compile production requirements from the Production Spec and Component Spec, including where available:
+
+dimensions
+orientation
+resolution/DPI
+bleed
+safe area
+color mode
+file/output format
+single/double-sided treatment
+print requirements
+
+These should be practical production instructions.
+
+9. NEGATIVE SPACE & USABILITY
+
+Describe the functional requirements of the component.
+
+For the current Hero Paper test this should incorporate the 30% writing-space requirement, visual quiet, crop safety, journaling usability, and avoidance of critical objects in unsafe areas.
+
+This section must adapt to component type rather than always assuming journal paper.
+
+10. QA REVIEW CRITERIA
+
+Convert the Production Spec Review Criteria and applicable Component Spec requirements into a visible pass/fail checklist.
+
+The reviewer should be able to look at the generated artwork and use this section to determine whether it passes production review.
+
+Do not replace specific review criteria with generic AI-image QA.
+
+11. CONTINUITY / SERIES BENCHMARK
+
+Explain how this asset relates to its Collection, Volume, Component Set, Style Guide, and other production assets.
+
+This should identify what needs to remain consistent in subsequent related assets without falsely turning asset-specific details into universal rules.
+
+Main visual
+
+Retain the large generated/reference image area that is now working.
+
+The image should be treated as a visual interpretation/reference for the specification, not as a substitute for the specification itself.
+
+Its generation prompt should be derived from the compiled WorldSmith prompt, including the linked Style Guide, Prompt Modules, Production Spec, Canon constraints, and negative constraints.
+
+Critical data-provenance requirement
+
+Each board section should know where its information came from.
+
+Internally preserve provenance such as:
+
+production_spec
+style_guide
+component_spec
+canon_record
+prompt_module
+collection
+volume
+
+The rendered board does not need to display database provenance everywhere, but the system should retain it so we can later inspect why a particular instruction appeared on a board.
+
+Do not let the board generator invent missing production or canon facts merely to fill a section. If a section lacks sufficient source material, omit the unsupported detail or clearly indicate that direction is not specified.
+
+Current bug to diagnose first
+
+Before changing the visual design, trace the current generation pipeline:
+
+Production Spec → inheritance/linked records → compiled board payload → board template → rendered board
+
+The current output demonstrates that:
+
+board layout renders;
+generated reference image now renders;
+text/content does not visibly render;
+several lower-board visual elements remain empty/placeholders.
+
+Determine whether the text is:
+
+absent from the compiled board payload,
+lost during mapping to the template,
+present in the DOM but invisible because of CSS/font/color/opacity,
+clipped or hidden because of sizing/overflow,
+failing because the board template expects different property names.
+
+Fix that root cause before redesigning the board.
+
+Acceptance test
+
+Use the current Curator's Desk Hero Paper Production Spec as the test fixture.
+
+It currently has:
+
+100% readiness
+17/17 checks
+Canon Clear
+Collection: Victorian Garden Journals
+Volume: V01 · Volume I: The Curator's Desk
+Style Guide: Volume I Visual Language: The Curator's Desk
+Component Spec: Hero Paper — Core Component Specification
+Canon Record: Stationery House
+Prompt Module: Atmospheric Grounding
+
+Generate a fresh board and verify that all applicable sections contain readable compiled content, the reference image renders, palette/visual elements populate when source data exists, and the board can be reviewed as a complete production specification.
+
+Do not publish to Notion as part of this test. Do not modify the source Production Spec merely to make the board render.
+
+The immediate objective is:
+
+A complete, readable Specification Board generated automatically from the existing 100%-ready WorldSmith Production Spec and its linked records.

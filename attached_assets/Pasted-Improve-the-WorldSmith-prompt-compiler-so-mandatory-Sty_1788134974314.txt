@@ -1,0 +1,82 @@
+Improve the WorldSmith prompt compiler so mandatory Style Guide constraints are actively enforced in the final image-generation prompt rather than merely included elsewhere in the compiled context.
+
+Our first Curator's Desk Hero Paper generation produced a strong composition but failed the mandatory style requirement by rendering as a photorealistic still life.
+
+The source records already contain the correct requirements. The linked Style Guide explicitly requires an illustrated Victorian archival treatment using watercolor, gouache, fine ink, graphite, visible aged-paper texture, muted natural pigments, softened edges, and restrained engraved detail. It explicitly prohibits photography, hyperreal 3D, DSLR still life, photographic depth of field, glossy digital rendering, and cinematic rendering.
+
+Therefore do not change the source Production Spec or Style Guide to fix this test. Fix compilation.
+
+Compiler requirement
+
+Before sending a prompt to an image generator, resolve inherited WorldSmith instructions into a generation-optimized final prompt.
+
+Do not simply concatenate World Context + Style Guide + Modules + Component Spec + Production Spec + Canon.
+
+Apply the existing specificity/governance hierarchy, remove duplication, resolve conflicts, and promote mandatory visual constraints.
+
+Final prompt structure
+
+The generated image prompt should begin with a mandatory rendering lock similar to:
+
+MANDATORY RENDERING STYLE
+
+Create a hand-illustrated Victorian botanical and archival plate. This must read unmistakably as an illustration, never as a photograph or photographed still life.
+
+Render objects and botanicals using watercolor and gouache washes, fine ink linework, subtle graphite construction, restrained engraving-inspired hatching, visible aged rag-paper texture, softened illustrated edges, and muted natural pigments.
+
+Preserve evidence of traditional illustration throughout the entire image. Wood, brass, glass, paper, botanicals, ink, and other materials must be represented through illustrated marks, pigment, linework, and paper texture rather than photographic surface realism.
+
+If any part of the image reads as photography, DSLR still-life photography, hyperreal 3D, cinematic rendering, or glossy digital realism, the result fails the style requirement.
+
+Then compile:
+
+Asset and scene
+Composition
+Required objects/content
+Atmosphere and lighting
+Materials and palette
+Negative/writing space
+Canon constraints
+Technical/output requirements
+Negative constraints
+Negative prompt
+
+The final negative prompt must merge and deduplicate negative constraints from the Style Guide, Prompt Modules, Production Spec, Canon constraints, and applicable Component requirements.
+
+For this asset, the high-priority visual negatives must include:
+
+photograph, photography, photorealistic, hyperrealistic, DSLR still life, photographic lighting, photographic depth of field, physically based rendering, 3D render, cinematic rendering, glossy digital rendering, commercial product photography, museum still-life photography, razor-sharp photographic textures
+
+followed by the remaining relevant negatives such as modern objects, synthetic materials, pseudo-text, unsupported canon, excessive clutter, fantasy treatment, theatrical lighting, etc.
+
+Important distinction
+
+Words such as realistic, plausible, tactile, material, detailed, natural light, wood grain, glass, brass, botanical specimen describe subject/material authenticity. They must not override the rendering medium.
+
+“Realistic botanicals” means botanically credible illustrations, not photographic botanicals.
+
+“Visible wood grain” means illustrated wood grain rendered through pigment/linework, not a photographically rendered wooden surface.
+
+“Soft greenhouse daylight” describes illumination within an illustration, not photographic lighting.
+
+Validation
+
+Add a compiler validation step before generation.
+
+If the governing Style Guide prohibits photography, verify that the final positive prompt contains an explicit illustration/rendering lock and that the final negative prompt contains explicit photography/photorealism prohibitions.
+
+If those requirements are absent, the compiled prompt should fail validation rather than proceed to image generation.
+
+Test fixture
+
+Recompile the existing Curator's Desk Hero Paper without changing its Production Spec.
+
+Compare the resulting final generation prompt against the inherited source material and verify that:
+
+mandatory illustration style is promoted to the beginning;
+watercolor/gouache/ink/graphite/paper treatment survives compilation;
+photography prohibitions survive compilation;
+duplicate instructions are collapsed;
+scene and composition instructions remain intact;
+Stationery House canon does not introduce unsupported scene content;
+30% usable visual space remains explicit.

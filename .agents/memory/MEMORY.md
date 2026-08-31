@@ -84,3 +84,4 @@
 - [WorldSmith final-art source boundary](worldsmith-final-art-source-boundary.md) — local vs Notion behavior follows the request ID type, never whether a local record has been published
 - [WorldSmith board approval](worldsmith-board-approval.md) — board approval is a guarded local record transition and stays separate from final-artwork review
 - [WorldSmith rendering governance](worldsmith-rendering-governance.md) — provider prompts must enforce governing media across every inherited source and record the exact submitted prompt
+- [WorldSmith readable-text governance](worldsmith-readable-text-governance.md) — governed prompts treat readable strings as closed-world content with exact source authorization

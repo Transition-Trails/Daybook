@@ -363,6 +363,17 @@ export interface GenerationPromptPolicy {
   renderingLockRequired: boolean;
   photographyProhibited: boolean;
   governingStyleGuide?: string;
+  /** True when inherited governance permits only source-authorized readable wording. */
+  readableTextClosedWorld?: boolean;
+  /** Human-readable sources whose rules activated closed-world text handling. */
+  readableTextGoverningSources?: string[];
+  /** Exact strings that may be rendered, together with the source that authorized each one. */
+  readableTextAuthorizations?: ReadableTextAuthorization[];
+}
+
+export interface ReadableTextAuthorization {
+  text: string;
+  source: string;
 }
 
 // ── Provider adapter contract ─────────────────────────────────────────────────

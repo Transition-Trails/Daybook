@@ -1,0 +1,10 @@
+---
+name: WorldSmith readable-text governance
+description: Durable rules for closed-world readable content in image-provider prompts.
+---
+
+When inherited policy prohibits invented readable text, every requested string is closed-world: only exact wording explicitly authorized by the Production Specification or a Canon Record whose normalized status is exactly `Accepted` may render. Unspecified text-bearing areas become blank or non-readable period-appropriate marks, and authorization includes stable source identity plus field provenance.
+
+**Why:** Image prompts can turn contextual names, dates, reference phrases, or factual-looking ephemera into invented readable claims. Heading-based trust, broad negative-clause exemptions, fuzzy status matching, and embedded participles such as “a plate engraved [name]” create provider-boundary bypasses even when the visible governance lock looks correct.
+
+**How to apply:** Treat every provider-bound readable request as closed-world, including mixed negative/affirmative phrasing and text directives embedded in descriptive prose. Only demonstrably pure prohibitions may avoid authorization.

@@ -440,6 +440,31 @@ describe("WorldSmith final production packages", () => {
     expect(packageRows.value).toHaveLength(0);
   });
 
+  it("does not call the provider when closed-world readable-text governance is missing", async () => {
+    const result = await runFinalArtwork({
+      ...baseInput,
+      compiledPrompt: "[ASSET AND SCENE]\nEight ephemera pieces with invented names and dates.",
+      generationPolicy: {
+        renderingLockRequired: false,
+        photographyProhibited: false,
+        readableTextClosedWorld: true,
+        readableTextGoverningSources: ["Production Specification: Curator's Desk Ephemera Sheet"],
+        readableTextAuthorizations: [{
+          text: "Stationery House",
+          source: "Accepted Canon Record: Stationery House [canon-1] field: notes",
+        }],
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "generation_failed",
+      fatal: true,
+      error_code: "MISSING_READABLE_TEXT_GOVERNANCE",
+    });
+    expect(mockGenerateImage).not.toHaveBeenCalled();
+    expect(packageRows.value).toHaveLength(0);
+  });
+
   it("stores local final artwork without writing to Notion and reuses the package", async () => {
     const localInput = {
       ...baseInput,

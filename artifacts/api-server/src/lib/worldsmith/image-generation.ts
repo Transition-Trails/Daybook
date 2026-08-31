@@ -8,6 +8,7 @@
 import { logger } from "../logger";
 
 const SUPPORTED_IMAGE_MODELS = new Set(["gpt-image-1", "gpt-image-2"]);
+export const MIN_IMAGE_PIXELS = 1024 * 1024;
 const LEGACY_SIZE_MAP: Record<string, string> = {
   "1792x1024": "1536x1024",
   "1024x1792": "1024x1536",
@@ -71,10 +72,11 @@ function validateGptImage2Size(size: string): string {
     height % 16 !== 0 ||
     ratio < 1 / 3 ||
     ratio > 3 ||
+    width * height < MIN_IMAGE_PIXELS ||
     width * height > maxPixels
   ) {
     const ceiling = experimental ? "8,294,400 pixels (3840x2160)" : "3,686,400 pixels (2560x1440)";
-    throw new Error(`Unsupported GPT Image 2 size "${size}"; dimensions must be multiples of 16, ratio 1:3–3:1, and within a ${ceiling} budget.`);
+    throw new Error(`Unsupported GPT Image 2 size "${size}"; dimensions must be multiples of 16, ratio 1:3–3:1, and within a ${ceiling} budget with at least ${MIN_IMAGE_PIXELS.toLocaleString()} pixels.`);
   }
   return size;
 }

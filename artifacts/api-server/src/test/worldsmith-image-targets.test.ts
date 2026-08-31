@@ -117,11 +117,11 @@ describe("WorldSmith image targets", () => {
     expect(height % ROUND_TO).toBe(0);
   });
 
-  it("uniformly applies the minimum side before rounding Journal Card at 150 DPI", () => {
+  it("applies the provider minimum pixel budget before rounding Journal Card at 150 DPI", () => {
     process.env.WS_IMAGE_TARGET_DPI = "150";
     const target = getWorldsmithImageTarget("Journal Card");
 
-    expect(target.size).toBe("512x688");
+    expect(target.size).toBe("896x1184");
   });
 
   it.each(
@@ -244,7 +244,7 @@ describe("WorldSmith image targets", () => {
 
       await expect(getManagedWorldsmithImageTarget("Journal Card", "portrait"))
         .resolves.toMatchObject({
-          size: "512x688",
+          size: "896x1184",
           printWidthIn: 3,
           printHeightIn: 4,
           orientation: "portrait",
@@ -272,7 +272,7 @@ describe("WorldSmith image targets", () => {
     try {
       await expect(getManagedWorldsmithImageTarget("Journal Card", "landscape"))
         .resolves.toMatchObject({
-          size: "688x512",
+          size: "1184x896",
           printWidthIn: 4,
           printHeightIn: 3,
           orientation: "landscape",
@@ -303,7 +303,7 @@ describe("WorldSmith image targets", () => {
         orientation: "portrait",
       })).resolves.toMatchObject({
         target: {
-          size: "512x688",
+          size: "896x1184",
           printWidthIn: 3,
           printHeightIn: 4,
         },

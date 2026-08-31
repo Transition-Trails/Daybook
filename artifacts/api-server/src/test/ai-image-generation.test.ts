@@ -73,6 +73,11 @@ describe("shared GPT Image generation", () => {
       .toThrow('Unsupported GPT Image 2 size "1936x1936"');
   });
 
+  it("rejects custom sizes below the provider minimum pixel budget", () => {
+    expect(() => resolveImageGenerationMetadata({ size: "512x688" }))
+      .toThrow('Unsupported GPT Image 2 size "512x688"');
+  });
+
   it("makes legacy model mappings visible in the resolved effective settings", () => {
     process.env.WS_IMAGE_MODEL = "gpt-image-1";
     expect(resolveImageGenerationMetadata({ size: "1792x1024", quality: "hd" }))

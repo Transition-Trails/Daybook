@@ -43,6 +43,9 @@ export const WORLD_SMITH_PRINT_SIZES_IN: Readonly<Record<string, readonly [numbe
 };
 const ROUND_TO = 16;
 const MIN_SIDE = 512;
+// Keep target resolution above the provider's minimum custom-image budget.
+// image-generation.ts enforces the same boundary at the request edge.
+const MIN_IMAGE_PIXELS = 1024 * 1024;
 
 export interface WorldsmithImageTarget {
   size: string;
@@ -74,6 +77,15 @@ function applyMinSide(width: number, height: number): readonly [number, number] 
     return [width, height];
   }
   const scale = MIN_SIDE / shortest;
+  return [width * scale, height * scale];
+}
+
+function applyMinPixelBudget(width: number, height: number): readonly [number, number] {
+  const pixelCount = width * height;
+  if (pixelCount >= MIN_IMAGE_PIXELS) {
+    return [width, height];
+  }
+  const scale = Math.sqrt(MIN_IMAGE_PIXELS / pixelCount);
   return [width * scale, height * scale];
 }
 
@@ -126,13 +138,20 @@ function resolveWorldsmithImageTarget(
   const maxPixels = isExperimentalSizeEnabled() ? 3840 * 2160 : 2560 * 1440;
   const requestedPixels = printWidthIn * requestedDpi * printHeightIn * requestedDpi;
   const scale = Math.min(1, Math.sqrt(maxPixels / requestedPixels));
-  const [rawWidth, rawHeight] = applyMinSide(
+  const [minSideWidth, minSideHeight] = applyMinSide(
     printWidthIn * requestedDpi * scale,
     printHeightIn * requestedDpi * scale,
   );
+  const [rawWidth, rawHeight] = applyMinPixelBudget(minSideWidth, minSideHeight);
+  const roundedWidth = roundToSupportedDimension(rawWidth);
+  const roundedHeight = roundToSupportedDimension(rawHeight);
   const [width, height] = clampRoundedTargetToPixelBudget(
-    roundToSupportedDimension(rawWidth),
-    roundToSupportedDimension(rawHeight),
+    roundedWidth * roundedHeight < MIN_IMAGE_PIXELS
+      ? Math.ceil(rawWidth / ROUND_TO) * ROUND_TO
+      : roundedWidth,
+    roundedWidth * roundedHeight < MIN_IMAGE_PIXELS
+      ? Math.ceil(rawHeight / ROUND_TO) * ROUND_TO
+      : roundedHeight,
     maxPixels,
   );
   const effectiveDpi = Math.floor(Math.min(width / printWidthIn, height / printHeightIn));

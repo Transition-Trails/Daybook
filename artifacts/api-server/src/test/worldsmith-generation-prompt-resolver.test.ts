@@ -644,6 +644,20 @@ describe("WorldSmith generation prompt governance", () => {
     )).toEqual([]);
   });
 
+  it("does not mistake narrative use of written down for requested readable copy", () => {
+    const chain = curatorChain();
+    chain.productionSpec.reviewCriteria = "No invented readable text.";
+    chain.worldBible!.atmosphericNotes = [
+      "A quiet archival room,",
+      "as if Elias returned to it only when something demanded to be written down.",
+    ].join(" ");
+
+    const compiled = compilePrompt(chain, payload);
+
+    expect(compiled.generationValidationErrors).toEqual([]);
+    expect(compiled.providerPrompt).toContain("demanded to be written down");
+  });
+
   it("still blocks a real unquoted print directive", () => {
     const chain = curatorChain();
     chain.productionSpec.reviewCriteria = "No invented readable text.";

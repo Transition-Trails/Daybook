@@ -12,6 +12,7 @@ import { parsePayload } from "./payload-parser";
 import { validatePayload } from "./validator";
 import { validateCanon } from "./canon-validator";
 import { compilePrompt } from "./prompt-compiler";
+import { validateProviderPrompt } from "./generation-prompt-resolver";
 import { computePromptHash } from "./prompt-hasher";
 import { getWorldsmithPreviewGeneration, getWorldsmithProductionGeneration } from "./image-targets";
 import { createRun, updateRun, failRun, getRun } from "./run-repository";
@@ -34,6 +35,7 @@ import type {
   ValidationError,
   ProvenanceRecord,
   InheritanceChain,
+  GenerationPromptPolicy,
   ProductionPackageResult,
 } from "./types";
 import { logger } from "../logger";
@@ -347,6 +349,45 @@ export async function runCompilation(
       payloadValidation.payload ?? parsePayload(spec.promptPayload).payload;
     const compiled = compilePrompt(chainWithBible, payload as Parameters<typeof compilePrompt>[1]);
 
+    // Generation governance is evaluated after inheritance resolution so a
+    // Style Guide's mandatory rendering rules cannot be bypassed by payload
+    // wording. Fail before target resolution, hashing, or any provider call.
+    if (compiled.generationValidationErrors.length > 0) {
+      const generationWarnings = [
+        ...systemWarnings,
+        ...payloadValidation.warnings,
+        ...canonValidation.warnings,
+        ...(chain.warnings ?? []),
+      ];
+      await updateRun(runId, {
+        status: "validation_failed",
+        compiledPromptStatus: "Validation Failed",
+        compiledPrompt: compiled.providerPrompt,
+        compiledSections: compiled.sectionRecords,
+        errors: compiled.generationValidationErrors,
+        warnings: generationWarnings,
+        completedAt: new Date(),
+      });
+      return {
+        status: "validation_failed",
+        run_id: runId,
+        production_spec_id: specId,
+        payload_version: spec.payloadVersion,
+        compiled_prompt_status: "Validation Failed",
+        compiled_prompt: compiled.fullPrompt,
+        generation_prompt: compiled.providerPrompt,
+        compiled_sections: compiled.sectionRecords,
+        warnings: generationWarnings,
+        errors: compiled.generationValidationErrors,
+        next_action: "Restore the mandatory Style Guide rendering safeguards and recompile",
+        failed_stage: "generation_prompt_validation",
+        error_code: compiled.generationValidationErrors[0]?.code,
+        message: compiled.generationValidationErrors[0]?.message,
+        retry_safe: true,
+        created_resources: { visual_asset_id: null, drive_file_id: null },
+      };
+    }
+
     // ── Stage 10: Calculate Prompt Hash ──────────────────────────────────
     const { target: generationTarget, metadata: generationMetadata } = await (
       req.operation === "compile_and_generate"
@@ -359,8 +400,7 @@ export async function runCompilation(
     );
     const promptHash = computePromptHash({
       payload_version: spec.payloadVersion,
-      compiled_prompt: compiled.fullPrompt,
-      negative_prompt: compiled.negativePrompt,
+      compiled_prompt: compiled.providerPrompt,
       generation_provider: generationMetadata.provider,
       model_name: generationMetadata.model,
       model_version: generationMetadata.modelVersion,
@@ -373,7 +413,7 @@ export async function runCompilation(
     const filename = buildFilename(spec.world, spec.volume, spec.componentType, spec.specId, "Master", assetVersion);
 
     await updateRun(runId, {
-      compiledPrompt: compiled.fullPrompt,
+      compiledPrompt: compiled.providerPrompt,
       promptHash,
       assetId,
       assetVersion,
@@ -456,7 +496,7 @@ export async function runCompilation(
     if (!dryRun && spec.notionPageId && !isLocalProductionRequest) {
       try {
         if (!visualAssetNotionId) {
-          visualAssetNotionId = await upsertVisualAsset(chain, compiled.fullPrompt, promptHash, assetId, filename);
+          visualAssetNotionId = await upsertVisualAsset(chain, compiled.providerPrompt, promptHash, assetId, filename);
         }
         await updateRun(runId, { visualAssetNotionId: visualAssetNotionId ?? undefined });
       } catch (err) {
@@ -481,7 +521,9 @@ export async function runCompilation(
         dryRun,
         productionSpecId: specId,
         promptHash,
-        compiledPrompt: compiled.fullPrompt,
+        compiledPrompt: compiled.providerPrompt,
+        negativePrompt: compiled.negativePrompt,
+        generationPolicy: compiled.generationPolicy,
         filename,
         visualAssetNotionId,
         isLocal: isLocalProductionRequest,
@@ -508,6 +550,7 @@ export async function runCompilation(
           compiled_prompt_status: "Compiled",
           prompt_hash: promptHash,
           compiled_prompt: compiled.fullPrompt,
+          generation_prompt: compiled.providerPrompt,
           compiled_sections: compiled.sectionRecords,
           visual_asset_id: visualAssetNotionId ?? undefined,
           warnings: [...systemWarnings, ...payloadValidation.warnings, ...canonValidation.warnings, ...(chain.warnings ?? [])],
@@ -634,6 +677,7 @@ export async function runCompilation(
       compiled_prompt_status: "Compiled",
       prompt_hash: promptHash,
       compiled_prompt: compiled.fullPrompt,
+      generation_prompt: compiled.providerPrompt,
       compiled_sections: compiled.sectionRecords,
       provenance,
       visual_asset_id: visualAssetNotionId ?? undefined,
@@ -736,6 +780,8 @@ type FinalArtworkInput = {
   productionSpecId: string;
   promptHash: string;
   compiledPrompt: string;
+  negativePrompt?: string;
+  generationPolicy: GenerationPromptPolicy;
   filename: string;
   visualAssetNotionId: string | null;
   isLocal?: boolean;
@@ -884,10 +930,40 @@ async function storeLocalFinalArtwork(image: Buffer, packageId: string, filename
   return `/objects/${entityPath}`;
 }
 
-export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkResult> {
+async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkResult> {
   const { target, generation } = input;
   const estimate = configuredProductionEstimate();
   const version = generation.modelVersion ?? "";
+
+  const boundaryValidationErrors = validateProviderPrompt(
+    input.generationPolicy,
+    input.compiledPrompt,
+    input.negativePrompt,
+  );
+  if (boundaryValidationErrors.length > 0) {
+    return {
+      id: input.runId,
+      status: "generation_failed",
+      production_art_status: "not_started",
+      idempotent: false,
+      filename: input.filename,
+      provider: generation.provider,
+      model: generation.model,
+      model_version: generation.modelVersion,
+      effective_size: generation.settings.size,
+      quality: generation.settings.quality,
+      target: {
+        dpi: target.dpi,
+        print_width_in: target.printWidthIn,
+        print_height_in: target.printHeightIn,
+        orientation: target.orientation,
+      },
+      estimated_cost_usd: estimate.cost,
+      error: boundaryValidationErrors[0]?.message,
+      error_code: boundaryValidationErrors[0]?.code,
+      fatal: true,
+    };
+  }
 
   if (input.dryRun) {
     await updateRun(input.runId, {
@@ -1250,6 +1326,14 @@ export async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalAr
       .where(eq(worldsmithProductionPackagesTable.id, packageRow.id));
     return { ...packageResponse(packageRow, target, false), error: message };
   }
+}
+
+/** Test-only access to the provider boundary. Production callers must use runCompilation. */
+export async function testRunFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkResult> {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("testRunFinalArtwork is available only in the test environment.");
+  }
+  return runFinalArtwork(input);
 }
 
 // ── Notion status write-back ──────────────────────────────────────────────────

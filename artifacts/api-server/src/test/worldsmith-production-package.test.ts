@@ -115,6 +115,10 @@ vi.mock("@workspace/db", () => {
     wsComponentSpecsTable: {},
     wsPromptModulesTable: {},
     wsStyleGuidesTable: {},
+    wsProductionSpecsTable: {
+      id: "production-spec-id",
+      status: "production-spec-status",
+    },
     db: {
       insert: vi.fn(() => ({
         values: (value: Record<string, unknown>) => ({
@@ -292,7 +296,7 @@ vi.mock("../lib/objectStorage.js", () => ({
   },
 }));
 
-import { runFinalArtwork } from "../lib/worldsmith/orchestrator.js";
+import { testRunFinalArtwork as runFinalArtwork } from "../lib/worldsmith/orchestrator.js";
 import worldsmithRouter from "../routes/worldsmith.js";
 
 const initialLocalResolver = process.env.USE_LOCAL_RESOLVER;
@@ -304,6 +308,10 @@ const baseInput = {
   productionSpecId: "spec-1",
   promptHash: "prompt-hash",
   compiledPrompt: "An archival botanical collage, no text.",
+  generationPolicy: {
+    renderingLockRequired: false,
+    photographyProhibited: false,
+  },
   filename: "WS-WYC-V01-HERO-MASTER.png",
   visualAssetNotionId: "visual-1",
   target: {
@@ -403,6 +411,33 @@ describe("WorldSmith final production packages", () => {
     expect(mockGenerateImage).not.toHaveBeenCalled();
     expect(mockUpload).not.toHaveBeenCalled();
     expect(mockAttach).not.toHaveBeenCalled();
+  });
+
+  it("does not call the provider when generation-prompt governance fails", async () => {
+    const result = await runFinalArtwork({
+      ...baseInput,
+      compiledPrompt: [
+        "[MANDATORY RENDERING STYLE]",
+        "The governing Style Guide rendering medium is mandatory.",
+        "Create a hand-illustrated Victorian archival plate. This must read unmistakably as an illustration.",
+        "",
+        "[ASSET AND SCENE]",
+        "An archival botanical collage.",
+      ].join("\n"),
+      generationPolicy: {
+        renderingLockRequired: true,
+        photographyProhibited: true,
+        governingStyleGuide: "Victorian Archive",
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "generation_failed",
+      fatal: true,
+      error_code: "MISSING_PHOTOGRAPHY_NEGATIVES",
+    });
+    expect(mockGenerateImage).not.toHaveBeenCalled();
+    expect(packageRows.value).toHaveLength(0);
   });
 
   it("stores local final artwork without writing to Notion and reuses the package", async () => {

@@ -348,8 +348,21 @@ export interface CompiledPrompt {
   /** Structured per-section records for the viewer (PP-2.0 new format gives richer entries) */
   sectionRecords: CompiledSectionRecord[];
   fullPrompt: string;
+  /** Governance-resolved prompt sent to the image provider. */
+  generationPrompt: string;
+  /** Exact canonical string submitted to the image provider and used for hashing/audit. */
+  providerPrompt: string;
   negativePrompt?: string;
+  generationPolicy: GenerationPromptPolicy;
+  /** Fail-closed generation safeguards evaluated after inheritance resolution. */
+  generationValidationErrors: ValidationError[];
   isLegacyFormat: boolean;
+}
+
+export interface GenerationPromptPolicy {
+  renderingLockRequired: boolean;
+  photographyProhibited: boolean;
+  governingStyleGuide?: string;
 }
 
 // ── Provider adapter contract ─────────────────────────────────────────────────
@@ -443,6 +456,8 @@ export interface CompileResponse {
   compiled_prompt_status: string;
   prompt_hash?: string;
   compiled_prompt?: string;
+  /** Governance-resolved prompt actually used for image generation. */
+  generation_prompt?: string;
   /** Structured per-section records for the prompt viewer */
   compiled_sections?: CompiledSectionRecord[];
   /** Full resolution provenance for the compilation */

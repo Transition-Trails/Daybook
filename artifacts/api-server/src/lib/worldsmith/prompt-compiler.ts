@@ -16,6 +16,7 @@ import type {
 } from "./types";
 import { worldBibleRichTextToPlainText } from "./world-bible-rich-text";
 import { PROMPT_SECTION_ORDER } from "./types";
+import { resolveGenerationPrompt } from "./generation-prompt-resolver";
 
 const SECTION_DIVIDER = "\n\n";
 const LEGACY_FONT_REFERENCE_HTML = /<p>\s*Daybook Font:\s*([^<\r\n]+?)\s*<br\s*\/?>\s*Curated roles:\s*[^<\r\n]*(?:\s*<br\s*\/?>\s*Available variants:\s*[^<\r\n]*)?(?:\s*<br\s*\/?>\s*Source notes:\s*[\s\S]*?)?\s*<\/p>/gi;
@@ -95,9 +96,18 @@ export function compilePrompt(
   payload: ParsedPayload,
 ): CompiledPrompt {
   const isNewFormat = payload.shared_prompt !== undefined;
-  return isNewFormat
+  const compiled = isNewFormat
     ? compileNewFormat(chain, payload)
     : compileLegacyFormat(chain, payload);
+  const resolved = resolveGenerationPrompt(chain, payload, compiled.sectionRecords);
+  return {
+    ...compiled,
+    generationPrompt: resolved.prompt,
+    providerPrompt: resolved.providerPrompt,
+    negativePrompt: resolved.negativePrompt,
+    generationPolicy: resolved.policy,
+    generationValidationErrors: resolved.validationErrors,
+  };
 }
 
 // ── PP-2.0 section-based compilation ─────────────────────────────────────────
@@ -227,7 +237,20 @@ function compileNewFormat(
   // Build a compatible legacy sections map
   const sections = buildLegacySectionsFromNewFormat(chain, payload);
 
-  return { sections, sectionRecords, fullPrompt, negativePrompt, isLegacyFormat: false };
+  return {
+    sections,
+    sectionRecords,
+    fullPrompt,
+    generationPrompt: fullPrompt,
+    providerPrompt: fullPrompt,
+    negativePrompt,
+    generationPolicy: {
+      renderingLockRequired: false,
+      photographyProhibited: false,
+    },
+    generationValidationErrors: [],
+    isLegacyFormat: false,
+  };
 }
 
 function pushSection(
@@ -440,7 +463,20 @@ function compileLegacyFormat(
     if (worldRules.length > 0)          sectionRecords.push(rec("world_rules",       "World Rules",       worldRules.join("\n"),  "World Bible"));
   }
 
-  return { sections, sectionRecords, fullPrompt, negativePrompt, isLegacyFormat: true };
+  return {
+    sections,
+    sectionRecords,
+    fullPrompt,
+    generationPrompt: fullPrompt,
+    providerPrompt: fullPrompt,
+    negativePrompt,
+    generationPolicy: {
+      renderingLockRequired: false,
+      photographyProhibited: false,
+    },
+    generationValidationErrors: [],
+    isLegacyFormat: true,
+  };
 }
 
 function legacySectionSource(key: string, chain: InheritanceChain): string {

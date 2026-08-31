@@ -40,6 +40,8 @@ const NON_READABLE_NOUN_PHRASE = new Set([
   "style",
   "treatment",
 ]);
+export const MAX_PROVIDER_PROMPT_LENGTH = 32_000;
+const PROVIDER_PROMPT_TARGET_LENGTH = 30_000;
 
 const PHOTO_PRIORITY_NEGATIVES = [
   "photograph",
@@ -72,6 +74,50 @@ function key(value: string): string {
 
 function readableTextKey(value: string): string {
   return value.normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function compactProviderPrompt(prompt: string): string {
+  if (prompt.length <= MAX_PROVIDER_PROMPT_LENGTH) return prompt;
+
+  const sections = prompt
+    .split(/\n\n(?=\[[A-Z][A-Z /-]*\]\n)/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+  if (sections.length <= 1) {
+    return prompt.slice(0, PROVIDER_PROMPT_TARGET_LENGTH);
+  }
+
+  const protectedSections = new Set([
+    "GOVERNED READABLE TEXT",
+    "NEGATIVE CONSTRAINTS / NEGATIVE PROMPT",
+  ]);
+  const sectionName = (section: string) => section.match(/^\[([A-Z][A-Z /-]*)\]\n/)?.[1] ?? "";
+  const protectedLength = sections
+    .filter((section) => protectedSections.has(sectionName(section)))
+    .reduce((total, section) => total + section.length, 0);
+  const separatorsLength = (sections.length - 1) * 2;
+  const availableForDetail = PROVIDER_PROMPT_TARGET_LENGTH - protectedLength - separatorsLength;
+  if (availableForDetail <= 0) {
+    return sections
+      .filter((section) => protectedSections.has(sectionName(section)))
+      .join("\n\n")
+      .slice(0, PROVIDER_PROMPT_TARGET_LENGTH);
+  }
+
+  const detailSections = sections.filter((section) => !protectedSections.has(sectionName(section)));
+  const detailBudget = Math.max(1, Math.floor(availableForDetail / detailSections.length));
+  const compacted = sections.map((section) => {
+    if (protectedSections.has(sectionName(section)) || section.length <= detailBudget) {
+      return section;
+    }
+    const omittedMarker = "\nAdditional inherited detail omitted for provider length limit.";
+    const contentBudget = Math.max(0, detailBudget - omittedMarker.length);
+    return `${section.slice(0, contentBudget)}${omittedMarker}`;
+  });
+  const compactedPrompt = compacted.join("\n\n");
+  return compactedPrompt.length <= MAX_PROVIDER_PROMPT_LENGTH
+    ? compactedPrompt
+    : compactedPrompt.slice(0, PROVIDER_PROMPT_TARGET_LENGTH);
 }
 
 function unique(values: Array<string | null | undefined>): string[] {
@@ -726,9 +772,9 @@ export function resolveGenerationPrompt(
       governedPositive(spec.reviewCriteria),
     ]),
   ].filter(Boolean).join("\n\n");
-  const providerPrompt = negativePrompt
+  const providerPrompt = compactProviderPrompt(negativePrompt
     ? `${prompt}\n\n[NEGATIVE CONSTRAINTS / NEGATIVE PROMPT]\n${negativePrompt}`
-    : prompt;
+    : prompt);
 
   return {
     prompt,

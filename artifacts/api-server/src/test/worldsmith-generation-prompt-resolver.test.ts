@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compilePrompt } from "../lib/worldsmith/prompt-compiler.js";
 import {
+  MAX_PROVIDER_PROMPT_LENGTH,
   validateProviderPrompt,
 } from "../lib/worldsmith/generation-prompt-resolver.js";
 import type { InheritanceChain, ParsedPayload } from "../lib/worldsmith/types.js";
@@ -665,6 +666,22 @@ describe("WorldSmith generation prompt governance", () => {
 
     expect(result.generationValidationErrors).toEqual([]);
     expect(result.providerPrompt).toContain("Playfair Display");
+  });
+
+  it("compacts oversized inherited detail without dropping protected provider sections", () => {
+    const chain = curatorChain();
+    chain.productionSpec.reviewCriteria = "No invented readable text.";
+    chain.styleGuide!.content = "Mandatory illustrated treatment.\n" + "Additional style detail. ".repeat(2_000);
+    chain.promptModules[0]!.content = "Atmospheric detail. ".repeat(2_000);
+
+    const result = compilePrompt(chain, payload);
+
+    expect(result.providerPrompt.length).toBeLessThanOrEqual(MAX_PROVIDER_PROMPT_LENGTH);
+    expect(result.providerPrompt).toContain("[MANDATORY RENDERING STYLE]");
+    expect(result.providerPrompt).toContain("[GOVERNED READABLE TEXT]");
+    expect(result.providerPrompt).toContain("[CANON CONSTRAINTS]");
+    expect(result.providerPrompt).toContain("[NEGATIVE CONSTRAINTS / NEGATIVE PROMPT]");
+    expect(result.generationValidationErrors).toEqual([]);
   });
 
   it("does not authorize a Canon Record title or wording from a non-Accepted record", () => {

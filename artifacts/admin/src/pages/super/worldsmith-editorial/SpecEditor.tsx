@@ -192,9 +192,11 @@ function CompletionSidebar({
   isApproving: boolean;
   approvalDisabled: boolean;
   artworkState?: ProductionPackageState;
-  onGenerateArtwork: (options?: { forceNew?: boolean; packageId?: string }) => void;
+  onGenerateArtwork: (options?: { forceNew?: boolean; packageId?: string; revisionPrompt?: string }) => void;
   isGeneratingArtwork: boolean;
 }) {
+  const [revisionPrompt, setRevisionPrompt] = useState("");
+  const [isRevisionEditorOpen, setIsRevisionEditorOpen] = useState(false);
   const checks = readinessChecks(spec);
   const done = checks.filter(c => c.done).length;
   const score = readinessScore(checks);
@@ -462,6 +464,69 @@ function CompletionSidebar({
           <p className="text-xs leading-relaxed text-gray-500 mb-3">
             Generate the production image from the approved, compiled specification. This is separate from the review board.
           </p>
+        )}
+        {successfulArtwork && (
+          <div className="mb-2 rounded-lg border border-border bg-muted/30 p-2.5">
+            {!isRevisionEditorOpen ? (
+              <>
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Not quite right? Add a focused change and generate a new version. This artwork will be preserved.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsRevisionEditorOpen(true)}
+                  disabled={!artworkApproved || previewDisabled || isGeneratingArtwork}
+                  className="mt-2 w-full rounded-md border border-primary px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 disabled:opacity-40"
+                >
+                  Revise prompt &amp; regenerate
+                </button>
+              </>
+            ) : (
+              <>
+                <label htmlFor="artwork-revision" className="text-[11px] font-semibold text-foreground">
+                  What should change?
+                </label>
+                <textarea
+                  id="artwork-revision"
+                  value={revisionPrompt}
+                  onChange={(event) => setRevisionPrompt(event.target.value)}
+                  placeholder="For example: make the botanical elements more delicate and leave more breathing room around the central ledger."
+                  rows={4}
+                  maxLength={2000}
+                  className="mt-1.5 w-full resize-none rounded-md border border-input bg-background px-2.5 py-2 text-xs leading-relaxed text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                  This creates a new artwork version; the Production Spec and current artwork stay unchanged.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRevisionEditorOpen(false);
+                      setRevisionPrompt("");
+                    }}
+                    className="flex-1 rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground hover:bg-background"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const trimmed = revisionPrompt.trim();
+                      if (!trimmed) return;
+                      setIsRevisionEditorOpen(false);
+                      setRevisionPrompt("");
+                      onGenerateArtwork({ forceNew: true, revisionPrompt: trimmed });
+                    }}
+                    disabled={!revisionPrompt.trim() || !artworkApproved || previewDisabled || isGeneratingArtwork}
+                    className="flex-1 rounded-md bg-primary px-2 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40"
+                  >
+                    Generate revision
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
         {!artworkApproved && (
           <p className="mb-2 text-[11px] leading-relaxed text-amber-700">
@@ -1228,13 +1293,14 @@ export default function SpecEditor({ specId }: { specId: string }) {
   });
 
   const artworkMutation = useMutation({
-    mutationFn: (options?: { forceNew?: boolean; packageId?: string }) =>
+    mutationFn: (options?: { forceNew?: boolean; packageId?: string; revisionPrompt?: string }) =>
       apiFetch<{ production_package?: ProductionPackage }>("/v1/production-packages", {
         method: "POST",
         body: JSON.stringify({
           production_spec_id: specId,
           force_new: options?.forceNew === true,
           production_package_id: options?.packageId,
+          revision_prompt: options?.revisionPrompt,
         }),
       }),
     onSuccess: (response) => {

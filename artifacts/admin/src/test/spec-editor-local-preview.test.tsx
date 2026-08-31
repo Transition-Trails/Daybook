@@ -298,6 +298,74 @@ describe("SpecEditor local specification board", () => {
     });
   });
 
+  it("submits a focused revision as a new artwork without editing the spec", async () => {
+    const approvedSpec = { ...spec, status: "approved" };
+    const successfulPackage = {
+      id: "package-existing",
+      status: "success",
+      production_art_status: "artwork_review",
+      filename: "existing-final.png",
+      artwork_url: "/api/storage/objects/worldsmith/final-artwork/existing-final.png",
+      provider: "replit_ai_integrations",
+      model: "gpt-image-2",
+      effective_size: "1440x1440",
+      quality: "medium",
+    };
+    apiFetch.mockImplementation((path: string, options?: { method?: string; body?: string }) => {
+      if (path === "/v1/editorial/specs/spec-local") {
+        return Promise.resolve({
+          spec: approvedSpec,
+          relationships: { style_guide: null, component_spec: null, canon_records: [], prompt_modules: [] },
+        });
+      }
+      if (path === "/v1/editorial/component-sets?world_id=world-1") {
+        return Promise.resolve({ component_sets: [] });
+      }
+      if (path === "/v1/worldsmith/spec-preview/local/spec-local") {
+        return Promise.resolve({ preview: null });
+      }
+      if (path === "/v1/production-packages?production_spec_id=spec-local") {
+        return Promise.resolve({ package: successfulPackage, last_successful: successfulPackage });
+      }
+      if (path === "/v1/production-packages" && options?.method === "POST") {
+        return Promise.resolve({
+          production_package: { ...successfulPackage, id: "package-revised", filename: "revised-final.png" },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SpecEditor specId="spec-local" />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Revise prompt & regenerate" }));
+    fireEvent.change(screen.getByLabelText("What should change?"), {
+      target: { value: "Make the botanical border lighter and leave more breathing room." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Generate revision" }));
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        "/v1/production-packages",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            production_spec_id: "spec-local",
+            force_new: true,
+            revision_prompt: "Make the botanical border lighter and leave more breathing room.",
+          }),
+        }),
+      );
+    });
+    expect(apiFetch).not.toHaveBeenCalledWith(
+      "/v1/editorial/specs/spec-local",
+      expect.objectContaining({ method: expect.stringMatching(/PATCH|PUT/) }),
+    );
+  });
+
   it("keeps board approval disabled while prerequisites are incomplete", async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

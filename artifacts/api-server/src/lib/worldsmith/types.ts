@@ -443,6 +443,8 @@ export interface CompileRequest {
   production_package_id?: string;
   /** Create a new artwork identity while preserving previous successful artwork. */
   force_new?: boolean;
+  /** A transient operator instruction appended to a new artwork generation. */
+  revision_prompt?: string;
   dry_run?: boolean;
 }
 

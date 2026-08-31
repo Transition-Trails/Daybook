@@ -298,6 +298,7 @@ router.post("/v1/production-packages", requireAuth, requireSuperAdmin, async (re
     generation_settings?: { quality?: unknown };
     production_package_id?: string;
     force_new?: boolean;
+    revision_prompt?: string;
   };
 
   if (!body.production_spec_id && !body.notion_production_spec_id) {
@@ -346,6 +347,7 @@ router.post("/v1/production-packages", requireAuth, requireSuperAdmin, async (re
           : undefined,
         production_package_id: body.production_package_id?.trim() || undefined,
         force_new: body.force_new === true,
+        revision_prompt: body.revision_prompt?.trim() || undefined,
       },
       (req.user as User | undefined)?.id ?? "anonymous",
     );

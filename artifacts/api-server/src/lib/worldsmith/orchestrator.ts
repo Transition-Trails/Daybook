@@ -12,7 +12,11 @@ import { parsePayload } from "./payload-parser";
 import { validatePayload } from "./validator";
 import { validateCanon } from "./canon-validator";
 import { compilePrompt } from "./prompt-compiler";
-import { validateProviderPrompt } from "./generation-prompt-resolver";
+import {
+  applyProviderPromptRevision,
+  validateProviderPrompt,
+  validateProviderPromptRevision,
+} from "./generation-prompt-resolver";
 import { computePromptHash } from "./prompt-hasher";
 import { getWorldsmithPreviewGeneration, getWorldsmithProductionGeneration } from "./image-targets";
 import { createRun, updateRun, failRun, getRun } from "./run-repository";
@@ -348,11 +352,32 @@ export async function runCompilation(
     const payload =
       payloadValidation.payload ?? parsePayload(spec.promptPayload).payload;
     const compiled = compilePrompt(chainWithBible, payload as Parameters<typeof compilePrompt>[1]);
+    const effectiveProviderPrompt = req.revision_prompt
+      ? applyProviderPromptRevision(
+          compiled.generationPolicy,
+          compiled.providerPrompt,
+          compiled.negativePrompt,
+          req.revision_prompt,
+        )
+      : compiled.providerPrompt;
+    const revisionValidationErrors = req.revision_prompt
+      ? validateProviderPromptRevision(
+          compiled.generationPolicy,
+          req.revision_prompt,
+          compiled.negativePrompt,
+        )
+      : [];
+    const generationValidationErrors = [
+      ...revisionValidationErrors,
+      ...(req.revision_prompt
+        ? validateProviderPrompt(compiled.generationPolicy, effectiveProviderPrompt, compiled.negativePrompt)
+        : compiled.generationValidationErrors),
+    ];
 
     // Generation governance is evaluated after inheritance resolution so a
     // Style Guide's mandatory rendering rules cannot be bypassed by payload
     // wording. Fail before target resolution, hashing, or any provider call.
-    if (compiled.generationValidationErrors.length > 0) {
+    if (generationValidationErrors.length > 0) {
       const generationWarnings = [
         ...systemWarnings,
         ...payloadValidation.warnings,
@@ -362,9 +387,9 @@ export async function runCompilation(
       await updateRun(runId, {
         status: "validation_failed",
         compiledPromptStatus: "Validation Failed",
-        compiledPrompt: compiled.providerPrompt,
+        compiledPrompt: effectiveProviderPrompt,
         compiledSections: compiled.sectionRecords,
-        errors: compiled.generationValidationErrors,
+        errors: generationValidationErrors,
         warnings: generationWarnings,
         completedAt: new Date(),
       });
@@ -375,14 +400,14 @@ export async function runCompilation(
         payload_version: spec.payloadVersion,
         compiled_prompt_status: "Validation Failed",
         compiled_prompt: compiled.fullPrompt,
-        generation_prompt: compiled.providerPrompt,
+        generation_prompt: effectiveProviderPrompt,
         compiled_sections: compiled.sectionRecords,
         warnings: generationWarnings,
-        errors: compiled.generationValidationErrors,
+        errors: generationValidationErrors,
         next_action: "Restore the mandatory Style Guide rendering safeguards and recompile",
         failed_stage: "generation_prompt_validation",
-        error_code: compiled.generationValidationErrors[0]?.code,
-        message: compiled.generationValidationErrors[0]?.message,
+        error_code: generationValidationErrors[0]?.code,
+        message: generationValidationErrors[0]?.message,
         retry_safe: true,
         created_resources: { visual_asset_id: null, drive_file_id: null },
       };
@@ -400,7 +425,7 @@ export async function runCompilation(
     );
     const promptHash = computePromptHash({
       payload_version: spec.payloadVersion,
-      compiled_prompt: compiled.providerPrompt,
+      compiled_prompt: effectiveProviderPrompt,
       generation_provider: generationMetadata.provider,
       model_name: generationMetadata.model,
       model_version: generationMetadata.modelVersion,
@@ -413,7 +438,7 @@ export async function runCompilation(
     const filename = buildFilename(spec.world, spec.volume, spec.componentType, spec.specId, "Master", assetVersion);
 
     await updateRun(runId, {
-      compiledPrompt: compiled.providerPrompt,
+      compiledPrompt: effectiveProviderPrompt,
       promptHash,
       assetId,
       assetVersion,
@@ -496,7 +521,7 @@ export async function runCompilation(
     if (!dryRun && spec.notionPageId && !isLocalProductionRequest) {
       try {
         if (!visualAssetNotionId) {
-          visualAssetNotionId = await upsertVisualAsset(chain, compiled.providerPrompt, promptHash, assetId, filename);
+          visualAssetNotionId = await upsertVisualAsset(chain, effectiveProviderPrompt, promptHash, assetId, filename);
         }
         await updateRun(runId, { visualAssetNotionId: visualAssetNotionId ?? undefined });
       } catch (err) {
@@ -521,14 +546,16 @@ export async function runCompilation(
         dryRun,
         productionSpecId: specId,
         promptHash,
-        compiledPrompt: compiled.providerPrompt,
+        compiledPrompt: effectiveProviderPrompt,
         negativePrompt: compiled.negativePrompt,
         generationPolicy: compiled.generationPolicy,
         filename,
         visualAssetNotionId,
         isLocal: isLocalProductionRequest,
         productionPackageId: req.production_package_id,
-        forceNew: req.force_new === true,
+        // A revision already has a deterministic prompt hash, so identical
+        // submissions can resume/reuse one package instead of billing twice.
+        forceNew: req.force_new === true && !req.revision_prompt,
         target: generationTarget,
         generation: generationMetadata,
       });
@@ -550,7 +577,7 @@ export async function runCompilation(
           compiled_prompt_status: "Compiled",
           prompt_hash: promptHash,
           compiled_prompt: compiled.fullPrompt,
-          generation_prompt: compiled.providerPrompt,
+          generation_prompt: effectiveProviderPrompt,
           compiled_sections: compiled.sectionRecords,
           visual_asset_id: visualAssetNotionId ?? undefined,
           warnings: [...systemWarnings, ...payloadValidation.warnings, ...canonValidation.warnings, ...(chain.warnings ?? [])],
@@ -677,7 +704,7 @@ export async function runCompilation(
       compiled_prompt_status: "Compiled",
       prompt_hash: promptHash,
       compiled_prompt: compiled.fullPrompt,
-      generation_prompt: compiled.providerPrompt,
+      generation_prompt: effectiveProviderPrompt,
       compiled_sections: compiled.sectionRecords,
       provenance,
       visual_asset_id: visualAssetNotionId ?? undefined,

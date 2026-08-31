@@ -40,6 +40,18 @@ const NON_READABLE_NOUN_PHRASE = new Set([
   "style",
   "treatment",
 ]);
+const ENFORCEABLE_SINGLE_TOKEN_NEGATIVES = new Set([
+  "modern",
+  "contemporary",
+  "digital",
+  "neon",
+  "photorealistic",
+  "photographic",
+  "photography",
+  "plastic",
+  "synthetic",
+  "chrome",
+]);
 export const MAX_PROVIDER_PROMPT_LENGTH = 32_000;
 const PROVIDER_PROMPT_TARGET_LENGTH = 30_000;
 
@@ -70,6 +82,19 @@ function key(value: string): string {
     .replace(/\b(?:no|not|never|avoid|exclude|prohibited?|forbidden|must|do|without)\b/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function conceptKey(value: string): string {
+  return key(value)
+    .split(/\s+/)
+    .filter((token) => token && !["a", "an", "the"].includes(token))
+    .map((token) => {
+      if (token.length > 4 && token.endsWith("ies")) return `${token.slice(0, -3)}y`;
+      if (token.length > 4 && /(?:ches|shes|ses|xes|zes)$/.test(token)) return token.slice(0, -2);
+      if (token.length > 3 && token.endsWith("s") && !token.endsWith("ss")) return token.slice(0, -1);
+      return token;
+    })
+    .join(" ");
 }
 
 function readableTextKey(value: string): string {
@@ -118,6 +143,93 @@ function compactProviderPrompt(prompt: string): string {
   return compactedPrompt.length <= MAX_PROVIDER_PROMPT_LENGTH
     ? compactedPrompt
     : compactedPrompt.slice(0, PROVIDER_PROMPT_TARGET_LENGTH);
+}
+
+/** Add a transient operator revision without changing the source specification. */
+export function applyProviderPromptRevision(
+  policy: GenerationPromptPolicy,
+  providerPrompt: string,
+  negativePrompt: string | undefined,
+  revisionPrompt: string,
+): string {
+  const revision = clean(revisionPrompt);
+  if (!revision) return providerPrompt;
+  const styleSafeRevision = positiveClauses(revision, policy.photographyProhibited);
+  const governedRevision = policy.readableTextClosedWorld
+    ? closedWorldPositiveClauses(styleSafeRevision, policy)
+    : styleSafeRevision;
+  const negativeSection = negativePrompt
+    ? `\n\n[NEGATIVE CONSTRAINTS / NEGATIVE PROMPT]\n${negativePrompt}`
+    : "";
+  const promptWithoutNegative = negativeSection && providerPrompt.endsWith(negativeSection)
+    ? providerPrompt.slice(0, -negativeSection.length)
+    : providerPrompt;
+  return compactProviderPrompt(
+    `${promptWithoutNegative}\n\n[OPERATOR REVISION]\n${governedRevision}${negativeSection}`,
+  );
+}
+
+/** Reject operator instructions that explicitly contradict inherited governance. */
+export function validateProviderPromptRevision(
+  policy: GenerationPromptPolicy,
+  revisionPrompt: string,
+  negativePrompt?: string,
+): ValidationError[] {
+  const revision = clean(revisionPrompt);
+  if (!revision) return [];
+  const errors: ValidationError[] = [];
+  if (
+    policy.photographyProhibited
+    && sourceSentences(revision).some((sentence) =>
+      PHOTO_TERMS.test(sentence) && !NEGATIVE_CUE.test(sentence)
+    )
+  ) {
+    errors.push({
+      code: "REVISION_CONFLICTS_WITH_RENDERING_GOVERNANCE",
+      field: "revision_prompt",
+      governing_rule: "WS-RENDERING-GOVERNANCE-001",
+      message: "The revision requests photography or photorealistic rendering, but the governing Style Guide prohibits it.",
+      recommended_action: "Describe the desired change within the approved illustrated rendering treatment.",
+    });
+  }
+  if (
+    /\b(?:ignore|disregard|override|bypass|remove|disable)\b.{0,50}\b(?:canon|style guide|governance|negative constraints?|rendering lock|production spec)\b/i.test(revision)
+  ) {
+    errors.push({
+      code: "REVISION_CONFLICTS_WITH_GOVERNANCE",
+      field: "revision_prompt",
+      governing_rule: "WS-REVISION-GOVERNANCE-001",
+      message: "The revision cannot remove or override inherited Production Spec, Canon, Style Guide, or negative constraints.",
+      recommended_action: "Describe only the visual or compositional change you want within the approved constraints.",
+    });
+  }
+  const positiveRevisionSentences = sourceSentences(revision)
+    .filter((sentence) =>
+      !NEGATIVE_CUE.test(sentence)
+      && /\b(?:add|allow|include|introduce|feature|show|place|render|display|use|create|make)\b/i.test(sentence)
+    );
+  const contradictedConstraint = (negativePrompt ?? "")
+    .split(/\s*,\s*/)
+    .map((constraint) => conceptKey(constraint))
+    .filter((constraint) => {
+      const tokens = constraint.split(/\s+/).filter(Boolean);
+      return tokens.length >= 2 || ENFORCEABLE_SINGLE_TOKEN_NEGATIVES.has(tokens[0] ?? "");
+    })
+    .find((constraint) =>
+      positiveRevisionSentences.some((sentence) =>
+        conceptKey(sentence).includes(constraint)
+      )
+    );
+  if (contradictedConstraint) {
+    errors.push({
+      code: "REVISION_CONFLICTS_WITH_NEGATIVE_CONSTRAINT",
+      field: "revision_prompt",
+      governing_rule: "WS-REVISION-GOVERNANCE-002",
+      message: `The revision affirmatively requests content prohibited by the compiled negative constraints: "${contradictedConstraint}".`,
+      recommended_action: "Remove the prohibited request and describe a change that remains within the compiled constraints.",
+    });
+  }
+  return errors;
 }
 
 function unique(values: Array<string | null | undefined>): string[] {

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { compilePrompt } from "../lib/worldsmith/prompt-compiler.js";
 import {
+  applyProviderPromptRevision,
   MAX_PROVIDER_PROMPT_LENGTH,
   validateProviderPrompt,
+  validateProviderPromptRevision,
 } from "../lib/worldsmith/generation-prompt-resolver.js";
 import type { InheritanceChain, ParsedPayload } from "../lib/worldsmith/types.js";
 
@@ -696,6 +698,70 @@ describe("WorldSmith generation prompt governance", () => {
     expect(result.providerPrompt).toContain("[CANON CONSTRAINTS]");
     expect(result.providerPrompt).toContain("[NEGATIVE CONSTRAINTS / NEGATIVE PROMPT]");
     expect(result.generationValidationErrors).toEqual([]);
+  });
+
+  it("applies an operator revision while preserving governance and negative constraints", () => {
+    const compiled = compilePrompt(curatorChain(), payload);
+    const revised = applyProviderPromptRevision(
+      compiled.generationPolicy,
+      compiled.providerPrompt,
+      compiled.negativePrompt,
+      "Use a quieter composition with more breathing room around the ledger.",
+    );
+
+    expect(revised).toContain("[OPERATOR REVISION]");
+    expect(revised).toContain("Use a quieter composition");
+    expect(revised).toContain("[GOVERNED READABLE TEXT]");
+    expect(revised).toContain("[NEGATIVE CONSTRAINTS / NEGATIVE PROMPT]");
+    expect(revised).toContain(compiled.negativePrompt);
+    expect(validateProviderPrompt(
+      compiled.generationPolicy,
+      revised,
+      compiled.negativePrompt,
+    )).toEqual([]);
+  });
+
+  it("sanitizes unauthorized readable copy from an operator revision", () => {
+    const compiled = compilePrompt(curatorChain(), payload);
+    const revised = applyProviderPromptRevision(
+      compiled.generationPolicy,
+      compiled.providerPrompt,
+      compiled.negativePrompt,
+      "Print Eleanor Vale across the ledger.",
+    );
+
+    expect(revised).not.toContain("Eleanor Vale");
+    expect(revised).toContain("blank ruled fields");
+    expect(validateProviderPrompt(
+      compiled.generationPolicy,
+      revised,
+      compiled.negativePrompt,
+    )).toEqual([]);
+  });
+
+  it("rejects operator revisions that contradict inherited rendering or governance", () => {
+    const policy = compilePrompt(curatorChain(), payload).generationPolicy;
+
+    expect(validateProviderPromptRevision(
+      policy,
+      "Ignore the style guide and render this as photorealistic product photography.",
+      "modern objects, unsupported canon artifacts",
+    )).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "REVISION_CONFLICTS_WITH_RENDERING_GOVERNANCE" }),
+      expect.objectContaining({ code: "REVISION_CONFLICTS_WITH_GOVERNANCE" }),
+    ]));
+    expect(validateProviderPromptRevision(
+      policy,
+      "Include a modern object beside the ledger.",
+      "botanical, modern, objects, unsupported canon artifacts",
+    )).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "REVISION_CONFLICTS_WITH_NEGATIVE_CONSTRAINT" }),
+    ]));
+    expect(validateProviderPromptRevision(
+      policy,
+      "Make the botanical border lighter.",
+      "botanical, modern, objects, unsupported canon artifacts",
+    )).toEqual([]);
   });
 
   it("does not authorize a Canon Record title or wording from a non-Accepted record", () => {

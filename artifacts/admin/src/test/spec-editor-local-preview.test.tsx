@@ -366,6 +366,86 @@ describe("SpecEditor local specification board", () => {
     );
   });
 
+  it("shows artwork revision instructions and selects an earlier review candidate", async () => {
+    const approvedSpec = { ...spec, status: "approved" };
+    const newerPackage = {
+      id: "package-newer",
+      status: "success",
+      production_art_status: "artwork_review",
+      filename: "newer-final.png",
+      artwork_url: "/api/storage/objects/worldsmith/final-artwork/newer-final.png",
+      provider: "replit_ai_integrations",
+      model: "gpt-image-2",
+      effective_size: "1440x1440",
+      quality: "medium",
+      revision_prompt: "Use a denser botanical border.",
+      is_review_candidate: true,
+    };
+    const earlierPackage = {
+      ...newerPackage,
+      id: "package-earlier",
+      filename: "earlier-final.png",
+      artwork_url: "/api/storage/objects/worldsmith/final-artwork/earlier-final.png",
+      revision_prompt: "Leave more breathing room around the ledger.",
+      is_review_candidate: false,
+    };
+    apiFetch.mockImplementation((path: string, options?: { method?: string; body?: string }) => {
+      if (path === "/v1/editorial/specs/spec-local") {
+        return Promise.resolve({
+          spec: approvedSpec,
+          relationships: { style_guide: null, component_spec: null, canon_records: [], prompt_modules: [] },
+        });
+      }
+      if (path === "/v1/editorial/component-sets?world_id=world-1") {
+        return Promise.resolve({ component_sets: [] });
+      }
+      if (path === "/v1/worldsmith/spec-preview/local/spec-local") {
+        return Promise.resolve({ preview: null });
+      }
+      if (path === "/v1/production-packages?production_spec_id=spec-local") {
+        return Promise.resolve({
+          package: newerPackage,
+          last_successful: newerPackage,
+          current_review_candidate: newerPackage,
+          revisions: [newerPackage, earlierPackage],
+        });
+      }
+      if (path === "/v1/production-packages/package-earlier/select" && options?.method === "POST") {
+        return Promise.resolve({
+          current_review_candidate: { ...earlierPackage, is_review_candidate: true },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SpecEditor specId="spec-local" />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Use a denser botanical border.")).toBeInTheDocument();
+    expect(screen.getByText("Leave more breathing room around the ledger.")).toBeInTheDocument();
+    expect(screen.getByRole("img", {
+      name: "Artwork revision 1 for Thornvale Hero Paper",
+    })).toHaveAttribute(
+      "src",
+      "/api/storage/objects/worldsmith/final-artwork/earlier-final.png",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Use artwork version 1 for review" }));
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        "/v1/production-packages/package-earlier/select",
+        {
+          method: "POST",
+          body: JSON.stringify({ production_spec_id: "spec-local" }),
+        },
+      );
+    });
+  });
+
   it("keeps board approval disabled while prerequisites are incomplete", async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

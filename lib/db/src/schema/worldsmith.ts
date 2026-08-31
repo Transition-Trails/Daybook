@@ -71,6 +71,7 @@ export const worldsmithProductionPackagesTable = pgTable("worldsmith_production_
   effectiveSize: text("effective_size").notNull(),
   quality: text("quality").notNull(),
   filename: text("filename").notNull(),
+  revisionPrompt: text("revision_prompt"),
   visualAssetNotionId: text("visual_asset_notion_id"),
   notionUploadId: text("notion_upload_id"),
   providerRequestId: text("provider_request_id"),
@@ -80,6 +81,9 @@ export const worldsmithProductionPackagesTable = pgTable("worldsmith_production_
   status: text("status").notNull().default("generating"),
   // Separate from specification-board review state: not_started | artwork_review
   productionArtStatus: text("production_art_status").notNull().default("not_started"),
+  // Exactly one successful package per specification may be the operator's
+  // current review candidate. Older rows remain available for comparison.
+  isReviewCandidate: boolean("is_review_candidate").notNull().default(false),
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })

@@ -16,6 +16,11 @@ const migrationUrl = new URL(
   import.meta.url,
 );
 const migrationSql = await readFile(migrationUrl, "utf8");
+const revisionMigrationUrl = new URL(
+  "../../../../lib/db/drizzle/0033_worldsmith_artwork_revision_history.sql",
+  import.meta.url,
+);
+const revisionMigrationSql = await readFile(revisionMigrationUrl, "utf8");
 
 type QueryableClient = {
   query<T extends Record<string, unknown> = Record<string, unknown>>(
@@ -54,6 +59,13 @@ async function createPreProductionPackageSchema(client: QueryableClient) {
 
 async function applyTrackedMigration(client: QueryableClient) {
   for (const statement of migrationSql.split("--> statement-breakpoint")) {
+    const sql = statement.trim();
+    if (sql) await client.query(sql);
+  }
+}
+
+async function applyRevisionMigration(client: QueryableClient) {
+  for (const statement of revisionMigrationSql.split("--> statement-breakpoint")) {
     const sql = statement.trim();
     if (sql) await client.query(sql);
   }
@@ -187,6 +199,48 @@ describe("WorldSmith production-package tracked migration", () => {
         FROM worldsmith_runs
         ORDER BY id
       `)).rows).toEqual(before.rows);
+    });
+  });
+
+  it("adds revision metadata and selects the newest successful package", async () => {
+    await inIsolatedSchema(async (client, schema) => {
+      await createPreProductionPackageSchema(client);
+      await applyTrackedMigration(client);
+      await client.query(`
+        INSERT INTO worldsmith_production_packages (
+          id, production_spec_id, prompt_hash, provider, model_name,
+          effective_size, quality, filename, status, created_at
+        ) VALUES
+          ('older', 'spec-1', 'hash-1', 'provider', 'model', '1024x1024', 'medium', 'older.png', 'success', '2026-08-30T00:00:00Z'),
+          ('newer', 'spec-1', 'hash-2', 'provider', 'model', '1024x1024', 'medium', 'newer.png', 'success', '2026-08-31T00:00:00Z'),
+          ('failed', 'spec-2', 'hash-3', 'provider', 'model', '1024x1024', 'medium', 'failed.png', 'generation_failed', '2026-08-31T00:00:00Z')
+      `);
+
+      await applyRevisionMigration(client);
+
+      const columns = await client.query<{ column_name: string; is_nullable: string }>(`
+        SELECT column_name, is_nullable
+        FROM information_schema.columns
+        WHERE table_schema = $1
+          AND table_name = 'worldsmith_production_packages'
+          AND column_name IN ('revision_prompt', 'is_review_candidate')
+        ORDER BY column_name
+      `, [schema]);
+      expect(columns.rows).toEqual([
+        { column_name: "is_review_candidate", is_nullable: "NO" },
+        { column_name: "revision_prompt", is_nullable: "YES" },
+      ]);
+
+      const candidates = await client.query<{ id: string; is_review_candidate: boolean }>(`
+        SELECT id, is_review_candidate
+        FROM worldsmith_production_packages
+        ORDER BY id
+      `);
+      expect(candidates.rows).toEqual([
+        { id: "failed", is_review_candidate: false },
+        { id: "newer", is_review_candidate: true },
+        { id: "older", is_review_candidate: false },
+      ]);
     });
   });
 });

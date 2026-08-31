@@ -38,6 +38,7 @@ vi.mock("@workspace/db", () => {
     effectiveSize: "effective_size",
     quality: "quality",
     filename: "filename",
+    revisionPrompt: "revision_prompt",
     visualAssetNotionId: "visual_asset_notion_id",
     notionUploadId: "notion_upload_id",
     providerRequestId: "provider_request_id",
@@ -45,7 +46,9 @@ vi.mock("@workspace/db", () => {
     actualCostUsd: "actual_cost_usd",
     status: "status",
     productionArtStatus: "production_art_status",
+    isReviewCandidate: "is_review_candidate",
     error: "error",
+    createdAt: "created_at",
     updatedAt: "updated_at",
   };
   const imageTargetsTable = {
@@ -88,16 +91,26 @@ vi.mock("@workspace/db", () => {
         const column = chunkText(chunks[operatorIndex - 1]);
         const value = chunks[operatorIndex + 1];
         if (column) {
+          const rawValues = Array.isArray(value) ? value : [value];
           predicates.push({
             column,
-            values: Array.isArray(value) ? value : [value],
+            values: rawValues.map(candidate => (
+              typeof candidate === "object"
+              && candidate !== null
+              && "value" in candidate
+                ? candidate.value
+                : candidate
+            )),
           });
         }
       }
       chunks.forEach(visit);
     };
     visit(condition);
-    return predicates.every(({ column, values }) => values.includes(row[column]));
+    return predicates.every(({ column, values }) => {
+      const camelColumn = column.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+      return values.includes(row[column] ?? row[camelColumn]);
+    });
   };
 
   return {
@@ -133,7 +146,9 @@ vi.mock("@workspace/db", () => {
                 notionUploadId: null,
                 providerRequestId: null,
                 actualCostUsd: null,
+                isReviewCandidate: false,
                 error: null,
+                createdAt: new Date(),
               };
               packageRows.value.push(row);
               return [row];
@@ -143,7 +158,7 @@ vi.mock("@workspace/db", () => {
       })),
       select: vi.fn((fields: unknown) => ({
         from: () => ({
-          where: () => ({
+          where: (condition: unknown) => ({
             limit: async () => {
               const isCatalogQuery = !!fields
                 && typeof fields === "object"
@@ -151,9 +166,13 @@ vi.mock("@workspace/db", () => {
               if (isCatalogQuery) {
                 return [{ printWidthIn: 12, printHeightIn: 12 }];
               }
-              const row = firstRow();
+              const row = packageRows.value.find(candidate => matchesCondition(condition, candidate)) ?? null;
               return row ? [{ ...row }] : [];
             },
+            orderBy: async () => packageRows.value
+              .filter(candidate => matchesCondition(condition, candidate))
+              .sort((a, b) => new Date(String(b.createdAt)).getTime() - new Date(String(a.createdAt)).getTime())
+              .map(row => ({ ...row })),
           }),
         }),
       })),
@@ -165,10 +184,9 @@ vi.mock("@workspace/db", () => {
                 packageClaimAttempts.value += 1;
                 packageClaimAttempts.onAttempt?.();
               }
-              const row = packageRows.value.find((candidate) => matchesCondition(condition, candidate)) ?? null;
-              if (!row) return [];
-              Object.assign(row, patch);
-              return [row];
+              const rows = packageRows.value.filter(candidate => matchesCondition(condition, candidate));
+              rows.forEach(row => Object.assign(row, patch));
+              return rows.map(row => ({ ...row }));
             },
           }),
         }),
@@ -328,6 +346,33 @@ const baseInput = {
     settings: { size: "1440x1440", quality: "medium" as const },
   },
 };
+
+function productionPackageRow(overrides: Record<string, unknown> = {}) {
+  const id = String(overrides.id ?? "package-1");
+  return {
+    id,
+    productionSpecId: "spec-1",
+    promptHash: `prompt-${id}`,
+    status: "success",
+    productionArtStatus: "artwork_review",
+    filename: `${id}.png`,
+    revisionPrompt: null,
+    isReviewCandidate: false,
+    providerRequestId: `/objects/worldsmith/final-artwork/${id}.png`,
+    visualAssetNotionId: null,
+    notionUploadId: null,
+    provider: "replit_ai_integrations",
+    modelName: "gpt-image-2",
+    modelVersion: "2026-01",
+    effectiveSize: "1440x1440",
+    quality: "medium",
+    estimatedCostUsd: null,
+    error: null,
+    createdAt: new Date("2026-08-31T12:00:00.000Z"),
+    updatedAt: new Date("2026-08-31T12:00:00.000Z"),
+    ...overrides,
+  };
+}
 
 describe("WorldSmith final production packages", () => {
   beforeEach(() => {
@@ -542,6 +587,99 @@ describe("WorldSmith final production packages", () => {
     expect(packageRows.value).toHaveLength(1);
     expect(mockGenerateImage).toHaveBeenCalledTimes(1);
     expect(packageRows.value[0]?.promptHash).not.toContain(":regeneration:");
+    expect(packageRows.value[0]).toMatchObject({
+      revisionPrompt: "Use a quieter composition with more breathing room.",
+      isReviewCandidate: true,
+    });
+  });
+
+  it("lists successful revisions and identifies the selected review candidate", async () => {
+    packageRows.value = [
+      productionPackageRow({
+        id: "package-newer",
+        revisionPrompt: "Use a denser botanical border.",
+        isReviewCandidate: false,
+        createdAt: new Date("2026-08-31T12:00:00.000Z"),
+      }),
+      productionPackageRow({
+        id: "package-earlier",
+        revisionPrompt: "Leave more breathing room.",
+        isReviewCandidate: true,
+        createdAt: new Date("2026-08-30T12:00:00.000Z"),
+      }),
+      productionPackageRow({
+        id: "package-other-spec",
+        productionSpecId: "spec-2",
+        isReviewCandidate: true,
+        createdAt: new Date("2026-08-31T13:00:00.000Z"),
+      }),
+    ];
+
+    const response = await request(makeApp())
+      .get("/api/v1/production-packages")
+      .query({ production_spec_id: "spec-1" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.current_review_candidate).toMatchObject({
+      id: "package-earlier",
+      revision_prompt: "Leave more breathing room.",
+      is_review_candidate: true,
+    });
+    expect(response.body.revisions.map((revision: { id: string }) => revision.id)).toEqual([
+      "package-newer",
+      "package-earlier",
+    ]);
+    expect(response.body.revisions[0].artwork_url).toBe(
+      "/api/storage/objects/worldsmith/final-artwork/package-newer.png",
+    );
+  });
+
+  it("selects an earlier same-spec revision without deleting newer artwork", async () => {
+    packageRows.value = [
+      productionPackageRow({
+        id: "package-newer",
+        revisionPrompt: "Use a denser botanical border.",
+        isReviewCandidate: true,
+        createdAt: new Date("2026-08-31T12:00:00.000Z"),
+      }),
+      productionPackageRow({
+        id: "package-earlier",
+        isReviewCandidate: false,
+        createdAt: new Date("2026-08-30T12:00:00.000Z"),
+      }),
+    ];
+
+    const response = await request(makeApp())
+      .post("/api/v1/production-packages/package-earlier/select")
+      .send({ production_spec_id: "spec-1" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.current_review_candidate).toMatchObject({
+      id: "package-earlier",
+      is_review_candidate: true,
+    });
+    expect(packageRows.value).toHaveLength(2);
+    expect(packageRows.value.find(row => row.id === "package-newer")).toMatchObject({
+      isReviewCandidate: false,
+    });
+    expect(packageRows.value.find(row => row.id === "package-earlier")).toMatchObject({
+      isReviewCandidate: true,
+    });
+  });
+
+  it("refuses to select a package through a different specification", async () => {
+    packageRows.value = [productionPackageRow({
+      id: "package-other-spec",
+      productionSpecId: "spec-2",
+      isReviewCandidate: true,
+    })];
+
+    const response = await request(makeApp())
+      .post("/api/v1/production-packages/package-other-spec/select")
+      .send({ production_spec_id: "spec-1" });
+
+    expect(response.status).toBe(404);
+    expect(packageRows.value[0]).toMatchObject({ isReviewCandidate: true });
   });
 
   it("rejects a revision that attempts to override the rendering lock before provider generation", async () => {
@@ -707,8 +845,20 @@ describe("WorldSmith final production packages", () => {
       };
     });
 
-    const retryA = runFinalArtwork({ ...baseInput, runId: "run-concurrent-a" });
-    const retryB = runFinalArtwork({ ...baseInput, runId: "run-concurrent-b" });
+    const productionSpecId = String(packageRows.value[0]?.productionSpecId);
+    const productionPackageId = String(packageRows.value[0]?.id);
+    const retryA = runFinalArtwork({
+      ...baseInput,
+      productionSpecId,
+      productionPackageId,
+      runId: "run-concurrent-a",
+    });
+    const retryB = runFinalArtwork({
+      ...baseInput,
+      productionSpecId,
+      productionPackageId,
+      runId: "run-concurrent-b",
+    });
     const retries = Promise.all([retryA, retryB]);
 
     await providerHasStarted;

@@ -103,11 +103,16 @@ interface ProductionPackage {
   effective_size: string;
   quality: string;
   error?: string;
+  revision_prompt?: string;
+  is_review_candidate?: boolean;
+  created_at?: string;
 }
 
 interface ProductionPackageState {
   package: ProductionPackage | null;
   last_successful: ProductionPackage | null;
+  current_review_candidate?: ProductionPackage | null;
+  revisions?: ProductionPackage[];
 }
 
 // ── Radial dependency graph ───────────────────────────────────────────────────
@@ -179,6 +184,8 @@ function CompletionSidebar({
   artworkState,
   onGenerateArtwork,
   isGeneratingArtwork,
+  onSelectArtwork,
+  isSelectingArtwork,
 }: {
   spec: Spec;
   rels: SpecResponse["relationships"];
@@ -194,6 +201,8 @@ function CompletionSidebar({
   artworkState?: ProductionPackageState;
   onGenerateArtwork: (options?: { forceNew?: boolean; packageId?: string; revisionPrompt?: string }) => void;
   isGeneratingArtwork: boolean;
+  onSelectArtwork: (packageId: string) => void;
+  isSelectingArtwork: boolean;
 }) {
   const [revisionPrompt, setRevisionPrompt] = useState("");
   const [isRevisionEditorOpen, setIsRevisionEditorOpen] = useState(false);
@@ -214,9 +223,13 @@ function CompletionSidebar({
       : score >= BANDS.payloadReady ? "#F59E0B" : "#9CA3AF";
   const readinessLabel = !isCanonClear ? "Canon needed" : isPayloadReady ? "Canon clear" : "In progress";
   const artworkPackage = artworkState?.package ?? null;
-  const successfulArtwork = artworkPackage?.status === "success"
-    ? artworkPackage
-    : artworkState?.last_successful ?? null;
+  const revisions = artworkState?.revisions ?? (
+    artworkState?.last_successful ? [artworkState.last_successful] : []
+  );
+  const successfulArtwork = artworkState?.current_review_candidate
+    ?? revisions.find(revision => revision.is_review_candidate)
+    ?? (artworkPackage?.status === "success" ? artworkPackage : artworkState?.last_successful)
+    ?? null;
   const artworkApproved = spec.status.trim().toLowerCase() === "approved";
   const boardApproved = artworkApproved;
   const boardCompiled = spec.compiledPromptStatus.trim().toLowerCase() === "compiled";
@@ -526,6 +539,59 @@ function CompletionSidebar({
                 </div>
               </>
             )}
+          </div>
+        )}
+        {revisions.length > 0 && (
+          <div className="mb-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-[10px] uppercase tracking-widest text-gray-400">Artwork history</p>
+              <span className="text-[10px] text-gray-400">{revisions.length} version{revisions.length === 1 ? "" : "s"}</span>
+            </div>
+            <div className="space-y-2">
+              {revisions.map((revision, index) => {
+                const isCurrent = revision.id === successfulArtwork?.id;
+                const versionNumber = revisions.length - index;
+                return (
+                  <div
+                    key={revision.id}
+                    className={`rounded-lg border p-2 ${isCurrent ? "border-[var(--admin-ink)] bg-[var(--admin-card-subtle)]" : "border-gray-200 bg-white"}`}
+                  >
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-gray-700">Version {versionNumber}</span>
+                      {isCurrent && (
+                        <span className="rounded-full bg-[var(--admin-ink)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
+                          Reviewing
+                        </span>
+                      )}
+                    </div>
+                    {revision.artwork_url && (
+                      <a href={revision.artwork_url} target="_blank" rel="noopener noreferrer" className="block">
+                        <img
+                          src={revision.artwork_url}
+                          alt={`Artwork revision ${versionNumber} for ${spec.productionItem ?? "this specification"}`}
+                          className="w-full rounded border border-gray-200 bg-[var(--admin-card-subtle)]"
+                        />
+                      </a>
+                    )}
+                    <p className="mt-1.5 text-[10px] font-medium text-gray-500">Revision instruction</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-gray-700">
+                      {revision.revision_prompt ?? "Original generated artwork"}
+                    </p>
+                    {!isCurrent && (
+                      <button
+                        type="button"
+                        onClick={() => onSelectArtwork(revision.id)}
+                        disabled={isSelectingArtwork}
+                        aria-label={`Use artwork version ${versionNumber} for review`}
+                        className="mt-2 w-full rounded-md border border-[var(--admin-ink)] px-2 py-1.5 text-[11px] font-medium text-[var(--admin-ink)] hover:bg-[var(--admin-card-subtle)] disabled:opacity-40"
+                      >
+                        {isSelectingArtwork ? "Selecting…" : "Use for review"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
         {!artworkApproved && (
@@ -1325,6 +1391,29 @@ export default function SpecEditor({ specId }: { specId: string }) {
     }),
   });
 
+  const selectArtworkMutation = useMutation({
+    mutationFn: (packageId: string) =>
+      apiFetch<{ current_review_candidate: ProductionPackage }>(
+        `/v1/production-packages/${encodeURIComponent(packageId)}/select`,
+        {
+          method: "POST",
+          body: JSON.stringify({ production_spec_id: specId }),
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["editorial-production-package", specId] });
+      toast({
+        title: "Review candidate updated",
+        description: "The selected artwork is now shown for review. Newer versions remain in the history.",
+      });
+    },
+    onError: (err: Error) => toast({
+      title: "Artwork selection failed",
+      description: err.message,
+      variant: "destructive",
+    }),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: () => apiFetch(`/v1/editorial/specs/${specId}`, { method: "DELETE" }),
     onSuccess: () => {
@@ -1487,6 +1576,8 @@ export default function SpecEditor({ specId }: { specId: string }) {
           artworkState={artworkQuery.data}
           onGenerateArtwork={(options) => artworkMutation.mutate(options)}
           isGeneratingArtwork={artworkMutation.isPending}
+          onSelectArtwork={(packageId) => selectArtworkMutation.mutate(packageId)}
+          isSelectingArtwork={selectArtworkMutation.isPending}
         />
       </div>
     </div>

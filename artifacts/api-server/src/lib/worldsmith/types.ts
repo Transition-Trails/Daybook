@@ -496,6 +496,8 @@ export interface ProductionPackageResult {
   production_art_status: "not_started" | "artwork_review";
   idempotent: boolean;
   filename: string;
+  revision_prompt?: string;
+  is_review_candidate?: boolean;
   notion_upload_id?: string;
   visual_asset_id?: string;
   local_object_path?: string;

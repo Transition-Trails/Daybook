@@ -556,6 +556,7 @@ export async function runCompilation(
         // A revision already has a deterministic prompt hash, so identical
         // submissions can resume/reuse one package instead of billing twice.
         forceNew: req.force_new === true && !req.revision_prompt,
+        revisionPrompt: req.revision_prompt,
         target: generationTarget,
         generation: generationMetadata,
       });
@@ -814,6 +815,7 @@ type FinalArtworkInput = {
   isLocal?: boolean;
   productionPackageId?: string;
   forceNew?: boolean;
+  revisionPrompt?: string;
   target: {
     size: string;
     dpi: number;
@@ -901,6 +903,8 @@ function packageResponse(
     quality: string;
     estimatedCostUsd: number | null;
     error: string | null;
+    revisionPrompt: string | null;
+    isReviewCandidate: boolean;
   },
   target: FinalArtworkInput["target"],
   idempotent: boolean,
@@ -928,7 +932,27 @@ function packageResponse(
     },
     estimated_cost_usd: row.estimatedCostUsd,
     error: row.error ?? undefined,
+    revision_prompt: row.revisionPrompt ?? undefined,
+    is_review_candidate: row.isReviewCandidate === true,
   };
+}
+
+async function markReviewCandidate(packageId: string, productionSpecId: string) {
+  await db
+    .update(worldsmithProductionPackagesTable)
+    .set({ isReviewCandidate: false, updatedAt: new Date() })
+    .where(eq(worldsmithProductionPackagesTable.productionSpecId, productionSpecId))
+    .returning();
+  const [selected] = await db
+    .update(worldsmithProductionPackagesTable)
+    .set({ isReviewCandidate: true, updatedAt: new Date() })
+    .where(and(
+      eq(worldsmithProductionPackagesTable.id, packageId),
+      eq(worldsmithProductionPackagesTable.productionSpecId, productionSpecId),
+      eq(worldsmithProductionPackagesTable.status, "success"),
+    ))
+    .returning();
+  return selected;
 }
 
 function decodeGeneratedImage(dataUrl: string): Buffer {
@@ -1079,6 +1103,7 @@ async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkRe
       effectiveSize: generation.settings.size,
       quality: generation.settings.quality,
       filename: input.filename,
+      revisionPrompt: input.revisionPrompt ?? null,
       visualAssetNotionId: input.visualAssetNotionId,
       estimatedCostUsd: estimate.cost,
       status: "generating",
@@ -1090,7 +1115,8 @@ async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkRe
   let packageRow = created ?? requestedPackage;
   if (requestedPackage) {
     if (packageRow!.status === "success") {
-      return packageResponse(packageRow!, target, true);
+      const candidate = await markReviewCandidate(packageRow!.id, input.productionSpecId);
+      return packageResponse(candidate ?? packageRow!, target, true);
     }
     if (packageRow!.status === "generating") {
       return {
@@ -1126,6 +1152,7 @@ async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkRe
     packageRow = existing;
 
     if (packageRow.status === "success") {
+      const candidate = await markReviewCandidate(packageRow.id, input.productionSpecId);
       await updateRun(input.runId, {
         status: "complete",
         generatedFilename: packageRow.filename,
@@ -1133,7 +1160,7 @@ async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkRe
         providerRequestId: packageRow.providerRequestId ?? undefined,
         costUsd: packageRow.actualCostUsd ?? undefined,
       });
-      return packageResponse(packageRow, target, true);
+      return packageResponse(candidate ?? packageRow, target, true);
     }
 
     // A file made it to Notion but the Visual Asset status update failed. Retry
@@ -1150,12 +1177,13 @@ async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkRe
           .where(eq(worldsmithProductionPackagesTable.id, packageRow.id))
           .returning();
         packageRow = updated ?? packageRow;
+        const candidate = await markReviewCandidate(packageRow.id, input.productionSpecId);
         await updateRun(input.runId, {
           status: "complete",
           generatedFilename: packageRow.filename,
           notionUploadId: packageRow.notionUploadId ?? undefined,
         });
-        return packageResponse(packageRow, target, true);
+        return packageResponse(candidate ?? packageRow, target, true);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         await db
@@ -1195,12 +1223,13 @@ async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkRe
           .where(eq(worldsmithProductionPackagesTable.id, packageRow.id))
           .returning();
         packageRow = completed ?? packageRow;
+        const candidate = await markReviewCandidate(packageRow.id, input.productionSpecId);
         await updateRun(input.runId, {
           status: "complete",
           generatedFilename: packageRow.filename,
           notionUploadId: packageRow.notionUploadId ?? undefined,
         });
-        return packageResponse(packageRow, target, true);
+        return packageResponse(candidate ?? packageRow, target, true);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const [updated] = await db
@@ -1284,11 +1313,12 @@ async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkRe
         })
         .where(eq(worldsmithProductionPackagesTable.id, packageRow.id))
         .returning();
+      const candidate = await markReviewCandidate(packageRow.id, input.productionSpecId);
       await updateRun(input.runId, {
         status: "complete",
         generatedFilename: input.filename,
       });
-      return packageResponse(completed ?? packageRow, target, false);
+      return packageResponse(candidate ?? completed ?? packageRow, target, false);
     }
     uploadId = await uploadFileToNotion(imageBuffer, input.filename, "image/png");
     await attachUploadToPageProperty(input.visualAssetNotionId!, "Final Artwork", uploadId, input.filename);
@@ -1344,7 +1374,8 @@ async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkRe
       .set({ status: "success", productionArtStatus: "artwork_review", error: null, updatedAt: new Date() })
       .where(eq(worldsmithProductionPackagesTable.id, packageRow.id))
       .returning();
-    return packageResponse(completed ?? packageRow, target, false);
+    const candidate = await markReviewCandidate(packageRow.id, input.productionSpecId);
+    return packageResponse(candidate ?? completed ?? packageRow, target, false);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await db

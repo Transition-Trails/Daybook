@@ -232,6 +232,13 @@
       "when": 1788120000000,
       "tag": "0032_worldsmith_spec_drafts",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1788206400000,
+      "tag": "0033_worldsmith_artwork_revision_history",
+      "breakpoints": true
     }
   ]
 }

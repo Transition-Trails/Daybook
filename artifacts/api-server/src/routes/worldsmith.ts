@@ -387,6 +387,9 @@ router.get("/v1/production-packages", requireAuth, requireSuperAdmin, async (req
     production_art_status: row.productionArtStatus,
     idempotent: true,
     filename: row.filename,
+    revision_prompt: row.revisionPrompt ?? undefined,
+    is_review_candidate: row.isReviewCandidate === true,
+    created_at: row.createdAt?.toISOString?.() ?? undefined,
     notion_upload_id: row.notionUploadId ?? undefined,
     visual_asset_id: row.visualAssetNotionId ?? undefined,
     local_object_path: row.providerRequestId?.startsWith("/objects/") ? row.providerRequestId : undefined,
@@ -399,9 +402,77 @@ router.get("/v1/production-packages", requireAuth, requireSuperAdmin, async (req
     estimated_cost_usd: row.estimatedCostUsd,
     error: row.error ?? undefined,
   } : null;
+  const successfulRows = rows.filter(row => row.status === "success");
+  const currentCandidate = successfulRows.find(row => row.isReviewCandidate)
+    ?? successfulRows[0]
+    ?? null;
   res.json({
     package: serialize(rows[0]),
-    last_successful: serialize(rows.find(row => row.status === "success")),
+    last_successful: serialize(successfulRows[0]),
+    current_review_candidate: serialize(currentCandidate),
+    revisions: successfulRows.map(serialize),
+  });
+});
+
+router.post("/v1/production-packages/:package_id/select", requireAuth, requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const packageId = String(req.params.package_id ?? "").trim();
+  const productionSpecId = String(req.body?.production_spec_id ?? "").trim();
+  if (!packageId || !productionSpecId) {
+    res.status(400).json({ error: "package_id and production_spec_id are required", code: "MISSING_PACKAGE_SELECTION_INPUT" });
+    return;
+  }
+
+  const [candidate] = await db
+    .select()
+    .from(worldsmithProductionPackagesTable)
+    .where(and(
+      eq(worldsmithProductionPackagesTable.id, packageId),
+      eq(worldsmithProductionPackagesTable.productionSpecId, productionSpecId),
+      eq(worldsmithProductionPackagesTable.status, "success"),
+    ))
+    .limit(1);
+  if (!candidate) {
+    res.status(404).json({ error: "Successful artwork revision not found for this specification", code: "ARTWORK_REVISION_NOT_FOUND" });
+    return;
+  }
+
+  await db
+    .update(worldsmithProductionPackagesTable)
+    .set({ isReviewCandidate: false, updatedAt: new Date() })
+    .where(eq(worldsmithProductionPackagesTable.productionSpecId, productionSpecId))
+    .returning();
+  const [selected] = await db
+    .update(worldsmithProductionPackagesTable)
+    .set({ isReviewCandidate: true, updatedAt: new Date() })
+    .where(and(
+      eq(worldsmithProductionPackagesTable.id, packageId),
+      eq(worldsmithProductionPackagesTable.productionSpecId, productionSpecId),
+      eq(worldsmithProductionPackagesTable.status, "success"),
+    ))
+    .returning();
+
+  const serializeSelected = selected ?? candidate;
+  res.json({
+    current_review_candidate: {
+      id: serializeSelected.id,
+      status: serializeSelected.status,
+      production_art_status: serializeSelected.productionArtStatus,
+      idempotent: true,
+      filename: serializeSelected.filename,
+      revision_prompt: serializeSelected.revisionPrompt ?? undefined,
+      is_review_candidate: true,
+      notion_upload_id: serializeSelected.notionUploadId ?? undefined,
+      visual_asset_id: serializeSelected.visualAssetNotionId ?? undefined,
+      local_object_path: serializeSelected.providerRequestId?.startsWith("/objects/") ? serializeSelected.providerRequestId : undefined,
+      artwork_url: serializeSelected.providerRequestId?.startsWith("/objects/") ? `/api/storage${serializeSelected.providerRequestId}` : undefined,
+      provider: serializeSelected.provider,
+      model: serializeSelected.modelName,
+      model_version: serializeSelected.modelVersion || undefined,
+      effective_size: serializeSelected.effectiveSize,
+      quality: serializeSelected.quality,
+      estimated_cost_usd: serializeSelected.estimatedCostUsd,
+      error: serializeSelected.error ?? undefined,
+    },
   });
 });
 

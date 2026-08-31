@@ -609,6 +609,54 @@ describe("WorldSmith generation prompt governance", () => {
     expect(compiled.providerPrompt).toContain("blank ruled fields");
   });
 
+  it("does not mistake technical print requirements for readable copy", () => {
+    const chain = curatorChain();
+    chain.productionSpec.reviewCriteria = "No invented readable text.";
+    const compiled = compilePrompt(chain, payload);
+    const technicalNegative = `${compiled.negativePrompt}, print requirements`;
+    const providerPrompt = compiled.providerPrompt.replace(
+      compiled.negativePrompt!,
+      technicalNegative,
+    );
+
+    expect(validateProviderPrompt(
+      compiled.generationPolicy,
+      providerPrompt,
+      technicalNegative,
+    )).toEqual([]);
+  });
+
+  it("does not mistake a quoted decorative adjective for readable copy", () => {
+    const chain = curatorChain();
+    chain.productionSpec.reviewCriteria = "No invented readable text.";
+    const compiled = compilePrompt(chain, payload);
+    const technicalNegative = `${compiled.negativePrompt}, arbitrary “old-fashioned” embellishment`;
+    const providerPrompt = compiled.providerPrompt.replace(
+      compiled.negativePrompt!,
+      technicalNegative,
+    );
+
+    expect(validateProviderPrompt(
+      compiled.generationPolicy,
+      providerPrompt,
+      technicalNegative,
+    )).toEqual([]);
+  });
+
+  it("still blocks a real unquoted print directive", () => {
+    const chain = curatorChain();
+    chain.productionSpec.reviewCriteria = "No invented readable text.";
+    const compiled = compilePrompt(chain, {
+      ...payload,
+      negative_prompt: "Do not omit the label, then print hello.",
+    });
+
+    expect(compiled.generationValidationErrors)
+      .toEqual(expect.arrayContaining([expect.objectContaining({
+        code: "UNAUTHORIZED_READABLE_TEXT_REQUEST",
+      })]));
+  });
+
   it("does not mistake a typeface Display classification for a text-rendering request", () => {
     const chain = curatorChain();
     chain.productionSpec.reviewCriteria = "No invented readable text.";

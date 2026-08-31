@@ -7,4 +7,4 @@ When inherited policy prohibits invented readable text, every requested string i
 
 **Why:** Image prompts can turn contextual names, dates, reference phrases, or factual-looking ephemera into invented readable claims. Heading-based trust, broad negative-clause exemptions, fuzzy status matching, and embedded participles such as “a plate engraved [name]” create provider-boundary bypasses even when the visible governance lock looks correct.
 
-**How to apply:** Treat every provider-bound readable request as closed-world, including mixed negative/affirmative phrasing and text directives embedded in descriptive prose. Only demonstrably pure prohibitions may avoid authorization.
+**How to apply:** Treat every provider-bound readable request as closed-world, including mixed negative/affirmative phrasing and text directives embedded in descriptive prose. Only demonstrably pure prohibitions may avoid authorization. Do not classify technical noun phrases such as “print requirements” or quoted decorative adjectives as requested copy; quoted text still requires a text-bearing or directive context.

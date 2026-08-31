@@ -16,7 +16,7 @@ const READABLE_REQUEST = /\b(?:(?:readable|legible)\s+(?:text|wording|words?|wri
 const TEXT_DIRECTIVE = /\b(?:add|include|show|place|feature|render|display|print|write|type|inscribe|engrav(?:e|ed|ing)|caption|title|name|date|sign|initial|label|mark|postmark|bearing|with)\b/i;
 const PURE_NEGATIVE_TEXT_DIRECTIVE = /^(?:do not|never|avoid|exclude|forbid|prohibit|without)\s+(?:render|display|print|write|type|inscribe|engrave|caption|include|show|add)\b/i;
 const APPROVED_TEXT_MARKER = /\b(?:approved|accepted|authorized|exact|canonical|canon)\s+(?:readable\s+)?(?:text|wording|copy|label|inscription|title)\s*:?\s*(?:"([^"]+)"|'([^']+)'|“([^”]+)”|‘([^’]+)’|([^\n.;]+))/gi;
-const QUOTED_TEXT = /"([^"]+)"|'([^']+)'|“([^”]+)”|‘([^’]+)’/g;
+const CONTEXTUAL_QUOTED_TEXT = /\b(?:readable\s+(?:text|wording|copy)|wording|text|copy|label|caption|title|name|legend|heading|inscription|engraved\s+wording)\s*(?:is|are|reads?|says?)?\s*(?:"([^"]+)"|'([^']+)'|“([^”]+)”|‘([^’]+)’)/gi;
 const DATE_TEXT = /\b(?:(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*)?\d{2,4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\b(?:17|18|19|20)\d{2}\b)/gi;
 const DIRECT_READABLE_VALUE = /\b(?:reads?|says?|named|signed|initialed|addressed to|labelled|labeled|marked|inscribed|captioned|titled)\s+(?:"([^"]+)"|'([^']+)'|“([^”]+)”|‘([^’]+)’|([A-Z][\p{L}\p{N}'’-]*(?:\s+[A-Z0-9][\p{L}\p{N}'’.-]*){0,5}))/giu;
 const RELATIONAL_READABLE_VALUE = /\b(?:letter|correspondence|invoice|telegram|note|signature|map|label|catalog(?:ue)? card|ledger entry)\s+(?:from|to|of|for|by)\s+(?:"([^"]+)"|'([^']+)'|“([^”]+)”|‘([^’]+)’|([A-Z][\p{L}\p{N}'’-]*(?:\s+[A-Z0-9][\p{L}\p{N}'’.-]*){0,5}))/giu;
@@ -26,6 +26,20 @@ const TEXT_OBJECT_VALUE = /\b(?:label|plaque|card|tag|sign|heading|legend|captio
 const RENDER_TEXT_OBJECT_VALUE = /\b(?:render|display|show|feature|include|place|add)\s+(?:a\s+|an\s+|the\s+)?(?:name|title|heading|legend|caption|label|wording|text)\s+(?:"([^"]+)"|'([^']+)'|“([^”]+)”|‘([^’]+)’|((?!(?:on|onto|in|at|across|along|for|to|from|with|without)\b)[\p{L}\p{N}'’.-]+(?:\s+(?!(?:on|onto|in|at|across|along|for|to|from|with|without)\b)[\p{L}\p{N}'’.-]+){0,5}))/giu;
 const PLACED_HEADING_VALUE = /\b(?:title|name|heading|legend)\s+(?:"([^"]+)"|'([^']+)'|“([^”]+)”|‘([^’]+)’|((?!(?:on|onto|in|at|across|along)\b)[\p{L}\p{N}'’.-]+(?:\s+(?!(?:on|onto|in|at|across|along)\b)[\p{L}\p{N}'’.-]+){0,5}))\s+(?:on|onto|in|at|across|along)\b/giu;
 const OBJECT_READABLE_VALUE = /\b(?:feature|show|place|add|include)\s+(?:the\s+)?(?:title|name|heading|legend|caption|label)\s+(?:"([^"]+)"|'([^']+)'|“([^”]+)”|‘([^’]+)’|((?!(?:on|onto|in|at|across|along|for|to|from|with|without)\b)[\p{L}\p{N}'’.-]+(?:\s+(?!(?:on|onto|in|at|across|along|for|to|from|with|without)\b)[\p{L}\p{N}'’.-]+){0,5}))/giu;
+const NON_READABLE_NOUN_PHRASE = new Set([
+  "content",
+  "details",
+  "information",
+  "instructions",
+  "print requirements",
+  "production requirements",
+  "requirements",
+  "rules",
+  "specification",
+  "specifications",
+  "style",
+  "treatment",
+]);
 
 const PHOTO_PRIORITY_NEGATIVES = [
   "photograph",
@@ -289,7 +303,9 @@ function readableCandidates(clause: string): string[] {
         && !/^(?:\p{Lu}|(?:17|18|19|20)\d{2})/u.test(match[5])
       ) continue;
       const value = clean(match.slice(1).find(Boolean) ?? match[0]);
-      if (value) candidates.push(value);
+      if (value && !NON_READABLE_NOUN_PHRASE.has(readableTextKey(value).toLowerCase())) {
+        candidates.push(value);
+      }
     }
   };
   addMatches(DIRECT_READABLE_VALUE, true);
@@ -300,7 +316,7 @@ function readableCandidates(clause: string): string[] {
   addMatches(RENDER_TEXT_OBJECT_VALUE);
   addMatches(PLACED_HEADING_VALUE, false, true);
   addMatches(OBJECT_READABLE_VALUE, false, true);
-  addMatches(QUOTED_TEXT);
+  addMatches(CONTEXTUAL_QUOTED_TEXT);
   if (/\b(?:dated|date|correspondence|letter|ledger|catalog(?:ue)?|specimen)\b/i.test(clause)) {
     addMatches(DATE_TEXT);
   }

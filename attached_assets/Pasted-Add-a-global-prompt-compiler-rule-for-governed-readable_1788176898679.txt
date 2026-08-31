@@ -1,0 +1,12 @@
+Add a global prompt-compiler rule for governed readable text.
+When a Production Spec, Style Guide, Canon policy, or Prompt Module prohibits invented readable text, treat readable text as closed-world content.
+During compilation:
+1. Any readable wording explicitly supplied by an accepted Canon Record or the Production Spec may be rendered.
+2. Any readable wording not supported by an approved source must not be invented.
+3. Unspecified text-bearing areas should be compiled positively as blank ruled fields, empty label areas, empty catalog fields, restrained non-semantic handwriting traces, abstract ink marks, or other non-readable period-appropriate marks.
+4. Names, dates, addresses, botanical identifications, specimen numbers, correspondence prose, ledger entries, geographic labels, historical claims, signatures, initials, and institutional information must not be generated unless their exact content is supported by an approved source.
+5. Preserve provenance for every intentionally readable generated string so WorldSmith can identify which source authorized it.
+Pre-generation validation:
+If invented readable text is prohibited, inspect the final compiled prompt. Every requested readable string must have an approved source. Unsupported requested text should fail validation or be converted to an appropriate blank/non-readable treatment before generation.
+Apply this rule globally so it works for Ephemera Sheets, Hero Papers, Journal Cards, Tags, Labels, correspondence, maps, ledgers, packaging, and future component types.
+Regression test: Regenerate the current Curator's Desk Ephemera Sheet without changing its Production Spec. Preserve the existing eight-piece composition and visual treatment, but eliminate unsupported invented names, dates, correspondence, botanical identifications, catalog data, specimen numbers, ledger contents, map labels, signatures, and other factual-looking readable text. Stationery House may use only exact wording supported by its accepted Canon Record.

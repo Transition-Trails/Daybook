@@ -38,7 +38,12 @@ import type {
 } from "./types";
 import { logger } from "../logger";
 import { generateImage, type ImageGenerationMetadata } from "../ai-proxy";
-import { db, worldsmithProductionPackagesTable, worldsmithWorldsTable } from "@workspace/db";
+import {
+  db,
+  worldsmithProductionPackagesTable,
+  worldsmithWorldsTable,
+  wsProductionSpecsTable,
+} from "@workspace/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { objectStorageClient, ObjectStorageService } from "../objectStorage";
@@ -543,7 +548,19 @@ export async function runCompilation(
     }
 
     // ── Stage 20: Update Production Specification status ─────────────────
-    if (!dryRun && !isLocalProductionRequest) {
+    if (!dryRun && isLocalProductionRequest) {
+      await db
+        .update(wsProductionSpecsTable)
+        .set({
+          compiledPromptStatus: "Compiled",
+          status: sql<string>`case
+            when lower(${wsProductionSpecsTable.status}) = 'approved' then 'approved'
+            else 'compiled'
+          end`,
+          updatedAt: new Date(),
+        })
+        .where(eq(wsProductionSpecsTable.id, specId));
+    } else if (!dryRun) {
       try {
         if (spec.notionPageId) await updatePage(spec.notionPageId, {
           ...(spec.compiledPromptStatus !== "Compiled" ? { "Compiled Prompt Status": selectProp("Compiled") } : {}),

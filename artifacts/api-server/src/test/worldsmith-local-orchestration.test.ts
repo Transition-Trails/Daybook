@@ -9,6 +9,7 @@ const {
   mockNotionGetPage,
   mockNotionUpdatePage,
   mockDaybookUpsert,
+  mockSpecUpdate,
 } = vi.hoisted(() => ({
   mockDbBibleRows: { value: [] as unknown[][] },
   mockDbBibleError: { value: "" },
@@ -18,6 +19,7 @@ const {
   mockNotionGetPage: vi.fn(),
   mockNotionUpdatePage: vi.fn(),
   mockDaybookUpsert: vi.fn(),
+  mockSpecUpdate: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@workspace/db", () => {
@@ -27,9 +29,15 @@ vi.mock("@workspace/db", () => {
   });
   const where = vi.fn(() => ({ limit }));
   const from = vi.fn(() => ({ where }));
+  const updateWhere = vi.fn((...args: unknown[]) => mockSpecUpdate(...args));
+  const set = vi.fn(() => ({ where: updateWhere }));
   return {
-    db: { select: vi.fn(() => ({ from })) },
+    db: {
+      select: vi.fn(() => ({ from })),
+      update: vi.fn(() => ({ set })),
+    },
     worldsmithWorldsTable: { id: "world-id" },
+    wsProductionSpecsTable: { id: "spec-id", status: "status" },
   };
 });
 
@@ -236,5 +244,6 @@ describe("runCompilation with the local resolver", () => {
     expect(mockNotionGetPage).not.toHaveBeenCalled();
     expect(mockNotionUpdatePage).not.toHaveBeenCalled();
     expect(mockDaybookUpsert).not.toHaveBeenCalled();
+    expect(mockSpecUpdate).toHaveBeenCalled();
   });
 });

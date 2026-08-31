@@ -150,6 +150,58 @@ describe("SpecEditor local specification board", () => {
     );
   });
 
+  it("unlocks board approval immediately after a successful regeneration", async () => {
+    const needsCompilation = {
+      ...approvalReadySpec,
+      status: "canon_clear",
+      compiledPromptStatus: "Not Compiled",
+    };
+    apiFetch.mockImplementation((path: string) => {
+      if (path === "/v1/editorial/specs/spec-local") {
+        return Promise.resolve({
+          spec: needsCompilation,
+          relationships: { style_guide: null, component_spec: null, canon_records: [], prompt_modules: [] },
+        });
+      }
+      if (path === "/v1/editorial/component-sets?world_id=world-1") {
+        return Promise.resolve({ component_sets: [] });
+      }
+      if (path === "/v1/worldsmith/spec-preview/local/spec-local") {
+        return Promise.resolve({ preview: null });
+      }
+      if (path === "/v1/production-packages?production_spec_id=spec-local") {
+        return Promise.resolve({ package: null, last_successful: null });
+      }
+      if (path === "/v1/prompt-compilations") {
+        return Promise.resolve({ status: "compiled", prompt_hash: "regenerated-hash" });
+      }
+      if (path === "/v1/worldsmith/spec-preview") {
+        return Promise.resolve({
+          status: "success",
+          source: "local",
+          production_item: needsCompilation.productionItem,
+          preview_filename: "regenerated-board.png",
+          preview_object_path: "/objects/worldsmith/spec-previews/regenerated.png",
+          preview_url: "/api/storage/objects/worldsmith/spec-previews/regenerated.png",
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SpecEditor specId="spec-local" />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Approve Specification Board" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Generate specification board" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Approve Specification Board" })).toBeEnabled();
+    });
+  });
+
   it("restores the latest local board after the editor reloads", async () => {
     apiFetch.mockImplementation((path: string) => {
       if (path === "/v1/editorial/specs/spec-local") {

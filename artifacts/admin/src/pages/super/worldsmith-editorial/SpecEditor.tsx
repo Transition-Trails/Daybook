@@ -1204,6 +1204,14 @@ export default function SpecEditor({ specId }: { specId: string }) {
       });
     },
     onSuccess: (preview) => {
+      // Compilation is persisted by the server before preview generation
+      // succeeds. Mirror that transition immediately so the approval gate does
+      // not wait on the background record refetch.
+      setLocalSpec(previous => previous ? {
+        ...previous,
+        compiledPromptStatus: "Compiled",
+        status: previous.status.trim().toLowerCase() === "approved" ? previous.status : "compiled",
+      } : previous);
       qc.invalidateQueries({ queryKey: ["editorial-spec", specId] });
       qc.setQueryData(["editorial-spec-preview", specId], { preview });
       toast({ title: "Specification board ready", description: preview.preview_filename ?? "Open the board from the sidebar." });

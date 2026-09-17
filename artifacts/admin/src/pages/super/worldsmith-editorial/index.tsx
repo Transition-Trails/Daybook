@@ -24,3 +24,5 @@ export { default as WorldBibleStudio } from "./WorldBibleStudio";
 export { default as ImageTargets } from "./ImageTargets";
 export { default as ComponentSpecs } from "./ComponentSpecs";
 export { default as Collections } from "./Collections";
+export { default as ProductionProfiles } from "./ProductionProfiles";
+export { default as PunchTemplates } from "./PunchTemplates";

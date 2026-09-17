@@ -48,6 +48,8 @@ import {
   wsCanonRecordRelationsTable,
   wsStyleGuidesTable,
   wsComponentSpecsTable,
+  wsProductionProfilesTable,
+  wsPunchTemplatesTable,
   wsPromptModulesTable,
   wsProductionSpecsTable,
   worldsmithRunsTable,
@@ -65,6 +67,7 @@ import {
   type InsertWsCanonRecord,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
+import { calculateSafeAreas } from "../lib/worldsmith/safe-area-geometry";
 import { and, eq, inArray, like, desc, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
@@ -2018,6 +2021,172 @@ router.patch("/v1/editorial/style-guides/:id", async (req: Request, res: Respons
   }
 });
 
+// ── Production Profiles & Punch Templates ─────────────────────────────────────
+const profileFields = ["name", "code", "status", "outputMedium", "finishedWidth", "finishedHeight", "units",
+  "orientationBehavior", "bleed", "outerSafeMargin", "bindingType", "bindingSafeZone", "bindingEdgeBehavior", "punchTemplateId"] as const;
+const punchFields = ["name", "code", "bindingType", "status", "discCount", "referencePageHeight", "units",
+  "punchCenterSpacing", "edgeOffset", "mushroomHeadDiameter", "stemWidth", "stemDepth", "topOffset", "bottomOffset", "manufacturingTolerance", "version"] as const;
+function bodyValues(body: any, fields: readonly string[]) {
+  const out: Record<string, any> = {};
+  for (const field of fields) {
+    const snake = field.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+    if (body[field] !== undefined) out[field] = body[field];
+    else if (body[snake] !== undefined) out[field] = body[snake];
+  }
+  return out;
+}
+function numberChecks(values: Record<string, any>, names: string[], integerNames: string[] = []) {
+  for (const name of names) if (values[name] != null && (!Number.isFinite(Number(values[name])) || Number(values[name]) < 0)) return `${name} must be nonnegative`;
+  for (const name of integerNames) if (values[name] != null && (!Number.isInteger(Number(values[name])) || Number(values[name]) <= 0)) return `${name} must be a positive integer`;
+  return null;
+}
+function profileResponse(row: any, currentPunchTemplate: any = null) {
+  const safe = row.finishedWidth != null && row.finishedHeight != null
+    ? {
+        recto: calculateSafeAreas({ width: row.finishedWidth, height: row.finishedHeight, bindingType: row.bindingType, bleed: row.bleed, outerSafeMargin: row.outerSafeMargin, bindingSafeZone: row.bindingSafeZone, bindingEdgeBehavior: row.bindingEdgeBehavior, pageSide: "recto" }),
+        verso: calculateSafeAreas({ width: row.finishedWidth, height: row.finishedHeight, bindingType: row.bindingType, bleed: row.bleed, outerSafeMargin: row.outerSafeMargin, bindingSafeZone: row.bindingSafeZone, bindingEdgeBehavior: row.bindingEdgeBehavior, pageSide: "verso" }),
+        unspecified: calculateSafeAreas({ width: row.finishedWidth, height: row.finishedHeight, bindingType: row.bindingType, bleed: row.bleed, outerSafeMargin: row.outerSafeMargin, bindingSafeZone: row.bindingSafeZone, bindingEdgeBehavior: row.bindingEdgeBehavior, pageSide: "unspecified" }),
+      }
+    : null;
+  const punchTemplate = row.punchTemplateSnapshot ?? currentPunchTemplate;
+  return { ...row, punchTemplate, currentPunchTemplate, calculatedSafeAreas: safe };
+}
+
+function validateProfile(v: Record<string, any>) {
+  if (typeof v.name !== "string" || !v.name.trim()) return "name is required";
+  if (typeof v.code !== "string" || !v.code.trim()) return "code is required";
+  if (!v.outputMedium || !v.orientationBehavior) return "outputMedium and orientationBehavior are required";
+  if (!["draft", "active", "archived"].includes(v.status)) return "status is invalid";
+  if (!["digital", "print"].includes(v.outputMedium)) return "outputMedium is invalid";
+  if (!["inches", "millimeters"].includes(v.units)) return "units is invalid";
+  if (!["fixed_portrait", "fixed_landscape", "supports_both", "square"].includes(v.orientationBehavior)) return "orientationBehavior is invalid";
+  if (!["none", "disc_bound"].includes(v.bindingType)) return "bindingType is invalid";
+  if (!["none", "left", "right", "mirrored"].includes(v.bindingEdgeBehavior)) return "bindingEdgeBehavior is invalid";
+  for (const field of ["finishedWidth", "finishedHeight"]) if (v[field] != null && (!Number.isFinite(Number(v[field])) || Number(v[field]) <= 0)) return `${field} must be positive`;
+  const nonnegative = numberChecks(v, ["bleed", "outerSafeMargin", "bindingSafeZone"]);
+  if (nonnegative) return nonnegative;
+  if (v.outputMedium === "print" && (v.finishedWidth == null || v.finishedHeight == null)) return "print profiles require dimensions";
+  if (v.bindingType === "disc_bound" && !(Number(v.bindingSafeZone) > 0)) return "disc-bound profiles require a positive bindingSafeZone";
+  if (v.bindingType === "disc_bound" && v.bindingEdgeBehavior === "none") return "disc-bound profiles require a binding edge behavior";
+  if (v.bindingType === "none" && (Number(v.bindingSafeZone) !== 0 || v.bindingEdgeBehavior !== "none")) return "unbound profiles cannot have a binding zone or binding edge";
+  if (v.outputMedium === "digital" && v.punchTemplateId != null) return "digital profiles cannot have a punch template";
+  if (v.bindingType !== "disc_bound" && v.punchTemplateId != null) return "only disc-bound profiles can have a punch template";
+  if (v.finishedWidth != null && v.finishedHeight != null) {
+    const margin = Number(v.outerSafeMargin ?? 0);
+    const bindingInset = v.bindingType === "disc_bound" ? Math.max(margin, Number(v.bindingSafeZone ?? 0)) : margin;
+    if (Number(v.finishedWidth) - margin - bindingInset <= 0 || Number(v.finishedHeight) - 2 * margin <= 0) return "margins must leave positive usable dimensions";
+  }
+  return null;
+}
+function validatePunch(v: Record<string, any>) {
+  if (typeof v.name !== "string" || !v.name.trim()) return "name is required";
+  if (typeof v.code !== "string" || !v.code.trim()) return "code is required";
+  if (v.bindingType !== "disc_bound") return "bindingType is invalid";
+  if (!["draft", "testing", "approved", "archived"].includes(v.status)) return "status is invalid";
+  if (!["inches", "millimeters"].includes(v.units)) return "units is invalid";
+  return numberChecks(v, ["referencePageHeight", "punchCenterSpacing", "edgeOffset", "mushroomHeadDiameter", "stemWidth", "stemDepth", "topOffset", "bottomOffset", "manufacturingTolerance"], ["discCount", "version"]);
+}
+async function resolvePunchTemplate(id: string) {
+  const [template] = await db.select().from(wsPunchTemplatesTable)
+    .where(eq(wsPunchTemplatesTable.id, id)).limit(1);
+  return template;
+}
+
+router.get("/v1/editorial/production-profiles", async (_req, res) => {
+  const rows = await db.select({ profile: wsProductionProfilesTable, punchTemplate: wsPunchTemplatesTable })
+    .from(wsProductionProfilesTable)
+    .leftJoin(wsPunchTemplatesTable, eq(wsProductionProfilesTable.punchTemplateId, wsPunchTemplatesTable.id))
+    .orderBy(wsProductionProfilesTable.name);
+  res.json({ production_profiles: rows.map(({ profile, punchTemplate }) => profileResponse(profile, punchTemplate)) });
+});
+router.post("/v1/editorial/production-profiles", async (req, res) => {
+  const v: Record<string, any> = { status: "draft", units: "inches", bleed: 0, outerSafeMargin: 0, bindingType: "none", bindingSafeZone: 0, bindingEdgeBehavior: "none", ...bodyValues(req.body, profileFields) };
+  const error = validateProfile(v);
+  if (error) { res.status(400).json({ error }); return; }
+  try {
+    const punchTemplate = v.punchTemplateId ? await resolvePunchTemplate(v.punchTemplateId) : undefined;
+    if (v.punchTemplateId && !punchTemplate) { res.status(400).json({ error: "punchTemplateId is invalid" }); return; }
+    const punchTemplateVersion = punchTemplate?.version ?? null;
+    const [row] = await db.insert(wsProductionProfilesTable).values({
+      id: randomUUID(),
+      ...v,
+      name: v.name.trim(),
+      code: v.code.trim().toUpperCase(),
+      punchTemplateVersion,
+      punchTemplateSnapshot: punchTemplate ?? null,
+    } as any).returning();
+    res.status(201).json({ production_profile: profileResponse(row, punchTemplate ?? null) });
+  }
+  catch (err) { editorialDbError(err, res, "create production profile"); }
+});
+router.get("/v1/editorial/production-profiles/:id", async (req, res) => {
+  const [result] = await db.select({ profile: wsProductionProfilesTable, punchTemplate: wsPunchTemplatesTable })
+    .from(wsProductionProfilesTable)
+    .leftJoin(wsPunchTemplatesTable, eq(wsProductionProfilesTable.punchTemplateId, wsPunchTemplatesTable.id))
+    .where(eq(wsProductionProfilesTable.id, req.params.id as string)).limit(1);
+  if (!result) { res.status(404).json({ error: "Production profile not found" }); return; }
+  res.json({ production_profile: profileResponse(result.profile, result.punchTemplate) });
+});
+router.patch("/v1/editorial/production-profiles/:id", async (req, res) => {
+  const [current] = await db.select().from(wsProductionProfilesTable).where(eq(wsProductionProfilesTable.id, req.params.id as string)).limit(1);
+  if (!current) { res.status(404).json({ error: "Production profile not found" }); return; }
+  const patch = bodyValues(req.body, profileFields);
+  const v = { ...current, ...patch };
+  const error = validateProfile(v);
+  if (error) { res.status(400).json({ error }); return; }
+  try {
+    const punchTemplateIdChanged = patch.punchTemplateId !== undefined && patch.punchTemplateId !== current.punchTemplateId;
+    const repinPunchTemplate = req.body?.repinPunchTemplate === true;
+    const targetPunchTemplateId = punchTemplateIdChanged ? patch.punchTemplateId : repinPunchTemplate ? current.punchTemplateId : undefined;
+    const shouldResolvePunchTemplate = Boolean(targetPunchTemplateId);
+    const punchTemplate = targetPunchTemplateId
+      ? await resolvePunchTemplate(targetPunchTemplateId)
+      : undefined;
+    if (shouldResolvePunchTemplate && !punchTemplate) { res.status(400).json({ error: "punchTemplateId is invalid" }); return; }
+    const unlinked = patch.punchTemplateId === null;
+    const punchTemplateVersion = unlinked
+      ? null
+      : punchTemplate?.version ?? current.punchTemplateVersion;
+    const punchTemplateSnapshot = unlinked
+      ? null
+      : punchTemplate ?? current.punchTemplateSnapshot;
+    const normalizedPatch = {
+      ...patch,
+      ...(typeof patch.name === "string" ? { name: patch.name.trim() } : {}),
+      ...(typeof patch.code === "string" ? { code: patch.code.trim().toUpperCase() } : {}),
+      punchTemplateVersion,
+      punchTemplateSnapshot,
+    };
+    const [row] = await db.update(wsProductionProfilesTable).set(normalizedPatch).where(eq(wsProductionProfilesTable.id, req.params.id as string)).returning();
+    const responsePunchTemplate = row.punchTemplateId
+      ? (punchTemplate ?? await resolvePunchTemplate(row.punchTemplateId))
+      : null;
+    res.json({ production_profile: profileResponse(row, responsePunchTemplate ?? null) });
+  }
+  catch (err) { editorialDbError(err, res, "update production profile"); }
+});
+
+router.get("/v1/editorial/punch-templates", async (_req, res) => { res.json({ punch_templates: await db.select().from(wsPunchTemplatesTable).orderBy(wsPunchTemplatesTable.name) }); });
+router.post("/v1/editorial/punch-templates", async (req, res) => {
+  const v: Record<string, any> = { bindingType: "disc_bound", status: "draft", units: "inches", version: 1, ...bodyValues(req.body, punchFields) };
+  const error = validatePunch(v);
+  if (error) { res.status(400).json({ error }); return; }
+  try { const [row] = await db.insert(wsPunchTemplatesTable).values({ id: randomUUID(), ...v, name: v.name.trim(), code: v.code.trim().toUpperCase() }).returning(); res.status(201).json({ punch_template: row }); } catch (err) { editorialDbError(err, res, "create punch template"); }
+});
+router.get("/v1/editorial/punch-templates/:id", async (req, res) => { const [row] = await db.select().from(wsPunchTemplatesTable).where(eq(wsPunchTemplatesTable.id, req.params.id as string)).limit(1); if (!row) { res.status(404).json({ error: "Punch template not found" }); return; } res.json({ punch_template: row }); });
+router.patch("/v1/editorial/punch-templates/:id", async (req, res) => {
+  const [current] = await db.select().from(wsPunchTemplatesTable).where(eq(wsPunchTemplatesTable.id, req.params.id as string)).limit(1);
+  if (!current) { res.status(404).json({ error: "Punch template not found" }); return; }
+  const patch = bodyValues(req.body, punchFields);
+  const error = validatePunch({ ...current, ...patch }); if (error) { res.status(400).json({ error }); return; }
+  const normalizedPatch = {
+    ...patch,
+    ...(typeof patch.name === "string" ? { name: patch.name.trim() } : {}),
+    ...(typeof patch.code === "string" ? { code: patch.code.trim().toUpperCase() } : {}),
+  };
+  try { const [row] = await db.update(wsPunchTemplatesTable).set(normalizedPatch).where(eq(wsPunchTemplatesTable.id, req.params.id as string)).returning(); res.json({ punch_template: row }); } catch (err) { editorialDbError(err, res, "update punch template"); }
+});
+
 // ── Component Specs ───────────────────────────────────────────────────────────
 
 router.get("/v1/editorial/component-specs", async (req: Request, res: Response) => {
@@ -2038,14 +2207,14 @@ router.get("/v1/editorial/component-specs", async (req: Request, res: Response) 
 });
 
 router.post("/v1/editorial/component-specs", async (req: Request, res: Response) => {
-  const { world_id, name, component_type, content } = req.body;
+  const { world_id, name, component_type, content, production_profile_id, productionProfileId } = req.body;
   if (!world_id || !name?.trim() || !component_type?.trim()) {
     res.status(400).json({ error: "world_id, name, and component_type are required" });
     return;
   }
   try {
     const [row] = await db.insert(wsComponentSpecsTable)
-      .values({ id: crypto.randomUUID(), worldId: world_id, name: name.trim(), componentType: component_type, content: content ?? "" })
+      .values({ id: crypto.randomUUID(), worldId: world_id, name: name.trim(), componentType: component_type, content: content ?? "", productionProfileId: production_profile_id ?? productionProfileId ?? null })
       .returning();
     res.status(201).json({ component_spec: row });
   } catch (err) {
@@ -2067,10 +2236,10 @@ router.get("/v1/editorial/component-specs/:id", async (req: Request, res: Respon
 });
 
 router.patch("/v1/editorial/component-specs/:id", async (req: Request, res: Response) => {
-  const { name, content } = req.body;
+  const { name, content, production_profile_id, productionProfileId } = req.body;
   try {
     const [row] = await db.update(wsComponentSpecsTable)
-      .set({ ...(name !== undefined ? { name } : {}), ...(content !== undefined ? { content } : {}) })
+      .set({ ...(name !== undefined ? { name } : {}), ...(content !== undefined ? { content } : {}), ...((production_profile_id !== undefined || productionProfileId !== undefined) ? { productionProfileId: production_profile_id ?? productionProfileId ?? null } : {}) })
       .where(eq(wsComponentSpecsTable.id, req.params.id as string)).returning();
     if (!row) { res.status(404).json({ error: "Component spec not found" }); return; }
     res.json({ component_spec: row });

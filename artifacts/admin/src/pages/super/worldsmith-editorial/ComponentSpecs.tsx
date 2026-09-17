@@ -6,7 +6,6 @@
  * Production Spec editor.
  */
 import { useState } from "react";
-import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, FileText, Loader2, Pencil, Plus, Save, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -19,9 +18,15 @@ interface ComponentSpec {
   worldId: string;
   name: string;
   componentType: string;
+  productionProfileId: string | null;
   content: string;
   createdAt: string;
   updatedAt: string;
+}
+
+interface ProductionProfile {
+  id: string;
+  name: string;
 }
 
 const COMPONENT_TYPES = [
@@ -51,14 +56,21 @@ function ComponentSpecDrawer({
   const { toast } = useToast();
   const [name, setName] = useState(componentSpec?.name ?? "");
   const [componentType, setComponentType] = useState(componentSpec?.componentType ?? "Hero Paper");
+  const [productionProfileId, setProductionProfileId] = useState(componentSpec?.productionProfileId ?? "");
   const [content, setContent] = useState(componentSpec?.content ?? "");
+
+  const { data: profileData } = useQuery({
+    queryKey: ["editorial-production-profiles"],
+    queryFn: () => apiFetch<{ production_profiles: ProductionProfile[] }>("/v1/editorial/production-profiles"),
+  });
+  const profiles = profileData?.production_profiles ?? [];
 
   const saveMutation = useMutation({
     mutationFn: () =>
       componentSpec
         ? apiFetch(`/v1/editorial/component-specs/${componentSpec.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ name: name.trim(), content }),
+            body: JSON.stringify({ name: name.trim(), content, productionProfileId: productionProfileId || null }),
           })
         : apiFetch("/v1/editorial/component-specs", {
             method: "POST",
@@ -66,6 +78,7 @@ function ComponentSpecDrawer({
               world_id: worldId,
               name: name.trim(),
               component_type: componentType,
+              productionProfileId: productionProfileId || null,
               content,
             }),
           }),
@@ -87,7 +100,7 @@ function ComponentSpecDrawer({
       <div className="fixed right-0 top-0 z-50 flex h-full w-full max-w-3xl flex-col bg-white shadow-2xl">
         <header className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-[#C87560]" />
+            <FileText className="h-4 w-4 text-[var(--admin-clay)]" />
             <h2 className="font-semibold text-gray-900">
               {componentSpec ? "Edit Component Spec" : "New Component Spec"}
             </h2>
@@ -99,26 +112,28 @@ function ComponentSpecDrawer({
 
         <div className="flex-1 space-y-5 overflow-y-auto p-6">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700">
+            <label htmlFor="specName" className="mb-1.5 block text-sm font-medium text-gray-700">
               Name <span className="text-red-500">*</span>
             </label>
             <input
+              id="specName"
               value={name}
               onChange={event => setName(event.target.value)}
               placeholder="e.g. Hero Paper — Victorian Garden Journal"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-[#C87560] focus:ring-2 focus:ring-[#C87560]/20"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-[var(--admin-clay)] focus:ring-2 focus:ring-[var(--admin-clay)]/20"
             />
           </div>
 
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700">
+            <label htmlFor="componentType" className="mb-1.5 block text-sm font-medium text-gray-700">
               Component type <span className="text-red-500">*</span>
             </label>
             <select
+              id="componentType"
               value={componentType}
               onChange={event => setComponentType(event.target.value)}
               disabled={Boolean(componentSpec)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#C87560] focus:ring-2 focus:ring-[#C87560]/20 disabled:bg-gray-50 disabled:text-gray-500"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--admin-clay)] focus:ring-2 focus:ring-[var(--admin-clay)]/20 disabled:bg-gray-50 disabled:text-gray-500"
             >
               {COMPONENT_TYPES.map(type => <option key={type}>{type}</option>)}
             </select>
@@ -130,16 +145,34 @@ function ComponentSpecDrawer({
           </div>
 
           <div>
+            <label htmlFor="productionProfile" className="mb-1.5 block text-sm font-medium text-gray-700">
+              Production Profile (Optional)
+            </label>
+            <select
+              id="productionProfile"
+              value={productionProfileId}
+              onChange={event => setProductionProfileId(event.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--admin-clay)] focus:ring-2 focus:ring-[var(--admin-clay)]/20"
+            >
+              <option value="">None</option>
+              {profiles.map(profile => (
+                <option key={profile.id} value={profile.id}>{profile.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <div className="mb-1.5 flex items-center justify-between">
-              <label className="block text-sm font-medium text-gray-700">Specification details</label>
+              <label htmlFor="specContent" className="block text-sm font-medium text-gray-700">Specification details</label>
               <span className="text-xs text-gray-400">{wordCount.toLocaleString()} words</span>
             </div>
             <textarea
+              id="specContent"
               value={content}
               onChange={event => setContent(event.target.value)}
               rows={18}
               placeholder="Describe dimensions, paper stock, margins, orientation, bleed, finishing, and other production requirements…"
-              className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm leading-relaxed outline-none focus:border-[#C87560] focus:ring-2 focus:ring-[#C87560]/20"
+              className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm leading-relaxed outline-none focus:border-[var(--admin-clay)] focus:ring-2 focus:ring-[var(--admin-clay)]/20"
             />
             <p className="mt-1.5 text-xs text-gray-400">
               These details are available to every Production Spec that links this component spec.
@@ -154,7 +187,7 @@ function ComponentSpecDrawer({
           <button
             onClick={() => saveMutation.mutate()}
             disabled={!canSave}
-            className="flex items-center gap-2 rounded-lg bg-[#1B2A4A] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#243660] disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg bg-[var(--admin-ink)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--admin-blue)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             {componentSpec ? "Save Changes" : "Create Component Spec"}
@@ -171,13 +204,13 @@ function ComponentSpecCard({ componentSpec, onEdit }: { componentSpec: Component
     <article className="group rounded-xl border border-gray-200 bg-white p-5 transition-all hover:border-gray-300 hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#C87560]/10">
-            <FileText className="h-4 w-4 text-[#C87560]" />
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--admin-clay)]/10">
+            <FileText className="h-4 w-4 text-[var(--admin-clay)]" />
           </div>
           <div className="min-w-0">
             <h3 className="truncate font-semibold text-gray-900">{componentSpec.name}</h3>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-[#C87560]/10 px-2 py-0.5 text-xs font-medium text-[#C87560]">
+              <span className="rounded-full bg-[var(--admin-clay)]/10 px-2 py-0.5 text-xs font-medium text-[var(--admin-clay)]">
                 {componentSpec.componentType}
               </span>
               <span className="text-xs text-gray-400">Updated {fmtDate(componentSpec.updatedAt)}</span>
@@ -198,7 +231,6 @@ function ComponentSpecCard({ componentSpec, onEdit }: { componentSpec: Component
 
 export default function ComponentSpecs() {
   const { selectedWorldId, selectedWorld } = useEditorial();
-  const [, navigate] = useLocation();
   const [drawerSpec, setDrawerSpec] = useState<ComponentSpec | null | undefined>(undefined);
   const { data, isLoading, error } = useQuery({
     queryKey: ["editorial-component-specs", selectedWorldId],
@@ -213,7 +245,7 @@ export default function ComponentSpecs() {
       <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
         <div>
           <h1 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-            <FileText className="h-5 w-5 text-[#C87560]" /> Component Specs
+            <FileText className="h-5 w-5 text-[var(--admin-clay)]" /> Component Specs
           </h1>
           {selectedWorld && (
             <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-400">
@@ -225,7 +257,7 @@ export default function ComponentSpecs() {
           onClick={() => setDrawerSpec(null)}
           disabled={!selectedWorldId}
           title={!selectedWorldId ? "Select a world first" : undefined}
-          className="flex items-center gap-2 rounded-lg bg-[#1B2A4A] px-3 py-2 text-sm text-white transition-colors hover:bg-[#243660] disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-[var(--admin-ink)] px-3 py-2 text-sm text-white transition-colors hover:bg-[var(--admin-blue)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="h-4 w-4" /> New Component Spec
         </button>
@@ -238,7 +270,7 @@ export default function ComponentSpecs() {
           <div className="py-24 text-center text-sm text-red-500">Component specs could not be loaded.</div>
         ) : specs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
-            <FileText className="mb-4 h-10 w-10 text-[#C87560]/60" />
+            <FileText className="mb-4 h-10 w-10 text-[var(--admin-clay)]/60" />
             <h2 className="mb-2 text-lg font-semibold text-gray-900">No component specs yet</h2>
             <p className="mb-6 max-w-sm text-sm leading-relaxed text-gray-500">
               Create reusable production and print requirements, then link them from any Production Spec.
@@ -246,7 +278,7 @@ export default function ComponentSpecs() {
             <button
               onClick={() => setDrawerSpec(null)}
               disabled={!selectedWorldId}
-              className="flex items-center gap-2 rounded-lg bg-[#1B2A4A] px-4 py-2 text-sm text-white disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-[var(--admin-ink)] px-4 py-2 text-sm text-white disabled:opacity-50"
             >
               <Plus className="h-4 w-4" /> Create First Component Spec
             </button>

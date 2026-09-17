@@ -1,0 +1,609 @@
+Daybook Feature Definition: Production Profiles & Disc-Bound Output Infrastructure
+Objective
+
+Add a reusable Production Profile system to Daybook that defines the physical or digital output geometry for planner and journal assets.
+
+The purpose is to separate:
+
+creative design
+component behavior
+production dimensions
+binding requirements
+punch geometry
+final export behavior
+
+A single source design should eventually be capable of producing multiple outputs such as:
+
+digital planner pages
+9-disc Happy Planner Classic pages
+Half Letter disc-bound pages
+Letter-size disc-bound pages
+
+This implementation is infrastructure only.
+
+Do not implement PDF resizing, hyperlink generation, page imposition, punch-hole drawing, page assembly, or final planner export in this phase.
+
+1. New Entity: Production Profile
+
+Create a new Daybook entity named:
+
+Production Profile
+
+A Production Profile defines the finished output size and the safe zones that downstream page generation must respect.
+
+Fields
+Identity
+
+Profile Name
+Required text.
+
+Examples:
+
+Digital Planner — Full Page
+Disc-Bound — Happy Planner Classic — 7 × 9.25
+Disc-Bound — Half Letter — 5.5 × 8.5
+Disc-Bound — US Letter — 8.5 × 11
+
+Profile Code
+Required unique short code.
+
+Seed examples:
+
+DIG-FULL
+DISC-HPC-925
+DISC-HL-85
+DISC-LTR-11
+
+Status
+
+Options:
+
+Draft
+Active
+Archived
+
+Default: Draft
+
+Output Geometry
+
+Output Medium
+
+Options:
+
+Digital
+Print
+
+Finished Width
+
+Decimal number.
+
+Finished Height
+
+Decimal number.
+
+Units
+
+Options:
+
+Inches
+Millimeters
+
+Default for seeded profiles: Inches
+
+Orientation Behavior
+
+Options:
+
+Fixed Portrait
+Fixed Landscape
+Supports Both
+Square
+
+For the disc-bound planner profiles, use Fixed Portrait.
+
+Print Safety
+
+Bleed
+
+Decimal.
+
+Seed print default:
+
+0.125 in
+
+Digital profile:
+
+0
+
+Outer Safe Margin
+
+Decimal.
+
+Seed print default:
+
+0.25 in
+
+This protects critical text and functional content from trim edges.
+
+Digital may also use a configurable safe margin rather than zero.
+
+Binding
+
+Binding Type
+
+Options:
+
+None
+Disc-Bound
+
+Do not add Ring-Bound in this implementation.
+
+Binding Safe Zone
+
+Decimal.
+
+Seed disc-bound profiles with:
+
+0.75 in
+
+Definition:
+
+The protected area measured inward from the finished binding edge.
+
+Background artwork may enter this area.
+
+Critical content may not.
+
+Binding Edge Behavior
+
+Options:
+
+None
+Left
+Right
+Mirrored
+
+Default for planner/book production:
+
+Mirrored
+
+Meaning:
+
+recto/right-hand page → binding zone on left
+verso/left-hand page → binding zone on right
+Punch Relationship
+
+Punch Template
+
+Optional relationship to the new Punch Template entity.
+
+Digital profiles have no Punch Template.
+
+Disc-bound profiles may reference one.
+
+The Production Profile must not store mushroom-hole geometry directly.
+
+2. New Entity: Punch Template
+
+Create a reusable entity named:
+
+Punch Template
+
+This stores physical punch geometry separately from page dimensions.
+
+This is important because punch geometry will be refined through physical print testing without requiring changes to every Production Profile or planner.
+
+Fields
+Identity
+
+Template Name
+
+Required text.
+
+Example:
+
+9-Disc Classic — v1
+
+Template Code
+
+Unique short code.
+
+Example:
+
+PUNCH-9D-CLASSIC-V1
+
+Binding Type
+
+For now:
+
+Disc-Bound
+
+Status
+
+Options:
+
+Draft
+Testing
+Approved
+Archived
+
+Default:
+
+Draft
+
+Page Compatibility
+
+Disc Count
+
+Integer.
+
+Example:
+
+9
+
+Reference Page Height
+
+Decimal.
+
+Example for Happy Planner Classic:
+
+9.25 in
+
+Units
+
+Inches / Millimeters.
+
+Punch Geometry
+
+Create numeric fields for:
+
+Punch Center Spacing
+Edge Offset
+Mushroom Head Diameter
+Stem Width
+Stem Depth
+Top Offset
+Bottom Offset
+Manufacturing Tolerance
+
+Do not seed assumed geometry values unless we explicitly provide them.
+
+These values will be populated after physical punch/print testing.
+
+Versioning
+
+Version
+
+Integer or semantic version.
+
+Start with:
+
+1
+
+Punch geometry should be versionable because physical testing may produce revised dimensions.
+
+An approved profile should retain the punch-template version with which it was validated.
+
+3. Seed Production Profiles
+
+Create these four initial records.
+
+A. Digital Planner — Full Page
+
+Code: DIG-FULL
+
+Output Medium: Digital
+Binding Type: None
+Bleed: 0
+Punch Template: None
+Binding Edge Behavior: None
+
+Do not lock dimensions yet unless Daybook already has an approved digital master size.
+
+Allow width and height to remain configurable until the planner master is finalized.
+
+B. Disc-Bound — Happy Planner Classic
+
+Code: DISC-HPC-925
+
+Finished Width: 7 in
+Finished Height: 9.25 in
+Output Medium: Print
+Binding Type: Disc-Bound
+Disc Count: 9 through Punch Template
+Bleed: 0.125 in
+Outer Safe Margin: 0.25 in
+Binding Safe Zone: 0.75 in
+Binding Edge Behavior: Mirrored
+Orientation: Portrait
+Status: Active
+C. Disc-Bound — Half Letter
+
+Code: DISC-HL-85
+
+Finished Width: 5.5 in
+Finished Height: 8.5 in
+Output Medium: Print
+Binding Type: Disc-Bound
+Bleed: 0.125 in
+Outer Safe Margin: 0.25 in
+Binding Safe Zone: 0.75 in
+Binding Edge Behavior: Mirrored
+Orientation: Portrait
+Status: Active
+
+Do not label this profile “Junior” in the data model.
+
+Use Half Letter because its finished size is unambiguous.
+
+D. Disc-Bound — US Letter
+
+Code: DISC-LTR-11
+
+Finished Width: 8.5 in
+Finished Height: 11 in
+Output Medium: Print
+Binding Type: Disc-Bound
+Bleed: 0.125 in
+Outer Safe Margin: 0.25 in
+Binding Safe Zone: 0.75 in
+Binding Edge Behavior: Mirrored
+Orientation: Portrait
+Status: Active
+4. Calculated Safe Areas
+
+Add calculation logic that determines the usable content rectangle for a page.
+
+The system should distinguish three concepts:
+
+Bleed Area
+
+Artwork may extend beyond trim into bleed.
+
+General Safe Area
+
+Critical content should stay at least the configured Outer Safe Margin from non-binding trim edges.
+
+Binding Safe Area
+
+Critical content must remain outside the configured Binding Safe Zone.
+
+For a mirrored profile:
+
+Recto / Right-Hand Page
+
+Binding edge is left.
+
+Conceptually:
+
+| 0.75" binding-safe zone | usable content area              |
+Verso / Left-Hand Page
+
+Binding edge is right.
+
+|              usable content area | 0.75" binding-safe zone |
+5. Critical vs Background Content
+
+This distinction is mandatory.
+
+Do not interpret the Binding Safe Zone as blank space.
+
+Background artwork may extend through:
+
+binding zone
+trim
+bleed
+
+Examples:
+
+paper texture
+foxing
+subtle botanicals
+background color
+faint ledger ruling
+nonessential decorative material
+
+Critical content must remain outside the binding-safe zone.
+
+Examples:
+
+body text
+page titles
+writing fields
+hyperlinks
+tabs
+buttons
+page numbers when binding-adjacent
+labels
+focal objects
+essential illustration
+important borders
+functional controls
+
+The future rendering/export engine will use this distinction.
+
+This phase only needs to establish the rule and geometry.
+
+6. Page Side Support
+
+Add or reserve a page-side property:
+
+Page Side
+
+Options:
+
+Unspecified
+Recto / Right
+Verso / Left
+
+When a Production Profile uses Mirrored binding:
+
+Recto resolves binding edge to Left
+Verso resolves binding edge to Right
+
+If Page Side is Unspecified, Daybook should not guess.
+
+Instead, display the profile's binding zone as unresolved until page sequencing supplies the side.
+
+7. Relationships
+
+A Production Profile should eventually be attachable to:
+
+planner projects
+planner sections
+print targets
+export jobs
+individual production items when needed
+
+For this phase, add the relationship in the most appropriate existing production/output model without forcing Production Specs to duplicate profile information unnecessarily.
+
+The intended architecture is:
+
+World
+  ↓
+Collection
+  ↓
+Volume
+  ↓
+Production Spec
+  ↓
+Component Spec
+  ↓
+Production Profile
+  ↓
+Punch Template
+  ↓
+Future Export
+
+Production Profiles control manufacturing/output geometry, not creative direction.
+
+8. Daybook UI
+
+Add a Production Profiles management view.
+
+Suggested location:
+
+Make It Real
+→ Production Profiles
+
+Each profile card/list row should show:
+
+Name
+Code
+Finished Size
+Output Medium
+Binding Type
+Binding Safe Zone
+Punch Template
+Status
+Profile Editor
+
+Organize into sections:
+
+Identity
+Name
+Code
+Status
+Page Geometry
+Width
+Height
+Units
+Orientation
+Print Safety
+Bleed
+Outer Safe Margin
+Binding
+Binding Type
+Binding Safe Zone
+Binding Edge Behavior
+Punch Configuration
+Punch Template relationship
+9. Visual Safe-Zone Preview
+
+Add a simple preview diagram to the Production Profile editor.
+
+It does not need to render artwork.
+
+Show:
+
+finished trim rectangle
+outer safe area
+binding safe zone
+bleed boundary if applicable
+
+Include controls to preview:
+
+Recto
+Verso
+
+For mirrored binding, changing Recto/Verso should visibly flip the binding-safe area.
+
+Use labels such as:
+
+Bleed
+Trim
+Safe Content
+Binding Safe Zone
+
+This preview is a geometry visualization only.
+
+10. Validation Rules
+
+Add validation for:
+
+width > 0
+height > 0
+margins cannot exceed usable page dimensions
+bleed cannot be negative
+binding-safe zone cannot be negative
+disc-bound profiles require a binding-safe zone
+digital profiles cannot require a punch template
+Mirrored requires Page Side during downstream page resolution
+profile codes must be unique
+
+Do not require Punch Template geometry to be complete for a Production Profile to exist.
+
+A Punch Template may remain in Testing.
+
+11. Explicit Non-Goals for This Phase
+
+Do not implement:
+
+PDF generation
+PDF import
+PDF merging
+planner page resizing
+hyperlink placement
+punch-hole rendering
+automatic mushroom cutouts
+Silhouette/Cricut cut files
+print imposition
+duplex alignment
+planner sequencing
+automatic page reflow
+page content movement
+Goodnotes export
+digital navigation
+January planner layouts
+
+Those are future phases.
+
+12. Acceptance Criteria
+
+The feature is complete when:
+
+I can create/edit/archive Production Profiles.
+The four seed profiles exist.
+Disc-bound profiles store a 0.75" binding-safe zone.
+Happy Planner Classic is defined as 7 × 9.25", 9-disc.
+Half Letter is defined as 5.5 × 8.5".
+US Letter is defined as 8.5 × 11".
+Punch Templates exist as separate records.
+Production Profiles can reference Punch Templates.
+Recto/Verso preview correctly mirrors the binding-safe zone.
+Background-safe vs critical-content behavior is documented in the model/UI.
+No PDF/export functionality is added yet.
+Existing Production Specs, Component Specs, Style Guides, Prompt Modules, and WorldSmith records continue to function without regression.
+Final instruction to Replit
+
+Implement this as extensible production infrastructure rather than planner-specific hardcoding. Production Profiles define output geometry and safe areas. Punch Templates define physical punch geometry. Keep creative specifications separate from manufacturing/output constraints. Do not add export or PDF-generation behavior in this phase.

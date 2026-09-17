@@ -154,6 +154,9 @@ import {
   Collections,
 } from "@/pages/super/worldsmith-editorial";
 
+import ProductionProfiles from "@/pages/super/worldsmith-editorial/ProductionProfiles";
+import PunchTemplates from "@/pages/super/worldsmith-editorial/PunchTemplates";
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -385,6 +388,16 @@ function RootRouter() {
       <Route path="/super/worldsmith/editorial/component-specs">
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="component-specs"><ComponentSpecs /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/production-profiles">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="production-profiles"><ProductionProfiles /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/punch-templates">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="punch-templates"><PunchTemplates /></EditorialShell>
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/collections">

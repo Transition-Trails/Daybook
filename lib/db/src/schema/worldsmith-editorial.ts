@@ -1,5 +1,5 @@
 import {
-  pgTable, text, boolean, integer, real, timestamp, jsonb, index, primaryKey,
+  pgTable, text, boolean, integer, real, timestamp, jsonb, index, primaryKey, unique,
 } from "drizzle-orm/pg-core";
 
 // ── WorldSmith Editorial Suite ────────────────────────────────────────────────
@@ -141,6 +141,55 @@ export const wsStyleGuidesTable = pgTable("ws_style_guides", {
 export type WsStyleGuide = typeof wsStyleGuidesTable.$inferSelect;
 export type InsertWsStyleGuide = typeof wsStyleGuidesTable.$inferInsert;
 
+// ── Production Profiles & Punch Templates ─────────────────────────────────────
+export const wsPunchTemplatesTable = pgTable("ws_punch_templates", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  bindingType: text("binding_type").notNull().default("disc_bound"),
+  status: text("status").notNull().default("draft"),
+  discCount: integer("disc_count"),
+  referencePageHeight: real("reference_page_height"),
+  units: text("units").notNull().default("inches"),
+  punchCenterSpacing: real("punch_center_spacing"),
+  edgeOffset: real("edge_offset"),
+  mushroomHeadDiameter: real("mushroom_head_diameter"),
+  stemWidth: real("stem_width"),
+  stemDepth: real("stem_depth"),
+  topOffset: real("top_offset"),
+  bottomOffset: real("bottom_offset"),
+  manufacturingTolerance: real("manufacturing_tolerance"),
+  version: integer("version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [unique("ws_punch_templates_code_unique").on(t.code)]);
+export type WsPunchTemplate = typeof wsPunchTemplatesTable.$inferSelect;
+export type InsertWsPunchTemplate = typeof wsPunchTemplatesTable.$inferInsert;
+
+export const wsProductionProfilesTable = pgTable("ws_production_profiles", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  status: text("status").notNull().default("draft"),
+  outputMedium: text("output_medium").notNull(),
+  finishedWidth: real("finished_width"),
+  finishedHeight: real("finished_height"),
+  units: text("units").notNull().default("inches"),
+  orientationBehavior: text("orientation_behavior").notNull(),
+  bleed: real("bleed").notNull().default(0),
+  outerSafeMargin: real("outer_safe_margin").notNull().default(0),
+  bindingType: text("binding_type").notNull().default("none"),
+  bindingSafeZone: real("binding_safe_zone").notNull().default(0),
+  bindingEdgeBehavior: text("binding_edge_behavior").notNull().default("none"),
+  punchTemplateId: text("punch_template_id").references(() => wsPunchTemplatesTable.id, { onDelete: "set null" }),
+  punchTemplateVersion: integer("punch_template_version"),
+  punchTemplateSnapshot: jsonb("punch_template_snapshot").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [unique("ws_production_profiles_code_unique").on(t.code)]);
+export type WsProductionProfile = typeof wsProductionProfilesTable.$inferSelect;
+export type InsertWsProductionProfile = typeof wsProductionProfilesTable.$inferInsert;
+
 // ── Component Specs ───────────────────────────────────────────────────────────
 
 export const wsComponentSpecsTable = pgTable("ws_component_specs", {
@@ -148,6 +197,7 @@ export const wsComponentSpecsTable = pgTable("ws_component_specs", {
   worldId: text("world_id").notNull(),
   name: text("name").notNull(),
   componentType: text("component_type").notNull(),
+  productionProfileId: text("production_profile_id").references(() => wsProductionProfilesTable.id, { onDelete: "set null" }),
   content: text("content").notNull().default(""),
   notionPageId: text("notion_page_id"),
   syncedAt: timestamp("synced_at", { withTimezone: true }),

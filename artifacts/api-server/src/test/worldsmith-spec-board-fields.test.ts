@@ -26,9 +26,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Hoisted mock handles ──────────────────────────────────────────────────────
 
-const { mockGetPage, mockGetPageText } = vi.hoisted(() => ({
+const { mockGetPage, mockGetPageText, mockGenerateImage } = vi.hoisted(() => ({
   mockGetPage: vi.fn(),
   mockGetPageText: vi.fn(),
+  mockGenerateImage: vi.fn(),
 }));
 
 const { mockRenderBoard } = vi.hoisted(() => ({
@@ -114,12 +115,7 @@ vi.mock("../lib/worldsmith/image-generation.js", () => ({
     model: "gpt-image-2",
     settings: { size: options?.size ?? "1024x1024", quality: options?.quality ?? "medium" },
   })),
-  generateImage: vi.fn().mockResolvedValue({
-    dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
-    provider: "replit_ai_integrations",
-    model: "gpt-image-2",
-    settings: { size: "1024x1024", quality: "medium" },
-  }),
+  generateImage: mockGenerateImage,
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
@@ -237,6 +233,12 @@ beforeEach(() => {
       "base64",
     ),
   );
+  mockGenerateImage.mockResolvedValue({
+    dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+    provider: "replit_ai_integrations",
+    model: "gpt-image-2",
+    settings: { size: "1024x1024", quality: "medium" },
+  });
 
   mockGetPageText.mockResolvedValue("");
   process.env.NOTION_TOKEN = "test-not-real";
@@ -576,7 +578,7 @@ function makeSpecPageWithCollectionRelation() {
 }
 
 describe("runSpecPreview — canonNames fetched from linked Canon Record pages", () => {
-  it("populates canonNames from linked Canon Record page titles so Section 13 shows real names", async () => {
+  it("resolves linked Canon Record pages without rendering the retired wrapper board", async () => {
     // Spec page
     mockGetPage
       .mockResolvedValueOnce(makeSpecPage())
@@ -597,11 +599,9 @@ describe("runSpecPreview — canonNames fetched from linked Canon Record pages",
       dry_run: false,
     });
 
-    expect(capturedBoardData).toBeDefined();
-    expect(capturedBoardData!.canonNames).toEqual(
-      expect.arrayContaining(["The Thornvale Codex", "Ember Court Charter"]),
-    );
-    expect(capturedBoardData!.canonNames).toHaveLength(2);
+    expect(mockGetPage).toHaveBeenCalledWith(CANON_A_ID);
+    expect(mockGetPage).toHaveBeenCalledWith(CANON_B_ID);
+    expect(mockRenderBoard).not.toHaveBeenCalled();
   });
 
   it("generates the board without canonNames when a Canon Record fetch fails (silent degradation)", async () => {
@@ -626,11 +626,8 @@ describe("runSpecPreview — canonNames fetched from linked Canon Record pages",
       }),
     ).resolves.not.toThrow();
 
-    expect(capturedBoardData).toBeDefined();
-    // canonNames should remain undefined (not an empty array) when all fetches fail
-    expect(capturedBoardData!.canonNames).toBeUndefined();
-    // But canonRecordCount reflects what was linked in Notion
-    expect(capturedBoardData!.canonRecordCount).toBe(2);
+    expect(mockRenderBoard).not.toHaveBeenCalled();
+    expect(mockGenerateImage).toHaveBeenCalledOnce();
   });
 
   it("partially populates canonNames when only some Canon Record fetches succeed", async () => {
@@ -653,8 +650,9 @@ describe("runSpecPreview — canonNames fetched from linked Canon Record pages",
       dry_run: false,
     });
 
-    expect(capturedBoardData!.canonNames).toEqual(["The Thornvale Codex"]);
-    expect(capturedBoardData!.canonNames).toHaveLength(1);
+    expect(mockGetPage).toHaveBeenCalledWith(CANON_A_ID);
+    expect(mockGetPage).toHaveBeenCalledWith(CANON_B_ID);
+    expect(mockRenderBoard).not.toHaveBeenCalled();
   });
 });
 
@@ -676,7 +674,8 @@ describe("runSpecPreview — collection resolved from Notion relation", () => {
       dry_run: false,
     });
 
-    expect(capturedBoardData!.collection).toBe("The Iron Archive");
+    expect(mockGetPage).toHaveBeenCalledWith(COLLECTION_PAGE_ID);
+    expect(mockRenderBoard).not.toHaveBeenCalled();
   });
 
   it("leaves collection undefined but does not throw when the Collection page fetch fails", async () => {
@@ -698,7 +697,8 @@ describe("runSpecPreview — collection resolved from Notion relation", () => {
       }),
     ).resolves.not.toThrow();
 
-    expect(capturedBoardData!.collection).toBeUndefined();
+    expect(mockRenderBoard).not.toHaveBeenCalled();
+    expect(mockGenerateImage).toHaveBeenCalledOnce();
   });
 
   it("uses the inline collection text directly without an extra getPage call", async () => {
@@ -728,14 +728,14 @@ describe("runSpecPreview — collection resolved from Notion relation", () => {
       dry_run: false,
     });
 
-    expect(capturedBoardData!.collection).toBe("Verdant Veil");
     // Exactly one getPage call (the spec itself) — no follow-up for inline text
     expect(mockGetPage).toHaveBeenCalledTimes(1);
+    expect(mockRenderBoard).not.toHaveBeenCalled();
   });
 });
 
 describe("runSpecPreview — illustratedNarrative from PP-2.0 front_prompt", () => {
-  it("extracts front_prompt as illustratedNarrative and passes it to the board template", async () => {
+  it("uses front_prompt as the generated image scene without rendering a wrapper board", async () => {
     mockGetPage.mockResolvedValueOnce(makeSpecPage());
 
     let capturedBoardData: SpecBoardData | undefined;
@@ -750,10 +750,9 @@ describe("runSpecPreview — illustratedNarrative from PP-2.0 front_prompt", () 
       dry_run: false,
     });
 
-    expect(capturedBoardData!.illustratedNarrative).toBeDefined();
-    expect(capturedBoardData!.illustratedNarrative).toContain(
-      "Beneath a copper-leafed oak",
-    );
+    const generatedPrompt = mockGenerateImage.mock.calls[0]?.[0] as string | undefined;
+    expect(generatedPrompt).toContain("Beneath a copper-leafed oak");
+    expect(mockRenderBoard).not.toHaveBeenCalled();
   });
 
   it("the resulting SVG Section 3 contains the front_prompt scene text (not the fallback)", async () => {
@@ -805,11 +804,9 @@ describe("runSpecPreview — illustratedNarrative from PP-2.0 front_prompt", () 
       dry_run: false,
     });
 
-    // PP-1.0 has no front_prompt; illustratedNarrative should be undefined or empty
-    // so the template falls back to requiredContent / componentType / assetRole
-    const narrative = capturedBoardData!.illustratedNarrative;
-    // Either undefined or an empty string — the test confirms we don't crash
-    expect(narrative === undefined || narrative === "").toBe(true);
+    const generatedPrompt = mockGenerateImage.mock.calls[0]?.[0] as string | undefined;
+    expect(generatedPrompt).toContain("Journal Card scene");
+    expect(mockRenderBoard).not.toHaveBeenCalled();
   });
 });
 

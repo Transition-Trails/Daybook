@@ -701,7 +701,7 @@ function IdentityTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec
 
   return (
     <div className="space-y-3">
-      <EditorialSection {...sectionProps}
+      <EditorialSection
         title="Naming & Identity"
         hint="Production item name, spec ID, and version."
         open={openSection === "naming"}
@@ -723,7 +723,7 @@ function IdentityTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec
         </div>
       </EditorialSection>
 
-      <EditorialSection {...sectionProps}
+      <EditorialSection
         title="Component & Format"
         hint="Type, set membership, orientation, and print style."
         open={openSection === "component"}
@@ -795,12 +795,11 @@ function IdentityTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec
 
 function CreativeTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec; onChange: (patch: Partial<Spec>) => void; onFocus?: OnSpecFieldFocus; readOnly?: boolean }) {
   const [openSection, setOpenSection] = useState<string | null>("design");
-  const sectionProps = { contentReadOnly: readOnly };
   const toggle = (id: string) => setOpenSection(prev => prev === id ? null : id);
 
   return (
     <div className="space-y-3">
-      <EditorialSection {...sectionProps}
+      <EditorialSection
         title="Design Intent"
         hint="The visual experience this component should create."
         open={openSection === "design"}
@@ -813,10 +812,11 @@ function CreativeTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec
           onFocus={() => onFocus?.("designIntent", "Design Intent")}
           onChange={val => onChange({ designIntent: val })}
           minHeight={160}
+          readOnly={readOnly}
         />
       </EditorialSection>
 
-      <EditorialSection {...sectionProps}
+      <EditorialSection
         title="Narrative Purpose"
         hint="How this connects to the world's story."
         open={openSection === "narrative"}
@@ -829,10 +829,11 @@ function CreativeTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec
           onFocus={() => onFocus?.("narrativePurpose", "Narrative Purpose")}
           onChange={val => onChange({ narrativePurpose: val })}
           minHeight={160}
+          readOnly={readOnly}
         />
       </EditorialSection>
 
-      <EditorialSection {...sectionProps}
+      <EditorialSection
         title="Required Content"
         hint="Specific visual elements, motifs, or text areas that must appear."
         open={openSection === "required"}
@@ -845,10 +846,11 @@ function CreativeTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec
           onFocus={() => onFocus?.("requiredContent", "Required Content")}
           onChange={val => onChange({ requiredContent: val })}
           minHeight={160}
+          readOnly={readOnly}
         />
       </EditorialSection>
 
-      <EditorialSection {...sectionProps}
+      <EditorialSection
         title="Review Criteria"
         hint="How you'll evaluate generated images against this spec."
         open={openSection === "review"}
@@ -861,6 +863,7 @@ function CreativeTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec
           onFocus={() => onFocus?.("reviewCriteria", "Review Criteria")}
           onChange={val => onChange({ reviewCriteria: val })}
           minHeight={160}
+          readOnly={readOnly}
         />
       </EditorialSection>
     </div>

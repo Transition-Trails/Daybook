@@ -200,13 +200,7 @@ beforeEach(() => {
 });
 
 describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
-  it("stores an unpublished local board from compiled records with World Bible grounding and no Notion writes", async () => {
-    let renderedBoard: SpecBoardData | undefined;
-    mockRenderBoard.mockImplementation(async (data: SpecBoardData) => {
-      renderedBoard = data;
-      return Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
-    });
-
+  it("stores only the generated image from compiled records with World Bible grounding and no Notion writes", async () => {
     const result = await runSpecPreview({
       production_spec_id: "local-spec",
       prompt_hash: "local-preview-hash",
@@ -221,29 +215,13 @@ describe("runSpecPreview with a local Editorial Suite Production Spec", () => {
       preview_url: expect.stringMatching(/^\/api\/storage\/objects\/worldsmith\/spec-previews\//),
     });
     expect(mockLocalResolver).toHaveBeenCalledWith("local-spec");
-    expect(renderedBoard?.worldBible?.visualPalette).toContain("Moss green");
-    expect(renderedBoard?.illustratedNarrative).toContain("Compiled gate scene.");
-    expect(renderedBoard?.illustratedNarrative).toContain("Compiled component requirements.");
-    expect(renderedBoard?.illustratedNarrative).toContain("Compiled Quiet Gate canon policy.");
-    expect(renderedBoard?.composition).toBe("Compiled gate scene.");
-    expect(renderedBoard?.materials).toBe("Compiled wet stone and iron.");
-    expect(renderedBoard?.negativeConstraints).toBe("Compiled no text.");
-    expect(renderedBoard?.usesCompiledSections).toBe(true);
-    expect(renderedBoard?.canonNames).toEqual(["The Quiet Gate"]);
-    expect(renderedBoard?.collection).toBe("Verdant Folio");
-    expect(renderedBoard?.volume).toBe("Volume I");
-    expect(renderedBoard?.styleGuideName).toBe("Thornvale Style");
-    expect(renderedBoard?.componentSpecName).toBe("Hero Paper");
-    expect(renderedBoard?.colorSwatches).toEqual([
-      { name: "Moss Green", hex: "#3D5A48" },
-      { name: "Faded Sepia", hex: "#D8C6A4" },
-    ]);
-    expect(renderedBoard?.sectionProvenance?.style_lock).toContain("Thornvale Style");
-    expect(renderedBoard?.generationTarget).toMatchObject({
-      size: "1808x1808",
-      dpi: 150,
-      requestedDpi: 150,
-    });
+    expect(mockRenderBoard).not.toHaveBeenCalled();
+    expect(mockGenerateWorldsmithImage).toHaveBeenCalledOnce();
+    const prompt = mockGenerateWorldsmithImage.mock.calls[0]?.[0]?.prompt;
+    expect(prompt).toContain("Moss green");
+    expect(prompt).toContain("Compiled gate scene.");
+    expect(prompt).toContain("Compiled wet stone and iron.");
+    expect(prompt).toContain("Compiled no text.");
     expect(mockGetPage).not.toHaveBeenCalled();
     expect(mockUpload).not.toHaveBeenCalled();
     expect(mockAttach).not.toHaveBeenCalled();

@@ -27,11 +27,6 @@ import {
   type NotionPage,
 } from "../notion-client";
 import {
-  renderSpecBoardToPng,
-  CONCEPT_IMAGE_AREA,
-  CONCEPT_IMAGE_RENDER_AREA,
-  DETAIL_CROP_DEST_AREAS,
-  getDetailCropSourceRects,
   TEMPLATE_VERSION,
 } from "./spec-board-template";
 import { parsePayload } from "./payload-parser";
@@ -136,35 +131,6 @@ function buildConceptImagePrompt(data: SpecBoardData): string {
     "Concept preview for editorial review — not final artwork.",
   ].filter(Boolean);
   return parts.join(" ").slice(0, 3800);
-}
-
-async function compositeDetailReferences(
-  boardPng: Buffer,
-  sourceRects: ReadonlyArray<{ x: number; y: number; width: number; height: number }>,
-  specPageId: string,
-): Promise<Buffer> {
-  if (sourceRects.length === 0) return boardPng;
-  const composites = (await Promise.all(
-    sourceRects.map(async (src, i) => {
-      const dest = DETAIL_CROP_DEST_AREAS[i];
-      if (!dest) return null;
-      try {
-        const cropped = await sharp(boardPng)
-          .extract({ left: src.x, top: src.y, width: src.width, height: src.height })
-          .resize(dest.width - 4, dest.height - 4, { fit: "cover", position: "centre" })
-          .png()
-          .toBuffer();
-        return { input: cropped, left: dest.x + 2, top: dest.y + 2, blend: "over" as const };
-      } catch (cropErr) {
-        logger.warn({ err: cropErr, index: i, specPageId }, "Detail crop failed — skipping thumbnail");
-        return null;
-      }
-    }),
-  )).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-  if (composites.length === 0) return boardPng;
-  const result = await sharp(boardPng).composite(composites).png().toBuffer();
-  logger.info({ specPageId, count: composites.length }, "Detail reference crops composited into spec board");
-  return result;
 }
 
 interface LocalCompileSnapshot {
@@ -749,20 +715,6 @@ async function runLocalSpecPreview(
     };
   }
 
-  let boardPng: Buffer;
-  try {
-    boardPng = await renderSpecBoardToPng(boardData);
-  } catch (err) {
-    await savePreviewRecord({
-      specPageId,
-      promptHash,
-      status: "failed",
-      productionItem: boardData.productionItem,
-      error: `SVG render failed: ${String(err)}`,
-    });
-    throw new SpecPreviewError("GENERATION_FAILED", `Spec board render failed: ${String(err)}`);
-  }
-
   let finalPng: Buffer;
   let generationMetadata: WorldsmithImageGeneration["metadata"];
   try {
@@ -776,27 +728,7 @@ async function runLocalSpecPreview(
     if (generatedImage.error) throw new Error(generatedImage.error);
     if (!generatedImage.buffer) throw new Error("Image generation returned no image data");
 
-    const resized = await sharp(generatedImage.buffer)
-      .resize(CONCEPT_IMAGE_RENDER_AREA.width, CONCEPT_IMAGE_RENDER_AREA.height, {
-        fit: "inside",
-        withoutEnlargement: false,
-      })
-      .png()
-      .toBuffer();
-    const meta = await sharp(resized).metadata();
-    const imgW = meta.width ?? CONCEPT_IMAGE_RENDER_AREA.width;
-    const imgH = meta.height ?? CONCEPT_IMAGE_RENDER_AREA.height;
-    const left = CONCEPT_IMAGE_RENDER_AREA.x + Math.floor((CONCEPT_IMAGE_RENDER_AREA.width - imgW) / 2);
-    const top = CONCEPT_IMAGE_RENDER_AREA.y + Math.floor((CONCEPT_IMAGE_RENDER_AREA.height - imgH) / 2);
-    finalPng = await sharp(boardPng)
-      .composite([{ input: resized, left, top, blend: "over" }])
-      .png()
-      .toBuffer();
-    finalPng = await compositeDetailReferences(
-      finalPng,
-      getDetailCropSourceRects({ x: left, y: top, width: imgW, height: imgH }),
-      specPageId,
-    );
+    finalPng = await sharp(generatedImage.buffer).png().toBuffer();
   } catch (err) {
     await savePreviewRecord({
       specPageId,
@@ -807,7 +739,7 @@ async function runLocalSpecPreview(
     });
     throw new SpecPreviewError(
       "CONCEPT_IMAGE_GENERATION_FAILED",
-      `The Specification Board artwork could not be generated. No placeholder board was saved. ${String(err)}`,
+      `The Production Spec image could not be generated. No placeholder was saved. ${String(err)}`,
     );
   }
 
@@ -831,6 +763,7 @@ async function runLocalSpecPreview(
     });
     throw new SpecPreviewError("PREVIEW_STORAGE_FAILED", `Could not store the local spec board: ${String(err)}`);
   }
+  const localImageMetadata = await sharp(finalPng).metadata();
   await savePreviewRecord({
     specPageId,
     promptHash,
@@ -846,10 +779,10 @@ async function runLocalSpecPreview(
     outputMetadata: {
       originalByteLength: finalPng.length,
       finalByteLength: finalPng.length,
-      originalWidth: CONCEPT_IMAGE_AREA.x + CONCEPT_IMAGE_AREA.width,
-      originalHeight: CONCEPT_IMAGE_AREA.y + CONCEPT_IMAGE_AREA.height,
-      finalWidth: CONCEPT_IMAGE_AREA.x + CONCEPT_IMAGE_AREA.width,
-      finalHeight: CONCEPT_IMAGE_AREA.y + CONCEPT_IMAGE_AREA.height,
+      originalWidth: localImageMetadata.width,
+      originalHeight: localImageMetadata.height,
+      finalWidth: localImageMetadata.width,
+      finalHeight: localImageMetadata.height,
       encoding: "lossless_png",
       sectionProvenance: boardData.sectionProvenance,
     },
@@ -1052,32 +985,17 @@ export async function runSpecPreview(
     };
   }
 
-  // ── 5. Generate spec board PNG ────────────────────────────────────────────
+  // ── 5. Resolve the generated-image target ─────────────────────────────────
   const previewGeneration = await resolveWorldsmithImageGeneration(
     finalBoardData.componentType,
     finalBoardData.orientation,
   );
   finalBoardData = { ...finalBoardData, generationTarget: previewGeneration.target };
-  let boardPng: Buffer;
-  try {
-    boardPng = await renderSpecBoardToPng(finalBoardData);
-  } catch (svgErr) {
-    await savePreviewRecord({
-      specPageId, promptHash,
-      status: "failed",
-      productionItem: finalBoardData.productionItem,
-      notionPageUrl: pageUrl,
-      error: `SVG render failed: ${String(svgErr)}`,
-    });
-    throw new SpecPreviewError("GENERATION_FAILED", `Spec board render failed: ${String(svgErr)}`);
-  }
-
-  // ── 6. Generate and composite the central concept visual ─────────────────
-  let finalPng = boardPng;
+  // ── 6. Generate the Production Spec image ─────────────────────────────────
+  let finalPng: Buffer;
   let conceptImageApplied = false;
   let conceptImageError: string | undefined;
   let generationMetadata: WorldsmithImageGeneration["metadata"];
-  let detailCropSourceRects: ReadonlyArray<{ x: number; y: number; width: number; height: number }> = [];
 
   try {
     const conceptImagePrompt = buildConceptImagePrompt(finalBoardData);
@@ -1089,53 +1007,30 @@ export async function runSpecPreview(
     });
     generationMetadata = generatedImage.metadata;
     if (generatedImage.error) {
-      conceptImageError = generatedImage.error;
-      finalPng = boardPng;
+      throw new Error(generatedImage.error);
     } else if (!generatedImage.buffer) {
       throw new Error("Image generation returned no image data");
     } else {
-      // Resize to fit the concept image area, maintaining aspect ratio
-      const resized = await sharp(generatedImage.buffer)
-        .resize(CONCEPT_IMAGE_RENDER_AREA.width, CONCEPT_IMAGE_RENDER_AREA.height, {
-          fit: "inside",
-          withoutEnlargement: false,
-        })
-        .png()
-        .toBuffer();
-
-      // Center the resized image in the concept area
-      const meta = await sharp(resized).metadata();
-      const imgW = meta.width ?? CONCEPT_IMAGE_RENDER_AREA.width;
-      const imgH = meta.height ?? CONCEPT_IMAGE_RENDER_AREA.height;
-      const left = CONCEPT_IMAGE_RENDER_AREA.x + Math.floor((CONCEPT_IMAGE_RENDER_AREA.width - imgW) / 2);
-      const top  = CONCEPT_IMAGE_RENDER_AREA.y + Math.floor((CONCEPT_IMAGE_RENDER_AREA.height - imgH) / 2);
-      detailCropSourceRects = getDetailCropSourceRects({ x: left, y: top, width: imgW, height: imgH });
-
-      // Composite over the spec board
-      finalPng = await sharp(boardPng)
-        .composite([{ input: resized, left, top, blend: "over" }])
-        .png()
-        .toBuffer();
-
+      finalPng = await sharp(generatedImage.buffer).png().toBuffer();
       conceptImageApplied = true;
-      logger.info({ specPageId }, "Generated concept visual composited successfully");
+      logger.info({ specPageId }, "Generated Production Spec image prepared successfully");
     }
   } catch (imageErr) {
     conceptImageError = String(imageErr);
-    logger.warn({ err: imageErr, specPageId }, "Generated concept visual failed — using spec board without central image");
-    // Non-fatal: continue with the plain spec board (placeholder remains)
-    finalPng = boardPng;
-  }
-
-  // ── 6b. Auto-crop detail references from the concept image ────────────────
-  // Crop 4 regions from the concept image area in the board and composite them
-  // into the DETAIL_CROP_DEST_AREAS in the bottom technical strip.
-  if (conceptImageApplied) {
-    try {
-      finalPng = await compositeDetailReferences(finalPng, detailCropSourceRects, specPageId);
-    } catch (cropErr) {
-      logger.warn({ err: cropErr, specPageId }, "Detail crop compositing failed — non-fatal, continuing");
-    }
+    await savePreviewRecord({
+      specPageId,
+      promptHash,
+      status: "failed",
+      productionItem: finalBoardData.productionItem,
+      notionPageUrl: pageUrl,
+      provider: generationMetadata?.provider,
+      model: generationMetadata?.model,
+      error: `Production Spec image generation failed: ${conceptImageError}`,
+    });
+    throw new SpecPreviewError(
+      "CONCEPT_IMAGE_GENERATION_FAILED",
+      `The Production Spec image could not be generated. No placeholder was saved. ${conceptImageError}`,
+    );
   }
 
   const preparedPreview = await preparePreviewForUpload(finalPng);

@@ -96,5 +96,8 @@ EMAIL_PLATFORM_NAME = "Daybook"
 EMAIL_TIER1_DAILY_LIMIT = "200"
 EMAIL_TIER1_MONTHLY_UPGRADE_THRESHOLD = "1000"
 
+[userenv.production]
+APP_URL = "https://daybook-app.replit.app"
+
 [objectStorage]
 defaultBucketID = "replit-objstore-8dda2e7d-40f3-4539-932f-d03b3d8bc981"

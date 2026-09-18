@@ -80,7 +80,7 @@
 - [Planner bounded-slot composition](planner-bounded-slot-composition.md) — Super Admin template editing uses explicit safe-area slots; adding consumes one and deleting frees it
 - [Planner binding gutters](planner-binding-gutters.md) — widget artwork reserves extra space on alternating binding edges; editor and PDF geometry must stay aligned
 - [Wizard draft hydration](wizard-draft-hydration.md) — resumable forms must bypass stale query cache on first load without allowing focus refetches to overwrite unsaved input
-- [Local spec board integrity](local-spec-board-integrity.md) — local boards must force fresh generation on explicit retry and must never save image-generation placeholders as success
+- [Production Spec review images](local-spec-board-integrity.md) — compilation stores the generated image alone; never restore the surrounding review-board wrapper
 - [WorldSmith final-art source boundary](worldsmith-final-art-source-boundary.md) — local vs Notion behavior follows the request ID type, never whether a local record has been published
 - [WorldSmith board approval](worldsmith-board-approval.md) — board approval is a guarded local record transition and stays separate from final-artwork review
 - [WorldSmith rendering governance](worldsmith-rendering-governance.md) — provider prompts must enforce governing media across every inherited source and record the exact submitted prompt

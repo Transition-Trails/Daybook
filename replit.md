@@ -44,6 +44,17 @@ pnpm --filter @workspace/scripts run seed-recipes
 pnpm --filter @workspace/scripts run seed-theme-catalog
 ```
 
+### Release convention
+
+When a requested change is complete and verified, update any affected
+collaborator-facing documentation and `CHANGELOG.md`, commit the coherent change
+set, and push `main` to the connected GitHub repository without force. Confirm
+the remote branch still has the expected parent before advancing it. After a
+successful GitHub sync, explicitly tell the user when the app is ready to
+publish and present the Publish action. If validation is failing, the remote
+branch moved unexpectedly, or the change is incomplete, do not push or recommend
+publishing; report the blocker instead.
+
 ### Stripe billing setup
 
 The seed script reads `STRIPE_YEARLY_PRICE_ID` from the environment and
@@ -130,12 +141,14 @@ All owned-catalog routes (`/api/stores/:storeId/owned/...`) call `assertSameStor
 `writeAudit()` is called in every route that creates, modifies, publishes, or deletes a resource. It records actor, store scope, action, target type, and target ID. Audit failures are logged and swallowed (never block the primary request) but the invariant test suite uses the audit log as a secondary oracle for all permission tests.
 
 **8. WorldSmith local work stays local until publication.**
-Editorial Suite Production Specs may compile and render preview boards from
+Editorial Suite Production Specs may compile and render review images from
 Postgres before they have Notion pages. Use the shared local resolver and the
 spec's `worldId` for World Bible grounding; if that grounding is missing or
 unreadable, block rather than producing an ungrounded prompt or preview.
 Unpublished specs must not send IDs, files, relations, or status transitions to
-Notion. Store their preview boards in protected App Storage. Preserve the
+Notion. Store their review images in protected App Storage. Production Spec
+review output is the generated image itself; do not wrap it in the retired
+2400×2500 specification-board layout or add duplicate detail crops. Preserve the
 legacy Notion resolver and writeback behavior for records that have a real
 `notionPageId`.
 

@@ -2,6 +2,26 @@
 
 All notable changes to Daybook are documented in this file.
 
+## 2026-09-18 — WorldSmith editorial workflow
+
+### Added
+
+- Added direct Canon Record-to-storyline controls to the Story Map, including
+  optional movement selection.
+- Added reliable Story Map refresh after storyline and movement saves, plus a
+  visible retry state when storyline loading fails.
+- Added selectable, copyable read-only Creative Direction content for locked
+  Production Specs.
+
+### Changed
+
+- Production Spec compilation now stores and displays the generated review
+  image directly instead of embedding it in a duplicate 2400×2500
+  specification-board wrapper.
+- Completed, verified project changes now include affected documentation in the
+  GitHub sync and explicitly prompt the operator when the app is ready to
+  publish.
+
 ## 2026-08-25 — Stripe billing and support history
 
 ### Added

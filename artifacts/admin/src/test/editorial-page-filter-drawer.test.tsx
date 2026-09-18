@@ -165,7 +165,7 @@ describe("WorldSmith Editorial page filter drawer", () => {
     expect(await screen.findByText("Archive Card")).toBeInTheDocument();
   });
 
-  it("moves Story Map’s storyline focus filter to the drawer without moving its linking controls", async () => {
+  it("moves Story Map’s storyline focus filter to the drawer and refetches the selected storyline", async () => {
     renderEditorialPage("connections", <StoryConnections />);
 
     const drawerFilters = await screen.findByTestId("editorial-page-filters");
@@ -177,6 +177,5 @@ describe("WorldSmith Editorial page filter drawer", () => {
     await waitFor(() => {
       expect(apiFetchMock.mock.calls.some(([path]) => String(path).includes("story_id=story-1"))).toBe(true);
     });
-    expect(await screen.findByText("Connect canon to The Glasswater Archive")).toBeInTheDocument();
   });
 });

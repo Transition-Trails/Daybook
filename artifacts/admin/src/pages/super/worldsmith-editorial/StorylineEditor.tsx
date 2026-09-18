@@ -103,6 +103,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
     onSuccess: result => {
       queryClient.setQueryData(["editorial-story", result.story.id], { story: result.story });
       queryClient.invalidateQueries({ queryKey: ["ws-stories"] });
+      queryClient.invalidateQueries({ queryKey: ["ws-story-connections", result.story.worldId] });
       toast({ title: isNew ? "Storyline created" : "Storyline saved" });
       navigate("/super/worldsmith/editorial/stories");
     },
@@ -126,6 +127,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
       setNewActTitle("");
       queryClient.invalidateQueries({ queryKey: ["editorial-story", storyId] });
       queryClient.invalidateQueries({ queryKey: ["ws-stories"] });
+      queryClient.invalidateQueries({ queryKey: ["ws-story-connections", worldId] });
       toast({ title: "Movement added" });
     },
     onError: () => toast({ title: "Could not add movement", variant: "destructive" }),

@@ -126,9 +126,26 @@ GPT Image 2 proxy because it uses the same normal pixel budget as 2560 × 1440.
 WorldSmith resolves each component's target from the managed print-size
 catalog. Portrait and landscape records may have different physical
 dimensions, and the selected target is recorded with the generation audit
-metadata and prompt identity hash. Specification boards report the actual
-pixel target and physical print reference rather than presenting a derived DPI
-claim after capping.
+metadata and prompt identity hash. Production Spec review output is the
+generated image itself. The preview service must not surround that image with
+the retired specification-board layout or create duplicate crop panels. Local
+review images remain in protected App Storage; Notion-backed review images are
+uploaded to the Production Specification record. A generation failure must fail
+the review-image operation rather than persisting a placeholder as successful.
+
+## GitHub and Publish release sequence
+
+For a completed, verified change:
+
+1. update `CHANGELOG.md` and any affected operational or architecture
+   documentation;
+2. confirm local `main` is based on the current GitHub `main`;
+3. commit the coherent code, tests, and documentation together;
+4. push `main` without force and verify the remote commit; and
+5. publish from Replit when the change is intended for production.
+
+Do not publish an unpushed or unverified change. If GitHub `main` has moved,
+reconcile the branch before pushing rather than overwriting the remote history.
 
 ### Startup and ledger recovery
 

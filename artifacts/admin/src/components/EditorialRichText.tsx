@@ -66,6 +66,7 @@ export function EditorialRichTextField({
   onBlur,
   minHeight = 150,
   className = "",
+  readOnly = false,
 }: {
   value: string;
   placeholder: string;
@@ -74,6 +75,7 @@ export function EditorialRichTextField({
   onBlur?: () => void;
   minHeight?: number;
   className?: string;
+  readOnly?: boolean;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const focusedRef = useRef(false);
@@ -87,12 +89,13 @@ export function EditorialRichTextField({
 
   return (
     <div className={`overflow-hidden rounded-xl border border-border bg-background transition-colors focus-within:border-[#1B2A4A]/40 focus-within:ring-1 focus-within:ring-[#1B2A4A]/10 ${className}`}>
-      <EditorialRichTextToolbar editorRef={editorRef} onChange={onChange} />
+      {!readOnly && <EditorialRichTextToolbar editorRef={editorRef} onChange={onChange} />}
       <div
         ref={editorRef}
         role="textbox"
         aria-multiline="true"
-        contentEditable
+        aria-readonly={readOnly}
+        contentEditable={!readOnly}
         suppressContentEditableWarning
         onFocus={() => {
           focusedRef.current = true;
@@ -103,9 +106,11 @@ export function EditorialRichTextField({
           if (editorRef.current) onChange(sanitizeEditorialRichText(editorRef.current.innerHTML));
           onBlur?.();
         }}
-        onInput={event => onChange((event.currentTarget as HTMLDivElement).innerHTML)}
+        onInput={event => {
+          if (!readOnly) onChange((event.currentTarget as HTMLDivElement).innerHTML);
+        }}
         data-placeholder={placeholder}
-        className="px-4 py-3 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
+        className={`px-4 py-3 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] ${readOnly ? "cursor-text select-text" : ""}`}
         style={{
           minHeight,
           resize: "vertical",

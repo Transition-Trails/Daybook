@@ -125,13 +125,14 @@ export default function StoryConnections() {
   const [showUnlinked, setShowUnlinked] = useState(true);
   const [selectedActId, setSelectedActId] = useState<string>("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["ws-story-connections", selectedWorldId, selectedStoryId],
     queryFn: () => apiFetch<ConnectionsResponse>(
       `/v1/editorial/story-connections?world_id=${encodeURIComponent(selectedWorldId!)}&limit=80${selectedStoryId === "all" ? "" : `&story_id=${encodeURIComponent(selectedStoryId)}`}`,
     ),
     enabled: !!selectedWorldId,
     staleTime: 20_000,
+    refetchOnMount: "always",
   });
 
   const stories = data?.stories ?? [];
@@ -226,6 +227,22 @@ export default function StoryConnections() {
 
         {isLoading ? (
           <div className="py-20 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" style={{ color: "#C87560" }} /></div>
+        ) : isError ? (
+          <section className="rounded-2xl px-8 py-14 text-center" style={{ background: "white", border: "1px dashed #C9BFB2" }}>
+            <MapPinned className="w-9 h-9 mx-auto mb-3" style={{ color: "#C87560" }} />
+            <h2 className="text-lg font-semibold" style={{ color: "#1B2A4A" }}>Storylines could not be loaded</h2>
+            <p className="mt-2 text-sm max-w-md mx-auto" style={{ color: "#667085" }}>
+              {error instanceof Error ? error.message : "The Story Map request failed. Try loading it again."}
+            </p>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="mt-5 inline-flex items-center rounded-lg px-3.5 py-2 text-sm font-semibold text-white"
+              style={{ background: "#1B2A4A" }}
+            >
+              Try again
+            </button>
+          </section>
         ) : stories.length === 0 ? (
           <section className="rounded-2xl px-8 py-14 text-center" style={{ background: "white", border: "1px dashed #C9BFB2" }}>
             <MapPinned className="w-9 h-9 mx-auto mb-3" style={{ color: "#C87560" }} />
@@ -241,9 +258,22 @@ export default function StoryConnections() {
           </section>
         ) : (
           <>
-            {selectedStory && (
-              <section className="rounded-xl px-4 py-3 mb-5 flex flex-wrap items-center gap-3" style={{ background: "#F0E9DF", border: "1px solid #DDD4C4" }}>
-                <p className="text-xs font-semibold" style={{ color: "#1B2A4A" }}>Connect canon to {selectedStory.title}</p>
+            <section className="rounded-xl px-4 py-3 mb-5 flex flex-wrap items-center gap-3" style={{ background: "#F0E9DF", border: "1px solid #DDD4C4" }}>
+                <label htmlFor="story-map-connect-story" className="text-xs font-semibold" style={{ color: "#1B2A4A" }}>
+                  Add canon record to
+                </label>
+                <select
+                  id="story-map-connect-story"
+                  value={selectedStoryId}
+                  onChange={event => setSelectedStoryId(event.target.value)}
+                  className="min-w-[220px] rounded-lg bg-white px-2.5 py-1.5 text-xs outline-none"
+                  style={{ border: "1px solid #D8CFC3", color: "#475467" }}
+                >
+                  <option value="all">Select a storyline…</option>
+                  {stories.map(story => <option key={story.id} value={story.id}>{story.title}</option>)}
+                </select>
+                {selectedStory && (
+                  <>
                 {selectedStory.acts.length > 0 && (
                   <select
                     value={selectedActId}
@@ -258,10 +288,16 @@ export default function StoryConnections() {
                   </select>
                 )}
                 <span className="text-[11px]" style={{ color: "#667085" }}>
-                  Choose an open thread below to connect it.
+                    Choose a canon record below, then click Add to storyline.
                 </span>
-              </section>
-            )}
+                  </>
+                )}
+                {!selectedStory && (
+                  <span className="text-[11px]" style={{ color: "#667085" }}>
+                    Select the storyline first.
+                  </span>
+                )}
+            </section>
 
             <div className="grid xl:grid-cols-[minmax(270px,.72fr)_minmax(0,1.5fr)_minmax(230px,.7fr)] gap-5 items-start">
               <section className="rounded-2xl p-5" style={{ background: "#1B2A4A", color: "white" }}>
@@ -309,9 +345,9 @@ export default function StoryConnections() {
                     <p className="mt-1.5 text-xs" style={{ color: "#667085" }}>
                       Select this storyline, then connect an open canon thread from the column beside it.
                     </p>
-                    <Link href="/super/worldsmith/editorial/canon">
-                      <span className="mt-3 inline-flex text-xs font-semibold cursor-pointer" style={{ color: "#C87560" }}>Browse canon →</span>
-                    </Link>
+                    <p className="mt-3 text-xs font-semibold" style={{ color: "#C87560" }}>
+                      Select a storyline above, then use Add to storyline beside an open canon record.
+                    </p>
                   </div>
                 ) : (
                   <div className="relative grid sm:grid-cols-2 gap-3">
@@ -348,24 +384,28 @@ export default function StoryConnections() {
                   <div className="mt-4 space-y-2">
                     {unlinkedRecords.slice(0, 8).map(record => (
                       <div key={record.id} className="rounded-lg px-2.5 py-2" style={{ border: "1px solid #F0ECE6" }}>
-                        <Link href={`/super/worldsmith/editorial/canon/${record.id}`}>
-                          <span className="block cursor-pointer hover:bg-[var(--admin-card-subtle)]">
+                        <div>
                           <span className="block text-xs font-semibold truncate" style={{ color: "#344054" }}>{record.name}</span>
                           <span className="block mt-0.5 text-[10px] capitalize" style={{ color: TYPE_COLORS[record.canonType ?? ""] ?? "#98A2B3" }}>
                             {record.canonType ?? "Canon record"}
                           </span>
-                          </span>
-                        </Link>
+                        </div>
                         {selectedStory && (
                           <button
+                            type="button"
                             onClick={() => linkRecord.mutate(record.id)}
                             disabled={linkRecord.isPending}
-                            className="mt-1.5 text-[10px] font-semibold disabled:opacity-40"
-                            style={{ color: "#C87560" }}
+                            className="mt-2 w-full rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
+                            style={{ background: "#1B2A4A" }}
                           >
-                            Connect to storyline
+                            {linkRecord.isPending ? "Adding…" : "Add to storyline"}
                           </button>
                         )}
+                        <Link href={`/super/worldsmith/editorial/canon/${record.id}`}>
+                          <span className="mt-1.5 block cursor-pointer text-center text-[10px] font-semibold" style={{ color: "#786D60" }}>
+                            View canon record
+                          </span>
+                        </Link>
                       </div>
                     ))}
                     {unlinkedRecords.length > 8 && (

@@ -1,22 +1,16 @@
 ---
-name: Local spec board integrity
-description: Reliability rules for locally generated WorldSmith Specification Boards.
+name: Production Spec review images
+description: Output and reliability rules for WorldSmith Production Spec review images.
 ---
 
-Local Specification Board generation must fail explicitly when concept-image generation or compositing fails; it must not persist a placeholder board with a successful status. An explicit “Generate new board” action must bypass the idempotent cached preview.
+Production Spec compilation must save and display the generated image itself. Do not composite it into the legacy 2400×2500 review-board template, surround it with repeated specification text, or derive duplicate detail crops.
 
-**Why:** A cached placeholder looked like a successful board and kept being reopened even after the rendering pipeline was repaired, hiding both compiled content and the intended hero artwork.
+**Why:** The wrapper repeated information already available in the editor, made the result hard to read, and reduced the generated image to one panel when that image is the only review artifact needed.
 
-**How to apply:** Preserve idempotency for ordinary reloads, but send a force-new request for an operator-initiated regeneration. Only persist success after the generated image has been composited into the rendered board.
+**How to apply:** Both local and Notion-backed preview paths should encode, store, upload, and display the generated image directly at its generated composition.
 
-Specification Board font resolution must work from both the source module directory and the bundled server directory.
+Generation must fail explicitly when image generation fails; it must not persist a placeholder with a successful status. An explicit regeneration action must bypass the idempotent cached preview.
 
-**Why:** Source-level glyph tests passed while the built server emitted nearly blank boards because the build copied fonts beside the bundle, not into the source-relative location.
+**Why:** A cached placeholder can look successful and keep reopening after the generation pipeline is repaired.
 
-**How to apply:** Resolve the existing source font directory during tests/development and the bundle-local font directory in production; verify one board through the built workflow, not only through source-level renderer tests.
-
-Final Specification Boards must curate inherited prose rather than reproduce compiler records verbatim. Local previews must composite the same real detail crops as Notion-backed previews.
-
-**Why:** A structurally correct board still felt database-generated when it repeated field prefixes, collapsed QA into prose, and left local detail frames empty.
-
-**How to apply:** Summarize complete thoughts without ellipses, prioritize asset-specific instructions, render review criteria as separate checks, suppress empty supporting states, deduplicate constraints, and verify the built local path visually.
+**How to apply:** Preserve idempotency for ordinary reloads, force a fresh generation for operator-initiated retries, and record success only after a real image has been stored or uploaded.

@@ -94,7 +94,7 @@ describe("WorldSmith Editorial page filter drawer", () => {
         return Promise.resolve({
           specs: [
             { id: "spec-draft", productionItem: "Village Letter", componentType: "Letter", status: "draft", readinessScore: 30, updatedAt: "2026-08-20T12:00:00Z" },
-            { id: "spec-ready", productionItem: "Archive Card", componentType: "Card", status: "compiled", readinessScore: 88, updatedAt: "2026-08-20T12:00:00Z" },
+            { id: "spec-ready", productionItem: "Archive Card", componentType: "Card", status: "compiled", readinessScore: 88, updatedAt: "2026-08-20T12:00:00Z", previewUrl: "/api/storage/objects/worldsmith/spec-previews/archive-card.png" },
           ],
         });
       }
@@ -163,6 +163,12 @@ describe("WorldSmith Editorial page filter drawer", () => {
 
     fireEvent.click(within(drawerFilters).getByRole("button", { name: "Clear all" }));
     expect(await screen.findByText("Archive Card")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Archive Card production spec preview" })).toHaveAttribute(
+      "src",
+      "/api/storage/objects/worldsmith/spec-previews/archive-card.png",
+    );
+    expect(screen.getByRole("button", { name: "Open preview for Archive Card" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open spec Archive Card" })).toBeInTheDocument();
   });
 
   it("moves Story Map’s storyline focus filter to the drawer and refetches the selected storyline", async () => {

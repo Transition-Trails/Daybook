@@ -26,6 +26,7 @@ interface ProductionSpec {
   specId?: string | null;
   collectionId?: string | null;
   worldId?: string | null;
+  previewUrl?: string | null;
 }
 
 type SortKey = "productionItem" | "componentType" | "status" | "readinessScore" | "updatedAt";
@@ -71,6 +72,37 @@ function ReadinessCircle({ score }: { score: number }) {
         {score}
       </text>
     </svg>
+  );
+}
+
+function SpecThumbnail({
+  previewUrl,
+  productionItem,
+}: {
+  previewUrl?: string | null;
+  productionItem: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  if (!previewUrl || failed) {
+    return (
+      <div
+        className="flex h-12 w-16 items-center justify-center rounded-md border text-gray-300"
+        style={{ background: "#F9FAFB", borderColor: "#E5E7EB" }}
+        aria-label={previewUrl ? "Preview unavailable" : "No preview generated"}
+      >
+        <FileText className="h-4 w-4" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={previewUrl}
+      alt={`${productionItem} production spec preview`}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="h-12 w-16 rounded-md border object-cover shadow-sm"
+      style={{ borderColor: "#E5E7EB", background: "#F9FAFB" }}
+    />
   );
 }
 
@@ -370,6 +402,9 @@ export default function SpecsList() {
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
+                <th className="w-24 px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Preview
+                </th>
                 <th className="px-6 py-3 text-left">
                   <SortHeader label="Production Item" col="productionItem" sort={sort} onSort={toggleSort} />
                 </th>
@@ -391,23 +426,48 @@ export default function SpecsList() {
               {filtered.map((spec, i) => {
                 const meta = STATUS_META[spec.status] ?? { label: spec.status, bg: "#F3F4F6", text: "#6B7280" };
                 const isEven = i % 2 === 0;
+                const specPath = spec.wizardComplete === false
+                  ? `/super/worldsmith/editorial/specs/new?draft=${encodeURIComponent(spec.id)}`
+                  : `/super/worldsmith/editorial/specs/${spec.id}`;
                 return (
                   <tr
                     key={spec.id}
-                    onClick={() => navigate(
-                      spec.wizardComplete === false
-                        ? `/super/worldsmith/editorial/specs/new?draft=${encodeURIComponent(spec.id)}`
-                        : `/super/worldsmith/editorial/specs/${spec.id}`,
-                    )}
+                    onClick={() => navigate(specPath)}
                     className="cursor-pointer transition-colors hover:bg-[#FAF5F3]"
                     style={{ background: isEven ? "white" : "#FAFAF9", borderBottom: "1px solid #F3F4F6" }}
                   >
+                    {/* Generated preview */}
+                    <td className="px-6 py-2">
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          navigate(specPath);
+                        }}
+                        className="block rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C87560] focus-visible:ring-offset-2"
+                        aria-label={`Open preview for ${spec.productionItem || "Untitled Spec"}`}
+                      >
+                        <SpecThumbnail
+                          previewUrl={spec.previewUrl}
+                          productionItem={spec.productionItem || "Untitled Spec"}
+                        />
+                      </button>
+                    </td>
+
                     {/* Production Item */}
                     <td className="px-6 py-3">
                       <div className="flex flex-col gap-0.5">
-                        <span className="font-medium text-[#1B2A4A] leading-snug truncate max-w-[280px]">
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.stopPropagation();
+                            navigate(specPath);
+                          }}
+                          aria-label={`Open spec ${spec.productionItem || "Untitled Spec"}`}
+                          className="max-w-[280px] truncate text-left font-medium leading-snug text-[#1B2A4A] hover:underline focus-visible:outline-none focus-visible:underline"
+                        >
                           {spec.productionItem || "Untitled Spec"}
-                        </span>
+                        </button>
                         {spec.specId && (
                           <span className="text-[11px] text-gray-400 font-mono">{spec.specId}</span>
                         )}

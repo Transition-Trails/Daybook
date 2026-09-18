@@ -52,6 +52,7 @@ import {
   wsPunchTemplatesTable,
   wsPromptModulesTable,
   wsProductionSpecsTable,
+  worldsmithSpecPreviewsTable,
   worldsmithRunsTable,
   worldsmithProductionPackagesTable,
   wsPromptPayloadsTable,
@@ -2358,7 +2359,36 @@ router.get("/v1/editorial/specs", async (req: Request, res: Response) => {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(wsProductionSpecsTable.updatedAt));
 
-    res.json({ specs: rows });
+    const previewRows = rows.length > 0
+      ? await db
+          .select({
+            specPageId: worldsmithSpecPreviewsTable.specPageId,
+            previewObjectPath: worldsmithSpecPreviewsTable.previewObjectPath,
+          })
+          .from(worldsmithSpecPreviewsTable)
+          .where(and(
+            inArray(worldsmithSpecPreviewsTable.specPageId, rows.map(row => row.id)),
+            eq(worldsmithSpecPreviewsTable.status, "success"),
+            eq(worldsmithSpecPreviewsTable.dryRun, false),
+          ))
+          .orderBy(desc(worldsmithSpecPreviewsTable.createdAt))
+      : [];
+    const latestPreviewBySpec = new Map<string, string>();
+    for (const preview of previewRows) {
+      if (preview.previewObjectPath && !latestPreviewBySpec.has(preview.specPageId)) {
+        latestPreviewBySpec.set(preview.specPageId, preview.previewObjectPath);
+      }
+    }
+
+    res.json({
+      specs: rows.map(row => {
+        const previewObjectPath = latestPreviewBySpec.get(row.id);
+        return {
+          ...row,
+          previewUrl: previewObjectPath ? `/api/storage${previewObjectPath}` : null,
+        };
+      }),
+    });
   } catch (err) {
     logger.error({ err }, "editorial: list specs");
     res.status(500).json({ error: "Internal server error" });

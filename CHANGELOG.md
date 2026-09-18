@@ -8,6 +8,8 @@ All notable changes to Daybook are documented in this file.
 
 - Added direct Canon Record-to-storyline controls to the Story Map, including
   optional movement selection.
+- Added generated-image thumbnails to the Production Specs table, with direct
+  links from both the thumbnail and production-item name to the spec editor.
 - Added reliable Story Map refresh after storyline and movement saves, plus a
   visible retry state when storyline loading fails.
 - Added selectable, copyable read-only Creative Direction content for locked

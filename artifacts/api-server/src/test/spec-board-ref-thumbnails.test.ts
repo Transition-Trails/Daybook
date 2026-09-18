@@ -1,11 +1,9 @@
 /**
- * WorldSmith spec-preview-service — step 6b: concept-image detail-crop compositing.
+ * WorldSmith spec-preview-service — direct Production Spec image output.
  *
- * Confirms that after successful concept-image generation the service auto-crops
- * 4 regions from the fitted image and composites
- * them into DETAIL_CROP_DEST_AREAS in the bottom technical strip.
- *
- * When image generation fails the crop step must be skipped entirely (non-fatal).
+ * Confirms that successful image generation prepares the generated image itself
+ * for upload without restoring the retired board wrapper or detail crops.
+ * Generation failures must fail closed instead of saving a placeholder.
  *
  * Strategy:
  *   - Mock `getPage` to return a minimal spec page.
@@ -190,7 +188,6 @@ vi.mock("../lib/logger.js", () => ({
 // ── Imports (after all vi.mock declarations) ──────────────────────────────────
 
 import { runSpecPreview } from "../lib/worldsmith/spec-preview-service.js";
-import { DETAIL_CROP_DEST_AREAS } from "../lib/worldsmith/spec-board-template.js";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -219,7 +216,7 @@ function makeSpecPage() {
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
-describe("spec-preview-service — step 6b: concept-image detail-crop compositing", () => {
+describe("spec-preview-service — direct generated-image output", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGenerateImage.mockResolvedValue({
@@ -233,80 +230,23 @@ describe("spec-preview-service — step 6b: concept-image detail-crop compositin
     mockGetPageText.mockResolvedValue("");
   });
 
-  it("calls sharp.composite with 4 inputs when concept-image generation succeeds", async () => {
+  it("uploads a successful generated image without compositing a board wrapper or detail crops", async () => {
     const result = await runSpecPreview({
       spec_page_id: SPEC_PAGE_ID,
-      prompt_hash:  "hash-detail-crop-001",
+      prompt_hash:  "hash-direct-image-001",
     });
 
     expect(result.status).toMatch(/^(success|upload_success_status_failed)$/);
-
-    // There are two composite calls: one for the concept image itself (step 6),
-    // and one (or more) for the label overlay, and one for the 4 detail crops (step 6b).
-    // We assert that at least one composite call carried 4 inputs.
-    const allCalls = mockCompositeSpy.mock.calls as Array<
-      [Array<{ input: Buffer; left: number; top: number; blend: string }>]
-    >;
-    const cropCall = allCalls.find(([overlays]) => overlays.length === 4);
-    expect(cropCall).toBeDefined();
+    expect(mockGenerateImage).toHaveBeenCalledOnce();
+    expect(mockCompositeSpy).not.toHaveBeenCalled();
   });
 
-  it("positions crop overlays at DETAIL_CROP_DEST_AREAS offsets (+ 2px gutter)", async () => {
-    await runSpecPreview({
-      spec_page_id: SPEC_PAGE_ID,
-      prompt_hash:  "hash-detail-crop-002",
-    });
-
-    const allCalls = mockCompositeSpy.mock.calls as Array<
-      [Array<{ input: Buffer; left: number; top: number; blend: string }>]
-    >;
-    const cropCall = allCalls.find(([overlays]) => overlays.length === 4);
-    expect(cropCall).toBeDefined();
-
-    const [composites] = cropCall!;
-    const sorted = [...composites].sort((a, b) => a.left - b.left);
-    const destsSorted = [...DETAIL_CROP_DEST_AREAS].sort((a, b) => a.x - b.x);
-
-    for (let i = 0; i < destsSorted.length; i++) {
-      expect(sorted[i]).toMatchObject({
-        left:  destsSorted[i]!.x + 2,
-        top:   destsSorted[i]!.y + 2,
-        blend: "over",
-      });
-    }
-  });
-
-  it("each crop input is a non-empty Buffer", async () => {
-    await runSpecPreview({
-      spec_page_id: SPEC_PAGE_ID,
-      prompt_hash:  "hash-detail-crop-003",
-    });
-
-    const allCalls = mockCompositeSpy.mock.calls as Array<
-      [Array<{ input: Buffer; left: number; top: number }>]
-    >;
-    const cropCall = allCalls.find(([overlays]) => overlays.length === 4);
-    expect(cropCall).toBeDefined();
-    for (const c of cropCall![0]) {
-      expect(Buffer.isBuffer(c.input)).toBe(true);
-      expect(c.input.length).toBeGreaterThan(0);
-    }
-  });
-
-  it("skips detail crops when image generation fails (non-fatal)", async () => {
-    // Make concept-image generation fail for this test only
+  it("fails closed when image generation fails and never composites a placeholder", async () => {
     mockGenerateImage.mockRejectedValueOnce(new Error("Image generation disabled in test"));
 
-    // Must not throw
     await expect(
-      runSpecPreview({ spec_page_id: SPEC_PAGE_ID, prompt_hash: "hash-detail-crop-004" }),
-    ).resolves.toBeDefined();
-
-    // No 4-input composite call should have occurred
-    const allCalls = mockCompositeSpy.mock.calls as Array<
-      [Array<{ input: Buffer; left: number; top: number }>]
-    >;
-    const cropCall = allCalls.find(([overlays]) => overlays.length === 4);
-    expect(cropCall).toBeUndefined();
+      runSpecPreview({ spec_page_id: SPEC_PAGE_ID, prompt_hash: "hash-direct-image-002" }),
+    ).rejects.toMatchObject({ code: "CONCEPT_IMAGE_GENERATION_FAILED" });
+    expect(mockCompositeSpy).not.toHaveBeenCalled();
   });
 });

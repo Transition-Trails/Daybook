@@ -16,6 +16,7 @@ import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
 import { EditorialCopilot } from "@/components/EditorialCopilot";
 import type { ApplyTarget } from "@/components/CopilotPanel";
+import { ContextSnapshotStatus } from "./ContextSnapshotStatus";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -118,6 +119,7 @@ function PromptModuleDrawer({ worldId, module, onClose }: DrawerProps) {
         {/* Body + contextual co-write rail */}
         <div className="flex flex-1 min-h-0 relative">
         <div className="flex-1 overflow-y-auto p-6 space-y-5 min-w-0">
+          {module && <ContextSnapshotStatus entityType="prompt-modules" entityId={module.id} />}
           {/* Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">

@@ -104,6 +104,32 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
 export type WsCanonRecord = typeof wsCanonRecordsTable.$inferSelect;
 export type InsertWsCanonRecord = typeof wsCanonRecordsTable.$inferInsert;
 
+// ── Context Snapshots ─────────────────────────────────────────────────────────
+
+export const wsContextSnapshotsTable = pgTable("ws_context_snapshots", {
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  worldId: text("world_id"),
+  githubPath: text("github_path").notNull(),
+  githubCommitSha: text("github_commit_sha"),
+  status: text("status").notNull().default("not_generated"),
+  contentHash: text("content_hash"),
+  recordUpdatedAt: timestamp("record_updated_at", { withTimezone: true }),
+  lastSnapshotAt: timestamp("last_snapshot_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  autoSync: boolean("auto_sync").notNull().default(false),
+  autoSyncUnaccepted: boolean("auto_sync_unaccepted").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+    .$onUpdate(() => new Date()),
+}, (t) => [
+  primaryKey({ columns: [t.entityType, t.entityId] }),
+  index("ws_context_snapshots_world_idx").on(t.worldId),
+  index("ws_context_snapshots_status_idx").on(t.status),
+]);
+
+export type WsContextSnapshot = typeof wsContextSnapshotsTable.$inferSelect;
+export type InsertWsContextSnapshot = typeof wsContextSnapshotsTable.$inferInsert;
+
 // ── Canon Record Relations ────────────────────────────────────────────────────
 // Stores record-to-record links locally for transitive register cascade BFS.
 // Populated by the Notion sync (from "Related Canon" relation property).

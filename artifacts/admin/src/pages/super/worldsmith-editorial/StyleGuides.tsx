@@ -14,6 +14,7 @@ import { apiFetch } from "@/lib/api";
 import { editorialRichTextToPlainText } from "@/lib/editorial-rich-text";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
+import { ContextSnapshotStatus } from "./ContextSnapshotStatus";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -102,6 +103,7 @@ function StyleGuideDrawer({ worldId, guide, onClose }: DrawerProps) {
         {/* Body + contextual co-write rail */}
         <div className="flex flex-1 min-h-0 relative">
         <div className="flex-1 overflow-y-auto p-6 space-y-5 min-w-0">
+          {guide && <ContextSnapshotStatus entityType="style-guides" entityId={guide.id} />}
           {/* Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">

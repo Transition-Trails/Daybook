@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Save, Square, X, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { ContextSnapshotStatus } from "./ContextSnapshotStatus";
 
 interface PunchTemplate {
   id: string;
@@ -267,6 +268,7 @@ function ProductionProfileDrawer({
         <div className="flex-1 overflow-y-auto">
           <div className="flex flex-col md:flex-row h-full">
             <div className="flex-1 space-y-8 p-6 overflow-y-auto border-r border-gray-100">
+              {profile && <ContextSnapshotStatus entityType="production-profiles" entityId={profile.id} />}
               
               <section>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4 border-b pb-2">Identity</h3>

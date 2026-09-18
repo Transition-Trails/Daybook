@@ -19,6 +19,7 @@ import {
   readinessScore,
 } from "@workspace/api-zod/readiness";
 import { apiFetch } from "@/lib/api";
+import { ContextSnapshotStatus } from "./ContextSnapshotStatus";
 import {
   bypassNextSpecNavigationGuard,
   confirmSpecNavigation,
@@ -1527,6 +1528,9 @@ export default function SpecEditor({ specId }: { specId: string }) {
       <div className="flex flex-1 overflow-hidden relative">
         {/* Editor panel */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <div className="shrink-0 border-b border-gray-200 bg-[#FDFAF7] p-4">
+              <ContextSnapshotStatus entityType="production-specs" entityId={spec.id} />
+            </div>
           {/* Tabs */}
           <div className="bg-white border-b border-gray-200 flex">
             {TABS.map(tab => {

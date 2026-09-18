@@ -12,6 +12,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
+import { ContextSnapshotStatus } from "./ContextSnapshotStatus";
 
 interface Collection {
   id: string;
@@ -104,6 +105,7 @@ function CollectionDrawer({
         </header>
 
         <div className="flex-1 space-y-5 overflow-y-auto p-6">
+          {collection && <ContextSnapshotStatus entityType="collections" entityId={collection.id} />}
           <div>
             <label className="mb-1.5 block text-sm font-medium text-gray-700">
               Collection name <span className="text-red-500">*</span>
@@ -256,6 +258,7 @@ function VolumeDrawer({
         </header>
 
         <div className="flex-1 space-y-5 overflow-y-auto p-6">
+          {volume && <ContextSnapshotStatus entityType="volumes" entityId={volume.id} />}
           <div>
             <label className="mb-1.5 block text-sm font-medium text-gray-700">
               Volume name <span className="text-red-500">*</span>

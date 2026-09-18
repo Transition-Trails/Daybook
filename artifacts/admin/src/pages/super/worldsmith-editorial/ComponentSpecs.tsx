@@ -12,6 +12,7 @@ import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
 import { editorialRichTextToPlainText } from "@/lib/editorial-rich-text";
+import { ContextSnapshotStatus } from "./ContextSnapshotStatus";
 
 interface ComponentSpec {
   id: string;
@@ -111,6 +112,7 @@ function ComponentSpecDrawer({
         </header>
 
         <div className="flex-1 space-y-5 overflow-y-auto p-6">
+          {componentSpec && <ContextSnapshotStatus entityType="component-specs" entityId={componentSpec.id} />}
           <div>
             <label htmlFor="specName" className="mb-1.5 block text-sm font-medium text-gray-700">
               Name <span className="text-red-500">*</span>

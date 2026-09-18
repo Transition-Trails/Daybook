@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Circle, Loader2, Plus, Save, X, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { ContextSnapshotStatus } from "./ContextSnapshotStatus";
 
 interface PunchTemplate {
   id: string;
@@ -112,6 +113,7 @@ function PunchTemplateDrawer({
         </header>
 
         <div className="flex-1 space-y-6 overflow-y-auto p-6">
+          {template && <ContextSnapshotStatus entityType="punch-templates" entityId={template.id} />}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="templateName" className="mb-1.5 block text-sm font-medium text-gray-700">Template Name *</label>

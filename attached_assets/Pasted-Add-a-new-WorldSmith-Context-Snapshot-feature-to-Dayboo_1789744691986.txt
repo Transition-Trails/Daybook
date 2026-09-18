@@ -1,0 +1,280 @@
+Add a new WorldSmith Context Snapshot feature to Daybook.
+
+Objective
+
+Allow Daybook records to be exported as human-readable Markdown snapshots into the connected WorldSmith GitHub repository so ChatGPT and other tools can read current WorldSmith data without requiring a paid API call every time.
+
+Daybook remains the authoring/source-of-truth system.
+
+GitHub snapshots are generated context artifacts, not a second database and not a manual editing workflow.
+
+Core behavior
+
+For supported WorldSmith records, Daybook should be able to generate or update a Markdown snapshot in GitHub containing the current record data and relevant relationships.
+
+Initial supported record types:
+
+Canon Records
+Production Specs
+Component Specs
+Style Guides
+Prompt Modules
+Collections
+Volumes
+Production Profiles
+Punch Templates
+
+The system should be extensible so additional WorldSmith entities can be added later.
+
+Source-of-truth rule
+
+Daybook/Postgres remains authoritative.
+
+GitHub snapshots are downstream representations of Daybook records.
+
+Do not create bidirectional synchronization in this phase.
+
+Do not treat edits made directly in GitHub as updates to Daybook.
+
+Every generated snapshot should clearly state:
+
+Generated from Daybook. Do not edit as source data.
+
+Canon Record snapshot format
+
+For Canon Records, include at minimum:
+
+Canonical ID
+Record Name
+Category / Type
+Layer
+Status
+Confidence
+Priority
+Summary
+Narrative Details
+Historical Context
+Visual Notes
+Emotional Register
+Canon Notes
+Working Canon Statement, if present
+Source / provenance fields, if present
+Decision Date, if present
+Related World
+Related Characters
+Related Places
+Related Institutions
+Related Canon Records
+Related Prompt Modules
+Supersedes / superseded-by relationships
+Open Questions, if present
+Last Updated timestamp
+Daybook record ID
+
+Preserve empty fields as omitted sections rather than inventing placeholder content.
+
+Do not infer or summarize missing fields.
+
+Governance visibility
+
+For Canon Records, make Status and Confidence highly visible near the top of the file.
+
+Example:
+
+# Stationery House
+
+Canonical ID: WC-PLC-001
+Status: Accepted
+Confidence: Confirmed
+Category: Place
+Layer: World
+
+This is important so downstream readers do not confuse “record exists” with “record is confirmed canon.”
+
+Suggested repository structure
+
+Use a predictable structure such as:
+
+worlds/
+  wychcombe/
+    context/
+      canon/
+        places/
+        characters/
+        institutions/
+        principles/
+        mysteries/
+        events/
+      production-specs/
+      component-specs/
+      style-guides/
+      prompt-modules/
+      collections/
+      volumes/
+      production-profiles/
+      punch-templates/
+
+Use normalized kebab-case filenames.
+
+Prefer stable filenames based on canonical or record IDs when available.
+
+Example:
+
+WC-PLC-001-stationery-house.md
+
+This prevents rename collisions and preserves stable references.
+
+Markdown requirements
+
+Generate clean, human-readable Markdown.
+
+Requirements:
+
+one top-level heading
+compact metadata block near the top
+semantic section headings
+readable bullets for relationships
+preserve important field wording from Daybook
+do not serialize raw JSON into the Markdown
+do not include database implementation details
+do not include hidden/internal-only fields unless explicitly approved
+
+Include a footer such as:
+
+---
+Generated from Daybook
+Record ID: <record id>
+Last Updated: <timestamp>
+Snapshot Generated: <timestamp>
+UI
+
+Add a Context Snapshot section/action to supported WorldSmith record detail pages.
+
+Provide:
+
+Update Context Snapshot
+
+Behavior:
+
+generate/update the record's Markdown snapshot in GitHub
+show success/failure
+show last snapshot timestamp
+show the GitHub file path
+
+Also display snapshot status:
+
+Not Generated
+Current
+Out of Date
+Sync Failed
+
+A snapshot becomes Out of Date when the Daybook record has been updated since the last successful snapshot.
+
+Automatic sync option
+
+Add a per-record or system-level option:
+
+Automatically update context snapshot on accepted changes
+
+For Canon Records:
+
+auto-sync may run when the record is saved in an approved/accepted state
+do not automatically publish Proposed / Under Review content unless explicitly configured
+
+For non-canon production records, allow automatic snapshot updates on successful save when enabled.
+
+Manual Update Context Snapshot must remain available regardless of auto-sync setting.
+
+GitHub behavior
+
+Use the existing GitHub connection/integration already available to Daybook.
+
+On snapshot update:
+
+create the file if it does not exist
+update it if it already exists
+commit with a concise generated message
+
+Example commit messages:
+
+Update context snapshot: WC-PLC-001 Stationery House
+
+Update production context: Curator's Desk Notepaper
+
+Avoid creating one branch or pull request per snapshot in this phase unless the existing repository workflow requires it.
+
+Snapshot provenance
+
+Store on the Daybook record or related snapshot metadata:
+
+snapshot GitHub path
+last snapshot commit SHA if available
+last snapshot timestamp
+Daybook record updated timestamp used for the snapshot
+snapshot status
+
+This allows Daybook to determine whether the snapshot is current.
+
+Bulk sync
+
+Add a WorldSmith-level utility:
+
+Update Context Snapshots
+
+Allow users to sync:
+
+current record
+current world
+only out-of-date records
+
+Do not require bulk sync for the initial workflow to function.
+
+Important safety rules
+
+Do not:
+
+overwrite Daybook data from GitHub
+invent missing values
+promote canon status
+alter confidence
+summarize away important record detail
+merge records automatically
+resolve conflicts between records
+
+Snapshot generation should be deterministic from current Daybook data.
+
+Initial acceptance test
+
+Use Wychcombe as the test world.
+
+Test with:
+
+Stationery House
+
+Generate its Canon Record snapshot and verify that:
+
+The file appears in the expected GitHub context path.
+Canonical ID, Status, Confidence, Summary, Narrative Details, Visual Notes, Canon Notes, and relationships are readable.
+The snapshot does not invent missing information.
+The snapshot clearly states that Daybook is the source.
+Editing the Daybook record marks the snapshot Out of Date.
+Clicking Update Context Snapshot updates the file and returns it to Current.
+ChatGPT with GitHub access can read the file directly by path.
+Non-goals for this phase
+
+Do not implement:
+
+bidirectional GitHub sync
+automatic GitHub-to-Daybook imports
+AI summarization during snapshot generation
+embedding/vector generation
+external API calls for snapshot content
+Notion replacement
+GitHub as the primary database
+Design principle
+
+The goal is:
+
+Author in Daybook → generate readable context snapshot → store/version in GitHub → allow connected AI tools to read current structured WorldSmith context without paid per-record API retrieval.
+
+Keep the feature simple, deterministic, and cheap to operate.

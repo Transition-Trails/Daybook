@@ -86,3 +86,4 @@
 - [WorldSmith rendering governance](worldsmith-rendering-governance.md) — provider prompts must enforce governing media across every inherited source and record the exact submitted prompt
 - [WorldSmith readable-text governance](worldsmith-readable-text-governance.md) — governed prompts treat readable strings as closed-world content with exact source authorization
 - [WorldSmith artwork revisions](worldsmith-artwork-revisions.md) — revisions are transient, governance-bound, and deterministically keyed by their effective provider prompt
+- [WorldSmith Context Snapshot repository](worldsmith-context-snapshot-repository.md) — world context uses worlds/** and shared production records use global/context/** in Daybook

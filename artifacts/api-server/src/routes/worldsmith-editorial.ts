@@ -45,6 +45,7 @@ import {
   wsCollectionsTable,
   wsVolumesTable,
   wsCanonRecordsTable,
+  wsContextSnapshotsTable,
   wsCanonRecordRelationsTable,
   wsStyleGuidesTable,
   wsComponentSpecsTable,
@@ -74,6 +75,17 @@ import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { buildProductionSpecPdf } from "../lib/worldsmith/production-spec-pdf";
+import {
+  canonSnapshotPath,
+  contextSnapshotIsOutdated,
+  ContextSnapshotGitHubPublisher,
+  mapWithConcurrency,
+  editorialSnapshotPath,
+  renderEditorialSnapshot,
+  renderCanonSnapshot,
+  shouldAutoSyncContextSnapshot,
+  snapshotHash,
+} from "../lib/worldsmith/context-snapshot";
 import { callAi } from "../lib/ai-proxy";
 import { generateImage } from "../lib/worldsmith/image-generation";
 import { isPromptModuleSection } from "../lib/worldsmith/types";
@@ -1168,6 +1180,375 @@ router.get("/v1/editorial/canon-records/:id", async (req: Request, res: Response
   }
 });
 
+async function buildCanonContextSnapshot(recordId: string) {
+  const [record] = await db.select().from(wsCanonRecordsTable)
+    .where(eq(wsCanonRecordsTable.id, recordId)).limit(1);
+  if (!record) return null;
+  const [world] = await db.select({ name: worldsmithWorldsTable.name })
+    .from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, record.worldId)).limit(1);
+  if (!world) return null;
+
+  const edges = await db.select().from(wsCanonRecordRelationsTable)
+    .where(or(
+      eq(wsCanonRecordRelationsTable.fromRecordId, recordId),
+      eq(wsCanonRecordRelationsTable.toRecordId, recordId),
+    ));
+  const relatedIds = [...new Set(edges.map(edge =>
+    edge.fromRecordId === recordId ? edge.toRecordId : edge.fromRecordId,
+  ))];
+  const related = relatedIds.length
+    ? await db.select({
+        id: wsCanonRecordsTable.id,
+        name: wsCanonRecordsTable.name,
+        canonType: wsCanonRecordsTable.canonType,
+      }).from(wsCanonRecordsTable).where(inArray(wsCanonRecordsTable.id, relatedIds))
+    : [];
+  const relatedById = new Map(related.map(item => [item.id, item]));
+
+  const specs = await db.select({
+    id: wsProductionSpecsTable.id,
+    name: wsProductionSpecsTable.productionItem,
+    promptModuleIds: wsProductionSpecsTable.promptModuleIds,
+  }).from(wsProductionSpecsTable).where(and(
+    eq(wsProductionSpecsTable.worldId, record.worldId),
+    sql`${wsProductionSpecsTable.canonRecordIds} @> ${JSON.stringify([recordId])}::jsonb`,
+  )).orderBy(wsProductionSpecsTable.productionItem);
+  const moduleIds = [...new Set(specs.flatMap(spec => spec.promptModuleIds))];
+  const modules = moduleIds.length
+    ? await db.select({ id: wsPromptModulesTable.id, name: wsPromptModulesTable.name })
+        .from(wsPromptModulesTable).where(inArray(wsPromptModulesTable.id, moduleIds))
+    : [];
+
+  const snapshotRecord = {
+    ...record,
+    worldName: world.name,
+    relationships: edges.flatMap(edge => {
+      const targetId = edge.fromRecordId === recordId ? edge.toRecordId : edge.fromRecordId;
+      const target = relatedById.get(targetId);
+      return target ? [{
+        relationType: edge.fromRecordId === recordId ? edge.relationType : `inbound ${edge.relationType || "related"}`,
+        recordId: target.id,
+        name: target.name,
+        canonType: target.canonType,
+      }] : [];
+    }),
+    linkedSpecs: specs.map(spec => ({ id: spec.id, name: spec.name || "Untitled Production Spec" })),
+    linkedPromptModules: modules,
+  };
+  return {
+    record,
+    path: canonSnapshotPath(snapshotRecord),
+    markdown: renderCanonSnapshot(snapshotRecord),
+  };
+}
+
+async function publishCanonContextSnapshot(recordId: string): Promise<{
+  status: "current" | "sync_failed";
+  snapshot: typeof wsContextSnapshotsTable.$inferSelect;
+}> {
+  const built = await buildCanonContextSnapshot(recordId);
+  if (!built) throw new Error("Canon record not found");
+  const [existingSnapshot] = await db.select({
+    githubPath: wsContextSnapshotsTable.githubPath,
+  }).from(wsContextSnapshotsTable).where(and(
+    eq(wsContextSnapshotsTable.entityType, "canon_record"),
+    eq(wsContextSnapshotsTable.entityId, recordId),
+  )).limit(1);
+  try {
+    const published = await new ContextSnapshotGitHubPublisher().publish(
+      built.path,
+      built.markdown,
+      `context: update Canon snapshot for ${built.record.name}`,
+      existingSnapshot?.githubPath,
+    );
+    const now = new Date();
+    const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
+      entityType: "canon_record",
+      entityId: recordId,
+      worldId: built.record.worldId,
+      githubPath: published.path,
+      githubCommitSha: published.commitSha,
+      status: "current",
+      contentHash: snapshotHash(built.markdown),
+      recordUpdatedAt: built.record.updatedAt,
+      lastSnapshotAt: now,
+      lastError: null,
+    }).onConflictDoUpdate({
+      target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
+      set: {
+        worldId: built.record.worldId,
+        githubPath: published.path,
+        githubCommitSha: published.commitSha,
+        status: "current",
+        contentHash: snapshotHash(built.markdown),
+        recordUpdatedAt: built.record.updatedAt,
+        lastSnapshotAt: now,
+        lastError: null,
+        updatedAt: now,
+      },
+    }).returning();
+    return { status: "current", snapshot };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Context Snapshot sync failed";
+    logger.error({ err, recordId }, "editorial: update context snapshot");
+    const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
+      entityType: "canon_record",
+      entityId: recordId,
+      worldId: built.record.worldId,
+      githubPath: existingSnapshot?.githubPath ?? built.path,
+      status: "sync_failed",
+      lastError: message.slice(0, 500),
+    }).onConflictDoUpdate({
+      target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
+      set: {
+        worldId: built.record.worldId,
+        githubPath: existingSnapshot?.githubPath ?? built.path,
+        status: "sync_failed",
+        lastError: message.slice(0, 500),
+        updatedAt: new Date(),
+      },
+    }).returning();
+    return { status: "sync_failed", snapshot };
+  }
+}
+
+async function autoPublishCanonContextSnapshot(record: { id: string; status: string }): Promise<"current" | "sync_failed" | null> {
+  const [policy] = await db.select({
+    autoSync: wsContextSnapshotsTable.autoSync,
+    autoSyncUnaccepted: wsContextSnapshotsTable.autoSyncUnaccepted,
+  }).from(wsContextSnapshotsTable).where(and(
+    eq(wsContextSnapshotsTable.entityType, "canon_record"),
+    eq(wsContextSnapshotsTable.entityId, record.id),
+  )).limit(1);
+  if (!policy || !shouldAutoSyncContextSnapshot(policy, record.status)) return null;
+  return (await publishCanonContextSnapshot(record.id)).status;
+}
+
+async function syncCanonContextSnapshot(recordId: string, _publisher: ContextSnapshotGitHubPublisher) {
+  const result = await publishCanonContextSnapshot(recordId);
+  if (result.status === "sync_failed") {
+    throw new Error(result.snapshot.lastError ?? "Context Snapshot sync failed");
+  }
+  const built = await buildCanonContextSnapshot(recordId);
+  return { snapshot: result.snapshot, name: built?.record.name ?? recordId };
+}
+
+async function markCanonContextSnapshotFailed(recordId: string, message: string) {
+  const [stored] = await db.select().from(wsContextSnapshotsTable).where(and(
+    eq(wsContextSnapshotsTable.entityType, "canon_record"),
+    eq(wsContextSnapshotsTable.entityId, recordId),
+  )).limit(1);
+  if (stored?.status === "sync_failed") return;
+  const [record] = await db.select({ worldId: wsCanonRecordsTable.worldId })
+    .from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, recordId)).limit(1).catch(() => []);
+  if (!record) return;
+  await db.insert(wsContextSnapshotsTable).values({
+    entityType: "canon_record",
+    entityId: recordId,
+    worldId: record.worldId,
+    githubPath: stored?.githubPath ?? `worlds/${record.worldId}/context/canon/${recordId}.md`,
+    status: "sync_failed",
+    lastError: message.slice(0, 500),
+  }).onConflictDoUpdate({
+    target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
+    set: { status: "sync_failed", lastError: message.slice(0, 500), updatedAt: new Date() },
+  }).catch(() => undefined);
+}
+
+interface ContextSnapshotJob {
+  id: string;
+  worldId: string;
+  mode: "all" | "outdated";
+  status: "running" | "complete";
+  total: number;
+  selected: number;
+  processed: number;
+  updated: number;
+  failed: number;
+  skipped: number;
+  results: Array<{ id: string; name: string; status: "updated" | "failed"; error?: string }>;
+  createdAt: Date;
+}
+
+const contextSnapshotJobs = new Map<string, ContextSnapshotJob>();
+
+function removeExpiredContextSnapshotJobs() {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [id, job] of contextSnapshotJobs) {
+    if (job.createdAt.getTime() < cutoff) contextSnapshotJobs.delete(id);
+  }
+}
+
+router.get("/v1/editorial/canon-records/:id/context-snapshot", async (req: Request, res: Response) => {
+  try {
+    const built = await buildCanonContextSnapshot(req.params.id as string);
+    if (!built) { res.status(404).json({ error: "Canon record not found" }); return; }
+    const [stored] = await db.select().from(wsContextSnapshotsTable).where(and(
+      eq(wsContextSnapshotsTable.entityType, "canon_record"),
+      eq(wsContextSnapshotsTable.entityId, built.record.id),
+    )).limit(1);
+    const status = stored?.status === "sync_failed"
+      ? "sync_failed"
+      : !stored?.lastSnapshotAt
+        ? "not_generated"
+      : !stored.recordUpdatedAt || built.record.updatedAt > stored.recordUpdatedAt
+        ? "out_of_date"
+        : "current";
+    res.json({
+      snapshot: {
+        status,
+        githubPath: stored?.githubPath ?? built.path,
+        githubCommitSha: stored?.githubCommitSha ?? null,
+        lastSnapshotAt: stored?.lastSnapshotAt ?? null,
+        recordUpdatedAt: stored?.recordUpdatedAt ?? null,
+        lastError: stored?.lastError ?? null,
+        autoSync: stored?.autoSync ?? false,
+        autoSyncUnaccepted: stored?.autoSyncUnaccepted ?? false,
+      },
+    });
+  } catch (err) {
+    logger.error({ err, recordId: req.params.id }, "editorial: get context snapshot status");
+    res.status(500).json({ error: "Context Snapshot status could not be loaded" });
+  }
+});
+
+router.patch("/v1/editorial/canon-records/:id/context-snapshot", async (req: Request, res: Response) => {
+  const recordId = req.params.id as string;
+  const { auto_sync, auto_sync_unaccepted } = req.body;
+  if (typeof auto_sync !== "boolean" || (auto_sync_unaccepted !== undefined && typeof auto_sync_unaccepted !== "boolean")) {
+    res.status(400).json({ error: "auto_sync must be boolean and auto_sync_unaccepted must be boolean when provided" });
+    return;
+  }
+  try {
+    const built = await buildCanonContextSnapshot(recordId);
+    if (!built) { res.status(404).json({ error: "Canon record not found" }); return; }
+    const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
+      entityType: "canon_record",
+      entityId: recordId,
+      worldId: built.record.worldId,
+      githubPath: built.path,
+      autoSync: auto_sync,
+      autoSyncUnaccepted: auto_sync_unaccepted ?? false,
+    }).onConflictDoUpdate({
+      target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
+      set: {
+        autoSync: auto_sync,
+        ...(auto_sync_unaccepted !== undefined ? { autoSyncUnaccepted: auto_sync_unaccepted } : {}),
+        updatedAt: new Date(),
+      },
+    }).returning();
+    res.json({ snapshot });
+  } catch (err) {
+    logger.error({ err, recordId }, "editorial: update context snapshot policy");
+    res.status(500).json({ error: "Context Snapshot policy could not be updated" });
+  }
+});
+
+router.post("/v1/editorial/canon-records/:id/context-snapshot", async (req: Request, res: Response) => {
+  const recordId = req.params.id as string;
+  try {
+    const result = await publishCanonContextSnapshot(recordId);
+    if (result.status === "sync_failed") {
+      res.status(502).json({ error: result.snapshot.lastError ?? "Context Snapshot sync failed" });
+      return;
+    }
+    res.json({ snapshot: { ...result.snapshot, status: "current" } });
+  } catch (err) {
+    res.status(err instanceof Error && err.message === "Canon record not found" ? 404 : 500)
+      .json({ error: err instanceof Error ? err.message : "Context Snapshot sync failed" });
+  }
+});
+
+router.post("/v1/editorial/worlds/:id/context-snapshots", async (req: Request, res: Response) => {
+  const worldId = req.params.id as string;
+  const mode = req.body?.mode;
+  if (mode !== "all" && mode !== "outdated") {
+    res.status(400).json({ error: "mode must be all or outdated" });
+    return;
+  }
+  try {
+    const [world] = await db.select({ id: worldsmithWorldsTable.id })
+      .from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId)).limit(1);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+    const records = await db.select({
+      id: wsCanonRecordsTable.id,
+      name: wsCanonRecordsTable.name,
+      updatedAt: wsCanonRecordsTable.updatedAt,
+    }).from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.worldId, worldId))
+      .orderBy(wsCanonRecordsTable.id);
+    const stored = records.length
+      ? await db.select().from(wsContextSnapshotsTable).where(and(
+          eq(wsContextSnapshotsTable.entityType, "canon_record"),
+          inArray(wsContextSnapshotsTable.entityId, records.map(record => record.id)),
+        ))
+      : [];
+    const storedById = new Map(stored.map(snapshot => [snapshot.entityId, snapshot]));
+    const targets = mode === "all"
+      ? records
+      : records.filter(record => contextSnapshotIsOutdated(record.updatedAt, storedById.get(record.id)));
+    removeExpiredContextSnapshotJobs();
+    const job: ContextSnapshotJob = {
+      id: randomUUID(),
+      worldId,
+      mode,
+      status: targets.length ? "running" : "complete",
+      total: records.length,
+      selected: targets.length,
+      processed: 0,
+      updated: 0,
+      failed: 0,
+      skipped: records.length - targets.length,
+      results: [],
+      createdAt: new Date(),
+    };
+    contextSnapshotJobs.set(job.id, job);
+    res.status(202).json(job);
+
+    if (targets.length) {
+      const publisher = new ContextSnapshotGitHubPublisher();
+      void mapWithConcurrency(targets, 3, async record => {
+        let result: ContextSnapshotJob["results"][number];
+        try {
+          await syncCanonContextSnapshot(record.id, publisher);
+          result = { id: record.id, name: record.name, status: "updated" };
+          job.updated += 1;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Context Snapshot sync failed";
+          logger.error({ err, recordId: record.id, worldId }, "editorial: bulk context snapshot update");
+          await markCanonContextSnapshotFailed(record.id, message);
+          result = { id: record.id, name: record.name, status: "failed", error: message };
+          job.failed += 1;
+        }
+        job.results.push(result);
+        job.processed += 1;
+        return result;
+      }).then(() => {
+        job.status = "complete";
+      }).catch(err => {
+        logger.error({ err, worldId, jobId: job.id }, "editorial: context snapshot job crashed");
+        job.status = "complete";
+      });
+    }
+  } catch (err) {
+    logger.error({ err, worldId }, "editorial: bulk context snapshot update");
+    res.status(500).json({ error: "Context Snapshots could not be updated" });
+  }
+});
+
+router.get("/v1/editorial/context-snapshot-jobs/:id", async (req: Request, res: Response) => {
+  removeExpiredContextSnapshotJobs();
+  const job = contextSnapshotJobs.get(req.params.id as string);
+  if (!job) {
+    res.status(404).json({ error: "Context Snapshot job not found" });
+    return;
+  }
+  res.json(job);
+});
+
 router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Response) => {
   const {
     name, canon_type, narrative_details, historical_context, visual_notes,
@@ -1292,7 +1673,11 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
       }
     }
 
-    res.json({ canon_record: row });
+    const contextSnapshotStatus = await autoPublishCanonContextSnapshot(row).catch(autoSyncErr => {
+      logger.error({ err: autoSyncErr, id: row.id }, "editorial: automatic context snapshot failed");
+      return "sync_failed" as const;
+    });
+    res.json({ canon_record: row, context_snapshot_status: contextSnapshotStatus });
   } catch (err) {
     if (err instanceof TypographyValidationError) {
       res.status(400).json({ error: err.message, code: "INVALID_TYPOGRAPHY" });
@@ -1423,7 +1808,11 @@ router.post("/v1/editorial/canon-records/:id/transition", async (req: Request, r
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .returning();
 
-    res.json({ canon_record: updated });
+    const contextSnapshotStatus = await autoPublishCanonContextSnapshot(updated).catch(autoSyncErr => {
+      logger.error({ err: autoSyncErr, id: updated.id }, "editorial: automatic context snapshot failed after transition");
+      return "sync_failed" as const;
+    });
+    res.json({ canon_record: updated, context_snapshot_status: contextSnapshotStatus });
   } catch (err) {
     logger.error({ err }, "editorial: canon record transition");
     res.status(500).json({ error: "Internal server error" });
@@ -1809,13 +2198,41 @@ router.post("/v1/editorial/canon-records/bulk-transition", async (req: Request, 
       return;
     }
 
-    // Apply transition to all
-    await db
+    // Apply transition to all. Snapshot publication remains non-fatal and runs
+    // only after the authoritative Daybook update succeeds.
+    const updatedRecords = await db
       .update(wsCanonRecordsTable)
       .set({ status })
-      .where(sql`${wsCanonRecordsTable.id} = ANY(${sql.raw(`ARRAY[${ids.map(id => `'${id.replace(/'/g, "''")}'`).join(",")}]`)})`);
+      .where(sql`${wsCanonRecordsTable.id} = ANY(${sql.raw(`ARRAY[${ids.map(id => `'${id.replace(/'/g, "''")}'`).join(",")}]`)})`)
+      .returning({ id: wsCanonRecordsTable.id, status: wsCanonRecordsTable.status });
 
-    res.json({ updated: records.length, status });
+    const snapshotResults: Array<{ id: string; status: "current" | "sync_failed" | "skipped" }> = [];
+    const concurrency = 4;
+    for (let offset = 0; offset < updatedRecords.length; offset += concurrency) {
+      const batch = updatedRecords.slice(offset, offset + concurrency);
+      snapshotResults.push(...await Promise.all(batch.map(async (record): Promise<{
+        id: string;
+        status: "current" | "sync_failed" | "skipped";
+      }> => {
+        try {
+          const snapshotStatus = await autoPublishCanonContextSnapshot(record);
+          return { id: record.id, status: snapshotStatus ?? "skipped" };
+        } catch (autoSyncErr) {
+          logger.error({ err: autoSyncErr, id: record.id }, "editorial: automatic context snapshot failed after bulk transition");
+          return { id: record.id, status: "sync_failed" as const };
+        }
+      })));
+    }
+    res.json({
+      updated: updatedRecords.length,
+      status,
+      context_snapshots: {
+        current: snapshotResults.filter(result => result.status === "current").length,
+        sync_failed: snapshotResults.filter(result => result.status === "sync_failed").length,
+        skipped: snapshotResults.filter(result => result.status === "skipped").length,
+        results: snapshotResults,
+      },
+    });
   } catch (err) {
     logger.error({ err }, "editorial: canon bulk transition");
     res.status(500).json({ error: "Internal server error" });
@@ -3737,6 +4154,236 @@ router.delete("/v1/editorial/canon-records/:id/story-links/:storyId", async (req
   } catch (err) {
     logger.error({ err }, "editorial: delete story link");
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Editorial context snapshots ─────────────────────────────────────────────
+// All local editorial entities use the same provenance/status/publish contract.
+// The renderer deliberately serializes fields verbatim; it never derives prose.
+const editorialSnapshotResources: Record<string, { getTable: () => any; kind: string; global?: boolean }> = {
+  "production-specs": { getTable: () => wsProductionSpecsTable, kind: "production spec" },
+  "component-specs": { getTable: () => wsComponentSpecsTable, kind: "component spec" },
+  "style-guides": { getTable: () => wsStyleGuidesTable, kind: "style guide" },
+  "prompt-modules": { getTable: () => wsPromptModulesTable, kind: "prompt module" },
+  collections: { getTable: () => wsCollectionsTable, kind: "collection" },
+  volumes: { getTable: () => wsVolumesTable, kind: "volume" },
+  "production-profiles": { getTable: () => wsProductionProfilesTable, kind: "production profile", global: true },
+  "punch-templates": { getTable: () => wsPunchTemplatesTable, kind: "punch template", global: true },
+};
+
+async function persistEditorialSnapshotFailure(
+  definition: { getTable: () => any; kind: string; global?: boolean },
+  id: string,
+  message: string,
+) {
+  const table = definition.getTable();
+  const [record] = await db.select().from(table).where(eq(table.id, id)).limit(1).catch(() => []);
+  if (!record) return;
+  await db.insert(wsContextSnapshotsTable).values({
+    entityType: definition.kind.replace(/ /g, "_"),
+    entityId: record.id,
+    worldId: record.worldId ?? null,
+    githubPath: editorialSnapshotPath(definition.kind, {
+      id: record.id,
+      name: record.name ?? record.productionItem ?? record.code,
+      worldId: definition.global ? null : record.worldId,
+    }),
+    status: "sync_failed",
+    lastError: message.slice(0, 500),
+  }).onConflictDoUpdate({
+    target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
+    set: { status: "sync_failed", lastError: message.slice(0, 500), updatedAt: new Date() },
+  }).catch(() => undefined);
+}
+
+async function buildEditorialSnapshot(resource: string, id: string) {
+  const definition = editorialSnapshotResources[resource];
+  if (!definition) return null;
+  const table = definition.getTable();
+  const [record] = await db.select().from(table).where(eq(table.id, id)).limit(1);
+  if (!record) return null;
+  let sourceUpdatedAt = record.updatedAt as Date;
+  const relationships: Array<{ label: string; id: string; name: string }> = [];
+  if (record.worldId) {
+    const [world] = await db.select({
+      id: worldsmithWorldsTable.id,
+      name: worldsmithWorldsTable.name,
+      updatedAt: worldsmithWorldsTable.updatedAt,
+    })
+      .from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, record.worldId)).limit(1);
+    if (world) {
+      relationships.push({ label: "World", id: world.id, name: world.name });
+      if (world.updatedAt > sourceUpdatedAt) sourceUpdatedAt = world.updatedAt;
+    }
+  }
+  const relationTables = [
+    { key: "collectionId", label: "Collection", table: wsCollectionsTable },
+    { key: "volumeId", label: "Volume", table: wsVolumesTable },
+    { key: "styleGuideId", label: "Style Guide", table: wsStyleGuidesTable },
+    { key: "componentSpecId", label: "Component Spec", table: wsComponentSpecsTable },
+    { key: "productionProfileId", label: "Production Profile", table: wsProductionProfilesTable },
+    { key: "punchTemplateId", label: "Punch Template", table: wsPunchTemplatesTable },
+  ];
+  for (const relation of relationTables) {
+    const relatedId = record[relation.key];
+    if (!relatedId) continue;
+    const [target] = await db.select({
+      id: relation.table.id,
+      name: relation.table.name,
+      updatedAt: relation.table.updatedAt,
+    })
+      .from(relation.table).where(eq(relation.table.id, relatedId)).limit(1);
+    if (target) {
+      relationships.push({ label: relation.label, id: target.id, name: target.name });
+      if (target.updatedAt > sourceUpdatedAt) sourceUpdatedAt = target.updatedAt;
+    }
+  }
+  const arrayRelations = [
+    { key: "promptModuleIds", label: "Prompt Module", table: wsPromptModulesTable },
+    { key: "canonRecordIds", label: "Canon Record", table: wsCanonRecordsTable },
+    { key: "dependencyIds", label: "Prompt Module dependency", table: wsPromptModulesTable },
+  ];
+  for (const relation of arrayRelations) {
+    const ids = Array.isArray(record[relation.key]) ? record[relation.key] : [];
+    if (!ids.length) continue;
+    const targets = await db.select({
+      id: relation.table.id,
+      name: relation.table.name,
+      updatedAt: relation.table.updatedAt,
+    })
+      .from(relation.table).where(inArray(relation.table.id, ids));
+    for (const target of targets) {
+      relationships.push({ label: relation.label, id: target.id, name: target.name });
+      if (target.updatedAt > sourceUpdatedAt) sourceUpdatedAt = target.updatedAt;
+    }
+  }
+  const path = editorialSnapshotPath(definition.kind, {
+    id: record.id,
+    name: record.name ?? record.productionItem ?? record.code,
+    worldId: definition.global ? null : record.worldId,
+  });
+  return {
+    record,
+    path,
+    markdown: renderEditorialSnapshot(definition.kind, record, relationships),
+    relationships,
+    sourceUpdatedAt,
+  };
+}
+
+router.get("/v1/editorial/:resource/:id/context-snapshot", async (req, res) => {
+  const resource = req.params.resource as string;
+  const definition = editorialSnapshotResources[resource];
+  if (!definition) { res.status(404).json({ error: "Context snapshot resource not found" }); return; }
+  try {
+    const built = await buildEditorialSnapshot(resource, req.params.id as string);
+    if (!built) { res.status(404).json({ error: `${definition.kind} not found` }); return; }
+    const [stored] = await db.select().from(wsContextSnapshotsTable).where(and(
+      eq(wsContextSnapshotsTable.entityType, definition.kind.replace(/ /g, "_")),
+      eq(wsContextSnapshotsTable.entityId, built.record.id),
+    )).limit(1);
+    const status = !stored?.lastSnapshotAt ? (stored?.status === "sync_failed" ? "sync_failed" : "not_generated")
+      : !stored.recordUpdatedAt || built.sourceUpdatedAt > stored.recordUpdatedAt ? "out_of_date" : "current";
+    res.json({ snapshot: { status, githubPath: stored?.githubPath ?? built.path,
+      githubCommitSha: stored?.githubCommitSha ?? null, lastSnapshotAt: stored?.lastSnapshotAt ?? null,
+      recordUpdatedAt: stored?.recordUpdatedAt ?? null, lastError: stored?.lastError ?? null,
+      autoSync: stored?.autoSync ?? false } });
+  } catch (err) { logger.error({ err, resource }, "editorial: get context snapshot status"); res.status(500).json({ error: "Context Snapshot status could not be loaded" }); }
+});
+
+router.post("/v1/editorial/:resource/:id/context-snapshot", async (req, res) => {
+  const resource = req.params.resource as string;
+  const definition = editorialSnapshotResources[resource];
+  if (!definition) { res.status(404).json({ error: "Context snapshot resource not found" }); return; }
+  try {
+    const built = await buildEditorialSnapshot(resource, req.params.id as string);
+    if (!built) { res.status(404).json({ error: `${definition.kind} not found` }); return; }
+    const published = await new ContextSnapshotGitHubPublisher().publish(
+      built.path, built.markdown, `context: update ${definition.kind} for ${built.record.name ?? built.record.id}`,
+    );
+    const now = new Date();
+    const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
+      entityType: definition.kind.replace(/ /g, "_"), entityId: built.record.id, worldId: built.record.worldId ?? null,
+      githubPath: published.path, githubCommitSha: published.commitSha, status: "current",
+      contentHash: snapshotHash(built.markdown), recordUpdatedAt: built.sourceUpdatedAt, lastSnapshotAt: now, lastError: null,
+    }).onConflictDoUpdate({
+      target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
+      set: { worldId: built.record.worldId ?? null, githubPath: published.path, githubCommitSha: published.commitSha,
+        status: "current", contentHash: snapshotHash(built.markdown), recordUpdatedAt: built.sourceUpdatedAt,
+        lastSnapshotAt: now, lastError: null, updatedAt: now },
+    }).returning();
+    res.json({ snapshot });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Context Snapshot sync failed";
+    await persistEditorialSnapshotFailure(definition, req.params.id as string, message);
+    res.status(502).json({ error: message });
+  }
+});
+
+router.patch("/v1/editorial/:resource/:id/context-snapshot", async (req, res) => {
+  const definition = editorialSnapshotResources[req.params.resource as string];
+  if (!definition) { res.status(404).json({ error: "Context snapshot resource not found" }); return; }
+  if (typeof req.body?.auto_sync !== "boolean" && typeof req.body?.autoSync !== "boolean") {
+    res.status(400).json({ error: "auto_sync must be a boolean" }); return;
+  }
+  const [snapshot] = await db.update(wsContextSnapshotsTable)
+    .set({ autoSync: req.body.auto_sync ?? req.body.autoSync, updatedAt: new Date() })
+    .where(and(eq(wsContextSnapshotsTable.entityType, definition.kind.replace(/ /g, "_")),
+      eq(wsContextSnapshotsTable.entityId, req.params.id as string))).returning();
+  if (!snapshot) { res.status(404).json({ error: "Context snapshot has not been generated" }); return; }
+  res.json({ snapshot });
+});
+
+// Compatibility surface used by the Editorial admin cards. Unlike the
+// internal v1 resource endpoints, this surface returns the status object
+// directly under `status`, matching apiFetch consumers.
+router.get("/worldsmith/editorial/context-snapshots/:resource/:id/status", async (req, res) => {
+  const definition = editorialSnapshotResources[req.params.resource as string];
+  if (!definition) { res.status(404).json({ error: "Context snapshot resource not found" }); return; }
+  try {
+    const built = await buildEditorialSnapshot(req.params.resource as string, req.params.id as string);
+    if (!built) { res.status(404).json({ error: `${definition.kind} not found` }); return; }
+    const [stored] = await db.select().from(wsContextSnapshotsTable).where(and(
+      eq(wsContextSnapshotsTable.entityType, definition.kind.replace(/ /g, "_")),
+      eq(wsContextSnapshotsTable.entityId, built.record.id),
+    )).limit(1);
+    const snapshot = {
+      status: !stored?.lastSnapshotAt ? (stored?.status === "sync_failed" ? "sync_failed" : "not_generated")
+        : !stored.recordUpdatedAt || built.sourceUpdatedAt > stored.recordUpdatedAt ? "out_of_date" : "current",
+      githubPath: stored?.githubPath ?? built.path, githubCommitSha: stored?.githubCommitSha ?? null,
+      lastSnapshotAt: stored?.lastSnapshotAt ?? null, recordUpdatedAt: stored?.recordUpdatedAt ?? null,
+      lastError: stored?.lastError ?? null, autoSync: stored?.autoSync ?? false,
+    };
+    res.json({ status: snapshot });
+  } catch (err) { logger.error({ err }, "editorial: get compatibility context status"); res.status(500).json({ error: "Context Snapshot status could not be loaded" }); }
+});
+
+router.post("/worldsmith/editorial/context-snapshots/:resource/:id/update", async (req, res) => {
+  const resource = req.params.resource as string;
+  const definition = editorialSnapshotResources[resource];
+  if (!definition) { res.status(404).json({ error: "Context snapshot resource not found" }); return; }
+  try {
+    const built = await buildEditorialSnapshot(resource, req.params.id as string);
+    if (!built) { res.status(404).json({ error: `${definition.kind} not found` }); return; }
+    const published = await new ContextSnapshotGitHubPublisher().publish(
+      built.path, built.markdown, `context: update ${definition.kind} for ${built.record.name ?? built.record.id}`,
+    );
+    const now = new Date();
+    const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
+      entityType: definition.kind.replace(/ /g, "_"), entityId: built.record.id, worldId: built.record.worldId ?? null,
+      githubPath: published.path, githubCommitSha: published.commitSha, status: "current",
+      contentHash: snapshotHash(built.markdown), recordUpdatedAt: built.sourceUpdatedAt, lastSnapshotAt: now, lastError: null,
+    }).onConflictDoUpdate({
+      target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
+      set: { worldId: built.record.worldId ?? null, githubPath: published.path, githubCommitSha: published.commitSha,
+        status: "current", contentHash: snapshotHash(built.markdown), recordUpdatedAt: built.sourceUpdatedAt,
+        lastSnapshotAt: now, lastError: null, updatedAt: now },
+    }).returning();
+    res.json({ status: { ...snapshot, status: "current" } });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Context Snapshot sync failed";
+    await persistEditorialSnapshotFailure(definition, req.params.id as string, message);
+    res.status(502).json({ error: message });
   }
 });
 

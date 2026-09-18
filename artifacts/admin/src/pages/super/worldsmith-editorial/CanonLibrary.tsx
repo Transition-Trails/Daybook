@@ -160,6 +160,19 @@ interface CanonListResponse {
   by_type: Record<string, number>;
 }
 
+interface ContextSnapshotBulkResult {
+  id: string;
+  mode: "all" | "outdated";
+  status: "running" | "complete";
+  total: number;
+  selected: number;
+  processed: number;
+  updated: number;
+  failed: number;
+  skipped: number;
+  results: Array<{ id: string; name: string; status: "updated" | "failed"; error?: string }>;
+}
+
 function EmotionalRegisterBadge({ register }: { register?: string | null }) {
   const meta = REGISTERS.find(item => item.key === register);
   if (!meta) return null;
@@ -1103,6 +1116,9 @@ export default function CanonLibrary() {
   const [activeStability, setActiveStability] = useState("all");
   const [activeEmotionalRegister, setActiveEmotionalRegister] = useState("all");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+  const [snapshotMenuOpen, setSnapshotMenuOpen] = useState(false);
+  const [snapshotBulkResult, setSnapshotBulkResult] = useState<ContextSnapshotBulkResult | null>(null);
+  const [snapshotJobId, setSnapshotJobId] = useState<string | null>(null);
 
   // Tracks which worldId filters were hydrated from so we don't re-hydrate
   // or persist prematurely (same guard pattern as WorldsmithCanon).
@@ -1177,12 +1193,21 @@ export default function CanonLibrary() {
 
   const bulkMutation = useMutation({
     mutationFn: ({ ids, status }: { ids: string[]; status: string }) =>
-      apiFetch("/v1/editorial/canon-records/bulk-transition", {
+      apiFetch<{
+        context_snapshots?: { sync_failed: number };
+      }>("/v1/editorial/canon-records/bulk-transition", {
         method: "POST",
         body: JSON.stringify({ ids, status }),
       }),
-    onSuccess: (_d, vars) => {
-      toast({ title: `${vars.ids.length} record${vars.ids.length !== 1 ? "s" : ""} moved to ${vars.status.replace("_", " ")}` });
+    onSuccess: (result, vars) => {
+      const failedSnapshots = result.context_snapshots?.sync_failed ?? 0;
+      toast({
+        title: `${vars.ids.length} record${vars.ids.length !== 1 ? "s" : ""} moved to ${vars.status.replace("_", " ")}`,
+        ...(failedSnapshots > 0 ? {
+          description: `${failedSnapshots} automatic Context Snapshot update${failedSnapshots === 1 ? "" : "s"} failed. Daybook changes were saved.`,
+          variant: "destructive" as const,
+        } : {}),
+      });
       setSelectedIds(new Set());
       qc.invalidateQueries({
         predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
@@ -1213,6 +1238,49 @@ export default function CanonLibrary() {
         variant: "destructive",
       }),
   });
+
+  const snapshotBulkMutation = useMutation({
+    mutationFn: (mode: "all" | "outdated") =>
+      apiFetch<ContextSnapshotBulkResult>(`/v1/editorial/worlds/${selectedWorldId}/context-snapshots`, {
+        method: "POST",
+        body: JSON.stringify({ mode }),
+      }),
+    onSuccess: job => {
+      setSnapshotJobId(job.id);
+      setSnapshotBulkResult(job);
+      setSnapshotMenuOpen(false);
+    },
+    onError: (error: Error) => {
+      setSnapshotMenuOpen(false);
+      toast({ title: "Context refresh failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const snapshotJobQuery = useQuery<ContextSnapshotBulkResult>({
+    queryKey: ["editorial-context-snapshot-job", snapshotJobId],
+    queryFn: () => apiFetch(`/v1/editorial/context-snapshot-jobs/${snapshotJobId}`),
+    enabled: !!snapshotJobId,
+    refetchInterval: query => query.state.data?.status === "complete" ? false : 750,
+  });
+
+  useEffect(() => {
+    const result = snapshotJobQuery.data;
+    if (!result) return;
+    setSnapshotBulkResult(result);
+    if (result.status !== "complete" || !snapshotJobId) return;
+    setSnapshotJobId(null);
+    qc.removeQueries({ queryKey: ["editorial-context-snapshot-job", result.id] });
+    qc.invalidateQueries({
+      predicate: query => String(query.queryKey[0] ?? "").startsWith("editorial-canon-context-snapshot"),
+    });
+    toast({
+      title: `Context refresh complete — ${result.updated} updated`,
+      description: result.failed
+        ? `${result.failed} failed. Review the details in the Canon Library.`
+        : `${result.skipped} current record${result.skipped === 1 ? "" : "s"} skipped.`,
+      variant: result.failed ? "destructive" : "default",
+    });
+  }, [qc, snapshotJobId, snapshotJobQuery.data, toast]);
 
   const allRecords = data?.canon_records ?? [];
   const total = data?.total ?? 0;
@@ -1383,6 +1451,45 @@ export default function CanonLibrary() {
             )}
             {syncMutation.isPending ? "Syncing…" : "Sync from Notion"}
           </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSnapshotMenuOpen(open => !open)}
+              disabled={snapshotBulkMutation.isPending || total === 0}
+              aria-haspopup="menu"
+              aria-expanded={snapshotMenuOpen}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800 disabled:opacity-50"
+              title="Publish Daybook context snapshots to GitHub"
+            >
+              {snapshotBulkMutation.isPending
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <GitBranch className="h-3.5 w-3.5" />}
+              {snapshotBulkMutation.isPending ? "Refreshing context…" : "Refresh context"}
+              {!snapshotBulkMutation.isPending && <ChevronDown className="h-3 w-3" />}
+            </button>
+            {snapshotMenuOpen && !snapshotBulkMutation.isPending && (
+              <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-64 rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => snapshotBulkMutation.mutate("outdated")}
+                  className="w-full rounded-lg px-3 py-2 text-left hover:bg-gray-50"
+                >
+                  <span className="block text-xs font-semibold text-[var(--admin-ink)]">Refresh outdated only</span>
+                  <span className="mt-0.5 block text-[10px] leading-relaxed text-gray-500">Retry failed, missing, or changed records.</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => snapshotBulkMutation.mutate("all")}
+                  className="w-full rounded-lg px-3 py-2 text-left hover:bg-gray-50"
+                >
+                  <span className="block text-xs font-semibold text-[var(--admin-ink)]">Refresh current world</span>
+                  <span className="mt-0.5 block text-[10px] leading-relaxed text-gray-500">Republish every Canon record with bounded concurrency.</span>
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={() => setShowSuggestions(s => !s)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors"
@@ -1406,6 +1513,52 @@ export default function CanonLibrary() {
           </button>
         </div>
       </div>
+
+      {(snapshotBulkMutation.isPending || snapshotBulkResult) && (
+        <section className="shrink-0 border-b border-[var(--admin-border)] bg-[var(--admin-card-subtle)] px-6 py-3" aria-live="polite">
+          {snapshotBulkMutation.isPending || snapshotBulkResult?.status === "running" ? (
+            <div className="flex items-center gap-3 text-xs text-gray-600">
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--admin-clay)]" />
+              <div>
+                <p className="font-semibold text-[var(--admin-ink)]">Refreshing context snapshots</p>
+                <p className="mt-0.5">
+                  {snapshotBulkResult
+                    ? `${snapshotBulkResult.processed} of ${snapshotBulkResult.selected} records processed`
+                    : "Preparing records…"} · three at a time
+                </p>
+                {snapshotBulkResult && snapshotBulkResult.selected > 0 && (
+                  <div className="mt-2 h-1.5 w-72 overflow-hidden rounded-full bg-gray-200">
+                    <div
+                      className="h-full rounded-full bg-[var(--admin-clay)] transition-[width]"
+                      style={{ width: `${Math.round((snapshotBulkResult.processed / snapshotBulkResult.selected) * 100)}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : snapshotBulkResult?.status === "complete" && (
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold text-[var(--admin-ink)]">
+                  Context refresh finished: {snapshotBulkResult.updated} updated, {snapshotBulkResult.failed} failed, {snapshotBulkResult.skipped} skipped
+                </p>
+                {snapshotBulkResult.results.some(result => result.status === "failed") && (
+                  <ul className="mt-2 space-y-1">
+                    {snapshotBulkResult.results.filter(result => result.status === "failed").map(result => (
+                      <li key={result.id} className="text-[11px] text-red-700">
+                        <span className="font-semibold">{result.name}</span>: {result.error}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <button type="button" onClick={() => setSnapshotBulkResult(null)} className="rounded p-1 text-gray-400 hover:bg-gray-100" aria-label="Dismiss context refresh results">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── Body ───────────────────────────────────────────────────────────── */}
       {isLoading || (!data && isFetching) ? (

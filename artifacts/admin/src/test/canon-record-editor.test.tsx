@@ -111,4 +111,85 @@ describe("CanonRecordEditor", () => {
 
     await waitFor(() => expect(screen.getByText("Unsaved editorial draft")).toBeInTheDocument());
   });
+
+  it("shows and updates an out-of-date Context Snapshot", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.endsWith("/context-snapshot")) {
+        return Promise.resolve({
+          snapshot: {
+            status: init?.method === "POST" ? "current" : "out_of_date",
+            githubPath: "worlds/wychcombe/context/canon/locations/canon-1-stationery-house.md",
+            lastSnapshotAt: "2026-09-17T12:00:00.000Z",
+            autoSync: false,
+          },
+        });
+      }
+      if (path.includes("/canon-records/canon-1")) {
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-1", worldId: "world-wychcombe", name: "Stationery House",
+            status: "accepted", canonType: "location", narrativeDetails: "", historicalContext: "",
+            visualNotes: "", notes: "", portraitUrl: null, specRefCount: 0,
+            createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z",
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor("canon-1");
+    expect(await screen.findByText("out of date")).toBeInTheDocument();
+    expect(screen.getByText(/worlds\/wychcombe\/context\/canon/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Update Context Snapshot" }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/canon-1/context-snapshot",
+      { method: "POST" },
+    ));
+    await waitFor(() => expect(screen.getByText("current")).toBeInTheDocument());
+  });
+
+  it("lets operators enable accepted-only automatic snapshot updates", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.endsWith("/context-snapshot")) {
+        const requestedPolicy = init?.method === "PATCH"
+          ? JSON.parse(String(init.body))
+          : { auto_sync: false, auto_sync_unaccepted: false };
+        return Promise.resolve({
+          snapshot: {
+            status: "current",
+            githubPath: "worlds/wychcombe/context/canon/locations/canon-1-stationery-house.md",
+            autoSync: requestedPolicy.auto_sync,
+            autoSyncUnaccepted: requestedPolicy.auto_sync_unaccepted,
+          },
+        });
+      }
+      if (path.includes("/canon-records/canon-1")) {
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-1", worldId: "world-wychcombe", name: "Stationery House",
+            status: "accepted", canonType: "location", narrativeDetails: "", historicalContext: "",
+            visualNotes: "", notes: "", portraitUrl: null, specRefCount: 0,
+            createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z",
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor("canon-1");
+    const toggle = await screen.findByRole("checkbox", { name: /Update automatically after saves/ });
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/canon-1/context-snapshot",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ auto_sync: true, auto_sync_unaccepted: false }),
+      },
+    ));
+    await waitFor(() => expect(toggle).toBeChecked());
+  });
 });

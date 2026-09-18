@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   AlertCircle, ArrowLeft, BookOpen, CheckCircle2, ChevronRight,
-  FileText, ImageIcon, Loader2, Sparkles, Trash2, Upload, X,
+  FileText, Github, ImageIcon, Loader2, RefreshCw, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { apiFetch, storageApi } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -72,6 +72,17 @@ interface LinkedSpec {
   productionItem: string;
   componentType: string;
   status: string;
+}
+
+interface ContextSnapshot {
+  status: "not_generated" | "current" | "out_of_date" | "sync_failed";
+  githubPath: string;
+  githubCommitSha?: string | null;
+  lastSnapshotAt?: string | null;
+  recordUpdatedAt?: string | null;
+  lastError?: string | null;
+  autoSync: boolean;
+  autoSyncUnaccepted: boolean;
 }
 
 interface FormState {
@@ -237,6 +248,48 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     staleTime: 30_000,
   });
   const linkedSpecs = specsData?.specs ?? [];
+  const { data: snapshotData } = useQuery<{ snapshot: ContextSnapshot }>({
+    queryKey: ["editorial-canon-context-snapshot", recordId],
+    queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/context-snapshot`),
+    enabled: !!recordId && !!record,
+    staleTime: 30_000,
+  });
+  const snapshot = snapshotData?.snapshot;
+
+  const snapshotMutation = useMutation({
+    mutationFn: () => apiFetch<{ snapshot: ContextSnapshot }>(
+      `/v1/editorial/canon-records/${recordId}/context-snapshot`,
+      { method: "POST" },
+    ),
+    onSuccess: result => {
+      queryClient.setQueryData(["editorial-canon-context-snapshot", recordId], result);
+      toast({ title: "Context Snapshot updated" });
+    },
+    onError: (error: Error) => {
+      queryClient.invalidateQueries({ queryKey: ["editorial-canon-context-snapshot", recordId] });
+      toast({ title: "Context Snapshot failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const snapshotPolicyMutation = useMutation({
+    mutationFn: (policy: { autoSync: boolean; autoSyncUnaccepted: boolean }) =>
+      apiFetch<{ snapshot: ContextSnapshot }>(`/v1/editorial/canon-records/${recordId}/context-snapshot`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          auto_sync: policy.autoSync,
+          auto_sync_unaccepted: policy.autoSyncUnaccepted,
+        }),
+      }),
+    onSuccess: result => {
+      queryClient.setQueryData(["editorial-canon-context-snapshot", recordId], result);
+      toast({ title: result.snapshot.autoSync ? "Automatic updates enabled" : "Automatic updates disabled" });
+    },
+    onError: (error: Error) => toast({
+      title: "Could not update snapshot policy",
+      description: error.message,
+      variant: "destructive",
+    }),
+  });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -272,6 +325,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       queryClient.invalidateQueries({
         predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
       });
+      queryClient.invalidateQueries({ queryKey: ["editorial-canon-context-snapshot", result.canon_record.id] });
       initialPortraitRef.current = result.canon_record.portraitUrl ?? null;
       toast({ title: isNew ? "Canon record created" : "Canon record saved" });
       if (isNew) {
@@ -555,6 +609,98 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
 
             {!isNew && record && (
               <>
+                <section className="rounded-2xl border p-5" style={{ background: "white", borderColor: BORDER }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: INK }}>
+                        <Github className="h-4 w-4" style={{ color: CLAY }} /> Context Snapshot
+                      </h2>
+                      <p className="mt-1 text-xs leading-relaxed" style={{ color: "#667085" }}>
+                        Readable GitHub context generated from this Daybook record.
+                      </p>
+                    </div>
+                    <span
+                      className="shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold"
+                      style={{
+                        color: snapshot?.status === "current" ? "#027A48" : snapshot?.status === "sync_failed" ? "#B42318" : "#8A5A00",
+                        background: snapshot?.status === "current" ? "#ECFDF3" : snapshot?.status === "sync_failed" ? "#FEF3F2" : "#FFFAEB",
+                      }}
+                    >
+                      {(snapshot?.status ?? "not_generated").replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <dl className="mt-4 space-y-2 text-xs">
+                    <div>
+                      <dt className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#98A2B3" }}>GitHub path · context-snapshots branch</dt>
+                      <dd className="mt-1 break-all font-mono text-[10px] leading-relaxed" style={{ color: "#667085" }}>
+                        {snapshot?.githubPath ?? "Loading…"}
+                      </dd>
+                    </div>
+                    {snapshot?.lastSnapshotAt && (
+                      <div className="flex justify-between gap-3">
+                        <dt style={{ color: "#98A2B3" }}>Last updated</dt>
+                        <dd style={{ color: "#667085" }}>{new Date(snapshot.lastSnapshotAt).toLocaleString()}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  {snapshot?.lastError && (
+                    <p className="mt-3 rounded-lg bg-red-50 p-2 text-[11px] leading-relaxed text-red-700">{snapshot.lastError}</p>
+                  )}
+                  <label className="mt-4 flex items-start gap-2 text-xs" style={{ color: INK }}>
+                    <input
+                      type="checkbox"
+                      checked={snapshot?.autoSync ?? false}
+                      disabled={!snapshot || snapshotPolicyMutation.isPending}
+                      onChange={event => snapshotPolicyMutation.mutate({
+                        autoSync: event.target.checked,
+                        autoSyncUnaccepted: snapshot?.autoSyncUnaccepted ?? false,
+                      })}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-semibold">Update automatically after saves</span>
+                      <span className="mt-0.5 block text-[10px] leading-relaxed" style={{ color: "#667085" }}>
+                        Accepted Canon publishes automatically. GitHub errors never undo the Daybook save.
+                      </span>
+                    </span>
+                  </label>
+                  {snapshot?.autoSync && record.status !== "accepted" && (
+                    <label className="mt-3 flex items-start gap-2 text-xs" style={{ color: INK }}>
+                      <input
+                        type="checkbox"
+                        checked={snapshot.autoSyncUnaccepted}
+                        disabled={snapshotPolicyMutation.isPending}
+                        onChange={event => snapshotPolicyMutation.mutate({
+                          autoSync: true,
+                          autoSyncUnaccepted: event.target.checked,
+                        })}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-semibold">Include unaccepted Canon</span>
+                        <span className="mt-0.5 block text-[10px] leading-relaxed" style={{ color: "#667085" }}>
+                          Proposed and under-review records stay manual unless this exception is enabled.
+                        </span>
+                      </span>
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => snapshotMutation.mutate()}
+                    disabled={snapshotMutation.isPending}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-60"
+                    style={{ borderColor: "#DDD4C4", color: INK }}
+                  >
+                    {snapshotMutation.isPending
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <RefreshCw className="h-3.5 w-3.5" />}
+                    Update Context Snapshot
+                  </button>
+                  <p className="mt-2 text-[10px] leading-relaxed" style={{ color: "#98A2B3" }}>
+                    Save record changes first. Daybook remains the source of truth.
+                  </p>
+                </section>
+
                 <section className="rounded-2xl border p-5" style={{ background: "white", borderColor: BORDER }}>
                   <h2 className="text-sm font-semibold" style={{ color: INK }}>Workflow</h2>
                   <p className="mt-1 text-xs capitalize" style={{ color: "#667085" }}>Current status: {record.status.replace(/_/g, " ")}</p>

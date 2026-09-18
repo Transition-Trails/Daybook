@@ -246,6 +246,20 @@
       "when": 1789684081000,
       "tag": "0034_worldsmith_production_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1789745000000,
+      "tag": "0035_worldsmith_context_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1789748600000,
+      "tag": "0036_worldsmith_context_snapshot_governance",
+      "breakpoints": true
     }
   ]
 }

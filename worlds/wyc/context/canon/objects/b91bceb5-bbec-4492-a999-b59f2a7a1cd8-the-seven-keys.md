@@ -1,0 +1,18 @@
+# The Seven Keys
+
+> Generated from Daybook. Do not edit as source data.
+
+**Canonical ID:** `b91bceb5-bbec-4492-a999-b59f2a7a1cd8`  
+**Status:** accepted  
+**Category:** object  
+**World:** Wychcombe (`wyc`)
+
+## Narrative Details
+
+The Seven Keys are a linked artifact set whose individual and collective meanings connect access, inheritance, discovery, and unresolved Wychcombe history.
+
+---
+Generated from Daybook
+Record ID: b91bceb5-bbec-4492-a999-b59f2a7a1cd8
+Last Updated: 2026-09-18T01:49:54.187Z
+Snapshot Generated: 2026-09-18T16:19:31.779Z

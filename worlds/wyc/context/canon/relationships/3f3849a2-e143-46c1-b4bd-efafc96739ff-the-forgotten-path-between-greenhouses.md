@@ -1,0 +1,18 @@
+# The Forgotten Path Between Greenhouses
+
+> Generated from Daybook. Do not edit as source data.
+
+**Canonical ID:** `3f3849a2-e143-46c1-b4bd-efafc96739ff`  
+**Status:** accepted  
+**Category:** relationship  
+**World:** Wychcombe (`wyc`)
+
+## Narrative Details
+
+Connecting the western greenhouse to its minor, older counterpart, a narrow gravel path often vanishes into shadows cast by creeping vines. Though its existence is defined by utility, its presence has become irregular and ritualistic, frequented by those following no formal directions but intimate, remembered routes. This path carries whispers of past gardeners and curators, their faded footprints somehow echoing in the uneven placement of stones polished smooth by countless seasons of falling rain.
+
+---
+Generated from Daybook
+Record ID: 3f3849a2-e143-46c1-b4bd-efafc96739ff
+Last Updated: 2026-09-18T01:50:36.466Z
+Snapshot Generated: 2026-09-18T16:58:37.151Z

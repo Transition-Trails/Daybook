@@ -660,6 +660,23 @@ describe("WorldSmith generation prompt governance", () => {
     expect(compiled.providerPrompt).toContain("demanded to be written down");
   });
 
+  it("does not mistake narrative use of printed for requested readable copy", () => {
+    const chain = curatorChain();
+    chain.productionSpec.reviewCriteria = "No invented readable text.";
+    const compiled = compilePrompt(chain, payload);
+    const narrative = [
+      "Margaret became interested not simply in preserving this material",
+      "but in what might happen if some of it were organized, printed, and shared.",
+    ].join(" ");
+    const providerPrompt = `${compiled.providerPrompt}\n\n[WORLD BIBLE]\n${narrative}`;
+
+    expect(validateProviderPrompt(
+      compiled.generationPolicy,
+      providerPrompt,
+      compiled.negativePrompt,
+    )).toEqual([]);
+  });
+
   it("still blocks a real unquoted print directive", () => {
     const chain = curatorChain();
     chain.productionSpec.reviewCriteria = "No invented readable text.";

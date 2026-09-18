@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, CircleDot, Loader2, MapPinned, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, CircleDot, Loader2, MapPinned, Search, Sparkles } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
@@ -124,6 +124,7 @@ export default function StoryConnections() {
   const [selectedStoryId, setSelectedStoryId] = useState<string | "all">("all");
   const [showUnlinked, setShowUnlinked] = useState(true);
   const [selectedActId, setSelectedActId] = useState<string>("");
+  const [canonSearch, setCanonSearch] = useState("");
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["ws-story-connections", selectedWorldId, selectedStoryId],
@@ -155,6 +156,14 @@ export default function StoryConnections() {
   );
   const linkedRecordIds = new Set(visibleLinks.map(link => link.canonRecordId));
   const unlinkedRecords = canonRecords.filter(record => !linkedRecordIds.has(record.id));
+  const filteredUnlinkedRecords = useMemo(() => {
+    const search = canonSearch.trim().toLocaleLowerCase();
+    if (!search) return unlinkedRecords;
+    return unlinkedRecords.filter(record =>
+      record.name.toLocaleLowerCase().includes(search)
+      || (record.canonType ?? "").toLocaleLowerCase().includes(search),
+    );
+  }, [canonSearch, unlinkedRecords]);
   const selectedStory = stories.find(story => story.id === selectedStoryId) ?? null;
   const refreshMap = () => queryClient.invalidateQueries({ queryKey: ["ws-story-connections", selectedWorldId] });
 
@@ -381,36 +390,67 @@ export default function StoryConnections() {
                   </button>
                 </div>
                 {showUnlinked && (
-                  <div className="mt-4 space-y-2">
-                    {unlinkedRecords.slice(0, 8).map(record => (
-                      <div key={record.id} className="rounded-lg px-2.5 py-2" style={{ border: "1px solid #F0ECE6" }}>
-                        <div>
-                          <span className="block text-xs font-semibold truncate" style={{ color: "#344054" }}>{record.name}</span>
-                          <span className="block mt-0.5 text-[10px] capitalize" style={{ color: TYPE_COLORS[record.canonType ?? ""] ?? "#98A2B3" }}>
-                            {record.canonType ?? "Canon record"}
-                          </span>
-                        </div>
-                        {selectedStory && (
-                          <button
-                            type="button"
-                            onClick={() => linkRecord.mutate(record.id)}
-                            disabled={linkRecord.isPending}
-                            className="mt-2 w-full rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
-                            style={{ background: "#1B2A4A" }}
-                          >
-                            {linkRecord.isPending ? "Adding…" : "Add to storyline"}
+                  <div className="mt-4">
+                    <label className="relative block">
+                      <Search
+                        aria-hidden="true"
+                        className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2"
+                        style={{ color: "#98A2B3" }}
+                      />
+                      <span className="sr-only">Search open Canon records</span>
+                      <input
+                        type="search"
+                        value={canonSearch}
+                        onChange={event => setCanonSearch(event.target.value)}
+                        placeholder="Search name or type…"
+                        className="w-full rounded-lg border bg-white py-2 pl-8 pr-2.5 text-xs outline-none focus:border-[#C87560]"
+                        style={{ borderColor: "#E6DED3", color: "#344054" }}
+                      />
+                    </label>
+                    <p className="mt-2 text-[10px]" style={{ color: "#98A2B3" }}>
+                      {canonSearch.trim()
+                        ? `${filteredUnlinkedRecords.length} of ${unlinkedRecords.length} records`
+                        : `${unlinkedRecords.length} available records`}
+                    </p>
+                    <div className="mt-2 max-h-[520px] space-y-2 overflow-y-auto pr-1">
+                      {filteredUnlinkedRecords.map(record => {
+                        const isAdding = linkRecord.isPending && linkRecord.variables === record.id;
+                        return (
+                          <div key={record.id} className="rounded-lg px-2.5 py-2" style={{ border: "1px solid #F0ECE6" }}>
+                            <div>
+                              <span className="block text-xs font-semibold truncate" style={{ color: "#344054" }}>{record.name}</span>
+                              <span className="block mt-0.5 text-[10px] capitalize" style={{ color: TYPE_COLORS[record.canonType ?? ""] ?? "#98A2B3" }}>
+                                {record.canonType ?? "Canon record"}
+                              </span>
+                            </div>
+                            {selectedStory && (
+                              <button
+                                type="button"
+                                onClick={() => linkRecord.mutate(record.id)}
+                                disabled={linkRecord.isPending}
+                                className="mt-2 w-full rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
+                                style={{ background: "#1B2A4A" }}
+                              >
+                                {isAdding ? "Adding…" : "Add to storyline"}
+                              </button>
+                            )}
+                            <Link href={`/super/worldsmith/editorial/canon/${record.id}`}>
+                              <span className="mt-1.5 block cursor-pointer text-center text-[10px] font-semibold" style={{ color: "#786D60" }}>
+                                View canon record
+                              </span>
+                            </Link>
+                          </div>
+                        );
+                      })}
+                      {filteredUnlinkedRecords.length === 0 && (
+                        <div className="rounded-lg border border-dashed px-3 py-6 text-center" style={{ borderColor: "#DDD4C4" }}>
+                          <p className="text-xs font-semibold" style={{ color: "#475467" }}>No matching Canon records</p>
+                          <button type="button" onClick={() => setCanonSearch("")} className="mt-2 text-[11px] font-semibold" style={{ color: "#C87560" }}>
+                            Clear search
                           </button>
-                        )}
-                        <Link href={`/super/worldsmith/editorial/canon/${record.id}`}>
-                          <span className="mt-1.5 block cursor-pointer text-center text-[10px] font-semibold" style={{ color: "#786D60" }}>
-                            View canon record
-                          </span>
-                        </Link>
-                      </div>
-                    ))}
-                    {unlinkedRecords.length > 8 && (
-                      <p className="pt-1 text-[11px]" style={{ color: "#98A2B3" }}>+ {unlinkedRecords.length - 8} more waiting for a story</p>
-                    )}
+                        </div>
+                      )}
+                    </div>
                     {data?.recordsTruncated && (
                       <p className="pt-1 text-[11px]" style={{ color: "#98A2B3" }}>Showing the first 160 records. Use Canon Records to browse the full library.</p>
                     )}

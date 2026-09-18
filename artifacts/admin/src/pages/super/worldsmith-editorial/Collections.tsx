@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  BookOpen, ChevronRight, ExternalLink, FolderOpen, Loader2, Pencil,
+  BookOpen, ChevronRight, Download, ExternalLink, FolderOpen, Loader2, Pencil,
   Plus, Save, X,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -342,6 +342,9 @@ function CollectionCard({
   volumes,
   onEdit,
   onViewSpecs,
+  onExportCollection,
+  onExportVolume,
+  exportingScope,
   onAddVolume,
   onEditVolume,
 }: {
@@ -349,6 +352,9 @@ function CollectionCard({
   volumes: Volume[];
   onEdit: () => void;
   onViewSpecs: () => void;
+  onExportCollection: () => void;
+  onExportVolume: (volume: Volume) => void;
+  exportingScope: string | null;
   onAddVolume: () => void;
   onEditVolume: (volume: Volume) => void;
 }) {
@@ -388,6 +394,17 @@ function CollectionCard({
             <button type="button" onClick={onViewSpecs} className="text-xs font-medium text-[var(--admin-ink)] hover:underline">
               View Production Specs →
             </button>
+            <button
+              type="button"
+              onClick={onExportCollection}
+              disabled={exportingScope !== null}
+              className="flex items-center gap-1 text-xs font-medium text-[var(--admin-ink)] hover:underline disabled:cursor-wait disabled:opacity-50"
+            >
+              {exportingScope === `collection:${collection.id}`
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <Download className="h-3 w-3" />}
+              Download collection PDF
+            </button>
           </div>
         </div>
         {collectionVolumes.length === 0 ? (
@@ -400,6 +417,18 @@ function CollectionCard({
                   {volume.code && <span className="text-xs font-semibold text-[var(--admin-clay)]">{volume.code}</span>}
                   <span className="text-sm font-medium text-gray-700">{volume.name}</span>
                   <span className="ml-auto text-[10px] capitalize text-gray-400">{volume.status}</span>
+                  <button
+                    type="button"
+                    onClick={() => onExportVolume(volume)}
+                    disabled={exportingScope !== null}
+                    className="rounded p-1 text-gray-400 hover:bg-white hover:text-gray-700 disabled:cursor-wait disabled:opacity-50"
+                    aria-label={`Download ${volume.name} Production Specs PDF`}
+                    title="Download Production Specs PDF"
+                  >
+                    {exportingScope === `volume:${volume.id}`
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <Download className="h-3 w-3" />}
+                  </button>
                   <button type="button" onClick={() => onEditVolume(volume)} className="rounded p-1 text-gray-400 hover:bg-white hover:text-gray-700" aria-label={`Edit ${volume.name}`}>
                     <Pencil className="h-3 w-3" />
                   </button>
@@ -419,6 +448,8 @@ export default function Collections() {
   const [, navigate] = useLocation();
   const [drawerCollection, setDrawerCollection] = useState<Collection | null | undefined>(undefined);
   const [drawerVolume, setDrawerVolume] = useState<{ volume: Volume | null; collectionId: string | null } | undefined>(undefined);
+  const [exportingScope, setExportingScope] = useState<string | null>(null);
+  const { toast } = useToast();
   const collectionsQuery = useQuery({
     queryKey: ["editorial-collections", selectedWorldId],
     queryFn: () => apiFetch<{ collections: Collection[] }>(
@@ -438,6 +469,41 @@ export default function Collections() {
   const viewSpecs = (collectionId: string) => {
     setSelectedCollectionId(collectionId);
     navigate("/super/worldsmith/editorial/specs");
+  };
+
+  const downloadPdf = async (scope: "collection" | "volume", id: string) => {
+    const key = `${scope}:${id}`;
+    setExportingScope(key);
+    try {
+      const response = await fetch(
+        `/api/v1/editorial/production-spec-export.pdf?${scope}_id=${encodeURIComponent(id)}`,
+        { credentials: "include" },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.error ?? `PDF export failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const filename = disposition.match(/filename="([^"]+)"/i)?.[1] ?? "production-specifications.pdf";
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      toast({ title: "Production Specs PDF downloaded" });
+    } catch (error) {
+      toast({
+        title: "PDF export failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setExportingScope(null);
+    }
   };
 
   return (
@@ -496,6 +562,9 @@ export default function Collections() {
                 onAddVolume={() => setDrawerVolume({ volume: null, collectionId: collection.id })}
                 onEditVolume={volume => setDrawerVolume({ volume, collectionId: volume.collectionId ?? null })}
                 onViewSpecs={() => viewSpecs(collection.id)}
+                onExportCollection={() => void downloadPdf("collection", collection.id)}
+                onExportVolume={volume => void downloadPdf("volume", volume.id)}
+                exportingScope={exportingScope}
               />
             ))}
             {volumes.filter(volume => !volume.collectionId).length > 0 && (

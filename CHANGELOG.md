@@ -10,6 +10,9 @@ All notable changes to Daybook are documented in this file.
   optional movement selection.
 - Added generated-image thumbnails to the Production Specs table, with direct
   links from both the thumbnail and production-item name to the spec editor.
+- Added downloadable Production Specification PDFs for an entire collection or
+  a selected volume, including complete spec details, the latest review image,
+  and current final production artwork when available.
 - Added reliable Story Map refresh after storyline and movement saves, plus a
   visible retry state when storyline loading fails.
 - Added selectable, copyable read-only Creative Direction content for locked

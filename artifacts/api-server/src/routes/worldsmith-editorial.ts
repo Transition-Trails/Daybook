@@ -72,6 +72,8 @@ import { calculateSafeAreas } from "../lib/worldsmith/safe-area-geometry";
 import { and, eq, inArray, like, desc, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
+import { ObjectStorageService } from "../lib/objectStorage";
+import { buildProductionSpecPdf } from "../lib/worldsmith/production-spec-pdf";
 import { callAi } from "../lib/ai-proxy";
 import { generateImage } from "../lib/worldsmith/image-generation";
 import { isPromptModuleSection } from "../lib/worldsmith/types";
@@ -2392,6 +2394,132 @@ router.get("/v1/editorial/specs", async (req: Request, res: Response) => {
   } catch (err) {
     logger.error({ err }, "editorial: list specs");
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/v1/editorial/production-spec-export.pdf", async (req: Request, res: Response) => {
+  const collectionId = String(req.query.collection_id ?? "").trim();
+  const volumeId = String(req.query.volume_id ?? "").trim();
+  if ((!collectionId && !volumeId) || (collectionId && volumeId)) {
+    res.status(400).json({ error: "Provide exactly one of collection_id or volume_id" });
+    return;
+  }
+
+  try {
+    const [requestedVolume] = volumeId
+      ? await db.select().from(wsVolumesTable).where(eq(wsVolumesTable.id, volumeId)).limit(1)
+      : [];
+    if (volumeId && !requestedVolume) {
+      res.status(404).json({ error: "Volume not found" });
+      return;
+    }
+    const resolvedCollectionId = requestedVolume?.collectionId ?? collectionId;
+    if (!resolvedCollectionId) {
+      res.status(422).json({ error: "The selected volume is not assigned to a collection" });
+      return;
+    }
+    const [collection] = await db.select().from(wsCollectionsTable)
+      .where(eq(wsCollectionsTable.id, resolvedCollectionId)).limit(1);
+    if (!collection || (requestedVolume && requestedVolume.worldId !== collection.worldId)) {
+      res.status(404).json({ error: "Collection not found" });
+      return;
+    }
+    const [world] = await db.select({ name: worldsmithWorldsTable.name })
+      .from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, collection.worldId)).limit(1);
+
+    const specConditions = [eq(wsProductionSpecsTable.collectionId, collection.id)];
+    if (requestedVolume) specConditions.push(eq(wsProductionSpecsTable.volumeId, requestedVolume.id));
+    const specs = await db.select().from(wsProductionSpecsTable)
+      .where(and(...specConditions))
+      .orderBy(wsProductionSpecsTable.productionItem);
+    if (specs.length === 0) {
+      res.status(404).json({ error: "No Production Specs were found for this export" });
+      return;
+    }
+
+    const specIds = specs.map(spec => spec.id);
+    const [previews, packages] = await Promise.all([
+      db.select().from(worldsmithSpecPreviewsTable)
+        .where(and(
+          inArray(worldsmithSpecPreviewsTable.specPageId, specIds),
+          eq(worldsmithSpecPreviewsTable.status, "success"),
+          eq(worldsmithSpecPreviewsTable.dryRun, false),
+        ))
+        .orderBy(desc(worldsmithSpecPreviewsTable.createdAt)),
+      db.select().from(worldsmithProductionPackagesTable)
+        .where(and(
+          inArray(worldsmithProductionPackagesTable.productionSpecId, specIds),
+          eq(worldsmithProductionPackagesTable.status, "success"),
+        ))
+        .orderBy(desc(worldsmithProductionPackagesTable.createdAt)),
+    ]);
+    const previewPathBySpec = new Map<string, string>();
+    for (const preview of previews) {
+      if (preview.previewObjectPath && !previewPathBySpec.has(preview.specPageId)) {
+        previewPathBySpec.set(preview.specPageId, preview.previewObjectPath);
+      }
+    }
+    const packageBySpec = new Map<string, typeof packages[number]>();
+    for (const productionPackage of packages) {
+      const current = packageBySpec.get(productionPackage.productionSpecId);
+      if (!current || productionPackage.isReviewCandidate) {
+        packageBySpec.set(productionPackage.productionSpecId, productionPackage);
+      }
+    }
+
+    const storage = new ObjectStorageService();
+    const readObject = async (path: string | undefined): Promise<Buffer | null> => {
+      if (!path?.startsWith("/objects/")) return null;
+      try {
+        const file = await storage.getObjectEntityFile(path);
+        const [buffer] = await file.download();
+        return buffer;
+      } catch (err) {
+        logger.warn({ err, path }, "editorial: export image unavailable");
+        return null;
+      }
+    };
+    const items = await Promise.all(specs.map(async spec => {
+      const productionPackage = packageBySpec.get(spec.id);
+      const [reviewImage, finalArtwork] = await Promise.all([
+        readObject(previewPathBySpec.get(spec.id)),
+        readObject(productionPackage?.providerRequestId ?? undefined),
+      ]);
+      return {
+        productionItem: spec.productionItem || "Untitled Spec",
+        specId: spec.specId,
+        componentType: spec.componentType,
+        status: spec.status,
+        readinessScore: spec.readinessScore,
+        designIntent: spec.designIntent,
+        narrativePurpose: spec.narrativePurpose,
+        requiredContent: spec.requiredContent,
+        reviewCriteria: spec.reviewCriteria,
+        canonDependency: spec.canonDependency,
+        orientation: spec.orientation,
+        frontBackStyle: spec.frontBackStyle,
+        writingSpacePercent: spec.writingSpacePercent,
+        reviewImage,
+        finalArtwork,
+      };
+    }));
+    const pdf = await buildProductionSpecPdf({
+      collectionName: collection.name,
+      volumeName: requestedVolume?.name,
+      worldName: world?.name,
+      items,
+    });
+    const scopeName = requestedVolume?.name ?? collection.name;
+    const filename = `${scopeName}-production-specifications.pdf`
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase();
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(Buffer.from(pdf));
+  } catch (err) {
+    logger.error({ err, collectionId, volumeId }, "editorial: Production Spec PDF export failed");
+    res.status(500).json({ error: "Production Spec PDF export failed" });
   }
 });
 

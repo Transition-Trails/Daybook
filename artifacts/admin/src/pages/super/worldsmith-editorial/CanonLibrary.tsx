@@ -593,6 +593,11 @@ interface CanonSuggestion {
   rationale: string;
   narrativeDetails: string;
 }
+interface SuggestionResponse<T> {
+  suggestions: T[];
+  nextRefreshAt?: string;
+  canRefresh?: boolean;
+}
 
 function InlineSuggestionsSection({
   suggestions,
@@ -601,6 +606,8 @@ function InlineSuggestionsSection({
   onRefresh,
   onCreate,
   focusType,
+  nextRefreshAt,
+  canRefresh,
 }: {
   suggestions: CanonSuggestion[];
   loading: boolean;
@@ -608,6 +615,8 @@ function InlineSuggestionsSection({
   onRefresh: () => void;
   onCreate: (suggestion: CanonSuggestion) => void;
   focusType: string;
+  nextRefreshAt?: string;
+  canRefresh: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const focusLabel = focusType === "all"
@@ -652,12 +661,13 @@ function InlineSuggestionsSection({
         </button>
         <button
           onClick={onRefresh}
-          disabled={loading}
+          disabled={loading || !canRefresh}
+          title={!canRefresh && nextRefreshAt ? `Available ${new Date(nextRefreshAt).toLocaleString()}` : undefined}
           className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50"
           style={{ borderColor: "#D9C9BA", color: "#9D5B49", background: "white" }}
         >
           <RotateCcw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh ideas
+          {canRefresh ? "Refresh ideas" : "Daily refresh used"}
         </button>
       </div>
 
@@ -1285,18 +1295,17 @@ export default function CanonLibrary() {
   const allRecords = data?.canon_records ?? [];
   const total = data?.total ?? 0;
 
-  const inlineSuggestions = useQuery<{ suggestions: CanonSuggestion[] }>({
-    queryKey: ["editorial-canon-suggestions", selectedWorldId, activeType],
+  const inlineSuggestions = useQuery<SuggestionResponse<CanonSuggestion>>({
+    queryKey: ["editorial-canon-suggestions", selectedWorldId],
     queryFn: () =>
       apiFetch("/v1/editorial/canon-records/suggest", {
         method: "POST",
         body: JSON.stringify({
           world_id: selectedWorldId,
-          ...(activeType !== "all" ? { focus_type: activeType } : {}),
         }),
       }),
     enabled: !!selectedWorldId && !!data && total > 0,
-    staleTime: 5 * 60_000,
+    staleTime: 24 * 60 * 60_000,
     retry: false,
   });
 
@@ -1681,12 +1690,16 @@ export default function CanonLibrary() {
           {/* Records */}
           <div className="flex-1 overflow-y-auto">
              <InlineSuggestionsSection
-               suggestions={inlineSuggestions.data?.suggestions ?? []}
+               suggestions={(inlineSuggestions.data?.suggestions ?? []).filter(
+                 suggestion => activeType === "all" || suggestion.canonType === activeType,
+               )}
                loading={inlineSuggestions.isLoading || inlineSuggestions.isFetching}
                error={inlineSuggestions.isError}
                onRefresh={() => void inlineSuggestions.refetch()}
                onCreate={openSuggestedCreate}
                 focusType={activeType}
+              nextRefreshAt={inlineSuggestions.data?.nextRefreshAt}
+              canRefresh={inlineSuggestions.data?.canRefresh ?? !inlineSuggestions.data}
              />
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 py-16">

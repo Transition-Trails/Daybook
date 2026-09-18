@@ -29,6 +29,11 @@ interface StorySuggestion {
   narrativePromise: string;
   recommendedStatus: string;
 }
+interface StorySuggestionResponse {
+  suggestions: StorySuggestion[];
+  nextRefreshAt?: string;
+  canRefresh?: boolean;
+}
 
 const STATUS_STYLES: Record<string, { background: string; color: string }> = {
   active: { background: "#E4F2EA", color: "#286047" },
@@ -54,12 +59,16 @@ function SuggestedStorylines({
   error,
   onRefresh,
   onCreate,
+  nextRefreshAt,
+  canRefresh,
 }: {
   suggestions: StorySuggestion[];
   loading: boolean;
   error: boolean;
   onRefresh: () => void;
   onCreate: (suggestion: StorySuggestion) => void;
+  nextRefreshAt?: string;
+  canRefresh: boolean;
 }) {
   return (
     <section
@@ -84,12 +93,13 @@ function SuggestedStorylines({
         </div>
         <button
           onClick={onRefresh}
-          disabled={loading}
+          disabled={loading || !canRefresh}
+          title={!canRefresh && nextRefreshAt ? `Available ${new Date(nextRefreshAt).toLocaleString()}` : undefined}
           className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50"
           style={{ borderColor: "#D9C9BA", color: "#9D5B49" }}
         >
           <RotateCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh ideas
+          {canRefresh ? "Refresh ideas" : "Daily refresh used"}
         </button>
       </div>
 
@@ -149,6 +159,8 @@ export default function StoriesStudio() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsError, setSuggestionsError] = useState(false);
   const [suggestionsWorldId, setSuggestionsWorldId] = useState<string | null>(null);
+  const [suggestionsNextRefreshAt, setSuggestionsNextRefreshAt] = useState<string | undefined>();
+  const [suggestionsCanRefresh, setSuggestionsCanRefresh] = useState(true);
   const suggestionsRequestRef = useRef(0);
 
   const { data, isLoading } = useQuery({
@@ -183,12 +195,14 @@ export default function StoriesStudio() {
     setSuggestionsLoading(true);
     setSuggestionsError(false);
     try {
-      const result = await apiFetch<{ suggestions: StorySuggestion[] }>("/v1/editorial/stories/suggest", {
+      const result = await apiFetch<StorySuggestionResponse>("/v1/editorial/stories/suggest", {
         method: "POST",
         body: JSON.stringify({ world_id: requestWorldId }),
       });
       if (requestId !== suggestionsRequestRef.current) return;
       setSuggestions(result.suggestions ?? []);
+      setSuggestionsNextRefreshAt(result.nextRefreshAt);
+      setSuggestionsCanRefresh(result.canRefresh ?? false);
       setSuggestionsWorldId(requestWorldId);
     } catch {
       if (requestId !== suggestionsRequestRef.current) return;
@@ -283,6 +297,8 @@ export default function StoriesStudio() {
           onCreate={suggestion => navigate(
             `/super/worldsmith/editorial/stories/new?title=${encodeURIComponent(suggestion.title)}&summary=${encodeURIComponent(suggestion.narrativePromise)}&status=${encodeURIComponent(suggestion.recommendedStatus)}`,
           )}
+          nextRefreshAt={suggestionsNextRefreshAt}
+          canRefresh={suggestionsCanRefresh}
         />
 
         {isLoading ? (

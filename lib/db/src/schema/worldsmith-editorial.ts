@@ -435,3 +435,15 @@ export const wsCanonRecordStoryLinksTable = pgTable("ws_canon_record_story_links
 ]);
 
 export type WsCanonRecordStoryLink = typeof wsCanonRecordStoryLinksTable.$inferSelect;
+
+export const wsSuggestionRefreshesTable = pgTable("ws_suggestion_refreshes", {
+  worldId: text("world_id").notNull(),
+  suggestionKind: text("suggestion_kind").notNull(),
+  suggestions: jsonb("suggestions").$type<unknown[]>().notNull().default([]),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+    .$onUpdate(() => new Date()),
+}, (t) => [
+  primaryKey({ columns: [t.worldId, t.suggestionKind] }),
+  index("ws_suggestion_refreshes_generated_idx").on(t.generatedAt),
+]);

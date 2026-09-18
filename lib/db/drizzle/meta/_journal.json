@@ -260,6 +260,13 @@
       "when": 1789748600000,
       "tag": "0036_worldsmith_context_snapshot_governance",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789761000000,
+      "tag": "0037_worldsmith_suggestion_refreshes",
+      "breakpoints": true
     }
   ]
 }

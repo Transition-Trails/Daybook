@@ -87,3 +87,4 @@
 - [WorldSmith readable-text governance](worldsmith-readable-text-governance.md) — governed prompts treat readable strings as closed-world content with exact source authorization
 - [WorldSmith artwork revisions](worldsmith-artwork-revisions.md) — revisions are transient, governance-bound, and deterministically keyed by their effective provider prompt
 - [WorldSmith Context Snapshot repository](worldsmith-context-snapshot-repository.md) — world context uses worlds/** and shared production records use global/context/** in Daybook
+- [WorldSmith daily suggestions](worldsmith-daily-suggestions.md) — Canon gaps and storyline ideas share one persistent 24-hour refresh per world and suggestion kind

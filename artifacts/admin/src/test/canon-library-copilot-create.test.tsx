@@ -121,7 +121,7 @@ describe("CanonLibrary suggested-record handoff", () => {
     );
   });
 
-  it("regenerates world-aware suggestions for the active record type", async () => {
+  it("filters the daily suggestion set without making another AI request", async () => {
     const suggestionBodies: Array<Record<string, unknown>> = [];
     apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === "/v1/editorial/canon-records/suggest") {
@@ -129,8 +129,8 @@ describe("CanonLibrary suggested-record handoff", () => {
         suggestionBodies.push(body);
         return Promise.resolve({
           suggestions: [{
-            name: body.focus_type === "object" ? "The Thorn Reliquary" : "The Thorn Keeper",
-            canonType: body.focus_type ?? "character",
+            name: "The Thorn Keeper",
+            canonType: "character",
             rationale: "A world-grounded gap.",
             narrativeDetails: "A detail that belongs to this world.",
           }],
@@ -168,11 +168,8 @@ describe("CanonLibrary suggested-record handoff", () => {
     const drawerFilters = await screen.findByTestId("editorial-page-filters");
     fireEvent.change(within(drawerFilters).getByLabelText("Record type"), { target: { value: "object" } });
 
-    await waitFor(() => expect(screen.getByText("The Thorn Reliquary")).toBeInTheDocument());
-    expect(suggestionBodies.at(-1)).toEqual({
-      world_id: "world-wychcombe",
-      focus_type: "object",
-    });
+    await waitFor(() => expect(screen.queryByText("The Thorn Keeper")).not.toBeInTheDocument());
+    expect(suggestionBodies).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Missing object records for your canon" })).toBeInTheDocument();
   });
 });

@@ -64,6 +64,7 @@ import {
   wsEncountersTable,
   wsJournalPromptsTable,
   wsCanonRecordStoryLinksTable,
+  wsSuggestionRefreshesTable,
   worldsmithImageTargetsTable,
   type InsertWsProductionSpec,
   type InsertWsCanonRecord,
@@ -992,6 +993,28 @@ const CANON_SUGGESTION_TYPES = [
   "character", "location", "object", "event", "lore",
   "atmosphere", "material", "relationship", "motif",
 ] as const;
+const SUGGESTION_REFRESH_MS = 24 * 60 * 60 * 1_000;
+
+async function getDailySuggestions(worldId: string, suggestionKind: string) {
+  const [cached] = await db.select().from(wsSuggestionRefreshesTable).where(and(
+    eq(wsSuggestionRefreshesTable.worldId, worldId),
+    eq(wsSuggestionRefreshesTable.suggestionKind, suggestionKind),
+  )).limit(1);
+  if (!cached) return null;
+  const nextRefreshAt = new Date(cached.generatedAt.getTime() + SUGGESTION_REFRESH_MS);
+  return { ...cached, nextRefreshAt, current: nextRefreshAt.getTime() > Date.now() };
+}
+
+async function saveDailySuggestions(worldId: string, suggestionKind: string, suggestions: unknown[]) {
+  const generatedAt = new Date();
+  await db.insert(wsSuggestionRefreshesTable).values({
+    worldId, suggestionKind, suggestions, generatedAt, updatedAt: generatedAt,
+  }).onConflictDoUpdate({
+    target: [wsSuggestionRefreshesTable.worldId, wsSuggestionRefreshesTable.suggestionKind],
+    set: { suggestions, generatedAt, updatedAt: generatedAt },
+  });
+  return generatedAt;
+}
 
 router.post("/v1/editorial/canon-records/suggest", async (req: Request, res: Response) => {
   const { world_id, focus_type } = req.body as { world_id?: string; focus_type?: string };
@@ -1005,6 +1028,17 @@ router.post("/v1/editorial/canon-records/suggest", async (req: Request, res: Res
   }
 
   try {
+    const cached = await getDailySuggestions(world_id, "canon");
+    if (cached?.current) {
+      res.json({
+        suggestions: cached.suggestions,
+        generatedAt: cached.generatedAt,
+        nextRefreshAt: cached.nextRefreshAt,
+        canRefresh: false,
+        cached: true,
+      });
+      return;
+    }
     // Fetch world bible
     const [world] = await db
       .select()
@@ -1143,7 +1177,15 @@ All ${suggestionCount} suggestions must be DIFFERENT from existing records and f
         narrativeDetails: typeof s.narrativeDetails === "string" ? s.narrativeDetails.trim().slice(0, 800) : "",
       }));
 
-    res.json({ suggestions: sanitised, world: { name: world.name, code: world.code } });
+    const generatedAt = await saveDailySuggestions(world_id, "canon", sanitised);
+    res.json({
+      suggestions: sanitised,
+      world: { name: world.name, code: world.code },
+      generatedAt,
+      nextRefreshAt: new Date(generatedAt.getTime() + SUGGESTION_REFRESH_MS),
+      canRefresh: false,
+      cached: false,
+    });
   } catch (err) {
     logger.error({ err }, "editorial: suggest canon records");
     res.status(502).json({ error: "Could not generate suggestions. Try again.", code: "AI_ERROR" });
@@ -3613,6 +3655,17 @@ router.post("/v1/editorial/stories/suggest", async (req: Request, res: Response)
   }
 
   try {
+    const cached = await getDailySuggestions(world_id, "stories");
+    if (cached?.current) {
+      res.json({
+        suggestions: cached.suggestions,
+        generatedAt: cached.generatedAt,
+        nextRefreshAt: cached.nextRefreshAt,
+        canRefresh: false,
+        cached: true,
+      });
+      return;
+    }
     const [world] = await db
       .select()
       .from(worldsmithWorldsTable)
@@ -3720,7 +3773,15 @@ Return ONLY a JSON array (no markdown fences or preamble). Every item must have:
       }))
       .filter(suggestion => suggestion.title.length > 0);
 
-    res.json({ suggestions: sanitised, world: { name: world.name, code: world.code } });
+    const generatedAt = await saveDailySuggestions(world_id, "stories", sanitised);
+    res.json({
+      suggestions: sanitised,
+      world: { name: world.name, code: world.code },
+      generatedAt,
+      nextRefreshAt: new Date(generatedAt.getTime() + SUGGESTION_REFRESH_MS),
+      canRefresh: false,
+      cached: false,
+    });
   } catch (err) {
     logger.error({ err }, "editorial: suggest storylines");
     res.status(502).json({ error: "Could not generate storylines. Try again.", code: "AI_ERROR" });

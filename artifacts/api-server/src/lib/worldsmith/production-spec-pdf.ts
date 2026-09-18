@@ -14,6 +14,7 @@ export interface ProductionSpecPdfItem {
   specId?: string | null;
   componentType?: string | null;
   status: string;
+  compiled?: boolean;
   readinessScore: number;
   designIntent: string;
   narrativePurpose: string;
@@ -80,6 +81,142 @@ function drawPageNumber(page: PDFPage, pageNumber: number, regular: PDFFont) {
     font: regular,
     color: MUTED,
   });
+}
+
+function fitText(value: string, font: PDFFont, size: number, maxWidth: number): string {
+  const normalized = pdfText(value).replace(/\s+/g, " ").trim();
+  if (font.widthOfTextAtSize(normalized, size) <= maxWidth) return normalized;
+  let fitted = normalized;
+  while (fitted && font.widthOfTextAtSize(`${fitted}...`, size) > maxWidth) {
+    fitted = fitted.slice(0, -1);
+  }
+  return `${fitted.trimEnd()}...`;
+}
+
+function addCollectionSummaryPage(
+  doc: PDFDocument,
+  options: ProductionSpecPdfOptions,
+  bold: PDFFont,
+  regular: PDFFont,
+) {
+  const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+  const compiledCount = options.items.filter((item) =>
+    item.compiled ?? item.status.trim().toLowerCase() === "compiled"
+  ).length;
+  const reviewImageCount = options.items.filter((item) => Boolean(item.reviewImage)).length;
+  const finalArtworkCount = options.items.filter((item) => Boolean(item.finalArtwork)).length;
+
+  drawHeader(
+    page,
+    "Collection Summary / Production Status",
+    `${options.collectionName}${options.volumeName ? ` | ${options.volumeName}` : ""}`,
+    bold,
+    regular,
+  );
+
+  const metrics = [
+    [String(options.items.length), "SPECIFICATIONS"],
+    [String(compiledCount), "COMPILED"],
+    [String(reviewImageCount), "REVIEW IMAGES"],
+    [String(finalArtworkCount), "FINAL ARTWORKS"],
+  ] as const;
+  const metricWidth = 112;
+  const metricGap = 20;
+  let metricX = MARGIN;
+  for (const [value, label] of metrics) {
+    page.drawRectangle({
+      x: metricX,
+      y: 606,
+      width: metricWidth,
+      height: 82,
+      color: PAPER,
+      borderColor: rgb(0.86, 0.83, 0.78),
+      borderWidth: 1,
+    });
+    page.drawText(value, { x: metricX + 14, y: 640, size: 23, font: bold, color: INK });
+    page.drawText(label, { x: metricX + 14, y: 620, size: 7, font: bold, color: CLAY });
+    metricX += metricWidth + metricGap;
+  }
+
+  page.drawText(
+    `${options.items.length} specifications  ->  ${compiledCount} compiled  ->  ${reviewImageCount} review images  ->  ${finalArtworkCount} final artworks`,
+    { x: MARGIN, y: 580, size: 10, font: bold, color: INK },
+  );
+
+  const columns = [
+    { label: "SPEC ID", width: 67 },
+    { label: "COMPONENT", width: 112 },
+    { label: "STATUS", width: 60 },
+    { label: "READINESS", width: 48 },
+    { label: "REVIEW IMAGE", width: 48 },
+    { label: "FINAL ARTWORK", width: 48 },
+    { label: "CANON DEPENDENCY", width: 125 },
+  ] as const;
+  const tableTop = 548;
+  const headerHeight = 28;
+  const rowHeight = 43;
+  let columnX = MARGIN;
+  page.drawRectangle({
+    x: MARGIN,
+    y: tableTop - headerHeight,
+    width: PAGE_WIDTH - MARGIN * 2,
+    height: headerHeight,
+    color: INK,
+  });
+  for (const column of columns) {
+    page.drawText(column.label, {
+      x: columnX + 6,
+      y: tableTop - 18,
+      size: column.label.length > 8 ? 5.2 : 6.5,
+      font: bold,
+      color: rgb(1, 1, 1),
+    });
+    columnX += column.width;
+  }
+
+  let rowY = tableTop - headerHeight - rowHeight;
+  options.items.forEach((item, index) => {
+    page.drawRectangle({
+      x: MARGIN,
+      y: rowY,
+      width: PAGE_WIDTH - MARGIN * 2,
+      height: rowHeight,
+      color: index % 2 === 0 ? rgb(0.995, 0.99, 0.975) : PAPER,
+      borderColor: rgb(0.89, 0.87, 0.82),
+      borderWidth: 0.5,
+    });
+    const values = [
+      item.specId || "Unnumbered",
+      item.componentType || "Not selected",
+      item.status,
+      `${item.readinessScore}%`,
+      item.reviewImage ? "Available" : "Missing",
+      item.finalArtwork ? "Available" : "Missing",
+      item.canonDependency || "None",
+    ];
+    let valueX = MARGIN;
+    values.forEach((value, valueIndex) => {
+      const column = columns[valueIndex]!;
+      const positive = (
+        (valueIndex === 4 || valueIndex === 5)
+        && value === "Available"
+      );
+      page.drawText(fitText(value, regular, 7.2, column.width - 12), {
+        x: valueX + 6,
+        y: rowY + 17,
+        size: 7.2,
+        font: valueIndex === 0 ? bold : regular,
+        color: positive ? rgb(0.06, 0.48, 0.42) : value === "Missing" ? CLAY : INK,
+      });
+      valueX += column.width;
+    });
+    rowY -= rowHeight;
+  });
+
+  page.drawText(
+    "The following pages provide the specification details, review image, and final-artwork evidence for each row.",
+    { x: MARGIN, y: 72, size: 8.5, font: regular, color: MUTED },
+  );
 }
 
 async function addImagePage(
@@ -212,6 +349,8 @@ export async function buildProductionSpecPdf(options: ProductionSpecPdfOptions):
     cover.drawText(pdfText(line), { x: MARGIN, y: coverY, size: 12, font: regular, color: INK });
     coverY -= 28;
   }
+
+  addCollectionSummaryPage(doc, options, bold, regular);
 
   for (let index = 0; index < options.items.length; index++) {
     const item = options.items[index]!;

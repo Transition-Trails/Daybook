@@ -2949,6 +2949,7 @@ router.get("/v1/editorial/production-spec-export.pdf", async (req: Request, res:
         specId: spec.specId,
         componentType: spec.componentType,
         status: spec.status,
+        compiled: spec.compiledPromptStatus.trim().toLowerCase() === "compiled",
         readinessScore: spec.readinessScore,
         designIntent: spec.designIntent,
         narrativePurpose: spec.narrativePurpose,

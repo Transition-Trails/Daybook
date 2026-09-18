@@ -1,0 +1,36 @@
+Yes. I think the lock is now working against the production workflow we have developed.
+I can see why we probably locked it originally: once a Production Spec was compiled, we wanted the compiled payload to be reproducible and didn't want someone silently changing the source fields while the compiled prompt still represented an older version. That protects provenance.
+But locking the source record is the wrong solution. The compiled version should be immutable, not the Production Spec itself.
+Change I would request
+Allow editing of a Production Spec after compilation. Editing an already-compiled spec should invalidate the current compilation and require a new version to be compiled. Preserve previous compiled versions in version history.
+The workflow should be:
+Production Spec v1 → Compile v1 → Generate/Review
+Then we discover, as we just did, that the Ephemera design intent needs adjustment.
+Edit Production Spec → Spec becomes "Changes Pending" → Compile v2 → Generate/Review
+The v1 compiled payload remains preserved for provenance, but the user does not have to duplicate WYC-EPH-002 just to iterate.
+I would give the developer this requirement
+Production Spec Post-Compile Editing
+Production Specs must remain editable after they have been compiled.
+When a user edits any field that contributes to the compiled production payload, the system must not overwrite or modify the previously compiled version.
+Instead:
+- Save the edits to the existing Production Spec.
+- Mark the Production Spec as Changes Pending or Recompile Required.
+- Preserve the previous compiled payload and its version in compilation history.
+- Disable generation from the stale compilation, or clearly warn that the current compilation does not contain the latest Production Spec changes.
+- Provide a Recompile action.
+- Recompiling creates a new immutable compiled version associated with the same Production Spec.
+- Previous generated review images and final artwork remain associated with the compiled version that produced them.
+- Do not require creation of a new Production Spec simply to revise design intent, required content, narrative purpose, review criteria, linked Component Specs, Prompt Modules, Style Guides, or other compilation inputs.
+The Production Spec represents the evolving design definition. A compiled payload represents an immutable production snapshot of that definition at a particular moment.
+
+And I'd add one important UI behavior:
+When opening an approved/compiled Production Spec for editing, show:
+Editing this specification will require recompilation. Existing compiled versions and artwork will be preserved.
+Buttons: Cancel | Edit Specification
+
+That prevents accidental changes without putting the record in amber forever.
+One more thing this fixes
+This gives us proper lineage for the exact situation we're in now.
+WYC-EPH-002 doesn't become WYC-EPH-003 merely because we learned how to make WYC-EPH-002 better. It's still the Curator's Desk Ephemera Sheet. Its design evolved.
+A new Production Spec ID should mean a genuinely different producible design, not "I edited paragraph three."
+So yes, I would change the lock. Version the compilation, not the Production Spec. That's a much stronger model for WorldSmith.

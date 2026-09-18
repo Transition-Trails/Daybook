@@ -173,6 +173,14 @@ export function contextSnapshotIsOutdated(
     || !snapshot.recordUpdatedAt
     || recordUpdatedAt > snapshot.recordUpdatedAt;
 }
+let contextSnapshotPublishQueue: Promise<void> = Promise.resolve();
+
+function enqueueContextSnapshotPublish<T>(work: () => Promise<T>): Promise<T> {
+  const result = contextSnapshotPublishQueue.then(work, work);
+  contextSnapshotPublishQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
 export class ContextSnapshotGitHubPublisher {
   private branchReady: Promise<void> | null = null;
 
@@ -224,6 +232,26 @@ export class ContextSnapshotGitHubPublisher {
   }
 
   async publish(
+    path: string,
+    content: string,
+    message: string,
+    previousPath?: string | null,
+  ): Promise<{ path: string; commitSha: string }> {
+    return enqueueContextSnapshotPublish(async () => {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          return await this.publishNow(path, content, message, previousPath);
+        } catch (error) {
+          const retryableConflict = error instanceof Error && error.message.includes("HTTP 409");
+          if (!retryableConflict || attempt === 3) throw error;
+          await new Promise(resolve => setTimeout(resolve, attempt * 250));
+        }
+      }
+      throw new Error("Context Snapshot publish retry exhausted.");
+    });
+  }
+
+  private async publishNow(
     path: string,
     content: string,
     message: string,

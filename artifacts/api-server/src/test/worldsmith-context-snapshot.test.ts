@@ -179,6 +179,37 @@ describe("WorldSmith Context Snapshots", () => {
     });
   });
 
+  it("queues concurrent snapshot commits so GitHub sees one writer at a time", async () => {
+    let activeWrites = 0;
+    let peakWrites = 0;
+    let commit = 0;
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method !== "PUT") return new Response("", { status: 404 });
+      activeWrites += 1;
+      peakWrites = Math.max(peakWrites, activeWrites);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      activeWrites -= 1;
+      commit += 1;
+      return new Response(JSON.stringify({
+        content: { path: `snapshot-${commit}.md` },
+        commit: { sha: `commit-${commit}` },
+      }), { status: 201 });
+    });
+    const publisher = new ContextSnapshotGitHubPublisher({
+      fetchImpl: fetchImpl as typeof fetch,
+      token: "test-token",
+      repository: "Transition-Trails/Daybook",
+      branch: "main",
+    });
+
+    await Promise.all([
+      publisher.publish("one.md", "# One\n", "context: one"),
+      publisher.publish("two.md", "# Two\n", "context: two"),
+    ]);
+
+    expect(peakWrites).toBe(1);
+  });
+
   it("selects missing, failed, and stale snapshots without refreshing current ones", () => {
     const updatedAt = new Date("2026-09-18T10:00:00.000Z");
     expect(contextSnapshotIsOutdated(updatedAt, null)).toBe(true);

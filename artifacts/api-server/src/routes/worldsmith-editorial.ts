@@ -3242,10 +3242,10 @@ router.get("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
   }
 });
 
-// Mutable spec fields: linkage fields that evolve during the editorial
-// process (payload, canon links, prompt modules, style guide, component spec).
-// Identity and creative-direction fields remain immutable after creation so
-// the prompt identity (and its derived promptHash) stays stable.
+// Production Specs remain editable after compilation. Any change to an input
+// that contributes to compilation invalidates only the current compiled state;
+// immutable run and artwork records remain associated with the version that
+// produced them until an operator explicitly recompiles.
 router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
   const specId = req.params.id as string;
   try {
@@ -3328,16 +3328,16 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
         throw new Error("finalize must be a boolean");
       }
     } else {
-      // Completed records still protect creative direction, but admins can
-      // correct the visible identity and print metadata when a record was
-      // created with a typo or wrong component label.
       addString("production_item", "productionItem");
       addString("spec_id", "specId");
       addString("component_type", "componentType");
       addString("component_set", "componentSet");
+      addString("design_intent", "designIntent", true);
+      addString("narrative_purpose", "narrativePurpose", true);
+      addString("required_content", "requiredContent", true);
+      addString("review_criteria", "reviewCriteria", true);
       addString("orientation", "orientation");
       addString("front_back_style", "frontBackStyle");
-      addString("current_version", "currentVersion", false, false);
       if (body.writing_space_percent !== undefined) {
         const value = body.writing_space_percent;
         if (value !== null && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100)) {
@@ -3372,7 +3372,8 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
             ]
           : [
               "production_item", "spec_id", "component_type", "component_set",
-              "orientation", "front_back_style", "current_version", "writing_space_percent",
+              "design_intent", "narrative_purpose", "required_content", "review_criteria",
+              "orientation", "front_back_style", "writing_space_percent",
               "prompt_payload", "payload_version", "collection_id", "volume_id", "canon_record_ids",
               "prompt_module_ids", "style_guide_id", "component_spec_id",
             ],
@@ -3422,19 +3423,46 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
       merged.wizardComplete = true;
     }
     const readinessScore = computeReadinessScore(merged);
-    const status = derivePipelineStatus(merged, readinessScore);
-    const persistedStatus = sql<string>`case
-      when lower(${wsProductionSpecsTable.status}) = 'approved' then 'approved'
-      else ${status}
-    end`;
+    const compilationInputColumns = new Set<keyof InsertWsProductionSpec>([
+      "productionItem", "componentType", "componentSet",
+      "designIntent", "narrativePurpose", "requiredContent", "reviewCriteria",
+      "writingSpacePercent", "orientation", "frontBackStyle",
+      "promptPayload", "payloadVersion", "collectionId", "volumeId",
+      "canonRecordIds", "promptModuleIds", "styleGuideId", "componentSpecId",
+    ]);
+    const compilationInputsChanged = Object.keys(mutableUpdate).some((column) => {
+      if (!compilationInputColumns.has(column as keyof InsertWsProductionSpec)) return false;
+      return JSON.stringify(existing[column as keyof typeof existing])
+        !== JSON.stringify(merged[column as keyof typeof merged]);
+    });
+    const hadCompiledVersion = existing.compiledPromptStatus.trim().toLowerCase() === "compiled"
+      || ["compiled", "approved"].includes(existing.status.trim().toLowerCase());
+    const recompileRequired = !isDraft && hadCompiledVersion && compilationInputsChanged;
+    const status = recompileRequired ? "changes_pending" : derivePipelineStatus(merged, readinessScore);
+    const persistedStatus = recompileRequired
+      ? status
+      : sql<string>`case
+          when lower(${wsProductionSpecsTable.status}) = 'approved' then 'approved'
+          else ${status}
+        end`;
 
     const [updated] = await db
       .update(wsProductionSpecsTable)
-      .set({ ...mutableUpdate, readinessScore, status: persistedStatus, updatedAt: new Date() })
+      .set({
+        ...mutableUpdate,
+        readinessScore,
+        status: persistedStatus,
+        ...(recompileRequired ? { compiledPromptStatus: "Recompile Required" } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(wsProductionSpecsTable.id, specId))
       .returning();
 
-    res.json({ spec: updated });
+    res.json({
+      spec: updated,
+      recompile_required: recompileRequired,
+      previous_compilation_preserved: recompileRequired,
+    });
   } catch (err) {
     if (err instanceof Error && /must be/.test(err.message)) {
       res.status(400).json({ error: err.message });

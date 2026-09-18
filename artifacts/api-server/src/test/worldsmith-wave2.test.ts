@@ -546,7 +546,7 @@ describe("Item 5 — PATCH /v1/editorial/specs/:id saves mutable linkage fields"
     expect(response.body.prerequisites).toContain("Compile the Specification Board");
   });
 
-  it("approval persists locally, leaves the Notion link untouched, and is repeat-safe", async () => {
+  it("approval is repeat-safe and a later compilation-input edit requires a new version", async () => {
     const { eq } = await import("drizzle-orm");
     await db.update(wsProductionSpecsTable)
       .set({
@@ -602,10 +602,14 @@ describe("Item 5 — PATCH /v1/editorial/specs/:id saves mutable linkage fields"
       .send({ production_item: "Approval Ready Spec — corrected" });
     expect(corrected.status).toBe(200);
     expect(corrected.body.spec.productionItem).toBe("Approval Ready Spec — corrected");
-    expect(corrected.body.spec.status).toBe("approved");
+    expect(corrected.body.spec.status).toBe("changes_pending");
+    expect(corrected.body.spec.compiledPromptStatus).toBe("Recompile Required");
+    expect(corrected.body.recompile_required).toBe(true);
+    expect(corrected.body.previous_compilation_preserved).toBe(true);
 
     const afterCorrection = await request(app).get(`/v1/editorial/specs/${specId}`);
-    expect(afterCorrection.body.spec.status).toBe("approved");
+    expect(afterCorrection.body.spec.status).toBe("changes_pending");
+    expect(afterCorrection.body.spec.compiledPromptStatus).toBe("Recompile Required");
   });
 
   it("revalidates prerequisites after waiting for a concurrent record update", async () => {

@@ -63,6 +63,14 @@ export function isLocalResolverEnabled(): boolean {
   return process.env.NODE_ENV === "development";
 }
 
+function nextProductionSpecVersion(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(.*?)(\d+)$/);
+  if (!match) return `${trimmed || "v"}2`;
+  const [, prefix, digits] = match;
+  return `${prefix}${String(Number(digits) + 1).padStart(digits.length, "0")}`;
+}
+
 // ── Main entry point ──────────────────────────────────────────────────────────
 
 export async function runCompilation(
@@ -263,6 +271,9 @@ export async function runCompilation(
       ...(chain.productionSpec.collectionId ? { collection_notion_id: chain.productionSpec.collectionId } : {}),
       ...(chain.productionSpec.volume      ? { volume_name:         chain.productionSpec.volume }      : {}),
       ...(chain.productionSpec.volumeId    ? { volume_notion_id:    chain.productionSpec.volumeId }    : {}),
+      ...(chain.productionSpec.currentVersion
+        ? { production_spec_version: chain.productionSpec.currentVersion }
+        : {}),
     };
     await updateRun(runId, {
       resolvedSourceIds: extendedSourceIds,
@@ -620,14 +631,21 @@ export async function runCompilation(
 
     // ── Stage 20: Update Production Specification status ─────────────────
     if (!dryRun && isLocalProductionRequest) {
+      const isExplicitRecompile = spec.status.trim().toLowerCase() === "changes_pending"
+        || spec.compiledPromptStatus.trim().toLowerCase() === "recompile required";
       await db
         .update(wsProductionSpecsTable)
         .set({
           compiledPromptStatus: "Compiled",
-          status: sql<string>`case
-            when lower(${wsProductionSpecsTable.status}) = 'approved' then 'approved'
-            else 'compiled'
-          end`,
+          status: isExplicitRecompile
+            ? "compiled"
+            : sql<string>`case
+                when lower(${wsProductionSpecsTable.status}) = 'approved' then 'approved'
+                else 'compiled'
+              end`,
+          ...(isExplicitRecompile
+            ? { currentVersion: nextProductionSpecVersion(spec.currentVersion) }
+            : {}),
           updatedAt: new Date(),
         })
         .where(eq(wsProductionSpecsTable.id, specId));

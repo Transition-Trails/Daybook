@@ -25,6 +25,7 @@ import {
   fontsTable, palettesTable, storeFlagsTable, storesTable, worldsmithAssetsTable,
   worldsmithProductionPackagesTable, worldsmithRunsTable, worldsmithWorldsTable,
   wsCanonRecordsTable, wsComponentSpecsTable, wsPromptModulesTable, wsStyleGuidesTable,
+  wsProductionSpecsTable,
 } from "@workspace/db";
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
@@ -331,6 +332,30 @@ router.post("/v1/production-packages", requireAuth, requireSuperAdmin, async (re
 
   const resolvedSpecId = production_spec_id ?? notion_production_spec_id!;
   try {
+    if (production_spec_id) {
+      const [localSpec] = await db
+        .select({
+          status: wsProductionSpecsTable.status,
+          compiledPromptStatus: wsProductionSpecsTable.compiledPromptStatus,
+        })
+        .from(wsProductionSpecsTable)
+        .where(eq(wsProductionSpecsTable.id, production_spec_id))
+        .limit(1);
+      const staleCompilation = localSpec
+        && (
+          localSpec.status.trim().toLowerCase() === "changes_pending"
+          || localSpec.compiledPromptStatus.trim().toLowerCase() === "recompile required"
+        );
+      if (staleCompilation) {
+        res.status(409).json({
+          error: "This Production Spec has changes pending and must be recompiled before final artwork can be generated.",
+          code: "RECOMPILE_REQUIRED",
+          next_action: "Recompile the Production Spec, review and approve the new Specification Board, then generate final artwork.",
+        });
+        return;
+      }
+    }
+
     const recovered = await failStaleRunsForSpec(resolvedSpecId);
     if (recovered > 0) {
       req.log.warn({ specId: resolvedSpecId, recovered }, "WorldSmith: recovered stale compile before final-art request");
@@ -2185,14 +2210,14 @@ router.post("/v1/worldsmith/generate-payload", requireAuth, requireSuperAdmin, a
 
 // ── POST /v1/worldsmith/save-payload ─────────────────────────────────────────
 // Write a previously-previewed PP-2.0 payload to Notion (Prompt Payload + Next
-// Action only).  Validates pre-save constraints, verifies persistence, then
-// re-runs compilation.  Refuses to overwrite a non-blank Prompt Payload.
+// Action only). Validates pre-save constraints and verifies persistence.
+// Recompilation is deliberately explicit so existing compiled versions and
+// artwork remain the active historical record until the operator proceeds.
 
 router.post("/v1/worldsmith/save-payload", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
-  const { spec_id: rawSpecId, serialized_payload, skip_recompile = false } = req.body as {
+  const { spec_id: rawSpecId, serialized_payload } = req.body as {
     spec_id?: string;
     serialized_payload?: string;
-    skip_recompile?: boolean;
   };
 
   if (!rawSpecId?.trim() || !serialized_payload?.trim()) {
@@ -2226,39 +2251,12 @@ router.post("/v1/worldsmith/save-payload", requireAuth, requireSuperAdmin, async
       return;
     }
 
-    // Re-run compilation unless caller opted out
-    let compilationResult: unknown = null;
-    if (!skip_recompile) {
-      try {
-        const chain = await resolveInheritanceChain(specId);
-        compilationResult = { started: true, spec_id: specId };
-        // Fire and forget — don't block the save response on compilation
-        // The caller can poll /v1/worldsmith/runs to see the result
-        logger.info({ specId }, "save-payload: triggering background recompile");
-        void (async () => {
-          try {
-            const { runCompilation } = await import("../lib/worldsmith/orchestrator");
-            await runCompilation({
-              notion_production_spec_id: specId,
-              operation: "validate_and_compile",
-              dry_run: false,
-            });
-          } catch (compileErr) {
-            logger.warn({ err: compileErr, specId }, "Post-save recompile failed (non-blocking)");
-          }
-        })();
-      } catch (chainErr) {
-        logger.warn({ err: chainErr, specId }, "Could not resolve chain for post-save recompile");
-        compilationResult = { started: false, error: String(chainErr) };
-      }
-    }
-
     res.json({
       success: true,
       spec_id: specId,
       persistence_verified: saveResult.persistenceVerified,
       mismatch: saveResult.mismatch ?? null,
-      recompile: compilationResult,
+      recompile: { started: false, required: true },
     });
   } catch (err) {
     logger.error({ err, specId }, "save-payload error");

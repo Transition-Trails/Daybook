@@ -88,3 +88,4 @@
 - [WorldSmith artwork revisions](worldsmith-artwork-revisions.md) — revisions are transient, governance-bound, and deterministically keyed by their effective provider prompt
 - [WorldSmith Context Snapshot repository](worldsmith-context-snapshot-repository.md) — world context uses worlds/** and shared production records use global/context/** in Daybook
 - [WorldSmith daily suggestions](worldsmith-daily-suggestions.md) — Canon gaps and storyline ideas share one persistent 24-hour refresh per world and suggestion kind
+- [WorldSmith post-compile editing](worldsmith-post-compile-editing.md) — edits invalidate only the current compile; immutable runs and artwork preserve prior versions

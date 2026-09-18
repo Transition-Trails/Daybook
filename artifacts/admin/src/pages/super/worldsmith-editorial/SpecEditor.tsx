@@ -83,6 +83,12 @@ interface SpecResponse {
   };
 }
 
+interface SaveSpecResponse {
+  spec: Spec;
+  recompile_required?: boolean;
+  previous_compilation_preserved?: boolean;
+}
+
 interface LocalSpecPreview {
   status: "success";
   source: "local";
@@ -234,6 +240,8 @@ function CompletionSidebar({
   const artworkApproved = spec.status.trim().toLowerCase() === "approved";
   const boardApproved = artworkApproved;
   const boardCompiled = spec.compiledPromptStatus.trim().toLowerCase() === "compiled";
+  const recompileRequired = spec.status.trim().toLowerCase() === "changes_pending"
+    || spec.compiledPromptStatus.trim().toLowerCase() === "recompile required";
   const approvalReady = spec.wizardComplete === true
     && boardCompiled
     && isPayloadReady
@@ -287,11 +295,11 @@ function CompletionSidebar({
           <span
             className="text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5"
             style={{
-              background: spec.status === "compiled" ? "#CCFBF1" : spec.status === "published" ? "#D1FAE5" : spec.status === "blocked" ? "#FEE2E2" : "#F3F4F6",
-              color: spec.status === "compiled" ? "#0D9488" : spec.status === "published" ? "#059669" : spec.status === "blocked" ? "#DC2626" : "#6B7280",
+              background: recompileRequired ? "#FEF3C7" : spec.status === "compiled" ? "#CCFBF1" : spec.status === "published" ? "#D1FAE5" : spec.status === "blocked" ? "#FEE2E2" : "#F3F4F6",
+              color: recompileRequired ? "#B45309" : spec.status === "compiled" ? "#0D9488" : spec.status === "published" ? "#059669" : spec.status === "blocked" ? "#DC2626" : "#6B7280",
             }}
           >
-            {spec.status.replace("_", " ")}
+            {recompileRequired ? "Changes Pending" : spec.status.replaceAll("_", " ")}
           </span>
           <span className="text-xs text-gray-400">{spec.compiledPromptStatus}</span>
         </div>
@@ -718,7 +726,7 @@ function IdentityTab({ spec, onChange, onFocus, readOnly = false }: { spec: Spec
               <input value={spec.specId ?? ""} onChange={e => onChange({ specId: e.target.value })} onFocus={() => onFocus?.("specId", "Spec ID")} className={inputCls} placeholder="e.g. WYC-HRP-001" />
             </Field>
             <Field label="Current Version">
-              <input value={spec.currentVersion} onChange={e => onChange({ currentVersion: e.target.value })} className={inputCls} />
+              <input value={spec.currentVersion} readOnly className={`${inputCls} bg-gray-50 text-gray-500`} />
             </Field>
           </div>
         </div>
@@ -1135,6 +1143,8 @@ export default function SpecEditor({ specId }: { specId: string }) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabId>("identity");
   const [localSpec, setLocalSpec] = useState<Spec | null>(null);
+  const [editWarningOpen, setEditWarningOpen] = useState(false);
+  const [editWarningHandled, setEditWarningHandled] = useState(false);
   const historyGuard = useRef<{ id: string; active: boolean; skipNextPop: boolean } | null>(null);
   if (!historyGuard.current) {
     historyGuard.current = {
@@ -1151,11 +1161,15 @@ export default function SpecEditor({ specId }: { specId: string }) {
   });
 
   useEffect(() => {
-    if (data?.spec) setLocalSpec(data.spec);
+    if (!data?.spec) return;
+    setLocalSpec(data.spec);
+    const hasCompiledVersion = data.spec.compiledPromptStatus.trim().toLowerCase() === "compiled"
+      || ["compiled", "approved"].includes(data.spec.status.trim().toLowerCase());
+    if (hasCompiledVersion && !editWarningHandled) setEditWarningOpen(true);
   }, [data?.spec]);
 
-  // Identity correction fields, payload, canon links, and prompt modules are
-  // editable. Creative-direction fields remain locked after creation.
+  // Production Specs remain editable. The server marks compilation-contributing
+  // changes stale on save and requires an explicit recompile.
   const onChange = (patch: Partial<Spec>) =>
     setLocalSpec(prev => prev ? { ...prev, ...patch } : null);
 
@@ -1164,6 +1178,10 @@ export default function SpecEditor({ specId }: { specId: string }) {
     data?.spec && localSpec && (
       localSpec.promptPayload !== data.spec.promptPayload ||
       localSpec.payloadVersion !== data.spec.payloadVersion ||
+      localSpec.designIntent !== data.spec.designIntent ||
+      localSpec.narrativePurpose !== data.spec.narrativePurpose ||
+      localSpec.requiredContent !== data.spec.requiredContent ||
+      localSpec.reviewCriteria !== data.spec.reviewCriteria ||
       localSpec.productionItem !== data.spec.productionItem ||
       localSpec.specId !== data.spec.specId ||
       localSpec.componentType !== data.spec.componentType ||
@@ -1248,7 +1266,7 @@ export default function SpecEditor({ specId }: { specId: string }) {
     };
   }, [hasUnsavedChanges]);
 
-  const saveMutation = useMutation({
+  const saveMutation = useMutation<SaveSpecResponse, Error, Spec>({
     mutationFn: (s: Spec) =>
       apiFetch(`/v1/editorial/specs/${specId}`, {
         method: "PATCH",
@@ -1257,7 +1275,10 @@ export default function SpecEditor({ specId }: { specId: string }) {
           spec_id:           s.specId,
           component_type:    s.componentType,
           component_set:     s.componentSet,
-          current_version:   s.currentVersion,
+          design_intent:     s.designIntent,
+          narrative_purpose: s.narrativePurpose,
+          required_content:  s.requiredContent,
+          review_criteria:   s.reviewCriteria,
           writing_space_percent: s.writingSpacePercent,
           orientation:       s.orientation,
           front_back_style:  s.frontBackStyle,
@@ -1271,11 +1292,48 @@ export default function SpecEditor({ specId }: { specId: string }) {
           component_spec_id: s.componentSpecId,
         }),
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["editorial-spec", specId] });
-      toast({ title: "Spec saved" });
+    onSuccess: (response) => {
+      setLocalSpec(response.spec);
+      qc.setQueryData<SpecResponse>(["editorial-spec", specId], previous => (
+        previous ? { ...previous, spec: response.spec } : previous
+      ));
+      qc.invalidateQueries({ queryKey: ["editorial/specs/list"] });
+      toast(response.recompile_required
+        ? {
+            title: "Changes pending",
+            description: "Recompile is required. Existing compiled versions and artwork were preserved.",
+          }
+        : { title: "Spec saved" });
     },
     onError: () => toast({ title: "Save failed", variant: "destructive" }),
+  });
+
+  const recompileMutation = useMutation({
+    mutationFn: () => apiFetch<{ status: string; message?: string }>("/v1/prompt-compilations", {
+      method: "POST",
+      body: JSON.stringify({
+        production_spec_id: specId,
+        operation: "validate_and_compile",
+        dry_run: false,
+      }),
+    }),
+    onSuccess: async (response) => {
+      if (response.status !== "compiled") {
+        throw new Error(response.message ?? "Compilation did not complete.");
+      }
+      await qc.invalidateQueries({ queryKey: ["editorial-spec", specId] });
+      await qc.refetchQueries({ queryKey: ["editorial-spec", specId], type: "active" });
+      qc.invalidateQueries({ queryKey: ["editorial/specs/list"] });
+      toast({
+        title: "New version compiled",
+        description: "Review and approve the new Specification Board before generating final artwork.",
+      });
+    },
+    onError: (err: Error) => toast({
+      title: "Recompile failed",
+      description: err.message,
+      variant: "destructive",
+    }),
   });
 
   const publishMutation = useMutation({
@@ -1461,6 +1519,9 @@ export default function SpecEditor({ specId }: { specId: string }) {
     </div>
   );
 
+  const recompileRequired = spec.status.trim().toLowerCase() === "changes_pending"
+    || spec.compiledPromptStatus.trim().toLowerCase() === "recompile required";
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Top bar */}
@@ -1484,6 +1545,18 @@ export default function SpecEditor({ specId }: { specId: string }) {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {recompileRequired && !hasUnsavedChanges && (
+            <button
+              onClick={() => recompileMutation.mutate()}
+              disabled={recompileMutation.isPending}
+              className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 transition-colors disabled:opacity-40"
+            >
+              {recompileMutation.isPending
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <RefreshCw className="w-3.5 h-3.5" />}
+              Recompile
+            </button>
+          )}
           {hasUnsavedChanges && (
             <>
               <button
@@ -1519,7 +1592,8 @@ export default function SpecEditor({ specId }: { specId: string }) {
               : <Trash2 className="w-4 h-4" />}
           </button>
           <span className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--admin-border)] bg-[var(--admin-card-subtle)] px-3 py-1.5 text-xs font-semibold text-[#786D60]">
-            <Lock className="h-3.5 w-3.5" /> Creative direction locked
+            {recompileRequired ? <AlertTriangle className="h-3.5 w-3.5 text-amber-600" /> : <Clock className="h-3.5 w-3.5" />}
+            {recompileRequired ? "Changes Pending" : `Version ${spec.currentVersion}`}
           </span>
         </div>
       </div>
@@ -1553,15 +1627,17 @@ export default function SpecEditor({ specId }: { specId: string }) {
           {/* Tab content — fills available width, no maxWidth cap */}
           <div className="flex-1 overflow-y-auto p-6">
             <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card)] px-4 py-3 text-xs leading-relaxed text-[#786D60]">
-              <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#C87560]" />
+              {recompileRequired
+                ? <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                : <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#C87560]" />}
               <span>
-                Production item identity and print metadata can be corrected after creation.{" "}
-                Creative direction stays locked; payload, canon links, and prompt modules can also be updated.
+                {recompileRequired
+                  ? "This specification has saved changes that are not in the current compilation. Recompile before creating a new board or final artwork."
+                  : "Editing compilation inputs creates a new pending revision. Existing compiled versions and artwork are preserved."}
               </span>
             </div>
             {activeTab === "identity" && <IdentityTab spec={spec} onChange={onChange} />}
-            {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} readOnly />}
-            {/* Canon and Payload tabs have mutable linkage fields — not readOnly */}
+            {activeTab === "creative" && <CreativeTab spec={spec} onChange={onChange} />}
             {activeTab === "canon"   && <CanonTab   spec={spec} onChange={onChange} />}
             {activeTab === "payload" && <PayloadTab spec={spec} onChange={onChange} />}
           </div>
@@ -1576,7 +1652,7 @@ export default function SpecEditor({ specId }: { specId: string }) {
           onGeneratePreview={() => previewMutation.mutate()}
           isGeneratingPreview={previewMutation.isPending}
           preview={previewMutation.data ?? existingPreviewQuery.data?.preview ?? null}
-          previewDisabled={hasUnsavedChanges}
+          previewDisabled={hasUnsavedChanges || recompileRequired}
           onApprove={() => approveMutation.mutate()}
           isApproving={approveMutation.isPending}
           approvalDisabled={hasUnsavedChanges}
@@ -1587,6 +1663,38 @@ export default function SpecEditor({ specId }: { specId: string }) {
           isSelectingArtwork={selectArtworkMutation.isPending}
         />
       </div>
+      {editWarningOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1B2A4A]/45 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-spec-warning-title">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100">
+              <AlertTriangle className="h-5 w-5 text-amber-700" />
+            </div>
+            <h2 id="edit-spec-warning-title" className="text-base font-semibold text-[#1B2A4A]">Edit compiled specification?</h2>
+            <p className="mt-2 text-sm leading-relaxed text-gray-600">
+              Editing this specification will require recompilation. Existing compiled versions and artwork will be preserved.
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => navigate("/super/worldsmith/editorial/board")}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditWarningHandled(true);
+                  setEditWarningOpen(false);
+                }}
+                className="rounded-lg bg-[#1B2A4A] px-4 py-2 text-sm font-medium text-white hover:bg-[#0f1d36]"
+              >
+                Edit Specification
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -116,3 +116,12 @@ tracked migration step while starting the API without newer editorial fields.
 **How to apply:** Add future WorldSmith DDL to a checked-in tracked migration
 and expand the contract verifier in the same change. Do not add a new required
 WorldSmith script to the deployment workflow.
+
+Legacy fingerprint exceptions for changed columns must validate the exact
+expected and actual structure, not only a generic mismatch label.
+
+**Why:** A label that combines type and nullability drift can accidentally
+accept an incompatible SQL type when only a known nullability change is safe.
+
+**How to apply:** Match the column identity, expected type and nullability, and
+actual type and nullability together. Keep all other structural drift blocked.

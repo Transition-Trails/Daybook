@@ -115,22 +115,38 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
   });
 
   const createActMutation = useMutation({
-    mutationFn: () => apiFetch(`/v1/editorial/stories/${storyId}/acts`, {
+    mutationFn: () => {
+      const actNumber = (story?.acts.length ?? 0) + 1;
+      return apiFetch<{ act: StoryAct }>(`/v1/editorial/stories/${storyId}/acts`, {
       method: "POST",
       body: JSON.stringify({
         world_id: worldId,
-        title: newActTitle.trim(),
-        act_number: (story?.acts.length ?? 0) + 1,
+          title: newActTitle.trim() || `Movement ${actNumber}`,
+          act_number: actNumber,
       }),
-    }),
-    onSuccess: () => {
+      });
+    },
+    onSuccess: ({ act }) => {
       setNewActTitle("");
+      queryClient.setQueryData<{ story: Story }>(["editorial-story", storyId], current => {
+        if (!current) return current;
+        return {
+          story: {
+            ...current.story,
+            acts: [...current.story.acts, act].sort((a, b) => a.actNumber - b.actNumber),
+          },
+        };
+      });
       queryClient.invalidateQueries({ queryKey: ["editorial-story", storyId] });
       queryClient.invalidateQueries({ queryKey: ["ws-stories"] });
       queryClient.invalidateQueries({ queryKey: ["ws-story-connections", worldId] });
       toast({ title: "Movement added" });
     },
-    onError: () => toast({ title: "Could not add movement", variant: "destructive" }),
+    onError: (error: Error) => toast({
+      title: "Could not add movement",
+      description: error.message,
+      variant: "destructive",
+    }),
   });
 
   if (isLoading) {
@@ -266,18 +282,21 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
                             createActMutation.mutate();
                           }
                         }}
-                        placeholder={`Act ${(story.acts.length ?? 0) + 1}`}
+                        placeholder={`Movement ${(story.acts.length ?? 0) + 1} title (optional)`}
                         className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                         style={{ color: INK }}
                       />
                       <button
                         type="button"
                         onClick={() => createActMutation.mutate()}
-                        disabled={!newActTitle.trim() || createActMutation.isPending}
+                        disabled={createActMutation.isPending}
                         className="inline-flex items-center gap-1 text-xs font-semibold disabled:opacity-40"
                         style={{ color: CLAY }}
                       >
-                        <Plus className="h-3.5 w-3.5" /> Add
+                        {createActMutation.isPending
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Plus className="h-3.5 w-3.5" />}
+                        Add
                       </button>
                     </div>
                   </div>

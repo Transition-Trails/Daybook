@@ -13,6 +13,7 @@ interface StoryAct {
   storyId: string;
   actNumber: number;
   title: string;
+  narrative: string;
 }
 interface Story {
   id: string;
@@ -91,21 +92,17 @@ function StoryMapFilterControls({
 
 function Node({
   link,
-  acts,
-  moving,
-  onMove,
+  draggable,
   onUnlink,
 }: {
   link: StoryLink;
-  acts?: StoryAct[];
-  moving?: boolean;
-  onMove?: (actId: string) => void;
+  draggable?: boolean;
   onUnlink?: () => void;
 }) {
   const color = TYPE_COLORS[link.canonType ?? ""] ?? "#7D8797";
   return (
     <div
-      draggable={!!onMove}
+      draggable={draggable}
       onDragStart={event => event.dataTransfer.setData("text/canon-record-id", link.canonRecordId)}
       className="rounded-xl p-3"
       style={{ background: "white", border: `1px solid ${color}55`, boxShadow: "0 3px 10px rgba(27,42,74,.05)" }}
@@ -121,22 +118,9 @@ function Node({
         </span>
         </span>
       </Link>
-      {onMove && (
-        <select
-          aria-label={`Movement for ${link.recordName}`}
-          value={link.actId ?? ""}
-          onChange={event => onMove(event.target.value)}
-          disabled={moving}
-          className="mt-2 w-full rounded-md border bg-white px-2 py-1 text-[10.5px] outline-none disabled:opacity-50"
-          style={{ borderColor: "#E6DED3", color: "#667085" }}
-        >
-          <option value="">Whole storyline</option>
-          {acts?.map(act => <option key={act.id} value={act.id}>Movement {act.actNumber}: {act.title}</option>)}
-        </select>
-      )}
       {onUnlink && (
         <button onClick={onUnlink} className="mt-2 text-[10px] font-semibold" style={{ color: "#A85F67" }}>
-          Remove from storyline
+          Remove from this placement
         </button>
       )}
     </div>
@@ -155,6 +139,7 @@ export default function StoryConnections() {
   const [selectedActId, setSelectedActId] = useState<string>(() => requestedActId || "");
   const [canonSearch, setCanonSearch] = useState("");
   const [newMovementTitle, setNewMovementTitle] = useState("");
+  const [movementNarrativeDraft, setMovementNarrativeDraft] = useState<Record<string, string>>({});
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["ws-story-connections", selectedWorldId, selectedStoryId],
@@ -184,7 +169,11 @@ export default function StoryConnections() {
     () => selectedStoryId === "all" ? links : links.filter(link => link.storyId === selectedStoryId),
     [links, selectedStoryId],
   );
-  const linkedRecordIds = new Set(visibleLinks.map(link => link.canonRecordId));
+  const linkedRecordIds = new Set(
+    visibleLinks
+      .filter(link => (link.actId ?? "") === selectedActId)
+      .map(link => link.canonRecordId),
+  );
   const unlinkedRecords = canonRecords.filter(record => !linkedRecordIds.has(record.id));
   const filteredUnlinkedRecords = useMemo(() => {
     const search = canonSearch.trim().toLocaleLowerCase();
@@ -235,7 +224,10 @@ export default function StoryConnections() {
     onError: () => toast({ title: "Could not assign Canon record", variant: "destructive" }),
   });
   const unlinkRecord = useMutation({
-    mutationFn: (link: StoryLink) => apiFetch(`/v1/editorial/canon-records/${link.canonRecordId}/story-links/${link.storyId}`, { method: "DELETE" }),
+    mutationFn: (link: StoryLink) => apiFetch(
+      `/v1/editorial/canon-records/${link.canonRecordId}/story-links/${link.storyId}${link.actId ? `?act_id=${encodeURIComponent(link.actId)}` : ""}`,
+      { method: "DELETE" },
+    ),
     onSuccess: () => {
       refreshMap();
       toast({ title: "Connection removed" });
@@ -267,6 +259,23 @@ export default function StoryConnections() {
       variant: "destructive",
     }),
   });
+  const saveMovementNarrative = (movement: { id: string; actNumber: number | null; narrative: string }) => {
+    const narrative = movementNarrativeDraft[movement.id];
+    if (narrative === undefined || narrative === movement.narrative) return;
+    apiFetch(`/v1/editorial/acts/${movement.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ narrative }),
+    })
+      .then(() => {
+        refreshMap();
+        toast({ title: `Movement ${movement.actNumber} narrative saved` });
+      })
+      .catch((movementError: Error) => toast({
+        title: "Could not save movement narrative",
+        description: movementError.message,
+        variant: "destructive",
+      }));
+  };
 
   if (!selectedWorldId || !selectedWorld) {
     return <div className="h-full flex items-center justify-center text-sm" style={{ color: "#7D8797" }}>Choose a world to view its story map.</div>;
@@ -419,7 +428,7 @@ export default function StoryConnections() {
                 ) : (
                   <div className="space-y-3">
                     {[
-                      { id: "", actNumber: null, title: "Whole storyline" },
+                      { id: "", actNumber: null, title: "Whole storyline", narrative: "" },
                       ...selectedStory.acts,
                     ].map(movement => {
                       const movementLinks = visibleLinks.filter(link => (link.actId ?? "") === movement.id);
@@ -458,15 +467,32 @@ export default function StoryConnections() {
                               {isTargeted ? "Adding here" : "Add Canon here"}
                             </button>
                           </div>
+                          {movement.id && (
+                            <label className="mt-3 block">
+                              <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#786D60" }}>
+                                Movement narrative
+                              </span>
+                              <textarea
+                                value={movementNarrativeDraft[movement.id] ?? movement.narrative}
+                                onChange={event => setMovementNarrativeDraft(current => ({
+                                  ...current,
+                                  [movement.id]: event.target.value,
+                                }))}
+                                onBlur={() => saveMovementNarrative(movement)}
+                                placeholder="What changes in this movement? What does the reader discover, risk, or carry forward?"
+                                rows={3}
+                                className="mt-1.5 w-full resize-y rounded-lg border bg-white px-3 py-2 text-xs leading-relaxed outline-none focus:border-[#C87560]"
+                                style={{ borderColor: "#E6DED3", color: "#344054" }}
+                              />
+                            </label>
+                          )}
                           {movementLinks.length > 0 ? (
                             <div className="mt-3 grid gap-2 sm:grid-cols-2">
                               {movementLinks.map(link => (
                                 <Node
-                                  key={`${link.storyId}-${link.canonRecordId}`}
+                                  key={`${link.storyId}-${link.actId ?? "story"}-${link.canonRecordId}`}
                                   link={link}
-                                  acts={selectedStory.acts}
-                                  moving={linkRecord.isPending && linkRecord.variables?.recordId === link.canonRecordId}
-                                  onMove={actId => linkRecord.mutate({ recordId: link.canonRecordId, actId })}
+                                  draggable
                                   onUnlink={() => unlinkRecord.mutate(link)}
                                 />
                               ))}
@@ -520,7 +546,7 @@ export default function StoryConnections() {
                   <div>
                     <p className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#98A2B3" }}>Open threads</p>
                     <h2 className="mt-1 text-sm font-semibold" style={{ color: "#1B2A4A" }}>
-                      {unlinkedRecords.length} canon record{unlinkedRecords.length === 1 ? "" : "s"} not in view
+                      {unlinkedRecords.length} Canon record{unlinkedRecords.length === 1 ? "" : "s"} available here
                     </h2>
                   </div>
                   <button onClick={() => setShowUnlinked(show => !show)} className="text-[11px] font-semibold" style={{ color: "#C87560" }}>
@@ -548,7 +574,9 @@ export default function StoryConnections() {
                     <p className="mt-2 text-[10px]" style={{ color: "#98A2B3" }}>
                       {canonSearch.trim()
                         ? `${filteredUnlinkedRecords.length} of ${unlinkedRecords.length} records`
-                        : `${unlinkedRecords.length} available records`}
+                        : `${unlinkedRecords.length} available for ${selectedActId
+                          ? `Movement ${selectedStory?.acts.find(act => act.id === selectedActId)?.actNumber ?? ""}`
+                          : "the whole storyline"}`}
                     </p>
                     <div className="mt-2 max-h-[520px] space-y-2 overflow-y-auto pr-1">
                       {filteredUnlinkedRecords.map(record => {

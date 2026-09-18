@@ -1,6 +1,7 @@
 import {
-  pgTable, text, boolean, integer, real, timestamp, jsonb, index, primaryKey, unique,
+  pgTable, text, boolean, integer, real, timestamp, jsonb, index, primaryKey, unique, uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // ── WorldSmith Editorial Suite ────────────────────────────────────────────────
 // Local-first creative authoring tables. Every record has a nullable
@@ -374,6 +375,7 @@ export const wsStoryActsTable = pgTable("ws_story_acts", {
   actNumber: integer("act_number").notNull().default(1),
   title:     text("title").notNull(),
   tagline:   text("tagline").notNull().default(""),
+  narrative: text("narrative").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
     .$onUpdate(() => new Date()),
@@ -424,14 +426,16 @@ export type InsertWsJournalPrompt = typeof wsJournalPromptsTable.$inferInsert;
 // ── Canon Record → Story Links ────────────────────────────────────────────────
 
 export const wsCanonRecordStoryLinksTable = pgTable("ws_canon_record_story_links", {
+  id:            text("id").primaryKey(),
   canonRecordId: text("canon_record_id").notNull(),
   storyId:       text("story_id").notNull(),
   actId:         text("act_id"),
   createdAt:     timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  primaryKey({ columns: [t.canonRecordId, t.storyId] }),
   index("ws_crsl_record_idx").on(t.canonRecordId),
   index("ws_crsl_story_idx").on(t.storyId),
+  uniqueIndex("ws_crsl_story_level_unique").on(t.canonRecordId, t.storyId).where(sql`${t.actId} IS NULL`),
+  uniqueIndex("ws_crsl_movement_unique").on(t.canonRecordId, t.storyId, t.actId).where(sql`${t.actId} IS NOT NULL`),
 ]);
 
 export type WsCanonRecordStoryLink = typeof wsCanonRecordStoryLinksTable.$inferSelect;

@@ -71,7 +71,7 @@ import {
 } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { calculateSafeAreas } from "../lib/worldsmith/safe-area-geometry";
-import { and, eq, inArray, like, desc, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, desc, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -3872,6 +3872,7 @@ router.get("/v1/editorial/story-connections", async (req: Request, res: Response
         storyId: wsStoryActsTable.storyId,
         actNumber: wsStoryActsTable.actNumber,
         title: wsStoryActsTable.title,
+        narrative: wsStoryActsTable.narrative,
       })
         .from(wsStoryActsTable)
         .where(inArray(wsStoryActsTable.storyId, storyIds))
@@ -4029,7 +4030,7 @@ router.get("/v1/editorial/stories/:id/acts", async (req: Request, res: Response)
 // Create an act
 router.post("/v1/editorial/stories/:id/acts", async (req: Request, res: Response) => {
   try {
-    const { title, tagline, act_number, world_id } = req.body;
+    const { title, tagline, narrative, act_number, world_id } = req.body;
     if (!title || !world_id) { res.status(400).json({ error: "title and world_id required" }); return; }
     const [act] = await db.insert(wsStoryActsTable).values({
       id: randomUUID(),
@@ -4038,6 +4039,7 @@ router.post("/v1/editorial/stories/:id/acts", async (req: Request, res: Response
       actNumber: act_number ?? 1,
       title,
       tagline: tagline ?? "",
+      narrative: narrative ?? "",
     }).returning();
     res.status(201).json({ act });
   } catch (err) {
@@ -4049,10 +4051,11 @@ router.post("/v1/editorial/stories/:id/acts", async (req: Request, res: Response
 // Update an act
 router.patch("/v1/editorial/acts/:id", async (req: Request, res: Response) => {
   try {
-    const { title, tagline, act_number } = req.body;
+    const { title, tagline, narrative, act_number } = req.body;
     const update: Record<string, unknown> = {};
     if (title !== undefined) update.title = title;
     if (tagline !== undefined) update.tagline = tagline;
+    if (narrative !== undefined) update.narrative = narrative;
     if (act_number !== undefined) update.actNumber = act_number;
     const [act] = await db.update(wsStoryActsTable).set(update).where(eq(wsStoryActsTable.id, req.params.id as string)).returning();
     if (!act) { res.status(404).json({ error: "Act not found" }); return; }
@@ -4159,14 +4162,30 @@ router.post("/v1/editorial/canon-records/:id/story-links", async (req: Request, 
         if (!act || act.storyId !== story_id) return { error: "ACT_MISMATCH" as const };
       }
 
-      await tx.insert(wsCanonRecordStoryLinksTable).values({
-        canonRecordId: req.params.id as string,
-        storyId: story_id,
-        actId: act_id ?? null,
-      }).onConflictDoUpdate({
-        target: [wsCanonRecordStoryLinksTable.canonRecordId, wsCanonRecordStoryLinksTable.storyId],
-        set: { actId: act_id ?? null },
-      });
+      const recordId = req.params.id as string;
+      const exactLinkWhere = act_id
+        ? and(
+          eq(wsCanonRecordStoryLinksTable.canonRecordId, recordId),
+          eq(wsCanonRecordStoryLinksTable.storyId, story_id),
+          eq(wsCanonRecordStoryLinksTable.actId, act_id),
+        )
+        : and(
+          eq(wsCanonRecordStoryLinksTable.canonRecordId, recordId),
+          eq(wsCanonRecordStoryLinksTable.storyId, story_id),
+          isNull(wsCanonRecordStoryLinksTable.actId),
+        );
+      const [existingLink] = await tx.select({ id: wsCanonRecordStoryLinksTable.id })
+        .from(wsCanonRecordStoryLinksTable)
+        .where(exactLinkWhere)
+        .limit(1);
+      if (!existingLink) {
+        await tx.insert(wsCanonRecordStoryLinksTable).values({
+          id: randomUUID(),
+          canonRecordId: recordId,
+          storyId: story_id,
+          actId: act_id ?? null,
+        }).onConflictDoNothing();
+      }
       return { ok: true as const };
     });
 
@@ -4204,11 +4223,15 @@ router.get("/v1/editorial/canon-records/:id/story-links", async (req: Request, r
 // Remove a story link
 router.delete("/v1/editorial/canon-records/:id/story-links/:storyId", async (req: Request, res: Response) => {
   try {
+    const actId = typeof req.query.act_id === "string" ? req.query.act_id : null;
     await db.delete(wsCanonRecordStoryLinksTable)
       .where(
         and(
           eq(wsCanonRecordStoryLinksTable.canonRecordId, req.params.id as string),
           eq(wsCanonRecordStoryLinksTable.storyId, req.params.storyId as string),
+          actId
+            ? eq(wsCanonRecordStoryLinksTable.actId, actId)
+            : isNull(wsCanonRecordStoryLinksTable.actId),
         )
       );
     res.status(204).end();

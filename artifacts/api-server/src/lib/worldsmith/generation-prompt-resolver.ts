@@ -649,6 +649,23 @@ function tagged(tag: string, values: Array<string | null | undefined>): string {
   return content ? `[${tag}]\n${content}` : "";
 }
 
+function taggedSectionBounds(
+  prompt: string,
+  tag: string,
+): { start: number; end: number; content: string } | undefined {
+  const header = `[${tag}]\n`;
+  const start = prompt.indexOf(header);
+  if (start < 0) return undefined;
+  const contentStart = start + header.length;
+  const nextHeaderOffset = prompt.slice(contentStart).search(/\n\n\[[A-Z][A-Z /-]*\]\n/);
+  const end = nextHeaderOffset < 0 ? prompt.length : contentStart + nextHeaderOffset;
+  return {
+    start,
+    end,
+    content: prompt.slice(contentStart, end),
+  };
+}
+
 export interface ResolvedGenerationPrompt {
   prompt: string;
   providerPrompt: string;
@@ -663,6 +680,13 @@ export function validateProviderPrompt(
   negativePrompt?: string,
 ): ValidationError[] {
   const errors: ValidationError[] = [];
+  const readableGovernanceSection = taggedSectionBounds(providerPrompt, "GOVERNED READABLE TEXT");
+  const hasReadableGovernanceCore = Boolean(
+    readableGovernanceSection
+    && /Readable text is closed-world content/i.test(readableGovernanceSection.content)
+    && /blank ruled fields/i.test(readableGovernanceSection.content)
+    && /non-semantic handwriting traces/i.test(readableGovernanceSection.content),
+  );
   if (
     policy.renderingLockRequired
     && (
@@ -696,12 +720,7 @@ export function validateProviderPrompt(
   }
   if (
     policy.readableTextClosedWorld
-    && (
-      !providerPrompt.includes("[GOVERNED READABLE TEXT]")
-      || !/Readable text is closed-world content/i.test(providerPrompt)
-      || !/blank ruled fields/i.test(providerPrompt)
-      || !/non-semantic handwriting traces/i.test(providerPrompt)
-    )
+    && !hasReadableGovernanceCore
   ) {
     errors.push({
       code: "MISSING_READABLE_TEXT_GOVERNANCE",
@@ -714,7 +733,9 @@ export function validateProviderPrompt(
   for (const authorization of policy.readableTextAuthorizations ?? []) {
     if (
       policy.readableTextClosedWorld
-      && !providerPrompt.includes(`"${authorization.text}" — authorized by ${authorization.source}`)
+      && !readableGovernanceSection?.content.includes(
+        `"${authorization.text}" — authorized by ${authorization.source}`,
+      )
     ) {
       errors.push({
         code: "MISSING_READABLE_TEXT_PROVENANCE",
@@ -726,14 +747,25 @@ export function validateProviderPrompt(
     }
   }
   if (policy.readableTextClosedWorld) {
-    const canonicalGovernanceSection = tagged(
+    const hasReadableGovernanceProvenance = (policy.readableTextAuthorizations ?? [])
+      .every((authorization) => readableGovernanceSection?.content.includes(
+        `"${authorization.text}" — authorized by ${authorization.source}`,
+      ));
+    const canonicalGovernanceContent = taggedSectionBounds(
+      tagged("GOVERNED READABLE TEXT", [readableTextLock(policy)]),
       "GOVERNED READABLE TEXT",
-      [readableTextLock(policy)],
-    );
-    const canonicalIndex = providerPrompt.indexOf(canonicalGovernanceSection);
-    const withoutCanonicalGovernance = canonicalIndex >= 0
-      ? providerPrompt.slice(0, canonicalIndex)
-        + providerPrompt.slice(canonicalIndex + canonicalGovernanceSection.length)
+    )?.content ?? "";
+    const verifiedGovernanceRemainder = (
+      hasReadableGovernanceCore
+      && hasReadableGovernanceProvenance
+      && readableGovernanceSection
+    )
+      ? readableGovernanceSection.content.replace(canonicalGovernanceContent, "").trim()
+      : readableGovernanceSection?.content;
+    const withoutCanonicalGovernance = readableGovernanceSection
+      ? providerPrompt.slice(0, readableGovernanceSection.start)
+        + (verifiedGovernanceRemainder ?? "")
+        + providerPrompt.slice(readableGovernanceSection.end)
       : providerPrompt;
     const canonicalNegativeSection = negativePrompt
       ? `[NEGATIVE CONSTRAINTS / NEGATIVE PROMPT]\n${negativePrompt}`

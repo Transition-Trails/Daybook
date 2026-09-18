@@ -717,6 +717,21 @@ describe("WorldSmith generation prompt governance", () => {
     expect(result.generationValidationErrors).toEqual([]);
   });
 
+  it("does not scan a verified compacted governance section as requested readable copy", () => {
+    const compiled = compilePrompt(curatorChain(), payload);
+    const compactedGovernance = compiled.providerPrompt.replace(
+      "\n\n[ASSET AND SCENE]",
+      "\nAdditional inherited detail omitted for provider length limit.\n\n[ASSET AND SCENE]",
+    );
+
+    expect(compactedGovernance).toContain("botanical identifications");
+    expect(validateProviderPrompt(
+      compiled.generationPolicy,
+      compactedGovernance,
+      compiled.negativePrompt,
+    )).toEqual([]);
+  });
+
   it("applies an operator revision while preserving governance and negative constraints", () => {
     const compiled = compilePrompt(curatorChain(), payload);
     const revised = applyProviderPromptRevision(

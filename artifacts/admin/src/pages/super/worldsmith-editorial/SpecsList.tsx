@@ -27,6 +27,7 @@ interface ProductionSpec {
   collectionId?: string | null;
   worldId?: string | null;
   previewUrl?: string | null;
+  finalArtworkGenerated?: boolean;
 }
 
 type SortKey = "productionItem" | "componentType" | "status" | "readinessScore" | "updatedAt";
@@ -417,6 +418,9 @@ export default function SpecsList() {
                 <th className="px-4 py-3 text-left">
                   <SortHeader label="Readiness" col="readinessScore" sort={sort} onSort={toggleSort} />
                 </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 whitespace-nowrap">
+                  Final Artwork
+                </th>
                 <th className="px-6 py-3 text-left">
                   <SortHeader label="Last Updated" col="updatedAt" sort={sort} onSort={toggleSort} />
                 </th>
@@ -500,6 +504,19 @@ export default function SpecsList() {
                         <ReadinessCircle score={spec.readinessScore ?? 0} />
                         <span className="text-xs text-gray-500">{spec.readinessScore ?? 0}%</span>
                       </div>
+                    </td>
+
+                    {/* Final artwork generation status */}
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${
+                          spec.finalArtworkGenerated
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {spec.finalArtworkGenerated ? "Generated" : "Not generated"}
+                      </span>
                     </td>
 
                     {/* Last updated */}

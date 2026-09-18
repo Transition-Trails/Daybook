@@ -2820,26 +2820,40 @@ router.get("/v1/editorial/specs", async (req: Request, res: Response) => {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(wsProductionSpecsTable.updatedAt));
 
-    const previewRows = rows.length > 0
-      ? await db
-          .select({
-            specPageId: worldsmithSpecPreviewsTable.specPageId,
-            previewObjectPath: worldsmithSpecPreviewsTable.previewObjectPath,
-          })
-          .from(worldsmithSpecPreviewsTable)
-          .where(and(
-            inArray(worldsmithSpecPreviewsTable.specPageId, rows.map(row => row.id)),
-            eq(worldsmithSpecPreviewsTable.status, "success"),
-            eq(worldsmithSpecPreviewsTable.dryRun, false),
-          ))
-          .orderBy(desc(worldsmithSpecPreviewsTable.createdAt))
-      : [];
+    const [previewRows, finalArtworkRows] = rows.length > 0
+      ? await Promise.all([
+          db
+            .select({
+              specPageId: worldsmithSpecPreviewsTable.specPageId,
+              previewObjectPath: worldsmithSpecPreviewsTable.previewObjectPath,
+            })
+            .from(worldsmithSpecPreviewsTable)
+            .where(and(
+              inArray(worldsmithSpecPreviewsTable.specPageId, rows.map(row => row.id)),
+              eq(worldsmithSpecPreviewsTable.status, "success"),
+              eq(worldsmithSpecPreviewsTable.dryRun, false),
+            ))
+            .orderBy(desc(worldsmithSpecPreviewsTable.createdAt)),
+          db
+            .select({
+              productionSpecId: worldsmithProductionPackagesTable.productionSpecId,
+            })
+            .from(worldsmithProductionPackagesTable)
+            .where(and(
+              inArray(worldsmithProductionPackagesTable.productionSpecId, rows.map(row => row.id)),
+              eq(worldsmithProductionPackagesTable.status, "success"),
+            )),
+        ])
+      : [[], []];
     const latestPreviewBySpec = new Map<string, string>();
     for (const preview of previewRows) {
       if (preview.previewObjectPath && !latestPreviewBySpec.has(preview.specPageId)) {
         latestPreviewBySpec.set(preview.specPageId, preview.previewObjectPath);
       }
     }
+    const finalArtworkSpecIds = new Set(
+      finalArtworkRows.map(row => row.productionSpecId),
+    );
 
     res.json({
       specs: rows.map(row => {
@@ -2847,6 +2861,7 @@ router.get("/v1/editorial/specs", async (req: Request, res: Response) => {
         return {
           ...row,
           previewUrl: previewObjectPath ? `/api/storage${previewObjectPath}` : null,
+          finalArtworkGenerated: finalArtworkSpecIds.has(row.id),
         };
       }),
     });

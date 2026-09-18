@@ -93,8 +93,8 @@ describe("WorldSmith Editorial page filter drawer", () => {
       if (path.startsWith("/v1/editorial/specs")) {
         return Promise.resolve({
           specs: [
-            { id: "spec-draft", productionItem: "Village Letter", componentType: "Letter", status: "draft", readinessScore: 30, updatedAt: "2026-08-20T12:00:00Z" },
-            { id: "spec-ready", productionItem: "Archive Card", componentType: "Card", status: "compiled", readinessScore: 88, updatedAt: "2026-08-20T12:00:00Z", previewUrl: "/api/storage/objects/worldsmith/spec-previews/archive-card.png" },
+            { id: "spec-draft", productionItem: "Village Letter", componentType: "Letter", status: "draft", readinessScore: 30, updatedAt: "2026-08-20T12:00:00Z", finalArtworkGenerated: false },
+            { id: "spec-ready", productionItem: "Archive Card", componentType: "Card", status: "compiled", readinessScore: 88, updatedAt: "2026-08-20T12:00:00Z", previewUrl: "/api/storage/objects/worldsmith/spec-previews/archive-card.png", finalArtworkGenerated: true },
           ],
         });
       }
@@ -169,6 +169,9 @@ describe("WorldSmith Editorial page filter drawer", () => {
     );
     expect(screen.getByRole("button", { name: "Open preview for Archive Card" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open spec Archive Card" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Final Artwork" })).toBeInTheDocument();
+    expect(screen.getByText("Generated")).toBeInTheDocument();
+    expect(screen.getByText("Not generated")).toBeInTheDocument();
   });
 
   it("moves Story Map’s storyline focus filter to the drawer and refetches the selected storyline", async () => {

@@ -765,6 +765,30 @@ describe("WorldSmith generation prompt governance", () => {
     )).toEqual([]);
   });
 
+  it("does not scan a verified compacted negative-prompt prefix as requested readable copy", () => {
+    const compiled = compilePrompt(curatorChain(), payload);
+    const phraseEnd = compiled.negativePrompt!.indexOf("botanical identifications")
+      + "botanical identifications".length;
+    const compactedNegative = compiled.negativePrompt!
+      .slice(0, phraseEnd + 20)
+      .replace(/\s+/g, " ");
+    const providerPrompt = compiled.providerPrompt.replace(
+      /\[NEGATIVE CONSTRAINTS \/ NEGATIVE PROMPT\]\n[\s\S]*$/,
+      [
+        "[NEGATIVE CONSTRAINTS / NEGATIVE PROMPT]",
+        compactedNegative,
+        "Additional inherited detail omitted for provider length limit.",
+      ].join("\n"),
+    );
+
+    expect(providerPrompt).toContain("botanical identifications");
+    expect(validateProviderPrompt(
+      compiled.generationPolicy,
+      providerPrompt,
+      compiled.negativePrompt,
+    )).toEqual([]);
+  });
+
   it("applies an operator revision while preserving governance and negative constraints", () => {
     const compiled = compilePrompt(curatorChain(), payload);
     const revised = applyProviderPromptRevision(

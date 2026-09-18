@@ -54,6 +54,7 @@ const ENFORCEABLE_SINGLE_TOKEN_NEGATIVES = new Set([
 ]);
 export const MAX_PROVIDER_PROMPT_LENGTH = 32_000;
 const PROVIDER_PROMPT_TARGET_LENGTH = 30_000;
+const PROVIDER_OMISSION_MARKER = "Additional inherited detail omitted for provider length limit.";
 
 const PHOTO_PRIORITY_NEGATIVES = [
   "photograph",
@@ -120,7 +121,7 @@ function compactProviderPrompt(prompt: string): string {
   const sectionName = (section: string) => section.match(/^\[([A-Z][A-Z /-]*)\]\n/)?.[1] ?? "";
   const compactSection = (section: string, budget: number) => {
     if (section.length <= budget) return section;
-    const omittedMarker = "\nAdditional inherited detail omitted for provider length limit.";
+    const omittedMarker = `\n${PROVIDER_OMISSION_MARKER}`;
     return `${section.slice(0, Math.max(0, budget - omittedMarker.length))}${omittedMarker}`;
   };
   const boundedSections = sections.map((section) => {
@@ -669,13 +670,32 @@ function taggedSectionBounds(
 function removeCanonicalSectionContent(
   sectionContent: string,
   canonicalContent: string,
+  allowCompactedPrefix = false,
 ): string {
+  if (allowCompactedPrefix) {
+    const normalizedCanonical = clean(canonicalContent);
+    const markerIndex = sectionContent.indexOf(PROVIDER_OMISSION_MARKER);
+    if (markerIndex >= 0) {
+      const compactedPrefix = clean(sectionContent.slice(0, markerIndex));
+      if (!normalizedCanonical.startsWith(compactedPrefix)) return sectionContent.trim();
+      return sectionContent
+        .slice(markerIndex + PROVIDER_OMISSION_MARKER.length)
+        .trim();
+    }
+
+    const normalizedSection = clean(sectionContent);
+    if (!normalizedSection.startsWith(normalizedCanonical)) return sectionContent.trim();
+    return normalizedSection.slice(normalizedCanonical.length).trim();
+  }
+
   const canonicalPattern = canonicalContent
     .trim()
     .split(/\s+/)
     .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("\\s+");
-  return sectionContent.replace(new RegExp(canonicalPattern, "u"), "").trim();
+  const withoutCanonical = sectionContent.replace(new RegExp(canonicalPattern, "u"), "").trim();
+  if (withoutCanonical !== sectionContent.trim()) return withoutCanonical;
+  return sectionContent.trim();
 }
 
 export interface ResolvedGenerationPrompt {
@@ -782,9 +802,10 @@ export function validateProviderPrompt(
         + (verifiedGovernanceRemainder ?? "")
         + providerPrompt.slice(readableGovernanceSection.end)
       : providerPrompt;
-    const canonicalNegativeSection = negativePrompt
-      ? `[NEGATIVE CONSTRAINTS / NEGATIVE PROMPT]\n${negativePrompt}`
-      : "";
+    const negativePromptSection = taggedSectionBounds(
+      withoutCanonicalGovernance,
+      "NEGATIVE CONSTRAINTS / NEGATIVE PROMPT",
+    );
     const unsafeCanonicalNegative = negativePrompt
       ? readableValidationClauses(negativePrompt)
         .find((clause) => {
@@ -805,12 +826,17 @@ export function validateProviderPrompt(
         recommended_action: "Remove the inverted readable-text instruction or authorize its exact wording from an approved source.",
       });
     }
-    const canonicalNegativeIndex = canonicalNegativeSection
-      ? withoutCanonicalGovernance.indexOf(canonicalNegativeSection)
-      : -1;
-    const providerBody = canonicalNegativeIndex >= 0
-      ? withoutCanonicalGovernance.slice(0, canonicalNegativeIndex)
-        + withoutCanonicalGovernance.slice(canonicalNegativeIndex + canonicalNegativeSection.length)
+    const verifiedNegativeRemainder = negativePrompt && negativePromptSection
+      ? removeCanonicalSectionContent(
+        negativePromptSection.content,
+        negativePrompt,
+        true,
+      )
+      : negativePromptSection?.content;
+    const providerBody = negativePromptSection
+      ? withoutCanonicalGovernance.slice(0, negativePromptSection.start)
+        + (verifiedNegativeRemainder ?? "")
+        + withoutCanonicalGovernance.slice(negativePromptSection.end)
       : withoutCanonicalGovernance;
     const scannableProviderBody = providerBody
       .split(/(?=\n?\[[A-Z][A-Z /-]*\]\n)/)

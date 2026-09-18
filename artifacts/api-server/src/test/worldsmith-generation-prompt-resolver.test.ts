@@ -749,6 +749,22 @@ describe("WorldSmith generation prompt governance", () => {
     )).toEqual([]);
   });
 
+  it("does not scan a verified whitespace-flattened governance section as requested readable copy", () => {
+    const compiled = compilePrompt(curatorChain(), payload);
+    const flattenedGovernance = compiled.providerPrompt.replace(
+      /\[GOVERNED READABLE TEXT\]\n([\s\S]*?)(?=\n\n\[ASSET AND SCENE\])/,
+      (_section, content: string) =>
+        `[GOVERNED READABLE TEXT]\n${content.replace(/\s+/g, " ")}`,
+    );
+
+    expect(flattenedGovernance).toContain("botanical identifications");
+    expect(validateProviderPrompt(
+      compiled.generationPolicy,
+      flattenedGovernance,
+      compiled.negativePrompt,
+    )).toEqual([]);
+  });
+
   it("applies an operator revision while preserving governance and negative constraints", () => {
     const compiled = compilePrompt(curatorChain(), payload);
     const revised = applyProviderPromptRevision(

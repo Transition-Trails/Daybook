@@ -666,6 +666,18 @@ function taggedSectionBounds(
   };
 }
 
+function removeCanonicalSectionContent(
+  sectionContent: string,
+  canonicalContent: string,
+): string {
+  const canonicalPattern = canonicalContent
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("\\s+");
+  return sectionContent.replace(new RegExp(canonicalPattern, "u"), "").trim();
+}
+
 export interface ResolvedGenerationPrompt {
   prompt: string;
   providerPrompt: string;
@@ -760,7 +772,10 @@ export function validateProviderPrompt(
       && hasReadableGovernanceProvenance
       && readableGovernanceSection
     )
-      ? readableGovernanceSection.content.replace(canonicalGovernanceContent, "").trim()
+      ? removeCanonicalSectionContent(
+        readableGovernanceSection.content,
+        canonicalGovernanceContent,
+      )
       : readableGovernanceSection?.content;
     const withoutCanonicalGovernance = readableGovernanceSection
       ? providerPrompt.slice(0, readableGovernanceSection.start)

@@ -3,6 +3,7 @@ import { Link, useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, BookOpen, CircleDot, Loader2, MapPinned, Search, Sparkles } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { editorialRichTextToPlainText } from "@/lib/editorial-rich-text";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorialPageFilters } from "./EditorialShell";
@@ -88,10 +89,27 @@ function StoryMapFilterControls({
   );
 }
 
-function Node({ link, onUnlink }: { link: StoryLink; onUnlink?: () => void }) {
+function Node({
+  link,
+  acts,
+  moving,
+  onMove,
+  onUnlink,
+}: {
+  link: StoryLink;
+  acts?: StoryAct[];
+  moving?: boolean;
+  onMove?: (actId: string) => void;
+  onUnlink?: () => void;
+}) {
   const color = TYPE_COLORS[link.canonType ?? ""] ?? "#7D8797";
   return (
-    <div className="rounded-xl p-3" style={{ background: "white", border: `1px solid ${color}55`, boxShadow: "0 3px 10px rgba(27,42,74,.05)" }}>
+    <div
+      draggable={!!onMove}
+      onDragStart={event => event.dataTransfer.setData("text/canon-record-id", link.canonRecordId)}
+      className="rounded-xl p-3"
+      style={{ background: "white", border: `1px solid ${color}55`, boxShadow: "0 3px 10px rgba(27,42,74,.05)" }}
+    >
       <Link href={`/super/worldsmith/editorial/canon/${link.canonRecordId}`}>
         <span className="block cursor-pointer transition-transform hover:-translate-y-0.5">
         <span className="flex items-center gap-2">
@@ -101,13 +119,21 @@ function Node({ link, onUnlink }: { link: StoryLink; onUnlink?: () => void }) {
             <span className="block mt-0.5 text-[10px] uppercase tracking-[0.11em]" style={{ color }}>{link.canonType ?? "Canon"}</span>
           </span>
         </span>
-        {link.actTitle && (
-          <span className="mt-2 block text-[10.5px]" style={{ color: "#7D8797" }}>
-            Movement {link.actNumber}: {link.actTitle}
-          </span>
-        )}
         </span>
       </Link>
+      {onMove && (
+        <select
+          aria-label={`Movement for ${link.recordName}`}
+          value={link.actId ?? ""}
+          onChange={event => onMove(event.target.value)}
+          disabled={moving}
+          className="mt-2 w-full rounded-md border bg-white px-2 py-1 text-[10.5px] outline-none disabled:opacity-50"
+          style={{ borderColor: "#E6DED3", color: "#667085" }}
+        >
+          <option value="">Whole storyline</option>
+          {acts?.map(act => <option key={act.id} value={act.id}>Movement {act.actNumber}: {act.title}</option>)}
+        </select>
+      )}
       {onUnlink && (
         <button onClick={onUnlink} className="mt-2 text-[10px] font-semibold" style={{ color: "#A85F67" }}>
           Remove from storyline
@@ -128,6 +154,7 @@ export default function StoryConnections() {
   const [showUnlinked, setShowUnlinked] = useState(true);
   const [selectedActId, setSelectedActId] = useState<string>(() => requestedActId || "");
   const [canonSearch, setCanonSearch] = useState("");
+  const [newMovementTitle, setNewMovementTitle] = useState("");
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["ws-story-connections", selectedWorldId, selectedStoryId],
@@ -197,15 +224,15 @@ export default function StoryConnections() {
   useEditorialPageFilters(storyPageFilters);
 
   const linkRecord = useMutation({
-    mutationFn: (recordId: string) => apiFetch(`/v1/editorial/canon-records/${recordId}/story-links`, {
+    mutationFn: ({ recordId, actId }: { recordId: string; actId: string }) => apiFetch(`/v1/editorial/canon-records/${recordId}/story-links`, {
       method: "POST",
-      body: JSON.stringify({ story_id: selectedStory!.id, act_id: selectedActId || null }),
+      body: JSON.stringify({ story_id: selectedStory!.id, act_id: actId || null }),
     }),
     onSuccess: () => {
       refreshMap();
-      toast({ title: "Canon record connected to storyline" });
+      toast({ title: "Canon record assigned" });
     },
-    onError: () => toast({ title: "Could not connect canon record", variant: "destructive" }),
+    onError: () => toast({ title: "Could not assign Canon record", variant: "destructive" }),
   });
   const unlinkRecord = useMutation({
     mutationFn: (link: StoryLink) => apiFetch(`/v1/editorial/canon-records/${link.canonRecordId}/story-links/${link.storyId}`, { method: "DELETE" }),
@@ -214,6 +241,31 @@ export default function StoryConnections() {
       toast({ title: "Connection removed" });
     },
     onError: () => toast({ title: "Could not remove connection", variant: "destructive" }),
+  });
+  const createMovement = useMutation({
+    mutationFn: () => {
+      const actNumber = (selectedStory?.acts.length ?? 0) + 1;
+      return apiFetch<{ act: StoryAct }>(`/v1/editorial/stories/${selectedStory!.id}/acts`, {
+        method: "POST",
+        body: JSON.stringify({
+          world_id: selectedWorldId,
+          title: newMovementTitle.trim() || `Movement ${actNumber}`,
+          act_number: actNumber,
+        }),
+      });
+    },
+    onSuccess: ({ act }) => {
+      setNewMovementTitle("");
+      setSelectedActId(act.id);
+      refreshMap();
+      queryClient.invalidateQueries({ queryKey: ["ws-stories", selectedWorldId] });
+      toast({ title: "Movement added. Add Canon records to it now." });
+    },
+    onError: (movementError: Error) => toast({
+      title: "Could not add movement",
+      description: movementError.message,
+      variant: "destructive",
+    }),
   });
 
   if (!selectedWorldId || !selectedWorld) {
@@ -326,7 +378,7 @@ export default function StoryConnections() {
                   <>
                     <h2 className="mt-3 text-xl leading-tight" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>{selectedStory.title}</h2>
                     <p className="mt-3 text-xs leading-relaxed" style={{ color: "rgba(255,255,255,.68)" }}>
-                      {selectedStory.summary || "This storyline is waiting for its narrative promise."}
+                      {editorialRichTextToPlainText(selectedStory.summary) || "This storyline is waiting for its narrative promise."}
                     </p>
                   </>
                 ) : (
@@ -348,35 +400,112 @@ export default function StoryConnections() {
               <section className="rounded-2xl p-5" style={{ background: "var(--admin-card)", border: "1px solid var(--admin-border)" }}>
                 <div className="flex items-start justify-between gap-3 mb-5">
                   <div>
-                    <p className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#C87560" }}>Connected canon</p>
+                    <p className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#C87560" }}>Story movements</p>
                     <h2 className="mt-1 text-lg font-semibold" style={{ color: "#1B2A4A" }}>
-                      {visibleLinks.length ? `${totalLinks} story connection${totalLinks === 1 ? "" : "s"}` : "No saved connections yet"}
+                      {selectedStory ? `${visibleLinks.length} Canon connection${visibleLinks.length === 1 ? "" : "s"}` : "Choose a storyline to arrange its Canon"}
                     </h2>
                   </div>
                   <span className="text-[11px] rounded-full px-2 py-1" style={{ background: "#EFE9E1", color: "#786D60" }}>
                     {selectedStory ? selectedStory.title : "All stories"}
                   </span>
                 </div>
-                {visibleLinks.length === 0 ? (
+                {!selectedStory ? (
                   <div className="rounded-xl p-6 text-center" style={{ background: "white", border: "1px dashed #C9BFB2" }}>
-                    <p className="text-sm font-semibold" style={{ color: "#1B2A4A" }}>This thread needs its cast and landmarks.</p>
+                    <p className="text-sm font-semibold" style={{ color: "#1B2A4A" }}>Select a storyline above.</p>
                     <p className="mt-1.5 text-xs" style={{ color: "#667085" }}>
-                      Select this storyline, then connect an open canon thread from the column beside it.
-                    </p>
-                    <p className="mt-3 text-xs font-semibold" style={{ color: "#C87560" }}>
-                      Select a storyline above, then use Add to storyline beside an open canon record.
+                      Its movements and connected Canon records will appear here.
                     </p>
                   </div>
                 ) : (
-                  <div className="relative grid sm:grid-cols-2 gap-3">
-                    <div className="hidden sm:block absolute left-1/2 top-6 bottom-6 w-px" style={{ background: "var(--admin-border)" }} />
-                    {visibleLinks.map(link => (
-                      <Node
-                        key={`${link.storyId}-${link.canonRecordId}`}
-                        link={link}
-                        onUnlink={selectedStory ? () => unlinkRecord.mutate(link) : undefined}
-                      />
-                    ))}
+                  <div className="space-y-3">
+                    {[
+                      { id: "", actNumber: null, title: "Whole storyline" },
+                      ...selectedStory.acts,
+                    ].map(movement => {
+                      const movementLinks = visibleLinks.filter(link => (link.actId ?? "") === movement.id);
+                      const isTargeted = selectedActId === movement.id;
+                      return (
+                        <div
+                          key={movement.id || "whole-story"}
+                          onDragOver={event => event.preventDefault()}
+                          onDrop={event => {
+                            event.preventDefault();
+                            const recordId = event.dataTransfer.getData("text/canon-record-id");
+                            if (recordId) linkRecord.mutate({ recordId, actId: movement.id });
+                          }}
+                          className="rounded-xl border p-3 transition-colors"
+                          style={{
+                            background: isTargeted ? "#FBF4F0" : "white",
+                            borderColor: isTargeted ? "#C87560" : "#E6DED3",
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: movement.id ? "#C87560" : "#98A2B3" }}>
+                                {movement.actNumber ? `Movement ${movement.actNumber}` : "Unassigned"}
+                              </p>
+                              <p className="mt-0.5 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{movement.title}</p>
+                              <p className="mt-0.5 text-[10.5px]" style={{ color: "#98A2B3" }}>
+                                {movementLinks.length} Canon record{movementLinks.length === 1 ? "" : "s"}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedActId(movement.id)}
+                              className="shrink-0 rounded-md px-2 py-1 text-[10.5px] font-semibold"
+                              style={{ background: isTargeted ? "#1B2A4A" : "#EFE9E1", color: isTargeted ? "white" : "#786D60" }}
+                            >
+                              {isTargeted ? "Adding here" : "Add Canon here"}
+                            </button>
+                          </div>
+                          {movementLinks.length > 0 ? (
+                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                              {movementLinks.map(link => (
+                                <Node
+                                  key={`${link.storyId}-${link.canonRecordId}`}
+                                  link={link}
+                                  acts={selectedStory.acts}
+                                  moving={linkRecord.isPending && linkRecord.variables?.recordId === link.canonRecordId}
+                                  onMove={actId => linkRecord.mutate({ recordId: link.canonRecordId, actId })}
+                                  onUnlink={() => unlinkRecord.mutate(link)}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-3 rounded-lg border border-dashed px-3 py-3 text-center text-[11px]" style={{ borderColor: "#DDD4C4", color: "#98A2B3" }}>
+                              Drag a Canon record here, or choose Add Canon here.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <div className="rounded-xl border border-dashed p-3" style={{ background: "white", borderColor: "#C9BFB2" }}>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: "#98A2B3" }}>Add a movement</p>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          value={newMovementTitle}
+                          onChange={event => setNewMovementTitle(event.target.value)}
+                          onKeyDown={event => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              createMovement.mutate();
+                            }
+                          }}
+                          placeholder={`Movement ${selectedStory.acts.length + 1} title (optional)`}
+                          className="min-w-0 flex-1 rounded-md border bg-white px-2.5 py-2 text-xs outline-none focus:border-[#C87560]"
+                          style={{ borderColor: "#E6DED3", color: "#344054" }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => createMovement.mutate()}
+                          disabled={createMovement.isPending}
+                          className="rounded-md px-3 py-2 text-xs font-semibold text-white disabled:opacity-45"
+                          style={{ background: "#1B2A4A" }}
+                        >
+                          {createMovement.isPending ? "Adding…" : "Add movement"}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
                 {data?.linksTruncated && (
@@ -423,9 +552,15 @@ export default function StoryConnections() {
                     </p>
                     <div className="mt-2 max-h-[520px] space-y-2 overflow-y-auto pr-1">
                       {filteredUnlinkedRecords.map(record => {
-                        const isAdding = linkRecord.isPending && linkRecord.variables === record.id;
+                        const isAdding = linkRecord.isPending && linkRecord.variables?.recordId === record.id;
                         return (
-                          <div key={record.id} className="rounded-lg px-2.5 py-2" style={{ border: "1px solid #F0ECE6" }}>
+                          <div
+                            key={record.id}
+                            draggable={!!selectedStory}
+                            onDragStart={event => event.dataTransfer.setData("text/canon-record-id", record.id)}
+                            className="rounded-lg px-2.5 py-2"
+                            style={{ border: "1px solid #F0ECE6" }}
+                          >
                             <div>
                               <span className="block text-xs font-semibold truncate" style={{ color: "#344054" }}>{record.name}</span>
                               <span className="block mt-0.5 text-[10px] capitalize" style={{ color: TYPE_COLORS[record.canonType ?? ""] ?? "#98A2B3" }}>
@@ -435,12 +570,14 @@ export default function StoryConnections() {
                             {selectedStory && (
                               <button
                                 type="button"
-                                onClick={() => linkRecord.mutate(record.id)}
+                                onClick={() => linkRecord.mutate({ recordId: record.id, actId: selectedActId })}
                                 disabled={linkRecord.isPending}
                                 className="mt-2 w-full rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
                                 style={{ background: "#1B2A4A" }}
                               >
-                                {isAdding ? "Adding…" : "Add to storyline"}
+                                {isAdding ? "Adding…" : selectedActId
+                                  ? `Add to movement ${selectedStory.acts.find(act => act.id === selectedActId)?.actNumber ?? ""}`
+                                  : "Add to whole storyline"}
                               </button>
                             )}
                             <Link href={`/super/worldsmith/editorial/canon/${record.id}`}>

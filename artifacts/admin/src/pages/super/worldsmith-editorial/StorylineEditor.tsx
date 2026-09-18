@@ -256,7 +256,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
                     <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "#98A2B3" }}>Movements</p>
                     <p className="mt-1 text-sm" style={{ color: "#667085" }}>Map the journey into distinct acts before connecting it to canon.</p>
                   </div>
-                  <Link href="/super/worldsmith/editorial/connections">
+                  <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(story.id)}`}>
                     <span className="inline-flex cursor-pointer items-center gap-1 text-xs font-semibold" style={{ color: CLAY }}>
                       View story map <ChevronRight className="h-3.5 w-3.5" />
                     </span>
@@ -265,9 +265,18 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   {story.acts.map(act => (
                     <div key={act.id} className="rounded-xl p-4" style={{ background: "var(--admin-card-subtle)", border: "1px solid var(--admin-border)" }}>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: CLAY }}>Movement {act.actNumber}</p>
-                      <p className="mt-1 text-sm font-semibold" style={{ color: INK }}>{act.title}</p>
-                      {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: CLAY }}>Movement {act.actNumber}</p>
+                          <p className="mt-1 text-sm font-semibold" style={{ color: INK }}>{act.title}</p>
+                          {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}
+                        </div>
+                        <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(story.id)}&act_id=${encodeURIComponent(act.id)}`}>
+                          <span className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold" style={{ color: INK }}>
+                            Link canon <ChevronRight className="h-3 w-3" />
+                          </span>
+                        </Link>
+                      </div>
                     </div>
                   ))}
                   <div className="rounded-xl p-4" style={{ border: "1px dashed #C9BFB2" }}>

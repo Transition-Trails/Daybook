@@ -365,7 +365,7 @@ export default function StoriesStudio() {
                     />
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-3 pt-5">
-                    <Link href="/super/worldsmith/editorial/connections">
+                    <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(selectedStory.id)}`}>
                       <span className="inline-flex items-center gap-1.5 text-xs font-semibold cursor-pointer" style={{ color: "#C87560" }}>
                         See its story map <ArrowRight className="w-3.5 h-3.5" />
                       </span>
@@ -393,7 +393,7 @@ export default function StoriesStudio() {
                     <p className="text-[10px] uppercase tracking-[0.14em] font-bold" style={{ color: "#98A2B3" }}>Movements</p>
                     <p className="mt-1 text-xs" style={{ color: "#667085" }}>Use acts to make the reader’s journey tangible.</p>
                   </div>
-                  <Link href="/super/worldsmith/editorial/connections">
+                  <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(selectedStory.id)}`}>
                     <span className="inline-flex items-center gap-1 text-xs font-semibold cursor-pointer" style={{ color: "#1B2A4A" }}>
                       Link canon <ChevronRight className="w-3.5 h-3.5" />
                     </span>
@@ -402,9 +402,18 @@ export default function StoriesStudio() {
                 <div className="mt-3 grid md:grid-cols-2 gap-3">
                   {selectedStory.acts.map(act => (
                     <div key={act.id} className="rounded-xl p-4" style={{ background: "var(--admin-card-subtle)", border: "1px solid var(--admin-border)" }}>
-                      <p className="text-[10px] uppercase tracking-[0.13em] font-bold" style={{ color: "#C87560" }}>Movement {act.actNumber}</p>
-                      <p className="mt-1 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{act.title}</p>
-                      {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[10px] uppercase tracking-[0.13em] font-bold" style={{ color: "#C87560" }}>Movement {act.actNumber}</p>
+                          <p className="mt-1 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{act.title}</p>
+                          {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}
+                        </div>
+                        <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(selectedStory.id)}&act_id=${encodeURIComponent(act.id)}`}>
+                          <span className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold" style={{ color: "#1B2A4A" }}>
+                            Link canon <ChevronRight className="h-3 w-3" />
+                          </span>
+                        </Link>
+                      </div>
                     </div>
                   ))}
                   <div className="rounded-xl p-4" style={{ border: "1px dashed #C9BFB2" }}>

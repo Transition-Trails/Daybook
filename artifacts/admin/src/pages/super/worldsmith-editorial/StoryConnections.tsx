@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, BookOpen, CircleDot, Loader2, MapPinned, Search, Sparkles } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -121,9 +121,12 @@ export default function StoryConnections() {
   const { selectedWorld, selectedWorldId } = useEditorial();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [selectedStoryId, setSelectedStoryId] = useState<string | "all">("all");
+  const search = useSearch();
+  const requestedStoryId = new URLSearchParams(search).get("story_id");
+  const requestedActId = new URLSearchParams(search).get("act_id");
+  const [selectedStoryId, setSelectedStoryId] = useState<string | "all">(() => requestedStoryId || "all");
   const [showUnlinked, setShowUnlinked] = useState(true);
-  const [selectedActId, setSelectedActId] = useState<string>("");
+  const [selectedActId, setSelectedActId] = useState<string>(() => requestedActId || "");
   const [canonSearch, setCanonSearch] = useState("");
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -166,23 +169,29 @@ export default function StoryConnections() {
   }, [canonSearch, unlinkedRecords]);
   const selectedStory = stories.find(story => story.id === selectedStoryId) ?? null;
   const refreshMap = () => queryClient.invalidateQueries({ queryKey: ["ws-story-connections", selectedWorldId] });
+  const selectStory = (storyId: string | "all") => {
+    setSelectedStoryId(storyId);
+    setSelectedActId("");
+  };
 
   useEffect(() => {
-    setSelectedActId("");
-  }, [selectedStoryId]);
+    if (selectedActId && selectedStory && !selectedStory.acts.some(act => act.id === selectedActId)) {
+      setSelectedActId("");
+    }
+  }, [selectedActId, selectedStory]);
 
   const storyFilterContent = useMemo(() => (
     <StoryMapFilterControls
       stories={stories}
       selectedStoryId={selectedStoryId}
-      onStoryChange={setSelectedStoryId}
+      onStoryChange={selectStory}
     />
   ), [selectedStoryId, stories]);
   const storyPageFilters = useMemo(() => ({
     label: "Story Map filters",
     activeCount: selectedStoryId === "all" ? 0 : 1,
     content: storyFilterContent,
-    onClear: () => setSelectedStoryId("all"),
+    onClear: () => selectStory("all"),
   }), [selectedStoryId, storyFilterContent]);
 
   useEditorialPageFilters(storyPageFilters);
@@ -274,7 +283,7 @@ export default function StoryConnections() {
                 <select
                   id="story-map-connect-story"
                   value={selectedStoryId}
-                  onChange={event => setSelectedStoryId(event.target.value)}
+                  onChange={event => selectStory(event.target.value)}
                   className="min-w-[220px] rounded-lg bg-white px-2.5 py-1.5 text-xs outline-none"
                   style={{ border: "1px solid #D8CFC3", color: "#475467" }}
                 >

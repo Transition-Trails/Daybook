@@ -112,32 +112,41 @@ function compactProviderPrompt(prompt: string): string {
     return prompt.slice(0, PROVIDER_PROMPT_TARGET_LENGTH);
   }
 
-  const protectedSections = new Set([
-    "GOVERNED READABLE TEXT",
-    "NEGATIVE CONSTRAINTS / NEGATIVE PROMPT",
+  const protectedSectionBudgets = new Map([
+    ["MANDATORY RENDERING STYLE", 7_000],
+    ["GOVERNED READABLE TEXT", 10_000],
+    ["NEGATIVE CONSTRAINTS / NEGATIVE PROMPT", 5_000],
   ]);
   const sectionName = (section: string) => section.match(/^\[([A-Z][A-Z /-]*)\]\n/)?.[1] ?? "";
-  const protectedLength = sections
+  const compactSection = (section: string, budget: number) => {
+    if (section.length <= budget) return section;
+    const omittedMarker = "\nAdditional inherited detail omitted for provider length limit.";
+    return `${section.slice(0, Math.max(0, budget - omittedMarker.length))}${omittedMarker}`;
+  };
+  const boundedSections = sections.map((section) => {
+    const budget = protectedSectionBudgets.get(sectionName(section));
+    return budget ? compactSection(section, budget) : section;
+  });
+  const protectedSections = new Set(protectedSectionBudgets.keys());
+  const protectedLength = boundedSections
     .filter((section) => protectedSections.has(sectionName(section)))
     .reduce((total, section) => total + section.length, 0);
-  const separatorsLength = (sections.length - 1) * 2;
+  const separatorsLength = (boundedSections.length - 1) * 2;
   const availableForDetail = PROVIDER_PROMPT_TARGET_LENGTH - protectedLength - separatorsLength;
   if (availableForDetail <= 0) {
-    return sections
+    return boundedSections
       .filter((section) => protectedSections.has(sectionName(section)))
       .join("\n\n")
       .slice(0, PROVIDER_PROMPT_TARGET_LENGTH);
   }
 
-  const detailSections = sections.filter((section) => !protectedSections.has(sectionName(section)));
+  const detailSections = boundedSections.filter((section) => !protectedSections.has(sectionName(section)));
   const detailBudget = Math.max(1, Math.floor(availableForDetail / detailSections.length));
-  const compacted = sections.map((section) => {
+  const compacted = boundedSections.map((section) => {
     if (protectedSections.has(sectionName(section)) || section.length <= detailBudget) {
       return section;
     }
-    const omittedMarker = "\nAdditional inherited detail omitted for provider length limit.";
-    const contentBudget = Math.max(0, detailBudget - omittedMarker.length);
-    return `${section.slice(0, contentBudget)}${omittedMarker}`;
+    return compactSection(section, detailBudget);
   });
   const compactedPrompt = compacted.join("\n\n");
   return compactedPrompt.length <= MAX_PROVIDER_PROMPT_LENGTH

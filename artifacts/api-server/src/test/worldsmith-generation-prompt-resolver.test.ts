@@ -700,6 +700,23 @@ describe("WorldSmith generation prompt governance", () => {
     expect(result.generationValidationErrors).toEqual([]);
   });
 
+  it("keeps every governance lock when inherited negatives alone exceed the provider limit", () => {
+    const chain = curatorChain();
+    chain.productionSpec.reviewCriteria = "No invented readable text.";
+    chain.styleGuide!.content = [
+      "Mandatory watercolor and fine-ink illustrated treatment. Photography is prohibited.",
+      ...Array.from({ length: 2_000 }, (_, index) => `Avoid synthetic archive artifact ${index}.`),
+    ].join("\n");
+
+    const result = compilePrompt(chain, payload);
+
+    expect(result.providerPrompt.length).toBeLessThanOrEqual(MAX_PROVIDER_PROMPT_LENGTH);
+    expect(result.providerPrompt.startsWith("[MANDATORY RENDERING STYLE]")).toBe(true);
+    expect(result.providerPrompt).toContain("[GOVERNED READABLE TEXT]");
+    expect(result.providerPrompt).toContain("[NEGATIVE CONSTRAINTS / NEGATIVE PROMPT]");
+    expect(result.generationValidationErrors).toEqual([]);
+  });
+
   it("applies an operator revision while preserving governance and negative constraints", () => {
     const compiled = compilePrompt(curatorChain(), payload);
     const revised = applyProviderPromptRevision(

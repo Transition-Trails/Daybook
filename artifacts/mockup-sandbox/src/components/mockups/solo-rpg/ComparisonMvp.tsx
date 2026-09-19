@@ -92,6 +92,12 @@ const canon = [
   { label: "The Garden Remembers", kind: "Story movement", mark: "GR" },
 ];
 
+const worlds = [
+  { id: "garden", label: "Victorian Garden Journal", shortLabel: "The Garden", era: "1890 · botanical mystery", description: "A locked glasshouse, unfinished letters, and a key that remembers.", accent: "#a35d45", swatch: "linear-gradient(135deg, #d9c4a6 0%, #778a70 100%)", signal: "The key hums near rosemary." },
+  { id: "orbital", label: "The Orbital Choir", shortLabel: "Orbital Choir", era: "far future · signal mystery", description: "A listening station receives a song from a ship that vanished.", accent: "#5f7188", swatch: "linear-gradient(135deg, #27344b 0%, #a7b7bd 100%)", signal: "The dead ship answers in your voice." },
+  { id: "salt-moon", label: "Salt Moon Country", shortLabel: "Salt Moon", era: "mythic coast · family folklore", description: "At low tide, the shoreline returns what the village forgot.", accent: "#8b6b54", swatch: "linear-gradient(135deg, #e3c9a6 0%, #7d9a99 100%)", signal: "The tide leaves a door in the salt." },
+];
+
 const lifecycle = [
   ["Foundation Canon", "Immutable", "ink"],
   ["Guided scene", "In progress", "clay"],
@@ -104,6 +110,7 @@ const lifecycle = [
 
 export default function ComparisonMvp() {
   const [selected, setSelected] = useState("prompt-deck");
+  const [selectedWorldId, setSelectedWorldId] = useState("garden");
   const [openPremise, setOpenPremise] = useState(false);
   const [resume, setResume] = useState(true);
   const [proposalOpen, setProposalOpen] = useState(false);
@@ -117,6 +124,10 @@ export default function ComparisonMvp() {
   const active = useMemo(
     () => concepts.find((concept) => concept.id === selected) ?? concepts[0],
     [selected],
+  );
+  const activeWorld = useMemo(
+    () => worlds.find((world) => world.id === selectedWorldId) ?? worlds[0],
+    [selectedWorldId],
   );
 
   return (
@@ -136,8 +147,9 @@ export default function ComparisonMvp() {
               <i className="text-[#a35d45]">enter the story.</i>
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-6 text-[#766d61]">
-              A decision board for the Victorian Garden Journal. Compare the creative
-              shape, the editorial risk, and the smallest trustworthy thing to ship.
+              A decision board for authored worlds. Compare the creative shape, the
+              editorial risk, and the smallest trustworthy thing to ship—whatever
+              world your community wants to enter next.
             </p>
           </div>
           <div className="flex items-center gap-3 self-start lg:self-auto">
@@ -157,16 +169,31 @@ export default function ComparisonMvp() {
           <div className="rounded-[2px] border border-[#b7a995] bg-[#f7f0e3] p-5 shadow-[4px_5px_0_#d5c8b5] sm:p-7">
             <div className="mb-8 flex items-start justify-between">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#a35d45]">Shared scenario</p>
-                <h2 className="mt-2 font-serif text-3xl text-[#292720]">The Victorian Garden Journal</h2>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#a35d45]">Choose a world to enter</p>
+                <h2 className="mt-2 font-serif text-3xl text-[#292720]">{activeWorld.label}</h2>
               </div>
               <BookOpen className="text-[#a35d45]" size={23} strokeWidth={1.5} />
             </div>
+            <div className="mb-6 grid gap-2 sm:grid-cols-3">
+              {worlds.map((world) => (
+                <button
+                  key={world.id}
+                  onClick={() => setSelectedWorldId(world.id)}
+                  className={`group overflow-hidden border text-left transition-transform hover:-translate-y-0.5 ${selectedWorldId === world.id ? "border-[#a35d45] ring-1 ring-[#a35d45]" : "border-[#d1c2b0]"}`}
+                >
+                  <div className="h-9" style={{ background: world.swatch }} />
+                  <div className="bg-[#f1e7d7] p-2.5">
+                    <p className="text-[11px] font-semibold text-[#403a33]">{world.shortLabel}</p>
+                    <p className="mt-1 font-mono text-[8px] uppercase tracking-[0.08em] text-[#8d8172]">{world.era}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
             <div className="mb-6 border-l-2 border-[#a35d45] pl-4">
               <p className="font-serif text-lg leading-7 text-[#4a433a]">
-                “The garden has kept one promise, and it is waiting to see who remembers.”
+                “{activeWorld.signal}”
               </p>
-              <p className="mt-2 text-xs text-[#837768]">Suggested premise · a room that changes when named</p>
+              <p className="mt-2 text-xs text-[#837768]">Suggested premise · {activeWorld.description}</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               {canon.map((item) => (
@@ -373,7 +400,7 @@ export default function ComparisonMvp() {
               <p className="mt-5 font-serif text-2xl">The key hums near rosemary.</p>
               <p className="mt-3 text-xs leading-5 text-[#c7c8ba]">A recurring object, scent, and unanswered door create a strong cue for a tactile set.</p>
               <div className="mt-5 flex flex-wrap gap-1.5">
-                {["Brass Seed Key", "Rosemary", "Glasshouse", "Unfinished letter"].map((tag) => <span key={tag} className="border border-[#778574] bg-[#465044] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-[#d5d6c7]">{tag}</span>)}
+                {[activeWorld.signal, activeWorld.shortLabel, "Story moment", "Provenance"].map((tag) => <span key={tag} className="border border-[#778574] bg-[#465044] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-[#d5d6c7]">{tag}</span>)}
               </div>
             </div>
             <div className="border border-[#b7a995] bg-[#f7f0e3] p-4">

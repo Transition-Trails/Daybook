@@ -184,6 +184,41 @@ describe("CanonLibrary emotional register badges", () => {
     expect(screen.queryByRole("region", { name: "Location" })).not.toBeInTheDocument();
   });
 
+  it("collapses a type section from its accessible header while keeping the count visible", async () => {
+    renderLibrary();
+
+    const characterGroup = await screen.findByRole("region", { name: "Character" });
+    const header = within(characterGroup).getByRole("button", { name: "Character, 1 record" });
+
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    expect(header).toHaveAttribute("aria-controls", "canon-group-content-character");
+    expect(within(characterGroup).getByText("The Archive Keeper")).toBeInTheDocument();
+
+    fireEvent.click(header);
+
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    expect(within(characterGroup).getByText("1")).toBeInTheDocument();
+    expect(within(characterGroup).queryByText("The Archive Keeper")).not.toBeInTheDocument();
+  });
+
+  it("remembers collapsed sections for the current world during the browser session", async () => {
+    const firstRender = renderLibrary();
+    const header = await screen.findByRole("button", { name: "Character, 1 record" });
+    fireEvent.click(header);
+
+    expect(sessionStorage.getItem(`canon-collapsed-sections-${WORLD_ID}`)).toBe(
+      JSON.stringify(["character"]),
+    );
+
+    firstRender.unmount();
+    renderLibrary();
+
+    const restoredHeader = await screen.findByRole("button", { name: "Character, 1 record" });
+    expect(restoredHeader).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("The Archive Keeper")).not.toBeInTheDocument();
+    expect(screen.getByText("Unsettled Record")).toBeInTheDocument();
+  });
+
   it("shows a flat card grid when a single record type is selected", async () => {
     sessionStorage.setItem(`canon-filters-${WORLD_ID}`, JSON.stringify({
       type: "character",

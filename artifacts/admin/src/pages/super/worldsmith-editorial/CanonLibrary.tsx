@@ -997,6 +997,19 @@ function canonFilterKey(worldId: string) {
   return `canon-filters-${worldId}`;
 }
 
+function canonCollapsedSectionsKey(worldId: string) {
+  return `canon-collapsed-sections-${worldId}`;
+}
+
+function loadCollapsedSections(worldId: string): Set<string> {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(canonCollapsedSectionsKey(worldId)) ?? "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter(value => typeof value === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
 interface LibraryFilters {
   type: string;
   status: string;
@@ -1168,6 +1181,8 @@ export default function CanonLibrary() {
   const [snapshotMenuOpen, setSnapshotMenuOpen] = useState(false);
   const [snapshotBulkResult, setSnapshotBulkResult] = useState<ContextSnapshotBulkResult | null>(null);
   const [snapshotJobId, setSnapshotJobId] = useState<string | null>(null);
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [collapsedSectionsWorldId, setCollapsedSectionsWorldId] = useState<string | null>(null);
 
   // Tracks which worldId filters were hydrated from so we don't re-hydrate
   // or persist prematurely (same guard pattern as WorldsmithCanon).
@@ -1200,6 +1215,25 @@ export default function CanonLibrary() {
     setActiveEmotionalRegister(validEmotionalRegister);
     setHydratedWorldId(selectedWorldId);
   }, [selectedWorldId, hydratedWorldId]);
+
+  useEffect(() => {
+    if (!selectedWorldId || selectedWorldId === collapsedSectionsWorldId) return;
+    setCollapsedSections(loadCollapsedSections(selectedWorldId));
+    setCollapsedSectionsWorldId(selectedWorldId);
+  }, [selectedWorldId, collapsedSectionsWorldId]);
+
+  const toggleSection = useCallback((sectionKey: string) => {
+    if (!selectedWorldId) return;
+    setCollapsedSections(current => {
+      const next = new Set(current);
+      if (next.has(sectionKey)) next.delete(sectionKey);
+      else next.add(sectionKey);
+      try {
+        sessionStorage.setItem(canonCollapsedSectionsKey(selectedWorldId), JSON.stringify([...next]));
+      } catch { /* storage full or unavailable — keep state for this mount */ }
+      return next;
+    });
+  }, [selectedWorldId]);
 
   // Persist all six filters whenever they change — only after hydration.
   useEffect(() => {
@@ -1778,25 +1812,42 @@ export default function CanonLibrary() {
                 <div className="space-y-8 p-5">
                   {groupedRecords.map(group => (
                     <section key={group.key} aria-labelledby={`canon-group-${group.key}`}>
-                      <div className="mb-3 flex items-center gap-2 border-b border-gray-100 pb-2">
+                      <button
+                        type="button"
+                        aria-label={`${group.label}, ${group.records.length} ${group.records.length === 1 ? "record" : "records"}`}
+                        aria-expanded={!collapsedSections.has(group.key)}
+                        aria-controls={`canon-group-content-${group.key}`}
+                        onClick={() => toggleSection(group.key)}
+                        className="mb-3 flex w-full items-center gap-2 border-b border-gray-100 pb-2 text-left focus-visible:rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--admin-accent)] focus-visible:ring-offset-2"
+                      >
                         <span
                           className="flex h-7 w-7 items-center justify-center rounded-lg"
                           style={{ background: `${group.color}18` }}
                         >
                           <group.Icon className="h-3.5 w-3.5" style={{ color: group.color }} aria-hidden="true" />
                         </span>
-                        <h2 id={`canon-group-${group.key}`} className="text-sm font-semibold text-[var(--admin-ink)]">
+                        <span id={`canon-group-${group.key}`} className="text-sm font-semibold text-[var(--admin-ink)]">
                           {group.label}
-                        </h2>
+                        </span>
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
                           {group.records.length}
                         </span>
-                      </div>
-                      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-                        {group.records.map(record => (
-                          <CanonCard key={record.id} record={record} />
-                        ))}
-                      </div>
+                        <ChevronDown
+                          className={`ml-auto h-4 w-4 text-gray-400 transition-transform ${collapsedSections.has(group.key) ? "-rotate-90" : ""}`}
+                          aria-hidden="true"
+                        />
+                      </button>
+                      {!collapsedSections.has(group.key) && (
+                        <div
+                          id={`canon-group-content-${group.key}`}
+                          className="grid gap-3"
+                          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+                        >
+                          {group.records.map(record => (
+                            <CanonCard key={record.id} record={record} />
+                          ))}
+                        </div>
+                      )}
                     </section>
                   ))}
                 </div>

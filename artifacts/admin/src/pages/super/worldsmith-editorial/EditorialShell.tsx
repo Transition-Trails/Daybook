@@ -19,7 +19,7 @@ import { worldsmithStorage } from "@/lib/worldsmith/storage";
 
 interface EditorialShellProps {
   children: ReactNode;
-  activePage?: "board" | "bible" | "stories" | "connections" | "specs" | "canon" | "collections" | "style-guides" | "component-specs" | "modules" | "image-targets" | "production-profiles" | "punch-templates";
+  activePage?: "board" | "bible" | "stories" | "connections" | "specs" | "canon" | "collections" | "style-guides" | "component-specs" | "modules" | "image-targets" | "production-profiles" | "punch-templates" | "discoveries";
 }
 
 export interface EditorialPageFilters {
@@ -68,6 +68,7 @@ const PAGE_LABELS: Record<string, string> = {
   "punch-templates": "Punch Templates",
   modules: "Prompt Modules",
   "image-targets": "Print Targets",
+  discoveries: "Discovery Review",
 };
 
 function EditorialCopilot({
@@ -212,6 +213,14 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
     collections, selectedCollectionId, setSelectedCollectionId,
     syncStatus, lastSyncedAt,
   } = useEditorial();
+  const { data: discoveryQueue } = useQuery({
+    queryKey: ["editorial/owner-discoveries", selectedWorldId, "all"],
+    queryFn: () => apiFetch<{ discoveries: Array<{ status?: string; decisionStatus?: string }> }>(
+      `/v1/editorial/owner-discoveries?world_id=${encodeURIComponent(selectedWorldId!)}`,
+    ),
+    enabled: Boolean(selectedWorldId),
+    staleTime: 30_000,
+  });
   const [worldDropOpen, setWorldDropOpen] = useState(false);
   const [collDropOpen, setCollDropOpen] = useState(false);
   const [pageFilters, setPageFilters] = useState<EditorialPageFilters | null>(null);
@@ -664,6 +673,13 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
             </p>
           )}
           {navItem("Readiness Board", LayoutDashboard, "/super/worldsmith/editorial/board", "board")}
+          {navItem(
+            "Discovery Review",
+            ScrollText,
+            "/super/worldsmith/editorial/discoveries",
+            "discoveries",
+            discoveryQueue?.discoveries?.filter(item => !["accepted", "rejected"].includes(item.status ?? item.decisionStatus ?? "")).length,
+          )}
           {navItem("World Bible", BookOpen, "/super/worldsmith/editorial/bible", "bible")}
           {navItem("Story Map", Network, "/super/worldsmith/editorial/connections", "connections")}
           {navItem("Storylines", GitBranch, "/super/worldsmith/editorial/stories", "stories")}

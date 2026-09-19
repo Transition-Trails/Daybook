@@ -2,6 +2,9 @@ import {
   pgTable, text, boolean, integer, real, timestamp, jsonb, index, primaryKey, unique, uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { usersTable } from "./users";
+import { storesTable } from "./stores";
+import { worldsmithWorldsTable } from "./worldsmith";
 
 // ── WorldSmith Editorial Suite ────────────────────────────────────────────────
 // Local-first creative authoring tables. Every record has a nullable
@@ -469,3 +472,50 @@ export const wsSuggestionRefreshesTable = pgTable("ws_suggestion_refreshes", {
   primaryKey({ columns: [t.worldId, t.suggestionKind] }),
   index("ws_suggestion_refreshes_generated_idx").on(t.generatedAt),
 ]);
+
+export const wsOwnerDiscoveriesTable = pgTable("ws_owner_discoveries", {
+  id: text("id").primaryKey(),
+  worldId: text("world_id").notNull().references(() => worldsmithWorldsTable.id, { onDelete: "cascade" }),
+  storeId: text("store_id").notNull().references(() => storesTable.id, { onDelete: "cascade" }),
+  ownerUserId: text("owner_user_id").notNull().references(() => usersTable.id),
+  sourceCanonRecordId: text("source_canon_record_id").references(() => wsCanonRecordsTable.id, { onDelete: "set null" }),
+  storyId: text("story_id").references(() => wsStoriesTable.id, { onDelete: "set null" }),
+  storyMoment: text("story_moment").notNull(),
+  ownerContext: text("owner_context").notNull(),
+  title: text("title").notNull(),
+  proposedCanonType: text("proposed_canon_type"),
+  submissionSnapshot: jsonb("submission_snapshot").$type<Record<string, unknown>>().notNull(),
+  status: text("status").notNull().default("submitted"),
+  editorialCanonRecordId: text("editorial_canon_record_id").references(() => wsCanonRecordsTable.id, { onDelete: "set null" }),
+  decisionReason: text("decision_reason"),
+  reviewedBy: text("reviewed_by").references(() => usersTable.id, { onDelete: "set null" }),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [
+  index("ws_owner_discoveries_world_idx").on(t.worldId),
+  index("ws_owner_discoveries_store_idx").on(t.storeId),
+  index("ws_owner_discoveries_status_idx").on(t.status),
+]);
+
+export type InsertWsOwnerDiscovery = typeof wsOwnerDiscoveriesTable.$inferInsert;
+
+export const wsOwnerDiscoveryRevisionsTable = pgTable("ws_owner_discovery_revisions", {
+  id: text("id").primaryKey(),
+  discoveryId: text("discovery_id").notNull().references(() => wsOwnerDiscoveriesTable.id, { onDelete: "cascade" }),
+  revisionNumber: integer("revision_number").notNull(),
+  snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+  revisionNote: text("revision_note"),
+  createdBy: text("created_by").notNull().references(() => usersTable.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("ws_owner_discovery_revisions_discovery_number_unique").on(t.discoveryId, t.revisionNumber),
+  index("ws_owner_discovery_revisions_discovery_idx").on(t.discoveryId),
+]);
+
+export type WsOwnerDiscovery = typeof wsOwnerDiscoveriesTable.$inferSelect;
+
+export type WsOwnerDiscoveryRevision = typeof wsOwnerDiscoveryRevisionsTable.$inferSelect;
+
+export type InsertWsOwnerDiscoveryRevision = typeof wsOwnerDiscoveryRevisionsTable.$inferInsert;

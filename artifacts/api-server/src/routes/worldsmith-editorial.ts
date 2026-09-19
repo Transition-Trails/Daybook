@@ -65,6 +65,10 @@ import {
   wsJournalPromptsTable,
   wsCanonRecordStoryLinksTable,
   wsSuggestionRefreshesTable,
+  wsOwnerDiscoveriesTable,
+  wsOwnerDiscoveryRevisionsTable,
+  storesTable,
+  usersTable,
   worldsmithImageTargetsTable,
   type InsertWsProductionSpec,
   type InsertWsCanonRecord,
@@ -90,6 +94,7 @@ import {
 import { callAi } from "../lib/ai-proxy";
 import { generateImage } from "../lib/worldsmith/image-generation";
 import { canForceSuggestionRefresh } from "../lib/worldsmith/suggestion-refresh-policy";
+import { ownerDiscoveryDecisionAllowed, type OwnerDiscoveryDecision } from "../lib/worldsmith/owner-discovery-policy";
 import { isPromptModuleSection } from "../lib/worldsmith/types";
 import { resolveTypographyChoices, TypographyValidationError } from "../lib/worldsmith/typography";
 import { ORIENTATION_AWARE_TYPES } from "@workspace/api-zod/readiness";
@@ -154,6 +159,139 @@ router.get(
 
 // Apply super-admin guard to all remaining editorial routes.
 router.use(requireAuth, requireSuperAdmin);
+
+// ── Owner discoveries ─────────────────────────────────────────────────────────
+router.get("/v1/editorial/owner-discoveries", async (req: Request, res: Response): Promise<void> => {
+  const worldId = typeof req.query.world_id === "string" ? req.query.world_id : undefined;
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  try {
+    const conditions = [];
+    if (worldId) conditions.push(eq(wsOwnerDiscoveriesTable.worldId, worldId));
+    if (status) conditions.push(eq(wsOwnerDiscoveriesTable.status, status));
+    const rows = await db.select({
+      discovery: wsOwnerDiscoveriesTable,
+      sourceCanon: wsCanonRecordsTable,
+      storeName: storesTable.name,
+      ownerName: usersTable.name,
+      ownerEmail: usersTable.email,
+    }).from(wsOwnerDiscoveriesTable)
+      .leftJoin(wsCanonRecordsTable, eq(wsOwnerDiscoveriesTable.sourceCanonRecordId, wsCanonRecordsTable.id))
+      .leftJoin(storesTable, eq(wsOwnerDiscoveriesTable.storeId, storesTable.id))
+      .leftJoin(usersTable, eq(wsOwnerDiscoveriesTable.ownerUserId, usersTable.id))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(wsOwnerDiscoveriesTable.submittedAt));
+    const discoveries = await Promise.all(rows.map(async (row) => ({
+      ...row.discovery,
+      sourceCanon: row.sourceCanon,
+      promotedCanon: row.discovery.editorialCanonRecordId
+        ? (await db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, row.discovery.editorialCanonRecordId)).limit(1))[0] ?? null
+        : null,
+      owner: { id: row.discovery.ownerUserId, name: row.ownerName, email: row.ownerEmail },
+      store: { id: row.discovery.storeId, name: row.storeName },
+      revisions: await db.select().from(wsOwnerDiscoveryRevisionsTable)
+        .where(eq(wsOwnerDiscoveryRevisionsTable.discoveryId, row.discovery.id))
+        .orderBy(wsOwnerDiscoveryRevisionsTable.revisionNumber),
+    })));
+    res.json({ discoveries });
+  } catch (err) {
+    logger.error({ err }, "editorial: list owner discoveries");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/v1/editorial/owner-discoveries/:id", async (req: Request, res: Response): Promise<void> => {
+  const id = String(req.params.id);
+  const [row] = await db.select().from(wsOwnerDiscoveriesTable).where(eq(wsOwnerDiscoveriesTable.id, id)).limit(1);
+  if (!row) { res.status(404).json({ error: "Discovery not found" }); return; }
+  const [revisions, sourceCanon, promotedCanon] = await Promise.all([
+    db.select().from(wsOwnerDiscoveryRevisionsTable).where(eq(wsOwnerDiscoveryRevisionsTable.discoveryId, id)).orderBy(wsOwnerDiscoveryRevisionsTable.revisionNumber),
+    row.sourceCanonRecordId ? db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, row.sourceCanonRecordId)).limit(1) : Promise.resolve([]),
+    row.editorialCanonRecordId ? db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, row.editorialCanonRecordId)).limit(1) : Promise.resolve([]),
+  ]);
+  res.json({ discovery: row, source_canon: sourceCanon[0] ?? null, promoted_canon: promotedCanon[0] ?? null, revisions });
+});
+
+async function decideDiscovery(req: Request, res: Response, action: OwnerDiscoveryDecision): Promise<void> {
+  const id = String(req.params.id);
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (action !== "accept" && !reason) { res.status(400).json({ error: "A nonblank reason is required" }); return; }
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [discovery] = await tx.select().from(wsOwnerDiscoveriesTable)
+        .where(eq(wsOwnerDiscoveriesTable.id, id)).limit(1);
+      if (!discovery) return null;
+      if (!ownerDiscoveryDecisionAllowed(action, discovery.status)) {
+        throw Object.assign(new Error(`Discovery cannot be ${action} from status ${discovery.status}`), { status: 409 });
+      }
+      let canonId = discovery.editorialCanonRecordId;
+      if (action === "accept") {
+        const requestedId = typeof req.body?.editorial_canon_record_id === "string" ? req.body.editorial_canon_record_id.trim() : "";
+        if (req.body?.create_canon !== undefined
+          && (typeof req.body.create_canon !== "object" || req.body.create_canon === null || Array.isArray(req.body.create_canon))) {
+          throw Object.assign(new Error("create_canon must be an object"), { status: 400 });
+        }
+        if (requestedId) {
+          const [existing] = await tx.select({ id: wsCanonRecordsTable.id }).from(wsCanonRecordsTable)
+            .where(and(eq(wsCanonRecordsTable.id, requestedId), eq(wsCanonRecordsTable.worldId, discovery.worldId))).limit(1);
+          if (!existing) throw Object.assign(new Error("editorial_canon_record_id must belong to the discovery world"), { status: 400 });
+          canonId = existing.id;
+        } else if (!canonId) {
+          const snapshot = discovery.submissionSnapshot;
+          const createCanon = req.body?.create_canon && typeof req.body.create_canon === "object"
+            && !Array.isArray(req.body.create_canon) ? req.body.create_canon : {};
+          const editable = (field: string, fallback: string): string => {
+            const value = createCanon[field] ?? req.body?.[field];
+            return typeof value === "string" ? value : fallback;
+          };
+          const [created] = await tx.insert(wsCanonRecordsTable).values({
+            id: randomUUID(), worldId: discovery.worldId,
+            name: editable("name", discovery.title),
+            canonType: editable("canon_type", discovery.proposedCanonType ?? "") || null,
+            narrativeDetails: sanitizeEditorialRichText(editable("narrative_details", typeof snapshot.narrative_details === "string" ? snapshot.narrative_details : discovery.ownerContext)),
+            historicalContext: sanitizeEditorialRichText(editable("historical_context", "")),
+            visualNotes: sanitizeEditorialRichText(editable("visual_notes", "")),
+            canonGuardrails: sanitizeEditorialRichText(editable("canon_guardrails", "")),
+            relationshipDetails: sanitizeEditorialRichText(editable("relationship_details", "")),
+            characterDirection: sanitizeEditorialRichText(editable("character_direction", "")),
+            confirmedCanon: sanitizeEditorialRichText(editable("confirmed_canon", typeof snapshot.confirmed_canon === "string" ? snapshot.confirmed_canon : discovery.storyMoment)),
+            notes: sanitizeEditorialRichText(editable("notes", "")),
+            createdBy: (req.user as any)?.id,
+          }).returning({ id: wsCanonRecordsTable.id });
+          canonId = created.id;
+        } else {
+          const [existing] = await tx.select({ id: wsCanonRecordsTable.id }).from(wsCanonRecordsTable)
+            .where(and(eq(wsCanonRecordsTable.id, canonId), eq(wsCanonRecordsTable.worldId, discovery.worldId))).limit(1);
+          if (!existing) throw Object.assign(new Error("The linked editorial canon record must belong to the discovery world"), { status: 400 });
+        }
+      }
+      const [updated] = await tx.update(wsOwnerDiscoveriesTable).set({
+        status: action === "accept" ? "accepted" : action === "return" ? "returned" : "rejected",
+        editorialCanonRecordId: canonId ?? null,
+        decisionReason: reason || null,
+        reviewedBy: (req.user as any)?.id ?? null,
+        reviewedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(wsOwnerDiscoveriesTable.id, id)).returning();
+      return updated;
+    });
+    if (!result) { res.status(404).json({ error: "Discovery not found" }); return; }
+    res.json({ discovery: result });
+  } catch (err) {
+    const status = (err as any)?.status;
+    if (status) { res.status(status).json({ error: (err as Error).message }); return; }
+    logger.error({ err, id }, "editorial: decide owner discovery");
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+router.post("/v1/editorial/owner-discoveries/:id/start-review", async (req, res): Promise<void> => {
+  const [row] = await db.update(wsOwnerDiscoveriesTable).set({ status: "in_review", updatedAt: new Date() })
+    .where(and(eq(wsOwnerDiscoveriesTable.id, String(req.params.id)), eq(wsOwnerDiscoveriesTable.status, "submitted"))).returning();
+  if (!row) { res.status(404).json({ error: "Submitted discovery not found" }); return; }
+  res.json({ discovery: row });
+});
+router.post("/v1/editorial/owner-discoveries/:id/accept", (req, res) => { void decideDiscovery(req, res, "accept"); });
+router.post("/v1/editorial/owner-discoveries/:id/return", (req, res) => { void decideDiscovery(req, res, "return"); });
+router.post("/v1/editorial/owner-discoveries/:id/reject", (req, res) => { void decideDiscovery(req, res, "reject"); });
 
 // ── Readiness score helper ────────────────────────────────────────────────────
 

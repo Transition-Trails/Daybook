@@ -146,13 +146,13 @@ describe("CanonLibrary emotional register badges", () => {
     await waitFor(() => expect(screen.getByText("The Archive Keeper")).toBeInTheDocument());
     expect(screen.queryByText("Build Your Canon Library")).not.toBeInTheDocument();
 
-    const card = screen.getByText("The Archive Keeper").closest('[role="button"]');
+    const card = screen.getByText("The Archive Keeper").closest('[role="button"]') as HTMLElement | null;
     expect(card).not.toBeNull();
     expectConfidenceBadge(card as HTMLElement);
 
     fireEvent.click(screen.getByRole("button", { name: "Show table view" }));
 
-    const row = screen.getByText("The Archive Keeper").closest("tr");
+    const row = screen.getByText("The Archive Keeper").closest("tr") as HTMLElement | null;
     expect(row).not.toBeNull();
     expectConfidenceBadge(row!);
   });
@@ -188,7 +188,7 @@ describe("CanonLibrary emotional register badges", () => {
     renderLibrary();
 
     const characterGroup = await screen.findByRole("region", { name: "Character" });
-    const header = within(characterGroup).getByRole("button", { name: "Character, 1 record" });
+    const header = await screen.findByRole("button", { name: "Character, 1 record" });
 
     expect(header).toHaveAttribute("aria-expanded", "true");
     expect(header).toHaveAttribute("aria-controls", "canon-group-content-character");
@@ -242,7 +242,7 @@ describe("CanonLibrary emotional register badges", () => {
     await waitFor(() => expect(screen.getByText("Unsettled Record")).toBeInTheDocument());
 
     for (const name of ["Unsettled Record", "Unlabeled Record", "Legacy Register Record"]) {
-      const card = screen.getByText(name).closest('[role="button"]');
+      const card = screen.getByText(name).closest('[role="button"]') as HTMLElement | null;
       expect(card).not.toBeNull();
       expect(within(card as HTMLElement).queryByText(/null|unrecognized/i)).not.toBeInTheDocument();
       const badgeGroup = card!.firstElementChild?.firstElementChild;
@@ -253,7 +253,7 @@ describe("CanonLibrary emotional register badges", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show table view" }));
 
     for (const name of ["Unsettled Record", "Unlabeled Record", "Legacy Register Record"]) {
-      const row = screen.getByText(name).closest("tr");
+      const row = screen.getByText(name).closest("tr") as HTMLElement | null;
       expect(row).not.toBeNull();
       expect(within(row!).queryByText(/null|unrecognized/i)).not.toBeInTheDocument();
       expect(within(row!).getAllByRole("cell")[4]).toBeEmptyDOMElement();

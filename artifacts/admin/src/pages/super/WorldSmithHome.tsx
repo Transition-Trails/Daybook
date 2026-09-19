@@ -92,6 +92,17 @@ interface HealthStatus {
   worldId?: string;
 }
 
+interface OwnerDiscoveryState {
+  id: string;
+  title: string;
+  status?: string;
+  decisionStatus?: string;
+  decisionReason?: string | null;
+  storyMoment: string;
+  ownerContext?: string | null;
+  updatedAt?: string;
+}
+
 // ── API helpers ───────────────────────────────────────────────────────────────
 
 function worldsmithFetch<T>(path: string, storeId?: string, init: RequestInit = {}) {
@@ -131,6 +142,7 @@ export default function WorldSmithHome({ storeId }: { storeId?: string }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [revisionDrafts, setRevisionDrafts] = useState<Record<string, { title: string; storyMoment: string; ownerContext: string; note: string }>>({});
   const qc = useQueryClient();
   const wsApi = createWsApi(storeId);
   const { data: storeFlags, isLoading: flagsLoading } = useQuery({
@@ -157,6 +169,28 @@ export default function WorldSmithHome({ storeId }: { storeId?: string }) {
     queryFn: wsApi.health,
     enabled: !storeId,
     staleTime: 60_000,
+  });
+  // Store owners can see their submissions' current state, but never receive
+  // the editorial mutation controls. This query is deliberately store-scoped.
+  const { data: ownerDiscoveriesData } = useQuery({
+    queryKey: ["worldsmith/owner-discoveries", storeId],
+    queryFn: () => worldsmithFetch<{ discoveries: OwnerDiscoveryState[] }>("/v1/worldsmith/owner-discoveries", storeId),
+    enabled: Boolean(storeId) && storeFlags?.worldsmithEnabled === true,
+    staleTime: 30_000,
+  });
+  const revisionMutation = useMutation({
+    mutationFn: ({ id, draft }: { id: string; draft: { title: string; storyMoment: string; ownerContext: string; note: string } }) =>
+      worldsmithFetch(`/v1/worldsmith/owner-discoveries/${encodeURIComponent(id)}/revisions`, storeId, {
+        method: "POST",
+        body: JSON.stringify({
+          snapshot: { title: draft.title, story_moment: draft.storyMoment, owner_context: draft.ownerContext },
+          revision_note: draft.note || undefined,
+          title: draft.title,
+          story_moment: draft.storyMoment,
+          owner_context: draft.ownerContext,
+        }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["worldsmith/owner-discoveries", storeId] }),
   });
 
   const worlds = worldsData?.worlds ?? [];
@@ -270,6 +304,39 @@ export default function WorldSmithHome({ storeId }: { storeId?: string }) {
       </header>
 
       <div className="max-w-6xl mx-auto px-6 py-6">
+        {storeId && (ownerDiscoveriesData?.discoveries?.length ?? 0) > 0 && (
+          <section data-testid="owner-discovery-status" className="mb-6 rounded-xl border border-border bg-card p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Editorial submissions</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">Track the current review state of your WorldSmith discoveries.</p>
+              </div>
+              <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-semibold text-muted-foreground">
+                {ownerDiscoveriesData?.discoveries?.length} submitted
+              </span>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {ownerDiscoveriesData?.discoveries?.map(discovery => (
+                <OwnerDiscoveryCard
+                  key={discovery.id}
+                  discovery={discovery}
+                  draft={revisionDrafts[discovery.id] ?? {
+                    title: discovery.title,
+                    storyMoment: discovery.storyMoment,
+                    ownerContext: discovery.ownerContext ?? "",
+                    note: "",
+                  }}
+                  onDraftChange={draft => setRevisionDrafts(current => ({ ...current, [discovery.id]: draft }))}
+                  onSubmit={draft => revisionMutation.mutate({ id: discovery.id, draft })}
+                  isSubmitting={revisionMutation.isPending && revisionMutation.variables?.id === discovery.id}
+                  error={revisionMutation.isError && revisionMutation.variables?.id === discovery.id
+                    ? (revisionMutation.error instanceof Error ? revisionMutation.error : new Error("The server rejected this revision."))
+                    : null}
+                />
+              ))}
+            </div>
+          </section>
+        )}
         {focusedWorld ? (
           <FocusedWorldView
             world={focusedWorld}
@@ -409,6 +476,45 @@ export default function WorldSmithHome({ storeId }: { storeId?: string }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function OwnerDiscoveryCard({
+  discovery,
+  draft,
+  onDraftChange,
+  onSubmit,
+  isSubmitting,
+  error,
+}: {
+  discovery: OwnerDiscoveryState;
+  draft: { title: string; storyMoment: string; ownerContext: string; note: string };
+  onDraftChange: (draft: { title: string; storyMoment: string; ownerContext: string; note: string }) => void;
+  onSubmit: (draft: { title: string; storyMoment: string; ownerContext: string; note: string }) => void;
+  isSubmitting: boolean;
+  error: Error | null;
+}) {
+  const state = discovery.status ?? discovery.decisionStatus ?? "submitted";
+  const returned = state === "returned";
+  return (
+    <div data-testid={`owner-discovery-${discovery.id}`} className="rounded-lg border border-border bg-card px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-xs font-medium text-foreground">{discovery.title}</p>
+        <span className="shrink-0 text-[10px] font-semibold capitalize text-primary">{state.replace(/_/g, " ")}</span>
+      </div>
+      {discovery.decisionReason && <p className="mt-1 text-[11px] text-muted-foreground">{discovery.decisionReason}</p>}
+      {returned && (
+        <form data-testid={`owner-revision-form-${discovery.id}`} className="mt-3 space-y-2 border-t border-border pt-3" onSubmit={event => { event.preventDefault(); onSubmit(draft); }}>
+          <p className="text-[11px] font-semibold text-foreground">Revise and resubmit</p>
+          <input data-testid={`input-revision-title-${discovery.id}`} aria-label="Revision title" value={draft.title} onChange={event => onDraftChange({ ...draft, title: event.target.value })} className="w-full rounded-md border border-border px-2 py-1.5 text-xs" placeholder="Title" />
+          <textarea data-testid={`input-revision-story-moment-${discovery.id}`} aria-label="Revision story moment" value={draft.storyMoment} onChange={event => onDraftChange({ ...draft, storyMoment: event.target.value })} className="w-full rounded-md border border-border px-2 py-1.5 text-xs" placeholder="Story moment" />
+          <textarea data-testid={`input-revision-owner-context-${discovery.id}`} aria-label="Revision owner context" value={draft.ownerContext} onChange={event => onDraftChange({ ...draft, ownerContext: event.target.value })} className="w-full rounded-md border border-border px-2 py-1.5 text-xs" placeholder="Owner context" />
+          <input data-testid={`input-revision-note-${discovery.id}`} aria-label="Revision note (optional)" value={draft.note} onChange={event => onDraftChange({ ...draft, note: event.target.value })} className="w-full rounded-md border border-border px-2 py-1.5 text-xs" placeholder="Note (optional)" />
+          <button type="submit" data-testid={`button-resubmit-discovery-${discovery.id}`} disabled={isSubmitting || !draft.title.trim() || !draft.storyMoment.trim() || !draft.ownerContext.trim()} className="rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{isSubmitting ? "Submitting…" : "Resubmit for review"}</button>
+          {error && <p data-testid={`text-revision-error-${discovery.id}`} className="text-[11px] text-red-600">Could not resubmit: {error.message}</p>}
+        </form>
+      )}
     </div>
   );
 }

@@ -26,6 +26,9 @@ import {
   worldsmithProductionPackagesTable, worldsmithRunsTable, worldsmithWorldsTable,
   wsCanonRecordsTable, wsComponentSpecsTable, wsPromptModulesTable, wsStyleGuidesTable,
   wsProductionSpecsTable,
+  wsOwnerDiscoveriesTable,
+  wsOwnerDiscoveryRevisionsTable,
+  wsStoriesTable,
 } from "@workspace/db";
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
@@ -62,6 +65,136 @@ const router = Router();
 function scopedStoreId(req: Request): string | null {
   return req.actor?.storeId ?? null;
 }
+
+// Store-owner discovery intake is deliberately separate from editorial
+// decisions: the store context is always taken from the authenticated actor.
+router.post("/v1/worldsmith/owner-discoveries", requireStoreAccess("store_staff"), requireWorldsmithEnabled, async (req: Request, res: Response): Promise<void> => {
+  const storeId = scopedStoreId(req);
+  const ownerUserId = (req.user as User | undefined)?.id;
+  const body = req.body ?? {};
+  const worldId = typeof body.world_id === "string" ? body.world_id.trim() : "";
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  if (!storeId || !ownerUserId || !worldId || !title
+    || typeof body.story_moment !== "string" || typeof body.owner_context !== "string") {
+    res.status(400).json({ error: "world_id, title, story_moment, and owner_context are required" });
+    return;
+  }
+  try {
+    const [world] = await db.select({ id: worldsmithWorldsTable.id, storeId: worldsmithWorldsTable.storeId })
+      .from(worldsmithWorldsTable).where(and(eq(worldsmithWorldsTable.id, worldId), eq(worldsmithWorldsTable.storeId, storeId))).limit(1);
+    if (!world) { res.status(404).json({ error: "World not found" }); return; }
+    const sourceId = typeof body.source_canon_record_id === "string" ? body.source_canon_record_id.trim() : "";
+    if (sourceId) {
+      const [source] = await db.select({ id: wsCanonRecordsTable.id }).from(wsCanonRecordsTable)
+        .where(and(eq(wsCanonRecordsTable.id, sourceId), eq(wsCanonRecordsTable.worldId, worldId))).limit(1);
+      if (!source) { res.status(400).json({ error: "source_canon_record_id must belong to world_id" }); return; }
+    }
+    const storyId = typeof body.story_id === "string" ? body.story_id.trim() : "";
+    if (storyId) {
+      const [story] = await db.select({ id: wsStoriesTable.id }).from(wsStoriesTable)
+        .where(and(eq(wsStoriesTable.id, storyId), eq(wsStoriesTable.worldId, worldId))).limit(1);
+      if (!story) { res.status(400).json({ error: "story_id must belong to world_id" }); return; }
+    }
+    const snapshot = (body.submission_snapshot && typeof body.submission_snapshot === "object" && !Array.isArray(body.submission_snapshot))
+      ? body.submission_snapshot : {
+        story_moment: body.story_moment, owner_context: body.owner_context, title,
+        proposed_canon_type: body.proposed_canon_type ?? null,
+      };
+    const id = crypto.randomUUID();
+    const [discovery] = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(wsOwnerDiscoveriesTable).values({
+        id, worldId, storeId, ownerUserId, sourceCanonRecordId: sourceId || null,
+        storyId: storyId || null,
+        storyMoment: body.story_moment, ownerContext: body.owner_context, title,
+        proposedCanonType: typeof body.proposed_canon_type === "string" ? body.proposed_canon_type.trim() || null : null,
+        submissionSnapshot: snapshot, status: "submitted",
+      }).returning();
+      await tx.insert(wsOwnerDiscoveryRevisionsTable).values({
+        id: crypto.randomUUID(), discoveryId: id, revisionNumber: 1,
+        snapshot, revisionNote: null, createdBy: ownerUserId,
+      });
+      return [created];
+    });
+    res.status(201).json({ discovery });
+  } catch (err) {
+    req.log.error({ err }, "WorldSmith owner discovery submission failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/v1/worldsmith/owner-discoveries/:id/revisions", requireStoreAccess("store_staff"), requireWorldsmithEnabled, async (req: Request, res: Response): Promise<void> => {
+  const storeId = scopedStoreId(req);
+  const ownerUserId = (req.user as User | undefined)?.id;
+  const discoveryId = String(req.params.id);
+  const snapshot = req.body?.snapshot;
+  if (!storeId || !ownerUserId) { res.status(403).json({ error: "Store context required" }); return; }
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) || Object.keys(snapshot).length === 0) {
+    res.status(400).json({ error: "snapshot must be a nonempty object" });
+    return;
+  }
+  try {
+    const revision = await db.transaction(async (tx) => {
+      // Lock the discovery so concurrent submissions cannot choose the same
+      // next revision number. The unique constraint remains the final guard.
+      const locked = await tx.execute(sql`
+        SELECT id FROM ws_owner_discoveries
+        WHERE id = ${discoveryId} AND store_id = ${storeId} AND owner_user_id = ${ownerUserId}
+        FOR UPDATE
+      `);
+      if (locked.rows.length === 0) {
+        throw Object.assign(new Error("Discovery not found"), { status: 404 });
+      }
+      const [discovery] = await tx.select().from(wsOwnerDiscoveriesTable)
+        .where(eq(wsOwnerDiscoveriesTable.id, discoveryId)).limit(1);
+      if (!discovery || discovery.status !== "returned") {
+        throw Object.assign(new Error("Only returned discoveries may be revised"), { status: 409 });
+      }
+      const [latest] = await tx.select({ revisionNumber: wsOwnerDiscoveryRevisionsTable.revisionNumber })
+        .from(wsOwnerDiscoveryRevisionsTable)
+        .where(eq(wsOwnerDiscoveryRevisionsTable.discoveryId, discoveryId))
+        .orderBy(desc(wsOwnerDiscoveryRevisionsTable.revisionNumber)).limit(1);
+      const textField = (field: string, fallback: string): string =>
+        typeof req.body?.[field] === "string" ? req.body[field].trim() || fallback : fallback;
+      const [updated] = await tx.update(wsOwnerDiscoveriesTable).set({
+        title: textField("title", discovery.title),
+        storyMoment: textField("story_moment", discovery.storyMoment),
+        ownerContext: textField("owner_context", discovery.ownerContext),
+        proposedCanonType: typeof req.body?.proposed_canon_type === "string"
+          ? req.body.proposed_canon_type.trim() || null : discovery.proposedCanonType,
+        status: "submitted",
+        updatedAt: new Date(),
+      }).where(eq(wsOwnerDiscoveriesTable.id, discoveryId)).returning();
+      const [created] = await tx.insert(wsOwnerDiscoveryRevisionsTable).values({
+        id: crypto.randomUUID(),
+        discoveryId,
+        revisionNumber: (latest?.revisionNumber ?? 0) + 1,
+        snapshot,
+        revisionNote: typeof req.body?.revision_note === "string" ? req.body.revision_note.trim() || null : null,
+        createdBy: ownerUserId,
+      }).returning();
+      return { discovery: updated, revision: created };
+    });
+    res.status(201).json(revision);
+  } catch (err) {
+    const status = (err as any)?.status;
+    if (status) { res.status(status).json({ error: (err as Error).message }); return; }
+    if ((err as any)?.code === "23505") {
+      res.status(409).json({ error: "A concurrent revision was submitted; please retry" });
+      return;
+    }
+    req.log.error({ err, discoveryId }, "WorldSmith owner discovery revision failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/v1/worldsmith/owner-discoveries", requireStoreAccess("store_staff"), requireWorldsmithEnabled, async (req: Request, res: Response): Promise<void> => {
+  const storeId = scopedStoreId(req);
+  if (!storeId) { res.status(403).json({ error: "Store context required" }); return; }
+  const rows = await db.select().from(wsOwnerDiscoveriesTable)
+    .where(eq(wsOwnerDiscoveriesTable.storeId, storeId))
+    .orderBy(desc(wsOwnerDiscoveriesTable.submittedAt));
+  res.json({ discoveries: rows });
+});
 
 /**
  * Store-scoped WorldSmith routes always receive an authenticated store context.

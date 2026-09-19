@@ -152,6 +152,7 @@ import {
   ImageTargets,
   ComponentSpecs,
   Collections,
+  EditorialReviewQueue,
 } from "@/pages/super/worldsmith-editorial";
 
 import ProductionProfiles from "@/pages/super/worldsmith-editorial/ProductionProfiles";
@@ -470,6 +471,11 @@ function RootRouter() {
       <Route path="/super/worldsmith/editorial/board">
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="board"><ReadinessBoard /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/discoveries">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="discoveries"><EditorialReviewQueue /></EditorialShell>
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial">

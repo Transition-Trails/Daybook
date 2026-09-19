@@ -233,96 +233,6 @@ Thomas should look like the brother who writes because he misses you, visits bec
 
 ## Canon Notes and Open Questions
 
-Confirmed canon
-
-Thomas Ashcroft is the middle of the three Ashcroft brothers.
-
-Frederick Ashcroft is the eldest brother and expected heir.
-
-Elias Ashcroft is the youngest and third son.
-
-Thomas is Elias’s closest confidant within their family of birth.
-
-Thomas and Elias maintained an ongoing correspondence.
-
-Thomas visited Elias and Clara at Wychcombe.
-
-Thomas married.
-
-His wife accompanied him on at least some visits to Wychcombe.
-
-One remembered visit occurred while Thomas’s wife was pregnant.
-
-Thomas represents the warmth and continuing family connection Elias chose to preserve despite their cold upbringing.
-
-Thomas is fundamentally a nice, decent, and emotionally generous man.
-
-Character direction
-
-Thomas’s kindness is genuine and should not conceal a later revelation that he was manipulative, envious, or secretly working against Elias.
-
-He developed warmth deliberately within a family that offered little emotional example.
-
-He is observant, considerate, dependable, and capable of listening without immediately trying to solve or control.
-
-He maintains relationships through ordinary, repeated acts: letters, visits, remembered details, practical help, and continued interest.
-
-His pleasant nature does not make him naïve or incapable of recognizing harm.
-
-He understands Frederick’s burdens without automatically excusing Frederick’s behavior.
-
-He loves Elias without agreeing with every decision Elias makes.
-
-Thomas can challenge both brothers, but he does so without withdrawing affection as punishment.
-
-He should possess humor, preferences, frustrations, responsibilities, and ambitions beyond mediating Ashcroft family disputes.
-
-He may be the most socially adaptable brother, comfortable in both the formal Ashcroft world and Wychcombe’s more collaborative household.
-
-Thomas should be allowed an essentially happy or satisfying adult life. Not every kind character requires a hidden tragedy to justify his importance.
-
-Canon guardrails
-
-Do not turn Thomas into a secret antagonist.
-
-Do not create betrayal, concealed resentment, financial misconduct, or a double life solely to make him more “interesting.”
-
-Do not make his kindness a performance masking cruelty.
-
-Do not portray him as weak, foolish, passive, or incapable of making difficult decisions.
-
-Do not make him responsible for repairing every conflict between Frederick and Elias.
-
-Do not reduce him to a messenger carrying information between his brothers.
-
-Do not require him to remain perfectly neutral during family disputes.
-
-Do not make him agree with Elias automatically.
-
-Do not make him hostile toward Frederick merely to prove his loyalty to Elias.
-
-Do not make him financially dependent upon Frederick without considering how that dependence would affect his choices.
-
-Do not assign Thomas a military, naval, clerical, legal, diplomatic, medical, or administrative profession until deliberately decided.
-
-Do not assign him a residence until his occupation and travel access to Cornwall have been considered.
-
-Do not name or define his wife without developing her as a person in her own right.
-
-Do not treat his wife’s pregnancy as a guarantee of a surviving child.
-
-Do not use pregnancy loss, maternal death, or childhood death merely to add emotional weight.
-
-Do not portray his wife as existing only to demonstrate Thomas’s kindness.
-
-Do not assume Thomas knew everything about Frederick’s letter or the removed Ledger pages.
-
-Do not make Thomas responsible for removing the pages without substantial narrative evidence and deliberate approval.
-
-Do not confuse Thomas Ashcroft with Thomas Vale.
-
-Do not make every Ashcroft family interaction emotionally frozen. Thomas is established evidence that warmth existed within the family.
-
 Relationship with Elias
 
 Thomas is Elias’s safest connection to his childhood and family of birth.
@@ -522,5 +432,5 @@ Thomas does not need darkness hidden beneath his kindness. His narrative value c
 ---
 Generated from Daybook
 Record ID: cb0efced-afb2-4aa1-8d97-3429976b6474
-Last Updated: 2026-09-19T20:56:52.553Z
-Snapshot Generated: 2026-09-19T20:56:52.792Z
+Last Updated: 2026-09-19T20:59:01.424Z
+Snapshot Generated: 2026-09-19T20:59:01.783Z

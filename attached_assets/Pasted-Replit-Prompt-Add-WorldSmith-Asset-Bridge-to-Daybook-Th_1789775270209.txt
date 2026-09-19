@@ -1,0 +1,199 @@
+Replit Prompt: Add WorldSmith Asset Bridge to Daybook
+The PDF import workflow is already working. Do not redesign or rebuild PDF import.
+We now need to add a bridge between WorldSmith and Daybook so users can bring approved WorldSmith assets into a Daybook planner or junk journal.
+Goal
+Allow a Daybook user to browse and insert WorldSmith final artwork into an existing planner or junk journal project.
+WorldSmith is an optional asset source. A Daybook project must continue to work without WorldSmith.
+1. Add WorldSmith as an Asset Source
+In Daybook, anywhere the user can add artwork or an image, add:
+Add Asset → WorldSmith
+This should open a WorldSmith asset browser.
+The user should be able to browse by:
+- World
+- Collection
+- Volume, if present
+- Component Type
+- Production Spec
+- Final Artwork status
+Only show artwork that is actually available for use.
+Default to Final Artwork rather than review images.
+2. Asset Types to Support
+Support current WorldSmith component artwork including:
+- Hero Paper
+- Decorative Paper
+- Coordinating Paper
+- Notepaper
+- Journal Cards
+- Ephemera Sheets
+- Washi Tape
+- End Papers
+- Covers
+- Dividers
+- Future component types without requiring a schema redesign
+Do not hard-code the UI around only the current Victorian Garden Journals collection.
+3. Insert Behavior
+When the user selects a WorldSmith asset, allow it to be inserted into Daybook in one of these ways:
+For planners
+- page background
+- page artwork
+- decorative element
+- journal card
+- ephemera element
+- washi/decorative strip
+- divider artwork
+- cover artwork
+- end paper
+- reusable asset in the project's library
+For junk journals
+- full page
+- background paper
+- journal card
+- ephemera piece
+- tag
+- envelope
+- pocket element
+- decorative strip / washi
+- printable insert
+- reusable asset in the project's library
+The user should choose how the asset is used. Do not infer that a WorldSmith component type must always map to only one Daybook use.
+4. Preserve Provenance
+When a WorldSmith asset is imported into Daybook, store lightweight source metadata:
+- source_system = worldsmith
+- world_id
+- collection_id
+- volume_id if available
+- production_spec_id
+- component_type
+- source_asset_id
+- source_asset_version
+- imported_at
+Do not duplicate the entire WorldSmith record.
+Daybook needs enough information to know where the asset came from and whether a newer version exists later.
+5. Copy Asset Into Daybook
+When the asset is imported:
+- create a Daybook-owned asset record
+- preserve the original WorldSmith source reference
+- do not depend on a live WorldSmith fetch every time the page opens
+- the Daybook project must continue to render even if WorldSmith is temporarily unavailable
+Treat the import as a managed copy with provenance, not a remote hotlink.
+6. WorldSmith Collection Browser
+The WorldSmith browser should make it easy to work with a collection such as:
+Wychcombe → Victorian Garden Journals → Volume I: The Curator's Desk
+Show useful metadata such as:
+- artwork thumbnail
+- asset/component name
+- component type
+- collection
+- production spec
+- final artwork status
+- dimensions/orientation if available
+Allow filtering by Component Type.
+Example filters:
+All | Papers | Journal Cards | Ephemera | Washi | Covers | Dividers | Other
+7. Multi-Asset Import
+Support selecting multiple assets at once.
+Example:
+A user building a junk journal may want to import:
+- 2 decorative papers
+- 1 journal-card sheet
+- 1 ephemera sheet
+- 1 washi sheet
+- 1 end paper
+Add selected items to the Daybook project's asset library in one operation.
+8. Cuttable Assets
+WorldSmith may provide assets classified as cuttable, such as Journal Cards and Ephemera.
+Preserve any available production metadata that can help Daybook later support:
+- individual extracted pieces
+- transparent PNG assets
+- cut masks
+- straight-cut vs contour-cut behavior
+Do not require all of these files for the initial bridge.
+If only the full final artwork sheet exists, import the sheet.
+Structure the model so individual pieces can be added later without breaking compatibility.
+9. Asset Version Updates
+If Daybook detects that a WorldSmith source asset has a newer version, show:
+WorldSmith update available
+Options:
+- Keep Current
+- Preview New Version
+- Replace Asset
+Never overwrite a Daybook asset automatically.
+If an asset has been modified inside Daybook, warn before replacing it.
+10. Keep Product Responsibilities Separate
+WorldSmith owns:
+- canon
+- visual language
+- component specs
+- production specs
+- generated artwork
+- final artwork
+- production metadata
+Daybook owns:
+- planner/journal structure
+- page layout
+- placement
+- resizing/cropping
+- interactive features
+- links
+- dates
+- writing fields
+- user content
+- publishing/export
+Daybook should consume WorldSmith assets without duplicating WorldSmith's production system.
+11. Planner and Junk Journal Support
+The bridge must work for both project types.
+A WorldSmith collection is not automatically a Daybook planner or junk journal.
+Instead:
+WorldSmith supplies assets. Daybook assembles products.
+Example workflow:
+WorldSmith:
+Wychcombe → Victorian Garden Journals → Curator's Desk → Ephemera Sheet
+Daybook:
+The Wychcomb Daybook → January → Assets → Add from WorldSmith
+or
+Daybook:
+Wychcombe Junk Journal → Asset Library → Add from WorldSmith
+12. Suggested UI
+In the Daybook asset panel:
+Add Asset
+- Upload
+- From Existing Daybook Assets
+- From WorldSmith
+When WorldSmith is selected:
+World → Collection → Component Filter → Asset Grid
+Each asset card should show:
+- thumbnail
+- name
+- component type
+- collection
+- status
+Actions:
+Preview | Add
+Support multi-select.
+13. Connection Behavior
+Use the existing WorldSmith/Daybook authentication and data access if available.
+Do not introduce API-key requirements for the user if both applications are part of the same authenticated system.
+Prefer an authenticated internal service connection or shared backend access pattern.
+If the apps currently have separate services, implement a secure server-to-server integration using existing session/user identity where possible.
+Do not expose private credentials to the browser.
+14. Acceptance Criteria
+The feature is complete when I can:
+1. Open an existing Daybook planner.
+2. Choose Add Asset → WorldSmith.
+3. Select Wychcombe.
+4. Select Victorian Garden Journals.
+5. See final artwork from the collection.
+6. Filter to Ephemera.
+7. Select the Curator's Desk Ephemera artwork.
+8. Add it to the Daybook project.
+9. Place or use that asset inside the planner.
+10. Repeat the same workflow inside a junk journal project.
+11. Import multiple WorldSmith assets into one Daybook project's asset library.
+12. Continue using those imported assets even if WorldSmith is temporarily unavailable.
+13. Preserve provenance showing the WorldSmith source.
+14. Receive a non-destructive update notification if a newer WorldSmith asset version becomes available.
+Important
+Do not modify the existing PDF import workflow unless required to reuse shared asset infrastructure.
+This work is specifically the WorldSmith asset bridge into Daybook.
+That is the bridge we actually need. The key product rule is simple:
+WorldSmith creates the pieces. Daybook assembles the planner or junk journal.

@@ -1745,6 +1745,37 @@ export interface PlatformPlannerConfig {
   updatedAt: string;
 }
 
+export type PlannerImportSectionType =
+  | "cover" | "front-matter" | "year" | "month" | "monthly-divider"
+  | "week" | "day" | "notes" | "reference" | "dashboard" | "other";
+export type PlannerImportPageBehavior = "unique" | "template" | "repeating";
+export interface PlannerImportPage {
+  id: string;
+  sourcePageNumber: number;
+  widthPoints: number;
+  heightPoints: number;
+  sectionType: PlannerImportSectionType;
+  behavior: PlannerImportPageBehavior;
+  templateKey: string | null;
+  label: string | null;
+  orderIndex: number;
+  hidden: boolean;
+  overlay: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface PlannerImportDetail {
+  id: string;
+  originalFileName: string;
+  fileSize: number;
+  pageCount: number;
+  status: string;
+  plannerTemplateId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  pages: PlannerImportPage[];
+}
+
 export interface BackgroundRenderWarning {
   backgroundId: string | null;
   backgroundName: string | null;
@@ -1811,6 +1842,32 @@ export const platformPlannersApi = {
 
   delete: (id: string) =>
     apiFetch<void>(`/platform/planners/${id}`, { method: "DELETE" }),
+};
+
+export const plannerImportsApi = {
+  requestUploadUrl: (data: { name: string; size: number; contentType: "application/pdf" }) =>
+    apiFetch<{ uploadURL: string; objectPath: string; maxBytes: number }>("/platform/planner-imports/upload-url", {
+      method: "POST", body: JSON.stringify(data),
+    }),
+  analyze: (data: { objectPath: string; fileName: string; fileSize: number }) =>
+    apiFetch<PlannerImportDetail>("/platform/planner-imports/analyze", {
+      method: "POST", body: JSON.stringify(data),
+    }),
+  get: (id: string) => apiFetch<PlannerImportDetail>(`/platform/planner-imports/${id}`),
+  updatePages: (id: string, pages: Array<Partial<PlannerImportPage> & { id: string }>) =>
+    apiFetch<PlannerImportDetail>(`/platform/planner-imports/${id}/pages`, {
+      method: "PATCH", body: JSON.stringify({ pages }),
+    }),
+  duplicatePage: (id: string, pageId: string) =>
+    apiFetch<PlannerImportDetail>(`/platform/planner-imports/${id}/pages/${pageId}/duplicate`, { method: "POST" }),
+  previewUrl: (id: string, pageId: string) =>
+    `/api/platform/planner-imports/${id}/pages/${pageId}/preview`,
+  thumbnailUrl: (id: string, pageId: string) =>
+    `/api/platform/planner-imports/${id}/pages/${pageId}/thumbnail`,
+  createPlanner: (id: string, data: { name: string; editionId?: string }) =>
+    apiFetch<PlatformPlannerConfig>(`/platform/planner-imports/${id}/create-planner`, {
+      method: "POST", body: JSON.stringify(data),
+    }),
 };
 
 // ── Immutable authored planner interiors ──────────────────────────────────────

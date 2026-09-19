@@ -89,3 +89,4 @@
 - [WorldSmith Context Snapshot repository](worldsmith-context-snapshot-repository.md) — world context uses worlds/** and shared production records use global/context/** in Daybook
 - [WorldSmith daily suggestions](worldsmith-daily-suggestions.md) — Canon gaps and storyline ideas share one persistent 24-hour refresh per world and suggestion kind
 - [WorldSmith post-compile editing](worldsmith-post-compile-editing.md) — edits invalidate only the current compile; immutable runs and artwork preserve prior versions
+- [PDF import fixture validity](pdf-import-fixture-validity.md) — import analysis can accept malformed font resources that make otherwise valid-looking test pages rasterize blank

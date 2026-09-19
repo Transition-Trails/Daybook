@@ -51,6 +51,7 @@ import {
 } from "@/lib/studio/plannerState";
 import { SPINE_BINDING_TYPES, SPINE_FINISHES, spineFinishLabel } from "@/lib/spineCatalog";
 import PlatformTemplateCanvas from "./PlatformTemplateCanvas";
+import PlannerPdfImportFlow from "@/components/studio/PlannerPdfImportFlow";
 
 /** Defensive string extractor — prevents [object Object] when Claude returns JSON or an unexpected shape. */
 function safeText(v: unknown): string {
@@ -757,6 +758,7 @@ export function BuildCenter({
   // ── Creation form state ──────────────────────────────────────────────────────
   const [newName,      setNewName]      = useState("");
   const [newEditionId, setNewEditionId] = useState("");
+  const [importingPdf, setImportingPdf] = useState(false);
 
   // ── Template-backed local state ──────────────────────────────────────────────
   const isLocked = !!template?.generatedAt;
@@ -1035,6 +1037,18 @@ export function BuildCenter({
 
   // ── No template: creation form ────────────────────────────────────────────────
   if (!template) {
+    if (importingPdf) {
+      return (
+        <PlannerPdfImportFlow
+          editions={editions as any[]}
+          onCancel={() => setImportingPdf(false)}
+          onCreateNew={(created) => {
+            setImportingPdf(false);
+            onCreateNew(created);
+          }}
+        />
+      );
+    }
     return (
       <div className="space-y-6 pb-8" style={{ minWidth: 0, maxWidth: 700 }}>
         <div>
@@ -1046,6 +1060,7 @@ export function BuildCenter({
           </p>
         </div>
 
+        <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-[16px] border overflow-hidden">
           <div className="border-l-[3px] border-[#1B2A4A] p-6 space-y-5" style={{ background: PAPER_TINT }}>
             <span className={BUILD_EYEBROW}>Template details</span>
@@ -1095,6 +1110,19 @@ export function BuildCenter({
               Create template
             </button>
           </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setImportingPdf(true)}
+          className="rounded-[16px] border border-dashed p-6 text-left transition-colors hover:border-primary hover:bg-primary/5"
+        >
+          <FileText className="mb-4 h-6 w-6 text-primary" />
+          <p className="font-display text-[15px] font-semibold">Import PDF</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+            Start from finished artwork. Review pages, map sections, and layer Daybook interactions without changing the original PDF.
+          </p>
+          <span className="mt-4 inline-block text-[12px] font-semibold text-primary">Upload and map pages →</span>
+        </button>
         </div>
       </div>
     );

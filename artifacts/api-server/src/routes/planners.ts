@@ -30,6 +30,7 @@ import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
 import { assertEntitled, EntitlementError, type EntitlementContext } from "../lib/entitlement";
 import { buildInteriorPdf } from "../lib/planner-interior-renderer";
+import { buildImportedPlannerPdf } from "../lib/imported-planner-pdf";
 import { getEinkPreset, getEinkRule, refreshEinkCatalog } from "../lib/eink-presets";
 import type { ActorContext } from "../lib/roles";
 import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } from "@workspace/db";
@@ -280,6 +281,13 @@ export async function runGeneration(
     userId: config.userId,
   };
   const widgetSpecs = await resolveWidgetRenderSpecs(style, config.storeId);
+  const importedPlannerProjectId = style.importedPlannerProjectId;
+  if (importedPlannerProjectId && widgetSpecs.length > 0) {
+    throw new Error("Widget composition is not supported by imported planner pages yet");
+  }
+  if (importedPlannerProjectId && shouldGenerateEinkVariant) {
+    throw new Error("Ink-friendly and e-ink transforms are not supported by imported planner pages yet");
+  }
 
   // diagnosticPage flag — read as a cast so PlannerOutput type stays unchanged.
   // Only honoured when callers (admin scripts, test routes) explicitly set it true.
@@ -294,7 +302,9 @@ export async function runGeneration(
       .where(eq(plannerInteriorVersionsTable.id, editionRecord.interiorVersionId));
     if (!interiorVersion) throw new Error(`Pinned planner interior version "${editionRecord.interiorVersionId}" was not found`);
   }
-  const generated = interiorVersion
+  const generated = importedPlannerProjectId
+    ? await buildImportedPlannerPdf(importedPlannerProjectId)
+    : interiorVersion
     ? widgetSpecs.length > 0
       ? (() => { throw new Error("Widget composition is not supported by authored planner interiors"); })()
       : await buildInteriorPdf(interiorVersion.manifest, interiorVersion.assets, {
@@ -319,7 +329,9 @@ export async function runGeneration(
   let inkFriendlyBuffer: Uint8Array | null = null;
   if (shouldGenerateEinkVariant) {
     try {
-      const result = interiorVersion
+      const result = importedPlannerProjectId
+        ? await buildImportedPlannerPdf(importedPlannerProjectId)
+        : interiorVersion
         ? await buildInteriorPdf(interiorVersion.manifest, interiorVersion.assets, {
             themeColors,
             title: editionRecord?.name,

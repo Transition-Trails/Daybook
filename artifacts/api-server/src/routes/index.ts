@@ -40,6 +40,7 @@ import releasesRouter from "./releases";
 import plannerInteriorsRouter from "./planner-interiors";
 import checkoutRouter from "./checkout";
 import shapeRecipesRouter from "./shape-recipes";
+import plannerPdfImportsRouter from "./planner-pdf-imports";
 
 const router: IRouter = Router();
 
@@ -62,6 +63,7 @@ router.use(aiSettingsRouter);
 router.use(storesRouter);
 router.use(ownedCatalogRouter);
 router.use(shapeRecipesRouter);
+router.use(plannerPdfImportsRouter);
 router.use(stickersRouter);
 router.use(platformRouter);
 router.use(platformStickersRouter);

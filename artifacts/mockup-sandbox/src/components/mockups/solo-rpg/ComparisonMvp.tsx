@@ -146,6 +146,45 @@ const lifecycle = [
   ["Future solo session", "Replayable", "ink"],
 ];
 
+const buildPhases = [
+  {
+    id: "foundation",
+    number: "01",
+    label: "Foundation",
+    estimate: "1–2 weeks",
+    title: "Make worlds safe to author",
+    detail: "World contracts, genre seeds, rich prompt schemas, tone boundaries, provenance, and the owner/editor/community scopes.",
+    outputs: "World grammar · permissions · Canon links",
+  },
+  {
+    id: "play",
+    number: "02",
+    label: "First play",
+    estimate: "2–3 weeks",
+    title: "Ship the guided loop",
+    detail: "Prompt Deck, one consequential branch, session resume, private discoveries, and a first playable scene grounded in approved Canon.",
+    outputs: "Prompt Deck · branch · resume state",
+  },
+  {
+    id: "belong",
+    number: "03",
+    label: "Belonging",
+    estimate: "2–4 weeks",
+    title: "Give the world somewhere to gather",
+    detail: "Membership-gated community rooms, editor prompts, readings, moderation, reporting, and explicit submission boundaries.",
+    outputs: "Community room · moderation · review queue",
+  },
+  {
+    id: "media",
+    number: "04",
+    label: "Atmosphere",
+    estimate: "2–4 weeks",
+    title: "Turn grammar into media",
+    detail: "ElevenLabs-ready voice briefs, HeyGen-ready visual briefs, asset suggestions, editor approval, library publishing, and Daybook handoff.",
+    outputs: "Voice/visual kit · library · provenance",
+  },
+];
+
 export default function ComparisonMvp() {
   const [selected, setSelected] = useState("prompt-deck");
   const [selectedWorldId, setSelectedWorldId] = useState("garden");
@@ -165,6 +204,7 @@ export default function ComparisonMvp() {
   const [buildStep, setBuildStep] = useState(1);
   const [communityDraft, setCommunityDraft] = useState("");
   const [communityPosted, setCommunityPosted] = useState(false);
+  const [selectedBuildPhase, setSelectedBuildPhase] = useState("foundation");
 
   const active = useMemo(
     () => concepts.find((concept) => concept.id === selected) ?? concepts[0],
@@ -460,6 +500,58 @@ export default function ComparisonMvp() {
           <div className="mt-4 flex flex-col justify-between gap-3 border border-[#a35d45]/40 bg-[#efe0ce] p-4 sm:flex-row sm:items-center">
             <div className="flex items-start gap-3"><Sparkles className="mt-0.5 shrink-0 text-[#a35d45]" size={17} /><p className="text-sm"><strong className="font-semibold">Recommendation:</strong> Prompt Deck plus one limited branch. <span className="text-[#766d61]">Start with a guided hand, then give the owner one meaningful turn.</span></p></div>
             <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.15em] text-[#9b5941]">{active.name} selected</span>
+          </div>
+        </section>
+
+        <section className="border-b border-[#b7a995]/60 py-9">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#a35d45]">A buildable path</p>
+              <h2 className="mt-2 max-w-3xl font-serif text-3xl tracking-[-0.03em]">Build the trust layer before the spectacle.</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#766d61]">
+                A Replit-sized first release can prove the participation loop in roughly 7–13 focused weeks. The estimate assumes the existing WorldSmith accounts, Canon model, Daybook, and editor tools can be extended rather than rebuilt.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-[#6f665c]">
+              <Clock3 size={15} className="text-[#a35d45]" /> Estimated MVP · 7–13 weeks
+            </div>
+          </div>
+          <div className="mt-5 grid gap-3 lg:grid-cols-[0.8fr_1.35fr_0.85fr]">
+            <div className="border border-[#b7a995] bg-[#f7f0e3] p-3">
+              <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.17em] text-[#71685e]">Build sequence</p>
+              <div className="space-y-1">
+                {buildPhases.map((phase) => (
+                  <button
+                    key={phase.id}
+                    onClick={() => setSelectedBuildPhase(phase.id)}
+                    className={`flex w-full items-center gap-3 border p-3 text-left transition-transform hover:-translate-y-0.5 ${selectedBuildPhase === phase.id ? "border-[#a35d45] bg-[#efe0ce] ring-1 ring-[#a35d45]" : "border-[#d7cbbb] bg-[#f1e8da]"}`}
+                  >
+                    <span className="font-mono text-[10px] text-[#a35d45]">{phase.number}</span>
+                    <span className="text-sm font-semibold text-[#443d35]">{phase.label}</span>
+                    <span className="ml-auto font-mono text-[9px] uppercase tracking-[0.08em] text-[#8b7f70]">{phase.estimate}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {buildPhases.filter((phase) => phase.id === selectedBuildPhase).map((phase) => (
+              <div key={phase.id} className="border border-[#b7a995] bg-[#34372f] p-5 text-[#f4ecdc]">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#d7c6a1]">{phase.number} / {phase.label}</p>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#d59878]">{phase.estimate}</span>
+                </div>
+                <h3 className="mt-6 max-w-xl font-serif text-2xl leading-tight">{phase.title}</h3>
+                <p className="mt-3 text-sm leading-6 text-[#c7c8ba]">{phase.detail}</p>
+                <div className="mt-6 flex items-center gap-2 border-t border-[#687164] pt-4 text-xs text-[#d7c6a1]"><Check size={14} className="text-[#d59878]" /> {phase.outputs}</div>
+              </div>
+            ))}
+            <div className="border border-[#b7a995] bg-[#e4dac9] p-5">
+              <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-[#71685e]">Plan around</p>
+              <div className="mt-5 space-y-4">
+                <div><p className="text-[10px] uppercase tracking-[0.12em] text-[#9b8f7e]">Fastest proof</p><p className="mt-1 text-sm font-semibold text-[#494137]">One world · one room · one branch</p></div>
+                <div className="border-t border-[#cabbab] pt-4"><p className="text-[10px] uppercase tracking-[0.12em] text-[#9b8f7e]">Do not hide</p><p className="mt-1 text-sm leading-5 text-[#5f574e]">Moderation, provenance, permissions, and editorial review are product work—not polish.</p></div>
+                <div className="border-t border-[#cabbab] pt-4"><p className="text-[10px] uppercase tracking-[0.12em] text-[#9b8f7e]">Later expansion</p><p className="mt-1 text-sm leading-5 text-[#5f574e]">More genres, richer branches, generated media, and a public library.</p></div>
+              </div>
+            </div>
           </div>
         </section>
 

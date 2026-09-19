@@ -150,6 +150,7 @@ interface CanonRecord {
   narrativeVisibility?: string | null;
   canonStability?: string | null;
   specRefCount: number;
+  portraitUrl?: string | null;
   notionPageId?: string | null;
   updatedAt: string;
 }
@@ -191,9 +192,20 @@ function EmotionalRegisterBadge({ register }: { register?: string | null }) {
 
 function CanonCard({ record }: { record: CanonRecord }) {
   const [, navigate] = useLocation();
+  const [imageFailed, setImageFailed] = useState(false);
   const type = CANON_TYPES.find(t => t.key === record.canonType);
   const typeColor = type?.color ?? "#9CA3AF";
   const status = STATUS_STYLES[record.status] ?? STATUS_STYLES.proposed;
+  const portraitSrc = record.portraitUrl
+    ? record.portraitUrl.startsWith("/api/storage")
+      ? record.portraitUrl
+      : `/api/storage${record.portraitUrl}`
+    : null;
+  const showPortrait = Boolean(portraitSrc && !imageFailed);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [portraitSrc]);
 
   const ago = (() => {
     const diff = Date.now() - new Date(record.updatedAt).getTime();
@@ -227,6 +239,32 @@ function CanonCard({ record }: { record: CanonRecord }) {
           className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
           style={{ color: "#C87560" }}
         />
+      </div>
+
+      <div
+        className="mb-3 flex h-28 w-full overflow-hidden rounded-lg border"
+        style={{ borderColor: `${typeColor}26`, background: `${typeColor}0D` }}
+      >
+        {showPortrait ? (
+          <img
+            src={portraitSrc!}
+            alt={`${record.name} thumbnail`}
+            className="h-full w-full object-cover"
+            onError={() => setImageFailed(true)}
+          />
+        ) : (
+          <span
+            role="img"
+            aria-label={`Default thumbnail for ${record.name}`}
+            className="flex h-full w-full items-center justify-center"
+          >
+            {type ? (
+              <type.Icon className="h-8 w-8" style={{ color: typeColor }} aria-hidden="true" />
+            ) : (
+              <BookOpen className="h-8 w-8" style={{ color: typeColor }} aria-hidden="true" />
+            )}
+          </span>
+        )}
       </div>
 
       <p className="text-sm font-semibold leading-snug mb-1.5" style={{ color: "#1B2A4A" }}>

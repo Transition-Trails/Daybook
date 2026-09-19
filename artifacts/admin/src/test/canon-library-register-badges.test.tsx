@@ -27,6 +27,7 @@ const { WORLD_ID, records } = vi.hoisted(() => {
       narrativeVisibility: null,
       canonStability: null,
       specRefCount: 0,
+      portraitUrl: "/objects/archive-keeper",
       updatedAt: "2025-01-01T00:00:00Z",
     },
     {
@@ -42,6 +43,7 @@ const { WORLD_ID, records } = vi.hoisted(() => {
       narrativeVisibility: null,
       canonStability: null,
       specRefCount: 0,
+      portraitUrl: null,
       updatedAt: "2025-01-01T00:00:00Z",
     },
     {
@@ -57,6 +59,7 @@ const { WORLD_ID, records } = vi.hoisted(() => {
       narrativeVisibility: null,
       canonStability: null,
       specRefCount: 0,
+      portraitUrl: null,
       updatedAt: "2025-01-01T00:00:00Z",
     },
     {
@@ -72,6 +75,7 @@ const { WORLD_ID, records } = vi.hoisted(() => {
       narrativeVisibility: null,
       canonStability: null,
       specRefCount: 0,
+      portraitUrl: null,
       updatedAt: "2025-01-01T00:00:00Z",
     },
   ];
@@ -151,6 +155,19 @@ describe("CanonLibrary emotional register badges", () => {
     const row = screen.getByText("The Archive Keeper").closest("tr");
     expect(row).not.toBeNull();
     expectConfidenceBadge(row!);
+  });
+
+  it("shows saved portraits and falls back to the default thumbnail when an image fails", async () => {
+    renderLibrary();
+
+    const portrait = await screen.findByRole("img", { name: "The Archive Keeper thumbnail" });
+    expect(portrait).toHaveAttribute("src", "/api/storage/objects/archive-keeper");
+    expect(screen.getByRole("img", { name: "Default thumbnail for Unsettled Record" })).toBeInTheDocument();
+
+    fireEvent.error(portrait);
+
+    expect(screen.getByRole("img", { name: "Default thumbnail for The Archive Keeper" })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "The Archive Keeper thumbnail" })).not.toBeInTheDocument();
   });
 
   it("does not render badges for null, empty, or unrecognized register values in either view", async () => {

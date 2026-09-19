@@ -37,76 +37,104 @@ The precise legal and financial circumstances through which Elias and Clara acqu
 
 ## Visual Notes
 
-The Wychcombe Estate should feel layered, useful, inhabited, and gradually accumulated rather than designed as one immaculate country-house composition.
-
-The principal house is substantial but not aristocratically monumental. Its architecture should reveal several periods of construction through an older central structure, later wings, changes in stone or brickwork, altered windows, service additions, enclosed passages, and an uneven roofline. Avoid the scale of a palace, castle, or ducal estate.
-
-Materials should appear locally plausible and aged by use: warm weathered stone, mellow brick, dark roof tiles or slate, lime mortar, timber doors, iron hardware, old glass, moss, lichen, and restrained climbing plants.
-The estate grounds should transition gradually from domestic and formal spaces near the house into working and agricultural landscapes. Potential elements include terraces, lawns, mature specimen trees, walled gardens, kitchen gardens, orchards, service yards, pasture, woodland edges, drainage channels, and a managed watercourse. Their exact placement must eventually be established through a canonical estate map.
-Glasshouses are essential to the estate’s identity. They should vary in age and construction rather than forming a perfectly matched conservatory complex. Include brick bases, old iron or timber frames, repaired glazing, lean-to growing houses, cold frames, propagation sheds, potting areas, water storage, heating infrastructure, and practical paths between workspaces.
-
-In pre-restoration imagery, the estate is declining but not abandoned. Show slipped tiles, patched masonry, uneven glazing, moss-softened paths, overgrown borders, leaning walls, reused repair materials, and rooms or structures no longer fully in service.
-
-Always include evidence that people still live and work there: smoke from a chimney, a cart in the service yard, stacked pots, tools, cut wood, laundry, freshly disturbed soil, repaired frames, covered plants, or workers engaged in practical tasks.
-
-The estate should never appear frozen in romantic ruin. Avoid heavy Gothic atmosphere, supernatural effects, fantasy architecture, excessive mist, theatrical darkness, or beautiful decay without evidence of labor.
-People should be shown working rather than posing. Gardeners inspect plants and glass, workers repair walls or roofs, deliveries arrive, and household activity appears through small practical details.
-The visual relationship with Wychcombe Village should be present but not overwhelming. A road, distant roofs, delivery cart, walking figure, boundary gate, or path may suggest the constant exchange between estate and village.
-
-The strongest visual principle is accumulated use: every structure and landscape should suggest that it has been built, altered, cultivated, repaired, and understood by more than one generation.
-
-Recommended first illustration:
-Show the estate shortly after Elias arrives, before restoration. Use a broad elevated three-quarter view that establishes the principal house, terraces, working gardens, several differently aged glasshouses, service buildings, mature trees, cultivated land, and the road toward Wychcombe Village. The property should appear worn but inhabited, with visible signs of ongoing work. Elias does not need to dominate the image; the estate itself is the subject.
+Use the approved first-run estate image as the primary visual reference for the Wychcombe Estate.
+The estate is viewed from an elevated three-quarter perspective. The principal house occupies the upper middle ground, while its terraces, working gardens, glasshouses, sheds, walled horticultural areas, and service paths descend toward the viewer. This composition allows the estate to be understood as an interconnected working landscape rather than as an isolated house portrait.
+The house is constructed primarily from warm, weathered local stone. It has steep gables, tall clustered chimneys, mullioned windows, projecting bays, an irregular roofline, and additions from more than one period. The architecture should suggest an older vernacular or Jacobean core that has been enlarged and altered over generations.
+A stone terrace forms the transition between the house and the working gardens. Below it are productive beds, walled enclosures, propagation areas, several differently aged glasshouses, potting sheds, cold frames, water storage, stacked terracotta pots, tools, and service structures.
+The gardens show restrained decline. Paths are worn, beds are uneven, masonry is weathered, vegetation has escaped some boundaries, and portions of the glass structures require repair. Nevertheless, workers remain present, soil is being cultivated, plants are being protected, smoke rises from occupied buildings, and carts continue to use the road.
+The old estate road follows the boundary wall and passes through a practical gate rather than a monumental ceremonial entrance. Wychcombe Village is visible beyond the estate, with accumulated roofs and a church tower establishing that the village is older, independent, and physically close enough for regular exchange.
+Behind the house, mature specimen trees and open pasture demonstrate the larger extent of the property without turning it into an extravagant aristocratic park.
+The color palette is muted and natural: weathered limestone, aged brick, moss and lichen, soft greens, dark timber, oxidized metal, old glass, brown earth, terracotta, and a pale overcast sky.
+The overall mood is quiet, observant, and historically grounded. The estate is declining but alive—worn enough to require difficult decisions, yet active enough to demonstrate why those decisions matter.
 
 ## Canon Notes and Open Questions
 
-PROPOSED CANON — Do not mark Accepted until the major historical and geographic decisions below are resolved.
-Open questions:
-1. What was the property called before it became known as the Wychcombe Estate? Its earlier name may reveal something about its previous owners or original function.
-2. When was the oldest part of the principal house constructed?
+The reference image establishes the estate’s overall visual language. It does not automatically establish every visible object, building, path, or geographic feature as canon.
 
-3. What is its primary architectural character: Tudor/Jacobean core, Georgian house, older vernacular manor, or another form?
+The following remain provisional until named or mapped:
+The precise number, age, and purpose of individual glasshouses
+The circular water tank and other specific water infrastructure
+The exact number and use of service buildings
+The detailed route of roads and paths
+The precise boundary of the estate
+The church or church tower visible near the village
+Individual village buildings
+The location and extent of pasture, woodland, orchards, and agricultural land
+Which structures survive into Margaret Ashcroft’s period
+HISTORICAL QUESTIONS TO RESOLVE
+What was the property called before it became known as the Wychcombe Estate?
+Who owned the property when Elias was commissioned to survey it?
+Why was the estate declining?
+Who commissioned Elias, and what decision was his survey intended to support?
+What was the approximate period of Elias’s arrival?
+Through what legal and financial arrangement did Elias and Clara eventually gain control of the property?
+Was the property purchased, leased, placed in trust, inherited through an unusual arrangement, acquired through partnership, or transferred through another mechanism?
+Which portions of the house and grounds are oldest?
+Which major changes occurred before Elias arrived, and which were made by Elias and Clara?
+Was the estate historically residential, horticultural, agricultural, experimental, or a combination of these functions?
+What event or sequence of events caused its transition from prosperity into decline?
+What records survived from the previous owners, and what important information was missing?
+What was Thomas Vale’s formal position under the previous owners?
+What was Thomas attempting to preserve during the estate’s decline?
+What was lost despite his efforts?
+What did Thomas deliberately stop maintaining so that more important plants, structures, or systems could survive?
+What was Thomas’s relationship with the previous owners and remaining household?
 
-4. Who owned the property when Elias was commissioned to survey it?
+GEOGRAPHIC QUESTIONS TO RESOLVE
+How far is the principal house from the center of Wychcombe Village?
+Which estate entrance is used for household visitors, workers, deliveries, and access to the horticultural grounds?
+Where is Bellamy & Son in relation to the estate and village?
+Where will the Stationery House later stand?
+Does a church or chapel belong to the established village landscape?
+Is there a stream, spring, pond, reservoir, or managed water system on the property?
+What is the approximate acreage of the estate?
+Which land belongs to the estate, and which surrounding fields belong to village families, tenant farmers, or neighboring landowners?
+Are workers’ cottages located within the estate boundary, beside it, or in the village?
+Does the estate contain a stable yard, carriage house, dairy, farm buildings, or other agricultural infrastructure?
+INSTITUTIONAL QUESTIONS TO RESOLVE
+At what point does the property begin to be commonly called the Wychcombe Estate?
+When does Wychcombe become more than a private residence and begin functioning as a preservation undertaking?
+Which activities remain private family work, and which eventually become accessible to workers, researchers, visitors, or villagers?
+How is responsibility for the estate organized under Elias and Clara?
+Does the estate ever acquire a formal charter, trust, foundation, or other governance structure?
+How does the later Stationery House relate legally and operationally to the estate?
+Which parts of the estate become connected to the work of the Curators?
 
-5. Why was the estate declining? Possibilities include debt, disputed inheritance, agricultural losses, prolonged vacancy, reduced staffing, family mismanagement, or several pressures operating together.
+NAMING QUESTIONS
+“Wychcombe Estate” is currently the preferred archive name for this canon record. Determine whether this is:
+Its formal legal name
+The name adopted by Elias and Clara
+The common name used by villagers
+A later historical label
+Or some combination of these
+The estate’s pre-Ashcroft name should not be invented casually. It should connect meaningfully to its earlier owners, geography, architecture, or original function.
 
-6. Who hired Elias, and what decision was his survey intended to support: sale, demolition, redevelopment, division of the land, repair, or another outcome?
+STORY OPPORTUNITIES — NOT YET CANON
+An earlier estate name that survives on deeds, maps, ironwork, stone markers, or old correspondence
+Conflicting village and legal accounts of the estate’s history
+Missing or incomplete ownership records
+A structure absent from the formal plans but remembered by former workers
+A garden feature that Thomas Vale insists is older than the house records claim
+An old glasshouse repaired so many times that no single construction date adequately describes it
+A former owner’s decision that explains both the estate’s decline and the survival of a particular collection
+A route between village and estate that was used routinely but never formally recorded
+A previous surveyor or owner who misunderstood the property because they ignored working and village knowledge
+Documents later preserved at the Stationery House that alter how the estate’s history is understood
 
-7. How did Elias and Clara ultimately gain control of the property? Avoid making Elias casually wealthy enough to purchase a major estate without a credible financial and legal mechanism.
-
-8. Which structures definitively predate the Ashcrofts? Candidates include the principal house, old glasshouses, walled garden, workers’ cottages, service buildings, stable or carriage buildings, water infrastructure, and sections of the boundary wall.
-
-9. What did Elias and Clara preserve, restore, repurpose, remove, or add?
-
-10. Where did Thomas Vale live, what was his formal position under the previous owners, and what was his relationship with them?
-
-11. What was Thomas trying hardest to save during the estate’s decline? What was lost despite his efforts, and what did he deliberately allow to disappear?
-
-12. Establish the estate’s geography in relation to Wychcombe Village, Bellamy & Son, the Stationery House, surrounding roads, water, farmland, and neighboring properties.
-
-13. Determine the estate’s approximate acreage and the scale of its household, gardens, agricultural operations, and workforce during the pre-Ashcroft period.
-
-14. Decide whether a managed stream, pond, spring, or other water feature belongs to the estate. Do not establish one solely because it would look attractive in an illustration.
-
-15. Reconcile the estate chronology with the Stationery House and its unresolved 1884 date.
-
-16. Determine whether “Wychcombe Estate” is the formal institutional name, the common local name, or simply the clearest archive label.
-
-Canon guardrails:
-1. Wychcombe Village existed before the Ashcroft estate identity.
-2. Elias did not found or name the village.
-3. The estate had a substantial history before Elias and Clara arrived.
-4. Thomas Vale worked on the property before Elias and connects its earlier history to the Ashcroft period.
-5. Elias originally came to survey the declining property as an architect.
-6. The estate’s old glasshouses led Elias to Bellamy & Son and Clara Bellamy.
-7. Elias and Clara developed Wychcombe together.
-8. The Ashcrofts did not rescue an empty property or impose history upon a blank landscape.
-9. The estate’s meaning comes from accumulated evidence, ordinary labor, adaptation, and stewardship.
-10. No supernatural element is presently established as part of the estate’s founding history.
+CANON GUARDRAILS
+Do not describe Elias as the founder of Wychcombe Village.
+Do not treat the village as an extension or dependent settlement of the estate.
+Do not portray the Ashcrofts as rescuing helpless villagers or bringing history to a place that had none.
+Do not make Elias independently wealthy enough to purchase a major estate casually.
+Do not portray the property as empty or abandoned when Elias arrives.
+Do not make every older feature mysterious, secret, or narratively significant.
+Do not introduce supernatural explanations into the estate’s founding history without a deliberate canon decision.
+Do not treat the reference image as a literal map.
+Do not assign exact dates, structure names, or previous owners solely from generated visual details.
+Do not restore the estate into flawless grandeur. Its later identity should retain evidence of age, repair, adaptation, and continuing work.
 
 ---
 Generated from Daybook
 Record ID: ff99a550-0238-4f5b-ace9-c7e0ab4dfe92
-Last Updated: 2026-09-19T16:29:13.180Z
-Snapshot Generated: 2026-09-19T16:29:13.389Z
+Last Updated: 2026-09-19T16:40:43.289Z
+Snapshot Generated: 2026-09-19T16:40:43.585Z

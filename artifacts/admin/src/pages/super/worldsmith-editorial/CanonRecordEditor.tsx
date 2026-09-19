@@ -14,6 +14,7 @@ import {
   editorialRichTextToPlainText,
 } from "@/components/EditorialRichText";
 import { FontLibraryPicker } from "@/components/FontLibraryPicker";
+import { CanonRecordConnections } from "@/components/editorial/CanonRecordConnections";
 
 const INK = "#1B2A4A";
 const CLAY = "#C87560";
@@ -761,6 +762,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               </>
             )}
             {section("notes", "notes", "Editorial notes", "Flags, open questions, and cross-reference notes for the team.", form.notes, "Capture working notes that belong with this record…", 140)}
+            {!isNew && record && worldId && (
+              <CanonRecordConnections recordId={record.id} worldId={worldId} />
+            )}
           </div>
 
           <aside className="space-y-5">

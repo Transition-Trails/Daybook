@@ -50,7 +50,7 @@ describe("CanonRecordEditor", () => {
     expect(screen.getByDisplayValue("The Ashcroft Ledger")).toBeInTheDocument();
     expect(screen.getByText(/^Selected:/)).toHaveTextContent("Selected: Object");
     expect(screen.getAllByRole("textbox").some(field => field.textContent === "A weathered diary with family secrets.")).toBe(true);
-    expect(screen.getByText("Record image")).toBeInTheDocument();
+    expect(screen.getByText("Canon images")).toBeInTheDocument();
   });
 
   it("persists image removal when an existing record is saved", async () => {
@@ -71,7 +71,7 @@ describe("CanonRecordEditor", () => {
 
     renderEditor("canon-1");
     await waitFor(() => expect(screen.getByRole("heading", { name: /The Ashcroft Ledger — Canon Record/ })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Remove image 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove primary Canon portrait" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
@@ -105,8 +105,8 @@ describe("CanonRecordEditor", () => {
     });
 
     renderEditor("canon-1");
-    await waitFor(() => expect(screen.getByAltText("Canon record reference 2")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Remove image 1" }));
+    await waitFor(() => expect(screen.getByAltText("Additional Canon image 1")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Remove primary Canon portrait" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
@@ -114,6 +114,46 @@ describe("CanonRecordEditor", () => {
       expect.objectContaining({
         method: "PATCH",
         body: expect.stringContaining('"image_urls":["/objects/frederick-study"]'),
+      }),
+    ));
+  });
+
+  it("saves names and descriptions for additional Canon images", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.includes("/canon-records/canon-1")) {
+        const submitted = init?.method === "PATCH" ? JSON.parse(String(init.body)) : null;
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-1", worldId: "world-wychcombe", name: "Frederick Ashcroft",
+            status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
+            visualNotes: "", notes: "", portraitUrl: "/objects/frederick-primary",
+            imageUrls: ["/objects/frederick-primary", "/objects/frederick-study"],
+            imageGallery: submitted?.image_gallery ?? [
+              { url: "/objects/frederick-primary", name: "Primary Canon portrait", description: "" },
+              { url: "/objects/frederick-study", name: "Portrait study", description: "Early reference." },
+            ],
+            specRefCount: 0, createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z",
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor("canon-1");
+    const nameField = await screen.findByDisplayValue("Portrait study");
+    const descriptionField = screen.getByDisplayValue("Early reference.");
+    fireEvent.change(nameField, { target: { value: "Winter travel attire" } });
+    fireEvent.change(descriptionField, { target: { value: "Frederick preparing to cross the northern moor." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/canon-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: expect.stringContaining(
+          '"image_gallery":[{"url":"/objects/frederick-primary","name":"Primary Canon portrait","description":""},{"url":"/objects/frederick-study","name":"Winter travel attire","description":"Frederick preparing to cross the northern moor."}]',
+        ),
       }),
     ));
   });

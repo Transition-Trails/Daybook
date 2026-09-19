@@ -148,7 +148,7 @@ describe("CanonLibrary emotional register badges", () => {
 
     const card = screen.getByText("The Archive Keeper").closest('[role="button"]');
     expect(card).not.toBeNull();
-    expectConfidenceBadge(card!);
+    expectConfidenceBadge(card as HTMLElement);
 
     fireEvent.click(screen.getByRole("button", { name: "Show table view" }));
 
@@ -244,7 +244,7 @@ describe("CanonLibrary emotional register badges", () => {
     for (const name of ["Unsettled Record", "Unlabeled Record", "Legacy Register Record"]) {
       const card = screen.getByText(name).closest('[role="button"]');
       expect(card).not.toBeNull();
-      expect(within(card!).queryByText(/null|unrecognized/i)).not.toBeInTheDocument();
+      expect(within(card as HTMLElement).queryByText(/null|unrecognized/i)).not.toBeInTheDocument();
       const badgeGroup = card!.firstElementChild?.firstElementChild;
       expect(badgeGroup).not.toBeNull();
       expect(badgeGroup!.childElementCount).toBe(1);

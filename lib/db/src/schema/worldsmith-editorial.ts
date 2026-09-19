@@ -95,6 +95,12 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   portraitUrl: text("portrait_url"),
   // Ordered gallery. portraitUrl mirrors the first entry for legacy consumers.
   imageUrls: jsonb("image_urls").$type<string[]>().notNull().default([]),
+  // Structured gallery. The first entry is the primary Canon portrait.
+  imageGallery: jsonb("image_gallery").$type<Array<{
+    url: string;
+    name: string;
+    description: string;
+  }>>().notNull().default([]),
   // Rich editorial notes; markdown-formatted free text
   notes: text("notes").notNull().default(""),
   notionPageId: text("notion_page_id"),

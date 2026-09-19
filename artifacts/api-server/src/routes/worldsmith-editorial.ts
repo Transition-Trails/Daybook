@@ -626,17 +626,55 @@ router.get("/v1/editorial/canon-records", async (req: Request, res: Response) =>
   }
 });
 
+type CanonImageGalleryEntry = {
+  url: string;
+  name: string;
+  description: string;
+};
+
+class CanonImageGalleryValidationError extends Error {}
+
+function normaliseCanonImageGallery(
+  gallery: unknown,
+  urls: unknown,
+  portraitUrl: unknown,
+): CanonImageGalleryEntry[] {
+  if (gallery !== undefined) {
+    if (!Array.isArray(gallery)) throw new CanonImageGalleryValidationError("image_gallery must be an array");
+    return gallery.flatMap((value): CanonImageGalleryEntry[] => {
+      if (!value || typeof value !== "object") return [];
+      const candidate = value as Record<string, unknown>;
+      const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
+      if (!url) return [];
+      return [{
+        url,
+        name: typeof candidate.name === "string" ? candidate.name.trim().slice(0, 200) : "",
+        description: typeof candidate.description === "string" ? candidate.description.trim().slice(0, 2000) : "",
+      }];
+    });
+  }
+  const legacyUrls = Array.isArray(urls)
+    ? urls.filter((value: unknown): value is string => typeof value === "string" && value.trim().length > 0)
+    : typeof portraitUrl === "string" && portraitUrl.trim() ? [portraitUrl] : [];
+  return legacyUrls.map((url, index) => ({
+    url,
+    name: index === 0 ? "Primary Canon portrait" : "",
+    description: "",
+  }));
+}
+
 router.post("/v1/editorial/canon-records", async (req: Request, res: Response) => {
   const {
     world_id, name, canon_type, narrative_details, historical_context, visual_notes,
     canon_guardrails, relationship_details, character_direction, confirmed_canon,
-    notes, portrait_url, image_urls, typography,
+    notes, portrait_url, image_urls, image_gallery, typography,
   } = req.body;
   if (!world_id || !name?.trim()) {
     res.status(400).json({ error: "world_id and name are required" });
     return;
   }
   try {
+    const resolvedImages = normaliseCanonImageGallery(image_gallery, image_urls, portrait_url);
     const resolvedTypography = typography === undefined ? undefined : await resolveTypographyChoices(typography);
     const id = crypto.randomUUID();
     const [row] = await db
@@ -655,15 +693,18 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
         confirmedCanon: sanitizeEditorialRichText(confirmed_canon ?? ""),
         ...(resolvedTypography !== undefined ? { typography: resolvedTypography } : {}),
         notes: sanitizeEditorialRichText(notes ?? ""),
-        portraitUrl: portrait_url ?? null,
-        imageUrls: Array.isArray(image_urls)
-          ? image_urls.filter((value: unknown): value is string => typeof value === "string" && value.length > 0)
-          : portrait_url ? [portrait_url] : [],
+        portraitUrl: resolvedImages[0]?.url ?? null,
+        imageUrls: resolvedImages.map(image => image.url),
+        imageGallery: resolvedImages,
         createdBy: (req.user as any)?.id,
       })
       .returning();
     res.status(201).json({ canon_record: row });
   } catch (err) {
+    if (err instanceof CanonImageGalleryValidationError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
     if (err instanceof TypographyValidationError) {
       res.status(400).json({ error: err.message, code: "INVALID_TYPOGRAPHY" });
       return;
@@ -1620,7 +1661,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     emotional_register, sensory_clauses, register_locked,
     narrative_visibility, temporal_scope, canon_stability,
     from_entity_id, to_entity_id, emotional_valence,
-    portrait_url, image_urls, notes,
+    portrait_url, image_urls, image_gallery, notes,
     typography,
   } = req.body;
   // Validate emotional_register if provided
@@ -1674,6 +1715,9 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     }
   }
   try {
+    const resolvedImages = image_gallery !== undefined || image_urls !== undefined
+      ? normaliseCanonImageGallery(image_gallery, image_urls, portrait_url)
+      : undefined;
     const resolvedTypography = typography === undefined ? undefined : await resolveTypographyChoices(typography);
     const [row] = await db
       .update(wsCanonRecordsTable)
@@ -1697,10 +1741,11 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(from_entity_id !== undefined ? { fromEntityId: from_entity_id } : {}),
         ...(to_entity_id !== undefined ? { toEntityId: to_entity_id } : {}),
         ...(emotional_valence !== undefined ? { emotionalValence: emotional_valence } : {}),
-        ...(image_urls !== undefined && Array.isArray(image_urls)
+        ...(resolvedImages !== undefined
           ? {
-              imageUrls: image_urls.filter((value: unknown): value is string => typeof value === "string" && value.length > 0),
-              portraitUrl: image_urls.find((value: unknown): value is string => typeof value === "string" && value.length > 0) ?? null,
+              imageUrls: resolvedImages.map(image => image.url),
+              imageGallery: resolvedImages,
+              portraitUrl: resolvedImages[0]?.url ?? null,
             }
           : portrait_url !== undefined ? { portraitUrl: portrait_url } : {}),
         ...(notes !== undefined ? { notes: sanitizeEditorialRichText(notes) } : {}),
@@ -1753,6 +1798,10 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     });
     res.json({ canon_record: row, context_snapshot_status: contextSnapshotStatus });
   } catch (err) {
+    if (err instanceof CanonImageGalleryValidationError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
     if (err instanceof TypographyValidationError) {
       res.status(400).json({ error: err.message, code: "INVALID_TYPOGRAPHY" });
       return;

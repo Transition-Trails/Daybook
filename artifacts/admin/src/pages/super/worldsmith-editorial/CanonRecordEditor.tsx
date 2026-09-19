@@ -66,10 +66,17 @@ interface CanonRecord {
   typography?: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   portraitUrl?: string | null;
   imageUrls?: string[];
+  imageGallery?: CanonImage[];
   notionPageId?: string | null;
   specRefCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+interface CanonImage {
+  url: string;
+  name: string;
+  description: string;
 }
 
 interface LinkedSpec {
@@ -102,7 +109,7 @@ interface FormState {
   confirmedCanon: string;
   notes: string;
   typography: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
-  imageUrls: string[];
+  images: CanonImage[];
 }
 
 function createEmptyForm(search: string): FormState {
@@ -119,62 +126,122 @@ function createEmptyForm(search: string): FormState {
     confirmedCanon: "",
     notes: "",
     typography: [],
-    imageUrls: [],
+    images: [],
   };
 }
 
 function ImageField({
-  imageUrls,
+  images,
   uploading,
   generating,
   onUpload,
   onGenerate,
   onRemove,
+  onChangeMetadata,
 }: {
-  imageUrls: string[];
+  images: CanonImage[];
   uploading: boolean;
   generating: boolean;
   onUpload: (file: File) => Promise<boolean>;
   onGenerate: () => void;
   onRemove: (imageUrl: string) => void;
+  onChangeMetadata: (imageUrl: string, changes: Pick<CanonImage, "name" | "description">) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const hasImages = imageUrls.length > 0;
+  const hasImages = images.length > 0;
+  const primary = images[0];
+  const additional = images.slice(1);
   return (
     <section className="rounded-2xl border p-5" style={{ background: "white", borderColor: BORDER }}>
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
-          <h2 className="text-sm font-semibold" style={{ color: INK }}>Record image</h2>
+          <h2 className="text-sm font-semibold" style={{ color: INK }}>Canon images</h2>
           <p className="mt-1 text-xs leading-relaxed" style={{ color: "#667085" }}>
-            A portrait or visual reference for this canon entry.
+            Capture one primary Canon portrait, then add named supporting images with descriptions.
           </p>
         </div>
-        <span className="text-[11px] font-semibold" style={{ color: "#7C6F62" }}>
-          {imageUrls.length} {imageUrls.length === 1 ? "image" : "images"}
+        <span className="text-[11px] font-semibold" style={{ color: "var(--admin-muted)" }}>
+          {images.length} {images.length === 1 ? "image" : "images"}
         </span>
       </div>
       {hasImages ? (
-        <div className="grid grid-cols-2 gap-2">
-          {imageUrls.map((imageUrl, index) => (
-            <div key={imageUrl} className="relative aspect-square overflow-hidden rounded-xl border" style={{ borderColor: "#D7CDC0", background: "var(--admin-card-subtle)" }}>
-              <img src={`/api/storage${imageUrl}`} alt={`Canon record reference ${index + 1}`} className="h-full w-full object-contain" />
+        <div className="space-y-5">
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: INK }}>Primary Canon portrait</h3>
+                <p className="mt-0.5 text-[11px]" style={{ color: "var(--admin-muted)" }}>The authoritative image used across the Canon Library.</p>
+              </div>
               <button
                 type="button"
-                onClick={() => onRemove(imageUrl)}
+                onClick={() => onRemove(primary!.url)}
                 disabled={uploading || generating}
-                aria-label={`Remove image ${index + 1}`}
-                className="absolute right-2 top-2 rounded-full bg-white/95 px-2 py-1 text-[10px] font-semibold shadow-sm disabled:opacity-60"
-                style={{ color: "#B42318" }}
+                aria-label="Remove primary Canon portrait"
+                className="rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold disabled:opacity-60"
+                style={{ color: "var(--destructive)", borderColor: BORDER }}
               >
                 Remove
               </button>
-              {index === 0 && (
-                <span className="absolute bottom-2 left-2 rounded-full bg-[#1B2A4A]/90 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-white">
-                  Primary
-                </span>
-              )}
             </div>
-          ))}
+            <div className="relative aspect-[4/3] overflow-hidden rounded-xl border" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
+              <img src={`/api/storage${primary!.url}`} alt="Primary Canon portrait" className="h-full w-full object-contain" />
+              <span className="absolute bottom-2 left-2 rounded-full bg-[var(--admin-ink)] px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-white">
+                Primary
+              </span>
+            </div>
+          </div>
+
+          {additional.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: INK }}>Additional images</h3>
+              <div className="space-y-3">
+                {additional.map((image, index) => (
+                  <div key={image.url} className="rounded-xl border p-3" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
+                    <div className="grid gap-3 sm:grid-cols-[110px_minmax(0,1fr)]">
+                      <div className="aspect-square overflow-hidden rounded-lg border bg-white" style={{ borderColor: BORDER }}>
+                        <img src={`/api/storage${image.url}`} alt={image.name || `Additional Canon image ${index + 1}`} className="h-full w-full object-contain" />
+                      </div>
+                      <div className="min-w-0 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <label htmlFor={`canon-image-name-${index}`} className="text-[11px] font-semibold" style={{ color: INK }}>Image name</label>
+                          <button
+                            type="button"
+                            onClick={() => onRemove(image.url)}
+                            disabled={uploading || generating}
+                            aria-label={`Remove additional image ${index + 1}`}
+                            className="text-[10px] font-semibold disabled:opacity-60"
+                            style={{ color: "var(--destructive)" }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <input
+                          id={`canon-image-name-${index}`}
+                          value={image.name}
+                          maxLength={200}
+                          onChange={event => onChangeMetadata(image.url, { name: event.target.value, description: image.description })}
+                          placeholder="e.g. Winter travel attire"
+                          className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                          style={{ borderColor: BORDER, color: INK }}
+                        />
+                        <label htmlFor={`canon-image-description-${index}`} className="block text-[11px] font-semibold" style={{ color: INK }}>Description</label>
+                        <textarea
+                          id={`canon-image-description-${index}`}
+                          value={image.description}
+                          maxLength={2000}
+                          rows={3}
+                          onChange={event => onChangeMetadata(image.url, { name: image.name, description: event.target.value })}
+                          placeholder="Explain what this image captures and when it should be used."
+                          className="w-full resize-y rounded-lg border bg-white px-2.5 py-2 text-xs leading-relaxed outline-none"
+                          style={{ borderColor: BORDER, color: INK }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <button
@@ -186,7 +253,7 @@ function ImageField({
         >
           <span className="flex w-full flex-col items-center justify-center gap-2 px-5 py-7">
             {uploading || generating ? <Loader2 className="h-6 w-6 animate-spin" style={{ color: CLAY }} /> : <ImageIcon className="h-6 w-6" style={{ color: "#A49687" }} />}
-            <span className="text-xs font-semibold" style={{ color: INK }}>{generating ? "Generating reference…" : uploading ? "Uploading image…" : "Add an image"}</span>
+            <span className="text-xs font-semibold" style={{ color: INK }}>{generating ? "Generating portrait…" : uploading ? "Uploading portrait…" : "Add the primary Canon portrait"}</span>
             <span className="text-[11px]" style={{ color: "#7C6F62" }}>JPEG, PNG, WebP, GIF, or AVIF · up to 8 MB</span>
           </span>
         </button>
@@ -194,7 +261,7 @@ function ImageField({
       {hasImages && (
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
           <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading || generating} className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: CLAY }}>
-            <Upload className="h-3.5 w-3.5" /> Add images
+            <Upload className="h-3.5 w-3.5" /> Add supporting images
           </button>
           <button type="button" onClick={onGenerate} disabled={uploading || generating} className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: INK }}>
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
@@ -266,10 +333,18 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   useEffect(() => {
     if (record && initializedRecordRef.current !== record.id) {
       initializedRecordRef.current = record.id;
-      const savedImages = record.imageUrls?.length
-        ? record.imageUrls
-        : record.portraitUrl ? [record.portraitUrl] : [];
-      initialImagesRef.current = savedImages;
+      const savedImages: CanonImage[] = record.imageGallery?.length
+        ? record.imageGallery
+        : record.imageUrls?.length
+          ? record.imageUrls.map((url, index) => ({
+              url,
+              name: index === 0 ? "Primary Canon portrait" : "",
+              description: "",
+            }))
+          : record.portraitUrl
+            ? [{ url: record.portraitUrl, name: "Primary Canon portrait", description: "" }]
+            : [];
+      initialImagesRef.current = savedImages.map(image => image.url);
       setForm({
         name: record.name,
         canonType: record.canonType ?? "location",
@@ -282,7 +357,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         confirmedCanon: record.confirmedCanon ?? "",
         notes: record.notes ?? "",
         typography: record.typography ?? [],
-        imageUrls: savedImages,
+        images: savedImages,
       });
     }
   }, [record]);
@@ -351,8 +426,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         confirmed_canon: form.confirmedCanon,
         notes: form.notes,
         typography: form.typography,
-        portrait_url: form.imageUrls[0] ?? null,
-        image_urls: form.imageUrls,
+        portrait_url: form.images[0]?.url ?? null,
+        image_urls: form.images.map(image => image.url),
+        image_gallery: form.images,
       };
       if (isNew) {
         if (!worldId) throw new Error("Choose a world before creating a record");
@@ -367,7 +443,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       });
     },
     onSuccess: async result => {
-      const removedImages = initialImagesRef.current.filter(imageUrl => !form.imageUrls.includes(imageUrl));
+      const currentImageUrls = form.images.map(image => image.url);
+      const removedImages = initialImagesRef.current.filter(imageUrl => !currentImageUrls.includes(imageUrl));
       await Promise.all(removedImages.map(imageUrl => storageApi.deleteObject(imageUrl).catch(() => undefined)));
       provisionalPortraitsRef.current.clear();
       queryClient.setQueryData(["editorial-canon-record", result.canon_record.id], { canon_record: result.canon_record });
@@ -375,9 +452,11 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
       });
       queryClient.invalidateQueries({ queryKey: ["editorial-canon-context-snapshot", result.canon_record.id] });
-      initialImagesRef.current = result.canon_record.imageUrls?.length
-        ? result.canon_record.imageUrls
-        : result.canon_record.portraitUrl ? [result.canon_record.portraitUrl] : [];
+      initialImagesRef.current = result.canon_record.imageGallery?.length
+        ? result.canon_record.imageGallery.map(image => image.url)
+        : result.canon_record.imageUrls?.length
+          ? result.canon_record.imageUrls
+          : result.canon_record.portraitUrl ? [result.canon_record.portraitUrl] : [];
       toast({ title: isNew ? "Canon record created" : "Canon record saved" });
       if (isNew) {
         navigate(`/super/worldsmith/editorial/canon/${result.canon_record.id}`);
@@ -386,7 +465,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     onError: async (error: Error) => {
       await Promise.all([...provisionalPortraitsRef.current].map(path => storageApi.deleteObject(path).catch(() => undefined)));
       provisionalPortraitsRef.current.clear();
-      setForm(current => ({ ...current, imageUrls: initialImagesRef.current }));
+      setForm(current => ({
+        ...current,
+        images: current.images.filter(image => initialImagesRef.current.includes(image.url)),
+      }));
       toast({ title: isNew ? "Could not create canon record" : "Could not save canon record", description: error.message, variant: "destructive" });
     },
   });
@@ -410,7 +492,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     mutationFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}`, { method: "DELETE" }),
     onSuccess: async () => {
       const objectsToRemove = new Set([
-        ...(record?.imageUrls?.length ? record.imageUrls : record?.portraitUrl ? [record.portraitUrl] : []),
+        ...(record?.imageGallery?.length
+          ? record.imageGallery.map(image => image.url)
+          : record?.imageUrls?.length ? record.imageUrls : record?.portraitUrl ? [record.portraitUrl] : []),
         ...provisionalPortraitsRef.current,
       ]);
       await Promise.all([...objectsToRemove].map(path => storageApi.deleteObject(path).catch(() => undefined)));
@@ -443,7 +527,19 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       const response = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
       if (!response.ok) throw new Error("The image upload was rejected");
       provisionalPortraitsRef.current.add(objectPath);
-      setForm(current => ({ ...current, imageUrls: [...current.imageUrls, objectPath] }));
+      setForm(current => ({
+        ...current,
+        images: [
+          ...current.images,
+          {
+            url: objectPath,
+            name: current.images.length === 0
+              ? "Primary Canon portrait"
+              : file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim(),
+            description: "",
+          },
+        ],
+      }));
       return true;
     } catch (error) {
       toast({ title: "Image upload failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -507,7 +603,16 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       provisionalPortraitsRef.current.delete(imageUrl);
       await storageApi.deleteObject(imageUrl).catch(() => undefined);
     }
-    setField("imageUrls", form.imageUrls.filter(value => value !== imageUrl));
+    setField("images", form.images.filter(image => image.url !== imageUrl));
+  };
+
+  const updateImageMetadata = (
+    imageUrl: string,
+    changes: Pick<CanonImage, "name" | "description">,
+  ) => {
+    setField("images", form.images.map(image => (
+      image.url === imageUrl ? { ...image, ...changes } : image
+    )));
   };
 
   if (isLoading) {
@@ -660,12 +765,13 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
 
           <aside className="space-y-5">
             <ImageField
-              imageUrls={form.imageUrls}
+              images={form.images}
               uploading={imageUploading}
               generating={imageGenerating}
               onUpload={handleImageUpload}
               onGenerate={generateImage}
               onRemove={removeImage}
+              onChangeMetadata={updateImageMetadata}
             />
 
             {!isNew && record && (

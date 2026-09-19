@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   Bold,
   ChevronDown,
@@ -16,15 +16,35 @@ import {
 
 export function EditorialRichTextToolbar({
   editorRef,
+  selectionRef,
   onChange,
 }: {
   editorRef: React.RefObject<HTMLDivElement | null>;
+  selectionRef: React.MutableRefObject<Range | null>;
   onChange: (value: string) => void;
 }) {
   const run = (command: string, value?: string) => {
-    editorRef.current?.focus();
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    editor.focus({ preventScroll: true });
+    const selection = window.getSelection();
+    if (selection) {
+      selection.removeAllRanges();
+      const savedRange = selectionRef.current;
+      if (savedRange && editor.contains(savedRange.commonAncestorContainer)) {
+        selection.addRange(savedRange);
+      } else {
+        const fallbackRange = document.createRange();
+        fallbackRange.selectNodeContents(editor);
+        fallbackRange.collapse(false);
+        selection.addRange(fallbackRange);
+      }
+    }
+
     document.execCommand(command, false, value);
-    if (editorRef.current) onChange(editorRef.current.innerHTML);
+    if (selection?.rangeCount) selectionRef.current = selection.getRangeAt(0).cloneRange();
+    onChange(editor.innerHTML);
   };
   const button = (label: string, icon: React.ReactNode, command: string, value?: string) => (
     <button
@@ -34,6 +54,12 @@ export function EditorialRichTextToolbar({
       onMouseDown={event => {
         event.preventDefault();
         run(command, value);
+      }}
+      onKeyDown={event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          run(command, value);
+        }
       }}
       className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
     >
@@ -78,7 +104,17 @@ export function EditorialRichTextField({
   readOnly?: boolean;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const selectionRef = useRef<Range | null>(null);
   const focusedRef = useRef(false);
+  const rememberSelection = useCallback(() => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      selectionRef.current = range.cloneRange();
+    }
+  }, []);
 
   useEffect(() => {
     if (!focusedRef.current && editorRef.current) {
@@ -89,7 +125,7 @@ export function EditorialRichTextField({
 
   return (
     <div className={`overflow-hidden rounded-xl border border-border bg-background transition-colors focus-within:border-[#1B2A4A]/40 focus-within:ring-1 focus-within:ring-[#1B2A4A]/10 ${className}`}>
-      {!readOnly && <EditorialRichTextToolbar editorRef={editorRef} onChange={onChange} />}
+      {!readOnly && <EditorialRichTextToolbar editorRef={editorRef} selectionRef={selectionRef} onChange={onChange} />}
       <div
         ref={editorRef}
         role="textbox"
@@ -108,7 +144,11 @@ export function EditorialRichTextField({
         }}
         onInput={event => {
           if (!readOnly) onChange((event.currentTarget as HTMLDivElement).innerHTML);
+          rememberSelection();
         }}
+        onMouseUp={rememberSelection}
+        onKeyUp={rememberSelection}
+        onSelect={rememberSelection}
         data-placeholder={placeholder}
         className={`px-4 py-3 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:pl-1 ${readOnly ? "cursor-text select-text" : ""}`}
         style={{

@@ -27,6 +27,7 @@ import {
   Play,
   Pause,
   Image,
+  Link2,
   WandSparkles,
   X,
 } from "lucide-react";
@@ -91,11 +92,13 @@ const concepts: Concept[] = [
 ];
 
 const canon = [
-  { label: "Elowen Vale", kind: "Character", mark: "EV" },
-  { label: "The Glasshouse at Wychcombe", kind: "Location", mark: "GW" },
-  { label: "The Brass Seed Key", kind: "Object", mark: "BK" },
-  { label: "The Garden Remembers", kind: "Story movement", mark: "GR" },
+  { id: "elowen", label: "Elowen Vale", kind: "Character", mark: "EV" },
+  { id: "glasshouse", label: "The Glasshouse at Wychcombe", kind: "Location", mark: "GW" },
+  { id: "seed-key", label: "The Brass Seed Key", kind: "Object", mark: "BK" },
+  { id: "garden-remembers", label: "The Garden Remembers", kind: "Story movement", mark: "GR" },
 ];
+
+const relationshipTypes = ["protects", "keeps a secret from", "is drawn to", "caused"];
 
 const worlds = [
   { id: "garden", label: "Victorian Garden Journal", shortLabel: "The Garden", era: "1890 · botanical mystery", description: "A locked glasshouse, unfinished letters, and a key that remembers.", accent: "#a35d45", swatch: "linear-gradient(135deg, #d9c4a6 0%, #778a70 100%)", signal: "The key hums near rosemary.", voice: "A close, observant voice that notices what the room refuses to say.", visual: "Pressed leaves, tarnished brass, rain on glass." },
@@ -204,6 +207,12 @@ export default function ComparisonMvp() {
   const [buildStep, setBuildStep] = useState(1);
   const [communityDraft, setCommunityDraft] = useState("");
   const [communityPosted, setCommunityPosted] = useState(false);
+  const [relationshipSource, setRelationshipSource] = useState("elowen");
+  const [relationshipTarget, setRelationshipTarget] = useState("seed-key");
+  const [relationshipType, setRelationshipType] = useState("protects");
+  const [relationshipDescription, setRelationshipDescription] = useState("");
+  const [relationshipPopoverOpen, setRelationshipPopoverOpen] = useState(false);
+  const [createdRelationship, setCreatedRelationship] = useState<{ source: string; target: string; type: string; description: string } | null>(null);
   const [selectedBuildPhase, setSelectedBuildPhase] = useState("foundation");
 
   const active = useMemo(
@@ -286,16 +295,73 @@ export default function ComparisonMvp() {
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               {canon.map((item) => (
-                <div key={item.label} className="flex items-center gap-3 border-t border-[#d7cbbb] py-3">
+                <div key={item.id} className="group flex items-center gap-3 border-t border-[#d7cbbb] py-3">
                   <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#dfe2d1] font-mono text-[10px] text-[#55604d]">{item.mark}</span>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">{item.label}</p>
                     <p className="text-[11px] text-[#8d8172]">{item.kind} · <span className="text-[#6b7c60]">Foundation Canon</span></p>
                   </div>
                   <LockKeyhole size={13} className="ml-auto shrink-0 text-[#9b8f7e]" />
+                  <button
+                    onClick={() => { setRelationshipSource(item.id); if (relationshipTarget === item.id) setRelationshipTarget(canon.find((record) => record.id !== item.id)?.id ?? "seed-key"); setRelationshipPopoverOpen(true); }}
+                    className="grid h-7 w-7 shrink-0 place-items-center border border-transparent text-[#a35d45] opacity-70 transition-opacity hover:border-[#c9b7a3] hover:bg-[#efe0ce] hover:opacity-100"
+                    aria-label={`Create relationship from ${item.label}`}
+                    title="Create relationship"
+                  >
+                    <Link2 size={14} />
+                  </button>
                 </div>
               ))}
             </div>
+            <div className="mt-5 border-t border-[#d7cbbb] pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#71685e]"><Link2 size={13} className="text-[#a35d45]" /> Canon relationships</p>
+                  <p className="mt-1 text-xs text-[#8b7f70]">Connect records once; maintain the detail in one place.</p>
+                </div>
+                <button onClick={() => setRelationshipPopoverOpen(true)} className="flex items-center gap-1.5 border border-[#a35d45] bg-[#f1e3d2] px-3 py-2 text-[10px] font-bold text-[#9a553d] hover:bg-[#ead7c2]"><Plus size={13} /> Add relationship</button>
+              </div>
+              {createdRelationship && (
+                <div className="mt-3 flex items-start gap-2 border border-[#b9c2aa] bg-[#e7eadb] p-3 text-xs text-[#59654f]">
+                  <Check size={14} className="mt-0.5 shrink-0" />
+                  <span><strong>{canon.find((item) => item.id === createdRelationship.source)?.label}</strong> {createdRelationship.type} <strong>{canon.find((item) => item.id === createdRelationship.target)?.label}</strong>{createdRelationship.description ? ` · ${createdRelationship.description}` : ""}<span className="mt-1 block font-mono text-[9px] uppercase tracking-[0.1em] text-[#7b876d]">Relationship record created automatically</span></span>
+                </div>
+              )}
+            </div>
+            {relationshipPopoverOpen && (
+              <div className="relative mt-3 border border-[#b7a995] bg-[#efe4d4] p-4 shadow-[3px_3px_0_#d5c8b5]">
+                <button onClick={() => setRelationshipPopoverOpen(false)} className="absolute right-3 top-3 text-[#8b7f70]" aria-label="Close relationship editor"><X size={15} /></button>
+                <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-[#a35d45]">New Canon relationship</p>
+                <p className="mt-1 max-w-sm text-xs leading-5 text-[#6f665c]">Choose any two records. The relationship becomes its own traceable Canon record instead of buried prose.</p>
+                <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-end">
+                  <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#71685e]">From
+                    <select value={relationshipSource} onChange={(event) => { const nextSource = event.target.value; setRelationshipSource(nextSource); if (relationshipTarget === nextSource) setRelationshipTarget(canon.find((record) => record.id !== nextSource)?.id ?? "seed-key"); }} className="mt-1 w-full border border-[#c6b6a4] bg-[#f7f0e3] p-2 text-xs font-normal text-[#443d35]">
+                      {canon.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.kind}</option>)}
+                    </select>
+                  </label>
+                  <div className="grid h-8 w-8 place-items-center rounded-full bg-[#a35d45] text-[#f7f0e3]"><Link2 size={14} /></div>
+                  <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#71685e]">To
+                    <select value={relationshipTarget} onChange={(event) => setRelationshipTarget(event.target.value)} className="mt-1 w-full border border-[#c6b6a4] bg-[#f7f0e3] p-2 text-xs font-normal text-[#443d35]">
+                      {canon.filter((item) => item.id !== relationshipSource).map((item) => <option key={item.id} value={item.id}>{item.label} · {item.kind}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-[0.75fr_1.25fr]">
+                  <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#71685e]">Relationship
+                    <select value={relationshipType} onChange={(event) => setRelationshipType(event.target.value)} className="mt-1 w-full border border-[#c6b6a4] bg-[#f7f0e3] p-2 text-xs font-normal capitalize text-[#443d35]">
+                      {relationshipTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#71685e]">Details
+                    <input value={relationshipDescription} onChange={(event) => setRelationshipDescription(event.target.value)} placeholder="What should the world remember?" className="mt-1 w-full border border-[#c6b6a4] bg-[#f7f0e3] p-2 text-xs font-normal text-[#443d35] outline-none focus:border-[#a35d45]" />
+                  </label>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-[#d2c1ae] pt-3">
+                  <span className="text-[10px] text-[#8b7f70]">Scope · Foundation Canon · provenance retained</span>
+                  <button onClick={() => { setCreatedRelationship({ source: relationshipSource, target: relationshipTarget, type: relationshipType, description: relationshipDescription }); setRelationshipPopoverOpen(false); }} disabled={relationshipSource === relationshipTarget} className="flex items-center gap-2 bg-[#66785d] px-3 py-2 text-[10px] font-bold text-[#f7f0e3] disabled:cursor-not-allowed disabled:opacity-50"><Check size={13} /> Create relationship record</button>
+                </div>
+              </div>
+            )}
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#d7cbbb] pt-4">
               <p className="flex items-center gap-2 text-xs text-[#776e63]"><ShieldCheck size={15} className="text-[#66785d]" /> Foundation Canon is immutable</p>
               <button onClick={() => setOpenPremise(!openPremise)} className="flex items-center gap-1 text-xs font-semibold text-[#9a553d]">

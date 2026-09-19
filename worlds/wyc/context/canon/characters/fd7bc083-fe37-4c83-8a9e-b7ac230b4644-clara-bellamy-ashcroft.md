@@ -505,10 +505,369 @@ Warm, observant, quietly confident, intellectually curious, affectionate, practi
 
 4. Determine which of Clara&#039;s original registers survive into later periods.
 
-5. Clara&#039;s records may acquire additional significance in later volumes, but no mystery-related interpretation is currently established.
+5. Clara&#039;s records may acquire additional significance in later volumes, but no mystery-related interpretation is currently established. 
+Remaining Editorial Notes
+
+Chronology requiring decisions
+
+Establish Clara’s birth year and age when she first meets Elias.
+
+Establish the age differences among Henry, Clara, and Samuel Bellamy.
+
+Establish when Clara begins keeping formal seasonal and botanical records.
+
+Determine when Thomas Vale and Clara first meet.
+
+Establish the year Elias begins surveying the Harcourt estate.
+
+Determine the duration of Elias and Clara’s professional collaboration before courtship.
+
+Establish when Elias first proposes and how long passes before the revised proposal.
+
+Set the date of their marriage.
+
+Place the marriage relative to the Married Women’s Property Act 1882.
+
+Establish the births of Margaret, James, and Cecily.
+
+Determine how long Eleanor Harcourt lives after the marriage.
+
+Establish which glasshouse Eleanor sees restored.
+
+Determine Clara’s age when Wychcombe passes to Margaret.
+
+Establish Clara’s death date and whether she outlives Elias.
+
+Clara’s education
+
+Define the form of Clara’s broad education.
+
+Determine whether she attended a local school, received private instruction, studied with family members, or developed primarily through reading and nursery practice.
+
+Identify which subjects she studied beyond horticulture.
+
+Determine her access to botanical books, periodicals, nursery catalogs, weather records, and reference works.
+
+Clarify whether Clara reads another language sufficiently to use continental horticultural material.
+
+Do not assign formal university credentials unless historically supported by the final chronology.
+
+Determine whether she ever presents, publishes, or circulates observations under her own name.
+
+Bellamy & Son responsibilities
+
+Define Clara’s formal role within the nursery before marriage.
+
+Determine whether she receives wages, a share of profits, or family support.
+
+Establish which records Clara controls and which Samuel maintains.
+
+Clarify Henry’s authority over the commercial operation.
+
+Determine whether Clara supervises workers, apprentices, or particular propagation areas.
+
+Establish the kinds of plants and materials for which she is especially trusted.
+
+Determine how customers address her and whether her authority is publicly acknowledged.
+
+Clarify what changes after her marriage and what continues unchanged.
+
+Establish whether Clara retains a legal or financial interest in Bellamy & Son.
+
+Define how work performed for Wychcombe is priced, credited, and recorded.
+
+Marriage and financial arrangements
+
+Determine whether the Bellamys provide Clara with a marriage settlement, property, investments, nursery stock, equipment, or money.
+
+Establish whether Clara retains separate earnings or accounts.
+
+Clarify whether her resources contribute to acquiring or restoring Wychcombe.
+
+Do not allow Clara’s money to become a convenient unexplained solution to the estate’s finances.
+
+Determine how Elias and Clara describe ownership and decision-making between themselves.
+
+Establish whether legal documents reflect their partnership or whether the public record minimizes Clara’s role.
+
+Determine where the newly married couple initially lives.
+
+Clarify how they balance time between Wychcombe and Bellamy & Son.
+
+Founding authority
+
+Define Clara’s decision-making authority at Wychcombe.
+
+Identify which areas she controls directly and which require joint decisions.
+
+Establish how workers understand her position.
+
+Determine whether she is initially treated as an outside nursery expert, Elias’s prospective wife, a commercial supplier, or a future estate authority.
+
+Show authority developing through demonstrated knowledge and durable relationships.
+
+Do not allow every worker to accept the new Ashcroft project immediately.
+
+Determine how Clara and Elias handle disagreement when architectural preservation conflicts with horticultural use.
+
+Establish who controls budgets for the gardens, glasshouses, and nursery purchases.
+
+Botanical practice
+
+Define the physical location of Clara’s principal work at Wychcombe.
+
+Determine whether she has:
+
+A propagation house
+
+An observational garden
+
+A potting room
+
+A weather station
+
+A record room
+
+Dedicated nursery beds
+
+Access to restored glasshouses
+
+Establish the format of her records.
+
+Decide whether she keeps separate weather, propagation, phenology, and acquisition registers or one integrated system.
+
+Determine her measurement tools and historically appropriate instruments.
+
+Identify several ordinary plants or crops central to her work before introducing rare specimens.
+
+Establish how she labels uncertain identifications.
+
+Determine how failed cultivation is recorded and retained.
+
+Decide whether her observations are shared with other nurseries, gardeners, or periodicals.
+
+Relationship with Eleanor Harcourt
+
+Determine when Clara first meets Eleanor.
+
+Establish whether Eleanor initially knows Clara through Bellamy & Son.
+
+Define the first piece of Harcourt garden history they investigate together.
+
+Determine which records Eleanor gives, lends, or directs Clara toward.
+
+Establish whether Eleanor leaves any papers or objects specifically to Clara.
+
+Clarify Clara’s role during Eleanor’s final illness and death without automatically making her the primary caregiver.
+
+Determine how Eleanor’s death affects Clara’s understanding of preservation and loss.
+
+Establish whether Clara helps document Eleanor’s rooms and testimony.
+
+Relationship with Thomas Vale
+
+Define how long Thomas has dealt with Bellamy & Son before Elias arrives.
+
+Determine whether Thomas first knows Clara as Edward Bellamy’s daughter, a nursery worker, or an emerging expert.
+
+Establish the disagreement through which they first recognize one another’s ability.
+
+Develop several areas in which their knowledge remains distinct.
+
+Decide what Thomas will tell Clara that he will not readily explain to Elias.
+
+Determine whether Clara preserves any of Thomas’s observations in her records and how she credits him.
+
+Do not make Clara the sole interpreter of Thomas’s knowledge.
+
+Establish how their friendship changes as Wychcombe grows and Thomas ages.
+
+Relationship with the Bellamy family after marriage
+
+Determine how Edward and Anne respond to Clara’s refusal of Elias’s first proposal.
+
+Clarify whether they support the eventual marriage immediately or require practical assurances.
+
+Establish whether Henry worries that Wychcombe will absorb Clara’s work or nursery resources.
+
+Determine Samuel’s relationship with Elias.
+
+Clarify how frequently Clara returns to or works from the nursery after marriage.
+
+Establish whether Bellamy family meals, celebrations, and ordinary visits continue at Wychcombe.
+
+Do not allow the Ashcroft name to replace Clara’s Bellamy identity within the family or village.
+
+Motherhood and household life
+
+Determine how Clara’s pregnancies affect her work without treating pregnancy as professional disappearance.
+
+Establish who supports the household and children while Clara continues working.
+
+Define Elias’s participation in childcare.
+
+Determine whether Anne Bellamy, other relatives, household workers, or village caregivers play recurring roles.
+
+Avoid presenting Clara as personally performing every domestic, maternal, botanical, and institutional task.
+
+Establish conflicts between family needs and seasonal horticultural demands.
+
+Determine which child most challenges Clara’s assumptions about guidance and aptitude.
+
+Allow Clara to make mistakes as a mother without undermining the household’s fundamental warmth.
+
+Margaret and succession
+
+Determine when Clara first recognizes Margaret’s capacity to understand Wychcombe as a whole.
+
+Establish whether Clara discusses succession with Margaret before Elias does.
+
+Clarify how Clara protects Margaret from being burdened prematurely.
+
+Determine whether Margaret initially wants the responsibility.
+
+Establish how James and Cecily participate in the decision.
+
+Define Clara’s role in the legal structure used to protect stewardship.
+
+Do not allow Clara’s support for Margaret to appear as preference for one child’s work over the others.
+
+Decide whether Clara lives to see Margaret exercise full authority.
+
+Clara’s archive
+
+Determine which original Clara registers survive.
+
+Decide whether Bellamy & Son, Wychcombe, or both retain portions of her records.
+
+Establish whether records are duplicated, borrowed, rebound, separated, or merged over time.
+
+Distinguish Clara’s handwriting from Samuel’s organizational notes and Cecily’s illustrated records.
+
+Determine whether Margaret later publishes or adapts any of Clara’s observations.
+
+Clarify which materials remain private because they include customer, family, or commercially sensitive information.
+
+Avoid making every record perfectly preserved.
+
+Ordinary loss, damp, wear, reused paper, inconsistent dating, and practical revision are appropriate.
+
+Do not interpret gaps as deliberate concealment without evidence.
+
+Public recognition
+
+Determine how Clara is described in contemporary documents.
+
+Possible descriptions may differ across:
+
+Nursery catalogs
+
+Estate accounts
+
+Village notices
+
+Family correspondence
+
+Legal documents
+
+Later Wychcombe histories
+
+Establish whether public credit favors Elias even when work is shared.
+
+Decide whether Clara challenges unequal attribution during her lifetime.
+
+Determine whether Margaret or Cecily later restores Clara’s name to parts of the record.
+
+Do not make historical under-recognition so complete that Clara becomes implausibly invisible to everyone who worked with her.
+
+Later life
+
+Determine how Clara’s work changes as she ages.
+
+Establish whether she continues field observation or increasingly coordinates records and younger workers.
+
+Decide whether she experiences changes in eyesight, mobility, stamina, or health.
+
+Avoid using disability or aging solely to remove her from authority.
+
+Determine her response when later practitioners revise her methods.
+
+Establish whether she mentors anyone beyond her children.
+
+Decide whether she continues active involvement with Bellamy & Son after Henry’s succession.
+
+Clarify whether she lives at Wychcombe until her death.
+
+Later-story possibilities—not yet canon
+
+A Bellamy nursery register may clarify a disputed Harcourt planting date.
+
+Clara’s observations may document gradual environmental change across decades.
+
+Samuel’s correspondence index may reconnect records later separated between the nursery and Wychcombe.
+
+Margaret may convert selected observations into seasonal publications.
+
+Cecily’s illustrations may preserve visual evidence absent from Clara’s written records.
+
+One of Clara’s corrected identifications may become more important than the original error.
+
+A record attributed solely to Clara may later prove to contain several working hands.
+
+Surviving correspondence may reveal how widely Clara’s expertise circulated beyond Wychcombe.
+
+A later curator may mistake a commercial nursery record for a private botanical journal.
+
+None of these possibilities should become canon until required by a developed storyline.
+
+Recommended linked records
+
+Clara’s Character record should eventually link formally to:
+
+Elias Ashcroft
+
+Margaret Ashcroft
+
+James Ashcroft
+
+Cecily Ashcroft
+
+Eleanor Harcourt
+
+Thomas Vale
+
+Thomas Ashcroft
+
+Frederick Ashcroft
+
+Bellamy & Son, Nurserymen and Seedsmen
+
+Wychcombe Estate
+
+Wychcombe Village
+
+The Founding of Wychcombe
+
+Elias and Clara Ashcroft: Founding Partnership
+
+The Ashcroft Principle of Stewardship
+
+Clara’s surviving botanical or phenological registers once created as an Object record
+
+Editorial distinction to preserve
+
+Three related but different bodies of knowledge should remain clearly separated:
+
+CharacterPrimary form of knowledgeClara Bellamy AshcroftSystematic observation across seasons, sites, records, and horticultural networksThomas ValeDeep, embodied knowledge of the particular estate and its working historyCecily AshcroftCultivation and botanical preservation expressed partly through visual documentation
+
+Their work can overlap without becoming interchangeable.
+
+Final editorial principle
+
+Clara’s remaining development should deepen consequences rather than add accomplishments indiscriminately. She already has enough importance. The next work is to establish dates, working arrangements, financial realities, disagreements, losses, and the practical mechanisms through which her knowledge survives.
 
 ---
 Generated from Daybook
 Record ID: fd7bc083-fe37-4c83-8a9e-b7ac230b4644
-Last Updated: 2026-09-19T21:50:14.503Z
-Snapshot Generated: 2026-09-19T21:50:14.925Z
+Last Updated: 2026-09-19T21:57:30.706Z
+Snapshot Generated: 2026-09-19T21:57:31.150Z

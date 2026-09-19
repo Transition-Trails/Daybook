@@ -1,11 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { promisify } from "node:util";
+import { PDFiumLibrary, type PDFiumPageRenderOptions } from "@hyzyla/pdfium";
 import { PDFDocument } from "pdf-lib";
+import sharp from "sharp";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
@@ -23,8 +20,9 @@ const storage = new ObjectStorageService();
 const MAX_PDF_BYTES = 50 * 1024 * 1024;
 const SECTION_TYPES = new Set<string>(PLANNER_PDF_IMPORT_SECTION_TYPES);
 const BEHAVIORS = new Set<string>(PLANNER_PDF_IMPORT_BEHAVIORS);
-const execFileAsync = promisify(execFile);
 const thumbnailCache = new Map<string, Buffer>();
+const sourceReadInflight = new Map<string, Promise<Buffer>>();
+let pdfiumLibraryPromise: ReturnType<typeof PDFiumLibrary.init> | undefined;
 
 function fail(res: Response, status: number, error: string): void {
   res.status(status).json({ error });
@@ -42,6 +40,36 @@ async function readSource(objectPath: string): Promise<Buffer> {
   if (bytes.byteLength > MAX_PDF_BYTES) throw new Error("PDF exceeds maximum size of 50 MiB");
   if (bytes.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("Uploaded file is not a PDF");
   return bytes;
+}
+
+function readSourceShared(objectPath: string): Promise<Buffer> {
+  const existing = sourceReadInflight.get(objectPath);
+  if (existing) return existing;
+  const pending = readSource(objectPath).finally(() => {
+    sourceReadInflight.delete(objectPath);
+  });
+  sourceReadInflight.set(objectPath, pending);
+  return pending;
+}
+
+function getPdfiumLibrary() {
+  pdfiumLibraryPromise ??= PDFiumLibrary.init().catch(error => {
+    pdfiumLibraryPromise = undefined;
+    throw error;
+  });
+  return pdfiumLibraryPromise;
+}
+
+async function encodePdfiumBitmap(options: PDFiumPageRenderOptions): Promise<Uint8Array> {
+  const rgba = Buffer.from(options.data);
+  for (let offset = 0; offset < rgba.length; offset += 4) {
+    const blue = rgba[offset];
+    rgba[offset] = rgba[offset + 2];
+    rgba[offset + 2] = blue;
+  }
+  return sharp(rgba, {
+    raw: { width: options.width, height: options.height, channels: 4 },
+  }).png().toBuffer();
 }
 
 async function detail(id: string) {
@@ -62,21 +90,20 @@ async function singlePagePdf(sourceObjectPath: string, sourcePageNumber: number)
 }
 
 async function renderPageThumbnail(sourceObjectPath: string, sourcePageNumber: number): Promise<Buffer> {
-  const dir = await mkdtemp(join(tmpdir(), "daybook-pdf-thumb-"));
-  const input = join(dir, "source.pdf");
-  const outputPrefix = join(dir, "thumb");
+  const library = await getPdfiumLibrary();
+  const document = await library.loadDocument(await readSourceShared(sourceObjectPath));
   try {
-    // Rasterize from the immutable original. Re-saving a single copied page
-    // through pdf-lib can discard inherited resources in some authored PDFs.
-    await writeFile(input, await readSource(sourceObjectPath));
-    await execFileAsync("pdftoppm", [
-      "-f", String(sourcePageNumber), "-l", String(sourcePageNumber), "-singlefile",
-      "-scale-to-x", "360", "-scale-to-y", "-1",
-      "-png", input, outputPrefix,
-    ], { timeout: 30_000, maxBuffer: 1024 * 1024 });
-    return await readFile(`${outputPrefix}.png`);
+    const pageIndex = sourcePageNumber - 1;
+    if (pageIndex < 0 || pageIndex >= document.getPageCount()) {
+      throw new Error(`PDF page ${sourcePageNumber} does not exist`);
+    }
+    const rendered = await document.getPage(pageIndex).render({
+      width: 360,
+      render: encodePdfiumBitmap,
+    });
+    return Buffer.from(rendered.data);
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    document.destroy();
   }
 }
 

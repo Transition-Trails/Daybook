@@ -1,10 +1,10 @@
 ---
 name: Planner PDF thumbnails
-description: Deployment requirement for rasterizing imported planner PDF pages.
+description: Production-safe rasterization for imported planner PDF pages.
 ---
 
-Imported planner page thumbnails are rendered with Poppler's `pdftoppm`. Poppler must remain declared in the project's system dependencies rather than relying on the development shell to provide the executable.
+Imported planner page thumbnails must use a renderer bundled with the API artifact rather than an executable supplied by the development shell.
 
-**Why:** The development runtime included `pdftoppm` implicitly, but published deployments did not. Imports succeeded while every review thumbnail failed with `spawn pdftoppm ENOENT`.
+**Why:** Workspace-level Nix packages were available in development but absent from the published artifact runtime. A Poppler-based implementation passed development checks yet still failed every production thumbnail with `spawn pdftoppm ENOENT`.
 
-**How to apply:** Keep the Poppler system package configured whenever the planner PDF thumbnail route uses `pdftoppm`, and verify a real authenticated thumbnail request returns an `image/png` response after environment changes.
+**How to apply:** Keep thumbnail rendering self-contained in the Node artifact, and verify the built server has no external executable dependency. Test concurrent authenticated thumbnail requests and confirm valid `image/png` responses before publishing.

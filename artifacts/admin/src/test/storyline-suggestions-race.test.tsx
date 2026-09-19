@@ -56,9 +56,10 @@ describe("Storylines suggestion world switching", () => {
       </QueryClientProvider>,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Generate ideas" }));
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
       "/v1/editorial/stories/suggest",
-      expect.objectContaining({ body: JSON.stringify({ world_id: "world-a" }) }),
+      expect.objectContaining({ body: JSON.stringify({ world_id: "world-a", force_refresh: true }) }),
     ));
 
     getWorld.mockReturnValue({
@@ -72,6 +73,7 @@ describe("Storylines suggestion world switching", () => {
     );
 
     expect(screen.queryByText("World A’s Lantern")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Generate ideas" }));
     await waitFor(() => expect(screen.getByText("World B’s Lantern")).toBeInTheDocument());
 
     resolveWorldA({
@@ -100,7 +102,7 @@ describe("Storylines suggestion world switching", () => {
       </QueryClientProvider>,
     );
 
-    const refresh = await screen.findByRole("button", { name: "Refresh ideas" });
+    const refresh = await screen.findByRole("button", { name: "Generate ideas" });
     fireEvent.click(refresh);
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(

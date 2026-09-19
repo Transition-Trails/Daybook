@@ -627,7 +627,7 @@ router.get("/v1/editorial/canon-records", async (req: Request, res: Response) =>
 });
 
 router.post("/v1/editorial/canon-records", async (req: Request, res: Response) => {
-  const { world_id, name, canon_type, narrative_details, historical_context, visual_notes, notes, portrait_url, typography } = req.body;
+  const { world_id, name, canon_type, narrative_details, historical_context, visual_notes, notes, portrait_url, image_urls, typography } = req.body;
   if (!world_id || !name?.trim()) {
     res.status(400).json({ error: "world_id and name are required" });
     return;
@@ -648,6 +648,9 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
         ...(resolvedTypography !== undefined ? { typography: resolvedTypography } : {}),
         notes: sanitizeEditorialRichText(notes ?? ""),
         portraitUrl: portrait_url ?? null,
+        imageUrls: Array.isArray(image_urls)
+          ? image_urls.filter((value: unknown): value is string => typeof value === "string" && value.length > 0)
+          : portrait_url ? [portrait_url] : [],
         createdBy: (req.user as any)?.id,
       })
       .returning();
@@ -1605,7 +1608,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     emotional_register, sensory_clauses, register_locked,
     narrative_visibility, temporal_scope, canon_stability,
     from_entity_id, to_entity_id, emotional_valence,
-    portrait_url, notes,
+    portrait_url, image_urls, notes,
     typography,
   } = req.body;
   // Validate emotional_register if provided
@@ -1678,7 +1681,12 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(from_entity_id !== undefined ? { fromEntityId: from_entity_id } : {}),
         ...(to_entity_id !== undefined ? { toEntityId: to_entity_id } : {}),
         ...(emotional_valence !== undefined ? { emotionalValence: emotional_valence } : {}),
-        ...(portrait_url !== undefined ? { portraitUrl: portrait_url } : {}),
+        ...(image_urls !== undefined && Array.isArray(image_urls)
+          ? {
+              imageUrls: image_urls.filter((value: unknown): value is string => typeof value === "string" && value.length > 0),
+              portraitUrl: image_urls.find((value: unknown): value is string => typeof value === "string" && value.length > 0) ?? null,
+            }
+          : portrait_url !== undefined ? { portraitUrl: portrait_url } : {}),
         ...(notes !== undefined ? { notes: sanitizeEditorialRichText(notes) } : {}),
       })
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))

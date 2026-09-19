@@ -117,6 +117,21 @@ tracked migration step while starting the API without newer editorial fields.
 and expand the contract verifier in the same change. Do not add a new required
 WorldSmith script to the deployment workflow.
 
+The migration directory intentionally contains hand-authored additive migrations
+without a current Drizzle snapshot for every journal entry. Do not use
+`drizzle-kit generate` for routine additions: it sees the old snapshot as a
+large rename diff and requires an interactive prompt that cannot run in agent
+shells. Add the next idempotent SQL file and journal entry explicitly instead.
+
+**Why:** Drizzle generation first mis-resolves the absolute output path from the
+workspace command, then exposes stale-snapshot rename prompts when run from the
+package directory. Neither failure means the database or ledger is corrupt.
+
+**How to apply:** Follow the existing numbered SQL/journal convention, prefer
+`ADD ... IF NOT EXISTS` plus narrowly scoped backfills, extend
+`verify-migration.mjs` for API-facing columns, then run the normal tracked
+migration command.
+
 Legacy fingerprint exceptions for changed columns must validate the exact
 expected and actual structure, not only a generic mismatch label.
 

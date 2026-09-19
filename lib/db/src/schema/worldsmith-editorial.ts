@@ -89,6 +89,8 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   specRefCount: integer("spec_ref_count").notNull().default(0),
   // Portrait image — objectPath from object storage (e.g. /objects/uploads/uuid)
   portraitUrl: text("portrait_url"),
+  // Ordered gallery. portraitUrl mirrors the first entry for legacy consumers.
+  imageUrls: jsonb("image_urls").$type<string[]>().notNull().default([]),
   // Rich editorial notes; markdown-formatted free text
   notes: text("notes").notNull().default(""),
   notionPageId: text("notion_page_id"),

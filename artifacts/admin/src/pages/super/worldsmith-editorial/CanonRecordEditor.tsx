@@ -61,6 +61,7 @@ interface CanonRecord {
   notes?: string | null;
   typography?: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   portraitUrl?: string | null;
+  imageUrls?: string[];
   notionPageId?: string | null;
   specRefCount: number;
   createdAt: string;
@@ -93,7 +94,7 @@ interface FormState {
   visualNotes: string;
   notes: string;
   typography: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
-  portraitUrl: string | null;
+  imageUrls: string[];
 }
 
 function createEmptyForm(search: string): FormState {
@@ -106,27 +107,27 @@ function createEmptyForm(search: string): FormState {
     visualNotes: "",
     notes: "",
     typography: [],
-    portraitUrl: null,
+    imageUrls: [],
   };
 }
 
 function ImageField({
-  portraitUrl,
+  imageUrls,
   uploading,
   generating,
   onUpload,
   onGenerate,
   onRemove,
 }: {
-  portraitUrl: string | null;
+  imageUrls: string[];
   uploading: boolean;
   generating: boolean;
   onUpload: (file: File) => Promise<boolean>;
   onGenerate: () => void;
-  onRemove: () => void;
+  onRemove: (imageUrl: string) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const imageUrl = portraitUrl ? `/api/storage${portraitUrl}` : null;
+  const hasImages = imageUrls.length > 0;
   return (
     <section className="rounded-2xl border p-5" style={{ background: "white", borderColor: BORDER }}>
       <div className="flex items-center justify-between gap-3 mb-3">
@@ -136,36 +137,52 @@ function ImageField({
             A portrait or visual reference for this canon entry.
           </p>
         </div>
-        {portraitUrl && (
-          <button type="button" onClick={onRemove} disabled={uploading || generating} className="text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: "#B42318" }}>
-            Remove
-          </button>
-        )}
+        <span className="text-[11px] font-semibold" style={{ color: "#7C6F62" }}>
+          {imageUrls.length} {imageUrls.length === 1 ? "image" : "images"}
+        </span>
       </div>
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={uploading || generating}
-        className="group flex aspect-square w-full min-h-48 overflow-hidden rounded-xl border border-dashed transition-colors disabled:cursor-wait"
-        style={{ borderColor: portraitUrl ? "#D7CDC0" : "#CDBEAF", background: "var(--admin-card-subtle)" }}
-      >
-        {imageUrl ? (
-          <img src={imageUrl} alt="Canon record reference" className="h-full w-full object-contain" />
-        ) : (
+      {hasImages ? (
+        <div className="grid grid-cols-2 gap-2">
+          {imageUrls.map((imageUrl, index) => (
+            <div key={imageUrl} className="relative aspect-square overflow-hidden rounded-xl border" style={{ borderColor: "#D7CDC0", background: "var(--admin-card-subtle)" }}>
+              <img src={`/api/storage${imageUrl}`} alt={`Canon record reference ${index + 1}`} className="h-full w-full object-contain" />
+              <button
+                type="button"
+                onClick={() => onRemove(imageUrl)}
+                disabled={uploading || generating}
+                aria-label={`Remove image ${index + 1}`}
+                className="absolute right-2 top-2 rounded-full bg-white/95 px-2 py-1 text-[10px] font-semibold shadow-sm disabled:opacity-60"
+                style={{ color: "#B42318" }}
+              >
+                Remove
+              </button>
+              {index === 0 && (
+                <span className="absolute bottom-2 left-2 rounded-full bg-[#1B2A4A]/90 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-white">
+                  Primary
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading || generating}
+          className="group flex aspect-square w-full min-h-48 overflow-hidden rounded-xl border border-dashed transition-colors disabled:cursor-wait"
+          style={{ borderColor: "#CDBEAF", background: "var(--admin-card-subtle)" }}
+        >
           <span className="flex w-full flex-col items-center justify-center gap-2 px-5 py-7">
             {uploading || generating ? <Loader2 className="h-6 w-6 animate-spin" style={{ color: CLAY }} /> : <ImageIcon className="h-6 w-6" style={{ color: "#A49687" }} />}
             <span className="text-xs font-semibold" style={{ color: INK }}>{generating ? "Generating reference…" : uploading ? "Uploading image…" : "Add an image"}</span>
             <span className="text-[11px]" style={{ color: "#7C6F62" }}>JPEG, PNG, WebP, GIF, or AVIF · up to 8 MB</span>
           </span>
-        )}
-        {imageUrl && (
-          <span className="absolute sr-only">Replace image</span>
-        )}
-      </button>
-      {imageUrl && (
+        </button>
+      )}
+      {hasImages && (
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
           <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading || generating} className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: CLAY }}>
-            <Upload className="h-3.5 w-3.5" /> Replace image
+            <Upload className="h-3.5 w-3.5" /> Add images
           </button>
           <button type="button" onClick={onGenerate} disabled={uploading || generating} className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: INK }}>
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
@@ -173,7 +190,7 @@ function ImageField({
           </button>
         </div>
       )}
-      {!imageUrl && (
+      {!hasImages && (
         <button type="button" onClick={onGenerate} disabled={uploading || generating} className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ background: INK }}>
           {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
           {generating ? "Generating reference…" : "Generate from canon details"}
@@ -185,11 +202,12 @@ function ImageField({
       <input
         ref={inputRef}
         type="file"
+        multiple
         className="hidden"
         accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
         onChange={event => {
-          const file = event.target.files?.[0];
-          if (file) void onUpload(file);
+          const files = [...(event.target.files ?? [])];
+          if (files.length > 0) void Promise.all(files.map(onUpload));
           event.target.value = "";
         }}
       />
@@ -209,7 +227,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const [imageGenerating, setImageGenerating] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [openedSections, setOpenedSections] = useState({ narrative: true, historical: false, visual: false, notes: false });
-  const initialPortraitRef = useRef<string | null>(null);
+  const initialImagesRef = useRef<string[]>([]);
   const initializedRecordRef = useRef<string | null>(null);
   const provisionalPortraitsRef = useRef<Set<string>>(new Set());
 
@@ -227,7 +245,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   useEffect(() => {
     if (record && initializedRecordRef.current !== record.id) {
       initializedRecordRef.current = record.id;
-      initialPortraitRef.current = record.portraitUrl ?? null;
+      const savedImages = record.imageUrls?.length
+        ? record.imageUrls
+        : record.portraitUrl ? [record.portraitUrl] : [];
+      initialImagesRef.current = savedImages;
       setForm({
         name: record.name,
         canonType: record.canonType ?? "location",
@@ -236,7 +257,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         visualNotes: record.visualNotes ?? "",
         notes: record.notes ?? "",
         typography: record.typography ?? [],
-        portraitUrl: record.portraitUrl ?? null,
+        imageUrls: savedImages,
       });
     }
   }, [record]);
@@ -301,7 +322,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         visual_notes: form.visualNotes,
         notes: form.notes,
         typography: form.typography,
-        portrait_url: form.portraitUrl,
+        portrait_url: form.imageUrls[0] ?? null,
+        image_urls: form.imageUrls,
       };
       if (isNew) {
         if (!worldId) throw new Error("Choose a world before creating a record");
@@ -316,17 +338,17 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       });
     },
     onSuccess: async result => {
-      const previousPortrait = initialPortraitRef.current;
-      if (previousPortrait && previousPortrait !== form.portraitUrl) {
-        await storageApi.deleteObject(previousPortrait).catch(() => undefined);
-      }
+      const removedImages = initialImagesRef.current.filter(imageUrl => !form.imageUrls.includes(imageUrl));
+      await Promise.all(removedImages.map(imageUrl => storageApi.deleteObject(imageUrl).catch(() => undefined)));
       provisionalPortraitsRef.current.clear();
       queryClient.setQueryData(["editorial-canon-record", result.canon_record.id], { canon_record: result.canon_record });
       queryClient.invalidateQueries({
         predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
       });
       queryClient.invalidateQueries({ queryKey: ["editorial-canon-context-snapshot", result.canon_record.id] });
-      initialPortraitRef.current = result.canon_record.portraitUrl ?? null;
+      initialImagesRef.current = result.canon_record.imageUrls?.length
+        ? result.canon_record.imageUrls
+        : result.canon_record.portraitUrl ? [result.canon_record.portraitUrl] : [];
       toast({ title: isNew ? "Canon record created" : "Canon record saved" });
       if (isNew) {
         navigate(`/super/worldsmith/editorial/canon/${result.canon_record.id}`);
@@ -335,7 +357,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     onError: async (error: Error) => {
       await Promise.all([...provisionalPortraitsRef.current].map(path => storageApi.deleteObject(path).catch(() => undefined)));
       provisionalPortraitsRef.current.clear();
-      setForm(current => ({ ...current, portraitUrl: initialPortraitRef.current }));
+      setForm(current => ({ ...current, imageUrls: initialImagesRef.current }));
       toast({ title: isNew ? "Could not create canon record" : "Could not save canon record", description: error.message, variant: "destructive" });
     },
   });
@@ -359,7 +381,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     mutationFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}`, { method: "DELETE" }),
     onSuccess: async () => {
       const objectsToRemove = new Set([
-        ...(record?.portraitUrl ? [record.portraitUrl] : []),
+        ...(record?.imageUrls?.length ? record.imageUrls : record?.portraitUrl ? [record.portraitUrl] : []),
         ...provisionalPortraitsRef.current,
       ]);
       await Promise.all([...objectsToRemove].map(path => storageApi.deleteObject(path).catch(() => undefined)));
@@ -391,13 +413,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       const { uploadURL, objectPath } = await storageApi.requestUploadUrl(file.name, file.size, file.type);
       const response = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
       if (!response.ok) throw new Error("The image upload was rejected");
-      const previousPortrait = form.portraitUrl;
-      if (previousPortrait && previousPortrait !== initialPortraitRef.current) {
-        provisionalPortraitsRef.current.delete(previousPortrait);
-        await storageApi.deleteObject(previousPortrait).catch(() => undefined);
-      }
       provisionalPortraitsRef.current.add(objectPath);
-      setForm(current => ({ ...current, portraitUrl: objectPath }));
+      setForm(current => ({ ...current, imageUrls: [...current.imageUrls, objectPath] }));
       return true;
     } catch (error) {
       toast({ title: "Image upload failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -405,7 +422,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     } finally {
       setImageUploading(false);
     }
-  }, [form.portraitUrl, toast]);
+  }, [toast]);
 
   const generateImage = useCallback(async () => {
     if (!form.name.trim()) {
@@ -455,14 +472,13 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     navigate("/super/worldsmith/editorial/canon");
   };
 
-  const removePortrait = async () => {
+  const removeImage = async (imageUrl: string) => {
     if (isImageProcessing) return;
-    const currentPortrait = form.portraitUrl;
-    if (currentPortrait && currentPortrait !== initialPortraitRef.current) {
-      provisionalPortraitsRef.current.delete(currentPortrait);
-      await storageApi.deleteObject(currentPortrait).catch(() => undefined);
+    if (provisionalPortraitsRef.current.has(imageUrl)) {
+      provisionalPortraitsRef.current.delete(imageUrl);
+      await storageApi.deleteObject(imageUrl).catch(() => undefined);
     }
-    setField("portraitUrl", null);
+    setField("imageUrls", form.imageUrls.filter(value => value !== imageUrl));
   };
 
   if (isLoading) {
@@ -599,12 +615,12 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
 
           <aside className="space-y-5">
             <ImageField
-              portraitUrl={form.portraitUrl}
+              imageUrls={form.imageUrls}
               uploading={imageUploading}
               generating={imageGenerating}
               onUpload={handleImageUpload}
               onGenerate={generateImage}
-              onRemove={removePortrait}
+              onRemove={removeImage}
             />
 
             {!isNew && record && (

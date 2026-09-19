@@ -316,6 +316,13 @@
       "when": 1789783200000,
       "tag": "0044_ai_usage_cost_unavailable_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1789786800000,
+      "tag": "0045_canon_record_image_gallery",
+      "breakpoints": true
     }
   ]
 }

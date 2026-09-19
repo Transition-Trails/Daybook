@@ -71,7 +71,7 @@ describe("CanonRecordEditor", () => {
 
     renderEditor("canon-1");
     await waitFor(() => expect(screen.getByRole("heading", { name: /The Ashcroft Ledger — Canon Record/ })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove image 1" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
@@ -82,6 +82,40 @@ describe("CanonRecordEditor", () => {
       }),
     ));
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the remaining gallery image when one image is removed", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.includes("/canon-records/canon-1")) {
+        const submitted = init?.method === "PATCH"
+          ? JSON.parse(String(init.body))
+          : null;
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-1", worldId: "world-wychcombe", name: "Frederick Ashcroft",
+            status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
+            visualNotes: "", notes: "", portraitUrl: submitted?.portrait_url ?? "/objects/frederick-primary",
+            imageUrls: submitted?.image_urls ?? ["/objects/frederick-primary", "/objects/frederick-study"],
+            specRefCount: 0, createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z",
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor("canon-1");
+    await waitFor(() => expect(screen.getByAltText("Canon record reference 2")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Remove image 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/canon-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: expect.stringContaining('"image_urls":["/objects/frederick-study"]'),
+      }),
+    ));
   });
 
   it("keeps an unsaved rich-text draft when workflow status changes", async () => {

@@ -61,6 +61,7 @@ function SuggestedStorylines({
   onCreate,
   nextRefreshAt,
   canRefresh,
+  hasLoaded,
 }: {
   suggestions: StorySuggestion[];
   loading: boolean;
@@ -69,6 +70,7 @@ function SuggestedStorylines({
   onCreate: (suggestion: StorySuggestion) => void;
   nextRefreshAt?: string;
   canRefresh: boolean;
+  hasLoaded: boolean;
 }) {
   return (
     <section
@@ -99,7 +101,7 @@ function SuggestedStorylines({
           style={{ borderColor: "#D9C9BA", color: "#9D5B49" }}
         >
           <RotateCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          {canRefresh ? "Refresh ideas" : "Daily refresh used"}
+          {canRefresh ? (hasLoaded ? "Refresh ideas" : "Generate ideas") : "Daily refresh used"}
         </button>
       </div>
 
@@ -111,6 +113,10 @@ function SuggestedStorylines({
       ) : error ? (
         <div className="rounded-xl px-4 py-3 text-sm" style={{ background: "#FFF7ED", color: "#9A3412" }}>
           We couldn’t create story ideas just now. Refresh to try again.
+        </div>
+      ) : !hasLoaded ? (
+        <div className="rounded-xl px-4 py-5 text-center text-sm" style={{ background: "#F7F3EE", color: "#786D60" }}>
+          Generate world-aware storyline ideas when you are ready.
         </div>
       ) : suggestions.length === 0 ? (
         <div className="rounded-xl px-4 py-5 text-center text-sm" style={{ background: "#F7F3EE", color: "#786D60" }}>
@@ -217,8 +223,14 @@ export default function StoriesStudio() {
   }, [selectedWorldId]);
 
   useEffect(() => {
-    void generateSuggestions();
-  }, [generateSuggestions]);
+    suggestionsRequestRef.current += 1;
+    setSuggestions([]);
+    setSuggestionsWorldId(null);
+    setSuggestionsLoading(false);
+    setSuggestionsError(false);
+    setSuggestionsNextRefreshAt(undefined);
+    setSuggestionsCanRefresh(true);
+  }, [selectedWorldId]);
 
   const createAct = useMutation({
     mutationFn: () =>
@@ -302,6 +314,7 @@ export default function StoriesStudio() {
           )}
           nextRefreshAt={suggestionsNextRefreshAt}
           canRefresh={suggestionsCanRefresh}
+          hasLoaded={suggestionsWorldId === selectedWorldId}
         />
 
         {isLoading ? (

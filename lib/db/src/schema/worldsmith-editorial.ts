@@ -61,6 +61,10 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   narrativeDetails: text("narrative_details").notNull().default(""),
   historicalContext: text("historical_context").notNull().default(""),
   visualNotes: text("visual_notes").notNull().default(""),
+  canonGuardrails: text("canon_guardrails").notNull().default(""),
+  relationshipDetails: text("relationship_details").notNull().default(""),
+  characterDirection: text("character_direction").notNull().default(""),
+  confirmedCanon: text("confirmed_canon").notNull().default(""),
   typography: jsonb("typography").$type<Array<{
     fontId: string;
     family: string;

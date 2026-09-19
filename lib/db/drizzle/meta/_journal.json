@@ -323,6 +323,13 @@
       "when": 1789786800000,
       "tag": "0045_canon_record_image_gallery",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1789790400000,
+      "tag": "0046_character_canon_rich_text",
+      "breakpoints": true
     }
   ]
 }

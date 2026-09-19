@@ -627,7 +627,11 @@ router.get("/v1/editorial/canon-records", async (req: Request, res: Response) =>
 });
 
 router.post("/v1/editorial/canon-records", async (req: Request, res: Response) => {
-  const { world_id, name, canon_type, narrative_details, historical_context, visual_notes, notes, portrait_url, image_urls, typography } = req.body;
+  const {
+    world_id, name, canon_type, narrative_details, historical_context, visual_notes,
+    canon_guardrails, relationship_details, character_direction, confirmed_canon,
+    notes, portrait_url, image_urls, typography,
+  } = req.body;
   if (!world_id || !name?.trim()) {
     res.status(400).json({ error: "world_id and name are required" });
     return;
@@ -645,6 +649,10 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
         narrativeDetails: sanitizeEditorialRichText(narrative_details ?? ""),
         historicalContext: sanitizeEditorialRichText(historical_context ?? ""),
         visualNotes: sanitizeEditorialRichText(visual_notes ?? ""),
+        canonGuardrails: sanitizeEditorialRichText(canon_guardrails ?? ""),
+        relationshipDetails: sanitizeEditorialRichText(relationship_details ?? ""),
+        characterDirection: sanitizeEditorialRichText(character_direction ?? ""),
+        confirmedCanon: sanitizeEditorialRichText(confirmed_canon ?? ""),
         ...(resolvedTypography !== undefined ? { typography: resolvedTypography } : {}),
         notes: sanitizeEditorialRichText(notes ?? ""),
         portraitUrl: portrait_url ?? null,
@@ -1605,6 +1613,7 @@ router.get("/v1/editorial/context-snapshot-jobs/:id", async (req: Request, res: 
 router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Response) => {
   const {
     name, canon_type, narrative_details, historical_context, visual_notes,
+    canon_guardrails, relationship_details, character_direction, confirmed_canon,
     emotional_register, sensory_clauses, register_locked,
     narrative_visibility, temporal_scope, canon_stability,
     from_entity_id, to_entity_id, emotional_valence,
@@ -1671,6 +1680,10 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(narrative_details !== undefined ? { narrativeDetails: sanitizeEditorialRichText(narrative_details) } : {}),
         ...(historical_context !== undefined ? { historicalContext: sanitizeEditorialRichText(historical_context) } : {}),
         ...(visual_notes !== undefined ? { visualNotes: sanitizeEditorialRichText(visual_notes) } : {}),
+        ...(canon_guardrails !== undefined ? { canonGuardrails: sanitizeEditorialRichText(canon_guardrails) } : {}),
+        ...(relationship_details !== undefined ? { relationshipDetails: sanitizeEditorialRichText(relationship_details) } : {}),
+        ...(character_direction !== undefined ? { characterDirection: sanitizeEditorialRichText(character_direction) } : {}),
+        ...(confirmed_canon !== undefined ? { confirmedCanon: sanitizeEditorialRichText(confirmed_canon) } : {}),
         ...(resolvedTypography !== undefined ? { typography: resolvedTypography } : {}),
         ...(emotional_register !== undefined ? { emotionalRegister: emotional_register } : {}),
         ...(sensory_clauses !== undefined ? { sensoryClauses: sensory_clauses } : {}),

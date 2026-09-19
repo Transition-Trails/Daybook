@@ -58,6 +58,10 @@ interface CanonRecord {
   narrativeDetails: string;
   historicalContext: string;
   visualNotes: string;
+  canonGuardrails: string;
+  relationshipDetails: string;
+  characterDirection: string;
+  confirmedCanon: string;
   notes?: string | null;
   typography?: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   portraitUrl?: string | null;
@@ -92,6 +96,10 @@ interface FormState {
   narrativeDetails: string;
   historicalContext: string;
   visualNotes: string;
+  canonGuardrails: string;
+  relationshipDetails: string;
+  characterDirection: string;
+  confirmedCanon: string;
   notes: string;
   typography: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   imageUrls: string[];
@@ -105,6 +113,10 @@ function createEmptyForm(search: string): FormState {
     narrativeDetails: params.get("narrative") ?? "",
     historicalContext: "",
     visualNotes: "",
+    canonGuardrails: "",
+    relationshipDetails: "",
+    characterDirection: "",
+    confirmedCanon: "",
     notes: "",
     typography: [],
     imageUrls: [],
@@ -226,7 +238,16 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const [imageUploading, setImageUploading] = useState(false);
   const [imageGenerating, setImageGenerating] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [openedSections, setOpenedSections] = useState({ narrative: true, historical: false, visual: false, notes: false });
+  const [openedSections, setOpenedSections] = useState({
+    narrative: true,
+    historical: false,
+    visual: false,
+    canonGuardrails: false,
+    relationshipDetails: false,
+    characterDirection: false,
+    confirmedCanon: false,
+    notes: false,
+  });
   const initialImagesRef = useRef<string[]>([]);
   const initializedRecordRef = useRef<string | null>(null);
   const provisionalPortraitsRef = useRef<Set<string>>(new Set());
@@ -255,6 +276,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         narrativeDetails: record.narrativeDetails ?? "",
         historicalContext: record.historicalContext ?? "",
         visualNotes: record.visualNotes ?? "",
+        canonGuardrails: record.canonGuardrails ?? "",
+        relationshipDetails: record.relationshipDetails ?? "",
+        characterDirection: record.characterDirection ?? "",
+        confirmedCanon: record.confirmedCanon ?? "",
         notes: record.notes ?? "",
         typography: record.typography ?? [],
         imageUrls: savedImages,
@@ -320,6 +345,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         narrative_details: form.narrativeDetails,
         historical_context: form.historicalContext,
         visual_notes: form.visualNotes,
+        canon_guardrails: form.canonGuardrails,
+        relationship_details: form.relationshipDetails,
+        character_direction: form.characterDirection,
+        confirmed_canon: form.confirmedCanon,
         notes: form.notes,
         typography: form.typography,
         portrait_url: form.imageUrls[0] ?? null,
@@ -499,7 +528,15 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
 
   const typeMeta = CANON_TYPES.find(type => type.key === form.canonType) ?? CANON_TYPES[1]!;
   const allowedTransitions = record ? TRANSITIONS[record.status] ?? [] : [];
-  const section = (key: keyof typeof openedSections, title: string, hint: string, value: string, placeholder: string, minHeight: number) => (
+  const section = (
+    key: keyof typeof openedSections,
+    field: keyof Pick<FormState, "narrativeDetails" | "historicalContext" | "visualNotes" | "canonGuardrails" | "relationshipDetails" | "characterDirection" | "confirmedCanon" | "notes">,
+    title: string,
+    hint: string,
+    value: string,
+    placeholder: string,
+    minHeight: number,
+  ) => (
     <EditorialSection
       title={title}
       hint={hint}
@@ -513,7 +550,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           onChange={choices => setField("typography", choices as any)}
         />
       )}
-      <EditorialRichTextField value={value} placeholder={placeholder} minHeight={minHeight} onChange={next => setField(key === "narrative" ? "narrativeDetails" : key === "historical" ? "historicalContext" : key === "visual" ? "visualNotes" : "notes", next)} />
+      <EditorialRichTextField value={value} placeholder={placeholder} minHeight={minHeight} onChange={next => setField(field, next)} />
     </EditorialSection>
   );
 
@@ -607,10 +644,18 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               </div>
             </section>
 
-            {section("narrative", "Narrative details", "Its story, purpose, and significance in the world.", form.narrativeDetails, "Write the record’s story — how it exists in your world and what it carries…", 210)}
-            {section("historical", "Historical context", "Origins, era, provenance, and changes over time.", form.historicalContext, "Give this record a history and temporal grounding…", 170)}
-            {section("visual", "Visual notes", "Colour, light, texture, materials, and physical presence.", form.visualNotes, "Describe the details a visual artist or prompt should carry forward…", 170)}
-            {section("notes", "Editorial notes", "Flags, open questions, and cross-reference notes for the team.", form.notes, "Capture working notes that belong with this record…", 140)}
+            {section("narrative", "narrativeDetails", "Narrative details", "Its story, purpose, and significance in the world.", form.narrativeDetails, "Write the record’s story — how it exists in your world and what it carries…", 210)}
+            {section("historical", "historicalContext", "Historical context", "Origins, era, provenance, and changes over time.", form.historicalContext, "Give this record a history and temporal grounding…", 170)}
+            {section("visual", "visualNotes", "Visual notes", "Colour, light, texture, materials, and physical presence.", form.visualNotes, "Describe the details a visual artist or prompt should carry forward…", 170)}
+            {form.canonType === "character" && (
+              <>
+                {section("canonGuardrails", "canonGuardrails", "Canon Guardrails", "Boundaries and truths that future writing must not contradict.", form.canonGuardrails, "Define what must always remain true for this character…", 170)}
+                {section("relationshipDetails", "relationshipDetails", "Relationship details", "Important bonds, tensions, loyalties, and relational history.", form.relationshipDetails, "Describe this character’s significant relationships…", 170)}
+                {section("characterDirection", "characterDirection", "Character Direction", "The intended trajectory, pressures, and development for this character.", form.characterDirection, "Capture where this character is headed and what should shape that journey…", 170)}
+                {section("confirmedCanon", "confirmedCanon", "Confirmed Canon", "Established facts that are approved as authoritative.", form.confirmedCanon, "Record confirmed character facts and decisions…", 170)}
+              </>
+            )}
+            {section("notes", "notes", "Editorial notes", "Flags, open questions, and cross-reference notes for the team.", form.notes, "Capture working notes that belong with this record…", 140)}
           </div>
 
           <aside className="space-y-5">

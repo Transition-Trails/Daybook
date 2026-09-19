@@ -118,6 +118,44 @@ describe("CanonRecordEditor", () => {
     ));
   });
 
+  it("loads and saves the character-only rich-text canon sections", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.includes("/canon-records/canon-character")) {
+        const submitted = init?.method === "PATCH" ? JSON.parse(String(init.body)) : null;
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-character", worldId: "world-wychcombe", name: "Frederick Ashcroft",
+            status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
+            visualNotes: "", notes: "", portraitUrl: null, imageUrls: [],
+            canonGuardrails: submitted?.canon_guardrails ?? "<p>Never abandons the family archive.</p>",
+            relationshipDetails: submitted?.relationship_details ?? "<p>Protective of Eleanor.</p>",
+            characterDirection: submitted?.character_direction ?? "<p>Learns to trust the household.</p>",
+            confirmedCanon: submitted?.confirmed_canon ?? "<p>Born in Wychcombe.</p>",
+            specRefCount: 0, createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z",
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor("canon-character");
+    expect(await screen.findByText("Canon Guardrails")).toBeInTheDocument();
+    expect(screen.getByText("Relationship details")).toBeInTheDocument();
+    expect(screen.getByText("Character Direction")).toBeInTheDocument();
+    expect(screen.getByText("Confirmed Canon")).toBeInTheDocument();
+    expect(screen.getByText("Never abandons the family archive.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/canon-character",
+      expect.objectContaining({
+        method: "PATCH",
+        body: expect.stringContaining('"confirmed_canon":"<p>Born in Wychcombe.</p>"'),
+      }),
+    ));
+  });
+
   it("keeps an unsaved rich-text draft when workflow status changes", async () => {
     apiFetch.mockImplementation((path: string) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });

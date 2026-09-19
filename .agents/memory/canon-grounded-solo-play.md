@@ -1,0 +1,12 @@
+---
+name: Canon-grounded solo play
+description: Product direction and ownership boundaries for store-owner story play grounded in WorldSmith Canon.
+---
+
+Use a guided Prompt Deck with one limited consequential branch as the first release. Reuse Stories, Acts, Encounters, Journal Prompts, and Canon links rather than creating a parallel narrative model.
+
+**Why:** This provides a meaningful story experience with the lowest rules burden and clearest Canon-safety boundary. A full branching graph or persistent journal system adds more replayability but depends on substantially more session and state contracts.
+
+Foundation Canon remains immutable to store owners. Play first produces private discoveries; owners may save owner-scoped contributions and explicitly submit proposals for editorial approval. Every derived scene and record retains provenance to its source Canon records and story moment.
+
+**How to apply:** Before production implementation, define tenant-safe narrative routes, contribution ownership and statuses, provenance, session/resume state, choices, and the editorial promotion workflow. Never expose platform-editorial routes directly to store owners.

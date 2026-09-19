@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { apiFetch, navigate, getWorld } = vi.hoisted(() => ({
@@ -84,5 +84,30 @@ describe("Storylines suggestion world switching", () => {
     });
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(screen.queryByText("World A’s Lantern")).not.toBeInTheDocument();
+  });
+
+  it("marks an operator-triggered refresh as forced", async () => {
+    apiFetch.mockImplementation((path: string) => {
+      if (path === "/v1/editorial/stories/suggest") {
+        return Promise.resolve({ suggestions: [], canRefresh: true });
+      }
+      return Promise.resolve({ stories: [] });
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StoriesStudio />
+      </QueryClientProvider>,
+    );
+
+    const refresh = await screen.findByRole("button", { name: "Refresh ideas" });
+    fireEvent.click(refresh);
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/stories/suggest",
+      expect.objectContaining({
+        body: JSON.stringify({ world_id: "world-a", force_refresh: true }),
+      }),
+    ));
   });
 });

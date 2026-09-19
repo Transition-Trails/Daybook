@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, CircleDot, Loader2, MapPinned, Search, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, CircleDot, Loader2, MapPinned, RefreshCw, Search, Sparkles } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { editorialRichTextToPlainText } from "@/lib/editorial-rich-text";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -296,12 +296,23 @@ export default function StoryConnections() {
               See which people, places, and objects carry each adventure—and what still needs a story to connect it.
             </p>
           </div>
-          <Link href="/super/worldsmith/editorial/stories">
-            <span className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold cursor-pointer" style={{ background: "#1B2A4A", color: "white" }}>
-              <BookOpen className="w-4 h-4" />
-              Storylines
-            </span>
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              disabled={isLoading}
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--admin-border)] bg-white px-3.5 py-2 text-sm font-semibold text-[var(--admin-ink)] disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+              Refresh map
+            </button>
+            <Link href="/super/worldsmith/editorial/stories">
+              <span className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold cursor-pointer" style={{ background: "#1B2A4A", color: "white" }}>
+                <BookOpen className="w-4 h-4" />
+                Storylines
+              </span>
+            </Link>
+          </div>
         </header>
 
         {isLoading ? (

@@ -89,6 +89,7 @@ import {
 } from "../lib/worldsmith/context-snapshot";
 import { callAi } from "../lib/ai-proxy";
 import { generateImage } from "../lib/worldsmith/image-generation";
+import { canForceSuggestionRefresh } from "../lib/worldsmith/suggestion-refresh-policy";
 import { isPromptModuleSection } from "../lib/worldsmith/types";
 import { resolveTypographyChoices, TypographyValidationError } from "../lib/worldsmith/typography";
 import { ORIENTATION_AWARE_TYPES } from "@workspace/api-zod/readiness";
@@ -1018,7 +1019,11 @@ async function saveDailySuggestions(worldId: string, suggestionKind: string, sug
 }
 
 router.post("/v1/editorial/canon-records/suggest", async (req: Request, res: Response) => {
-  const { world_id, focus_type } = req.body as { world_id?: string; focus_type?: string };
+  const { world_id, focus_type, force_refresh } = req.body as {
+    world_id?: string;
+    focus_type?: string;
+    force_refresh?: boolean;
+  };
   if (!world_id) {
     res.status(400).json({ error: "world_id is required" });
     return;
@@ -1030,12 +1035,13 @@ router.post("/v1/editorial/canon-records/suggest", async (req: Request, res: Res
 
   try {
     const cached = await getDailySuggestions(world_id, "canon");
-    if (cached?.current) {
+    const canForceRefresh = canForceSuggestionRefresh(force_refresh, req.actor?.isSuperAdmin);
+    if (cached?.current && !canForceRefresh) {
       res.json({
         suggestions: cached.suggestions,
         generatedAt: cached.generatedAt,
         nextRefreshAt: cached.nextRefreshAt,
-        canRefresh: false,
+        canRefresh: req.actor?.isSuperAdmin === true,
         cached: true,
       });
       return;
@@ -1185,7 +1191,7 @@ All ${suggestionCount} suggestions must be DIFFERENT from existing records and f
       world: { name: world.name, code: world.code },
       generatedAt,
       nextRefreshAt: new Date(generatedAt.getTime() + SUGGESTION_REFRESH_MS),
-      canRefresh: false,
+      canRefresh: req.actor?.isSuperAdmin === true,
       cached: false,
     });
   } catch (err) {
@@ -3737,7 +3743,7 @@ const isStoryStatus = (value: unknown): value is typeof STORY_STATUSES[number] =
 // as prompt markup. Story summaries, canon, and World Bible prose are reduced to
 // plain text before they enter the model context.
 router.post("/v1/editorial/stories/suggest", async (req: Request, res: Response) => {
-  const { world_id } = req.body as { world_id?: string };
+  const { world_id, force_refresh } = req.body as { world_id?: string; force_refresh?: boolean };
   if (!world_id) {
     res.status(400).json({ error: "world_id is required" });
     return;
@@ -3745,12 +3751,13 @@ router.post("/v1/editorial/stories/suggest", async (req: Request, res: Response)
 
   try {
     const cached = await getDailySuggestions(world_id, "stories");
-    if (cached?.current) {
+    const canForceRefresh = canForceSuggestionRefresh(force_refresh, req.actor?.isSuperAdmin);
+    if (cached?.current && !canForceRefresh) {
       res.json({
         suggestions: cached.suggestions,
         generatedAt: cached.generatedAt,
         nextRefreshAt: cached.nextRefreshAt,
-        canRefresh: false,
+        canRefresh: req.actor?.isSuperAdmin === true,
         cached: true,
       });
       return;
@@ -3869,7 +3876,7 @@ Return ONLY a JSON array (no markdown fences or preamble). Every item must have:
       world: { name: world.name, code: world.code },
       generatedAt,
       nextRefreshAt: new Date(generatedAt.getTime() + SUGGESTION_REFRESH_MS),
-      canRefresh: false,
+      canRefresh: req.actor?.isSuperAdmin === true,
       cached: false,
     });
   } catch (err) {

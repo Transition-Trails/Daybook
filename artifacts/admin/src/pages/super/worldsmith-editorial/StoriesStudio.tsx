@@ -180,7 +180,7 @@ export default function StoriesStudio() {
   const selectedStory = stories.find(story => story.id === selectedStoryId) ?? null;
   const refreshStories = () => queryClient.invalidateQueries({ queryKey: ["ws-stories", selectedWorldId] });
 
-  const generateSuggestions = useCallback(async () => {
+  const generateSuggestions = useCallback(async (forceRefresh = false) => {
     const requestWorldId = selectedWorldId;
     if (!requestWorldId) {
       suggestionsRequestRef.current += 1;
@@ -197,7 +197,10 @@ export default function StoriesStudio() {
     try {
       const result = await apiFetch<StorySuggestionResponse>("/v1/editorial/stories/suggest", {
         method: "POST",
-        body: JSON.stringify({ world_id: requestWorldId }),
+        body: JSON.stringify({
+          world_id: requestWorldId,
+          ...(forceRefresh ? { force_refresh: true } : {}),
+        }),
       });
       if (requestId !== suggestionsRequestRef.current) return;
       setSuggestions(result.suggestions ?? []);
@@ -293,7 +296,7 @@ export default function StoriesStudio() {
           suggestions={suggestionsWorldId === selectedWorldId ? suggestions : []}
           loading={suggestionsLoading}
           error={suggestionsError}
-          onRefresh={() => { void generateSuggestions(); }}
+          onRefresh={() => { void generateSuggestions(true); }}
           onCreate={suggestion => navigate(
             `/super/worldsmith/editorial/stories/new?title=${encodeURIComponent(suggestion.title)}&summary=${encodeURIComponent(suggestion.narrativePromise)}&status=${encodeURIComponent(suggestion.recommendedStatus)}`,
           )}

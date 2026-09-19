@@ -1381,6 +1381,26 @@ export default function CanonLibrary() {
     staleTime: 24 * 60 * 60_000,
     retry: false,
   });
+  const refreshInlineSuggestions = useMutation({
+    mutationFn: () =>
+      apiFetch<SuggestionResponse<CanonSuggestion>>("/v1/editorial/canon-records/suggest", {
+        method: "POST",
+        body: JSON.stringify({
+          world_id: selectedWorldId,
+          force_refresh: true,
+        }),
+      }),
+    onSuccess: refreshed => {
+      qc.setQueryData(["editorial-canon-suggestions", selectedWorldId], refreshed);
+    },
+    onError: () => {
+      toast({
+        title: "Could not refresh Canon ideas",
+        description: "The saved suggestions are still available. Try again in a moment.",
+        variant: "destructive",
+      });
+    },
+  });
 
   // Client-side filter for search/type/status/visibility/stability/register
   const filtered = allRecords.filter(r => {
@@ -1781,9 +1801,9 @@ export default function CanonLibrary() {
                suggestions={(inlineSuggestions.data?.suggestions ?? []).filter(
                  suggestion => activeType === "all" || suggestion.canonType === activeType,
                )}
-               loading={inlineSuggestions.isLoading || inlineSuggestions.isFetching}
-               error={inlineSuggestions.isError}
-               onRefresh={() => void inlineSuggestions.refetch()}
+               loading={inlineSuggestions.isLoading || inlineSuggestions.isFetching || refreshInlineSuggestions.isPending}
+               error={inlineSuggestions.isError || refreshInlineSuggestions.isError}
+               onRefresh={() => refreshInlineSuggestions.mutate()}
                onCreate={openSuggestedCreate}
                 focusType={activeType}
               nextRefreshAt={inlineSuggestions.data?.nextRefreshAt}

@@ -9,6 +9,7 @@ import { logger } from "../logger";
 
 const SUPPORTED_IMAGE_MODELS = new Set(["gpt-image-1", "gpt-image-2"]);
 export const MIN_IMAGE_PIXELS = 1024 * 1024;
+const DEFAULT_IMAGE_GENERATION_TIMEOUT_MS = 180_000;
 const LEGACY_SIZE_MAP: Record<string, string> = {
   "1792x1024": "1536x1024",
   "1024x1792": "1024x1536",
@@ -30,6 +31,19 @@ export interface ImageGenerationMetadata {
 
 export interface ImageGenerationResult extends ImageGenerationMetadata {
   dataUrl: string;
+}
+
+export class ImageGenerationTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Image generation timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
+    this.name = "ImageGenerationTimeoutError";
+  }
+}
+
+function imageGenerationTimeoutMs(): number {
+  const configured = Number(process.env.WS_IMAGE_TIMEOUT_MS);
+  if (!Number.isFinite(configured)) return DEFAULT_IMAGE_GENERATION_TIMEOUT_MS;
+  return Math.min(600_000, Math.max(30_000, Math.round(configured)));
 }
 
 function configuredImageModel(): string {
@@ -134,7 +148,12 @@ export async function generateImage(
   };
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 90_000);
+  const timeoutMs = imageGenerationTimeoutMs();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   try {
     const res = await fetch(`${baseUrl}/images/generations`, {
       method: "POST",
@@ -171,6 +190,11 @@ export async function generateImage(
     }
 
     throw new Error("Image generation response contained neither url nor b64_json");
+  } catch (error) {
+    if (timedOut && error instanceof Error && error.name === "AbortError") {
+      throw new ImageGenerationTimeoutError(timeoutMs);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }

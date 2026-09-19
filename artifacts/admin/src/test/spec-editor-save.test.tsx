@@ -225,15 +225,15 @@ describe("SpecEditor save flow (Wave 2 Item 5)", () => {
     });
   });
 
-  it("explains the prompt payload and module requirement when Publish is disabled", async () => {
+  it("explains that board approval is required before Publish is enabled", async () => {
     renderEditor();
     await waitFor(() => expect(screen.getByText("Hero Paper 001: The Library Table")).toBeInTheDocument());
 
-    const publish = screen.getByRole("button", { name: /Publish to Notion/i });
+    const publish = screen.getByRole("button", { name: /^Publish specification$/i });
     expect(publish).toBeDisabled();
     expect(publish).toHaveAttribute("aria-describedby", "publish-requirements");
     expect(screen.getByText(
-      "Publishing is unavailable until the prompt payload is complete and at least one prompt module is linked.",
+      "Approve the Specification Board before publishing.",
     )).toBeInTheDocument();
   });
 

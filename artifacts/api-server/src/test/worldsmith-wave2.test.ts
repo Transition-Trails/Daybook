@@ -584,6 +584,18 @@ describe("Item 5 — PATCH /v1/editorial/specs/:id saves mutable linkage fields"
     expect(first.body.spec.notionPageId).toBe("notion-page-that-must-not-be-written");
     expect(first.body.already_approved).toBe(false);
 
+    const board = await request(app).get(`/v1/editorial/board?world_id=${worldId}`);
+    expect(board.status).toBe(200);
+    expect(board.body.board.approved.map((item: { id: string }) => item.id)).toContain(specId);
+    expect(board.body.board.draft.map((item: { id: string }) => item.id)).not.toContain(specId);
+
+    const publishWithoutArtwork = await request(app)
+      .post(`/v1/editorial/specs/${specId}/publish`)
+      .send({});
+    expect(publishWithoutArtwork.status).toBe(422);
+    expect(publishWithoutArtwork.body.code).toBe("SPEC_PUBLISH_PREREQUISITES");
+    expect(publishWithoutArtwork.body.prerequisites).toContain("Generate and select final artwork");
+
     const persisted = await request(app).get(`/v1/editorial/specs/${specId}`);
     expect(persisted.status).toBe(200);
     expect(persisted.body.spec.status).toBe("approved");

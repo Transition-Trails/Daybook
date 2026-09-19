@@ -237,7 +237,8 @@ function CompletionSidebar({
     ?? revisions.find(revision => revision.is_review_candidate)
     ?? (artworkPackage?.status === "success" ? artworkPackage : artworkState?.last_successful)
     ?? null;
-  const artworkApproved = spec.status.trim().toLowerCase() === "approved";
+  const normalizedStatus = spec.status.trim().toLowerCase();
+  const artworkApproved = ["approved", "published"].includes(normalizedStatus);
   const boardApproved = artworkApproved;
   const boardCompiled = spec.compiledPromptStatus.trim().toLowerCase() === "compiled";
   const recompileRequired = spec.status.trim().toLowerCase() === "changes_pending"
@@ -257,6 +258,16 @@ function CompletionSidebar({
             ? "Complete the prompt payload and link its prompt modules first."
             : "Resolve the canon dependency before approving the board."
       : null;
+  const publishReady = !previewDisabled
+    && artworkApproved
+    && successfulArtwork?.status === "success";
+  const publishReason = previewDisabled
+    ? "Save and compile your changes before publishing."
+    : !artworkApproved
+      ? "Approve the Specification Board before publishing."
+      : successfulArtwork?.status !== "success"
+        ? "Generate and select final artwork before publishing."
+        : null;
 
   return (
     <aside
@@ -647,19 +658,27 @@ function CompletionSidebar({
 
       {/* Notion publish */}
       <div className="px-4 py-3">
+        <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Publish Specification</p>
+        <p className="mb-2 text-[11px] leading-relaxed text-gray-500">
+          Publish the approved specification and selected final artwork to the world&apos;s Notion production database.
+        </p>
         <button
-          onClick={onPublish}
-          disabled={isPublishing || !isPayloadReady}
-          aria-describedby={!isPayloadReady ? "publish-requirements" : undefined}
+          onClick={() => {
+            if (window.confirm("Publish this Production Specification? It will move to Published and sync to Notion.")) {
+              onPublish();
+            }
+          }}
+          disabled={isPublishing || !publishReady}
+          aria-describedby={publishReason ? "publish-requirements" : undefined}
           className="w-full flex items-center justify-center gap-2 py-2 text-sm rounded-lg font-medium disabled:opacity-40 transition-colors"
           style={{ background: "#1B2A4A", color: "white" }}
         >
           {isPublishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-          {spec.notionPageId ? "Re-publish to Notion" : "Publish to Notion"}
+          {spec.notionPageId ? "Re-publish specification" : "Publish specification"}
         </button>
-        {!isPayloadReady && (
+        {publishReason && (
           <p id="publish-requirements" className="mt-2 text-[11px] leading-relaxed text-amber-700">
-            Publishing is unavailable until the prompt payload is complete and at least one prompt module is linked.
+            {publishReason}
           </p>
         )}
         {spec.notionPageId && (
@@ -1336,15 +1355,21 @@ export default function SpecEditor({ specId }: { specId: string }) {
     }),
   });
 
-  const publishMutation = useMutation({
+  const publishMutation = useMutation<{ spec: Spec }>({
     mutationFn: () => apiFetch(`/v1/editorial/specs/${specId}/publish`, { method: "POST", body: JSON.stringify({}) }),
-    onSuccess: () => {
+    onSuccess: ({ spec: publishedSpec }) => {
+      setLocalSpec(publishedSpec);
+      qc.setQueryData<SpecResponse>(["editorial-spec", specId], previous => (
+        previous ? { ...previous, spec: publishedSpec } : previous
+      ));
       qc.invalidateQueries({ queryKey: ["editorial-spec", specId] });
-      toast({ title: "Published to Notion" });
+      qc.invalidateQueries({ queryKey: ["editorial/specs/list"] });
+      qc.invalidateQueries({ queryKey: ["editorial-board"] });
+      toast({ title: "Specification published", description: "It now appears in the Published column." });
     },
-    onError: (err: any) => {
-      const msg = err?.code === "NO_NOTION_DB" ? "World has no Notion DB configured." : "Publish failed";
-      toast({ title: msg, variant: "destructive" });
+    onError: (err: Error & { code?: string }) => {
+      const title = err.code === "NO_NOTION_DB" ? "World has no Notion DB configured." : "Publish failed";
+      toast({ title, description: err.message, variant: "destructive" });
     },
   });
 
@@ -1403,7 +1428,9 @@ export default function SpecEditor({ specId }: { specId: string }) {
       setLocalSpec(previous => previous ? {
         ...previous,
         compiledPromptStatus: "Compiled",
-        status: previous.status.trim().toLowerCase() === "approved" ? previous.status : "compiled",
+        status: ["approved", "published"].includes(previous.status.trim().toLowerCase())
+          ? previous.status
+          : "compiled",
       } : previous);
       qc.invalidateQueries({ queryKey: ["editorial-spec", specId] });
       qc.setQueryData(["editorial-spec-preview", specId], { preview });

@@ -98,4 +98,21 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
     });
     expect(mockGenerateImage).toHaveBeenCalledOnce();
   });
+
+  it("returns a retryable timeout response when high-quality generation takes too long", async () => {
+    const timeoutError = new Error("Image generation timed out after 180 seconds.");
+    timeoutError.name = "ImageGenerationTimeoutError";
+    mockGenerateImage.mockRejectedValue(timeoutError);
+
+    const response = await request(app)
+      .post("/v1/editorial/canon-records/generate-image")
+      .send({ name: "The Slow Lantern", canon_type: "object" });
+
+    expect(response.status).toBe(504);
+    expect(response.body).toEqual({
+      error: "Image generation took longer than three minutes. Please try again.",
+      code: "IMAGE_GENERATION_TIMEOUT",
+      retryable: true,
+    });
+  });
 });

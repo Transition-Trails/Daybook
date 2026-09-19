@@ -44,6 +44,7 @@ describe("ReadinessBoard", () => {
     expect(await screen.findByText("Drafts")).toBeVisible();
     expect(screen.getByText("Payload Ready")).toBeVisible();
     expect(screen.getByText("Canon Clear")).toBeVisible();
+    expect(screen.getByText("Artwork Review")).toBeVisible();
     expect(screen.queryByText("No specs yet for this world")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create your first spec" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New Spec" })).toBeVisible();

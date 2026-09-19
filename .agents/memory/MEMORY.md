@@ -92,3 +92,4 @@
 - [PDF import fixture validity](pdf-import-fixture-validity.md) — import analysis can accept malformed font resources that make otherwise valid-looking test pages rasterize blank
 - [WorldSmith planner asset bridge](worldsmith-planner-asset-bridge.md) — planners consume approved final art through project-owned copies and reserved composition IDs
 - [Planner PDF thumbnails](planner-pdf-thumbnails.md) — artifact deployments need bundled PDF rendering; development-shell executables are not production dependencies
+- [Planner PDF import resume](planner-pdf-import-resume.md) — analyzed PDFs are autosaved review projects; keep them discoverable, resumable, and full-color

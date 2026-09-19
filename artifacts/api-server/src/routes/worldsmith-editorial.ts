@@ -342,6 +342,7 @@ router.get("/v1/editorial/board", async (req: Request, res: Response) => {
       payload_ready: [],
       canon_clear: [],
       compiled: [],
+      approved: [],
       published: [],
       blocked: [],
     };
@@ -1809,6 +1810,14 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
     res.json({ image_data_url: imageDataUrl, generation: generationMetadata });
   } catch (err) {
     logger.error({ err, canonName: name }, "editorial: generate canon image");
+    if (err instanceof Error && err.name === "ImageGenerationTimeoutError") {
+      res.status(504).json({
+        error: "Image generation took longer than three minutes. Please try again.",
+        code: "IMAGE_GENERATION_TIMEOUT",
+        retryable: true,
+      });
+      return;
+    }
     res.status(502).json({ error: "Image generation could not be completed. Please try again." });
   }
 });
@@ -3436,13 +3445,14 @@ router.patch("/v1/editorial/specs/:id", async (req: Request, res: Response) => {
         !== JSON.stringify(merged[column as keyof typeof merged]);
     });
     const hadCompiledVersion = existing.compiledPromptStatus.trim().toLowerCase() === "compiled"
-      || ["compiled", "approved"].includes(existing.status.trim().toLowerCase());
+      || ["compiled", "approved", "published"].includes(existing.status.trim().toLowerCase());
     const recompileRequired = !isDraft && hadCompiledVersion && compilationInputsChanged;
     const status = recompileRequired ? "changes_pending" : derivePipelineStatus(merged, readinessScore);
     const persistedStatus = recompileRequired
       ? status
       : sql<string>`case
-          when lower(${wsProductionSpecsTable.status}) = 'approved' then 'approved'
+          when lower(${wsProductionSpecsTable.status}) in ('approved', 'published')
+            then lower(${wsProductionSpecsTable.status})
           else ${status}
         end`;
 
@@ -3582,6 +3592,31 @@ router.post("/v1/editorial/specs/:id/publish", async (req: Request, res: Respons
       res.status(422).json({
         error: "Complete the Production Spec identity before publishing.",
         code: "INCOMPLETE_DRAFT",
+      });
+      return;
+    }
+
+    const normalizedStatus = spec.status.trim().toLowerCase();
+    const [reviewArtwork] = await db
+      .select({ id: worldsmithProductionPackagesTable.id })
+      .from(worldsmithProductionPackagesTable)
+      .where(and(
+        eq(worldsmithProductionPackagesTable.productionSpecId, specId),
+        eq(worldsmithProductionPackagesTable.status, "success"),
+        eq(worldsmithProductionPackagesTable.isReviewCandidate, true),
+      ))
+      .limit(1);
+    const prerequisites = [
+      ...(!["approved", "published"].includes(normalizedStatus)
+        ? ["Approve the Specification Board"]
+        : []),
+      ...(!reviewArtwork ? ["Generate and select final artwork"] : []),
+    ];
+    if (prerequisites.length > 0) {
+      res.status(422).json({
+        error: "The Production Specification is not ready to publish.",
+        code: "SPEC_PUBLISH_PREREQUISITES",
+        prerequisites,
       });
       return;
     }

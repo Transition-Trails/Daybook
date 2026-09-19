@@ -1871,6 +1871,7 @@ export interface PlannerImportDetail {
   updatedAt: string;
   pages: PlannerImportPage[];
 }
+export type PlannerImportSummary = Omit<PlannerImportDetail, "pages">;
 
 export interface BackgroundRenderWarning {
   backgroundId: string | null;
@@ -1941,6 +1942,7 @@ export const platformPlannersApi = {
 };
 
 export const plannerImportsApi = {
+  list: () => apiFetch<PlannerImportSummary[]>("/platform/planner-imports"),
   requestUploadUrl: (data: { name: string; size: number; contentType: "application/pdf" }) =>
     apiFetch<{ uploadURL: string; objectPath: string; maxBytes: number }>("/platform/planner-imports/upload-url", {
       method: "POST", body: JSON.stringify(data),
@@ -1950,6 +1952,7 @@ export const plannerImportsApi = {
       method: "POST", body: JSON.stringify(data),
     }),
   get: (id: string) => apiFetch<PlannerImportDetail>(`/platform/planner-imports/${id}`),
+  delete: (id: string) => apiFetch<void>(`/platform/planner-imports/${id}`, { method: "DELETE" }),
   updatePages: (id: string, pages: Array<Partial<PlannerImportPage> & { id: string }>) =>
     apiFetch<PlannerImportDetail>(`/platform/planner-imports/${id}/pages`, {
       method: "PATCH", body: JSON.stringify({ pages }),

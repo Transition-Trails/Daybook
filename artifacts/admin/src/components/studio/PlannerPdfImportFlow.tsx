@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowLeft, ArrowUp, Copy, Eye, EyeOff, FileUp, Loader2, X } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, ArrowLeft, ArrowUp, Copy, Eye, EyeOff, FileUp, Loader2, RotateCcw, Trash2, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CHIP_ACTIVE_BG } from "@/components/studio/primitives";
 import {
@@ -52,6 +52,10 @@ export default function PlannerPdfImportFlow({ editions, onCreateNew, onCancel }
   const [name, setName] = useState("");
   const [editionId, setEditionId] = useState("");
   const [reviewPage, setReviewPage] = useState(0);
+  const savedImports = useQuery({
+    queryKey: ["planner-pdf-imports"],
+    queryFn: plannerImportsApi.list,
+  });
 
   const orderedPages = useMemo(
     () => [...(detail?.pages ?? [])].sort((a, b) => a.orderIndex - b.orderIndex),
@@ -64,7 +68,10 @@ export default function PlannerPdfImportFlow({ editions, onCreateNew, onCancel }
   );
   const patchPages = async (patches: Array<Partial<PlannerImportPage> & { id: string }>) => {
     if (!detail) return;
-    try { setDetail(await plannerImportsApi.updatePages(detail.id, patches)); }
+    try {
+      setDetail(await plannerImportsApi.updatePages(detail.id, patches));
+      qc.invalidateQueries({ queryKey: ["planner-pdf-imports"] });
+    }
     catch (e) { setError((e as Error).message); }
   };
   const upload = useMutation({
@@ -76,13 +83,40 @@ export default function PlannerPdfImportFlow({ editions, onCreateNew, onCancel }
       if (!result.ok) throw new Error("The PDF upload failed. Please try again.");
       return plannerImportsApi.analyze({ objectPath: signed.objectPath, fileName: file.name, fileSize: file.size });
     },
-    onSuccess: (value) => { setDetail(value); setFileName(value.originalFileName); setStep("review"); setError(null); },
+    onSuccess: (value) => {
+      setDetail(value);
+      setFileName(value.originalFileName);
+      setStep("review");
+      setError(null);
+      qc.invalidateQueries({ queryKey: ["planner-pdf-imports"] });
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+  const resume = useMutation({
+    mutationFn: plannerImportsApi.get,
+    onSuccess: (value) => {
+      setDetail(value);
+      setFileName(value.originalFileName);
+      setSelected(new Set());
+      setReviewPage(0);
+      setStep("review");
+      setError(null);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+  const remove = useMutation({
+    mutationFn: plannerImportsApi.delete,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["planner-pdf-imports"] });
+      toast({ title: "PDF import deleted" });
+    },
     onError: (e: Error) => setError(e.message),
   });
   const create = useMutation({
     mutationFn: () => plannerImportsApi.createPlanner(detail!.id, { name: name.trim(), ...(editionId ? { editionId } : {}) }),
     onSuccess: (template) => {
       qc.invalidateQueries({ queryKey: ["platform-planners"] });
+      qc.invalidateQueries({ queryKey: ["planner-pdf-imports"] });
       toast({ title: "Planner created", description: "Your imported pages are ready for overlays and navigation." });
       onCreateNew(template);
     },
@@ -110,19 +144,51 @@ export default function PlannerPdfImportFlow({ editions, onCreateNew, onCancel }
         {["upload", "review", "map"].map((item, index) => <div key={item} className="flex items-center gap-2" style={step === item ? { color: CHIP_ACTIVE_BG } : undefined}><span className={`grid h-6 w-6 place-items-center rounded-full border ${index <= ["upload", "review", "map"].indexOf(step) ? "text-white" : ""}`} style={index <= ["upload", "review", "map"].indexOf(step) ? { background: CHIP_ACTIVE_BG } : undefined}>{index + 1}</span>{item === "upload" ? "Upload" : item === "review" ? "Review Pages" : "Map Structure"}{index < 2 && <span className="mx-1 text-border">/</span>}</div>)}
       </div>
 
-      {step === "upload" && <div className="rounded-2xl border border-dashed p-10 text-center" style={{ background: "var(--admin-card)" }}>
-        <FileUp className="mx-auto mb-3 h-8 w-8 text-primary" />
-        <h3 className="font-display text-[15px] font-semibold">Start with your finished planner PDF</h3>
-        <p className="mx-auto mt-1 max-w-md text-[12px] text-muted-foreground">Up to 50 MiB. Pages remain preserved as the source; Daybook does not attempt Canva/Figma-style artwork extraction.</p>
-        <label className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-semibold text-white" style={{ background: CHIP_ACTIVE_BG }}>
-          {upload.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />} Choose PDF
-          <input type="file" accept="application/pdf,.pdf" className="sr-only" disabled={upload.isPending} onChange={e => { const file = e.target.files?.[0]; if (file) upload.mutate(file); }} />
-        </label>
-        {upload.isPending && <p className="mt-3 text-[12px] text-muted-foreground">Uploading and analyzing pages…</p>}
+      {step === "upload" && <div className="space-y-5">
+        <div className="rounded-2xl border border-dashed p-10 text-center" style={{ background: "var(--admin-card)" }}>
+          <FileUp className="mx-auto mb-3 h-8 w-8 text-primary" />
+          <h3 className="font-display text-[15px] font-semibold">Start with your finished planner PDF</h3>
+          <p className="mx-auto mt-1 max-w-md text-[12px] text-muted-foreground">Up to 50 MiB. Pages remain preserved in their original color as the source; Daybook does not attempt Canva/Figma-style artwork extraction.</p>
+          <label className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-semibold text-white" style={{ background: CHIP_ACTIVE_BG }}>
+            {upload.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />} Choose PDF
+            <input type="file" accept="application/pdf,.pdf" className="sr-only" disabled={upload.isPending} onChange={e => { const file = e.target.files?.[0]; if (file) upload.mutate(file); }} />
+          </label>
+          {upload.isPending && <p className="mt-3 text-[12px] text-muted-foreground">Uploading and analyzing pages…</p>}
+        </div>
+
+        <section className="rounded-2xl border p-4" aria-labelledby="saved-pdf-imports-heading">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 id="saved-pdf-imports-heading" className="font-display text-[15px] font-semibold">Saved PDF imports</h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Page mapping changes save automatically. Resume any unfinished import here.</p>
+            </div>
+            {savedImports.isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          </div>
+          {savedImports.isError && <p className="mt-3 text-[12px] text-red-700">Unable to load saved PDF imports.</p>}
+          {!savedImports.isLoading && !(savedImports.data?.length) && <p className="mt-4 rounded-xl bg-muted/40 px-3 py-4 text-center text-[12px] text-muted-foreground">No saved PDF imports yet.</p>}
+          {!!savedImports.data?.length && <div className="mt-3 divide-y rounded-xl border">
+            {savedImports.data.map(item => {
+              const completed = item.status === "created";
+              return <div key={item.id} className="flex flex-wrap items-center gap-3 px-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12.5px] font-semibold">{item.originalFileName}</div>
+                  <div className="mt-0.5 text-[10.5px] text-muted-foreground">{item.pageCount} pages · Updated {new Date(item.updatedAt).toLocaleString()} · {completed ? "Planner created" : "Review in progress"}</div>
+                </div>
+                {!completed && <>
+                  <button type="button" onClick={() => resume.mutate(item.id)} disabled={resume.isPending} className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"><RotateCcw className="h-3 w-3" /> Resume</button>
+                  <button type="button" onClick={() => {
+                    if (window.confirm(`Delete the saved import “${item.originalFileName}”? This cannot be undone.`)) remove.mutate(item.id);
+                  }} disabled={remove.isPending} className="rounded-full border p-2 text-muted-foreground hover:text-red-700 disabled:opacity-50" aria-label={`Delete ${item.originalFileName}`}><Trash2 className="h-3.5 w-3.5" /></button>
+                </>}
+                {completed && <span className="rounded-full bg-muted px-3 py-1.5 text-[10.5px] font-semibold text-muted-foreground">Created</span>}
+              </div>;
+            })}
+          </div>}
+        </section>
       </div>}
 
       {step === "review" && detail && <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-[12px]"><span><strong>{fileName}</strong> · {detail.pageCount} pages</span><button className="text-muted-foreground underline" onClick={() => setStep("upload")}>Choose another PDF</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-[12px]"><span><strong>{fileName}</strong> · {detail.pageCount} pages · <span className="text-muted-foreground">Changes save automatically</span></span><button className="text-muted-foreground underline" onClick={() => setStep("upload")}>Saved imports</button></div>
         <div className="flex flex-wrap items-center gap-2 rounded-xl border p-3">
           <button className="rounded-full border px-3 py-1.5 text-[12px]" onClick={() => setSelected(new Set(selected.size === orderedPages.length ? [] : orderedPages.map(p => p.id)))}>{selected.size === orderedPages.length ? "Clear selection" : "Select all"}</button>
           <span className="text-[11px] text-muted-foreground">{selected.size} selected</span>
@@ -141,7 +207,7 @@ export default function PlannerPdfImportFlow({ editions, onCreateNew, onCancel }
               {(page.behavior !== "unique") && <label className="text-[10px] text-muted-foreground">Template / group key<input value={page.templateKey ?? ""} onChange={e => patchPages([{ id: page.id, templateKey: e.target.value || null }])} placeholder="e.g. weekly-spread" className="mt-0.5 w-full rounded border bg-background px-1.5 py-1 text-[11px]" /></label>}
               <label className="text-[10px] text-muted-foreground">Label<input value={page.label ?? ""} onChange={e => patchPages([{ id: page.id, label: e.target.value || null }])} placeholder="Optional page label" className="mt-0.5 w-full rounded border bg-background px-1.5 py-1 text-[11px]" /></label>
             </div>
-            <div className="mt-2 flex items-center gap-1"><button onClick={() => move(page, -1)} disabled={index === 0} className="rounded border p-1 disabled:opacity-30" aria-label="Move page up"><ArrowUp className="h-3 w-3" /></button><button onClick={() => move(page, 1)} disabled={index === orderedPages.length - 1} className="rounded border p-1 disabled:opacity-30" aria-label="Move page down"><ArrowDown className="h-3 w-3" /></button><button onClick={() => plannerImportsApi.duplicatePage(detail.id, page.id).then(setDetail).catch(e => setError(e.message))} className="rounded border p-1" aria-label="Duplicate page"><Copy className="h-3 w-3" /></button><button onClick={() => patchPages([{ id: page.id, hidden: !page.hidden }])} className="ml-auto rounded border p-1" aria-label={page.hidden ? "Show page" : "Hide page"}>{page.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}</button></div>
+            <div className="mt-2 flex items-center gap-1"><button onClick={() => move(page, -1)} disabled={index === 0} className="rounded border p-1 disabled:opacity-30" aria-label="Move page up"><ArrowUp className="h-3 w-3" /></button><button onClick={() => move(page, 1)} disabled={index === orderedPages.length - 1} className="rounded border p-1 disabled:opacity-30" aria-label="Move page down"><ArrowDown className="h-3 w-3" /></button><button onClick={() => plannerImportsApi.duplicatePage(detail.id, page.id).then(value => { setDetail(value); qc.invalidateQueries({ queryKey: ["planner-pdf-imports"] }); }).catch(e => setError(e.message))} className="rounded border p-1" aria-label="Duplicate page"><Copy className="h-3 w-3" /></button><button onClick={() => patchPages([{ id: page.id, hidden: !page.hidden }])} className="ml-auto rounded border p-1" aria-label={page.hidden ? "Show page" : "Hide page"}>{page.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}</button></div>
           </div>;
           })}
         </div>

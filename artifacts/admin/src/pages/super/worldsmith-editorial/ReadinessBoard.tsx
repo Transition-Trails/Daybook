@@ -39,6 +39,7 @@ const COLUMNS: Array<{
   { key: "payload_ready",label: "Payload Ready",  headerBg: "bg-blue-50",     headerText: "text-blue-700",   badgeBg: "bg-blue-100 text-blue-700" },
   { key: "canon_clear",  label: "Canon Clear",    headerBg: "bg-violet-50",   headerText: "text-violet-700", badgeBg: "bg-violet-100 text-violet-700" },
   { key: "compiled",     label: "Compiled",       headerBg: "bg-teal-50",     headerText: "text-teal-700",   badgeBg: "bg-teal-100 text-teal-700" },
+  { key: "approved",     label: "Artwork Review", headerBg: "bg-amber-50",    headerText: "text-amber-700",  badgeBg: "bg-amber-100 text-amber-700" },
   { key: "published",    label: "Published",      headerBg: "bg-emerald-50",  headerText: "text-emerald-700",badgeBg: "bg-emerald-100 text-emerald-700" },
   { key: "blocked",      label: "Blocked",        headerBg: "bg-red-50",      headerText: "text-red-700",    badgeBg: "bg-red-100 text-red-700" },
 ];
@@ -129,6 +130,9 @@ function SpecCardItem({ spec }: { spec: SpecCard }) {
                 <CheckCircle2 className="w-2.5 h-2.5" />
                 Ready
               </span>
+            )}
+            {spec.status === "approved" && (
+              <span className="text-[10px] text-amber-700 font-medium">Final art</span>
             )}
             {spec.status === "blocked" && (
               <span className="text-[10px] text-red-500 font-medium">Blocked</span>

@@ -16,7 +16,7 @@ The default model is **gpt-image-2**, selected through `WS_IMAGE_MODEL` and sent
 - Direct OpenAI fallback uses `OPENAI_API_KEY` when the Replit integration is unavailable.
 - `options.quality` accepts `low`, `medium`, `high`, and legacy `standard`/`hd` values; legacy values map to `medium`/`high` with warnings.
 - GPT Image 1 legacy sizes are explicitly mapped for compatibility; GPT Image 2 sizes must use supported multiples of 16, aspect ratios, and pixel budgets. Custom targets must contain at least 1,048,576 pixels; a 512-pixel short side alone is insufficient.
-- Generation and optional image download share a 90-second `AbortController` timeout.
+- Generation and optional image download share a 180-second timeout by default, configurable with `WS_IMAGE_TIMEOUT_MS` within a 30–600 second safety range. Convert timeout aborts into a named, retryable error rather than a generic provider failure.
 
 ## ItemOrigin constraint
 `ItemOrigin = "starter" | "licensed" | "owned"` — `"platform"` is NOT valid.

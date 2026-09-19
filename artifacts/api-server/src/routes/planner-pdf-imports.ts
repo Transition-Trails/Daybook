@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { PDFiumLibrary, type PDFiumPageRenderOptions } from "@hyzyla/pdfium";
 import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   plannerPdfImportsTable,
@@ -99,6 +99,7 @@ async function renderPageThumbnail(sourceObjectPath: string, sourcePageNumber: n
     }
     const rendered = await document.getPage(pageIndex).render({
       width: 360,
+      colorSpace: "BGRA",
       render: encodePdfiumBitmap,
     });
     return Buffer.from(rendered.data);
@@ -171,10 +172,46 @@ router.post("/platform/planner-imports/analyze", requireSuperAdmin, async (req: 
   }
 });
 
+router.get("/platform/planner-imports", requireSuperAdmin, async (_req: Request, res: Response) => {
+  const items = await db.select({
+    id: plannerPdfImportsTable.id,
+    originalFileName: plannerPdfImportsTable.originalFileName,
+    fileSize: plannerPdfImportsTable.fileSize,
+    pageCount: plannerPdfImportsTable.pageCount,
+    status: plannerPdfImportsTable.status,
+    plannerTemplateId: plannerPdfImportsTable.plannerTemplateId,
+    createdAt: plannerPdfImportsTable.createdAt,
+    updatedAt: plannerPdfImportsTable.updatedAt,
+  }).from(plannerPdfImportsTable)
+    .orderBy(desc(plannerPdfImportsTable.updatedAt))
+    .limit(100);
+  res.json(items);
+});
+
 router.get("/platform/planner-imports/:id", requireSuperAdmin, async (req: Request, res: Response) => {
   const item = await detail(routeParam(req, "id"));
   if (!item) { fail(res, 404, "Planner PDF import not found"); return; }
   res.json(item);
+});
+
+router.delete("/platform/planner-imports/:id", requireSuperAdmin, async (req: Request, res: Response) => {
+  const id = routeParam(req, "id");
+  const item = await detail(id);
+  if (!item) { fail(res, 404, "Planner PDF import not found"); return; }
+  if (item.status === "created" || item.plannerTemplateId) {
+    fail(res, 409, "Created planner imports cannot be deleted from import history");
+    return;
+  }
+  await db.delete(plannerPdfImportsTable).where(eq(plannerPdfImportsTable.id, id));
+  for (const key of thumbnailCache.keys()) {
+    if (key.startsWith(`${id}:`)) thumbnailCache.delete(key);
+  }
+  try {
+    await storage.deleteObjectEntity(item.sourceObjectPath);
+  } catch (error) {
+    req.log.warn({ err: error, importId: id }, "Deleted planner import record but could not remove source object");
+  }
+  res.status(204).send();
 });
 
 router.patch("/platform/planner-imports/:id/pages", requireSuperAdmin, async (req: Request, res: Response) => {

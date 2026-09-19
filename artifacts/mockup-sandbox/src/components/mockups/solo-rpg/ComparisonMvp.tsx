@@ -14,6 +14,8 @@ import {
   MessageCircle,
   LockKeyhole,
   MoreHorizontal,
+  NotebookTabs,
+  Package,
   Plus,
   RotateCcw,
   Scale,
@@ -110,6 +112,7 @@ export default function ComparisonMvp() {
   const [choice, setChoice] = useState("follow-the-light");
   const [communityJoined, setCommunityJoined] = useState(false);
   const [communityChannel, setCommunityChannel] = useState("canon-garden");
+  const [selectedAsset, setSelectedAsset] = useState("garden-notebook");
 
   const active = useMemo(
     () => concepts.find((concept) => concept.id === selected) ?? concepts[0],
@@ -347,6 +350,67 @@ export default function ComparisonMvp() {
                 ))}
               </div>
             </div>
+          </div>
+        </section>
+
+        <section className="border-t border-[#b7a995]/60 py-9">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#a35d45]">The story-to-library flywheel</p>
+              <h2 className="mt-2 max-w-3xl font-serif text-3xl tracking-[-0.03em]">Let the story suggest what the world needs next.</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#766d61]">
+                A scene can reveal a useful physical or digital object. Platform editors shape that signal into a reusable library item, then the community brings it back into notebooks, washi paper, ephemera, and Daybook pages.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 text-xs text-[#6f665c]">
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-[#e4dac9] text-[#a35d45]"><Sparkles size={14} /></span>
+              <span><strong className="text-[#4a4239]">3 suggested items</strong><br />from this story movement</span>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-3 lg:grid-cols-[0.85fr_1.35fr_0.8fr]">
+            <div className="border border-[#b7a995] bg-[#34372f] p-5 text-[#f4ecdc]">
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d7c6a1]"><BookOpen size={14} /> Story signal</div>
+              <p className="mt-5 font-serif text-2xl">The key hums near rosemary.</p>
+              <p className="mt-3 text-xs leading-5 text-[#c7c8ba]">A recurring object, scent, and unanswered door create a strong cue for a tactile set.</p>
+              <div className="mt-5 flex flex-wrap gap-1.5">
+                {["Brass Seed Key", "Rosemary", "Glasshouse", "Unfinished letter"].map((tag) => <span key={tag} className="border border-[#778574] bg-[#465044] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.08em] text-[#d5d6c7]">{tag}</span>)}
+              </div>
+            </div>
+            <div className="border border-[#b7a995] bg-[#f7f0e3] p-4">
+              <div className="flex items-center justify-between border-b border-[#d7cbbb] pb-3">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#4c463d]"><Package size={14} className="text-[#a35d45]" /> Platform suggestions</div>
+                <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[#9b8f7e]">editor queue</span>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {[
+                  ["garden-notebook", "Field notebook", "Notebook · 12 pages", NotebookTabs],
+                  ["rosemary-washi", "Rosemary washi", "Washi paper · 3 strips", Sparkles],
+                  ["glasshouse-ephemera", "Glasshouse letter set", "Ephemera · 6 pieces", FileCheck2],
+                ].map(([id, title, meta, Icon]) => (
+                  <button key={id as string} onClick={() => setSelectedAsset(id as string)} className={`border p-3 text-left transition-colors ${selectedAsset === id ? "border-[#a35d45] bg-[#efe0ce]" : "border-[#d7cbbb] bg-[#f1e8da] hover:bg-[#eee0cf]"}`}>
+                    <Icon size={16} className="text-[#a35d45]" />
+                    <p className="mt-3 text-xs font-semibold text-[#3f3a34]">{title as string}</p>
+                    <p className="mt-1 text-[10px] leading-4 text-[#8b7f70]">{meta as string}</p>
+                    <p className="mt-3 font-mono text-[9px] uppercase tracking-[0.1em] text-[#64755b]">Suggested from story</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="border border-[#b7a995] bg-[#e4dac9] p-5">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#71685e]">The handoff</p>
+              <div className="mt-5 space-y-4">
+                {[
+                  ["01", "Platform editor", "Creates the asset"],
+                  ["02", "Library", "Makes it reusable"],
+                  ["03", "Daybook + community", "Uses it in a spread"],
+                ].map(([number, title, line]) => <div key={number} className="flex items-start gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#f7f0e3] font-mono text-[9px] text-[#a35d45]">{number}</span><div><p className="text-xs font-semibold text-[#4b443a]">{title}</p><p className="mt-1 text-[10px] leading-4 text-[#7d7163]">{line}</p></div></div>)}
+              </div>
+              <button onClick={() => setCommunityChannel("member-lounge")} className="mt-6 flex w-full items-center justify-center gap-2 border border-[#8d9a84] bg-[#f7f0e3] px-3 py-2.5 text-xs font-bold text-[#5c6e55] hover:bg-[#eee4d4]"><Users size={14} /> See community uses</button>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-col gap-2 border border-[#b7a995] bg-[#efe0ce] p-3 text-xs text-[#6d665c] sm:flex-row sm:items-center sm:justify-between">
+            <span className="flex items-center gap-2"><ShieldCheck size={14} className="text-[#66785d]" /> Every suggestion keeps its story provenance before it enters the shared library.</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#9b5941]">Selected · {selectedAsset === "garden-notebook" ? "Field notebook" : selectedAsset === "rosemary-washi" ? "Rosemary washi" : "Glasshouse letter set"}</span>
           </div>
         </section>
 

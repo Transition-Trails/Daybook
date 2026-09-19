@@ -41,6 +41,7 @@ import plannerInteriorsRouter from "./planner-interiors";
 import checkoutRouter from "./checkout";
 import shapeRecipesRouter from "./shape-recipes";
 import plannerPdfImportsRouter from "./planner-pdf-imports";
+import plannerWorldsmithAssetsRouter from "./planner-worldsmith-assets";
 
 const router: IRouter = Router();
 
@@ -64,6 +65,7 @@ router.use(storesRouter);
 router.use(ownedCatalogRouter);
 router.use(shapeRecipesRouter);
 router.use(plannerPdfImportsRouter);
+router.use(plannerWorldsmithAssetsRouter);
 router.use(stickersRouter);
 router.use(platformRouter);
 router.use(platformStickersRouter);

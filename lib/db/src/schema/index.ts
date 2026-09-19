@@ -4,6 +4,7 @@ export * from "./catalog";
 export * from "./editions";
 export * from "./plans";
 export * from "./planner";
+export * from "./planner-project-assets";
 export * from "./planner-pdf-imports";
 export * from "./planner-interiors";
 export * from "./stores";

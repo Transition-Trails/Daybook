@@ -1,10 +1,13 @@
+
+import { ProjectAssetUpdater } from "./ProjectAssetUpdater";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Search, Trash2, Copy, Save, AlertTriangle, ChevronLeft, ChevronRight, GripVertical, Eye, EyeOff } from "lucide-react";
+import { Search, Trash2, Copy, Save, AlertTriangle, ChevronLeft, ChevronRight, GripVertical, Eye, EyeOff, ImagePlus, RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { WorldSmithBrowserDialog } from "./WorldSmithBrowserDialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { storePlannersApi, widgetsApi, type PlannerWidgetPlacement, type StorePlannerComposition, type StorePlannerConfig, type Widget } from "@/lib/api";
+import { storePlannersApi, widgetsApi, type PlannerWidgetPlacement, type StorePlannerComposition, type StorePlannerConfig, type Widget, type PlannerProjectAsset } from "@/lib/api";
 import { getPlannerPageCounts, getPlannerPageDescriptors, type PlannerPageType } from "@workspace/db/planner-pages";
 
 const cleanSvg = (raw: string | null) => {
@@ -89,6 +92,11 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "starter" | "owned">("all");
+  const [libraryTab, setLibraryTab] = useState<"widgets" | "project-assets">("widgets");
+  const [isWorldSmithOpen, setIsWorldSmithOpen] = useState(false);
+  const { data: projectAssetsData, isLoading: projectAssetsLoading } = useQuery({ queryKey: ["planner-project-assets", storeId, planner.id], queryFn: () => storePlannersApi.worldsmithAssets.listLibrary(storeId, planner.id) });
+  const projectAssets = projectAssetsData?.assets || [];
+  const visibleProjectAssets = projectAssets.filter((a) => a.displayName.toLowerCase().includes(query.toLowerCase()));
   const [placementFeedback, setPlacementFeedback] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ id: string; dx: number; dy: number; resize?: boolean } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -105,6 +113,7 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
   );
   const selectedPlacement = composition.placements.find((p) => p.id === selected);
   const selectedWidget = widgets.find((w) => w.id === selectedPlacement?.widgetId);
+  const selectedProjectAsset = selectedPlacement?.widgetId?.startsWith('project-asset:') ? projectAssets.find((a) => a.id === selectedPlacement.widgetId.replace('project-asset:', '')) : null;
   const selectedPageCount = selectedPlacement ? generatedPageCount(selectedPlacement.pageType, planner) : 1;
   const selectedMaxIndex = Math.max(0, selectedPageCount - 1);
   const save = useMutation({
@@ -146,8 +155,18 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
     return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
   };
   const place = (widgetId: string, x: number, y: number) => {
-    const widget = widgets.find((item) => item.id === widgetId);
-    if (!widget?.svgData?.trim()) {
+    const isProjectAsset = widgetId.startsWith('project-asset:');
+    let hasArtwork = false;
+    if (isProjectAsset) {
+      const id = widgetId.replace('project-asset:', '');
+      const asset = projectAssets.find((a) => a.id === id);
+      if (asset) hasArtwork = true;
+    } else {
+      const widget = widgets.find((item) => item.id === widgetId);
+      if (widget?.svgData?.trim()) hasArtwork = true;
+    }
+
+    if (!hasArtwork) {
       showPlacementFeedback("This widget has no renderable artwork yet.");
       return;
     }
@@ -227,18 +246,47 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
       </aside>
       <section className="p-5 min-w-0 flex flex-col items-center">
         <div className="w-full max-w-[730px] flex items-center justify-between mb-4"><div><span className="text-xs uppercase tracking-widest text-muted-foreground">Page {pagePos + 1} / {pages.length}</span><h3 className="font-serif text-xl">{page.label}</h3></div><div className="flex gap-1"><Button data-testid="button-previous-page" variant="outline" size="icon" onClick={() => setPagePos(Math.max(0, pagePos - 1))}><ChevronLeft className="w-4 h-4" /></Button><Button data-testid="button-next-page" variant="outline" size="icon" onClick={() => setPagePos(Math.min(pages.length - 1, pagePos + 1))}><ChevronRight className="w-4 h-4" /></Button></div></div>
-        <div ref={canvasRef} onDrop={onDrop} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }} onPointerMove={onPointerMove} onPointerUp={() => setDragging(null)} onPointerCancel={() => setDragging(null)} className={`relative w-full max-w-[560px] aspect-[.77] rounded-sm border-2 shadow-lg bg-card overflow-hidden ${placementFeedback ? "border-destructive bg-destructive/5" : "border-border"}`}><div className="absolute inset-[6%_6%_6%_10%] border border-dashed border-primary/55 pointer-events-none"><span className="absolute -top-5 left-0 text-[9px] uppercase tracking-widest text-primary">Contained safe area</span></div><div className="absolute top-0 bottom-0 left-0 w-[10%] bg-gradient-to-r from-muted/20 to-muted/70 border-r border-border pointer-events-none" data-testid="planner-binding-gutter"><span className="absolute top-1/2 right-1 -rotate-90 text-[8px] tracking-widest text-muted-foreground">GUTTER</span></div>{placementFeedback && <div data-testid="placement-feedback" className="absolute inset-0 z-10 flex items-center justify-center bg-destructive/10"><div className="max-w-[85%] rounded-lg bg-card border border-destructive text-destructive px-4 py-3 text-xs font-semibold flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" /> {placementFeedback}</div></div>}{placements.map((p) => { const w = widgets.find((x) => x.id === p.widgetId); return <div key={p.id} onPointerDown={(e) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); const q = point(e); if (q) setDragging({ id: p.id, dx: q.x - p.x, dy: q.y - p.y }); setSelected(p.id); }} onPointerUp={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId); setDragging(null); }} className={`absolute cursor-move border rounded-md p-1 ${selected === p.id ? "border-primary ring-2 ring-primary/20" : "border-border"} ${p.settings?.visible === false ? "opacity-35" : ""}`} style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, width: `${p.w * 100}%`, height: `${p.h * 100}%` }}><div className="w-full h-full overflow-hidden" dangerouslySetInnerHTML={{ __html: cleanSvg(w?.svgData ?? null) }} /><span className="absolute -top-4 left-0 text-[9px] bg-foreground text-background px-1 rounded">{p.settings?.label || w?.name}</span>{selected === p.id && <span data-testid="handle-resize-placement" onPointerDown={(e) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); setDragging({ id: p.id, dx: 0, dy: 0, resize: true }); }} className="absolute -right-1 -bottom-1 w-3 h-3 rounded-sm bg-primary cursor-se-resize" />}</div>; })}</div>
-         <p className="text-[11px] text-muted-foreground mt-3">Drag a widget onto the page, or click one in the library to place it. The dashed contained area keeps artwork clear of the binding gutter.</p>
+        <div ref={canvasRef} onDrop={onDrop} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }} onPointerMove={onPointerMove} onPointerUp={() => setDragging(null)} onPointerCancel={() => setDragging(null)} className={`relative w-full max-w-[560px] aspect-[.77] rounded-sm border-2 shadow-lg bg-card overflow-hidden ${placementFeedback ? "border-destructive bg-destructive/5" : "border-border"}`}><div className="absolute inset-[6%_6%_6%_10%] border border-dashed border-primary/55 pointer-events-none"><span className="absolute -top-5 left-0 text-[9px] uppercase tracking-widest text-primary">Contained safe area</span></div><div className="absolute top-0 bottom-0 left-0 w-[10%] bg-gradient-to-r from-muted/20 to-muted/70 border-r border-border pointer-events-none" data-testid="planner-binding-gutter"><span className="absolute top-1/2 right-1 -rotate-90 text-[8px] tracking-widest text-muted-foreground">GUTTER</span></div>{placementFeedback && <div data-testid="placement-feedback" className="absolute inset-0 z-10 flex items-center justify-center bg-destructive/10"><div className="max-w-[85%] rounded-lg bg-card border border-destructive text-destructive px-4 py-3 text-xs font-semibold flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" /> {placementFeedback}</div></div>}{placements.map((p) => {
+    const isProjectAsset = p.widgetId.startsWith('project-asset:');
+    const pa = isProjectAsset ? projectAssets.find((a) => a.id === p.widgetId.replace('project-asset:', '')) : null;
+    const w = !isProjectAsset ? widgets.find((x) => x.id === p.widgetId) : null;
+    return <div key={p.id} onPointerDown={(e) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); const q = point(e); if (q) setDragging({ id: p.id, dx: q.x - p.x, dy: q.y - p.y }); setSelected(p.id); }} onPointerUp={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId); setDragging(null); }} className={`absolute cursor-move border rounded-md p-1 ${selected === p.id ? "border-primary ring-2 ring-primary/20" : "border-border"} ${p.settings?.visible === false ? "opacity-35" : ""}`} style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, width: `${p.w * 100}%`, height: `${p.h * 100}%` }}>{isProjectAsset && pa ? (
+      <img src={`/api/stores/${storeId}/planners/${planner.id}/worldsmith-assets/${pa.id}/render`} className="w-full h-full object-cover pointer-events-none" alt="" />
+    ) : (
+      <div className="w-full h-full overflow-hidden" dangerouslySetInnerHTML={{ __html: cleanSvg(w?.svgData ?? null) }} />
+    )}<span className="absolute -top-4 left-0 text-[9px] bg-foreground text-background px-1 rounded">{p.settings?.label || w?.name || pa?.displayName}</span>{selected === p.id && <span data-testid="handle-resize-placement" onPointerDown={(e) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); setDragging({ id: p.id, dx: 0, dy: 0, resize: true }); }} className="absolute -right-1 -bottom-1 w-3 h-3 rounded-sm bg-primary cursor-se-resize" />}</div>; })}</div>
+         <p className="text-[11px] text-muted-foreground mt-3">Drag a widget or asset onto the page, or click one in the library to place it. The dashed contained area keeps artwork clear of the binding gutter.</p>
       </section>
       <aside className="border-l border-border bg-card p-4 overflow-y-auto max-h-[calc(100vh-190px)] max-2xl:col-span-2 max-2xl:border-l-0 max-2xl:border-t max-xl:col-span-1 max-xl:max-h-none flex flex-col">
         <div>
-          <p className="text-[10px] uppercase tracking-[.18em] font-semibold text-muted-foreground mb-3">Widget library</p><Input data-testid="input-widget-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search widgets…" className="bg-background mb-2" /><div className="flex gap-1 mb-3">{(["all", "starter", "owned"] as const).map((f) => <button data-testid={`button-filter-${f}`} key={f} onClick={() => setFilter(f)} className={`text-[10px] px-2 py-1 rounded-full border ${filter === f ? "bg-foreground text-background" : "border-border text-muted-foreground"}`}>{f}</button>)}</div>
-          {widgetsLoading ? <div className="space-y-2"><div className="h-16 animate-pulse bg-muted rounded" /><div className="h-16 animate-pulse bg-muted rounded" /></div> : <div className="space-y-2">{visibleWidgets.map((w) => <button data-testid={`button-place-widget-${w.id}`} draggable={!!w.svgData?.trim()} disabled={!w.svgData?.trim()} onDragStart={(e) => { if (w.svgData?.trim()) e.dataTransfer.setData("widget-id", w.id); }} onClick={() => place(w.id, .5, .5)} key={w.id} className={`w-full text-left rounded-lg border border-border bg-background p-2 flex items-center gap-2 ${w.svgData?.trim() ? "hover:border-primary" : "opacity-50 cursor-not-allowed"}`}><div className="w-11 h-11 shrink-0 rounded bg-muted p-1" dangerouslySetInnerHTML={{ __html: cleanSvg(w.svgData) }} /><span className="min-w-0 flex-1"><b className="text-xs block truncate">{w.name}</b><small className="text-[10px] text-muted-foreground">{w.svgData?.trim() ? (w.sizeVariants.join(" · ") || "Flexible size") : "Artwork unavailable"}</small></span><GripVertical className="w-3 h-3 text-muted-foreground" /></button>)}</div>}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex gap-2">
+              <button data-testid="tab-widgets" onClick={() => setLibraryTab("widgets")} className={`text-[10px] uppercase tracking-[.18em] font-semibold transition-colors ${libraryTab === "widgets" ? "text-primary border-b border-primary pb-1" : "text-muted-foreground hover:text-foreground pb-1"}`}>Widgets</button>
+              <button data-testid="tab-project-assets" onClick={() => setLibraryTab("project-assets")} className={`text-[10px] uppercase tracking-[.18em] font-semibold transition-colors ${libraryTab === "project-assets" ? "text-primary border-b border-primary pb-1" : "text-muted-foreground hover:text-foreground pb-1"}`}>Project Assets</button>
+            </div>
+          </div>
+          <Input data-testid="input-library-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${libraryTab}…`} className="bg-background mb-2" />
+
+          {libraryTab === "widgets" && (
+            <>
+              <div className="flex gap-1 mb-3">{(["all", "starter", "owned"] as const).map((f) => <button data-testid={`button-filter-${f}`} key={f} onClick={() => setFilter(f)} className={`text-[10px] px-2 py-1 rounded-full border ${filter === f ? "bg-foreground text-background" : "border-border text-muted-foreground"}`}>{f}</button>)}</div>
+              {widgetsLoading ? <div className="space-y-2"><div className="h-16 animate-pulse bg-muted rounded" /><div className="h-16 animate-pulse bg-muted rounded" /></div> : <div className="space-y-2">{visibleWidgets.map((w) => <button data-testid={`button-place-widget-${w.id}`} draggable={!!w.svgData?.trim()} disabled={!w.svgData?.trim()} onDragStart={(e) => { if (w.svgData?.trim()) e.dataTransfer.setData("widget-id", w.id); }} onClick={() => place(w.id, .5, .5)} key={w.id} className={`w-full text-left rounded-lg border border-border bg-background p-2 flex items-center gap-2 ${w.svgData?.trim() ? "hover:border-primary" : "opacity-50 cursor-not-allowed"}`}><div className="w-11 h-11 shrink-0 rounded bg-muted p-1" dangerouslySetInnerHTML={{ __html: cleanSvg(w.svgData) }} /><span className="min-w-0 flex-1"><b className="text-xs block truncate">{w.name}</b><small className="text-[10px] text-muted-foreground">{w.svgData?.trim() ? (w.sizeVariants.join(" · ") || "Flexible size") : "Artwork unavailable"}</small></span><GripVertical className="w-3 h-3 text-muted-foreground" /></button>)}</div>}
+            </>
+          )}
+
+          {libraryTab === "project-assets" && (
+            <>
+              <div className="flex gap-1 mb-3">
+                <Button data-testid="button-add-worldsmith" onClick={() => setIsWorldSmithOpen(true)} className="w-full text-xs" variant="outline" size="sm"><ImagePlus className="w-4 h-4 mr-2" /> Add from WorldSmith</Button>
+              </div>
+              {projectAssetsLoading ? <div className="space-y-2"><div className="h-16 animate-pulse bg-muted rounded" /><div className="h-16 animate-pulse bg-muted rounded" /></div> : <div className="space-y-2">{visibleProjectAssets.map((pa) => <button data-testid={`button-place-project-asset-${pa.id}`} draggable onDragStart={(e) => e.dataTransfer.setData("widget-id", `project-asset:${pa.id}`)} onClick={() => place(`project-asset:${pa.id}`, .5, .5)} key={pa.id} className="w-full text-left rounded-lg border border-border hover:border-primary bg-background p-2 flex items-center gap-2"><div className="w-11 h-11 shrink-0 rounded bg-muted overflow-hidden"><img src={`/api/stores/${storeId}/planners/${planner.id}/worldsmith-assets/${pa.id}/render`} className="w-full h-full object-cover" alt="" /></div><span className="min-w-0 flex-1"><b className="text-xs block truncate">{pa.displayName}</b><small className="text-[10px] text-muted-foreground flex items-center gap-1">{pa.componentType} {pa.modified && <span className="text-amber-600 font-medium" title="Modified in WorldSmith">Mod</span>}</small></span><GripVertical className="w-3 h-3 text-muted-foreground" /></button>)}</div>}
+            </>
+          )}
         </div>
         {selectedPlacement && (
           <div className="mt-5 pt-4 border-t border-border space-y-3 max-xl:order-first max-xl:mt-0 max-xl:pt-0 max-xl:pb-4 max-xl:mb-4 max-xl:border-t-0 max-xl:border-b">
             <div className="flex justify-between items-center">
-              <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Inspector</p><b className="text-sm">{selectedWidget?.name}</b></div>
+              <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Inspector</p><b className="text-sm" data-testid="text-inspector-title">{selectedProjectAsset ? selectedProjectAsset.displayName : selectedWidget?.name}</b></div>
               <div className="flex gap-1">
                 <Button data-testid="button-duplicate-placement" size="icon" variant="ghost" onClick={duplicate}><Copy className="w-4 h-4" /></Button>
                 <Button data-testid="button-remove-placement" size="icon" variant="ghost" onClick={remove}><Trash2 className="w-4 h-4 text-destructive" /></Button>
@@ -298,9 +346,12 @@ export default function CompositionWorkspace({ storeId, planner, onSaved }: Prop
               {selectedPlacement.settings?.visible === false ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               {selectedPlacement.settings?.visible === false ? "Hidden" : "Visible"}
             </button>
+            {selectedProjectAsset && <ProjectAssetUpdater storeId={storeId} plannerId={planner.id} asset={selectedProjectAsset} />}
+
           </div>
         )}
       </aside>
     </div>
+    <WorldSmithBrowserDialog storeId={storeId} plannerId={planner.id} open={isWorldSmithOpen} onOpenChange={setIsWorldSmithOpen} />
   </div>;
 }

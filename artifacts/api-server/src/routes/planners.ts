@@ -32,6 +32,7 @@ import { assertEntitled, EntitlementError, type EntitlementContext } from "../li
 import { buildInteriorPdf } from "../lib/planner-interior-renderer";
 import { buildImportedPlannerPdf } from "../lib/imported-planner-pdf";
 import { getEinkPreset, getEinkRule, refreshEinkCatalog } from "../lib/eink-presets";
+import { projectAssetIdFromWidgetId, resolvePlannerProjectAssetRenderSpecs } from "../lib/planner-project-assets";
 import type { ActorContext } from "../lib/roles";
 import type { User, PlannerSetup, PlannerStyle, PlannerOutput, Edition, Theme } from "@workspace/db";
 
@@ -39,13 +40,21 @@ const router: IRouter = Router();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function resolveWidgetRenderSpecs(style: PlannerStyle, storeId?: string | null): Promise<WidgetRenderSpec[]> {
+async function resolveWidgetRenderSpecs(style: PlannerStyle, storeId?: string | null, plannerId?: string): Promise<WidgetRenderSpec[]> {
   const ids = [...new Set((style.composition?.placements ?? []).map((placement) => placement.widgetId))];
   if (ids.length === 0) return [];
+  const projectIds = ids.filter((id) => projectAssetIdFromWidgetId(id));
+  const ordinaryIds = ids.filter((id) => !projectAssetIdFromWidgetId(id));
+  if (projectIds.length > 0 && (!plannerId || !storeId)) {
+    throw new Error("Planner project assets require an authorized planner context");
+  }
+  const projectSpecs = plannerId && storeId
+    ? await resolvePlannerProjectAssetRenderSpecs(projectIds, plannerId, storeId)
+    : [];
   const rows = await db
     .select({ id: widgetsTable.id, name: widgetsTable.name, svgData: widgetsTable.svgData, status: widgetsTable.status, origin: widgetsTable.origin, authoredByStoreId: widgetsTable.authoredByStoreId })
     .from(widgetsTable)
-    .where(inArray(widgetsTable.id, ids));
+    .where(inArray(widgetsTable.id, ordinaryIds.length ? ordinaryIds : ["__no_ordinary_widgets__"]));
   const specs = rows.filter(
     (row): row is typeof row & { svgData: string } =>
       typeof row.svgData === "string" && row.svgData.length > 0 &&
@@ -59,10 +68,10 @@ async function resolveWidgetRenderSpecs(style: PlannerStyle, storeId?: string | 
         )
       ),
   );
-  if (specs.length !== ids.length) {
+  if (specs.length !== ordinaryIds.length) {
     throw new Error("Planner composition contains a missing or non-renderable widget");
   }
-  return specs;
+  return [...specs, ...projectSpecs];
 }
 
 type PlannerCatalogStyle = PlannerStyle & {
@@ -280,7 +289,7 @@ export async function runGeneration(
     editionId: config.editionId ?? undefined,
     userId: config.userId,
   };
-  const widgetSpecs = await resolveWidgetRenderSpecs(style, config.storeId);
+  const widgetSpecs = await resolveWidgetRenderSpecs(style, config.storeId, config.id);
   const importedPlannerProjectId = style.importedPlannerProjectId;
   if (importedPlannerProjectId && widgetSpecs.length > 0) {
     throw new Error("Widget composition is not supported by imported planner pages yet");
@@ -588,7 +597,7 @@ router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, 
         if (!ownedPlanner) throw new Error("Composition preview is not authorized");
       }
     }
-    const previewWidgetSpecs = await resolveWidgetRenderSpecs(previewStyle ?? {}, body.storeContext?.storeId);
+    const previewWidgetSpecs = await resolveWidgetRenderSpecs(previewStyle ?? {}, body.storeContext?.storeId, body.plannerId);
     let previewHotspots: Map<string, UserHotspot[]> | undefined;
     if (storeId) {
       const rows = await db.select().from(plannerHotspotsTable).where(eq(plannerHotspotsTable.storeId, storeId));

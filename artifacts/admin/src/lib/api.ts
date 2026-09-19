@@ -1598,6 +1598,58 @@ export interface PlannerPageLayoutAssignment {
   pageHiddenPlacementIds?: Record<string, string[]>;
 }
 
+
+export interface WorldsmithSourceAsset {
+  id: string;
+  name: string;
+  assetType: string;
+  componentType: string;
+  version: string;
+  status: string;
+  filename: string;
+  world: { id: string; name: string };
+  collectionId?: string | null;
+  volumeId?: string | null;
+  productionSpecId?: string | null;
+  productionItem?: string | null;
+  packageId?: string | null;
+  sourceRenderUrl: string;
+  available: boolean;
+  productionMetadata?: {
+    promptPayload?: any;
+    payloadVersion?: number;
+    orientation?: string;
+    componentSpecId?: string;
+    canonDependency?: any;
+  } | null;
+}
+
+export interface PlannerProjectAsset {
+  id: string;
+  storeId: string;
+  plannerConfigId: string;
+  managedObjectPath: string;
+  displayName: string;
+  contentType: string;
+  byteSize: number;
+  width: number;
+  height: number;
+  usageKind: string;
+  modified: boolean;
+  sourceSystem: string;
+  worldId?: string | null;
+  collectionId?: string | null;
+  volumeId?: string | null;
+  productionSpecId?: string | null;
+  componentType?: string | null;
+  sourceAssetId?: string | null;
+  sourceAssetVersion?: string | null;
+  importedAt: string;
+  productionMetadata?: any;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StorePlannerComposition {
   version: 1 | 2;
   placements: PlannerWidgetPlacement[];
@@ -1724,6 +1776,50 @@ export const storePlannersApi = {
       body: JSON.stringify({ composition }),
       headers: { "x-store-id": storeId },
     }),
+
+  worldsmithAssets: {
+    listSource: (storeId: string, id: string, query?: { worldId?: string, collectionId?: string, volumeId?: string, componentType?: string, status?: string, search?: string }) => {
+      const q = new URLSearchParams();
+      if (query?.worldId) q.set("worldId", query.worldId);
+      if (query?.collectionId) q.set("collectionId", query.collectionId);
+      if (query?.volumeId) q.set("volumeId", query.volumeId);
+      if (query?.componentType) q.set("componentType", query.componentType);
+      if (query?.status) q.set("status", query.status);
+      if (query?.search) q.set("search", query.search);
+      return apiFetch<{ assets: WorldsmithSourceAsset[] }>(
+        `/stores/${storeId}/planners/${id}/worldsmith-assets${q.size ? "?" + q : ""}`,
+        { headers: { "x-store-id": storeId } }
+      );
+    },
+    listLibrary: (storeId: string, id: string) =>
+      apiFetch<{ assets: PlannerProjectAsset[] }>(
+        `/stores/${storeId}/planners/${id}/worldsmith-assets/library`,
+        { headers: { "x-store-id": storeId } }
+      ),
+    import: (storeId: string, id: string, data: { assetIds: string[], usageKind: string }) =>
+      apiFetch<{ assets: PlannerProjectAsset[] }>(
+        `/stores/${storeId}/planners/${id}/worldsmith-assets/import`,
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+          headers: { "x-store-id": storeId },
+        }
+      ),
+    checkUpdate: (storeId: string, id: string, projectAssetId: string) =>
+      apiFetch<{ updateAvailable: boolean; currentVersion: string; latestVersion: string }>(
+        `/stores/${storeId}/planners/${id}/worldsmith-assets/${projectAssetId}/update-check`,
+        { headers: { "x-store-id": storeId } }
+      ),
+    replace: (storeId: string, id: string, projectAssetId: string, data: { confirm: true }) =>
+      apiFetch<{ asset: PlannerProjectAsset; replaced: boolean }>(
+        `/stores/${storeId}/planners/${id}/worldsmith-assets/${projectAssetId}/replace`,
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+          headers: { "x-store-id": storeId },
+        }
+      ),
+  },
 };
 
 // ── Platform Planner Templates ────────────────────────────────────────────────

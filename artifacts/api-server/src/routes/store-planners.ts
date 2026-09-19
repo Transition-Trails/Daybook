@@ -23,6 +23,7 @@ import {
   storeProfilesTable,
   storeFlagsTable,
   widgetsTable,
+  plannerProjectAssetsTable,
 } from "@workspace/db";
 import type { UserHotspot } from "../lib/pdf-generator";
 import { eq, and, desc, asc, inArray } from "drizzle-orm";
@@ -40,6 +41,7 @@ import {
   validateCompositionTargets,
   validatePlannerComposition,
 } from "../lib/planner-composition";
+import { projectAssetIdFromWidgetId } from "../lib/planner-project-assets";
 
 const LOCKED_SETUP_FIELDS = [
   "datingMode", "weekStart", "orientation", "startMonth", "startYear", "monthCount",
@@ -364,7 +366,26 @@ router.put(
         }
       }
       const widgetIds = [...new Set(composition.placements.map((placement) => placement.widgetId))];
-      if (widgetIds.length > 0) {
+      const projectAssetIds = widgetIds.map(projectAssetIdFromWidgetId).filter((value): value is string => Boolean(value));
+      const ordinaryWidgetIds = widgetIds.filter((widgetId) => !projectAssetIdFromWidgetId(widgetId));
+      if (projectAssetIds.length > 0) {
+        const assets = await db
+          .select({ id: plannerProjectAssetsTable.id })
+          .from(plannerProjectAssetsTable)
+          .where(and(
+            eq(plannerProjectAssetsTable.storeId, storeId),
+            eq(plannerProjectAssetsTable.plannerConfigId, id),
+            inArray(plannerProjectAssetsTable.id, projectAssetIds),
+          ));
+        if (assets.length !== projectAssetIds.length) {
+          res.status(400).json({
+            error: "A selected project asset is unavailable to this planner",
+            code: "PROJECT_ASSET_UNAVAILABLE",
+          });
+          return;
+        }
+      }
+      if (ordinaryWidgetIds.length > 0) {
         const widgets = await db
           .select({
             id: widgetsTable.id,
@@ -373,7 +394,7 @@ router.put(
             authoredByStoreId: widgetsTable.authoredByStoreId,
           })
           .from(widgetsTable)
-          .where(inArray(widgetsTable.id, widgetIds));
+          .where(inArray(widgetsTable.id, ordinaryWidgetIds));
         const accessible = new Set(
           widgets
             .filter((widget) =>
@@ -382,7 +403,7 @@ router.put(
             )
             .map((widget) => widget.id),
         );
-        const unavailable = widgetIds.find((widgetId) => !accessible.has(widgetId));
+        const unavailable = ordinaryWidgetIds.find((widgetId) => !accessible.has(widgetId));
         if (unavailable) {
           res.status(400).json({
             error: "A selected widget is unavailable to this store",

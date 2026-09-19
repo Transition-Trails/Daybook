@@ -281,6 +281,13 @@
       "when": 1789765200000,
       "tag": "0039_planner_pdf_imports",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1789768800000,
+      "tag": "0040_planner_project_assets",
+      "breakpoints": true
     }
   ]
 }

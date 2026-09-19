@@ -3,7 +3,7 @@
 > Generated from Daybook. Do not edit as source data.
 
 **Canonical ID:** `fd7bc083-fe37-4c83-8a9e-b7ac230b4644`  
-**Status:** proposed  
+**Status:** accepted  
 **Category:** character  
 **World:** Wychcombe (`wyc`)
 
@@ -50,5 +50,5 @@ Warm, observant, quietly confident, intellectually curious, affectionate, practi
 ---
 Generated from Daybook
 Record ID: fd7bc083-fe37-4c83-8a9e-b7ac230b4644
-Last Updated: 2026-09-18T18:08:20.921Z
-Snapshot Generated: 2026-09-18T18:18:50.099Z
+Last Updated: 2026-09-18T19:07:12.978Z
+Snapshot Generated: 2026-09-19T14:24:07.830Z

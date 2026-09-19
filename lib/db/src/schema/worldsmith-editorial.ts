@@ -145,7 +145,13 @@ export const wsCanonRecordRelationsTable = pgTable("ws_canon_record_relations", 
   fromRecordId: text("from_record_id").notNull().references(() => wsCanonRecordsTable.id, { onDelete: "cascade" }),
   toRecordId: text("to_record_id").notNull().references(() => wsCanonRecordsTable.id, { onDelete: "cascade" }),
   relationType: text("relation_type"),
+  details: text("details").notNull().default(""),
+  source: text("source").notNull().default("manual"),
+  scope: text("scope").notNull().default("world"),
+  createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+    .$onUpdate(() => new Date()),
 }, (t) => [
   primaryKey({ columns: [t.fromRecordId, t.toRecordId] }),
   index("ws_canon_rel_from_idx").on(t.fromRecordId),

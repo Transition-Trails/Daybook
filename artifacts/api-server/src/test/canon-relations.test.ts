@@ -76,11 +76,13 @@ const server = makeApp();
 
 const RUN = Math.random().toString(36).slice(2, 10);
 const WORLD_ID = `rel-world-${RUN}`;
+const OTHER_WORLD_ID = `rel-other-world-${RUN}`;
 const RA = `rel-record-a-${RUN}`;  // source for most tests
 const RB = `rel-record-b-${RUN}`;  // target
 const RC = `rel-record-c-${RUN}`;  // second target / inbound source
+const RD = `rel-record-d-${RUN}`;  // target in another world
 
-const allRecordIds = [RA, RB, RC];
+const allRecordIds = [RA, RB, RC, RD];
 
 beforeAll(async () => {
   await db.insert(worldsmithWorldsTable).values({
@@ -89,11 +91,18 @@ beforeAll(async () => {
     code: `RT${RUN.slice(0, 4).toUpperCase()}`,
     status: "active",
   }).onConflictDoNothing();
+  await db.insert(worldsmithWorldsTable).values({
+    id: OTHER_WORLD_ID,
+    name: `Other Relations Test World ${RUN}`,
+    code: `RO${RUN.slice(0, 4).toUpperCase()}`,
+    status: "active",
+  }).onConflictDoNothing();
 
   await db.insert(wsCanonRecordsTable).values([
     { id: RA, worldId: WORLD_ID, name: "Record A", status: "proposed", sensoryClauses: "", registerLocked: false, specRefCount: 0 },
     { id: RB, worldId: WORLD_ID, name: "Record B", status: "proposed", sensoryClauses: "", registerLocked: false, specRefCount: 0 },
     { id: RC, worldId: WORLD_ID, name: "Record C", status: "accepted", sensoryClauses: "", registerLocked: false, specRefCount: 0 },
+    { id: RD, worldId: OTHER_WORLD_ID, name: "Record D", status: "accepted", sensoryClauses: "", registerLocked: false, specRefCount: 0 },
   ]).onConflictDoNothing();
 });
 
@@ -108,7 +117,7 @@ afterAll(async () => {
     .where(inArray(wsCanonRecordsTable.id, allRecordIds))
     .catch(() => {});
   await db.delete(worldsmithWorldsTable)
-    .where(eq(worldsmithWorldsTable.id, WORLD_ID))
+    .where(inArray(worldsmithWorldsTable.id, [WORLD_ID, OTHER_WORLD_ID]))
     .catch(() => {});
   const { pool } = await import("@workspace/db");
   await pool.end().catch(() => {});
@@ -138,6 +147,22 @@ describe("POST /relations — add edge", () => {
     expect(res.body.relation.toRecordId).toBe(RB);
     expect(res.body.relation.relationType).toBe("related");
     expect(res.body.relation.targetName).toBe("Record B");
+  });
+
+  it("stores relationship details and manual provenance", async () => {
+    const res = await request(server)
+      .post(`/v1/editorial/canon-records/${RA}/relations`)
+      .send({
+        to_record_id: RB,
+        relation_type: "mentor",
+        details: "Record A taught Record B how to read the old maps.",
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.relation.relationType).toBe("mentor");
+    expect(res.body.relation.details).toBe("Record A taught Record B how to read the old maps.");
+    expect(res.body.relation.source).toBe("manual");
+    expect(res.body.relation.scope).toBe("world");
   });
 
   it("adds a 'contradicts' edge between A and C", async () => {
@@ -197,6 +222,14 @@ describe("POST /relations — add edge", () => {
       .send({ to_record_id: "ghost-record-xyz" });
     expect(res.status).toBe(404);
   });
+
+  it("rejects relationships between records from different worlds", async () => {
+    const res = await request(server)
+      .post(`/v1/editorial/canon-records/${RA}/relations`)
+      .send({ to_record_id: RD, relation_type: "related" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/same world/i);
+  });
 });
 
 // ── GET /relations — after inserts ────────────────────────────────────────────
@@ -252,6 +285,16 @@ describe("PATCH /relations/:toId — update type", () => {
       .send({ relation_type: "follows" });
     expect(res.status).toBe(404);
   });
+
+  it("updates relationship details without replacing the type", async () => {
+    const res = await request(server)
+      .patch(`/v1/editorial/canon-records/${RA}/relations/${RB}`)
+      .send({ details: "Their alliance is strained by the missing key." });
+
+    expect(res.status).toBe(200);
+    expect(res.body.relation.relationType).toBe("precedes");
+    expect(res.body.relation.details).toBe("Their alliance is strained by the missing key.");
+  });
 });
 
 // ── GET /inbound-relations ────────────────────────────────────────────────────
@@ -304,7 +347,12 @@ describe("DELETE /relations/:toId", () => {
 // ── All valid relation types are accepted ─────────────────────────────────────
 
 describe("POST /relations — all valid types accepted", () => {
-  const VALID_TYPES = ["related", "supports", "contradicts", "precedes", "follows"] as const;
+  const VALID_TYPES = [
+    "related", "supports", "contradicts", "precedes", "follows",
+    "family", "friend", "ally", "rival", "enemy", "mentor", "student", "romantic",
+    "owns", "uses", "protects", "seeks", "involved_in", "caused", "witnessed",
+    "located_at", "requires", "supersedes", "mentions",
+  ] as const;
 
   // Re-use A→B for each type check (upsert semantics)
   for (const type of VALID_TYPES) {

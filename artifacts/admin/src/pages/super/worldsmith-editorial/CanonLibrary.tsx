@@ -16,7 +16,7 @@ import {
   Plus, Search, RefreshCw, Loader2, X, LayoutGrid, Table2,
   User2, MapPin, Package, CalendarDays, BookMarked, Wind, Layers,
   BookOpen, ChevronRight, Clock, Sparkles, CheckCircle2, Download,
-  GitBranch, Repeat2, Wand2, RotateCcw, ArrowRight, ChevronDown,
+  GitBranch, Repeat2, Wand2, RotateCcw, ArrowRight, ChevronDown, Link2,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -155,6 +155,17 @@ interface CanonRecord {
   updatedAt: string;
 }
 
+const RELATION_TYPES = [
+  ["related", "Related to"], ["supports", "Supports"], ["contradicts", "Contradicts"],
+  ["precedes", "Precedes"], ["follows", "Follows"], ["family", "Family"],
+  ["friend", "Friend"], ["ally", "Ally"], ["rival", "Rival"], ["enemy", "Enemy"],
+  ["mentor", "Mentor"], ["student", "Student"], ["romantic", "Romantic"],
+  ["owns", "Owns"], ["uses", "Uses"], ["protects", "Protects"], ["seeks", "Seeks"],
+  ["involved_in", "Involved in"], ["caused", "Caused"], ["witnessed", "Witnessed"],
+  ["located_at", "Located at"], ["requires", "Requires"], ["supersedes", "Supersedes"],
+  ["mentions", "Mentions"],
+] as const;
+
 interface CanonListResponse {
   canon_records: CanonRecord[];
   total: number;
@@ -190,7 +201,51 @@ function EmotionalRegisterBadge({ register }: { register?: string | null }) {
 
 // ── CanonCard ────────────────────────────────────────────────────────────────
 
-function CanonCard({ record }: { record: CanonRecord }) {
+function RelationshipDialog({ source, records, onClose, onSaved }: {
+  source: CanonRecord; records: CanonRecord[]; onClose: () => void; onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [target, setTarget] = useState("");
+  const [type, setType] = useState("related");
+  const [details, setDetails] = useState("");
+  const [search, setSearch] = useState("");
+  const mutation = useMutation({
+    mutationFn: () => apiFetch(`/v1/editorial/canon-records/${source.id}/relations`, {
+      method: "POST", body: JSON.stringify({ to_record_id: target, relation_type: type, details }),
+    }),
+    onSuccess: () => { toast({ title: "Relationship saved" }); onSaved(); onClose(); },
+    onError: (error: Error) => toast({ title: "Could not save relationship", description: error.message, variant: "destructive" }),
+  });
+  const candidates = records.filter(r => r.id !== source.id &&
+    (!search.trim() || r.name.toLowerCase().includes(search.toLowerCase())));
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" role="dialog" aria-modal="true" aria-labelledby="relationship-title">
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <div><h2 id="relationship-title" className="text-base font-semibold text-[#1B2A4A]">Add relationship</h2>
+            <p className="mt-1 text-xs text-gray-500">From <strong>{source.name}</strong></p></div>
+          <button type="button" aria-label="Close" onClick={onClose}><X className="h-4 w-4 text-gray-400" /></button>
+        </div>
+        <label className="mb-1 block text-xs font-medium text-gray-600">Target record</label>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search records…" className="mb-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none" />
+        <select aria-label="Target record" value={target} onChange={e => setTarget(e.target.value)} className="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
+          <option value="">Choose a record…</option>
+          {candidates.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+        <label className="mb-1 block text-xs font-medium text-gray-600">Relationship type</label>
+        <select aria-label="Relationship type" value={type} onChange={e => setType(e.target.value)} className="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
+          {RELATION_TYPES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+        <label className="mb-1 block text-xs font-medium text-gray-600">Details</label>
+        <textarea value={details} onChange={e => setDetails(e.target.value)} rows={4} placeholder="Describe this relationship…" className="mb-4 w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none" />
+        <div className="flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-gray-600">Cancel</button>
+          <button type="button" disabled={!target || mutation.isPending} onClick={() => mutation.mutate()} className="rounded-lg bg-[#1B2A4A] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save relationship"}</button></div>
+      </div>
+    </div>
+  );
+}
+
+function CanonCard({ record, onRelation }: { record: CanonRecord; onRelation: (record: CanonRecord) => void }) {
   const [, navigate] = useLocation();
   const [imageFailed, setImageFailed] = useState(false);
   const type = CANON_TYPES.find(t => t.key === record.canonType);
@@ -217,8 +272,16 @@ function CanonCard({ record }: { record: CanonRecord }) {
   })();
 
   return (
-    <button
+    <article
+      role="button"
+      tabIndex={0}
       onClick={() => navigate(`/super/worldsmith/editorial/canon/${record.id}`)}
+      onKeyDown={event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          navigate(`/super/worldsmith/editorial/canon/${record.id}`);
+        }
+      }}
       className="group w-full text-left bg-white rounded-xl border p-4 hover:shadow-md transition-all"
       style={{ borderColor: "#E5E7EB" }}
     >
@@ -294,16 +357,23 @@ function CanonCard({ record }: { record: CanonRecord }) {
           </span>
         </div>
       </div>
-    </button>
+      <span className="mt-3 flex justify-end">
+        <button type="button" aria-label={`Add relationship to ${record.name}`} onClick={e => { e.stopPropagation(); onRelation(record); }}
+          className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-[#1B2A4A] hover:bg-gray-50">
+          <Link2 className="h-3 w-3" /> Relate
+        </button>
+      </span>
+    </article>
   );
 }
 
 // ── CanonTableRow ────────────────────────────────────────────────────────────
 
-function CanonTableRow({ record, selected, onToggle }: {
+function CanonTableRow({ record, selected, onToggle, onRelation }: {
   record: CanonRecord;
   selected: boolean;
   onToggle: () => void;
+  onRelation: (record: CanonRecord) => void;
 }) {
   const [, navigate] = useLocation();
   const type = CANON_TYPES.find(t => t.key === record.canonType);
@@ -356,7 +426,9 @@ function CanonTableRow({ record, selected, onToggle }: {
         )}
       </td>
       <td className="px-3 py-3">
-        <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "#C87560" }} />
+        <div className="flex items-center gap-2"><button type="button" aria-label={`Add relationship to ${record.name}`} onClick={e => { e.stopPropagation(); onRelation(record); }}
+          className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-[11px] text-[#1B2A4A]"><Link2 className="h-3 w-3" /> Relate</button>
+          <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "#C87560" }} /></div>
       </td>
     </tr>
   );
@@ -1183,6 +1255,7 @@ export default function CanonLibrary() {
   const [snapshotJobId, setSnapshotJobId] = useState<string | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [collapsedSectionsWorldId, setCollapsedSectionsWorldId] = useState<string | null>(null);
+  const [relationshipSource, setRelationshipSource] = useState<CanonRecord | null>(null);
 
   // Tracks which worldId filters were hydrated from so we don't re-hydrate
   // or persist prematurely (same guard pattern as WorldsmithCanon).
@@ -1367,6 +1440,9 @@ export default function CanonLibrary() {
 
   const allRecords = data?.canon_records ?? [];
   const total = data?.total ?? 0;
+  const invalidateRelationships = useCallback(() => {
+    qc.invalidateQueries({ predicate: q => String(q.queryKey[0] ?? "").includes("canon-record-relations") });
+  }, [qc]);
 
   const inlineSuggestions = useQuery<SuggestionResponse<CanonSuggestion>>({
     queryKey: ["editorial-canon-suggestions", selectedWorldId],
@@ -1864,7 +1940,7 @@ export default function CanonLibrary() {
                           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
                         >
                           {group.records.map(record => (
-                            <CanonCard key={record.id} record={record} />
+                            <CanonCard key={record.id} record={record} onRelation={setRelationshipSource} />
                           ))}
                         </div>
                       )}
@@ -1874,7 +1950,7 @@ export default function CanonLibrary() {
               ) : (
                 <div className="grid gap-3 p-5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
                   {filtered.map(record => (
-                    <CanonCard key={record.id} record={record} />
+                    <CanonCard key={record.id} record={record} onRelation={setRelationshipSource} />
                   ))}
                 </div>
               )
@@ -1907,12 +1983,15 @@ export default function CanonLibrary() {
                         record={record}
                         selected={selectedIds.has(record.id)}
                         onToggle={() => toggleSelect(record.id)}
+                        onRelation={setRelationshipSource}
                       />
                     ))}
                   </tbody>
                 </table>
               </div>
-            )}
+        )}
+        {relationshipSource && <RelationshipDialog source={relationshipSource} records={allRecords}
+          onClose={() => setRelationshipSource(null)} onSaved={invalidateRelationships} />}
           </div>
         </div>
       )}

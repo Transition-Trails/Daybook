@@ -75,6 +75,13 @@ const RELATION_TYPES = [
   { key: "related",     label: "Related to"   },
   { key: "supports",    label: "Supports"     },
   { key: "contradicts", label: "Contradicts"  },
+  { key: "precedes", label: "Precedes" }, { key: "follows", label: "Follows" },
+  { key: "family", label: "Family" }, { key: "friend", label: "Friend" },
+  { key: "ally", label: "Ally" }, { key: "rival", label: "Rival" }, { key: "enemy", label: "Enemy" },
+  { key: "mentor", label: "Mentor" }, { key: "student", label: "Student" }, { key: "romantic", label: "Romantic" },
+  { key: "owns", label: "Owns" }, { key: "uses", label: "Uses" }, { key: "protects", label: "Protects" },
+  { key: "seeks", label: "Seeks" }, { key: "involved_in", label: "Involved in" }, { key: "caused", label: "Caused" },
+  { key: "witnessed", label: "Witnessed" }, { key: "located_at", label: "Located at" },
   { key: "requires",    label: "Requires"     },
   { key: "supersedes",  label: "Supersedes"   },
   { key: "mentions",    label: "Mentions"     },
@@ -105,6 +112,7 @@ interface LinkedSpec { id: string; productionItem: string; componentType: string
 interface CanonRelation {
   fromRecordId: string; toRecordId: string; relationType: string | null;
   createdAt: string; targetName: string; targetCanonType: string | null; targetStatus: string;
+  details?: string | null;
 }
 interface InboundRelation {
   fromRecordId: string; fromName: string; fromCanonType: string | null;
@@ -783,9 +791,9 @@ function RightPanel({ record, recordId, relations, allRecords, patchMutation, tr
     deleteMutation: { isPending: boolean };
     setShowDeleteConfirm: (v: boolean) => void;
     cascadeMutation: { mutate: () => void; isPending: boolean };
-    addRelMutation: { mutate: (a: { toId: string; type: string }) => void; isPending: boolean };
+     addRelMutation: { mutate: (a: { toId: string; type: string; details: string }) => void; isPending: boolean };
     removeRelMutation: { mutate: (id: string) => void };
-    patchRelTypeMutation: { mutate: (a: { toId: string; type: string }) => void };
+     patchRelTypeMutation: { mutate: (a: { toId: string; type: string; details: string }) => void };
     linkedSpecs: LinkedSpec[];
     worldId: string;
   }) {
@@ -793,6 +801,9 @@ function RightPanel({ record, recordId, relations, allRecords, patchMutation, tr
   const [showAddRel, setShowAddRel] = useState(false);
   const [addRelSearch, setAddRelSearch] = useState("");
   const [addRelType, setAddRelType] = useState<RelationTypeKey>("related");
+  const [addRelDetails, setAddRelDetails] = useState("");
+  const [editingRelation, setEditingRelation] = useState<string | null>(null);
+  const [editDetails, setEditDetails] = useState("");
 
   const objectRelations = relations.filter(r => r.targetCanonType === "object");
   const storyLinks: WsStoryLink[] = []; // populated by DaybookGameTab's own query
@@ -1033,8 +1044,11 @@ function RightPanel({ record, recordId, relations, allRecords, patchMutation, tr
                     style={{ border: `1px solid ${WARM_BORDER}`, background: "white" }}>
                     {RELATION_TYPES.map(rt => <option key={rt.key} value={rt.key}>{rt.label}</option>)}
                   </select>
+                  <textarea value={addRelDetails} onChange={e => setAddRelDetails(e.target.value)}
+                    placeholder="Relationship details…" rows={2} className="mb-2 w-full rounded-lg px-2.5 py-2 text-xs outline-none"
+                    style={{ border: `1px solid ${WARM_BORDER}`, background: "white" }} />
                   {addRelCandidates.map(c => (
-                    <button key={c.id} onClick={() => { addRelMutation.mutate({ toId: c.id, type: addRelType }); setShowAddRel(false); setAddRelSearch(""); }}
+                    <button key={c.id} onClick={() => { addRelMutation.mutate({ toId: c.id, type: addRelType, details: addRelDetails }); setShowAddRel(false); setAddRelSearch(""); setAddRelDetails(""); }}
                       className="w-full text-left text-xs px-2.5 py-1.5 rounded-lg mb-1 flex items-center gap-2"
                       style={{ background: PARCHMENT, color: INK }}>
                       <div style={{ width: 5, height: 5, borderRadius: "50%", background: CANON_TYPES.find(t => t.key === c.canonType)?.color ?? "#D1D5DB" }} />
@@ -1047,8 +1061,12 @@ function RightPanel({ record, recordId, relations, allRecords, patchMutation, tr
                 {relations.map(rel => (
                   <div key={rel.toRecordId} className="flex items-center gap-2 text-xs py-1">
                     <Link2 size={9} style={{ color: "#9CA3AF" }} />
-                    <span className="flex-1 truncate" style={{ color: INK }}>{rel.targetName}</span>
-                    <span style={{ color: "#9CA3AF", fontSize: 10 }}>{relTypeMeta(rel.relationType).label}</span>
+                    <span className="flex-1 min-w-0" style={{ color: INK }}><span className="block truncate">{rel.targetName}</span>
+                      {rel.details && <span className="block truncate text-[10px] text-gray-400">{rel.details}</span>}</span>
+                    {editingRelation === rel.toRecordId ? <><select value={rel.relationType ?? "related"} onChange={e => patchRelTypeMutation.mutate({ toId: rel.toRecordId, type: e.target.value, details: editDetails })}
+                      onBlur={() => setEditingRelation(null)} className="w-20 text-[10px]">{RELATION_TYPES.map(rt => <option key={rt.key} value={rt.key}>{rt.label}</option>)}</select>
+                      <input autoFocus value={editDetails} onChange={e => setEditDetails(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { patchRelTypeMutation.mutate({ toId: rel.toRecordId, type: rel.relationType ?? "related", details: editDetails }); setEditingRelation(null); } }} className="w-20 rounded border px-1 text-[10px]" placeholder="Details" /></> :
+                      <button onClick={() => { setEditingRelation(rel.toRecordId); setEditDetails(rel.details ?? ""); }} className="text-left" style={{ color: "#9CA3AF", fontSize: 10 }}>{relTypeMeta(rel.relationType).label}</button>}
                     <button onClick={() => removeRelMutation.mutate(rel.toRecordId)} style={{ color: "#9CA3AF" }}>
                       <X size={10} />
                     </button>
@@ -1209,18 +1227,18 @@ export default function WorldsmithCanon({ recordId }: { recordId: string }) {
   });
 
   const addRelMutation = useMutation({
-    mutationFn: ({ toId, type }: { toId: string; type: string }) =>
+    mutationFn: ({ toId, type, details }: { toId: string; type: string; details: string }) =>
       apiFetch(`/v1/editorial/canon-records/${recordId}/relations`, {
-        method: "POST", body: JSON.stringify({ to_record_id: toId, relation_type: type }),
+        method: "POST", body: JSON.stringify({ to_record_id: toId, relation_type: type, details }),
       }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] }); toast({ title: "Relationship added" }); },
     onError: () => toast({ title: "Failed to add relation", variant: "destructive" }),
   });
 
   const patchRelTypeMutation = useMutation({
-    mutationFn: ({ toId, type }: { toId: string; type: string }) =>
+    mutationFn: ({ toId, type, details }: { toId: string; type: string; details: string }) =>
       apiFetch(`/v1/editorial/canon-records/${recordId}/relations/${toId}`, {
-        method: "PATCH", body: JSON.stringify({ relation_type: type }),
+        method: "PATCH", body: JSON.stringify({ relation_type: type, details }),
       }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", recordId] }); },
     onError: () => toast({ title: "Failed to update relation type", variant: "destructive" }),

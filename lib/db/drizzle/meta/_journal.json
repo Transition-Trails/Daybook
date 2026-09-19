@@ -103,7 +103,7 @@
     {
       "idx": 14,
       "version": "7",
-      "when": 1787623000000,
+      "when": 1789794000000,
       "tag": "0014_billing_stripe_price_id",
       "breakpoints": true
     },
@@ -329,6 +329,13 @@
       "version": "7",
       "when": 1789790400000,
       "tag": "0046_character_canon_rich_text",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1787623000000,
+      "tag": "0047_canon_relation_metadata",
       "breakpoints": true
     }
   ]

@@ -948,6 +948,7 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
         .select({
           fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
           toRecordId: wsCanonRecordRelationsTable.toRecordId,
+          source: wsCanonRecordRelationsTable.source,
         })
         .from(wsCanonRecordRelationsTable)
         .where(
@@ -958,7 +959,7 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
 
       // Delete edges that Notion no longer includes (stale links).
       const staleEdges = existingEdges.filter(
-        e => !notionPairSet.has(notionPairKey(e.fromRecordId, e.toRecordId)),
+        e => e.source === "notion" && !notionPairSet.has(notionPairKey(e.fromRecordId, e.toRecordId)),
       );
       for (const stale of staleEdges) {
         await db
@@ -979,7 +980,9 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
         e => !existingPairSet.has(notionPairKey(e.fromRecordId, e.toRecordId)),
       );
       if (newEdges.length > 0) {
-        await db.insert(wsCanonRecordRelationsTable).values(newEdges).onConflictDoNothing();
+        await db.insert(wsCanonRecordRelationsTable).values(
+          newEdges.map(edge => ({ ...edge, source: "notion" as const })),
+        ).onConflictDoNothing();
       }
     }
 
@@ -2054,8 +2057,14 @@ router.get("/v1/editorial/canon-records/:id/specs", async (req: Request, res: Re
 
 // ── Canon Records — relation edges (GET/POST/PATCH/DELETE) ────────────────────
 
-const VALID_RELATION_TYPES = ["related", "supports", "contradicts", "precedes", "follows"] as const;
+const VALID_RELATION_TYPES = [
+  "related", "supports", "contradicts", "precedes", "follows",
+  "family", "friend", "ally", "rival", "enemy", "mentor", "student", "romantic",
+  "owns", "uses", "protects", "seeks", "involved_in", "caused", "witnessed",
+  "located_at", "requires", "supersedes", "mentions",
+] as const;
 type RelationType = typeof VALID_RELATION_TYPES[number];
+const MAX_RELATION_DETAILS = 10000;
 
 /**
  * GET /v1/editorial/canon-records/:id/relations
@@ -2069,7 +2078,12 @@ router.get("/v1/editorial/canon-records/:id/relations", async (req: Request, res
         fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
         toRecordId: wsCanonRecordRelationsTable.toRecordId,
         relationType: wsCanonRecordRelationsTable.relationType,
+        details: wsCanonRecordRelationsTable.details,
+        source: wsCanonRecordRelationsTable.source,
+        scope: wsCanonRecordRelationsTable.scope,
+        createdBy: wsCanonRecordRelationsTable.createdBy,
         createdAt: wsCanonRecordRelationsTable.createdAt,
+        updatedAt: wsCanonRecordRelationsTable.updatedAt,
         targetName: wsCanonRecordsTable.name,
         targetCanonType: wsCanonRecordsTable.canonType,
         targetStatus: wsCanonRecordsTable.status,
@@ -2102,7 +2116,12 @@ router.get("/v1/editorial/canon-records/:id/inbound-relations", async (req: Requ
         fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
         toRecordId: wsCanonRecordRelationsTable.toRecordId,
         relationType: wsCanonRecordRelationsTable.relationType,
+        details: wsCanonRecordRelationsTable.details,
+        source: wsCanonRecordRelationsTable.source,
+        scope: wsCanonRecordRelationsTable.scope,
+        createdBy: wsCanonRecordRelationsTable.createdBy,
         createdAt: wsCanonRecordRelationsTable.createdAt,
+        updatedAt: wsCanonRecordRelationsTable.updatedAt,
         sourceName: fromAlias.name,
         sourceCanonType: fromAlias.canonType,
         sourceStatus: fromAlias.status,
@@ -2126,9 +2145,10 @@ router.get("/v1/editorial/canon-records/:id/inbound-relations", async (req: Requ
  */
 router.post("/v1/editorial/canon-records/:id/relations", async (req: Request, res: Response) => {
   const fromRecordId = req.params.id as string;
-  const { to_record_id, relation_type = "related" } = req.body as {
+  const { to_record_id, relation_type = "related", details = "" } = req.body as {
     to_record_id?: string;
     relation_type?: string;
+    details?: string;
   };
 
   if (!to_record_id?.trim()) {
@@ -2145,25 +2165,43 @@ router.post("/v1/editorial/canon-records/:id/relations", async (req: Request, re
     });
     return;
   }
+  if (typeof relation_type !== "string" || relation_type.length > 64) {
+    res.status(400).json({ error: "relation_type must be at most 64 characters" });
+    return;
+  }
+  if (typeof details !== "string" || details.length > MAX_RELATION_DETAILS) {
+    res.status(400).json({ error: `details must be at most ${MAX_RELATION_DETAILS} characters` });
+    return;
+  }
 
   try {
     // Verify both records exist
     const [from, to] = await Promise.all([
-      db.select({ id: wsCanonRecordsTable.id }).from(wsCanonRecordsTable)
+      db.select({ id: wsCanonRecordsTable.id, worldId: wsCanonRecordsTable.worldId }).from(wsCanonRecordsTable)
         .where(eq(wsCanonRecordsTable.id, fromRecordId)).limit(1),
-      db.select({ id: wsCanonRecordsTable.id }).from(wsCanonRecordsTable)
+      db.select({ id: wsCanonRecordsTable.id, worldId: wsCanonRecordsTable.worldId }).from(wsCanonRecordsTable)
         .where(eq(wsCanonRecordsTable.id, to_record_id)).limit(1),
     ]);
     if (!from[0]) { res.status(404).json({ error: "Source canon record not found" }); return; }
     if (!to[0]) { res.status(404).json({ error: "Target canon record not found" }); return; }
+    if (from[0].worldId !== to[0].worldId) {
+      res.status(400).json({ error: "Canon records must belong to the same world" }); return;
+    }
 
     // Upsert: insert or update relation_type on conflict
     await db
       .insert(wsCanonRecordRelationsTable)
-      .values({ fromRecordId, toRecordId: to_record_id, relationType: relation_type })
+      .values({
+        fromRecordId,
+        toRecordId: to_record_id,
+        relationType: relation_type,
+        details,
+        source: "manual",
+        createdBy: (req.user as any)?.id ?? null,
+      })
       .onConflictDoUpdate({
         target: [wsCanonRecordRelationsTable.fromRecordId, wsCanonRecordRelationsTable.toRecordId],
-        set: { relationType: relation_type },
+        set: { relationType: relation_type, details, source: "manual" },
       });
 
     // Return the updated edge with target info
@@ -2172,7 +2210,12 @@ router.post("/v1/editorial/canon-records/:id/relations", async (req: Request, re
         fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
         toRecordId: wsCanonRecordRelationsTable.toRecordId,
         relationType: wsCanonRecordRelationsTable.relationType,
+        details: wsCanonRecordRelationsTable.details,
+        source: wsCanonRecordRelationsTable.source,
+        scope: wsCanonRecordRelationsTable.scope,
+        createdBy: wsCanonRecordRelationsTable.createdBy,
         createdAt: wsCanonRecordRelationsTable.createdAt,
+        updatedAt: wsCanonRecordRelationsTable.updatedAt,
         targetName: wsCanonRecordsTable.name,
         targetCanonType: wsCanonRecordsTable.canonType,
         targetStatus: wsCanonRecordsTable.status,
@@ -2202,19 +2245,40 @@ router.post("/v1/editorial/canon-records/:id/relations", async (req: Request, re
 router.patch("/v1/editorial/canon-records/:id/relations/:toId", async (req: Request, res: Response) => {
   const fromRecordId = req.params.id as string;
   const toRecordId = req.params.toId as string;
-  const { relation_type } = req.body as { relation_type?: string };
+  const { relation_type, details } = req.body as { relation_type?: string; details?: string };
 
-  if (!relation_type || !VALID_RELATION_TYPES.includes(relation_type as RelationType)) {
+  if (relation_type !== undefined && !VALID_RELATION_TYPES.includes(relation_type as RelationType)) {
     res.status(400).json({
-      error: `relation_type is required and must be one of: ${VALID_RELATION_TYPES.join(", ")}`,
+      error: `relation_type must be one of: ${VALID_RELATION_TYPES.join(", ")}`,
     });
+    return;
+  }
+  if (details !== undefined && (typeof details !== "string" || details.length > MAX_RELATION_DETAILS)) {
+    res.status(400).json({ error: `details must be at most ${MAX_RELATION_DETAILS} characters` });
+    return;
+  }
+  if (relation_type === undefined && details === undefined) {
+    res.status(400).json({ error: "At least one of relation_type or details is required" });
     return;
   }
 
   try {
+    const records = await db.select({ id: wsCanonRecordsTable.id, worldId: wsCanonRecordsTable.worldId })
+      .from(wsCanonRecordsTable)
+      .where(inArray(wsCanonRecordsTable.id, [fromRecordId, toRecordId]));
+    const from = records.find(record => record.id === fromRecordId);
+    const to = records.find(record => record.id === toRecordId);
+    if (!from || !to) { res.status(404).json({ error: "Canon record not found" }); return; }
+    if (from.worldId !== to.worldId) {
+      res.status(400).json({ error: "Canon records must belong to the same world" }); return;
+    }
+    const changes = {
+      ...(relation_type !== undefined ? { relationType: relation_type } : {}),
+      ...(details !== undefined ? { details } : {}),
+    };
     const [updated] = await db
       .update(wsCanonRecordRelationsTable)
-      .set({ relationType: relation_type })
+      .set(changes)
       .where(
         and(
           eq(wsCanonRecordRelationsTable.fromRecordId, fromRecordId),

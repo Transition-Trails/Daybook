@@ -146,7 +146,7 @@ describe("CanonLibrary emotional register badges", () => {
     await waitFor(() => expect(screen.getByText("The Archive Keeper")).toBeInTheDocument());
     expect(screen.queryByText("Build Your Canon Library")).not.toBeInTheDocument();
 
-    const card = screen.getByText("The Archive Keeper").closest("button");
+    const card = screen.getByText("The Archive Keeper").closest('[role="button"]');
     expect(card).not.toBeNull();
     expectConfidenceBadge(card!);
 
@@ -242,7 +242,7 @@ describe("CanonLibrary emotional register badges", () => {
     await waitFor(() => expect(screen.getByText("Unsettled Record")).toBeInTheDocument());
 
     for (const name of ["Unsettled Record", "Unlabeled Record", "Legacy Register Record"]) {
-      const card = screen.getByText(name).closest("button");
+      const card = screen.getByText(name).closest('[role="button"]');
       expect(card).not.toBeNull();
       expect(within(card!).queryByText(/null|unrecognized/i)).not.toBeInTheDocument();
       const badgeGroup = card!.firstElementChild?.firstElementChild;

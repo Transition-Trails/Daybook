@@ -146,11 +146,11 @@ function ImageField({
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={uploading || generating}
-        className="group flex w-full min-h-48 overflow-hidden rounded-xl border border-dashed transition-colors disabled:cursor-wait"
+        className="group flex aspect-square w-full min-h-48 overflow-hidden rounded-xl border border-dashed transition-colors disabled:cursor-wait"
         style={{ borderColor: portraitUrl ? "#D7CDC0" : "#CDBEAF", background: "var(--admin-card-subtle)" }}
       >
         {imageUrl ? (
-          <img src={imageUrl} alt="Canon record reference" className="h-48 w-full object-cover" />
+          <img src={imageUrl} alt="Canon record reference" className="h-full w-full object-contain" />
         ) : (
           <span className="flex w-full flex-col items-center justify-center gap-2 px-5 py-7">
             {uploading || generating ? <Loader2 className="h-6 w-6 animate-spin" style={{ color: CLAY }} /> : <ImageIcon className="h-6 w-6" style={{ color: "#A49687" }} />}

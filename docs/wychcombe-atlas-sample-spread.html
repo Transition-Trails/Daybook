@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wychcombe Atlas Sample Spread — Margaret Ashcroft</title>
+<style>
+:root{--green:#17382f;--ink:#1f2e29;--ivory:#f5f0e4;--cream:#e7d8b9;--brass:#ad8743;--moss:#77816b;--sepia:#735b43;--burgundy:#744c47;--paper:#fbf8ef}
+*{box-sizing:border-box}
+body{margin:0;background:#c9b894;color:var(--ink);font-family:Georgia,"Times New Roman",serif}
+.toolbar{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;gap:16px;padding:10px 18px;background:#17382f;color:#f5f0e4;font:12px Arial,sans-serif}
+.toolbar b{letter-spacing:.08em;text-transform:uppercase}.toolbar span{opacity:.75}
+.spread{display:grid;grid-template-columns:8.5in 8.5in;gap:18px;justify-content:center;padding:28px}
+.page{position:relative;width:8.5in;height:11in;overflow:hidden;background:var(--paper);box-shadow:0 6px 25px rgba(25,30,24,.22);padding:.5in .58in .48in}
+.page:before{content:"";position:absolute;inset:13px;border:1px solid rgba(173,135,67,.35);pointer-events:none}
+.running{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--brass);padding-bottom:7px;margin-bottom:16px;font:700 7.5px Arial,sans-serif;letter-spacing:.15em;text-transform:uppercase;color:var(--green)}
+.identity{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:start}
+.eyebrow{font:700 8px Arial,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--sepia)}
+h1{font-size:31px;line-height:1.02;margin:4px 0 7px;color:var(--green);font-weight:600}
+.hook{font-size:13px;line-height:1.35;font-style:italic;color:var(--sepia);max-width:5.75in;margin:0 0 15px}
+.seal{width:78px;height:78px;border:2px solid var(--green);border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;font:700 7px Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--green);transform:rotate(3deg)}
+.seal strong{font:22px Georgia,serif;line-height:1}
+.hero{height:5.35in;border:1px solid var(--brass);background:linear-gradient(135deg,rgba(23,56,47,.08),rgba(173,135,67,.13)),repeating-linear-gradient(0deg,transparent,transparent 22px,rgba(115,91,67,.06) 23px);position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.hero:before,.hero:after{content:"";position:absolute;width:160px;height:260px;border:1px solid rgba(23,56,47,.22);border-radius:50%;transform:rotate(-28deg)}
+.hero:before{left:-75px;bottom:-145px}.hero:after{right:-85px;top:-155px;transform:rotate(32deg)}
+.placeholder{text-align:center;max-width:300px;padding:20px;color:var(--moss);font:11px/1.55 Arial,sans-serif;letter-spacing:.04em}
+.placeholder b{display:block;color:var(--green);font:600 20px Georgia,serif;letter-spacing:0;margin-bottom:8px}
+.caption{display:flex;justify-content:space-between;gap:16px;border-bottom:1px solid var(--cream);padding:7px 0 8px;font:7px/1.4 Arial,sans-serif;color:var(--moss)}
+.opening{display:grid;grid-template-columns:22px 1fr;gap:10px;margin-top:13px;font-size:10.1px;line-height:1.42}
+.dropcap{font-size:36px;line-height:.88;color:var(--brass)}
+.folio{position:absolute;bottom:.26in;left:.58in;right:.58in;display:flex;justify-content:space-between;font:7px Arial,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--moss)}
+.section{margin-bottom:13px}
+.label{font:700 7.5px Arial,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--green);border-bottom:1px solid var(--brass);padding-bottom:4px;margin-bottom:6px}
+.section p{font-size:9.4px;line-height:1.42;margin:0}
+.quote{margin:12px 0;padding:11px 14px;border-left:3px solid var(--brass);background:rgba(231,216,185,.28);font-size:14px;line-height:1.35;color:var(--green);font-style:italic}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.relationships{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid rgba(23,56,47,.38);border-radius:999px;padding:4px 7px;font:7px Arial,sans-serif;color:var(--green);background:#fffdf7}
+.unknown{border-top:1px dashed var(--burgundy);border-bottom:1px dashed var(--burgundy);padding:9px 0;margin:12px 0}
+.unknown .label{color:var(--burgundy);border:0;margin:0 0 5px;padding:0}
+.questions{display:grid;grid-template-columns:20px 1fr;gap:8px;margin:0 0 7px;font-size:8.7px;line-height:1.35}
+.qnum{width:18px;height:18px;border:1px solid var(--burgundy);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--burgundy);font:700 8px Arial,sans-serif}
+.tangible{border:1px solid var(--brass);padding:9px 11px;background:rgba(231,216,185,.22)}
+.tangible ul{columns:2;margin:5px 0 0;padding-left:15px;font-size:8.5px;line-height:1.45}
+.source{position:absolute;left:.58in;right:.58in;bottom:.46in;border-top:1px solid var(--cream);padding-top:6px;font:6.5px/1.4 Arial,sans-serif;color:var(--moss)}
+@media(max-width:1500px){.spread{transform-origin:top center;transform:scale(.72);margin-bottom:-3in}}
+@media print{
+ @page{size:letter portrait;margin:0}
+ body{background:white}
+ .toolbar{display:none}
+ .spread{display:block;padding:0}
+ .page{box-shadow:none;break-after:page;page-break-after:always}
+}
+</style>
+</head>
+<body>
+<div class="toolbar"><b>Wychcombe Atlas · Sample Spread</b><span>Print the page to PDF at 100% · Background graphics on</span></div>
+<main class="spread">
+<section class="page" aria-label="Margaret Ashcroft encounter page">
+  <div class="running"><span>Part III · The Second Generation</span><span>Wychcombe Archive</span></div>
+  <div class="identity">
+    <div>
+      <div class="eyebrow">Character · 01</div>
+      <h1>Margaret Ashcroft</h1>
+      <p class="hook">She understood not only what Wychcombe was, but what it might need to become in order to survive.</p>
+    </div>
+    <div class="seal"><strong>✓</strong>Accepted<br>Canon</div>
+  </div>
+  <div class="hero" role="img" aria-label="Reserved illustration area for approved artwork showing Margaret Ashcroft at a working table in the Stationery House">
+    <div class="placeholder"><b>Approved illustration</b>Margaret at a working table between source records and finished printed pieces. She is sorting, annotating, or reviewing material—not posing passively with a book.</div>
+  </div>
+  <div class="caption"><span>PORTRAIT / WORKING SCENE · ARTWORK PENDING</span><span>CANON ID 25473151-193D-4B27-8728-8E9FC8356B9A</span></div>
+  <div class="opening"><div class="dropcap">M</div><div>argaret Ashcroft was the first member of her family born into the world Elias and Clara were creating. She inherited their belief that ordinary lives deserved preservation—but asked the question that would define Wychcombe’s second generation: <em>Who is all of this for?</em></div></div>
+  <div class="folio"><span>Founding Circle</span><span>18</span></div>
+</section>
+
+<section class="page" aria-label="Margaret Ashcroft understanding page">
+  <div class="running"><span>Record 25473151 · Accepted</span><span>Margaret Ashcroft</span></div>
+
+  <div class="section">
+    <div class="label">The record tells us</div>
+    <p>Margaret grew up among architectural drawings, botanical registers, nursery catalogues, household accounts, gardeners’ notes, and family correspondence. Elias taught her to notice evidence in buildings and objects; Clara taught her to observe living things over time. From the Bellamys, Margaret learned that commerce and knowledge did not have to be opposites.</p>
+  </div>
+
+  <div class="quote">“Preservation without access could become another form of disappearance.”</div>
+
+  <div class="grid2">
+    <div class="section">
+      <div class="label">Why she matters</div>
+      <p>Elias asked what deserved preservation. Clara observed and organized living knowledge. Margaret became interested in circulation: how knowledge could reach people, invite participation, and help sustain the institution that preserved it.</p>
+    </div>
+    <div class="section">
+      <div class="label">Historical ground</div>
+      <p>Margaret belongs to a period of expanding literacy, cheaper printing, postal networks, and women’s growing participation in publishing and commerce—while older limits of gender, class, property, and inheritance remained powerful.</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="label">Wychcombe connections</div>
+    <div class="relationships">
+      <span class="chip">Elias Ashcroft · father</span>
+      <span class="chip">Clara Bellamy Ashcroft · mother</span>
+      <span class="chip">James Ashcroft · sibling</span>
+      <span class="chip">Cecily Ashcroft · sibling</span>
+      <span class="chip">Bellamy &amp; Son · influence</span>
+      <span class="chip">Stationery House · institution</span>
+    </div>
+  </div>
+
+  <div class="unknown">
+    <div class="label">The record does not explain</div>
+    <p style="font-size:9px;line-height:1.4;margin:0">When Margaret first encountered the old press; who taught her the printing trade; when the Stationery House became a serious undertaking; whether she initially wanted responsibility for all of Wychcombe; or how succession was formally established.</p>
+  </div>
+
+  <div class="section">
+    <div class="label" style="color:var(--burgundy)">Questions for the storyteller</div>
+    <div class="questions"><div class="qnum">1</div><div>Who teaches Margaret typesetting, press operation, paper selection, binding, accounting, and commercial production?</div></div>
+    <div class="questions"><div class="qnum">2</div><div>Which early publication fails—and what does that failure teach her about Wychcombe’s real audience?</div></div>
+    <div class="questions"><div class="qnum">3</div><div>When does Elias recognize that Margaret understands Wychcombe as an interconnected system rather than a collection of beloved parts?</div></div>
+  </div>
+
+  <div class="tangible">
+    <div class="label" style="border:0;margin:0;padding:0;color:var(--sepia)">Objects that could make this tangible</div>
+    <ul>
+      <li>Proof sheet with corrections</li>
+      <li>Publishing and cost ledger</li>
+      <li>Customizable letterhead</li>
+      <li>Early pamphlet cover</li>
+      <li>Order and correspondence slip</li>
+      <li>Parcels awaiting dispatch</li>
+    </ul>
+  </div>
+
+  <div class="source">SOURCE · WorldSmith / Daybook · Wychcombe context snapshot · baseline commit 49e0698a948d18eaeb1f96f2e9107193b3305a4a · Main narrative uses accepted Margaret Ashcroft canon. Questions remain non-canon until approved.</div>
+  <div class="folio"><span>The Second Generation</span><span>19</span></div>
+</section>
+</main>
+</body>
+</html>

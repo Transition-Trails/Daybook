@@ -340,6 +340,7 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
           ] : []),
           { label: "Store profile", href: `${base}/settings/profile`, icon: Settings2 },
           ...(canPublish ? [{ label: "Email settings", href: `${base}/email-settings`, icon: Receipt }] : []),
+          ...(storeRole === "store_owner" || storeRole === "super_admin" ? [{ label: "AI settings", href: `${base}/settings/ai`, icon: Sparkles }] : []),
         ],
       },
       {

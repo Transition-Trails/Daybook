@@ -336,7 +336,9 @@ router.post(
         },
       ];
 
-      const result = await callAi(messages as any, "claude", HOTSPOT_VISION_SYSTEM);
+      const result = await callAi(messages as any, "claude", HOTSPOT_VISION_SYSTEM, {
+        context: { storeId: req.actor?.storeId ?? undefined, userId: (req.user as any)?.id, feature: "planner.hotspots" },
+      });
 
       // Parse response
       const raw = result.content ?? "";

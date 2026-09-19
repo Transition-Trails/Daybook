@@ -126,6 +126,7 @@ const WORLD_ROW = {
   name: "Thornvale",
   code: "TV",
   description: null,
+  storeId: "store-history-01",
   visualPalette: "Amber and ochre",
   proseVoice: "Victorian naturalist",
   atmosphericNotes: null,
@@ -163,7 +164,14 @@ describe("POST /api/v1/worldsmith/copilot — history normalisation", () => {
     expect(res.status).toBe(200);
     expect(mockCallAi).toHaveBeenCalledOnce();
 
-    const [messages] = mockCallAi.mock.calls[0] as [{ role: string; content: string }[], ...unknown[]];
+    const [messages, _provider, _systemPrompt, options] = mockCallAi.mock.calls[0] as [
+      { role: string; content: string }[], string, string, { context?: Record<string, unknown> },
+    ];
+    expect(options.context).toEqual({
+      storeId: "store-history-01",
+      userId: "u-sa-history",
+      feature: "worldsmith.copilot",
+    });
 
     // The leading assistant message must have been stripped.
     expect(messages[0].role).toBe("user");

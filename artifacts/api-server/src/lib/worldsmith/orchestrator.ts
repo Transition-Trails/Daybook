@@ -564,6 +564,8 @@ export async function runCompilation(
         visualAssetNotionId,
         isLocal: isLocalProductionRequest,
         productionPackageId: req.production_package_id,
+        storeId: spec.storeId,
+        userId: initiatedBy,
         // A revision already has a deterministic prompt hash, so identical
         // submissions can resume/reuse one package instead of billing twice.
         forceNew: req.force_new === true && !req.revision_prompt,
@@ -842,6 +844,8 @@ type FinalArtworkInput = {
     orientation: "landscape" | "portrait" | "square";
   };
   generation: ImageGenerationMetadata;
+  storeId?: string;
+  userId?: string;
 };
 
 type ProductionPackageIdentity = {
@@ -1303,7 +1307,14 @@ async function runFinalArtwork(input: FinalArtworkInput): Promise<FinalArtworkRe
   // Stage 13: provider generation is deliberately non-fatal to compilation.
   let generated;
   try {
-    generated = await generateImage(input.compiledPrompt, generation.settings);
+    generated = await generateImage(input.compiledPrompt, {
+      ...generation.settings,
+      context: {
+        storeId: input.storeId,
+        userId: input.userId,
+        feature: "worldsmith.final-art",
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const [updated] = await db

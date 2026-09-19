@@ -722,6 +722,7 @@ async function runLocalSpecPreview(
       prompt: buildConceptImagePrompt(boardData),
       componentType: boardData.componentType,
       orientation: boardData.orientation,
+      storeId: context.productionSpec.storeId, userId: options.initiatedBy, feature: "worldsmith.spec-preview.initial",
       logContext: { specPageId },
     });
     generationMetadata = generatedImage.metadata;
@@ -1003,6 +1004,7 @@ export async function runSpecPreview(
       prompt: conceptImagePrompt,
       componentType: finalBoardData.componentType,
       orientation: finalBoardData.orientation,
+      userId: options.initiatedBy, feature: "worldsmith.spec-preview.retry",
       logContext: { specPageId },
     });
     generationMetadata = generatedImage.metadata;

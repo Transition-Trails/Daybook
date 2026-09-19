@@ -29,8 +29,14 @@ import type {
   AiDraftPackResult,
   AiDraftThemeInput,
   AiDraftThemeResult,
+  AiProviderConfig,
+  AiProviderConfigTestInput,
+  AiProviderConfigTestResult,
+  AiProviderConfigUpdate,
   AiSettings,
   AiSettingsUpdate,
+  AiUsageList,
+  AiUsageSummary,
   ArtFile,
   BillingPortal,
   CalendarPushInput,
@@ -45,11 +51,14 @@ import type {
   ErrorEnvelope,
   GenerationInput,
   GenerationJob,
+  GetAiUsageSummaryParams,
   GoogleAuthCallbackParams,
   HealthStatus,
   Insert,
   InsertInput,
   InsertUpdate,
+  ListAiProviderConfigsParams,
+  ListAiUsageParams,
   ListEditionsParams,
   ListInsertsParams,
   ListProductsParams,
@@ -65,6 +74,7 @@ import type {
   RelatedProduct,
   RelatedProductInput,
   RelatedProductUpdate,
+  RemoveAiProviderConfigParams,
   StaffLoginInput,
   StickerPack,
   StickerPackInput,
@@ -5583,6 +5593,478 @@ export const useUpdateAiSettings = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateAiSettingsMutationOptions(options));
+    }
+
+export const getListAiUsageUrl = (params?: ListAiUsageParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/usage?${stringifiedParams}` : `/api/ai/usage`
+}
+
+/**
+ * @summary List AI usage records for the authenticated scope
+ */
+export const listAiUsage = async (params?: ListAiUsageParams, options?: Parameters<typeof customFetch>[1]): Promise<AiUsageList> => {
+
+  return customFetch<AiUsageList>(getListAiUsageUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiUsageQueryKey = (params?: ListAiUsageParams,) => {
+    return [
+    `/api/ai/usage`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAiUsageQueryOptions = <TData = Awaited<ReturnType<typeof listAiUsage>>, TError = ErrorType<unknown>>(params?: ListAiUsageParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiUsageQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiUsage>>> = ({ signal }) => listAiUsage(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiUsage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiUsageQueryResult = NonNullable<Awaited<ReturnType<typeof listAiUsage>>>
+export type ListAiUsageQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List AI usage records for the authenticated scope
+ */
+
+export function useListAiUsage<TData = Awaited<ReturnType<typeof listAiUsage>>, TError = ErrorType<unknown>>(
+ params?: ListAiUsageParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiUsageQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetAiUsageSummaryUrl = (params?: GetAiUsageSummaryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/usage/summary?${stringifiedParams}` : `/api/ai/usage/summary`
+}
+
+/**
+ * @summary Summarize AI usage for the authenticated scope
+ */
+export const getAiUsageSummary = async (params?: GetAiUsageSummaryParams, options?: Parameters<typeof customFetch>[1]): Promise<AiUsageSummary> => {
+
+  return customFetch<AiUsageSummary>(getGetAiUsageSummaryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiUsageSummaryQueryKey = (params?: GetAiUsageSummaryParams,) => {
+    return [
+    `/api/ai/usage/summary`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetAiUsageSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getAiUsageSummary>>, TError = ErrorType<unknown>>(params?: GetAiUsageSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiUsageSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiUsageSummaryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiUsageSummary>>> = ({ signal }) => getAiUsageSummary(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiUsageSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiUsageSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getAiUsageSummary>>>
+export type GetAiUsageSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Summarize AI usage for the authenticated scope
+ */
+
+export function useGetAiUsageSummary<TData = Awaited<ReturnType<typeof getAiUsageSummary>>, TError = ErrorType<unknown>>(
+ params?: GetAiUsageSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiUsageSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiUsageSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListAiProviderConfigsUrl = (params?: ListAiProviderConfigsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/provider-configs?${stringifiedParams}` : `/api/ai/provider-configs`
+}
+
+/**
+ * @summary Get masked AI provider configurations
+ */
+export const listAiProviderConfigs = async (params?: ListAiProviderConfigsParams, options?: Parameters<typeof customFetch>[1]): Promise<AiProviderConfig[]> => {
+
+  return customFetch<AiProviderConfig[]>(getListAiProviderConfigsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiProviderConfigsQueryKey = (params?: ListAiProviderConfigsParams,) => {
+    return [
+    `/api/ai/provider-configs`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAiProviderConfigsQueryOptions = <TData = Awaited<ReturnType<typeof listAiProviderConfigs>>, TError = ErrorType<unknown>>(params?: ListAiProviderConfigsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiProviderConfigs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiProviderConfigsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiProviderConfigs>>> = ({ signal }) => listAiProviderConfigs(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiProviderConfigs>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiProviderConfigsQueryResult = NonNullable<Awaited<ReturnType<typeof listAiProviderConfigs>>>
+export type ListAiProviderConfigsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get masked AI provider configurations
+ */
+
+export function useListAiProviderConfigs<TData = Awaited<ReturnType<typeof listAiProviderConfigs>>, TError = ErrorType<unknown>>(
+ params?: ListAiProviderConfigsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiProviderConfigs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiProviderConfigsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAiProviderConfigUrl = () => {
+
+
+
+
+  return `/api/ai/provider-configs`
+}
+
+/**
+ * @summary Create or update an AI provider configuration
+ */
+export const updateAiProviderConfig = async (aiProviderConfigUpdate: AiProviderConfigUpdate, options?: Parameters<typeof customFetch>[1]): Promise<AiProviderConfig> => {
+
+  return customFetch<AiProviderConfig>(getUpdateAiProviderConfigUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiProviderConfigUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateAiProviderConfigMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiProviderConfig>>, TError,{data: BodyType<AiProviderConfigUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAiProviderConfig>>, TError,{data: BodyType<AiProviderConfigUpdate>}, TContext> => {
+
+const mutationKey = ['updateAiProviderConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAiProviderConfig>>, {data: BodyType<AiProviderConfigUpdate>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateAiProviderConfig(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAiProviderConfigMutationResult = NonNullable<Awaited<ReturnType<typeof updateAiProviderConfig>>>
+    export type UpdateAiProviderConfigMutationBody = BodyType<AiProviderConfigUpdate>
+    export type UpdateAiProviderConfigMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create or update an AI provider configuration
+ */
+export const useUpdateAiProviderConfig = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiProviderConfig>>, TError,{data: BodyType<AiProviderConfigUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAiProviderConfig>>,
+        TError,
+        {data: BodyType<AiProviderConfigUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateAiProviderConfigMutationOptions(options));
+    }
+
+export const getTestAiProviderConfigUrl = () => {
+
+
+
+
+  return `/api/ai/provider-configs/test`
+}
+
+/**
+ * @summary Test a configured AI provider without exposing credentials
+ */
+export const testAiProviderConfig = async (aiProviderConfigTestInput: AiProviderConfigTestInput, options?: Parameters<typeof customFetch>[1]): Promise<AiProviderConfigTestResult> => {
+
+  return customFetch<AiProviderConfigTestResult>(getTestAiProviderConfigUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiProviderConfigTestInput)
+  }
+);}
+
+
+
+
+
+export const getTestAiProviderConfigMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testAiProviderConfig>>, TError,{data: BodyType<AiProviderConfigTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testAiProviderConfig>>, TError,{data: BodyType<AiProviderConfigTestInput>}, TContext> => {
+
+const mutationKey = ['testAiProviderConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testAiProviderConfig>>, {data: BodyType<AiProviderConfigTestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  testAiProviderConfig(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestAiProviderConfigMutationResult = NonNullable<Awaited<ReturnType<typeof testAiProviderConfig>>>
+    export type TestAiProviderConfigMutationBody = BodyType<AiProviderConfigTestInput>
+    export type TestAiProviderConfigMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Test a configured AI provider without exposing credentials
+ */
+export const useTestAiProviderConfig = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testAiProviderConfig>>, TError,{data: BodyType<AiProviderConfigTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testAiProviderConfig>>,
+        TError,
+        {data: BodyType<AiProviderConfigTestInput>},
+        TContext
+      > => {
+      return useMutation(getTestAiProviderConfigMutationOptions(options));
+    }
+
+export const getRemoveAiProviderConfigUrl = (params: RemoveAiProviderConfigParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/provider-configs/remove?${stringifiedParams}` : `/api/ai/provider-configs/remove`
+}
+
+/**
+ * @summary Remove a provider configuration
+ */
+export const removeAiProviderConfig = async (params: RemoveAiProviderConfigParams, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getRemoveAiProviderConfigUrl(params),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getRemoveAiProviderConfigMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeAiProviderConfig>>, TError,{params: RemoveAiProviderConfigParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeAiProviderConfig>>, TError,{params: RemoveAiProviderConfigParams}, TContext> => {
+
+const mutationKey = ['removeAiProviderConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeAiProviderConfig>>, {params: RemoveAiProviderConfigParams}> = (props) => {
+          const {params} = props ?? {};
+
+          return  removeAiProviderConfig(params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveAiProviderConfigMutationResult = NonNullable<Awaited<ReturnType<typeof removeAiProviderConfig>>>
+
+    export type RemoveAiProviderConfigMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove a provider configuration
+ */
+export const useRemoveAiProviderConfig = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeAiProviderConfig>>, TError,{params: RemoveAiProviderConfigParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeAiProviderConfig>>,
+        TError,
+        {params: RemoveAiProviderConfigParams},
+        TContext
+      > => {
+      return useMutation(getRemoveAiProviderConfigMutationOptions(options));
     }
 
 export const getCreateCheckoutSessionUrl = () => {

@@ -66,7 +66,14 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
     expect(mockGenerateImage).toHaveBeenCalledOnce();
     expect(mockGenerateImage).toHaveBeenCalledWith(
       expect.stringContaining("Canon name: The Lantern of Ash."),
-      { size: "1024x1024", quality: "high" },
+      expect.objectContaining({
+        size: "1024x1024",
+        quality: "high",
+        context: expect.objectContaining({
+          userId: "canon-image-test-admin",
+          feature: "editorial.canon.generate-image",
+        }),
+      }),
     );
     expect(mockGenerateImage.mock.calls[0]?.[0]).toContain(
       "Depict the individual object itself as the hero subject",

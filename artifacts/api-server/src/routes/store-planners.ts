@@ -98,7 +98,9 @@ Rules:
 
     const userMsg = `Write a getting-started guide for a ${datingMode} ${size} digital planner${yearNote}. Sections: ${sections.length > 0 ? sections.join(", ") : "standard daily/weekly/monthly layout"}.`;
 
-    const result = await callAi([{ role: "user", content: userMsg }], "claude", systemPrompt);
+    const result = await callAi([{ role: "user", content: userMsg }], "claude", systemPrompt, {
+      context: { storeId, feature: "store-planner.getting-started" },
+    });
     return result.content?.trim() ?? null;
   } catch {
     return null;

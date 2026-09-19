@@ -1361,6 +1361,7 @@ When given a background brief, write a precise, evocative DALL-E 3 prompt. Requi
 - No text, no icons, no watermarks
 - High resolution; photorealistic or fine-art quality
 Respond with ONLY the prompt text — nothing else.`,
+        { context: { storeId, userId: actor.userId, feature: "catalog.background.prompt.generate" } },
       );
       const expandedPrompt = expansionResult.content.trim().replace(/^["']|["']$/g, "");
 
@@ -1368,6 +1369,7 @@ Respond with ONLY the prompt text — nothing else.`,
       const generatedImage = await generateImage(expandedPrompt, {
         size: "1024x1024",
         quality: "high",
+        context: { storeId, userId: actor.userId, feature: "catalog.background.generate" },
       });
       const { dataUrl: imageDataUrl, ...generationMetadata } = generatedImage;
 

@@ -307,7 +307,7 @@ describe("WorldSmith image targets", () => {
           printWidthIn: 3,
           printHeightIn: 4,
         },
-        error: expect.stringContaining("provider unavailable"),
+        error: expect.stringContaining("AI governance policy unavailable"),
       });
     } finally {
       selectSpy.mockRestore();

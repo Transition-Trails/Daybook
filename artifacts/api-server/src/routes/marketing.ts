@@ -221,6 +221,7 @@ router.post(
         [{ role: "user", content: userMessage }],
         "claude",
         systemPrompt,
+        { context: { storeId: req.actor?.storeId ?? undefined, userId: (req.user as any)?.id, feature: "marketing.listing" } },
       );
 
       const parsed = tryParseJson<{ title: string; description: string; tags: string[] }>(result.content);
@@ -313,6 +314,7 @@ router.post(
         [{ role: "user", content: userMessage }],
         "claude",
         systemPrompt,
+        { context: { storeId: req.actor?.storeId ?? undefined, userId: (req.user as any)?.id, feature: "marketing.social" } },
       );
 
       const parsed = tryParseJson<{ posts: { channel: string; caption: string; hashtags: string[] }[] }>(result.content);
@@ -387,7 +389,8 @@ router.post(
     ];
 
     try {
-      const result = await callAi([{ role: "user", content: scenePrompt }], "claude");
+      const result = await callAi([{ role: "user", content: scenePrompt }], "claude", undefined,
+        { context: { storeId: req.actor?.storeId ?? undefined, userId: (req.user as any)?.id, feature: "marketing.scenes" } });
       const parsed = tryParseJson<{ scenes: { label: string; description: string }[] }>(result.content);
       if (parsed?.scenes?.length) scenes = parsed.scenes.slice(0, 3);
     } catch {
@@ -607,7 +610,8 @@ router.post(
       .join("\n");
 
     try {
-      const result = await callAi(safeMessages, "claude", systemPrompt);
+      const result = await callAi(safeMessages, "claude", systemPrompt,
+        { context: { storeId: req.actor?.storeId ?? undefined, userId: (req.user as any)?.id, feature: "marketing.assistant" } });
 
       const parsed = tryParseJson<{ message: string; action?: { type: string } }>(result.content);
       if (!parsed?.message) {

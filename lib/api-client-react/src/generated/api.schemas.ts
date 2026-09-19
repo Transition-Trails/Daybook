@@ -884,6 +884,125 @@ export interface AiSettingsUpdate {
   provider?: AiSettingsUpdateProvider;
 }
 
+export type AiUsageRecordProvider = typeof AiUsageRecordProvider[keyof typeof AiUsageRecordProvider];
+
+
+export const AiUsageRecordProvider = {
+  claude: 'claude',
+  chatgpt: 'chatgpt',
+  gemini: 'gemini',
+} as const;
+
+export type AiUsageRecordFundingSource = typeof AiUsageRecordFundingSource[keyof typeof AiUsageRecordFundingSource];
+
+
+export const AiUsageRecordFundingSource = {
+  store: 'store',
+  platform: 'platform',
+} as const;
+
+export interface AiUsageRecord {
+  requestId: string;
+  /** @nullable */
+  storeId?: string | null;
+  /** @nullable */
+  userId?: string | null;
+  feature: string;
+  provider: AiUsageRecordProvider;
+  /** @nullable */
+  model?: string | null;
+  status: string;
+  /** @nullable */
+  errorCategory?: string | null;
+  /** @nullable */
+  durationMs?: number | null;
+  /** @nullable */
+  inputTokens?: number | null;
+  /** @nullable */
+  outputTokens?: number | null;
+  /** @nullable */
+  estimatedCostCents?: number | null;
+  fundingSource: AiUsageRecordFundingSource;
+  createdAt: string;
+}
+
+export interface AiUsageList {
+  records: AiUsageRecord[];
+}
+
+export interface AiUsageSummary {
+  requestCount: number;
+  estimatedCostCents: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+export type AiProviderConfigProvider = typeof AiProviderConfigProvider[keyof typeof AiProviderConfigProvider];
+
+
+export const AiProviderConfigProvider = {
+  claude: 'claude',
+  chatgpt: 'chatgpt',
+  gemini: 'gemini',
+} as const;
+
+export interface AiProviderConfig {
+  provider: AiProviderConfigProvider;
+  enabled: boolean;
+  hasCredential: boolean;
+  /** @nullable */
+  maskedCredential?: string | null;
+  allowPlatformFallback: boolean;
+  allowedModels?: string[];
+  /** @nullable */
+  requestsPerDay?: number | null;
+  /** @nullable */
+  estimatedCentsPerMonth?: number | null;
+}
+
+export type AiProviderConfigUpdateProvider = typeof AiProviderConfigUpdateProvider[keyof typeof AiProviderConfigUpdateProvider];
+
+
+export const AiProviderConfigUpdateProvider = {
+  claude: 'claude',
+  chatgpt: 'chatgpt',
+  gemini: 'gemini',
+} as const;
+
+export interface AiProviderConfigUpdate {
+  provider: AiProviderConfigUpdateProvider;
+  credential?: string;
+  enabled?: boolean;
+  allowPlatformFallback?: boolean;
+  allowedModels?: string[];
+  /** @minimum 0 */
+  requestsPerDay?: number;
+  /** @minimum 0 */
+  estimatedCentsPerMonth?: number;
+  storeId?: string;
+}
+
+export type AiProviderConfigTestInputProvider = typeof AiProviderConfigTestInputProvider[keyof typeof AiProviderConfigTestInputProvider];
+
+
+export const AiProviderConfigTestInputProvider = {
+  claude: 'claude',
+  chatgpt: 'chatgpt',
+  gemini: 'gemini',
+} as const;
+
+export interface AiProviderConfigTestInput {
+  provider: AiProviderConfigTestInputProvider;
+  storeId?: string;
+}
+
+export interface AiProviderConfigTestResult {
+  ok: boolean;
+  provider?: string;
+  /** @nullable */
+  error?: string | null;
+}
+
 export type CheckoutInputPriceType = typeof CheckoutInputPriceType[keyof typeof CheckoutInputPriceType];
 
 
@@ -1050,4 +1169,35 @@ export const ListEditionsStatus = {
 export type ListUsersParams = {
 planId?: number;
 };
+
+export type ListAiUsageParams = {
+storeId?: string;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+};
+
+export type GetAiUsageSummaryParams = {
+storeId?: string;
+};
+
+export type ListAiProviderConfigsParams = {
+storeId?: string;
+};
+
+export type RemoveAiProviderConfigParams = {
+provider: RemoveAiProviderConfigProvider;
+storeId?: string;
+};
+
+export type RemoveAiProviderConfigProvider = typeof RemoveAiProviderConfigProvider[keyof typeof RemoveAiProviderConfigProvider];
+
+
+export const RemoveAiProviderConfigProvider = {
+  claude: 'claude',
+  chatgpt: 'chatgpt',
+  gemini: 'gemini',
+} as const;
 

@@ -1345,6 +1345,92 @@ paths:
               schema:
                 $ref: "#/components/schemas/AiSettings"
 
+  /ai/usage:
+    get:
+      operationId: listAiUsage
+      tags: [ai]
+      summary: List AI usage records for the authenticated scope
+      parameters:
+        - { name: storeId, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses:
+        "200":
+          description: AI usage records
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiUsageList" }
+
+  /ai/usage/summary:
+    get:
+      operationId: getAiUsageSummary
+      tags: [ai]
+      summary: Summarize AI usage for the authenticated scope
+      parameters:
+        - { name: storeId, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: AI usage summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiUsageSummary" }
+
+  /ai/provider-configs:
+    get:
+      operationId: listAiProviderConfigs
+      tags: [ai]
+      summary: Get masked AI provider configurations
+      parameters:
+        - { name: storeId, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Provider configurations
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/AiProviderConfig" } }
+    put:
+      operationId: updateAiProviderConfig
+      tags: [ai]
+      summary: Create or update an AI provider configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AiProviderConfigUpdate" }
+      responses:
+        "200":
+          description: Updated provider configuration
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiProviderConfig" }
+
+  /ai/provider-configs/test:
+    post:
+      operationId: testAiProviderConfig
+      tags: [ai]
+      summary: Test a configured AI provider without exposing credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AiProviderConfigTestInput" }
+      responses:
+        "200":
+          description: Provider test result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiProviderConfigTestResult" }
+
+  /ai/provider-configs/remove:
+    delete:
+      operationId: removeAiProviderConfig
+      tags: [ai]
+      summary: Remove a provider configuration
+      parameters:
+        - { name: provider, in: query, required: true, schema: { type: string, enum: [claude, chatgpt, gemini] } }
+        - { name: storeId, in: query, schema: { type: string } }
+      responses:
+        "204": { description: Removed }
+
   # ── BILLING ───────────────────────────────────────────────────────────────────
   /billing/checkout:
     post:
@@ -2131,6 +2217,75 @@ components:
       properties:
         enabled:  { type: boolean }
         provider: { type: string, enum: [claude, chatgpt, gemini] }
+
+    AiUsageRecord:
+      type: object
+      required: [requestId, provider, feature, status, fundingSource, createdAt]
+      properties:
+        requestId: { type: string }
+        storeId: { type: ["string", "null"] }
+        userId: { type: ["string", "null"] }
+        feature: { type: string }
+        provider: { type: string, enum: [claude, chatgpt, gemini] }
+        model: { type: ["string", "null"] }
+        status: { type: string }
+        errorCategory: { type: ["string", "null"] }
+        durationMs: { type: ["integer", "null"] }
+        inputTokens: { type: ["integer", "null"] }
+        outputTokens: { type: ["integer", "null"] }
+        estimatedCostCents: { type: ["integer", "null"] }
+        fundingSource: { type: string, enum: [store, platform] }
+        createdAt: { type: string, format: date-time }
+    AiUsageList:
+      type: object
+      required: [records]
+      properties:
+        records: { type: array, items: { $ref: "#/components/schemas/AiUsageRecord" } }
+    AiUsageSummary:
+      type: object
+      required: [requestCount, estimatedCostCents]
+      properties:
+        requestCount: { type: integer }
+        estimatedCostCents: { type: integer }
+        inputTokens: { type: integer }
+        outputTokens: { type: integer }
+    AiProviderConfig:
+      type: object
+      required: [provider, enabled, hasCredential, allowPlatformFallback]
+      properties:
+        provider: { type: string, enum: [claude, chatgpt, gemini] }
+        enabled: { type: boolean }
+        hasCredential: { type: boolean }
+        maskedCredential: { type: ["string", "null"] }
+        allowPlatformFallback: { type: boolean }
+        allowedModels: { type: array, items: { type: string } }
+        requestsPerDay: { type: ["integer", "null"] }
+        estimatedCentsPerMonth: { type: ["integer", "null"] }
+    AiProviderConfigUpdate:
+      type: object
+      required: [provider]
+      properties:
+        provider: { type: string, enum: [claude, chatgpt, gemini] }
+        credential: { type: string, writeOnly: true }
+        enabled: { type: boolean }
+        allowPlatformFallback: { type: boolean }
+        allowedModels: { type: array, items: { type: string } }
+        requestsPerDay: { type: integer, minimum: 0 }
+        estimatedCentsPerMonth: { type: integer, minimum: 0 }
+        storeId: { type: string }
+    AiProviderConfigTestInput:
+      type: object
+      required: [provider]
+      properties:
+        provider: { type: string, enum: [claude, chatgpt, gemini] }
+        storeId: { type: string }
+    AiProviderConfigTestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        provider: { type: string }
+        error: { type: ["string", "null"] }
 
     # ── BILLING ───────────────────────────────────────────────────────────────
     CheckoutInput:

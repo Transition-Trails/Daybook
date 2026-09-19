@@ -93,3 +93,4 @@
 - [WorldSmith planner asset bridge](worldsmith-planner-asset-bridge.md) — planners consume approved final art through project-owned copies and reserved composition IDs
 - [Planner PDF thumbnails](planner-pdf-thumbnails.md) — artifact deployments need bundled PDF rendering; development-shell executables are not production dependencies
 - [Planner PDF import resume](planner-pdf-import-resume.md) — analyzed PDFs are autosaved review projects; keep them discoverable, resumable, and full-color
+- [AI governance admission](ai-governance-admission.md) — tenant AI spend uses credential-owned quotas, DB reservations, active pricing, and fail-closed monthly controls

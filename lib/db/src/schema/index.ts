@@ -20,4 +20,5 @@ export * from "./worldsmith";
 export * from "./worldsmith-editorial";
 export * from "./releases";
 export * from "./eink";
+export * from "./ai";
 export * from "../catalog-constants";

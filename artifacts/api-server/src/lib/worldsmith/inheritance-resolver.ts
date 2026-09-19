@@ -811,6 +811,7 @@ export async function resolveInheritanceChainLocal(specId: string): Promise<Inhe
     heroFamily: localSpec.heroFamily ?? undefined,
     world: world.name,
     worldId: world.id,
+    storeId: world.storeId ?? undefined,
     collection: collectionName,
     collectionId: localSpec.collectionId ?? undefined,
     volume: volumeName,
@@ -1102,6 +1103,7 @@ export async function resolveLocalPreviewContextWithWorldBible(
 
   let world: {
     id: string;
+    storeId: string | null;
     name: string;
     visualPalette: string | null;
     proseVoice: string | null;
@@ -1114,6 +1116,7 @@ export async function resolveLocalPreviewContextWithWorldBible(
     [world] = await db
       .select({
         id: worldsmithWorldsTable.id,
+        storeId: worldsmithWorldsTable.storeId,
         name: worldsmithWorldsTable.name,
         visualPalette: worldsmithWorldsTable.visualPalette,
         proseVoice: worldsmithWorldsTable.proseVoice,
@@ -1152,6 +1155,7 @@ export async function resolveLocalPreviewContextWithWorldBible(
       heroFamily: localSpec.heroFamily ?? undefined,
       world: world.name,
       worldId: world.id,
+      storeId: world.storeId ?? undefined,
       collectionId: localSpec.collectionId ?? undefined,
       volumeId: localSpec.volumeId ?? undefined,
       currentVersion: localSpec.currentVersion,

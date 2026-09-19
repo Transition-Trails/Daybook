@@ -1365,6 +1365,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
   try {
     // Optionally fetch World Bible for grounding
     let worldBibleLines = "";
+    let selectedWorldStoreId: string | undefined;
     if (worldId) {
       const [world] = await db
         .select()
@@ -1372,6 +1373,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
         .where(eq(worldsmithWorldsTable.id, worldId))
         .limit(1);
       if (world) {
+        selectedWorldStoreId = world.storeId ?? undefined;
         worldBibleLines = [
           `World: ${world.name}${world.description ? ` — ${world.description.slice(0, 1200)}` : ""}`,
           `Visual Palette: ${worldBibleRichTextToPlainText(world.visualPalette).slice(0, 700) || "(not set)"}`,
@@ -1693,6 +1695,7 @@ router.post("/v1/worldsmith/copilot", requireAuth, requireSuperAdmin, async (req
       [...normalizedHistory, userTurn] as Parameters<typeof callAi>[0],
       messageProvider,
       systemPrompt,
+      { context: { storeId: selectedWorldStoreId, userId: (req.user as any)?.id, feature: "worldsmith.copilot" } },
     );
 
     // Parse record suggestions embedded by the model for the "editorial" surface.
@@ -1910,6 +1913,7 @@ router.post("/v1/worldsmith/worlds/:id/bible-copilot", requireStoreAccess("store
       [...normalizedHistory, userTurn] as Parameters<typeof callAi>[0],
       provider,
       systemPrompt,
+      { context: { storeId: world.storeId ?? undefined, userId: (req.user as any)?.id, feature: "worldsmith.bible-copilot" } },
     );
 
     res.json({ reply: result.content, provider: result.provider, model: result.model });

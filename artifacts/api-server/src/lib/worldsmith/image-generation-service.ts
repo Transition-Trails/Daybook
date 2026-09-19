@@ -279,6 +279,9 @@ export interface GenerateWorldsmithImageInput {
   componentType?: string;
   orientation?: string | null;
   logContext?: Record<string, unknown>;
+  storeId?: string;
+  userId?: string;
+  feature?: string;
 }
 
 /** Resolve the shared target and effective model settings without making a model call. */
@@ -318,6 +321,11 @@ export async function generateWorldsmithImage(
     const generated = await generateImage(input.prompt, {
       size: generation.metadata.settings.size,
       quality: generation.metadata.settings.quality,
+      context: {
+        storeId: input.storeId,
+        userId: input.userId,
+        feature: input.feature ?? "worldsmith.image.generate",
+      },
     });
     const { dataUrl, ...metadata } = generated;
     const b64 = dataUrl.replace(/^data:image\/[a-z+]+;base64,/, "");

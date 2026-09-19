@@ -136,6 +136,7 @@ router.post(
         [{ role: "user", content: prompt.trim() }],
         "claude",
         systemPrompt,
+        { context: { storeId, userId: actor.userId, feature: "studio.theme.generate", fundingSource: "store" } },
       );
 
       const parsed = parseJson<{ name: string; description: string; colors: string[] }>(result.content);
@@ -185,6 +186,7 @@ router.post(
         [{ role: "user", content: prompt.trim() }],
         "claude",
         systemPrompt,
+        { context: { storeId, userId: actor.userId, feature: "studio.pack.generate", fundingSource: "store" } },
       );
 
       const parsed = parseJson<{ name: string; tags: string[]; ideas: string[] }>(result.content);
@@ -234,6 +236,7 @@ router.post(
         [{ role: "user", content: prompt.trim() }],
         "claude",
         systemPrompt,
+        { context: { storeId, userId: actor.userId, feature: "studio.edition.generate", fundingSource: "store" } },
       );
 
       const parsed = parseJson<{
@@ -293,6 +296,7 @@ router.post(
         [{ role: "user", content: prompt.trim() }],
         "claude",
         systemPrompt,
+        { context: { storeId, userId: actor.userId, feature: "studio.trends.generate", fundingSource: "store" } },
       );
 
       const parsed = parseJson<Array<{ trend: string; insight: string; idea: string }>>(result.content);
@@ -358,7 +362,9 @@ router.post(
     ];
 
     try {
-      const result = await callAi(messages, "claude", systemPrompt);
+      const result = await callAi(messages, "claude", systemPrompt, {
+        context: { storeId, userId: req.actor?.userId, feature: "studio.planner.copilot", fundingSource: "store" },
+      });
       const text = result.content?.trim() ?? "I couldn't generate a response. Please try again.";
       res.json({ text, model: result.model, provider: result.provider });
     } catch (err) {
@@ -420,7 +426,9 @@ router.post(
         messages.push({ role: "user", content: prompt.trim() });
       }
 
-      const result = await callAi(messages as Parameters<typeof callAi>[0], "claude", systemPrompt);
+      const result = await callAi(messages as Parameters<typeof callAi>[0], "claude", systemPrompt, {
+        context: { storeId, userId: actor.userId, feature: "studio.insert.generate", fundingSource: "store" },
+      });
 
       // Validate SVG
       const svgMatch = result.content?.match(/<svg[\s\S]*<\/svg>/i);
@@ -491,7 +499,9 @@ router.post(
       : prompt.trim();
 
     try {
-      const result = await callAi([{ role: "user", content: userMsg }], "claude", systemPrompt);
+      const result = await callAi([{ role: "user", content: userMsg }], "claude", systemPrompt, {
+        context: { storeId, userId: actor.userId, feature: "studio.widget.generate", fundingSource: "store" },
+      });
 
       const svgMatch = result.content?.match(/<svg[\s\S]*<\/svg>/i);
       if (!svgMatch) {

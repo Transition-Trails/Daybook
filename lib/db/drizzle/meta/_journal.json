@@ -288,6 +288,27 @@
       "when": 1789768800000,
       "tag": "0040_planner_project_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789772400000,
+      "tag": "0041_ai_usage_governance",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1789776000000,
+      "tag": "0042_ai_call_reservations",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1789779600000,
+      "tag": "0043_ai_reservation_and_credentials",
+      "breakpoints": true
     }
   ]
 }

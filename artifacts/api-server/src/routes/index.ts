@@ -42,6 +42,7 @@ import checkoutRouter from "./checkout";
 import shapeRecipesRouter from "./shape-recipes";
 import plannerPdfImportsRouter from "./planner-pdf-imports";
 import plannerWorldsmithAssetsRouter from "./planner-worldsmith-assets";
+import aiGovernanceRouter from "./ai-governance";
 
 const router: IRouter = Router();
 
@@ -60,6 +61,7 @@ router.use(billingRouter);
 router.use(usersRouter);
 router.use(plansRouter);
 router.use(aiSettingsRouter);
+  router.use(aiGovernanceRouter);
 // Multi-tenant store platform
 router.use(storesRouter);
 router.use(ownedCatalogRouter);

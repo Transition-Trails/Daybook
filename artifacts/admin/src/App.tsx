@@ -783,6 +783,23 @@ function RootRouter() {
         )}
       </Route>
 
+      {/* ── Store: AI Settings ───────────────────────────────────── */}
+      <Route path="/store/:storeId/settings/ai">
+        {(p) => (
+          <RequireStore state={state} storeId={p.storeId}>
+            {(store) => (
+              <StoreAdminShell store={store} role={store.role as string} allStores={state.stores}>
+                {(store.role === "store_owner" || store.role === "super_admin") ? (
+                  <AiSettingsPage storeId={p.storeId!} />
+                ) : (
+                  <div className="p-8 font-semibold text-red-500">Not authorized</div>
+                )}
+              </StoreAdminShell>
+            )}
+          </RequireStore>
+        )}
+      </Route>
+
       {/* ── Store: Widgets ───────────────────────────────────────── */}
       <Route path="/store/:storeId/widgets">
         {(p) => (

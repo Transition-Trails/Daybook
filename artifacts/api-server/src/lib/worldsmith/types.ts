@@ -15,6 +15,7 @@ export interface ProductionSpec {
   heroFamily?: string;
   world: string;
   worldId?: string;       // Notion page ID of the linked World record
+  storeId?: string;       // Owning store for tenant-funded generation
   collection?: string;
   collectionId?: string;  // Notion page ID of the linked Collection record
   volume?: string;

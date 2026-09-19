@@ -1148,6 +1148,7 @@ All ${suggestionCount} suggestions must be DIFFERENT from existing records and f
       [{ role: "user", content: userMessage }],
       process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
       systemPrompt,
+      { context: { storeId: world.storeId ?? undefined, userId: (req.user as any)?.id, feature: "editorial.canon-suggestions" } },
     );
 
     // Parse the JSON array from the AI response
@@ -1765,6 +1766,7 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
     const [world] = world_id
       ? await db
           .select({
+            storeId: worldsmithWorldsTable.storeId,
             name: worldsmithWorldsTable.name,
             visualPalette: worldsmithWorldsTable.visualPalette,
             atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
@@ -1805,7 +1807,15 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
       visualDirection && `Canon direction:\n${visualDirection}`,
     ].filter(Boolean).join("\n\n");
 
-    const generatedImage = await generateImage(prompt, { size: "1024x1024", quality: "high" });
+    const generatedImage = await generateImage(prompt, {
+      size: "1024x1024",
+      quality: "high",
+      context: {
+        storeId: world?.storeId ?? undefined,
+        userId: (req.user as any)?.id,
+        feature: "editorial.canon.generate-image",
+      },
+    });
     const { dataUrl: imageDataUrl, ...generationMetadata } = generatedImage;
     res.json({ image_data_url: imageDataUrl, generation: generationMetadata });
   } catch (err) {
@@ -3825,6 +3835,7 @@ Return ONLY a JSON array (no markdown fences or preamble). Every item must have:
       [{ role: "user", content: userMessage }],
       process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
       systemPrompt,
+      { context: { storeId: world.storeId ?? undefined, userId: (req.user as any)?.id, feature: "editorial.storyline-suggestions" } },
     );
 
     let suggestions: unknown[] = [];

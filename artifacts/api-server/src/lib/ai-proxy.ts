@@ -1,5 +1,10 @@
 import { logger } from "./logger";
 import { generateImage } from "./worldsmith/image-generation";
+import { createHash, randomUUID } from "node:crypto";
+import { db, aiUsageRecordsTable, aiProviderConfigsTable } from "@workspace/db";
+import { and, eq, gte, isNull, or, sql } from "drizzle-orm";
+import { decryptAiCredential } from "./ai-secrets";
+import { reserveAiCall, finishAiCall, currentPricing, conservativeTextReservation } from "./ai-admission";
 
 export {
   generateImage,
@@ -39,6 +44,52 @@ export interface AiCallOptions {
   imageAttachments?: AttachmentBlock[];
   /** Inline text extracted from documents, prepended to the last user message. */
   textAttachments?: TextAttachment[];
+  /** Normalized attribution and policy context. Optional for legacy callers. */
+  context?: AiCallContext;
+  timeoutMs?: number;
+}
+
+export interface AiCallContext {
+  storeId?: string;
+  userId?: string;
+  feature?: string;
+  fundingSource?: "store" | "platform";
+}
+
+function countStrings(value: unknown): number {
+  if (typeof value === "string") return value.length;
+  if (Array.isArray(value)) return value.reduce((n, item) => n + countStrings(item), 0);
+  if (value && typeof value === "object") return Object.values(value).reduce((n, item) => n + countStrings(item), 0);
+  return 0;
+}
+
+export function billableInputChars(messages: ChatMessage[], systemPrompt?: string, options?: AiCallOptions): number {
+  return (systemPrompt?.length ?? 0) + messages.reduce((n, message) => n + countStrings(message.content), 0) +
+    (options?.textAttachments ?? []).reduce((n, a) => n + a.name.length + a.text.length, 0) +
+    (options?.imageAttachments ?? []).reduce((n, a) => n + a.name.length + a.base64.length, 0);
+}
+
+export function shouldKeepReservationUnaccounted(monthlyLimited: boolean, inputTokens?: number, outputTokens?: number, estimatedCostCents?: number): boolean {
+  return monthlyLimited && (inputTokens === undefined || outputTokens === undefined || estimatedCostCents === undefined);
+}
+export function aiDedupeKey(provider: string, promptHash: string, scope: string, model: string): string {
+  return `${provider}:${promptHash}:${scope}:${model}`;
+}
+export function openAiBaseUrlForCredentialSource(source: "database" | "legacy-integration" | "legacy-openai", integrationBaseUrl?: string): string {
+  return source === "legacy-integration"
+    ? (integrationBaseUrl ?? "https://api.openai.com/v1")
+    : "https://api.openai.com/v1";
+}
+
+export function estimateCostFromPricing(
+  pricing: { input: number; output: number } | undefined,
+  usage: Record<string, number> | null,
+): number | undefined {
+  if (!pricing || !usage) return undefined;
+  const input = usage.prompt_tokens ?? usage.input_tokens;
+  const output = usage.completion_tokens ?? usage.output_tokens;
+  if (input === undefined || output === undefined) return undefined;
+  return Math.ceil((input * pricing.input + output * pricing.output) / 1_000_000);
 }
 
 interface AiResponse {
@@ -54,24 +105,245 @@ export async function callAi(
   systemPrompt?: string,
   options?: AiCallOptions,
 ): Promise<AiResponse> {
-  switch (provider) {
-    case "claude":
-      return callClaude(messages, systemPrompt, options);
-    case "chatgpt":
-      return callOpenAI(messages, systemPrompt, options);
-    case "gemini":
-      return callGemini(messages, systemPrompt, options);
-    default:
-      return callClaude(messages, systemPrompt, options);
+  const effectiveProvider = provider === "chatgpt" || provider === "gemini" ? provider : "claude";
+  const context = options?.context;
+  const policy = await resolveAiPolicyForRequest(effectiveProvider, context?.storeId, {
+    model: undefined,
+    modality: "text",
+  });
+  const selectedContext = context ? { ...context, fundingSource: policy.fundingSource } : { fundingSource: policy.fundingSource };
+  const controller = new AbortController();
+  const effectiveOptions = { ...options, _credential: policy.credential, _model: policy.model, _baseUrl: policy.baseUrl, _signal: controller.signal };
+  if (policy.denied) throw new Error(policy.denied);
+  const requestId = randomUUID();
+  const promptHash = createHash("sha256").update(JSON.stringify({ messages, systemPrompt })).digest("hex");
+  const duplicateKey = aiDedupeKey(effectiveProvider, promptHash, context?.storeId ?? "platform", policy.model ?? DEFAULT_MODELS[effectiveProvider]!);
+  if (inFlight.has(duplicateKey)) {
+    await recordUsage({ requestId, context: selectedContext, provider: effectiveProvider, promptHash, status: "duplicate", durationMs: 0 });
+    throw new Error("An identical AI request is already in flight");
+  }
+  const started = Date.now();
+  const pricing = await currentPricing(effectiveProvider, policy.model ?? DEFAULT_MODELS[effectiveProvider]!);
+  const reservationId = await reserveAiCall({
+    dedupeKey: duplicateKey, provider: effectiveProvider, model: policy.model ?? DEFAULT_MODELS[effectiveProvider]!,
+    storeId: context?.storeId, fundingSource: policy.fundingSource ?? "platform",
+    configId: policy.configId,
+    requestsPerDay: policy.requestsPerDay, estimatedCentsPerMonth: policy.estimatedCentsPerMonth,
+    reservedCents: conservativeTextReservation(billableInputChars(messages, systemPrompt, options), pricing?.input ?? 0, pricing?.output ?? 0,
+      policy.estimatedCentsPerMonth !== null && policy.estimatedCentsPerMonth !== undefined),
+  });
+  const operation = (async () => {
+    switch (effectiveProvider) {
+      case "chatgpt": return callOpenAI(messages, systemPrompt, effectiveOptions);
+      case "gemini": return callGemini(messages, systemPrompt, effectiveOptions);
+      default: return callClaude(messages, systemPrompt, effectiveOptions);
+    }
+  })();
+  inFlight.set(duplicateKey, operation);
+  try {
+    const result = await withTimeout(operation, options?.timeoutMs ?? 120_000, controller);
+    // Never release a reservation as completed before the usage audit row exists.
+    const estimatedCostCents = estimateCostFromPricing(pricing, result.usage);
+    const missingUsage = shouldKeepReservationUnaccounted(policy.estimatedCentsPerMonth !== null && policy.estimatedCentsPerMonth !== undefined,
+      result.usage?.prompt_tokens ?? result.usage?.input_tokens, result.usage?.completion_tokens ?? result.usage?.output_tokens, estimatedCostCents);
+    const persisted = await recordUsage({
+      requestId, context: selectedContext, provider: result.provider, model: result.model, promptHash,
+      status: "success", durationMs: Date.now() - started,
+      inputTokens: result.usage?.prompt_tokens ?? result.usage?.input_tokens,
+      outputTokens: result.usage?.completion_tokens ?? result.usage?.output_tokens,
+      estimatedCostCents: missingUsage ? undefined : estimatedCostCents,
+    });
+    await finishAiCall(reservationId, persisted && !missingUsage ? "completed" : "unaccounted");
+    return result;
+  } catch (error) {
+    await finishAiCall(reservationId, "failed");
+    await recordUsage({
+      requestId, context: selectedContext, provider: effectiveProvider, promptHash, status: "error",
+      errorCategory: classifyAiError(error), durationMs: Date.now() - started,
+    });
+    throw error;
+  } finally {
+    // Do not admit a duplicate while the provider fetch is still settling.
+    await operation.catch(() => undefined);
+    inFlight.delete(duplicateKey);
+  }
+}
+
+const inFlight = new Map<string, Promise<AiResponse>>();
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, controller?: AbortController): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => { timer = setTimeout(() => { controller?.abort(); reject(new Error("AI request timed out")); }, timeoutMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function classifyAiError(error: unknown): string {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  if (message.includes("timed out") || message.includes("timeout")) return "timeout";
+  if (message.includes("configured") || message.includes("api key")) return "configuration";
+  if (message.includes("429") || message.includes("quota")) return "rate_limit";
+  return "provider";
+}
+
+async function recordUsage(input: {
+  requestId: string; context?: AiCallContext; provider: string; model?: string | null;
+  promptHash: string; status: string; errorCategory?: string; durationMs: number;
+  inputTokens?: number; outputTokens?: number;
+  estimatedCostCents?: number;
+}): Promise<boolean> {
+  try {
+    await db.insert(aiUsageRecordsTable).values({
+      requestId: input.requestId, storeId: input.context?.storeId, userId: input.context?.userId,
+      feature: input.context?.feature ?? "unattributed", provider: input.provider, model: input.model,
+      promptHash: input.promptHash, status: input.status, errorCategory: input.errorCategory,
+      durationMs: input.durationMs, inputTokens: input.inputTokens, outputTokens: input.outputTokens,
+      estimatedCostCents: input.estimatedCostCents,
+      fundingSource: input.context?.fundingSource ?? "platform",
+    });
+    return true;
+  } catch (error) {
+    logger.error({ err: error }, "Failed to persist AI usage record");
+    return false;
+  }
+}
+
+type InternalAiOptions = AiCallOptions & { _credential?: string; _model?: string; _signal?: AbortSignal; _baseUrl?: string };
+type AiPolicy = { credential?: string; model?: string; denied?: string; fundingSource?: "store" | "platform"; configId?: number; requestsPerDay?: number | null; estimatedCentsPerMonth?: number | null; baseUrl?: string };
+const DEFAULT_MODELS: Record<string, string> = { claude: "claude-opus-4-5", chatgpt: "gpt-5", gemini: "gemini-2.0-flash" };
+
+export async function resolveAiPolicyForRequest(
+  provider: string,
+  storeId?: string,
+  options: { model?: string; modality?: "text" | "image" } = {},
+): Promise<AiPolicy> {
+  // Platform fallback selects a credential before the provider call; it never
+  // retries a failed network request, since provider operations may be non-idempotent.
+  const model = options.model ?? DEFAULT_MODELS[provider];
+  try {
+    const rows = await db.select().from(aiProviderConfigsTable).where(
+      and(eq(aiProviderConfigsTable.provider, provider), storeId
+        ? or(eq(aiProviderConfigsTable.storeId, storeId), isNull(aiProviderConfigsTable.storeId))
+        : isNull(aiProviderConfigsTable.storeId)),
+    );
+    const config = rows.find((row) => storeId && row.storeId === storeId) ??
+      rows.find((row) => row.storeId === null);
+    // A tenant request is never allowed to silently become an environment-key
+    // request.  Platform fallback is selected explicitly below.
+    if (!config && storeId) return { denied: "AI provider is not configured for this store" };
+    if (!config) {
+      const integration = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+      const direct = process.env.OPENAI_API_KEY;
+      return {
+        model,
+        credential: provider === "chatgpt" ? integration ?? direct : undefined,
+        baseUrl: integration && provider === "chatgpt"
+          ? openAiBaseUrlForCredentialSource("legacy-integration", process.env.AI_INTEGRATIONS_OPENAI_BASE_URL)
+          : openAiBaseUrlForCredentialSource("legacy-openai"),
+      };
+    }
+    if (!config.enabled) {
+      if (storeId && config.storeId === storeId && config.allowPlatformFallback) {
+        const [platform] = await db.select().from(aiProviderConfigsTable).where(
+          and(eq(aiProviderConfigsTable.provider, provider), isNull(aiProviderConfigsTable.storeId)),
+        ).limit(1);
+        if (platform?.enabled && platform.encryptedCredential && platform.credentialIv && platform.credentialTag &&
+            (!platform.allowedModels.length || platform.allowedModels.includes(model))) {
+          return {
+            fundingSource: "platform", configId: platform.id,
+            requestsPerDay: platform.requestsPerDay, estimatedCentsPerMonth: platform.estimatedCentsPerMonth,
+            credential: decryptAiCredential({
+              ciphertext: platform.encryptedCredential, iv: platform.credentialIv, tag: platform.credentialTag,
+            }),
+            model, baseUrl: openAiBaseUrlForCredentialSource("database"),
+          };
+        }
+      }
+      return { denied: "AI provider is disabled by policy" };
+    }
+    if (storeId === undefined && config.storeId) return {};
+    if (config.allowedModels.length && !config.allowedModels.includes(model)) {
+      return { denied: `Model ${model} is not allowed for ${provider}` };
+    }
+    if (storeId && config.storeId === null && !config.allowPlatformFallback) {
+      return { denied: "Platform fallback is disabled for this provider" };
+    }
+    // A store config may opt into the platform credential. Resolve that
+    // credential directly rather than allowing the provider client to fall
+    // through to process.env after a store lookup.
+    if (storeId && config.storeId === storeId && !config.encryptedCredential) {
+      if (!config.allowPlatformFallback) return { denied: "No store AI credential is configured" };
+      const [platform] = await db.select().from(aiProviderConfigsTable).where(
+        and(eq(aiProviderConfigsTable.provider, provider), isNull(aiProviderConfigsTable.storeId)),
+      ).limit(1);
+      if (!platform?.enabled || !platform.encryptedCredential || !platform.credentialIv || !platform.credentialTag) {
+        return { denied: "No valid store credential or explicitly enabled platform fallback is configured" };
+      }
+      if (platform.allowedModels.length && !platform.allowedModels.includes(model)) {
+        return { denied: `Model ${model} is not allowed for ${provider}` };
+      }
+      return {
+        fundingSource: "platform", configId: platform.id,
+        requestsPerDay: platform.requestsPerDay, estimatedCentsPerMonth: platform.estimatedCentsPerMonth,
+        credential: decryptAiCredential({
+          ciphertext: platform.encryptedCredential, iv: platform.credentialIv, tag: platform.credentialTag,
+        }),
+        model, baseUrl: openAiBaseUrlForCredentialSource("database"),
+      };
+    }
+    if (config.requestsPerDay !== null) {
+      const since = new Date(Date.now() - 86_400_000);
+      const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(aiUsageRecordsTable)
+        .where(and(gte(aiUsageRecordsTable.createdAt, since), eq(aiUsageRecordsTable.provider, provider),
+       storeId && config.storeId === storeId
+         ? eq(aiUsageRecordsTable.storeId, storeId)
+         : config.storeId === null
+           ? eq(aiUsageRecordsTable.fundingSource, "platform")
+           : isNull(aiUsageRecordsTable.storeId)));
+      if (Number(count) >= config.requestsPerDay) return { denied: "AI daily request quota exceeded" };
+    }
+    if (config.estimatedCentsPerMonth !== null) {
+       const now = new Date();
+       const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const [{ total }] = await db.select({ total: sql<number>`coalesce(sum(${aiUsageRecordsTable.estimatedCostCents}), 0)` })
+        .from(aiUsageRecordsTable)
+        .where(and(gte(aiUsageRecordsTable.createdAt, since), eq(aiUsageRecordsTable.provider, provider),
+       storeId && config.storeId === storeId
+         ? eq(aiUsageRecordsTable.storeId, storeId)
+         : config.storeId === null
+           ? eq(aiUsageRecordsTable.fundingSource, "platform")
+           : isNull(aiUsageRecordsTable.storeId)));
+      if (Number(total) >= config.estimatedCentsPerMonth) return { denied: "AI monthly cost quota exceeded" };
+    }
+    if (config.encryptedCredential && config.credentialIv && config.credentialTag) {
+      return { fundingSource: config.storeId ? "store" : "platform", configId: config.id,
+        requestsPerDay: config.requestsPerDay, estimatedCentsPerMonth: config.estimatedCentsPerMonth,
+        credential: decryptAiCredential({
+        ciphertext: config.encryptedCredential, iv: config.credentialIv, tag: config.credentialTag,
+      }), model, baseUrl: openAiBaseUrlForCredentialSource("database") };
+    }
+    return { fundingSource: config.storeId ? "store" : "platform", configId: config.id,
+      requestsPerDay: config.requestsPerDay, estimatedCentsPerMonth: config.estimatedCentsPerMonth, model };
+  } catch (error) {
+    if (storeId) throw new Error("AI governance policy unavailable for store");
+    logger.warn({ err: error }, "Legacy platform AI policy lookup unavailable");
+    // Environment credentials are only a legacy platform escape hatch when a
+    // successful policy lookup proved that no platform config exists.
+    throw new Error("AI governance policy unavailable");
   }
 }
 
 async function callClaude(
   messages: ChatMessage[],
   systemPrompt?: string,
-  options?: AiCallOptions,
+  options?: InternalAiOptions,
 ): Promise<AiResponse> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = options?._credential ?? process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
 
   // Build Anthropic message array. The last user message may include image
@@ -120,7 +392,7 @@ async function callClaude(
       });
 
   const body: Record<string, unknown> = {
-    model: "claude-opus-4-5",
+    model: options?._model ?? "claude-opus-4-5",
     max_tokens: 2048,
     messages: claudeMessages,
   };
@@ -134,6 +406,7 @@ async function callClaude(
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: options?._signal,
   });
 
   if (!res.ok) {
@@ -158,17 +431,16 @@ async function callClaude(
 async function callOpenAI(
   messages: ChatMessage[],
   systemPrompt?: string,
-  options?: AiCallOptions,
+  options?: InternalAiOptions,
 ): Promise<AiResponse> {
   // Prefer the Replit AI integration proxy; fall back to direct OpenAI key
   const apiKey =
+    options?._credential ||
     process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
     process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("No OpenAI API key configured (set OPENAI_API_KEY or AI_INTEGRATIONS_OPENAI_API_KEY)");
 
-  const baseUrl = (
-    process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || "https://api.openai.com/v1"
-  ).replace(/\/$/, "");
+  const baseUrl = (options?._baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "");
 
   // Build messages, injecting vision + document content on the final user turn
   type OAIContent =
@@ -218,10 +490,11 @@ async function callOpenAI(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-5",
+    model: options?._model ?? "gpt-5",
       messages: builtMessages,
       max_completion_tokens: 2048,
     }),
+    signal: options?._signal,
   });
 
   if (!res.ok) {
@@ -246,9 +519,9 @@ async function callOpenAI(
 async function callGemini(
   messages: ChatMessage[],
   systemPrompt?: string,
-  options?: AiCallOptions,
+  options?: InternalAiOptions,
 ): Promise<AiResponse> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = options?._credential ?? process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
 
   type GeminiPart =
@@ -287,16 +560,18 @@ async function callGemini(
   });
 
   const body: Record<string, unknown> = { contents: parts };
+  body.generationConfig = { maxOutputTokens: 2048 };
   if (systemPrompt) {
     body.systemInstruction = { parts: [{ text: systemPrompt }] };
   }
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${options?._model ?? "gemini-2.0-flash"}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      signal: options?._signal,
     },
   );
 
@@ -315,7 +590,7 @@ async function callGemini(
   return {
     content: data.candidates[0]?.content.parts[0]?.text ?? "",
     provider: "gemini",
-    model: "gemini-2.0-flash",
+    model: options?._model ?? "gemini-2.0-flash",
     usage: data.usageMetadata,
   };
 }

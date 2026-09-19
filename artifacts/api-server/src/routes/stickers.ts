@@ -1184,6 +1184,7 @@ router.post(
         messages as Array<{ role: "user" | "assistant"; content: string }>,
         "claude",
         systemPrompt,
+        { context: { storeId, userId: actor.userId, feature: "stickers.prompt.generate" } },
       );
 
       // Parse JSON response
@@ -1258,7 +1259,10 @@ router.post(
 
     try {
       // 1. Generate the image with the shared GPT Image contract.
-      const generatedImage = await generateImage(prompt.trim(), { quality: "high" });
+      const generatedImage = await generateImage(prompt.trim(), {
+        quality: "high",
+        context: { storeId, userId: actor.userId, feature: "stickers.generate" },
+      });
       const { dataUrl: rawImageDataUrl, ...generationMetadata } = generatedImage;
 
       // 2. Process through the sticker pipeline (bg removal → border → shadow → cutline)

@@ -6,6 +6,10 @@
  * returned image data.
  */
 import { logger } from "../logger";
+import { createHash, randomUUID } from "node:crypto";
+import { db, aiUsageRecordsTable } from "@workspace/db";
+import { resolveAiPolicyForRequest } from "../ai-proxy";
+import { reserveAiCall, finishAiCall, currentPricing, conservativeImageReservation } from "../ai-admission";
 
 const SUPPORTED_IMAGE_MODELS = new Set(["gpt-image-1", "gpt-image-2"]);
 export const MIN_IMAGE_PIXELS = 1024 * 1024;
@@ -14,16 +18,19 @@ const LEGACY_SIZE_MAP: Record<string, string> = {
   "1792x1024": "1536x1024",
   "1024x1792": "1024x1536",
 };
+const imageInFlight = new Set<string>();
 
 export type ImageGenerationQuality = "low" | "medium" | "high" | "standard" | "hd";
 
 export interface ImageGenerationOptions {
   size?: string;
   quality?: ImageGenerationQuality;
+  context?: { storeId?: string; userId?: string; feature?: string; fundingSource?: "store" | "platform" };
+  allowPlatformFallback?: boolean;
 }
 
 export interface ImageGenerationMetadata {
-  provider: "replit_ai_integrations" | "openai";
+  provider: "chatgpt" | "replit_ai_integrations" | "openai";
   model: string;
   modelVersion?: string;
   settings: { size: string; quality: "low" | "medium" | "high" };
@@ -128,16 +135,49 @@ export async function generateImage(
   options: ImageGenerationOptions = {},
 ): Promise<ImageGenerationResult> {
   const metadata = resolveImageGenerationMetadata(options);
-  const apiKey = metadata.provider === "replit_ai_integrations"
-    ? process.env.AI_INTEGRATIONS_OPENAI_API_KEY
-    : process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("No OpenAI API key configured (set OPENAI_API_KEY or AI_INTEGRATIONS_OPENAI_API_KEY)");
+  const policy = await resolveAiPolicyForRequest("chatgpt", options.context?.storeId, {
+    model: metadata.model,
+    modality: "image",
+  });
+  if (policy.denied) throw new Error(policy.denied);
+  const requestId = randomUUID();
+  const promptHash = createHash("sha256").update(prompt).digest("hex");
+  const duplicateKey = `${options.context?.storeId ?? "platform"}:${promptHash}:${metadata.model}`;
+  if (imageInFlight.has(duplicateKey)) {
+    await recordImageUsage(requestId, promptHash, options, metadata, "duplicate", 0, "duplicate", policy.fundingSource);
+    throw new Error("An identical image request is already in flight");
+  }
+  imageInFlight.add(duplicateKey);
+  let reservationId: number;
+  const pricing = await currentPricing("chatgpt", metadata.model);
+  try {
+    reservationId = await reserveAiCall({
+    dedupeKey: duplicateKey, provider: "chatgpt", model: metadata.model,
+    storeId: options.context?.storeId, fundingSource: policy.fundingSource ?? "platform",
+    configId: policy.configId, requestsPerDay: policy.requestsPerDay,
+    estimatedCentsPerMonth: policy.estimatedCentsPerMonth,
+    reservedCents: conservativeImageReservation(pricing?.image, policy.estimatedCentsPerMonth !== null && policy.estimatedCentsPerMonth !== undefined),
+    });
+  } catch (error) {
+    imageInFlight.delete(duplicateKey);
+    if (error instanceof Error && error.message.includes("identical")) {
+      await recordImageUsage(requestId, promptHash, options, metadata, "duplicate", 0, "duplicate", policy.fundingSource);
+    }
+    throw error;
+  }
+  const started = Date.now();
+  const apiKey = policy.credential ?? (
+    !options.context?.storeId && policy.fundingSource === undefined
+      ? process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY
+      : undefined
+  );
+  if (!apiKey) {
+    imageInFlight.delete(duplicateKey);
+    await finishAiCall(reservationId, "failed");
+    throw new Error("No OpenAI API key configured (set OPENAI_API_KEY or AI_INTEGRATIONS_OPENAI_API_KEY)");
+  }
 
-  const baseUrl = (
-    metadata.provider === "replit_ai_integrations"
-      ? (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ?? "https://api.openai.com/v1")
-      : "https://api.openai.com/v1"
-  ).replace(/\/$/, "");
+  const baseUrl = (policy.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "");
 
   const body = {
     model: metadata.model,
@@ -176,7 +216,9 @@ export async function generateImage(
     const item = data.data[0];
     if (!item) throw new Error("Image generation returned no data");
 
-    if (item.b64_json) {
+      if (item.b64_json) {
+      const persisted = await recordImageUsage(requestId, promptHash, options, metadata, "success", Date.now() - started, undefined, policy.fundingSource, pricing?.image ?? undefined);
+      await finishAiCall(reservationId, persisted ? "completed" : "unaccounted");
       return { ...metadata, dataUrl: `data:image/png;base64,${item.b64_json}` };
     }
 
@@ -186,16 +228,39 @@ export async function generateImage(
       const buf = await imgRes.arrayBuffer();
       const b64 = Buffer.from(buf).toString("base64");
       const ct = imgRes.headers.get("content-type") ?? "image/jpeg";
+      const persisted = await recordImageUsage(requestId, promptHash, options, metadata, "success", Date.now() - started, undefined, policy.fundingSource, pricing?.image ?? undefined);
+      await finishAiCall(reservationId, persisted ? "completed" : "unaccounted");
       return { ...metadata, dataUrl: `data:${ct};base64,${b64}` };
     }
 
     throw new Error("Image generation response contained neither url nor b64_json");
   } catch (error) {
+    await recordImageUsage(requestId, promptHash, options, metadata, "error", Date.now() - started,
+      error instanceof Error ? error.name : "provider", policy.fundingSource);
+    await finishAiCall(reservationId, "failed");
     if (timedOut && error instanceof Error && error.name === "AbortError") {
       throw new ImageGenerationTimeoutError(timeoutMs);
     }
     throw error;
   } finally {
     clearTimeout(timeout);
+    imageInFlight.delete(duplicateKey);
   }
+}
+
+async function recordImageUsage(
+  requestId: string, promptHash: string, options: ImageGenerationOptions,
+  metadata: ImageGenerationMetadata, status: string, durationMs: number, errorCategory?: string,
+  fundingSource?: "store" | "platform", estimatedCostCents?: number,
+): Promise<boolean> {
+  try {
+    await db.insert(aiUsageRecordsTable).values({
+      requestId, promptHash, provider: "chatgpt", model: metadata.model, status,
+      errorCategory, durationMs, feature: options.context?.feature ?? "image.generate",
+      storeId: options.context?.storeId, userId: options.context?.userId,
+      fundingSource: fundingSource ?? options.context?.fundingSource ?? "platform",
+      estimatedCostCents,
+    });
+    return true;
+  } catch (error) { logger.warn({ err: error }, "Failed to persist image usage record"); return false; }
 }

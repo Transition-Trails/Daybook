@@ -1752,6 +1752,131 @@ export const UpdateAiSettingsResponse = zod.object({
 
 
 /**
+ * @summary List AI usage records for the authenticated scope
+ */
+export const listAiUsageQueryLimitMax = 100;
+
+
+
+export const ListAiUsageQueryParams = zod.object({
+  "storeId": zod.coerce.string().optional(),
+  "limit": zod.coerce.number().int().min(1).max(listAiUsageQueryLimitMax).optional()
+})
+
+export const ListAiUsageResponse = zod.object({
+  "records": zod.array(zod.object({
+  "requestId": zod.string(),
+  "storeId": zod.string().nullish(),
+  "userId": zod.string().nullish(),
+  "feature": zod.string(),
+  "provider": zod.enum(['claude', 'chatgpt', 'gemini']),
+  "model": zod.string().nullish(),
+  "status": zod.string(),
+  "errorCategory": zod.string().nullish(),
+  "durationMs": zod.number().int().nullish(),
+  "inputTokens": zod.number().int().nullish(),
+  "outputTokens": zod.number().int().nullish(),
+  "estimatedCostCents": zod.number().int().nullish(),
+  "fundingSource": zod.enum(['store', 'platform']),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Summarize AI usage for the authenticated scope
+ */
+export const GetAiUsageSummaryQueryParams = zod.object({
+  "storeId": zod.coerce.string().optional()
+})
+
+export const GetAiUsageSummaryResponse = zod.object({
+  "requestCount": zod.number().int(),
+  "estimatedCostCents": zod.number().int(),
+  "inputTokens": zod.number().int().optional(),
+  "outputTokens": zod.number().int().optional()
+})
+
+
+/**
+ * @summary Get masked AI provider configurations
+ */
+export const ListAiProviderConfigsQueryParams = zod.object({
+  "storeId": zod.coerce.string().optional()
+})
+
+export const ListAiProviderConfigsResponseItem = zod.object({
+  "provider": zod.enum(['claude', 'chatgpt', 'gemini']),
+  "enabled": zod.boolean(),
+  "hasCredential": zod.boolean(),
+  "maskedCredential": zod.string().nullish(),
+  "allowPlatformFallback": zod.boolean(),
+  "allowedModels": zod.array(zod.string()).optional(),
+  "requestsPerDay": zod.number().int().nullish(),
+  "estimatedCentsPerMonth": zod.number().int().nullish()
+})
+export const ListAiProviderConfigsResponse = zod.array(ListAiProviderConfigsResponseItem)
+
+
+/**
+ * @summary Create or update an AI provider configuration
+ */
+export const updateAiProviderConfigBodyRequestsPerDayMin = 0;
+
+export const updateAiProviderConfigBodyEstimatedCentsPerMonthMin = 0;
+
+
+
+export const UpdateAiProviderConfigBody = zod.object({
+  "provider": zod.enum(['claude', 'chatgpt', 'gemini']),
+  "credential": zod.string().optional(),
+  "enabled": zod.boolean().optional(),
+  "allowPlatformFallback": zod.boolean().optional(),
+  "allowedModels": zod.array(zod.string()).optional(),
+  "requestsPerDay": zod.number().int().min(updateAiProviderConfigBodyRequestsPerDayMin).optional(),
+  "estimatedCentsPerMonth": zod.number().int().min(updateAiProviderConfigBodyEstimatedCentsPerMonthMin).optional(),
+  "storeId": zod.string().optional()
+})
+
+export const UpdateAiProviderConfigResponse = zod.object({
+  "provider": zod.enum(['claude', 'chatgpt', 'gemini']),
+  "enabled": zod.boolean(),
+  "hasCredential": zod.boolean(),
+  "maskedCredential": zod.string().nullish(),
+  "allowPlatformFallback": zod.boolean(),
+  "allowedModels": zod.array(zod.string()).optional(),
+  "requestsPerDay": zod.number().int().nullish(),
+  "estimatedCentsPerMonth": zod.number().int().nullish()
+})
+
+
+/**
+ * @summary Test a configured AI provider without exposing credentials
+ */
+export const TestAiProviderConfigBody = zod.object({
+  "provider": zod.enum(['claude', 'chatgpt', 'gemini']),
+  "storeId": zod.string().optional()
+})
+
+export const TestAiProviderConfigResponse = zod.object({
+  "ok": zod.boolean(),
+  "provider": zod.string().optional(),
+  "error": zod.string().nullish()
+})
+
+
+/**
+ * @summary Remove a provider configuration
+ */
+export const RemoveAiProviderConfigQueryParams = zod.object({
+  "provider": zod.enum(['claude', 'chatgpt', 'gemini']),
+  "storeId": zod.coerce.string().optional()
+})
+
+export const RemoveAiProviderConfigResponse = zod.void()
+
+
+/**
  * @summary Create a Stripe checkout session
  */
 export const CreateCheckoutSessionBody = zod.object({

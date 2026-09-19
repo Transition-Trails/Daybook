@@ -3,7 +3,7 @@
 > Generated from Daybook. Do not edit as source data.
 
 **Canonical ID:** `bb981182-6d53-4a39-a2f7-8df3e1c4cb75`  
-**Status:** proposed  
+**Status:** accepted  
 **Category:** event  
 **World:** Wychcombe (`wyc`)
 
@@ -42,5 +42,5 @@ Later mysteries may connect to evidence Elias and Clara preserved, but supernatu
 ---
 Generated from Daybook
 Record ID: bb981182-6d53-4a39-a2f7-8df3e1c4cb75
-Last Updated: 2026-09-18T18:10:02.966Z
-Snapshot Generated: 2026-09-18T18:18:45.063Z
+Last Updated: 2026-09-19T17:46:29.264Z
+Snapshot Generated: 2026-09-19T17:46:29.460Z

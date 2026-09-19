@@ -1777,6 +1777,7 @@ export const ListAiUsageResponse = zod.object({
   "inputTokens": zod.number().int().nullish(),
   "outputTokens": zod.number().int().nullish(),
   "estimatedCostCents": zod.number().int().nullish(),
+  "costUnavailableReason": zod.union([zod.literal('missing_pricing'),zod.literal('missing_usage'),zod.literal('duplicate'),zod.literal('failed_cost_unknown'),zod.literal('estimate_not_recorded'),zod.literal(null)]).nullable(),
   "fundingSource": zod.enum(['store', 'platform']),
   "createdAt": zod.coerce.date()
 }))
@@ -1793,6 +1794,7 @@ export const GetAiUsageSummaryQueryParams = zod.object({
 export const GetAiUsageSummaryResponse = zod.object({
   "requestCount": zod.number().int(),
   "estimatedCostCents": zod.number().int(),
+  "successfulCallsWithoutCostEstimate": zod.number().int(),
   "inputTokens": zod.number().int().optional(),
   "outputTokens": zod.number().int().optional()
 })

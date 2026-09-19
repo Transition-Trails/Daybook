@@ -2220,7 +2220,7 @@ components:
 
     AiUsageRecord:
       type: object
-      required: [requestId, provider, feature, status, fundingSource, createdAt]
+      required: [requestId, provider, feature, status, fundingSource, createdAt, costUnavailableReason]
       properties:
         requestId: { type: string }
         storeId: { type: ["string", "null"] }
@@ -2234,6 +2234,9 @@ components:
         inputTokens: { type: ["integer", "null"] }
         outputTokens: { type: ["integer", "null"] }
         estimatedCostCents: { type: ["integer", "null"] }
+        costUnavailableReason:
+          type: ["string", "null"]
+          enum: [missing_pricing, missing_usage, duplicate, failed_cost_unknown, estimate_not_recorded, null]
         fundingSource: { type: string, enum: [store, platform] }
         createdAt: { type: string, format: date-time }
     AiUsageList:
@@ -2243,10 +2246,11 @@ components:
         records: { type: array, items: { $ref: "#/components/schemas/AiUsageRecord" } }
     AiUsageSummary:
       type: object
-      required: [requestCount, estimatedCostCents]
+      required: [requestCount, estimatedCostCents, successfulCallsWithoutCostEstimate]
       properties:
         requestCount: { type: integer }
         estimatedCostCents: { type: integer }
+        successfulCallsWithoutCostEstimate: { type: integer }
         inputTokens: { type: integer }
         outputTokens: { type: integer }
     AiProviderConfig:

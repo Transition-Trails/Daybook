@@ -37,6 +37,7 @@ export * from './aiSettingsUpdate';
 export * from './aiSettingsUpdateProvider';
 export * from './aiUsageList';
 export * from './aiUsageRecord';
+export * from './aiUsageRecordCostUnavailableReason';
 export * from './aiUsageRecordFundingSource';
 export * from './aiUsageRecordProvider';
 export * from './aiUsageSummary';

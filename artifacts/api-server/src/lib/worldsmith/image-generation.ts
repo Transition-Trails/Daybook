@@ -144,7 +144,7 @@ export async function generateImage(
   const promptHash = createHash("sha256").update(prompt).digest("hex");
   const duplicateKey = `${options.context?.storeId ?? "platform"}:${promptHash}:${metadata.model}`;
   if (imageInFlight.has(duplicateKey)) {
-    await recordImageUsage(requestId, promptHash, options, metadata, "duplicate", 0, "duplicate", policy.fundingSource);
+    await recordImageUsage(requestId, promptHash, options, metadata, "duplicate", 0, "duplicate", policy.fundingSource, undefined, "duplicate");
     throw new Error("An identical image request is already in flight");
   }
   imageInFlight.add(duplicateKey);
@@ -161,7 +161,7 @@ export async function generateImage(
   } catch (error) {
     imageInFlight.delete(duplicateKey);
     if (error instanceof Error && error.message.includes("identical")) {
-      await recordImageUsage(requestId, promptHash, options, metadata, "duplicate", 0, "duplicate", policy.fundingSource);
+      await recordImageUsage(requestId, promptHash, options, metadata, "duplicate", 0, "duplicate", policy.fundingSource, undefined, "duplicate");
     }
     throw error;
   }
@@ -217,7 +217,8 @@ export async function generateImage(
     if (!item) throw new Error("Image generation returned no data");
 
       if (item.b64_json) {
-      const persisted = await recordImageUsage(requestId, promptHash, options, metadata, "success", Date.now() - started, undefined, policy.fundingSource, pricing?.image ?? undefined);
+      const persisted = await recordImageUsage(requestId, promptHash, options, metadata, "success", Date.now() - started, undefined,
+        policy.fundingSource, pricing?.image ?? undefined, pricing?.image == null ? "missing_pricing" : null);
       await finishAiCall(reservationId, persisted ? "completed" : "unaccounted");
       return { ...metadata, dataUrl: `data:image/png;base64,${item.b64_json}` };
     }
@@ -228,7 +229,8 @@ export async function generateImage(
       const buf = await imgRes.arrayBuffer();
       const b64 = Buffer.from(buf).toString("base64");
       const ct = imgRes.headers.get("content-type") ?? "image/jpeg";
-      const persisted = await recordImageUsage(requestId, promptHash, options, metadata, "success", Date.now() - started, undefined, policy.fundingSource, pricing?.image ?? undefined);
+      const persisted = await recordImageUsage(requestId, promptHash, options, metadata, "success", Date.now() - started, undefined,
+        policy.fundingSource, pricing?.image ?? undefined, pricing?.image == null ? "missing_pricing" : null);
       await finishAiCall(reservationId, persisted ? "completed" : "unaccounted");
       return { ...metadata, dataUrl: `data:${ct};base64,${b64}` };
     }
@@ -236,7 +238,7 @@ export async function generateImage(
     throw new Error("Image generation response contained neither url nor b64_json");
   } catch (error) {
     await recordImageUsage(requestId, promptHash, options, metadata, "error", Date.now() - started,
-      error instanceof Error ? error.name : "provider", policy.fundingSource);
+      error instanceof Error ? error.name : "provider", policy.fundingSource, undefined, "failed_cost_unknown");
     await finishAiCall(reservationId, "failed");
     if (timedOut && error instanceof Error && error.name === "AbortError") {
       throw new ImageGenerationTimeoutError(timeoutMs);
@@ -252,6 +254,7 @@ async function recordImageUsage(
   requestId: string, promptHash: string, options: ImageGenerationOptions,
   metadata: ImageGenerationMetadata, status: string, durationMs: number, errorCategory?: string,
   fundingSource?: "store" | "platform", estimatedCostCents?: number,
+  costUnavailableReason?: "missing_pricing" | "duplicate" | "failed_cost_unknown" | null,
 ): Promise<boolean> {
   try {
     await db.insert(aiUsageRecordsTable).values({
@@ -260,6 +263,7 @@ async function recordImageUsage(
       storeId: options.context?.storeId, userId: options.context?.userId,
       fundingSource: fundingSource ?? options.context?.fundingSource ?? "platform",
       estimatedCostCents,
+      costUnavailableReason,
     });
     return true;
   } catch (error) { logger.warn({ err: error }, "Failed to persist image usage record"); return false; }

@@ -72,6 +72,7 @@ export const aiUsageRecordsTable = pgTable("ai_usage_records", {
   inputTokens: integer("input_tokens"),
   outputTokens: integer("output_tokens"),
   estimatedCostCents: integer("estimated_cost_cents"),
+  costUnavailableReason: text("cost_unavailable_reason"),
   fundingSource: text("funding_source").notNull().default("platform"),
   durationMs: integer("duration_ms"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -8,6 +8,24 @@ import { isSuperAdmin } from "../lib/roles";
 
 const router = Router();
 const providers = new Set(["claude", "chatgpt", "gemini"]);
+type CostUnavailableReason = "missing_pricing" | "missing_usage" | "duplicate" | "failed_cost_unknown" | "estimate_not_recorded";
+
+export function costUnavailableReason(
+  record: {
+    status: string; estimatedCostCents: number | null; inputTokens: number | null; outputTokens: number | null;
+    feature: string; costUnavailableReason: string | null;
+  },
+): CostUnavailableReason | null {
+  if (record.estimatedCostCents !== null) return null;
+  const persisted = record.costUnavailableReason as CostUnavailableReason | null;
+  if (persisted) return persisted;
+  if (record.status === "duplicate") return "duplicate";
+  if (record.status !== "success") return "failed_cost_unknown";
+  const looksLikeImage = record.feature.startsWith("image.") || record.feature.includes("image");
+  if (looksLikeImage) return "estimate_not_recorded";
+  if (record.inputTokens === null || record.outputTokens === null) return "missing_usage";
+  return "missing_pricing";
+}
 function safe(row: typeof aiProviderConfigsTable.$inferSelect) {
   return { provider: row.provider, enabled: row.enabled, hasCredential: Boolean(row.encryptedCredential),
     maskedCredential: "••••••••", allowPlatformFallback: row.allowPlatformFallback,
@@ -117,9 +135,13 @@ router.get("/ai/usage", requireAuth, async (req, res) => {
     userId: aiUsageRecordsTable.userId, feature: aiUsageRecordsTable.feature, provider: aiUsageRecordsTable.provider,
     model: aiUsageRecordsTable.model, status: aiUsageRecordsTable.status, errorCategory: aiUsageRecordsTable.errorCategory,
     durationMs: aiUsageRecordsTable.durationMs, inputTokens: aiUsageRecordsTable.inputTokens, outputTokens: aiUsageRecordsTable.outputTokens,
-    estimatedCostCents: aiUsageRecordsTable.estimatedCostCents, fundingSource: aiUsageRecordsTable.fundingSource, createdAt: aiUsageRecordsTable.createdAt })
+    estimatedCostCents: aiUsageRecordsTable.estimatedCostCents, costUnavailableReason: aiUsageRecordsTable.costUnavailableReason,
+    fundingSource: aiUsageRecordsTable.fundingSource, createdAt: aiUsageRecordsTable.createdAt })
     .from(aiUsageRecordsTable).where(where).orderBy(desc(aiUsageRecordsTable.createdAt)).limit(Math.min(Number(req.query.limit) || 100, 100));
-  res.json({ records });
+  res.json({ records: records.map((record) => ({
+    ...record,
+    costUnavailableReason: costUnavailableReason(record),
+  })) });
 });
 
 router.get("/ai/usage/summary", requireAuth, async (req, res) => {
@@ -127,7 +149,9 @@ router.get("/ai/usage/summary", requireAuth, async (req, res) => {
   if (storeId && !(await canUseStore(req, storeId))) { res.status(403).json({ error: "Forbidden" }); return; }
   const where = storeId ? eq(aiUsageRecordsTable.storeId, storeId) : isSuperAdmin(user) ? undefined : eq(aiUsageRecordsTable.userId, user.id);
   const [summary] = await db.select({ requestCount: sql<number>`count(*)`, estimatedCostCents: sql<number>`coalesce(sum(${aiUsageRecordsTable.estimatedCostCents}),0)`,
-    inputTokens: sql<number>`coalesce(sum(${aiUsageRecordsTable.inputTokens}),0)`, outputTokens: sql<number>`coalesce(sum(${aiUsageRecordsTable.outputTokens}),0)` }).from(aiUsageRecordsTable).where(where);
+    inputTokens: sql<number>`coalesce(sum(${aiUsageRecordsTable.inputTokens}),0)`, outputTokens: sql<number>`coalesce(sum(${aiUsageRecordsTable.outputTokens}),0)`,
+    successfulCallsWithoutCostEstimate: sql<number>`count(*) filter (where ${aiUsageRecordsTable.status} = 'success' and ${aiUsageRecordsTable.estimatedCostCents} is null)`,
+  }).from(aiUsageRecordsTable).where(where);
   res.json(summary);
 });
 

@@ -893,6 +893,20 @@ export const AiUsageRecordProvider = {
   gemini: 'gemini',
 } as const;
 
+/**
+ * @nullable
+ */
+export type AiUsageRecordCostUnavailableReason = typeof AiUsageRecordCostUnavailableReason[keyof typeof AiUsageRecordCostUnavailableReason] | null;
+
+
+export const AiUsageRecordCostUnavailableReason = {
+  missing_pricing: 'missing_pricing',
+  missing_usage: 'missing_usage',
+  duplicate: 'duplicate',
+  failed_cost_unknown: 'failed_cost_unknown',
+  estimate_not_recorded: 'estimate_not_recorded',
+} as const;
+
 export type AiUsageRecordFundingSource = typeof AiUsageRecordFundingSource[keyof typeof AiUsageRecordFundingSource];
 
 
@@ -922,6 +936,8 @@ export interface AiUsageRecord {
   outputTokens?: number | null;
   /** @nullable */
   estimatedCostCents?: number | null;
+  /** @nullable */
+  costUnavailableReason: AiUsageRecordCostUnavailableReason;
   fundingSource: AiUsageRecordFundingSource;
   createdAt: string;
 }
@@ -933,6 +949,7 @@ export interface AiUsageList {
 export interface AiUsageSummary {
   requestCount: number;
   estimatedCostCents: number;
+  successfulCallsWithoutCostEstimate: number;
   inputTokens?: number;
   outputTokens?: number;
 }

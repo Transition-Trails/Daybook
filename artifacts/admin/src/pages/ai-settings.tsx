@@ -52,6 +52,29 @@ const PROVIDER_COLORS: Record<string, string> = {
   gemini: 'bg-blue-100 text-blue-800 border-blue-200',
 };
 
+const COST_UNAVAILABLE_LABELS = {
+  missing_pricing: {
+    label: 'Pricing missing',
+    description: 'No active price is configured for this model.',
+  },
+  missing_usage: {
+    label: 'Usage missing',
+    description: 'The provider did not return the token usage needed to estimate cost.',
+  },
+  duplicate: {
+    label: 'Not billable',
+    description: 'A duplicate request was blocked before another provider call was made.',
+  },
+  failed_cost_unknown: {
+    label: 'Failed — cost unknown',
+    description: 'The call failed, and provider billing could not be confirmed.',
+  },
+  estimate_not_recorded: {
+    label: 'Estimate not recorded',
+    description: 'This older call has no recorded estimate reason.',
+  },
+} as const;
+
 interface AiSettingsProps {
   storeId?: string;
 }
@@ -278,6 +301,11 @@ export default function AiSettingsPage({ storeId }: AiSettingsProps) {
             <div className="text-2xl font-bold">
               ${((summary?.estimatedCostCents || 0) / 100).toFixed(4)}
             </div>
+            {!!summary?.successfulCallsWithoutCostEstimate && (
+              <p className="text-xs text-amber-700 mt-1">
+                Excludes {summary.successfulCallsWithoutCostEstimate.toLocaleString()} successful {summary.successfulCallsWithoutCostEstimate === 1 ? 'call' : 'calls'} without an estimate
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card className="shadow-sm">
@@ -482,7 +510,23 @@ export default function AiSettingsPage({ storeId }: AiSettingsProps) {
                             {record.durationMs ? `${(record.durationMs / 1000).toFixed(1)}s` : '-'}
                           </TableCell>
                           <TableCell className="text-right text-xs font-mono font-medium">
-                            {record.estimatedCostCents ? `$${(record.estimatedCostCents / 100).toFixed(4)}` : '-'}
+                            {record.estimatedCostCents != null ? (
+                              `$${(record.estimatedCostCents / 100).toFixed(4)}`
+                            ) : record.costUnavailableReason ? (
+                              <div className="flex flex-col items-end gap-0.5 font-sans">
+                                <span className={cn(
+                                  "font-medium",
+                                  record.costUnavailableReason === 'duplicate' ? "text-muted-foreground" : "text-amber-700",
+                                )}>
+                                  {COST_UNAVAILABLE_LABELS[record.costUnavailableReason].label}
+                                </span>
+                                <span className="max-w-48 text-[10px] leading-tight text-muted-foreground">
+                                  {COST_UNAVAILABLE_LABELS[record.costUnavailableReason].description}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">Unavailable</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}

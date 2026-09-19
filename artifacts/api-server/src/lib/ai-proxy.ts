@@ -92,6 +92,19 @@ export function estimateCostFromPricing(
   return Math.ceil((input * pricing.input + output * pricing.output) / 1_000_000);
 }
 
+export function textCostUnavailableReason(
+  status: string,
+  pricing: { input: number; output: number } | undefined,
+  usage: Record<string, number> | null,
+): "missing_pricing" | "missing_usage" | "duplicate" | "failed_cost_unknown" | null {
+  if (status === "duplicate") return "duplicate";
+  if (status !== "success") return "failed_cost_unknown";
+  if (!pricing) return "missing_pricing";
+  const input = usage?.prompt_tokens ?? usage?.input_tokens;
+  const output = usage?.completion_tokens ?? usage?.output_tokens;
+  return input === undefined || output === undefined ? "missing_usage" : null;
+}
+
 interface AiResponse {
   content: string;
   provider: string;
@@ -119,7 +132,8 @@ export async function callAi(
   const promptHash = createHash("sha256").update(JSON.stringify({ messages, systemPrompt })).digest("hex");
   const duplicateKey = aiDedupeKey(effectiveProvider, promptHash, context?.storeId ?? "platform", policy.model ?? DEFAULT_MODELS[effectiveProvider]!);
   if (inFlight.has(duplicateKey)) {
-    await recordUsage({ requestId, context: selectedContext, provider: effectiveProvider, promptHash, status: "duplicate", durationMs: 0 });
+    await recordUsage({ requestId, context: selectedContext, provider: effectiveProvider, promptHash, status: "duplicate",
+      costUnavailableReason: "duplicate", durationMs: 0 });
     throw new Error("An identical AI request is already in flight");
   }
   const started = Date.now();
@@ -152,6 +166,9 @@ export async function callAi(
       inputTokens: result.usage?.prompt_tokens ?? result.usage?.input_tokens,
       outputTokens: result.usage?.completion_tokens ?? result.usage?.output_tokens,
       estimatedCostCents: missingUsage ? undefined : estimatedCostCents,
+      costUnavailableReason: estimatedCostCents === undefined
+        ? textCostUnavailableReason("success", pricing, result.usage)
+        : null,
     });
     await finishAiCall(reservationId, persisted && !missingUsage ? "completed" : "unaccounted");
     return result;
@@ -159,7 +176,8 @@ export async function callAi(
     await finishAiCall(reservationId, "failed");
     await recordUsage({
       requestId, context: selectedContext, provider: effectiveProvider, promptHash, status: "error",
-      errorCategory: classifyAiError(error), durationMs: Date.now() - started,
+      errorCategory: classifyAiError(error), costUnavailableReason: "failed_cost_unknown",
+      durationMs: Date.now() - started,
     });
     throw error;
   } finally {
@@ -196,6 +214,7 @@ async function recordUsage(input: {
   promptHash: string; status: string; errorCategory?: string; durationMs: number;
   inputTokens?: number; outputTokens?: number;
   estimatedCostCents?: number;
+  costUnavailableReason?: "missing_pricing" | "missing_usage" | "duplicate" | "failed_cost_unknown" | null;
 }): Promise<boolean> {
   try {
     await db.insert(aiUsageRecordsTable).values({
@@ -204,6 +223,7 @@ async function recordUsage(input: {
       promptHash: input.promptHash, status: input.status, errorCategory: input.errorCategory,
       durationMs: input.durationMs, inputTokens: input.inputTokens, outputTokens: input.outputTokens,
       estimatedCostCents: input.estimatedCostCents,
+      costUnavailableReason: input.costUnavailableReason,
       fundingSource: input.context?.fundingSource ?? "platform",
     });
     return true;

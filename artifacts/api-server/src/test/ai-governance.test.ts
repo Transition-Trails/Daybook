@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { reservationScopeKey, conservativeTextReservation, conservativeImageReservation } from "../lib/ai-admission";
-import { aiDedupeKey, billableInputChars, openAiBaseUrlForCredentialSource, shouldKeepReservationUnaccounted } from "../lib/ai-proxy";
+import { aiDedupeKey, billableInputChars, openAiBaseUrlForCredentialSource, shouldKeepReservationUnaccounted, textCostUnavailableReason } from "../lib/ai-proxy";
+import { costUnavailableReason } from "../routes/ai-governance";
 
 describe("AI governance admission", () => {
   it("uses one global scope for platform-funded calls", () => {
@@ -62,5 +63,28 @@ describe("AI governance admission", () => {
     expect(shouldKeepReservationUnaccounted(true, 10, 20, undefined)).toBe(true);
     expect(shouldKeepReservationUnaccounted(true, 10, 20, 2)).toBe(false);
     expect(shouldKeepReservationUnaccounted(false)).toBe(false);
+  });
+
+  it("distinguishes missing pricing, usage metadata, and non-billable calls", () => {
+    const base = {
+      feature: "copy.generate", costUnavailableReason: null,
+      status: "success", estimatedCostCents: null, inputTokens: null, outputTokens: null,
+    };
+    expect(costUnavailableReason(base)).toBe("missing_usage");
+    expect(costUnavailableReason({ ...base, inputTokens: 10, outputTokens: 20 })).toBe("missing_pricing");
+    expect(costUnavailableReason({ ...base, status: "duplicate" })).toBe("duplicate");
+    expect(costUnavailableReason({ ...base, status: "error" })).toBe("failed_cost_unknown");
+    expect(costUnavailableReason({ ...base, estimatedCostCents: 0 })).toBeNull();
+    expect(costUnavailableReason({ ...base, feature: "image.generate" })).toBe("estimate_not_recorded");
+    expect(costUnavailableReason({ ...base, feature: "image.generate", costUnavailableReason: "missing_pricing" }))
+      .toBe("missing_pricing");
+  });
+
+  it("records the text estimate reason from call-time pricing and usage", () => {
+    expect(textCostUnavailableReason("success", undefined, { prompt_tokens: 10, completion_tokens: 20 })).toBe("missing_pricing");
+    expect(textCostUnavailableReason("success", { input: 1, output: 2 }, null)).toBe("missing_usage");
+    expect(textCostUnavailableReason("duplicate", undefined, null)).toBe("duplicate");
+    expect(textCostUnavailableReason("error", { input: 1, output: 2 }, null)).toBe("failed_cost_unknown");
+    expect(textCostUnavailableReason("success", { input: 1, output: 2 }, { prompt_tokens: 10, completion_tokens: 20 })).toBeNull();
   });
 });

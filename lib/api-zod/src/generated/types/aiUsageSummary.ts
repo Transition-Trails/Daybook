@@ -9,6 +9,7 @@
 export interface AiUsageSummary {
   requestCount: number;
   estimatedCostCents: number;
+  successfulCallsWithoutCostEstimate: number;
   inputTokens?: number;
   outputTokens?: number;
 }

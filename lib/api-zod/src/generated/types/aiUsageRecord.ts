@@ -5,6 +5,7 @@
  * Daybook digital planner platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { AiUsageRecordCostUnavailableReason } from './aiUsageRecordCostUnavailableReason';
 import type { AiUsageRecordFundingSource } from './aiUsageRecordFundingSource';
 import type { AiUsageRecordProvider } from './aiUsageRecordProvider';
 
@@ -29,6 +30,8 @@ export interface AiUsageRecord {
   outputTokens?: number | null;
   /** @nullable */
   estimatedCostCents?: number | null;
+  /** @nullable */
+  costUnavailableReason: AiUsageRecordCostUnavailableReason;
   fundingSource: AiUsageRecordFundingSource;
   createdAt: Date;
 }

@@ -1828,7 +1828,7 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
     logger.error({ err, canonName: name }, "editorial: generate canon image");
     if (err instanceof Error && err.name === "ImageGenerationTimeoutError") {
       res.status(504).json({
-        error: "Image generation took longer than three minutes. Please try again.",
+        error: "Image generation took longer than five minutes. Please try again.",
         code: "IMAGE_GENERATION_TIMEOUT",
         retryable: true,
       });

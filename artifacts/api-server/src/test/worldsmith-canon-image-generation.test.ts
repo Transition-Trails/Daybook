@@ -107,7 +107,7 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
   });
 
   it("returns a retryable timeout response when high-quality generation takes too long", async () => {
-    const timeoutError = new Error("Image generation timed out after 180 seconds.");
+    const timeoutError = new Error("Image generation timed out after 300 seconds.");
     timeoutError.name = "ImageGenerationTimeoutError";
     mockGenerateImage.mockRejectedValue(timeoutError);
 
@@ -117,7 +117,7 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
 
     expect(response.status).toBe(504);
     expect(response.body).toEqual({
-      error: "Image generation took longer than three minutes. Please try again.",
+      error: "Image generation took longer than five minutes. Please try again.",
       code: "IMAGE_GENERATION_TIMEOUT",
       retryable: true,
     });

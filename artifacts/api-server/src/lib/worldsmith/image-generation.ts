@@ -13,7 +13,7 @@ import { reserveAiCall, finishAiCall, currentPricing, conservativeImageReservati
 
 const SUPPORTED_IMAGE_MODELS = new Set(["gpt-image-1", "gpt-image-2"]);
 export const MIN_IMAGE_PIXELS = 1024 * 1024;
-const DEFAULT_IMAGE_GENERATION_TIMEOUT_MS = 180_000;
+const DEFAULT_IMAGE_GENERATION_TIMEOUT_MS = 300_000;
 const LEGACY_SIZE_MAP: Record<string, string> = {
   "1792x1024": "1536x1024",
   "1024x1792": "1024x1536",

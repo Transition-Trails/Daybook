@@ -677,27 +677,545 @@ Elias should look like a man who arrived prepared to measure a building and grad
 
 ## Canon Notes and Open Questions
 
-Exact birth and death dates remain open.
+Period direction
 
-Exact year of Elias&#039;s first survey of the Wychcombe property remains open.
+Elias’s story belongs to the late Victorian period.
 
-Determine who commissioned the original architectural survey and why the property was facing decline.
+Prefer period and life-stage anchors over exact calendar dates unless a date affects law, economics, inheritance, or another record.
 
-Determine how Elias financed or legally acquired the property. He should not simply possess enough independent wealth to purchase a substantial estate without explanation.
+Useful chronology markers include:
 
-Determine the exact chronology of Elias and Clara&#039;s courtship and marriage once the larger Wychcombe timeline is established.
+Before Elias begins professional practice
 
-Determine whether Elias initially named James or another conventional heir in an early will.
+During his early architectural career
 
-Determine how and when Margaret&#039;s succession was formalized.
+During the Harcourt survey
 
-Determine Clara&#039;s precise role in Elias&#039;s decision to reject primogeniture.
+While Eleanor remains in residence
 
-Frederick&#039;s response to Elias&#039;s marriage and later succession decisions should be developed without reducing Frederick to a simple antagonist.
+During his collaboration and courtship with Clara
 
-Thomas remains Elias&#039;s closest connection to his birth family and should play a meaningful role in Elias&#039;s courtship and later family life.
+During Wychcombe’s early restoration
 
-Elias&#039;s founding-era discoveries should remain grounded in people, buildings, records, and landscape for now. Any connection to later Wychcombe mysteries remains intentionally unresolved.
+While the children are growing
+
+As Margaret, James, and Cecily enter adult work
+
+During the succession decision
+
+During Elias’s later stewardship
+
+The early-to-mid 1880s remain the preferred general period for Elias’s arrival in Cornwall.
+
+Do not make the narrative dependent upon an exact survey year until the wider Wychcombe chronology requires one.
+
+Ashcroft family background requiring development
+
+Establish the Ashcroft family’s exact social rank.
+
+Determine whether they belong to the peerage, baronetage, or another level of the landed elite.
+
+The current preference remains a minor noble family, but the precise legal meaning needs definition.
+
+Name and locate the principal Ashcroft estate.
+
+Establish the estate’s primary source of income.
+
+Determine how financially secure the family appears during Elias’s childhood.
+
+Define the parents’ personalities and household roles without creating two identical cold figures.
+
+Establish whether one parent is more emotionally accessible than the other.
+
+Determine where the brothers are educated and whether they attend the same institutions.
+
+Clarify the age spacing among Frederick, Thomas, and Elias.
+
+Define Elias’s financial provision as a younger son.
+
+Determine whether he receives a lump sum, annuity, investments, professional support, or some combination.
+
+Establish whether Elias’s family assists with his architectural training.
+
+Decide how frequently he returns to the principal estate after beginning his career.
+
+Determine the last time all three brothers are together before their father’s death.
+
+Architectural training and career
+
+Define how Elias trains as an architect.
+
+Determine whether he is articled to an established practice, receives formal institutional training, or follows a combined route.
+
+Identify the kind of office in which he gains early experience.
+
+Establish the building types he works upon before the Harcourt commission.
+
+Determine whether restoration work is already part of his practice.
+
+Clarify how he becomes known to the absentee Harcourt heir or the heir’s solicitor.
+
+Establish why a comparatively young architect receives the commission.
+
+Possibilities include:
+
+A recommendation from a solicitor or client
+
+Proven skill with adaptation and repair
+
+Lower fees than a famous practice
+
+Availability for an extended rural survey
+
+A reputation for practical rather than fashionable work
+
+A professional connection through the Ashcroft family
+
+Do not make Elias famous before arriving at Wychcombe.
+
+Determine whether he maintains an outside architectural practice after Wychcombe begins.
+
+Clarify whether professional income helps support the estate.
+
+Establish whether he employs assistants, draughtsmen, clerks, or apprentices.
+
+Travel and intellectual influences
+
+Determine whether Elias studies architecture elsewhere in Britain or continental Europe.
+
+Travel should serve his professional development rather than turn him into a gentleman adventurer.
+
+Establish which preservation debates, architectural publications, craftspeople, or professional circles influence him.
+
+Avoid excessive interaction with famous historical figures unless necessary.
+
+Fictional mentors and professional contacts may offer more freedom.
+
+Clarify when Elias begins articulating principles later associated with Arts and Crafts thinking.
+
+Do not give him a complete manifesto at the start of his career.
+
+Determine whether he publishes architectural or preservation essays during his lifetime.
+
+The Harcourt commission
+
+Name the absentee Harcourt heir.
+
+Define the heir’s relationship to Eleanor and the deceased Harcourt line.
+
+Determine where the heir lives and why the estate holds little personal attachment.
+
+Establish whether the heir has independent financial obligations or another principal residence.
+
+Define who formally hires Elias:
+
+The heir
+
+A solicitor
+
+A trustee
+
+An estate agent
+
+Another representative acting for the heir
+
+Establish the written scope of the survey.
+
+Determine Elias’s fee and expected duration.
+
+Clarify which buildings and lands are included.
+
+Decide whether the heir expects a report favoring demolition or remains genuinely open to several outcomes.
+
+Determine whether Elias’s expanding investigation exceeds the original commission.
+
+Establish who pays for additional research and travel.
+
+Clarify whether Elias risks professional conflict by becoming emotionally invested in the estate.
+
+Eleanor Harcourt
+
+Establish how old Eleanor is when Elias arrives using a life stage rather than requiring an exact birth date.
+
+Determine her precise marital and legal relationship to the Harcourt line.
+
+Clarify the basis of her lifetime residence.
+
+Define which rooms and resources remain available to her.
+
+Determine which areas of the estate she still influences directly.
+
+Establish the first contradiction she identifies in Elias’s plans.
+
+Choose the moment Elias realizes Eleanor is not simply resisting change.
+
+Determine when she begins sharing more sensitive family information.
+
+Establish whether Eleanor writes directly to the absentee heir about Elias.
+
+Clarify whether she advocates for Elias and Clara’s eventual control of the property.
+
+Determine whether she leaves Elias or Clara any papers, objects, or personal instructions.
+
+Establish how Elias responds to her death.
+
+Do not make Eleanor’s death primarily a mechanism transferring property.
+
+Thomas Vale
+
+Clarify Thomas’s formal estate position when Elias arrives.
+
+Determine whether he is already head gardener or assumes broader responsibility as staffing contracts.
+
+Establish how much older Thomas is than Elias in general life-stage terms.
+
+Define their first substantial disagreement.
+
+Determine what Elias initially misunderstands about Thomas.
+
+Establish the action through which Elias earns Thomas’s respect.
+
+Clarify how responsibilities are divided during the early restoration.
+
+Determine whether Thomas ever accepts a formal Wychcombe title or continues under an existing working identity.
+
+Preserve Thomas’s life and relationships outside his usefulness to Elias.
+
+Do not let Elias become the narrator of Thomas’s entire history.
+
+Clara and courtship
+
+Establish the setting of Elias and Clara’s first extended conversation.
+
+Determine how often Elias returns to Bellamy & Son during the survey.
+
+Define the professional question that first requires continuing collaboration.
+
+Establish which character first recognizes their affection.
+
+Thomas Ashcroft recognizes Elias’s attachment early, but determine whether Eleanor, Thomas Vale, or a Bellamy notices first locally.
+
+Decide how courtship operates around work, family visits, correspondence, and local observation.
+
+Determine what Elias includes in his first proposal.
+
+Define Clara’s refusal with emotional clarity but without theatrical confrontation.
+
+Establish how long Elias requires to understand the problem.
+
+Determine which practical changes demonstrate that his reconsideration is genuine.
+
+Decide whether the revised proposal occurs privately or within a broader agreement involving the estate and Bellamy family.
+
+Do not let the romantic resolution replace legal and financial arrangements.
+
+Marriage and household
+
+Determine where Elias and Clara live immediately after marriage.
+
+Establish which parts of the Harcourt house are habitable.
+
+Clarify Eleanor’s rooms and the boundaries of her household.
+
+Determine whether the early arrangement contains two connected households or one gradually integrated household.
+
+Define household staffing during the transition.
+
+Establish how Elias and Clara divide financial, architectural, horticultural, archival, and domestic authority.
+
+Clarify whether either spouse maintains separate professional accounts.
+
+Determine how work at Bellamy & Son fits into Clara’s weekly or seasonal life.
+
+Establish how disagreements are resolved when they cannot reach consensus.
+
+Show continued negotiation rather than presenting the marriage agreement as a permanent cure for hierarchy.
+
+Acquisition and financial structure
+
+This remains one of the most important unresolved areas.
+
+Determine whether Elias and Clara initially:
+
+Lease the core estate
+
+Enter a staged purchase
+
+Assume a mortgage
+
+Form a private partnership
+
+Receive support from Bellamy relatives
+
+Use Elias’s professional income
+
+Attract limited private investment
+
+Purchase the estate after outlying land is sold
+
+Combine several mechanisms
+
+Establish what property the absentee heir retains or sells separately.
+
+Determine which debts or maintenance obligations transfer.
+
+Clarify whether Eleanor’s right of residence reduces the purchase price.
+
+Establish how workers, tenants, and suppliers are treated during the transition.
+
+Determine whether any disputed Harcourt accounts remain.
+
+Define how Wychcombe begins generating income.
+
+Avoid solving the finances through a sudden inheritance, treasure, rare plant, or unexplained wealthy supporter.
+
+Ensure Clara’s financial contribution is documented without making the Bellamys implausibly wealthy.
+
+Wychcombe’s physical development
+
+Establish Elias’s first restoration priorities.
+
+Likely priorities should address safety, weatherproofing, water, heat, access, and productive use.
+
+Determine which buildings are stabilized but not restored.
+
+Choose which glasshouse Eleanor sees returned to cultivation.
+
+Establish which structures are deliberately allowed to disappear.
+
+Identify materials salvaged and reused.
+
+Clarify how new work is marked as new.
+
+Determine whether Elias converts any domestic or service spaces for archival, educational, or working use.
+
+Establish when the Stationery House enters Wychcombe’s active story.
+
+Do not make the entire estate visually complete during Elias’s founding years.
+
+Wychcombe should always contain work still underway.
+
+Workers and village relationships
+
+Develop several named workers, tradespeople, suppliers, tenants, and village families.
+
+Do not allow Thomas Vale and the Bellamys to carry all non-Ashcroft local knowledge.
+
+Determine which villagers distrust Elias and why.
+
+Establish whether Harcourt debts or reduced employment affect local opinion.
+
+Clarify how Elias records oral testimony.
+
+Determine whether contributors review, correct, or object to his accounts.
+
+Establish how knowledge is credited within early Wychcombe records.
+
+Decide whether Elias pays people for extended interviews or specialist assistance.
+
+Avoid turning every villager into an enthusiastic supporter of preservation.
+
+The estate-village relationship should include cooperation, economic dependence, disagreement, and independent priorities.
+
+Fatherhood
+
+Determine Elias’s relationship with each child at several life stages.
+
+Establish which aspects of his own father he fears repeating.
+
+Define how Elias expresses affection when the children are young.
+
+Determine when work begins to compete with family presence.
+
+Establish whether he treats James differently because they share physical building work.
+
+Clarify whether Margaret feels overlooked before Elias recognizes her institutional ability.
+
+Determine how Elias responds to Cecily’s illustrated records.
+
+Give each child at least one significant disagreement with him.
+
+Do not make all three children want their adult lives centered upon Wychcombe.
+
+Establish how Elias reacts if any child seeks distance from the estate.
+
+Succession
+
+Determine whether Elias initially drafts a conventional will.
+
+Decide whether James is named or merely assumed as successor.
+
+Establish when Clara first recognizes Margaret’s suitability.
+
+Determine when Elias recognizes it.
+
+Clarify whether Margaret wants the responsibility immediately.
+
+Establish James and Cecily’s responses.
+
+Define Frederick’s knowledge of and reaction to the decision.
+
+Determine Thomas Ashcroft’s response.
+
+Establish the legal mechanism used to protect stewardship.
+
+Avoid applying modern trust or nonprofit language without historical grounding.
+
+Determine whether Margaret receives property, institutional authority, trusteeship, or a combination.
+
+Clarify which responsibilities remain distributed among the siblings.
+
+Establish whether succession takes effect during Elias’s lifetime or after his death.
+
+Frederick’s letter and the missing pages
+
+Determine the general subject of Frederick’s letter without immediately revealing every detail.
+
+Clarify whether the letter communicates:
+
+Sale or restructuring of the Ashcroft estate
+
+A demand for Elias’s participation
+
+A settlement or inheritance provision
+
+A renunciation or transfer
+
+A family obligation
+
+Information affecting their mother or dependents
+
+Several of these matters
+
+Determine whether Elias replies directly to Frederick.
+
+Establish whether Thomas Ashcroft knows the letter’s contents.
+
+Determine whether Clara reads it.
+
+Decide what Elias records in the Ledger.
+
+Establish why someone later removes those pages.
+
+Do not identify the remover until the consequences for Frederick, Margaret, the Curators, and the later archive are understood.
+
+The emotional truth of the brothers’ conflict should matter more than a sensational secret.
+
+The Ashcroft Ledger
+
+Establish when Elias begins the Ledger relative to his architectural career.
+
+Determine whether it remains one continuous volume or belongs to a related set.
+
+Clarify which types of entries Elias records consistently and which he neglects.
+
+Establish when he becomes aware that later stewards may read it.
+
+Determine whether Clara annotates it or maintains strictly separate records.
+
+Clarify whether Thomas Ashcroft’s letters are kept inside or alongside it.
+
+Determine whether Eleanor’s testimony is recorded directly, summarized, or stored separately.
+
+Establish when Elias decides Margaret should receive it.
+
+Preserve evidence of ordinary wear, revision, inconsistency, and omission.
+
+Do not allow the Ledger to replace the need for other archives.
+
+Later life
+
+Determine whether Elias continues accepting outside architectural commissions.
+
+Establish how his authority changes as Margaret, James, and Cecily mature.
+
+Define his relationship with later Wychcombe workers and apprentices.
+
+Determine whether he becomes publicly known for preservation work.
+
+Clarify whether public recognition credits Clara adequately.
+
+Establish how Elias responds when later work revises one of his conclusions.
+
+Determine whether he experiences declining eyesight, mobility, stamina, or another age-related change.
+
+Avoid using age solely to remove him from the story.
+
+Establish whether Elias or Clara dies first only when later family history requires it.
+
+Determine how the surviving spouse continues Wychcombe’s work.
+
+Possibilities—not yet canon
+
+Elias’s first professional report may recommend removing a structure he later helps preserve.
+
+An early drawing may reveal how substantially his interpretation changed.
+
+Eleanor may retain a corrected copy of his initial survey.
+
+Thomas Vale may annotate an Elias plan with a practical contradiction.
+
+Clara may preserve correspondence documenting the first proposal’s assumptions more clearly than Elias’s own record does.
+
+Frederick may have privately admired one aspect of Wychcombe while publicly objecting to Elias’s choices.
+
+Thomas Ashcroft may preserve the only complete account of the brothers’ exchange after their father’s death.
+
+A conventional early will may survive beside the later stewardship arrangement.
+
+James may help construct the physical system through which Margaret’s authority becomes practical.
+
+Cecily may illustrate evidence that forces Elias to revise a late-life architectural conclusion.
+
+None of these possibilities should become canon until connected to a developed record or storyline.
+
+Recommended linked records
+
+Elias’s Character record should formally link to:
+
+Clara Bellamy Ashcroft
+
+Eleanor Harcourt
+
+Frederick Ashcroft
+
+Thomas Ashcroft
+
+Thomas Vale
+
+Margaret Ashcroft
+
+James Ashcroft
+
+Cecily Ashcroft
+
+Bellamy & Son, Nurserymen and Seedsmen
+
+Wychcombe Estate
+
+Wychcombe Village
+
+The Founding of Wychcombe
+
+Elias and Clara Ashcroft: Founding Partnership
+
+The Ashcroft Principle of Stewardship
+
+The Ashcroft Ledger
+
+The Missing Leaves of the Ashcroft Ledger
+
+The restored glasshouse once its authoritative record is established
+
+Editorial distinction to preserve
+
+FigurePrimary authorityElias AshcroftArchitecture, material evidence, adaptation, documentation, and the relationship between structure and useClara Bellamy AshcroftHorticultural observation, phenology, propagation, nursery records, and living systemsEleanor HarcourtLifelong memory of the estate, family history, use, change, and lost contextThomas ValeEmbodied, site-specific knowledge of the estate’s land, gardens, and working practicesFrederick AshcroftConventional landed inheritance, family obligation, and the costs of preserving an inherited structureThomas AshcroftRelational continuity, correspondence, affection, and connection to the wider Ashcroft family
+
+These authorities should interact without collapsing into Elias’s perspective.
+
+Final editorial principle
+
+Elias’s remaining development should concentrate on consequence rather than adding more visionary achievements. His most important actions are the decisions he changes, the authority he shares, the knowledge he credits, and the future he eventually permits other people to shape.
 
 ## Related Production Specs
 
@@ -717,5 +1235,5 @@ Elias&#039;s founding-era discoveries should remain grounded in people, building
 ---
 Generated from Daybook
 Record ID: edb29f8a-af50-49fa-bf8c-9c07dadd4ad6
-Last Updated: 2026-09-19T22:32:27.884Z
-Snapshot Generated: 2026-09-19T22:32:28.257Z
+Last Updated: 2026-09-19T22:41:45.116Z
+Snapshot Generated: 2026-09-19T22:41:45.576Z

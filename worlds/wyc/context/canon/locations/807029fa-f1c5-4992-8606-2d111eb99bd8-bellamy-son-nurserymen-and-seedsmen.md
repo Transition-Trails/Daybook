@@ -51,6 +51,12 @@ Exact position of the nursery relative to Wychcombe Village and the later Ashcro
 
 Samuel&#039;s illness is chronic and limits exertion, but a specific medical diagnosis has not been established.
 
+## Record Images
+
+- **Primary:** [image-primary.png](../assets/locations/807029fa-f1c5-4992-8606-2d111eb99bd8-bellamy-son-nurserymen-and-seedsmen/image-primary.png)
+
+![Primary canon portrait of Bellamy & Son, Nurserymen and Seedsmen](../assets/locations/807029fa-f1c5-4992-8606-2d111eb99bd8-bellamy-son-nurserymen-and-seedsmen/image-primary.png)
+
 ---
 Generated from Daybook
 Record ID: 807029fa-f1c5-4992-8606-2d111eb99bd8

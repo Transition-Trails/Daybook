@@ -313,6 +313,12 @@ Editorial principle
 
 Thomas does not need darkness hidden beneath his kindness. His narrative value comes from showing that sustained decency—writing back, arriving when invited, listening carefully, and remaining connected—is itself a consequential choice.
 
+## Record Images
+
+- **Primary:** [portrait-primary.png](../assets/characters/cb0efced-afb2-4aa1-8d97-3429976b6474-thomas-ashcroft/portrait-primary.png)
+
+![Primary canon portrait of Thomas Ashcroft](../assets/characters/cb0efced-afb2-4aa1-8d97-3429976b6474-thomas-ashcroft/portrait-primary.png)
+
 ---
 Generated from Daybook
 Record ID: cb0efced-afb2-4aa1-8d97-3429976b6474

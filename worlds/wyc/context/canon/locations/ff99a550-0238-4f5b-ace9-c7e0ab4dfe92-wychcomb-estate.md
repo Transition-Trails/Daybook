@@ -133,6 +133,12 @@ Do not treat the reference image as a literal map.
 Do not assign exact dates, structure names, or previous owners solely from generated visual details.
 Do not restore the estate into flawless grandeur. Its later identity should retain evidence of age, repair, adaptation, and continuing work.
 
+## Record Images
+
+- **Primary:** [image-primary.png](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcomb-estate/image-primary.png)
+
+![Primary canon portrait of Wychcomb Estate](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcomb-estate/image-primary.png)
+
 ---
 Generated from Daybook
 Record ID: ff99a550-0238-4f5b-ace9-c7e0ab4dfe92

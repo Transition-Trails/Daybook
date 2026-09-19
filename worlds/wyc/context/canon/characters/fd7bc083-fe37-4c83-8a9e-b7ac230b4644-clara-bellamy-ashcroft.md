@@ -866,6 +866,12 @@ Final editorial principle
 
 Clara’s remaining development should deepen consequences rather than add accomplishments indiscriminately. She already has enough importance. The next work is to establish dates, working arrangements, financial realities, disagreements, losses, and the practical mechanisms through which her knowledge survives.
 
+## Record Images
+
+- **Primary:** [portrait-primary.png](../assets/characters/fd7bc083-fe37-4c83-8a9e-b7ac230b4644-clara-bellamy-ashcroft/portrait-primary.png)
+
+![Primary canon portrait of Clara Bellamy Ashcroft](../assets/characters/fd7bc083-fe37-4c83-8a9e-b7ac230b4644-clara-bellamy-ashcroft/portrait-primary.png)
+
 ---
 Generated from Daybook
 Record ID: fd7bc083-fe37-4c83-8a9e-b7ac230b4644

@@ -11,6 +11,12 @@
 
 Once a connecting artery for fresh-cut blooms delivered to the house in far warmer seasons, the Solarium Passage remains barred to visitors. Frosted glass panels along its narrow length betray faint outlines of wild growth pressing against its forgotten walls. A faint scent of damp soil persists, mingling with the iron tang of rusted hinges that groan beneath careful hands. To walk its length is to pass through the seasons layered as sediment.
 
+## Record Images
+
+- **Primary:** [image-primary.png](../assets/locations/0fc38c18-f5f0-41ed-a2b4-bab8de88b96c-the-solarium-passage/image-primary.png)
+
+![Primary canon portrait of The Solarium Passage](../assets/locations/0fc38c18-f5f0-41ed-a2b4-bab8de88b96c-the-solarium-passage/image-primary.png)
+
 ---
 Generated from Daybook
 Record ID: 0fc38c18-f5f0-41ed-a2b4-bab8de88b96c

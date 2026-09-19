@@ -24,6 +24,12 @@ Morning light filtered through mullioned windows onto the library table, pooling
 - Period & Digital Exclusions — Volume I (`c86f156d-27f7-49fc-b6d7-111184e98863`)
 - Quiet Composition — Volume I (`638a6508-1e7e-4531-aa5a-9b9df53404fd`)
 
+## Record Images
+
+- **Primary:** [image-primary.png](../assets/atmospheres/60611beb-9eec-49e6-86ce-148a12cf2c36-sunlight-on-foxed-pages/image-primary.png)
+
+![Primary canon portrait of Sunlight on Foxed Pages](../assets/atmospheres/60611beb-9eec-49e6-86ce-148a12cf2c36-sunlight-on-foxed-pages/image-primary.png)
+
 ---
 Generated from Daybook
 Record ID: 60611beb-9eec-49e6-86ce-148a12cf2c36

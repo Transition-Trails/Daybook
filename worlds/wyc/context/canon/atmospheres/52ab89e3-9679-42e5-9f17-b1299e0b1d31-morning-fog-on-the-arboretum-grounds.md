@@ -11,6 +11,12 @@
 
 Pressed low and lingering among the hedges and pine rise, the arboretum’s morning fog rolls gently, salt-gray and shot through with gold where the sun finds openings. Its veil muffles sound: the crunch of leaves underfoot is softened, birdsong becomes faint, and even the distant clatter of glass meeting brass in the greenhouses fades to suggestion. Here, where the day is slow to burn awake, the estate breathes deeply as scholars fill their lungs with its ancient presence.
 
+## Record Images
+
+- **Primary:** [image-primary.png](../assets/atmospheres/52ab89e3-9679-42e5-9f17-b1299e0b1d31-morning-fog-on-the-arboretum-grounds/image-primary.png)
+
+![Primary canon portrait of Morning Fog on the Arboretum Grounds](../assets/atmospheres/52ab89e3-9679-42e5-9f17-b1299e0b1d31-morning-fog-on-the-arboretum-grounds/image-primary.png)
+
 ---
 Generated from Daybook
 Record ID: 52ab89e3-9679-42e5-9f17-b1299e0b1d31

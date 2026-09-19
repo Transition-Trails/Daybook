@@ -235,6 +235,12 @@ Do not make every surviving Thomas Vale note significant. Most should concern ut
 
 His eventual fate remains open. Do not yet establish retirement, death, replacement, or how long he remains at Wychcombe. His age and the Ashcroft family timeline should be settled first.
 
+## Record Images
+
+- **Primary:** [portrait-primary.png](../assets/characters/d3fe713a-a407-4a37-bef2-eb675466b190-thomas-vale/portrait-primary.png)
+
+![Primary canon portrait of Thomas Vale](../assets/characters/d3fe713a-a407-4a37-bef2-eb675466b190-thomas-vale/portrait-primary.png)
+
 ---
 Generated from Daybook
 Record ID: d3fe713a-a407-4a37-bef2-eb675466b190

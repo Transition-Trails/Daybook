@@ -24,6 +24,12 @@ Behind a wrought-iron gate softened by moss lies the Orchid Repository, wherein 
 - Period & Digital Exclusions — Volume I (`c86f156d-27f7-49fc-b6d7-111184e98863`)
 - Quiet Composition — Volume I (`638a6508-1e7e-4531-aa5a-9b9df53404fd`)
 
+## Record Images
+
+- **Primary:** [image-primary.png](../assets/locations/d6e4da49-6f3a-4894-a313-217e7089064c-the-orchid-repository/image-primary.png)
+
+![Primary canon portrait of The Orchid Repository](../assets/locations/d6e4da49-6f3a-4894-a313-217e7089064c-the-orchid-repository/image-primary.png)
+
 ---
 Generated from Daybook
 Record ID: d6e4da49-6f3a-4894-a313-217e7089064c

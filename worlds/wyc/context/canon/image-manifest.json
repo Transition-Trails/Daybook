@@ -1,0 +1,579 @@
+{
+  "schema_version": "1.0",
+  "world_id": "wyc",
+  "generated_at": "2026-09-19T22:57:39.249Z",
+  "records": [
+    {
+      "canonical_id": "52ab89e3-9679-42e5-9f17-b1299e0b1d31",
+      "record_name": "Morning Fog on the Arboretum Grounds",
+      "record_slug": "morning-fog-on-the-arboretum-grounds",
+      "canon_type": "atmosphere",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/atmospheres/52ab89e3-9679-42e5-9f17-b1299e0b1d31-morning-fog-on-the-arboretum-grounds/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "42f3a0f2a2fb092a3a6ab14a00e79ceb29fe3c4be012302010c1430c3919d9a1",
+          "source_asset_id": "/objects/uploads/19018e9e-e920-47af-a916-0ea09cca0eb2",
+          "source_updated_at": "2026-09-19T18:24:01.466Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "60611beb-9eec-49e6-86ce-148a12cf2c36",
+      "record_name": "Sunlight on Foxed Pages",
+      "record_slug": "sunlight-on-foxed-pages",
+      "canon_type": "atmosphere",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/atmospheres/60611beb-9eec-49e6-86ce-148a12cf2c36-sunlight-on-foxed-pages/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "c92be0f9b050ebd6818023dc80735c91bcd06dcae6e5201eaeb67e7ae8d957d1",
+          "source_asset_id": "/objects/uploads/9661bed7-a7cb-4ab5-90b7-4372d37c1852",
+          "source_updated_at": "2026-09-19T18:30:53.285Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "65f7043d-c654-44a5-a3f2-ae5de16ec402",
+      "record_name": "Twilight Rain on the Glasshouse Roof",
+      "record_slug": "twilight-rain-on-the-glasshouse-roof",
+      "canon_type": "atmosphere",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/atmospheres/65f7043d-c654-44a5-a3f2-ae5de16ec402-twilight-rain-on-the-glasshouse-roof/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "a6b42b330c94d58343c3c031c30e230276ee3e9a74dd154031a686a4170a1368",
+          "source_asset_id": "/objects/uploads/fbce02c9-9f0b-4369-912c-6aaf1eabcba3",
+          "source_updated_at": "2026-09-19T18:11:23.382Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "cce3c21b-1662-4c85-906f-669cb4ac1197",
+      "record_name": "Cecily Ashcroft",
+      "record_slug": "cecily-ashcroft",
+      "canon_type": "character",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/characters/cce3c21b-1662-4c85-906f-669cb4ac1197-cecily-ashcroft/portrait-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "ade01c599c19d1fc60bdac041d95cf20cd103d6a62f30f1bb87021a270ab7d99",
+          "source_asset_id": "/objects/uploads/f5ae2d08-5a0e-4390-afeb-f59b423eefc4",
+          "source_updated_at": "2026-09-19T15:17:22.717Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "fd7bc083-fe37-4c83-8a9e-b7ac230b4644",
+      "record_name": "Clara Bellamy Ashcroft",
+      "record_slug": "clara-bellamy-ashcroft",
+      "canon_type": "character",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/characters/fd7bc083-fe37-4c83-8a9e-b7ac230b4644-clara-bellamy-ashcroft/portrait-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "31cee182403936dd7b0c34ed44322afc64c0783025b22d566ceb14acbd1e0f25",
+          "source_asset_id": "/objects/uploads/f1d41b2d-eaae-4a79-8bd0-e7a338c43a89",
+          "source_updated_at": "2026-09-19T14:18:10.066Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "789dc8f9-1fcf-4dc3-ae06-a06942496989",
+      "record_name": "Eleanor Harcourt",
+      "record_slug": "eleanor-harcourt",
+      "canon_type": "character",
+      "status": "proposed",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/characters/789dc8f9-1fcf-4dc3-ae06-a06942496989-eleanor-harcourt/portrait-primary.png",
+          "mime_type": "image/png",
+          "width": 1536,
+          "height": 1024,
+          "sha256": "83c5b42f7cfde6b951be01881579cd8626db545cba2c2f0154c31648667f2b37",
+          "source_asset_id": "/objects/uploads/03b14b19-77f1-4a4d-a44b-643cb1e159b8",
+          "source_updated_at": "2026-09-19T17:16:13.688Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "edb29f8a-af50-49fa-bf8c-9c07dadd4ad6",
+      "record_name": "Elias Ashcroft",
+      "record_slug": "elias-ashcroft",
+      "canon_type": "character",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/characters/edb29f8a-af50-49fa-bf8c-9c07dadd4ad6-elias-ashcroft/portrait-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "affec37ee3b1b1a88269f2f72ee959ddb518e86ebe27dc80ba75357696cbd20c",
+          "source_asset_id": "/objects/uploads/1f1c8953-c7a2-4e71-8734-10b0528c8bcc",
+          "source_updated_at": "2026-09-19T14:31:25.947Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "a43b17c2-2d26-45ce-965d-110562037733",
+      "record_name": "Frederick Ashcroft",
+      "record_slug": "frederick-ashcroft",
+      "canon_type": "character",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/characters/a43b17c2-2d26-45ce-965d-110562037733-frederick-ashcroft/portrait-primary.png",
+          "mime_type": "image/png",
+          "width": 1254,
+          "height": 1254,
+          "sha256": "8a9815b681af42db5ff8c80a50100ef8c622f040fcf5794b9b30209dadd86e0b",
+          "source_asset_id": "/objects/uploads/5a3666e2-dcd3-483f-bbb1-f9572cb33a35",
+          "source_updated_at": "2026-09-19T20:13:41.079Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "3b68d864-60e7-4aea-932c-26ed11939554",
+      "record_name": "James Ashcroft",
+      "record_slug": "james-ashcroft",
+      "canon_type": "character",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/characters/3b68d864-60e7-4aea-932c-26ed11939554-james-ashcroft/portrait-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "b5255cc21a170a9be8ee19048f930472a490a3bdf0b3cdcd8a564808d734232b",
+          "source_asset_id": "/objects/uploads/2e3e2ebc-b4e7-4e6c-9df3-ffe530a7c743",
+          "source_updated_at": "2026-09-19T19:11:24.230Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "25473151-193d-4b27-8728-8e9fc8356b9a",
+      "record_name": "Margaret Ashcroft",
+      "record_slug": "margaret-ashcroft",
+      "canon_type": "character",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/characters/25473151-193d-4b27-8728-8e9fc8356b9a-margaret-ashcroft/portrait-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "948cc21d3a7ea1f3bb59da6a83defa53a5f5d8cd5f59e9dae64a92c3b29507ed",
+          "source_asset_id": "/objects/uploads/f6c9d78c-f135-4158-9c0b-598b9f56933c",
+          "source_updated_at": "2026-09-19T14:44:48.228Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "cb0efced-afb2-4aa1-8d97-3429976b6474",
+      "record_name": "Thomas Ashcroft",
+      "record_slug": "thomas-ashcroft",
+      "canon_type": "character",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/characters/cb0efced-afb2-4aa1-8d97-3429976b6474-thomas-ashcroft/portrait-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "36073294f8cef174017c0bce12c70663ee6c47859c7ea534613e825b641229f1",
+          "source_asset_id": "/objects/uploads/b8a6048b-1473-4a39-91e0-22f092b3d7fa",
+          "source_updated_at": "2026-09-19T20:56:12.326Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "d3fe713a-a407-4a37-bef2-eb675466b190",
+      "record_name": "Thomas Vale",
+      "record_slug": "thomas-vale",
+      "canon_type": "character",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/characters/d3fe713a-a407-4a37-bef2-eb675466b190-thomas-vale/portrait-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "e8c0e76310def76a9080bcb60207a3edec30d802c3100f0508406ad0cb7b4abd",
+          "source_asset_id": "/objects/uploads/691d2727-6be9-4e35-aa4a-23cb24a6c94b",
+          "source_updated_at": "2026-09-19T15:14:24.894Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "bb981182-6d53-4a39-a2f7-8df3e1c4cb75",
+      "record_name": "The Founding of Wychcombe",
+      "record_slug": "the-founding-of-wychcombe",
+      "canon_type": "event",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/events/bb981182-6d53-4a39-a2f7-8df3e1c4cb75-the-founding-of-wychcombe/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "ad496cfb3b0d1a6996441a5ff8c2fdeb19cdf2f8cd9f3779998fb9f87422c404",
+          "source_asset_id": "/objects/uploads/fc0cc086-8b12-4438-9b62-ac8a2acb0b7a",
+          "source_updated_at": "2026-09-19T17:46:07.385Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "807029fa-f1c5-4992-8606-2d111eb99bd8",
+      "record_name": "Bellamy & Son, Nurserymen and Seedsmen",
+      "record_slug": "bellamy-son-nurserymen-and-seedsmen",
+      "canon_type": "location",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/locations/807029fa-f1c5-4992-8606-2d111eb99bd8-bellamy-son-nurserymen-and-seedsmen/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "fa6202d284ed81135574723b863902fe7304fd82f52a8bba2a864f5d828c0bac",
+          "source_asset_id": "/objects/uploads/939849ec-f6e1-43f4-b0a4-ca6d77e6822c",
+          "source_updated_at": "2026-09-19T15:02:58.708Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "28a81518-4a2c-4ab7-9108-2e5407a5a31f",
+      "record_name": "Stationery House",
+      "record_slug": "stationery-house",
+      "canon_type": "location",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/locations/28a81518-4a2c-4ab7-9108-2e5407a5a31f-stationery-house/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "43f2c31a424144eb6f0bfcc1781430f3fdd6a78dfe52aa25c8cb734f6165ace4",
+          "source_asset_id": "/objects/uploads/420e51db-e247-4259-a02d-42d730c4276c",
+          "source_updated_at": "2026-09-19T14:54:01.588Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "18fdee5c-1be4-470c-a5b8-ff14167cc39f",
+      "record_name": "The Defaulted Silkworm Shed",
+      "record_slug": "the-defaulted-silkworm-shed",
+      "canon_type": "location",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/locations/18fdee5c-1be4-470c-a5b8-ff14167cc39f-the-defaulted-silkworm-shed/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "f1e7fcc60b28429de7929747abb3279d254a9ab8fe2d9da9a9f4b8e90980be2a",
+          "source_asset_id": "/objects/uploads/4b45c219-b4af-4494-9c8c-24473fc5146c",
+          "source_updated_at": "2026-09-19T18:02:22.958Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "3f3849a2-e143-46c1-b4bd-efafc96739ff",
+      "record_name": "The Forgotten Path Between Greenhouses",
+      "record_slug": "the-forgotten-path-between-greenhouses",
+      "canon_type": "location",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/locations/3f3849a2-e143-46c1-b4bd-efafc96739ff-the-forgotten-path-between-greenhouses/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "a0679af95c426ce7e8d28e34876b407378317d5959a58db1dae5d59a03f120a4",
+          "source_asset_id": "/objects/uploads/bf82c1db-1a7a-44bd-b8af-872b3871ee36",
+          "source_updated_at": "2026-09-19T18:59:54.167Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "d6e4da49-6f3a-4894-a313-217e7089064c",
+      "record_name": "The Orchid Repository",
+      "record_slug": "the-orchid-repository",
+      "canon_type": "location",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/locations/d6e4da49-6f3a-4894-a313-217e7089064c-the-orchid-repository/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "ad8817d46e1338d2c4da476d1532241e5bf75bf4fbe919451b0ecc72d5a6411c",
+          "source_asset_id": "/objects/uploads/2c139cb6-e222-4e27-acc8-53729500a238",
+          "source_updated_at": "2026-09-19T18:07:47.310Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "0fc38c18-f5f0-41ed-a2b4-bab8de88b96c",
+      "record_name": "The Solarium Passage",
+      "record_slug": "the-solarium-passage",
+      "canon_type": "location",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/locations/0fc38c18-f5f0-41ed-a2b4-bab8de88b96c-the-solarium-passage/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "14b264c19d887819301a169a3769fe010d2f073075745cf5e2d478c5919d2d72",
+          "source_asset_id": "/objects/uploads/a9f415ec-fb4c-4651-8cbb-760fbe4fae23",
+          "source_updated_at": "2026-09-19T18:19:13.312Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "ff99a550-0238-4f5b-ace9-c7e0ab4dfe92",
+      "record_name": "Wychcomb Estate",
+      "record_slug": "wychcomb-estate",
+      "canon_type": "location",
+      "status": "proposed",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcomb-estate/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "f1fc06190fb4762de937d9ca485fd27fac67fbc1565e98297b7f5ee6bb927be0",
+          "source_asset_id": "/objects/uploads/b58de8ac-d1c7-4471-81cf-36a2fbe80663",
+          "source_updated_at": "2026-09-19T16:32:25.599Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "9c37c282-bd81-43e7-8493-a2e253b8de86",
+      "record_name": "Wychcombe Village",
+      "record_slug": "wychcombe-village",
+      "canon_type": "location",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/locations/9c37c282-bd81-43e7-8493-a2e253b8de86-wychcombe-village/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "6848f73fd6175c8c5cd8637d47aeb68ad6b234244bd8556b823ee4c1d2186ccd",
+          "source_asset_id": "/objects/uploads/5cd11f33-3a2c-4dea-b47f-c7f0136922ee",
+          "source_updated_at": "2026-09-19T14:40:32.883Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "eeb7c737-4491-4f49-ae78-3722ca6a96ae",
+      "record_name": "The Ashcroft Principle of Stewardship",
+      "record_slug": "the-ashcroft-principle-of-stewardship",
+      "canon_type": "lore",
+      "status": "accepted",
+      "images": []
+    },
+    {
+      "canonical_id": "585870b4-9afb-469a-9e86-d0070de84f28",
+      "record_name": "The Curators",
+      "record_slug": "the-curators",
+      "canon_type": "lore",
+      "status": "accepted",
+      "images": []
+    },
+    {
+      "canonical_id": "52e639ff-c169-45fb-ad69-f53423256abc",
+      "record_name": "The Ethics of Preservation",
+      "record_slug": "the-ethics-of-preservation",
+      "canon_type": "lore",
+      "status": "accepted",
+      "images": []
+    },
+    {
+      "canonical_id": "5a384020-cb96-47de-a1b9-5f2793f4264b",
+      "record_name": "The Harcourt Family and the Decline of the Estate",
+      "record_slug": "the-harcourt-family-and-the-decline-of-the-estate",
+      "canon_type": "lore",
+      "status": "proposed",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/lores/5a384020-cb96-47de-a1b9-5f2793f4264b-the-harcourt-family-and-the-decline-of-the-estate/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "78ea67aead180a0f7202772b691fff24f406432d20870caa57ba848d2c5a8cbb",
+          "source_asset_id": "/objects/uploads/126de48c-9e6d-4001-a050-1dafa6ef4164",
+          "source_updated_at": "2026-09-19T16:53:22.831Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "ef8341c1-9b16-4e6d-bf27-8a386deebce6",
+      "record_name": "Pressed Lichen Relic [material]",
+      "record_slug": "pressed-lichen-relic-material",
+      "canon_type": "material",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/materials/ef8341c1-9b16-4e6d-bf27-8a386deebce6-pressed-lichen-relic-material/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "08a6f83ea2b45cd7682d6f9d8ef022e4c0a044dbcc068259b1c5c94056d147e8",
+          "source_asset_id": "/objects/uploads/f64d886b-5375-4340-8fb6-9143f1c952fc",
+          "source_updated_at": "2026-09-19T14:57:27.732Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "591c11dc-43aa-497b-8c2a-0fe6fc2d86af",
+      "record_name": "Time's Fragile Patience",
+      "record_slug": "time-s-fragile-patience",
+      "canon_type": "motif",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/motifs/591c11dc-43aa-497b-8c2a-0fe6fc2d86af-time-s-fragile-patience/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "1baa9d976f95be85eb0d71936737db44a9239ff4b44a8ecff296cb4989cfa471",
+          "source_asset_id": "/objects/uploads/161d6f4e-9a75-49e8-af35-d0c65170bad8",
+          "source_updated_at": "2026-09-19T18:50:30.620Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "4969d345-1f26-441c-8de9-eb1601fcf675",
+      "record_name": "The Codex of Recurring Blooms",
+      "record_slug": "the-codex-of-recurring-blooms",
+      "canon_type": "object",
+      "status": "accepted",
+      "images": []
+    },
+    {
+      "canonical_id": "57d113c2-5b24-460a-ab94-0f55063de68f",
+      "record_name": "The Rusted Lock on the Rose Cellar",
+      "record_slug": "the-rusted-lock-on-the-rose-cellar",
+      "canon_type": "object",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/objects/57d113c2-5b24-460a-ab94-0f55063de68f-the-rusted-lock-on-the-rose-cellar/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "5ad1f4cf98b2c7f208c3c1c11af04c6be3e04ea93f5c194cc845a0b01fd985d5",
+          "source_asset_id": "/objects/uploads/29e12e21-c8d9-43c0-ae2d-56a354d115b0",
+          "source_updated_at": "2026-09-19T18:56:03.102Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "b91bceb5-bbec-4492-a999-b59f2a7a1cd8",
+      "record_name": "The Seven Keys",
+      "record_slug": "the-seven-keys",
+      "canon_type": "object",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/objects/b91bceb5-bbec-4492-a999-b59f2a7a1cd8-the-seven-keys/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "df55f4fc6ef33ca52eb693f166252bddf8390f1cf7c989c1eb340a1f0126bfc8",
+          "source_asset_id": "/objects/uploads/7fdfe09e-8732-409c-89b9-ec05faa352ef",
+          "source_updated_at": "2026-09-19T18:40:43.108Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "d9f7de7a-4b0f-45fb-b0ff-7d04ecc044df",
+      "record_name": "Verdigris Paperweight",
+      "record_slug": "verdigris-paperweight",
+      "canon_type": "object",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/objects/d9f7de7a-4b0f-45fb-b0ff-7d04ecc044df-verdigris-paperweight/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "6ea23270dcda2be9b7708ffe5387888872221ae2a096cae1545c469b202e0197",
+          "source_asset_id": "/objects/uploads/e1fa6b6e-9d74-4c09-861e-245ef50c1ed4",
+          "source_updated_at": "2026-09-19T18:36:16.976Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "86508a46-91da-4a7c-83a4-7f43dd6f2d86",
+      "record_name": "Elias and Clara Ashcroft: Founding Partnership",
+      "record_slug": "elias-and-clara-ashcroft-founding-partnership",
+      "canon_type": "relationship",
+      "status": "accepted",
+      "images": []
+    },
+    {
+      "canonical_id": "73fde2de-1540-4523-baf2-f2e093220cd9",
+      "record_name": "The Seasonal Rift Between Greenhouse and Housekeepers",
+      "record_slug": "the-seasonal-rift-between-greenhouse-and-housekeepers",
+      "canon_type": "relationship",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/relationships/73fde2de-1540-4523-baf2-f2e093220cd9-the-seasonal-rift-between-greenhouse-and-housekeepers/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "7de668389476c823954c71cf6e70ad85e245b1ce8ac3e9d43d882d3e92df2c62",
+          "source_asset_id": "/objects/uploads/97d61bcd-f1fd-4e3b-8e7f-6490c5648b7d",
+          "source_updated_at": "2026-09-19T19:03:41.832Z"
+        }
+      ]
+    }
+  ]
+}

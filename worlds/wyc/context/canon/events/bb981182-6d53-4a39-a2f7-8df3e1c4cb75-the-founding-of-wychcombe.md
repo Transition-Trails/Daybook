@@ -39,6 +39,12 @@ Elias should not initially be portrayed as independently wealthy enough to purch
 
 Later mysteries may connect to evidence Elias and Clara preserved, but supernatural or unexplained discoveries are not currently part of the accepted founding event.
 
+## Record Images
+
+- **Primary:** [image-primary.png](../assets/events/bb981182-6d53-4a39-a2f7-8df3e1c4cb75-the-founding-of-wychcombe/image-primary.png)
+
+![Primary canon portrait of The Founding of Wychcombe](../assets/events/bb981182-6d53-4a39-a2f7-8df3e1c4cb75-the-founding-of-wychcombe/image-primary.png)
+
 ---
 Generated from Daybook
 Record ID: bb981182-6d53-4a39-a2f7-8df3e1c4cb75

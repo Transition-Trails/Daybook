@@ -1232,6 +1232,12 @@ Elias’s remaining development should concentrate on consequence rather than ad
 - Period & Digital Exclusions — Volume I (`c86f156d-27f7-49fc-b6d7-111184e98863`)
 - Quiet Composition — Volume I (`638a6508-1e7e-4531-aa5a-9b9df53404fd`)
 
+## Record Images
+
+- **Primary:** [portrait-primary.png](../assets/characters/edb29f8a-af50-49fa-bf8c-9c07dadd4ad6-elias-ashcroft/portrait-primary.png)
+
+![Primary canon portrait of Elias Ashcroft](../assets/characters/edb29f8a-af50-49fa-bf8c-9c07dadd4ad6-elias-ashcroft/portrait-primary.png)
+
 ---
 Generated from Daybook
 Record ID: edb29f8a-af50-49fa-bf8c-9c07dadd4ad6

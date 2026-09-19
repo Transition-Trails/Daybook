@@ -58,6 +58,7 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
       .send({
         name: "The Lantern of Ash",
         canon_type: "object",
+        prompt: "Show the lantern lit against a plain dark background.",
         narrative_details: "It appears only at low tide.",
         visual_notes: "Oxidized brass and blue glass.",
       });
@@ -81,6 +82,9 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
     expect(mockGenerateImage.mock.calls[0]?.[0]).toContain(
       "Canon direction:\nOxidized brass and blue glass.\nIt appears only at low tide.",
     );
+    expect(mockGenerateImage.mock.calls[0]?.[0]).toContain(
+      "Editor request:\nShow the lantern lit against a plain dark background.",
+    );
     expect(response.body).toEqual({
       image_data_url: "data:image/png;base64,Y2Fub24taW1hZ2U=",
       generation: {
@@ -97,7 +101,7 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
 
     const response = await request(app)
       .post("/v1/editorial/canon-records/generate-image")
-      .send({ name: "The Failed Lantern", canon_type: "object" });
+      .send({ name: "The Failed Lantern", canon_type: "object", prompt: "Show it cracked." });
 
     expect(response.status).toBe(502);
     expect(response.body).toEqual({
@@ -113,7 +117,7 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
 
     const response = await request(app)
       .post("/v1/editorial/canon-records/generate-image")
-      .send({ name: "The Slow Lantern", canon_type: "object" });
+      .send({ name: "The Slow Lantern", canon_type: "object", prompt: "Show it at dusk." });
 
     expect(response.status).toBe(504);
     expect(response.body).toEqual({
@@ -121,5 +125,17 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
       code: "IMAGE_GENERATION_TIMEOUT",
       retryable: true,
     });
+  });
+
+  it("requires an editor prompt before generating", async () => {
+    const response = await request(app)
+      .post("/v1/editorial/canon-records/generate-image")
+      .send({ name: "The Unspecified Lantern", canon_type: "object" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: "Describe what the reference image should show.",
+    });
+    expect(mockGenerateImage).not.toHaveBeenCalled();
   });
 });

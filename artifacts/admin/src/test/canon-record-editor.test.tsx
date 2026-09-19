@@ -158,6 +158,62 @@ describe("CanonRecordEditor", () => {
     ));
   });
 
+  it("generates a reference from an editor prompt and selected related Canon", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith("/relations")) {
+        return Promise.resolve({
+          relations: [{
+            toRecordId: "canon-event",
+            relationType: "involved_in",
+            targetName: "The Winter Crossing",
+            targetCanonType: "event",
+          }],
+        });
+      }
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.endsWith("/context-snapshot")) return Promise.resolve({ snapshot: { status: "not_generated" } });
+      if (path === "/v1/editorial/canon-records/generate-image" && init?.method === "POST") {
+        return new Promise(() => undefined);
+      }
+      if (path.includes("/canon-records/canon-1")) {
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-1", worldId: "world-wychcombe", name: "Frederick Ashcroft",
+            status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
+            visualNotes: "", notes: "", portraitUrl: null, imageUrls: [],
+            specRefCount: 0, createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z",
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor("canon-1");
+    const prompt = await screen.findByLabelText("What should this reference show?");
+    const relatedCanon = await screen.findByRole("checkbox", { name: /The Winter Crossing/ });
+    fireEvent.change(prompt, { target: { value: "Show Frederick preparing at the frozen river." } });
+    fireEvent.click(relatedCanon);
+    fireEvent.click(screen.getByRole("button", { name: "Generate reference image" }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/generate-image",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          world_id: "world-wychcombe",
+          name: "Frederick Ashcroft",
+          canon_type: "character",
+          narrative_details: "",
+          historical_context: "",
+          visual_notes: "",
+          prompt: "Show Frederick preparing at the frozen river.",
+          source_record_id: "canon-1",
+          related_record_ids: ["canon-event"],
+        }),
+      }),
+    ));
+  });
+
   it("loads and saves the character-only rich-text canon sections", async () => {
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });

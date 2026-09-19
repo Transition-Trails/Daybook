@@ -1960,22 +1960,49 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
 router.post("/v1/editorial/canon-records/generate-image", async (req: Request, res: Response) => {
   const {
     world_id,
+    source_record_id,
+    related_record_ids,
     name,
     canon_type,
     narrative_details,
     historical_context,
     visual_notes,
+    prompt: requested_prompt,
   } = req.body as {
     world_id?: string;
+    source_record_id?: string;
+    related_record_ids?: string[];
     name?: string;
     canon_type?: string;
     narrative_details?: string;
     historical_context?: string;
     visual_notes?: string;
+    prompt?: string;
   };
 
   if (!name?.trim()) {
     res.status(400).json({ error: "Give the canon record a name before generating an image." });
+    return;
+  }
+  if (!requested_prompt?.trim()) {
+    res.status(400).json({ error: "Describe what the reference image should show." });
+    return;
+  }
+  if (requested_prompt.length > 2000) {
+    res.status(400).json({ error: "Keep the reference image prompt under 2,000 characters." });
+    return;
+  }
+  if (related_record_ids !== undefined && !Array.isArray(related_record_ids)) {
+    res.status(400).json({ error: "Related Canon records must be supplied as a list." });
+    return;
+  }
+  const selectedRelatedIds = [...new Set(related_record_ids ?? [])];
+  if (selectedRelatedIds.length > 5) {
+    res.status(400).json({ error: "Select no more than 5 related Canon records." });
+    return;
+  }
+  if (selectedRelatedIds.length > 0 && !source_record_id) {
+    res.status(400).json({ error: "Save the Canon record before grounding an image in related records." });
     return;
   }
 
@@ -1994,6 +2021,36 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
           .limit(1)
       : [];
 
+    const relatedCanon = selectedRelatedIds.length > 0 && source_record_id
+      ? await db
+          .select({
+            id: wsCanonRecordsTable.id,
+            worldId: wsCanonRecordsTable.worldId,
+            name: wsCanonRecordsTable.name,
+            canonType: wsCanonRecordsTable.canonType,
+            narrativeDetails: wsCanonRecordsTable.narrativeDetails,
+            historicalContext: wsCanonRecordsTable.historicalContext,
+            visualNotes: wsCanonRecordsTable.visualNotes,
+            confirmedCanon: wsCanonRecordsTable.confirmedCanon,
+            relationType: wsCanonRecordRelationsTable.relationType,
+            relationDetails: wsCanonRecordRelationsTable.details,
+          })
+          .from(wsCanonRecordRelationsTable)
+          .innerJoin(wsCanonRecordsTable, eq(wsCanonRecordRelationsTable.toRecordId, wsCanonRecordsTable.id))
+          .where(and(
+            eq(wsCanonRecordRelationsTable.fromRecordId, source_record_id),
+            inArray(wsCanonRecordRelationsTable.toRecordId, selectedRelatedIds),
+          ))
+      : [];
+
+    if (
+      relatedCanon.length !== selectedRelatedIds.length
+      || relatedCanon.some(related => related.worldId !== world_id)
+    ) {
+      res.status(400).json({ error: "Every selected reference must be a related Canon record from this world." });
+      return;
+    }
+
     const visualDirection = [
       editorialRichTextToPlainText(visual_notes).trim(),
       editorialRichTextToPlainText(narrative_details).trim(),
@@ -2009,6 +2066,16 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
         ].filter(Boolean).join("\n")
       : "";
 
+    const relatedCanonDirection = relatedCanon.map(related => [
+      `${related.canonType || "canon item"}: ${related.name}`,
+      `Relationship: ${(related.relationType || "related").replace(/_/g, " ")}`,
+      related.relationDetails ? `Relationship context: ${editorialRichTextToPlainText(related.relationDetails)}` : "",
+      related.confirmedCanon ? `Confirmed Canon: ${editorialRichTextToPlainText(related.confirmedCanon)}` : "",
+      related.visualNotes ? `Visual notes: ${editorialRichTextToPlainText(related.visualNotes)}` : "",
+      related.narrativeDetails ? `Narrative details: ${editorialRichTextToPlainText(related.narrativeDetails)}` : "",
+      related.historicalContext ? `Historical context: ${editorialRichTextToPlainText(related.historicalContext)}` : "",
+    ].filter(Boolean).join("\n")).join("\n\n");
+
     const subjectGuidance = canon_type === "object"
       ? "Depict the individual object itself as the hero subject, not a scene. Keep it fully visible, isolated, and easy to reuse in future ephemera, paper, or product compositions."
       : "Depict one clear, recognisable visual reference for this canon subject. Keep the main subject fully visible with clean space around it for reuse in future production work.";
@@ -2018,7 +2085,9 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
       `Canon type: ${canon_type || "canon item"}.`,
       `Canon name: ${name.trim()}.`,
       subjectGuidance,
+      `Editor request:\n${requested_prompt.trim()}`,
       "Use the supplied canon and world direction as fixed design constraints so later related images can repeat the same materials, motifs, palette, age, and visual language.",
+      relatedCanonDirection && `Related Canon grounding:\n${relatedCanonDirection}`,
       "No words, lettering, labels, signatures, logos, watermarks, frames, or mockup presentation. Do not add unrelated objects.",
       worldDirection && `World direction:\n${worldDirection}`,
       visualDirection && `Canon direction:\n${visualDirection}`,

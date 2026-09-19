@@ -80,6 +80,13 @@ interface CanonImage {
   description: string;
 }
 
+interface CanonImageRelation {
+  toRecordId: string;
+  relationType: string | null;
+  targetName: string;
+  targetCanonType: string | null;
+}
+
 interface LinkedSpec {
   id: string;
   productionItem: string;
@@ -135,18 +142,28 @@ function ImageField({
   images,
   uploading,
   generating,
+  prompt,
+  relatedRecords,
+  selectedRelatedRecordIds,
   onUpload,
   onGenerate,
   onRemove,
   onChangeMetadata,
+  onPromptChange,
+  onRelatedRecordsChange,
 }: {
   images: CanonImage[];
   uploading: boolean;
   generating: boolean;
+  prompt: string;
+  relatedRecords: CanonImageRelation[];
+  selectedRelatedRecordIds: string[];
   onUpload: (file: File) => Promise<boolean>;
   onGenerate: () => void;
   onRemove: (imageUrl: string) => void;
   onChangeMetadata: (imageUrl: string, changes: Pick<CanonImage, "name" | "description">) => void;
+  onPromptChange: (prompt: string) => void;
+  onRelatedRecordsChange: (recordIds: string[]) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const hasImages = images.length > 0;
@@ -271,13 +288,79 @@ function ImageField({
         </div>
       )}
       {!hasImages && (
-        <button type="button" onClick={onGenerate} disabled={uploading || generating} className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ background: INK }}>
-          {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          {generating ? "Generating reference…" : "Generate from canon details"}
-        </button>
+        <p className="mt-3 text-[10px] leading-relaxed" style={{ color: "var(--admin-muted)" }}>
+          Upload artwork above, or generate a grounded reference below.
+        </p>
       )}
+      <div className="mt-4 rounded-xl border p-3" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
+        <label htmlFor="canon-reference-prompt" className="text-[11px] font-semibold" style={{ color: INK }}>
+          What should this reference show?
+        </label>
+        <textarea
+          id="canon-reference-prompt"
+          data-testid="input-canon-reference-prompt"
+          value={prompt}
+          onChange={event => onPromptChange(event.target.value)}
+          maxLength={2000}
+          rows={3}
+          placeholder="Describe the composition, moment, pose, lighting, or details you want."
+          className="mt-1.5 w-full resize-y rounded-lg border bg-white px-2.5 py-2 text-xs leading-relaxed outline-none focus:border-[var(--admin-ink)]"
+          style={{ borderColor: BORDER, color: INK }}
+        />
+        {relatedRecords.length > 0 && (
+          <fieldset className="mt-3">
+            <legend className="text-[11px] font-semibold" style={{ color: INK }}>Base it on related Canon</legend>
+            <p className="mt-0.5 text-[10px]" style={{ color: "var(--admin-muted)" }}>
+              Select up to 5 linked records. Their approved details and relationship context will ground the image.
+            </p>
+            <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+              {relatedRecords.map(related => {
+                const checked = selectedRelatedRecordIds.includes(related.toRecordId);
+                const disabled = !checked && selectedRelatedRecordIds.length >= 5;
+                return (
+                  <label
+                    key={related.toRecordId}
+                    className="flex cursor-pointer items-start gap-2 rounded-lg bg-white px-2.5 py-2 text-xs"
+                    style={{ color: INK }}
+                  >
+                    <input
+                      type="checkbox"
+                      data-testid={`checkbox-reference-canon-${related.toRecordId}`}
+                      checked={checked}
+                      disabled={disabled || uploading || generating}
+                      onChange={event => onRelatedRecordsChange(
+                        event.target.checked
+                          ? [...selectedRelatedRecordIds, related.toRecordId]
+                          : selectedRelatedRecordIds.filter(id => id !== related.toRecordId),
+                      )}
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-semibold">{related.targetName}</span>
+                      <span className="block text-[10px] capitalize" style={{ color: "var(--admin-muted)" }}>
+                        {related.targetCanonType || "Canon"} · {(related.relationType || "related").replace(/_/g, " ")}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        )}
+        <button
+          type="button"
+          data-testid="button-generate-canon-reference"
+          onClick={onGenerate}
+          disabled={uploading || generating || !prompt.trim()}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+          style={{ background: INK }}
+        >
+          {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {generating ? "Generating reference…" : "Generate reference image"}
+        </button>
+      </div>
       <p className="mt-2 text-[10px] leading-relaxed" style={{ color: "#7C6F62" }}>
-        Generation uses this record’s name, type, narrative, visual notes, and world visual direction. You can still upload your own artwork.
+        Generation also uses this record’s Canon details and world visual direction. You can still upload your own artwork.
       </p>
       <input
         ref={inputRef}
@@ -305,6 +388,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const [form, setForm] = useState<FormState>(() => createEmptyForm(search));
   const [imageUploading, setImageUploading] = useState(false);
   const [imageGenerating, setImageGenerating] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState("");
+  const [imageRelatedRecordIds, setImageRelatedRecordIds] = useState<string[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [openedSections, setOpenedSections] = useState({
     narrative: true,
@@ -330,6 +415,13 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const recordWorld = record ? worlds.find(world => world.id === record.worldId) : selectedWorld;
   const worldId = record?.worldId ?? selectedWorld?.id;
   const isImageProcessing = imageUploading || imageGenerating;
+  const { data: imageRelationsData } = useQuery<{ relations: CanonImageRelation[] }>({
+    queryKey: ["editorial-canon-record-relations", recordId],
+    queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/relations`),
+    enabled: !!recordId,
+    staleTime: 30_000,
+  });
+  const imageRelations = imageRelationsData?.relations ?? [];
 
   useEffect(() => {
     if (record && initializedRecordRef.current !== record.id) {
@@ -555,6 +647,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       toast({ title: "Name this canon record first", description: "The record name anchors the generated reference.", variant: "destructive" });
       return;
     }
+    if (!imagePrompt.trim()) {
+      toast({ title: "Describe the reference image", description: "Add what you want the generated image to show.", variant: "destructive" });
+      return;
+    }
 
     setImageGenerating(true);
     try {
@@ -567,6 +663,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           narrative_details: form.narrativeDetails,
           historical_context: form.historicalContext,
           visual_notes: form.visualNotes,
+          prompt: imagePrompt.trim(),
+          source_record_id: recordId,
+          related_record_ids: imageRelatedRecordIds,
         }),
       });
       const generatedResponse = await fetch(result.image_data_url);
@@ -589,7 +688,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     } finally {
       setImageGenerating(false);
     }
-  }, [form, handleImageUpload, toast, worldId]);
+  }, [form, handleImageUpload, imagePrompt, imageRelatedRecordIds, recordId, toast, worldId]);
 
   const cancel = async () => {
     if (isImageProcessing) return;
@@ -772,10 +871,15 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               images={form.images}
               uploading={imageUploading}
               generating={imageGenerating}
+              prompt={imagePrompt}
+              relatedRecords={imageRelations}
+              selectedRelatedRecordIds={imageRelatedRecordIds}
               onUpload={handleImageUpload}
               onGenerate={generateImage}
               onRemove={removeImage}
               onChangeMetadata={updateImageMetadata}
+              onPromptChange={setImagePrompt}
+              onRelatedRecordsChange={setImageRelatedRecordIds}
             />
 
             {!isNew && record && (

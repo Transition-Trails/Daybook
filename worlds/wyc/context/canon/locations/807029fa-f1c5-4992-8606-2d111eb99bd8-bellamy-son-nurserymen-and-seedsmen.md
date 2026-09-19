@@ -3,7 +3,7 @@
 > Generated from Daybook. Do not edit as source data.
 
 **Canonical ID:** `807029fa-f1c5-4992-8606-2d111eb99bd8`  
-**Status:** proposed  
+**Status:** accepted  
 **Category:** location  
 **World:** Wychcombe (`wyc`)
 
@@ -54,5 +54,5 @@ Samuel&#039;s illness is chronic and limits exertion, but a specific medical dia
 ---
 Generated from Daybook
 Record ID: 807029fa-f1c5-4992-8606-2d111eb99bd8
-Last Updated: 2026-09-18T18:09:21.631Z
-Snapshot Generated: 2026-09-18T18:18:45.063Z
+Last Updated: 2026-09-19T15:04:01.881Z
+Snapshot Generated: 2026-09-19T15:04:02.058Z

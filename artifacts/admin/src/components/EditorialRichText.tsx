@@ -110,7 +110,7 @@ export function EditorialRichTextField({
           if (!readOnly) onChange((event.currentTarget as HTMLDivElement).innerHTML);
         }}
         data-placeholder={placeholder}
-        className={`px-4 py-3 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] ${readOnly ? "cursor-text select-text" : ""}`}
+        className={`px-4 py-3 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:pl-1 ${readOnly ? "cursor-text select-text" : ""}`}
         style={{
           minHeight,
           resize: "vertical",

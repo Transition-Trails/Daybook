@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, BookOpen, ChevronRight, Loader2, Plus } from "lucide-react";
+import { ArrowLeft, BookOpen, ChevronRight, Loader2, Plus, GripVertical, Image as ImageIcon, Trash2 } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { EditorialRichTextField } from "@/components/EditorialRichText";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { SceneEditor, Scene } from "@/components/worldsmith/editorial/SceneEditor";
 
 const INK = "#1B2A4A";
 const CLAY = "#C87560";
@@ -51,9 +52,13 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
   const { selectedWorld, worlds } = useEditorial();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
   const [form, setForm] = useState<StoryForm>(() => createEmptyForm(search));
   const [newActTitle, setNewActTitle] = useState("");
   const initializedStoryRef = useRef<string | null>(null);
+
+  // Scene Editor state
+  const [editingScene, setEditingScene] = useState<{ actId: string, sceneId?: string } | null>(null);
 
   const { data, isLoading, isError } = useQuery<{ story: Story }>({
     queryKey: ["editorial-story", storyId],
@@ -64,6 +69,14 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
   const story = data?.story;
   const recordWorld = story ? worlds.find(world => world.id === story.worldId) : selectedWorld;
   const worldId = story?.worldId ?? selectedWorld?.id;
+
+  const { data: scenesData } = useQuery({
+    queryKey: ["editorial-scenes", storyId],
+    queryFn: () => apiFetch<{ scenes: Scene[] }>(`/v1/editorial/stories/${storyId}/scenes`),
+    enabled: !!storyId,
+    staleTime: 30_000,
+  });
+  const scenes = scenesData?.scenes ?? [];
 
   useEffect(() => {
     if (story && initializedStoryRef.current !== story.id) {
@@ -118,12 +131,12 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
     mutationFn: () => {
       const actNumber = (story?.acts.length ?? 0) + 1;
       return apiFetch<{ act: StoryAct }>(`/v1/editorial/stories/${storyId}/acts`, {
-      method: "POST",
-      body: JSON.stringify({
-        world_id: worldId,
+        method: "POST",
+        body: JSON.stringify({
+          world_id: worldId,
           title: newActTitle.trim() || `Movement ${actNumber}`,
           act_number: actNumber,
-      }),
+        }),
       });
     },
     onSuccess: ({ act }) => {
@@ -149,6 +162,23 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
     }),
   });
 
+  const deleteSceneMutation = useMutation({
+    mutationFn: (sceneIdToDelete: string) =>
+      apiFetch(`/v1/editorial/scenes/${sceneIdToDelete}`, { method: "DELETE" }),
+    onSuccess: (_, deletedId) => {
+      queryClient.setQueryData<{ scenes: Scene[] }>(["editorial-scenes", storyId], current => {
+        if (!current) return current;
+        return { scenes: current.scenes.filter(s => s.id !== deletedId) };
+      });
+      toast({ title: "Scene deleted" });
+    },
+    onError: (error: Error) => toast({
+      title: "Could not delete scene",
+      description: error.message,
+      variant: "destructive",
+    }),
+  });
+
   if (isLoading) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" style={{ color: CLAY }} /></div>;
   }
@@ -169,6 +199,17 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card-subtle)" }}>
+      {editingScene && story && worldId && (
+        <SceneEditor
+          storyId={story.id}
+          worldId={worldId}
+          actId={editingScene.actId}
+          sceneId={editingScene.sceneId}
+          defaultSceneNumber={scenes.length + 1}
+          onClose={() => setEditingScene(null)}
+        />
+      )}
+
       <header className="flex h-12 items-center gap-2 border-b bg-white px-7" style={{ borderColor: BORDER }}>
         <span className="text-[11px]" style={{ color: "#98A2B3" }}>WorldSmith</span>
         <span className="text-[11px]" style={{ color: "#C9BFB2" }}>/</span>
@@ -262,24 +303,84 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
                     </span>
                   </Link>
                 </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  {story.acts.map(act => (
-                    <div key={act.id} className="rounded-xl p-4" style={{ background: "var(--admin-card-subtle)", border: "1px solid var(--admin-border)" }}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: CLAY }}>Movement {act.actNumber}</p>
-                          <p className="mt-1 text-sm font-semibold" style={{ color: INK }}>{act.title}</p>
-                          {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}
+                <div className="mt-6 flex flex-col gap-6">
+                  {story.acts.map(act => {
+                    const actScenes = scenes.filter(s => s.actId === act.id).sort((a, b) => a.sceneNumber - b.sceneNumber);
+                    return (
+                      <div key={act.id} className="rounded-xl" style={{ background: "var(--admin-card-subtle)", border: "1px solid var(--admin-border)" }}>
+                        <div className="flex items-start justify-between gap-3 p-5 border-b" style={{ borderColor: BORDER }}>
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: CLAY }}>Movement {act.actNumber}</p>
+                            <p className="mt-1 text-sm font-semibold" style={{ color: INK }}>{act.title}</p>
+                            {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}
+                          </div>
+                          <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(story.id)}&act_id=${encodeURIComponent(act.id)}`}>
+                            <span className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold hover:underline" style={{ color: INK }}>
+                              Link canon <ChevronRight className="h-3 w-3" />
+                            </span>
+                          </Link>
                         </div>
-                        <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(story.id)}&act_id=${encodeURIComponent(act.id)}`}>
-                          <span className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold" style={{ color: INK }}>
-                            Link canon <ChevronRight className="h-3 w-3" />
-                          </span>
-                        </Link>
+
+                        <div className="p-4 bg-white/50 rounded-b-xl flex flex-col gap-2">
+                          {actScenes.map(scene => (
+                            <div
+                              key={scene.id}
+                              className="group flex items-center justify-between rounded-lg border bg-white p-3 shadow-sm hover:border-[#C87560] hover:shadow transition-all cursor-pointer"
+                              style={{ borderColor: "#E5E7EB" }}
+                              onClick={() => setEditingScene({ actId: act.id, sceneId: scene.id })}
+                              data-testid={`card-scene-${scene.id}`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-50 text-xs font-semibold text-gray-500 shrink-0">
+                                  {scene.sceneNumber}
+                                </div>
+                                <div className="min-w-0 flex flex-col">
+                                  <span className="text-sm font-semibold truncate" style={{ color: INK }}>
+                                    {scene.title || "Untitled Scene"}
+                                  </span>
+                                  <span className="text-[11px] text-gray-500 truncate">
+                                    {scene.canonRecords?.length || 0} canon connections
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                {scene.primaryImageUrl && (
+                                  <ImageIcon className="h-4 w-4 text-indigo-400" />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirm("Delete this scene?")) {
+                                      deleteSceneMutation.mutate(scene.id);
+                                    }
+                                  }}
+                                  disabled={deleteSceneMutation.isPending}
+                                  className="p-1.5 text-gray-400 hover:text-red-600 rounded-md hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  title="Delete Scene"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+
+                          <button
+                            type="button"
+                            onClick={() => setEditingScene({ actId: act.id })}
+                            className="mt-1 flex items-center gap-2 rounded-lg border border-dashed p-3 text-sm font-semibold text-gray-500 hover:bg-white hover:text-gray-900 transition-colors"
+                            style={{ borderColor: "#D1D5DB" }}
+                            data-testid={`button-add-scene-${act.id}`}
+                          >
+                            <Plus className="h-4 w-4" />
+                            Add Scene
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                  <div className="rounded-xl p-4" style={{ border: "1px dashed #C9BFB2" }}>
+                    );
+                  })}
+
+                  <div className="rounded-xl p-5" style={{ border: "1px dashed #C9BFB2" }}>
                     <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: "#98A2B3" }}>Add a movement</p>
                     <div className="mt-2 flex gap-2">
                       <input
@@ -326,6 +427,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
               disabled={!form.title.trim() || saveMutation.isPending}
               className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-45"
               style={{ background: INK, color: "white" }}
+              data-testid="button-save-storyline"
             >
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookOpen className="h-4 w-4" />}
               {isNew ? "Create storyline" : "Save storyline"}

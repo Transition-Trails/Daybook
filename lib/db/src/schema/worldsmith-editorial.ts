@@ -408,6 +408,53 @@ export const wsStoryActsTable = pgTable("ws_story_acts", {
 export type WsStoryAct = typeof wsStoryActsTable.$inferSelect;
 export type InsertWsStoryAct = typeof wsStoryActsTable.$inferInsert;
 
+// ── Story Scenes ──────────────────────────────────────────────────────────────
+
+export const wsScenesTable = pgTable("ws_scenes", {
+  id: text("id").primaryKey(),
+  actId: text("act_id").notNull(),
+  storyId: text("story_id").notNull(),
+  worldId: text("world_id").notNull(),
+  sceneNumber: integer("scene_number").notNull().default(1),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  attributes: jsonb("attributes").$type<{
+    setting?: string;
+    timeOfDay?: string;
+    mood?: string;
+    lighting?: string;
+    weather?: string;
+    composition?: string;
+    imagePrompt?: string;
+  }>().notNull().default({}),
+  primaryImageUrl: text("primary_image_url"),
+  primaryImagePrompt: text("primary_image_prompt"),
+  primaryImageMetadata: jsonb("primary_image_metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+    .$onUpdate(() => new Date()),
+}, (t) => [
+  index("ws_scenes_act_idx").on(t.actId),
+  index("ws_scenes_story_idx").on(t.storyId),
+  index("ws_scenes_world_idx").on(t.worldId),
+]);
+
+export type WsScene = typeof wsScenesTable.$inferSelect;
+export type InsertWsScene = typeof wsScenesTable.$inferInsert;
+
+export const wsSceneCanonLinksTable = pgTable("ws_scene_canon_links", {
+  sceneId: text("scene_id").notNull(),
+  canonRecordId: text("canon_record_id").notNull(),
+  role: text("role").notNull().default("featured"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.sceneId, t.canonRecordId] }),
+  index("ws_scene_canon_scene_idx").on(t.sceneId),
+  index("ws_scene_canon_record_idx").on(t.canonRecordId),
+]);
+
 // ── Encounters ────────────────────────────────────────────────────────────────
 
 export const wsEncountersTable = pgTable("ws_encounters", {

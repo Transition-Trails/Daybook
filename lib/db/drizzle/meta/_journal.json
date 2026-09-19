@@ -103,7 +103,7 @@
     {
       "idx": 14,
       "version": "7",
-      "when": 1789794000000,
+      "when": 1787623000000,
       "tag": "0014_billing_stripe_price_id",
       "breakpoints": true
     },
@@ -334,22 +334,29 @@
     {
       "idx": 47,
       "version": "7",
-      "when": 1787623000000,
-      "tag": "0047_canon_relation_metadata",
-      "breakpoints": true
-    },
-    {
-      "idx": 48,
-      "version": "7",
       "when": 1789797600000,
       "tag": "0048_canon_image_metadata",
       "breakpoints": true
     },
     {
-      "idx": 49,
+      "idx": 48,
       "version": "7",
       "when": 1789801200000,
       "tag": "0049_owner_discoveries",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1789804800000,
+      "tag": "0050_story_scenes",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1789808400000,
+      "tag": "0047_canon_relation_metadata",
       "breakpoints": true
     }
   ]

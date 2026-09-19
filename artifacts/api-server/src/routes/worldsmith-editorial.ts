@@ -61,6 +61,8 @@ import {
   palettesTable,
   wsStoriesTable,
   wsStoryActsTable,
+  wsScenesTable,
+  wsSceneCanonLinksTable,
   wsEncountersTable,
   wsJournalPromptsTable,
   wsCanonRecordStoryLinksTable,
@@ -186,6 +188,9 @@ router.get("/v1/editorial/owner-discoveries", async (req: Request, res: Response
       promotedCanon: row.discovery.editorialCanonRecordId
         ? (await db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, row.discovery.editorialCanonRecordId)).limit(1))[0] ?? null
         : null,
+      promotedStory: row.discovery.storyId && row.discovery.submissionSnapshot.discovery_kind === "storyline_idea"
+        ? (await db.select().from(wsStoriesTable).where(eq(wsStoriesTable.id, row.discovery.storyId)).limit(1))[0] ?? null
+        : null,
       owner: { id: row.discovery.ownerUserId, name: row.ownerName, email: row.ownerEmail },
       store: { id: row.discovery.storeId, name: row.storeName },
       revisions: await db.select().from(wsOwnerDiscoveryRevisionsTable)
@@ -199,6 +204,158 @@ router.get("/v1/editorial/owner-discoveries", async (req: Request, res: Response
   }
 });
 
+router.post("/v1/editorial/owner-discoveries/generated", async (req: Request, res: Response): Promise<void> => {
+  const worldId = typeof req.body?.world_id === "string" ? req.body.world_id.trim() : "";
+  const canonSuggestions = Array.isArray(req.body?.canon_suggestions) ? req.body.canon_suggestions : [];
+  const storySuggestions = Array.isArray(req.body?.story_suggestions) ? req.body.story_suggestions : [];
+  if (!worldId) {
+    res.status(400).json({ error: "world_id is required" });
+    return;
+  }
+  if (canonSuggestions.length > 20 || storySuggestions.length > 20) {
+    res.status(400).json({ error: "Too many generated suggestions" });
+    return;
+  }
+
+  try {
+    const [world] = await db.select({
+      id: worldsmithWorldsTable.id,
+      storeId: worldsmithWorldsTable.storeId,
+    }).from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId)).limit(1);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+    if (!world.storeId) {
+      res.status(409).json({ error: "Generated discoveries require a store-owned world" });
+      return;
+    }
+    const storeId = world.storeId;
+    const userId = String((req.user as any)?.id ?? "");
+    if (!userId) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+
+    const existing = await db.select({
+      snapshot: wsOwnerDiscoveriesTable.submissionSnapshot,
+    }).from(wsOwnerDiscoveriesTable).where(eq(wsOwnerDiscoveriesTable.worldId, worldId));
+    const existingKeys = new Set(existing.map(row => (
+      typeof row.snapshot.candidate_key === "string" ? row.snapshot.candidate_key : ""
+    )).filter(Boolean));
+
+    const candidates: Array<{
+      kind: "canon_idea" | "storyline_idea";
+      title: string;
+      proposedCanonType: string | null;
+      storyMoment: string;
+      ownerContext: string;
+      snapshot: Record<string, unknown>;
+    }> = [];
+    for (const raw of canonSuggestions) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const item = raw as Record<string, unknown>;
+      const name = typeof item.name === "string" ? item.name.trim().slice(0, 120) : "";
+      if (!name) continue;
+      const canonType = typeof item.canonType === "string" ? item.canonType.trim().slice(0, 40) : "lore";
+      const rationale = typeof item.rationale === "string" ? item.rationale.trim().slice(0, 500) : "";
+      const narrativeDetails = typeof item.narrativeDetails === "string"
+        ? sanitizeEditorialRichText(item.narrativeDetails.slice(0, 2_000))
+        : "";
+      const candidateKey = `canon_idea:${name.toLocaleLowerCase()}`;
+      if (existingKeys.has(candidateKey)) continue;
+      existingKeys.add(candidateKey);
+      candidates.push({
+        kind: "canon_idea",
+        title: name,
+        proposedCanonType: canonType,
+        storyMoment: rationale || "Generated from the current World Bible, Canon, and Storylines.",
+        ownerContext: "World-aware Canon opportunity generated for editorial review.",
+        snapshot: {
+          discovery_kind: "canon_idea",
+          candidate_key: candidateKey,
+          name,
+          canonType,
+          rationale,
+          narrativeDetails,
+          provenance: "editorial.canon-suggestions",
+        },
+      });
+    }
+    for (const raw of storySuggestions) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const item = raw as Record<string, unknown>;
+      const title = typeof item.title === "string" ? item.title.trim().slice(0, 120) : "";
+      if (!title) continue;
+      const rationale = typeof item.rationale === "string" ? item.rationale.trim().slice(0, 500) : "";
+      const narrativePromise = typeof item.narrativePromise === "string"
+        ? sanitizeEditorialRichText(item.narrativePromise.slice(0, 2_000))
+        : "";
+      const recommendedStatus = typeof item.recommendedStatus === "string"
+        && STORY_SUGGESTION_STATUSES.includes(item.recommendedStatus as typeof STORY_SUGGESTION_STATUSES[number])
+        ? item.recommendedStatus
+        : "draft";
+      const candidateKey = `storyline_idea:${title.toLocaleLowerCase()}`;
+      if (existingKeys.has(candidateKey)) continue;
+      existingKeys.add(candidateKey);
+      candidates.push({
+        kind: "storyline_idea",
+        title,
+        proposedCanonType: null,
+        storyMoment: rationale || "Generated from the current World Bible and Canon.",
+        ownerContext: "World-aware Storyline opportunity generated for editorial review.",
+        snapshot: {
+          discovery_kind: "storyline_idea",
+          candidate_key: candidateKey,
+          title,
+          rationale,
+          narrativePromise,
+          recommendedStatus,
+          provenance: "editorial.storyline-suggestions",
+        },
+      });
+    }
+
+    const created = await db.transaction(async tx => {
+      const rows = [];
+      for (const candidate of candidates) {
+        const id = randomUUID();
+        const [row] = await tx.insert(wsOwnerDiscoveriesTable).values({
+          id,
+          worldId,
+          storeId,
+          ownerUserId: userId,
+          storyMoment: candidate.storyMoment,
+          ownerContext: candidate.ownerContext,
+          title: candidate.title,
+          proposedCanonType: candidate.proposedCanonType,
+          submissionSnapshot: candidate.snapshot,
+          status: "submitted",
+        }).returning();
+        await tx.insert(wsOwnerDiscoveryRevisionsTable).values({
+          id: randomUUID(),
+          discoveryId: id,
+          revisionNumber: 1,
+          snapshot: candidate.snapshot,
+          revisionNote: "Generated candidate",
+          createdBy: userId,
+        });
+        rows.push(row);
+      }
+      return rows;
+    });
+
+    res.status(201).json({
+      discoveries: created,
+      created_count: created.length,
+      skipped_count: canonSuggestions.length + storySuggestions.length - created.length,
+    });
+  } catch (err) {
+    logger.error({ err, worldId }, "editorial: persist generated discoveries");
+    res.status(500).json({ error: "Could not save generated ideas" });
+  }
+});
+
 router.get("/v1/editorial/owner-discoveries/:id", async (req: Request, res: Response): Promise<void> => {
   const id = String(req.params.id);
   const [row] = await db.select().from(wsOwnerDiscoveriesTable).where(eq(wsOwnerDiscoveriesTable.id, id)).limit(1);
@@ -209,6 +366,97 @@ router.get("/v1/editorial/owner-discoveries/:id", async (req: Request, res: Resp
     row.editorialCanonRecordId ? db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, row.editorialCanonRecordId)).limit(1) : Promise.resolve([]),
   ]);
   res.json({ discovery: row, source_canon: sourceCanon[0] ?? null, promoted_canon: promotedCanon[0] ?? null, revisions });
+});
+
+router.post("/v1/editorial/owner-discoveries/:id/revise", async (req: Request, res: Response): Promise<void> => {
+  const id = String(req.params.id);
+  const snapshot = req.body?.snapshot;
+  const revisionNote = typeof req.body?.revision_note === "string" ? req.body.revision_note.trim().slice(0, 500) : "";
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    res.status(400).json({ error: "snapshot must be an object" });
+    return;
+  }
+  try {
+    const updated = await db.transaction(async tx => {
+      const [discovery] = await tx.select().from(wsOwnerDiscoveriesTable)
+        .where(eq(wsOwnerDiscoveriesTable.id, id)).limit(1);
+      if (!discovery) return null;
+      const kind = discovery.submissionSnapshot.discovery_kind;
+      if (kind !== "canon_idea" && kind !== "storyline_idea") {
+        throw Object.assign(new Error("Owner submissions must be returned to the owner for revision"), { status: 409 });
+      }
+      if (discovery.status !== "submitted" && discovery.status !== "in_review") {
+        throw Object.assign(new Error(`Discovery cannot be revised from status ${discovery.status}`), { status: 409 });
+      }
+      const revisions = await tx.select({ revisionNumber: wsOwnerDiscoveryRevisionsTable.revisionNumber })
+        .from(wsOwnerDiscoveryRevisionsTable)
+        .where(eq(wsOwnerDiscoveryRevisionsTable.discoveryId, id))
+        .orderBy(desc(wsOwnerDiscoveryRevisionsTable.revisionNumber))
+        .limit(1);
+      const current = snapshot as Record<string, unknown>;
+      const candidateKey = discovery.submissionSnapshot.candidate_key;
+      const cleanSnapshot: Record<string, unknown> = kind === "canon_idea"
+        ? {
+            ...discovery.submissionSnapshot,
+            ...current,
+            discovery_kind: kind,
+            candidate_key: candidateKey,
+            name: typeof current.name === "string" ? current.name.trim().slice(0, 120) : discovery.title,
+            canonType: typeof current.canonType === "string" ? current.canonType.trim().slice(0, 40) : discovery.proposedCanonType,
+            rationale: typeof current.rationale === "string" ? current.rationale.trim().slice(0, 500) : "",
+            narrativeDetails: typeof current.narrativeDetails === "string"
+              ? sanitizeEditorialRichText(current.narrativeDetails.slice(0, 2_000))
+              : "",
+          }
+        : {
+            ...discovery.submissionSnapshot,
+            ...current,
+            discovery_kind: kind,
+            candidate_key: candidateKey,
+            title: typeof current.title === "string" ? current.title.trim().slice(0, 120) : discovery.title,
+            rationale: typeof current.rationale === "string" ? current.rationale.trim().slice(0, 500) : "",
+            narrativePromise: typeof current.narrativePromise === "string"
+              ? sanitizeEditorialRichText(current.narrativePromise.slice(0, 2_000))
+              : "",
+            recommendedStatus: typeof current.recommendedStatus === "string"
+              && STORY_SUGGESTION_STATUSES.includes(current.recommendedStatus as typeof STORY_SUGGESTION_STATUSES[number])
+              ? current.recommendedStatus
+              : "draft",
+          };
+      const title = kind === "canon_idea" ? String(cleanSnapshot.name) : String(cleanSnapshot.title);
+      if (!title) throw Object.assign(new Error("A title is required"), { status: 400 });
+      const [row] = await tx.update(wsOwnerDiscoveriesTable).set({
+        title,
+        proposedCanonType: kind === "canon_idea" ? String(cleanSnapshot.canonType ?? "lore") : null,
+        storyMoment: String(cleanSnapshot.rationale ?? ""),
+        submissionSnapshot: cleanSnapshot,
+        status: "in_review",
+        updatedAt: new Date(),
+      }).where(eq(wsOwnerDiscoveriesTable.id, id)).returning();
+      await tx.insert(wsOwnerDiscoveryRevisionsTable).values({
+        id: randomUUID(),
+        discoveryId: id,
+        revisionNumber: (revisions[0]?.revisionNumber ?? 0) + 1,
+        snapshot: cleanSnapshot,
+        revisionNote: revisionNote || "Editorial revision",
+        createdBy: String((req.user as any)?.id),
+      });
+      return row;
+    });
+    if (!updated) {
+      res.status(404).json({ error: "Discovery not found" });
+      return;
+    }
+    res.json({ discovery: updated });
+  } catch (err) {
+    const status = (err as any)?.status;
+    if (status) {
+      res.status(status).json({ error: (err as Error).message });
+      return;
+    }
+    logger.error({ err, id }, "editorial: revise generated discovery");
+    res.status(500).json({ error: "Could not revise discovery" });
+  }
 });
 
 async function decideDiscovery(req: Request, res: Response, action: OwnerDiscoveryDecision): Promise<void> {
@@ -225,6 +473,30 @@ async function decideDiscovery(req: Request, res: Response, action: OwnerDiscove
       }
       let canonId = discovery.editorialCanonRecordId;
       if (action === "accept") {
+        const discoveryKind = discovery.submissionSnapshot.discovery_kind;
+        if (discoveryKind === "storyline_idea") {
+          const snapshot = discovery.submissionSnapshot;
+          const title = typeof snapshot.title === "string" ? snapshot.title.trim() : discovery.title;
+          if (!title) throw Object.assign(new Error("A storyline title is required"), { status: 400 });
+          const requestedStatus = typeof snapshot.recommendedStatus === "string" ? snapshot.recommendedStatus : "draft";
+          const [story] = await tx.insert(wsStoriesTable).values({
+            id: randomUUID(),
+            worldId: discovery.worldId,
+            title: title.slice(0, 120),
+            summary: sanitizeEditorialRichText(typeof snapshot.narrativePromise === "string" ? snapshot.narrativePromise : ""),
+            status: isStoryStatus(requestedStatus) ? requestedStatus : "draft",
+            createdBy: (req.user as any)?.id,
+          }).returning({ id: wsStoriesTable.id });
+          const [updated] = await tx.update(wsOwnerDiscoveriesTable).set({
+            status: "accepted",
+            storyId: story.id,
+            decisionReason: reason || null,
+            reviewedBy: (req.user as any)?.id ?? null,
+            reviewedAt: new Date(),
+            updatedAt: new Date(),
+          }).where(eq(wsOwnerDiscoveriesTable.id, id)).returning();
+          return updated;
+        }
         const requestedId = typeof req.body?.editorial_canon_record_id === "string" ? req.body.editorial_canon_record_id.trim() : "";
         if (req.body?.create_canon !== undefined
           && (typeof req.body.create_canon !== "object" || req.body.create_canon === null || Array.isArray(req.body.create_canon))) {
@@ -4512,6 +4784,263 @@ router.delete("/v1/editorial/acts/:id", async (req: Request, res: Response) => {
   } catch (err) {
     logger.error({ err }, "editorial: delete act");
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const SCENE_ATTRIBUTE_KEYS = [
+  "setting", "timeOfDay", "mood", "lighting", "weather", "composition", "imagePrompt",
+] as const;
+
+function parseSceneAttributes(value: unknown): Record<string, string> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Scene attributes must be an object.");
+  }
+  const attributes: Record<string, string> = {};
+  for (const key of SCENE_ATTRIBUTE_KEYS) {
+    const item = (value as Record<string, unknown>)[key];
+    if (item === undefined || item === null || item === "") continue;
+    if (typeof item !== "string" || item.length > 2000) {
+      throw new Error(`Scene attribute ${key} must be text under 2,000 characters.`);
+    }
+    attributes[key] = item.trim();
+  }
+  return attributes;
+}
+
+async function getSceneCanonRecords(sceneId: string) {
+  return db
+    .select({
+      id: wsCanonRecordsTable.id,
+      name: wsCanonRecordsTable.name,
+      canonType: wsCanonRecordsTable.canonType,
+      status: wsCanonRecordsTable.status,
+      narrativeDetails: wsCanonRecordsTable.narrativeDetails,
+      historicalContext: wsCanonRecordsTable.historicalContext,
+      visualNotes: wsCanonRecordsTable.visualNotes,
+      canonGuardrails: wsCanonRecordsTable.canonGuardrails,
+      relationshipDetails: wsCanonRecordsTable.relationshipDetails,
+      characterDirection: wsCanonRecordsTable.characterDirection,
+      confirmedCanon: wsCanonRecordsTable.confirmedCanon,
+      role: wsSceneCanonLinksTable.role,
+      sortOrder: wsSceneCanonLinksTable.sortOrder,
+    })
+    .from(wsSceneCanonLinksTable)
+    .innerJoin(wsCanonRecordsTable, eq(wsSceneCanonLinksTable.canonRecordId, wsCanonRecordsTable.id))
+    .where(eq(wsSceneCanonLinksTable.sceneId, sceneId))
+    .orderBy(wsSceneCanonLinksTable.sortOrder, wsCanonRecordsTable.name);
+}
+
+router.get("/v1/editorial/stories/:id/scenes", async (req: Request, res: Response) => {
+  try {
+    const scenes = await db.select().from(wsScenesTable)
+      .where(eq(wsScenesTable.storyId, req.params.id as string))
+      .orderBy(wsScenesTable.actId, wsScenesTable.sceneNumber, wsScenesTable.createdAt);
+    const canonByScene = new Map<string, Awaited<ReturnType<typeof getSceneCanonRecords>>>();
+    await Promise.all(scenes.map(async scene => {
+      canonByScene.set(scene.id, await getSceneCanonRecords(scene.id));
+    }));
+    res.json({ scenes: scenes.map(scene => ({ ...scene, canonRecords: canonByScene.get(scene.id) ?? [] })) });
+  } catch (err) {
+    logger.error({ err }, "editorial: list story scenes");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/v1/editorial/acts/:id/scenes", async (req: Request, res: Response) => {
+  try {
+    const { title, body, attributes, canon_record_ids, scene_number } = req.body as {
+      title?: string;
+      body?: string;
+      attributes?: unknown;
+      canon_record_ids?: string[];
+      scene_number?: number;
+    };
+    if (!title?.trim()) { res.status(400).json({ error: "A scene title is required." }); return; }
+    if (body !== undefined && typeof body !== "string") { res.status(400).json({ error: "Scene body must be text." }); return; }
+    const canonIds = [...new Set(canon_record_ids ?? [])];
+    if (canonIds.length === 0) { res.status(400).json({ error: "Select at least one character for the scene." }); return; }
+    const [act] = await db.select().from(wsStoryActsTable)
+      .where(eq(wsStoryActsTable.id, req.params.id as string)).limit(1);
+    if (!act) { res.status(404).json({ error: "Movement not found." }); return; }
+    const canonRecords = await db.select({
+      id: wsCanonRecordsTable.id,
+      canonType: wsCanonRecordsTable.canonType,
+      worldId: wsCanonRecordsTable.worldId,
+    }).from(wsCanonRecordsTable).where(inArray(wsCanonRecordsTable.id, canonIds));
+    if (canonRecords.length !== canonIds.length || canonRecords.some(record => record.worldId !== act.worldId)) {
+      res.status(400).json({ error: "Every selected Canon record must belong to this world." });
+      return;
+    }
+    if (!canonRecords.some(record => record.canonType === "character")) {
+      res.status(400).json({ error: "Every scene must contain at least one character." });
+      return;
+    }
+    const parsedAttributes = parseSceneAttributes(attributes);
+    const sceneId = randomUUID();
+    const scene = await db.transaction(async tx => {
+      const [created] = await tx.insert(wsScenesTable).values({
+        id: sceneId,
+        actId: act.id,
+        storyId: act.storyId,
+        worldId: act.worldId,
+        sceneNumber: Number.isInteger(scene_number) && Number(scene_number) > 0 ? Number(scene_number) : 1,
+        title: title.trim(),
+        body: sanitizeEditorialRichText(body ?? ""),
+        attributes: parsedAttributes,
+        createdBy: (req.user as any)?.id,
+      }).returning();
+      await tx.insert(wsSceneCanonLinksTable).values(canonIds.map((canonRecordId, index) => ({
+        sceneId,
+        canonRecordId,
+        role: canonRecords.find(record => record.id === canonRecordId)?.canonType === "character" ? "character" : "featured",
+        sortOrder: index,
+      })));
+      return created;
+    });
+    res.status(201).json({ scene: { ...scene, canonRecords: await getSceneCanonRecords(sceneId) } });
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Scene attribute")) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    logger.error({ err }, "editorial: create scene");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/v1/editorial/scenes/:id", async (req: Request, res: Response) => {
+  try {
+    const sceneId = req.params.id as string;
+    const [existing] = await db.select().from(wsScenesTable).where(eq(wsScenesTable.id, sceneId)).limit(1);
+    if (!existing) { res.status(404).json({ error: "Scene not found." }); return; }
+    const { title, body, attributes, canon_record_ids, scene_number, primary_image_url, primary_image_prompt, primary_image_metadata } = req.body;
+    const update: Record<string, unknown> = {};
+    if (title !== undefined) {
+      if (typeof title !== "string" || !title.trim()) { res.status(400).json({ error: "A scene title is required." }); return; }
+      update.title = title.trim();
+    }
+    if (body !== undefined) {
+      if (typeof body !== "string") { res.status(400).json({ error: "Scene body must be text." }); return; }
+      update.body = sanitizeEditorialRichText(body);
+    }
+    if (attributes !== undefined) update.attributes = parseSceneAttributes(attributes);
+    if (scene_number !== undefined) update.sceneNumber = scene_number;
+    if (primary_image_url !== undefined) update.primaryImageUrl = primary_image_url || null;
+    if (primary_image_prompt !== undefined) update.primaryImagePrompt = primary_image_prompt || null;
+    if (primary_image_metadata !== undefined) update.primaryImageMetadata = primary_image_metadata ?? {};
+
+    let canonIds: string[] | undefined;
+    if (canon_record_ids !== undefined) {
+      if (!Array.isArray(canon_record_ids)) { res.status(400).json({ error: "Canon records must be supplied as a list." }); return; }
+      canonIds = [...new Set(canon_record_ids as string[])];
+      const canonRecords = canonIds.length
+        ? await db.select({ id: wsCanonRecordsTable.id, canonType: wsCanonRecordsTable.canonType, worldId: wsCanonRecordsTable.worldId })
+            .from(wsCanonRecordsTable).where(inArray(wsCanonRecordsTable.id, canonIds))
+        : [];
+      if (
+        canonRecords.length !== canonIds.length
+        || canonRecords.some(record => record.worldId !== existing.worldId)
+        || !canonRecords.some(record => record.canonType === "character")
+      ) {
+        res.status(400).json({ error: "A scene needs at least one character, and every selected record must belong to this world." });
+        return;
+      }
+    }
+
+    const scene = await db.transaction(async tx => {
+      const [saved] = await tx.update(wsScenesTable).set(update).where(eq(wsScenesTable.id, sceneId)).returning();
+      if (canonIds) {
+        await tx.delete(wsSceneCanonLinksTable).where(eq(wsSceneCanonLinksTable.sceneId, sceneId));
+        const canonRecords = await tx.select({ id: wsCanonRecordsTable.id, canonType: wsCanonRecordsTable.canonType })
+          .from(wsCanonRecordsTable).where(inArray(wsCanonRecordsTable.id, canonIds));
+        await tx.insert(wsSceneCanonLinksTable).values(canonIds.map((canonRecordId, index) => ({
+          sceneId,
+          canonRecordId,
+          role: canonRecords.find(record => record.id === canonRecordId)?.canonType === "character" ? "character" : "featured",
+          sortOrder: index,
+        })));
+      }
+      return saved;
+    });
+    res.json({ scene: { ...scene, canonRecords: await getSceneCanonRecords(sceneId) } });
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Scene attribute")) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    logger.error({ err }, "editorial: update scene");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.delete("/v1/editorial/scenes/:id", async (req: Request, res: Response) => {
+  try {
+    await db.delete(wsScenesTable).where(eq(wsScenesTable.id, req.params.id as string));
+    res.status(204).end();
+  } catch (err) {
+    logger.error({ err }, "editorial: delete scene");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/v1/editorial/scenes/:id/generate-image", async (req: Request, res: Response) => {
+  try {
+    const sceneId = req.params.id as string;
+    const [scene] = await db.select().from(wsScenesTable).where(eq(wsScenesTable.id, sceneId)).limit(1);
+    if (!scene) { res.status(404).json({ error: "Scene not found." }); return; }
+    const canonRecords = await getSceneCanonRecords(sceneId);
+    if (!canonRecords.some(record => record.canonType === "character")) {
+      res.status(400).json({ error: "Add at least one character before generating the scene image." });
+      return;
+    }
+    const [world] = await db.select({
+      storeId: worldsmithWorldsTable.storeId,
+      name: worldsmithWorldsTable.name,
+      visualPalette: worldsmithWorldsTable.visualPalette,
+      atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
+      materialWorld: worldsmithWorldsTable.materialWorld,
+    }).from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, scene.worldId)).limit(1);
+    const attributes = (scene.attributes ?? {}) as Record<string, string>;
+    const canonGrounding = canonRecords.map(record => [
+      `${record.canonType || "canon"}: ${record.name}`,
+      record.confirmedCanon && `Confirmed Canon: ${editorialRichTextToPlainText(record.confirmedCanon)}`,
+      record.visualNotes && `Visual notes: ${editorialRichTextToPlainText(record.visualNotes)}`,
+      record.relationshipDetails && `Relationships: ${editorialRichTextToPlainText(record.relationshipDetails)}`,
+      record.canonGuardrails && `Guardrails: ${editorialRichTextToPlainText(record.canonGuardrails)}`,
+    ].filter(Boolean).join("\n")).join("\n\n");
+    const prompt = [
+      "Create a cinematic, production-ready primary scene illustration with no text, labels, borders, signatures, or watermarks.",
+      `Scene: ${scene.title}`,
+      attributes.imagePrompt && `Editor image direction: ${attributes.imagePrompt}`,
+      scene.body && `Scene narrative: ${editorialRichTextToPlainText(scene.body)}`,
+      attributes.setting && `Setting: ${attributes.setting}`,
+      attributes.timeOfDay && `Time of day: ${attributes.timeOfDay}`,
+      attributes.mood && `Mood: ${attributes.mood}`,
+      attributes.lighting && `Lighting: ${attributes.lighting}`,
+      attributes.weather && `Weather: ${attributes.weather}`,
+      attributes.composition && `Composition: ${attributes.composition}`,
+      world && `World: ${world.name}\nPalette: ${editorialRichTextToPlainText(world.visualPalette)}\nMaterials: ${editorialRichTextToPlainText(world.materialWorld)}\nAtmosphere: ${editorialRichTextToPlainText(world.atmosphericNotes)}`,
+      `Canon grounding — preserve identities, appearances, relationships, and established facts:\n${canonGrounding}`,
+    ].filter(Boolean).join("\n\n");
+    const generated = await generateImage(prompt, {
+      size: "1536x1024",
+      quality: "high",
+      context: {
+        storeId: world?.storeId ?? undefined,
+        userId: (req.user as any)?.id,
+        feature: "editorial.scene.generate-image",
+      },
+    });
+    const { dataUrl, ...metadata } = generated;
+    res.json({ image_data_url: dataUrl, prompt, generation: metadata });
+  } catch (err) {
+    logger.error({ err }, "editorial: generate scene image");
+    if (err instanceof Error && err.name === "ImageGenerationTimeoutError") {
+      res.status(504).json({ error: "Scene image generation timed out. Please try again.", retryable: true });
+      return;
+    }
+    res.status(502).json({ error: "Scene image generation could not be completed." });
   }
 });
 

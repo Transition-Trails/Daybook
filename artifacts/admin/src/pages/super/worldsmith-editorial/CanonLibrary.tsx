@@ -1325,7 +1325,6 @@ export default function CanonLibrary() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Suggestions panel
-  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Debounce search
   useEffect(() => {
@@ -1444,39 +1443,6 @@ export default function CanonLibrary() {
     qc.invalidateQueries({ predicate: q => String(q.queryKey[0] ?? "").includes("canon-record-relations") });
   }, [qc]);
 
-  const inlineSuggestions = useQuery<SuggestionResponse<CanonSuggestion>>({
-    queryKey: ["editorial-canon-suggestions", selectedWorldId],
-    queryFn: () =>
-      apiFetch("/v1/editorial/canon-records/suggest", {
-        method: "POST",
-        body: JSON.stringify({
-          world_id: selectedWorldId,
-        }),
-      }),
-    enabled: !!selectedWorldId && !!data && total > 0,
-    staleTime: 24 * 60 * 60_000,
-    retry: false,
-  });
-  const refreshInlineSuggestions = useMutation({
-    mutationFn: () =>
-      apiFetch<SuggestionResponse<CanonSuggestion>>("/v1/editorial/canon-records/suggest", {
-        method: "POST",
-        body: JSON.stringify({
-          world_id: selectedWorldId,
-          force_refresh: true,
-        }),
-      }),
-    onSuccess: refreshed => {
-      qc.setQueryData(["editorial-canon-suggestions", selectedWorldId], refreshed);
-    },
-    onError: () => {
-      toast({
-        title: "Could not refresh Canon ideas",
-        description: "The saved suggestions are still available. Try again in a moment.",
-        variant: "destructive",
-      });
-    },
-  });
 
   // Client-side filter for search/type/status/visibility/stability/register
   const filtered = allRecords.filter(r => {
@@ -1684,19 +1650,6 @@ export default function CanonLibrary() {
             )}
           </div>
           <button
-            onClick={() => setShowSuggestions(s => !s)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors"
-            style={
-              showSuggestions
-                ? { background: "#C87560", color: "white", borderColor: "#C87560" }
-                : { background: "white", color: "#C87560", borderColor: "#C87560" }
-            }
-            title="AI-suggested records to fill gaps in your world's canon"
-          >
-            <Wand2 className="w-3.5 h-3.5" />
-            Suggest
-          </button>
-          <button
             onClick={() => openCreate()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white"
             style={{ background: "#1B2A4A" }}
@@ -1873,18 +1826,11 @@ export default function CanonLibrary() {
 
           {/* Records */}
           <div className="flex-1 overflow-y-auto">
-             <InlineSuggestionsSection
-               suggestions={(inlineSuggestions.data?.suggestions ?? []).filter(
-                 suggestion => activeType === "all" || suggestion.canonType === activeType,
-               )}
-               loading={inlineSuggestions.isLoading || inlineSuggestions.isFetching || refreshInlineSuggestions.isPending}
-               error={inlineSuggestions.isError || refreshInlineSuggestions.isError}
-               onRefresh={() => refreshInlineSuggestions.mutate()}
-               onCreate={openSuggestedCreate}
-                focusType={activeType}
-              nextRefreshAt={inlineSuggestions.data?.nextRefreshAt}
-              canRefresh={inlineSuggestions.data?.canRefresh ?? !inlineSuggestions.data}
-             />
+             <button type="button" onClick={() => navigate("/super/worldsmith/editorial/discoveries")} className="mx-5 mb-5 flex w-[calc(100%-2.5rem)] items-center gap-3 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card-subtle)] px-4 py-3 text-left">
+               <Sparkles className="h-4 w-4 shrink-0 text-[var(--admin-clay)]" />
+               <span className="text-xs text-[var(--admin-muted)]"><strong className="text-[var(--admin-ink)]">Ideas are generated and reviewed in Discovery Review.</strong> Review Canon candidates from the central editorial queue.</span>
+               <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-[var(--admin-clay)]" />
+             </button>
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 py-16">
                 <BookOpen className="w-8 h-8 mb-3 opacity-30" />
@@ -1994,18 +1940,6 @@ export default function CanonLibrary() {
           onClose={() => setRelationshipSource(null)} onSaved={invalidateRelationships} />}
           </div>
         </div>
-      )}
-
-      {/* ── Suggestions panel ────────────────────────────────────────────────── */}
-      {showSuggestions && selectedWorldId && (
-        <SuggestionsPanel
-          worldId={selectedWorldId}
-          worldName={selectedWorld?.name ?? "your world"}
-          onClose={() => setShowSuggestions(false)}
-          onAdd={() => qc.invalidateQueries({
-            predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
-          })}
-        />
       )}
 
       {/* ── Bulk action bar ─────────────────────────────────────────────────── */}

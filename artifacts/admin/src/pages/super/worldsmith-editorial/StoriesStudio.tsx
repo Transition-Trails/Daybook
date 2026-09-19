@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, ChevronRight, Loader2, Plus, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, ChevronRight, Loader2, Plus, Sparkles } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -23,17 +23,6 @@ interface Story {
   acts: StoryAct[];
 }
 
-interface StorySuggestion {
-  title: string;
-  rationale: string;
-  narrativePromise: string;
-  recommendedStatus: string;
-}
-interface StorySuggestionResponse {
-  suggestions: StorySuggestion[];
-  nextRefreshAt?: string;
-  canRefresh?: boolean;
-}
 
 const STATUS_STYLES: Record<string, { background: string; color: string }> = {
   active: { background: "#E4F2EA", color: "#286047" },
@@ -53,105 +42,6 @@ function StoryStatus({ status }: { status: string }) {
   );
 }
 
-function SuggestedStorylines({
-  suggestions,
-  loading,
-  error,
-  onRefresh,
-  onCreate,
-  nextRefreshAt,
-  canRefresh,
-  hasLoaded,
-}: {
-  suggestions: StorySuggestion[];
-  loading: boolean;
-  error: boolean;
-  onRefresh: () => void;
-  onCreate: (suggestion: StorySuggestion) => void;
-  nextRefreshAt?: string;
-  canRefresh: boolean;
-  hasLoaded: boolean;
-}) {
-  return (
-    <section
-      className="mb-6 rounded-2xl p-5"
-      style={{ background: "var(--admin-card)", border: "1px solid #DDD4C4" }}
-      aria-labelledby="storyline-suggestions-heading"
-    >
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: "rgba(200,117,96,0.12)" }}>
-            <Sparkles className="h-4 w-4" style={{ color: "#C87560" }} />
-          </span>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: "#C87560" }}>World-aware suggestions</p>
-            <h2 id="storyline-suggestions-heading" className="mt-0.5 text-base font-semibold" style={{ color: "#1B2A4A" }}>
-              Suggested storylines
-            </h2>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed" style={{ color: "#667085" }}>
-              These story opportunities draw on the World Bible, current canon, and the adventures already taking shape. Open one to refine it before saving.
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={onRefresh}
-          disabled={loading || !canRefresh}
-          title={!canRefresh && nextRefreshAt ? `Available ${new Date(nextRefreshAt).toLocaleString()}` : undefined}
-          className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50"
-          style={{ borderColor: "#D9C9BA", color: "#9D5B49" }}
-        >
-          <RotateCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          {canRefresh ? (hasLoaded ? "Refresh ideas" : "Generate ideas") : "Daily refresh used"}
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="flex items-center justify-center gap-2 py-8 text-sm" style={{ color: "#786D60" }}>
-          <Loader2 className="h-4 w-4 animate-spin" style={{ color: "#C87560" }} />
-          Reading your world and canon…
-        </div>
-      ) : error ? (
-        <div className="rounded-xl px-4 py-3 text-sm" style={{ background: "#FFF7ED", color: "#9A3412" }}>
-          We couldn’t create story ideas just now. Refresh to try again.
-        </div>
-      ) : !hasLoaded ? (
-        <div className="rounded-xl px-4 py-5 text-center text-sm" style={{ background: "#F7F3EE", color: "#786D60" }}>
-          Generate world-aware storyline ideas when you are ready.
-        </div>
-      ) : suggestions.length === 0 ? (
-        <div className="rounded-xl px-4 py-5 text-center text-sm" style={{ background: "#F7F3EE", color: "#786D60" }}>
-          No new story ideas yet. Add more World Bible or canon detail, then refresh.
-        </div>
-      ) : (
-        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(245px, 1fr))" }}>
-          {suggestions.map(suggestion => (
-            <article
-              key={suggestion.title}
-              className="flex min-h-[224px] flex-col rounded-xl border p-4"
-              style={{ background: "white", borderColor: "#E7DED4" }}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <StoryStatus status={suggestion.recommendedStatus} />
-                <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#98A2B3" }}>Storyline</span>
-              </div>
-              <h3 className="mt-3 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{suggestion.title}</h3>
-              <p className="mt-1.5 line-clamp-3 text-xs leading-relaxed" style={{ color: "#667085" }}>{suggestion.rationale}</p>
-              <p className="mt-2 line-clamp-3 text-[11.5px] italic leading-relaxed" style={{ color: "var(--admin-faint)" }}>{suggestion.narrativePromise}</p>
-              <button
-                onClick={() => onCreate(suggestion)}
-                className="mt-auto inline-flex self-start pt-3 text-xs font-semibold hover:underline"
-                style={{ color: "#C87560" }}
-              >
-                Create record <ArrowRight className="ml-1 inline h-3.5 w-3.5" />
-              </button>
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
 export default function StoriesStudio() {
   const { selectedWorld, selectedWorldId } = useEditorial();
   const { toast } = useToast();
@@ -161,13 +51,6 @@ export default function StoriesStudio() {
   const [summaryDraft, setSummaryDraft] = useState<Record<string, string>>({});
   const [titleDraft, setTitleDraft] = useState<Record<string, string>>({});
   const [newActTitle, setNewActTitle] = useState("");
-  const [suggestions, setSuggestions] = useState<StorySuggestion[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [suggestionsError, setSuggestionsError] = useState(false);
-  const [suggestionsWorldId, setSuggestionsWorldId] = useState<string | null>(null);
-  const [suggestionsNextRefreshAt, setSuggestionsNextRefreshAt] = useState<string | undefined>();
-  const [suggestionsCanRefresh, setSuggestionsCanRefresh] = useState(true);
-  const suggestionsRequestRef = useRef(0);
 
   const { data, isLoading } = useQuery({
     queryKey: ["ws-stories", selectedWorldId],
@@ -186,51 +69,6 @@ export default function StoriesStudio() {
   const selectedStory = stories.find(story => story.id === selectedStoryId) ?? null;
   const refreshStories = () => queryClient.invalidateQueries({ queryKey: ["ws-stories", selectedWorldId] });
 
-  const generateSuggestions = useCallback(async (forceRefresh = false) => {
-    const requestWorldId = selectedWorldId;
-    if (!requestWorldId) {
-      suggestionsRequestRef.current += 1;
-      setSuggestions([]);
-      setSuggestionsWorldId(null);
-      setSuggestionsLoading(false);
-      return;
-    }
-    const requestId = ++suggestionsRequestRef.current;
-    setSuggestions([]);
-    setSuggestionsWorldId(null);
-    setSuggestionsLoading(true);
-    setSuggestionsError(false);
-    try {
-      const result = await apiFetch<StorySuggestionResponse>("/v1/editorial/stories/suggest", {
-        method: "POST",
-        body: JSON.stringify({
-          world_id: requestWorldId,
-          ...(forceRefresh ? { force_refresh: true } : {}),
-        }),
-      });
-      if (requestId !== suggestionsRequestRef.current) return;
-      setSuggestions(result.suggestions ?? []);
-      setSuggestionsNextRefreshAt(result.nextRefreshAt);
-      setSuggestionsCanRefresh(result.canRefresh ?? false);
-      setSuggestionsWorldId(requestWorldId);
-    } catch {
-      if (requestId !== suggestionsRequestRef.current) return;
-      setSuggestionsError(true);
-      setSuggestions([]);
-    } finally {
-      if (requestId === suggestionsRequestRef.current) setSuggestionsLoading(false);
-    }
-  }, [selectedWorldId]);
-
-  useEffect(() => {
-    suggestionsRequestRef.current += 1;
-    setSuggestions([]);
-    setSuggestionsWorldId(null);
-    setSuggestionsLoading(false);
-    setSuggestionsError(false);
-    setSuggestionsNextRefreshAt(undefined);
-    setSuggestionsCanRefresh(true);
-  }, [selectedWorldId]);
 
   const createAct = useMutation({
     mutationFn: () =>
@@ -304,18 +142,11 @@ export default function StoriesStudio() {
           </p>
         </div>
 
-        <SuggestedStorylines
-          suggestions={suggestionsWorldId === selectedWorldId ? suggestions : []}
-          loading={suggestionsLoading}
-          error={suggestionsError}
-          onRefresh={() => { void generateSuggestions(true); }}
-          onCreate={suggestion => navigate(
-            `/super/worldsmith/editorial/stories/new?title=${encodeURIComponent(suggestion.title)}&summary=${encodeURIComponent(suggestion.narrativePromise)}&status=${encodeURIComponent(suggestion.recommendedStatus)}`,
-          )}
-          nextRefreshAt={suggestionsNextRefreshAt}
-          canRefresh={suggestionsCanRefresh}
-          hasLoaded={suggestionsWorldId === selectedWorldId}
-        />
+        <Link href="/super/worldsmith/editorial/discoveries" className="mb-6 flex items-center gap-3 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-card-subtle)] px-4 py-3">
+          <Sparkles className="h-4 w-4 shrink-0 text-[var(--admin-clay)]" />
+          <span className="text-xs text-[var(--admin-muted)]"><strong className="text-[var(--admin-ink)]">Ideas are generated and reviewed in Discovery Review.</strong> Open the queue to review Canon and storyline candidates.</span>
+          <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-[var(--admin-clay)]" />
+        </Link>
 
         {isLoading ? (
           <div className="py-20 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" style={{ color: "#C87560" }} /></div>

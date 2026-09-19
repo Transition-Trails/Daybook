@@ -95,3 +95,4 @@
 - [Planner PDF import resume](planner-pdf-import-resume.md) — analyzed PDFs are autosaved review projects; keep them discoverable, resumable, and full-color
 - [AI governance admission](ai-governance-admission.md) — tenant AI spend uses credential-owned quotas, DB reservations, active pricing, and fail-closed monthly controls
 - [Canon-grounded solo play](canon-grounded-solo-play.md) — start with a guided prompt deck plus one limited branch; keep foundation Canon immutable and contributions provenance-aware
+- [Late Canon-relation migration order](late-canon-relation-migration-order.md) — the 0047 relation migration intentionally follows 0050 in the journal; keep timestamps monotonic

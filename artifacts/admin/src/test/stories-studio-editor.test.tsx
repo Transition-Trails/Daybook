@@ -24,16 +24,6 @@ describe("StoriesStudio editor", () => {
     apiFetch.mockReset();
     navigate.mockReset();
     apiFetch.mockImplementation((path: string) => {
-      if (path === "/v1/editorial/stories/suggest") {
-        return Promise.resolve({
-          suggestions: [{
-            title: "The Ashcroft Lantern",
-            rationale: "A lost light exposes a hidden path through Wychcombe.",
-            narrativePromise: "A reluctant keeper must carry a dangerous lantern before the town’s oldest secret consumes it.",
-            recommendedStatus: "planned",
-          }],
-        });
-      }
       return Promise.resolve({
         stories: [{
           id: "story-1",
@@ -85,18 +75,15 @@ describe("StoriesStudio editor", () => {
     });
   });
 
-  it("opens a prefilled full-page editor from a suggested storyline card", async () => {
+  it("directs editors to Discovery Review instead of generating ideas locally", async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <StoriesStudio />
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole("heading", { name: "Suggested storylines" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Create record/ }));
-
-    expect(navigate).toHaveBeenCalledWith(
-      "/super/worldsmith/editorial/stories/new?title=The%20Ashcroft%20Lantern&summary=A%20reluctant%20keeper%20must%20carry%20a%20dangerous%20lantern%20before%20the%20town%E2%80%99s%20oldest%20secret%20consumes%20it.&status=planned",
-    );
+    expect(await screen.findByText("Ideas are generated and reviewed in Discovery Review.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Suggested storylines" })).not.toBeInTheDocument();
+    expect(apiFetch).not.toHaveBeenCalledWith("/v1/editorial/stories/suggest", expect.anything());
   });
 });

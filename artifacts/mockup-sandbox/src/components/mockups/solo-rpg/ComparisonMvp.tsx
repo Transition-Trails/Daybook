@@ -23,6 +23,11 @@ import {
   Sparkles,
   Users,
   UserRound,
+  Volume2,
+  Play,
+  Pause,
+  Image,
+  WandSparkles,
   X,
 } from "lucide-react";
 
@@ -93,9 +98,9 @@ const canon = [
 ];
 
 const worlds = [
-  { id: "garden", label: "Victorian Garden Journal", shortLabel: "The Garden", era: "1890 · botanical mystery", description: "A locked glasshouse, unfinished letters, and a key that remembers.", accent: "#a35d45", swatch: "linear-gradient(135deg, #d9c4a6 0%, #778a70 100%)", signal: "The key hums near rosemary." },
-  { id: "orbital", label: "The Orbital Choir", shortLabel: "Orbital Choir", era: "far future · signal mystery", description: "A listening station receives a song from a ship that vanished.", accent: "#5f7188", swatch: "linear-gradient(135deg, #27344b 0%, #a7b7bd 100%)", signal: "The dead ship answers in your voice." },
-  { id: "salt-moon", label: "Salt Moon Country", shortLabel: "Salt Moon", era: "mythic coast · family folklore", description: "At low tide, the shoreline returns what the village forgot.", accent: "#8b6b54", swatch: "linear-gradient(135deg, #e3c9a6 0%, #7d9a99 100%)", signal: "The tide leaves a door in the salt." },
+  { id: "garden", label: "Victorian Garden Journal", shortLabel: "The Garden", era: "1890 · botanical mystery", description: "A locked glasshouse, unfinished letters, and a key that remembers.", accent: "#a35d45", swatch: "linear-gradient(135deg, #d9c4a6 0%, #778a70 100%)", signal: "The key hums near rosemary.", voice: "A close, observant voice that notices what the room refuses to say.", visual: "Pressed leaves, tarnished brass, rain on glass." },
+  { id: "orbital", label: "The Orbital Choir", shortLabel: "Orbital Choir", era: "far future · signal mystery", description: "A listening station receives a song from a ship that vanished.", accent: "#5f7188", swatch: "linear-gradient(135deg, #27344b 0%, #a7b7bd 100%)", signal: "The dead ship answers in your voice.", voice: "A patient transmission from the edge of a signal, warm beneath the static.", visual: "Signal noise, blue-black glass, star maps and worn interfaces." },
+  { id: "salt-moon", label: "Salt Moon Country", shortLabel: "Salt Moon", era: "mythic coast · family folklore", description: "At low tide, the shoreline returns what the village forgot.", accent: "#8b6b54", swatch: "linear-gradient(135deg, #e3c9a6 0%, #7d9a99 100%)", signal: "The tide leaves a door in the salt.", voice: "A story passed between generations, playful at the shore and serious at the threshold.", visual: "Salt-crusted cloth, moonlit water, shells marked with names." },
 ];
 
 const lifecycle = [
@@ -120,6 +125,9 @@ export default function ComparisonMvp() {
   const [communityJoined, setCommunityJoined] = useState(false);
   const [communityChannel, setCommunityChannel] = useState("canon-garden");
   const [selectedAsset, setSelectedAsset] = useState("garden-notebook");
+  const [voicePlaying, setVoicePlaying] = useState(false);
+  const [voiceStyle, setVoiceStyle] = useState("intimate");
+  const [visualFocus, setVisualFocus] = useState("material");
 
   const active = useMemo(
     () => concepts.find((concept) => concept.id === selected) ?? concepts[0],
@@ -246,6 +254,70 @@ export default function ComparisonMvp() {
                 <span className="text-[11px] text-[#b8beae]"><CircleDot size={12} className="mr-1 inline text-[#d59878]" /> {sceneStarted ? "Unsaved discovery" : "Not yet started"}</span>
               </div>
               <div className="mt-8 flex items-center gap-2 border-t border-[#687164] pt-4 text-[11px] text-[#b9b8a7]"><Clock3 size={13} /> Last opened 8 minutes ago · 6 min remaining</div>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-b border-[#b7a995]/60 py-9">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#a35d45]">Authoring the atmosphere</p>
+              <h2 className="mt-2 max-w-3xl font-serif text-3xl tracking-[-0.03em]">Give the world a voice before you give it more rules.</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#766d61]">
+                Authors bring a world alive by choosing how it speaks and what it leaves behind. Voice notes and visual references become a shared grammar for scenes, assets, and future Daybook pages.
+              </p>
+            </div>
+            <span className="flex items-center gap-2 text-xs text-[#6f665c]"><WandSparkles size={15} className="text-[#a35d45]" /> World grammar · author-owned direction</span>
+          </div>
+          <div className="mt-5 grid gap-3 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="relative overflow-hidden border border-[#b7a995] bg-[#34372f] p-5 text-[#f4ecdc]">
+              <div className="absolute -right-8 -top-10 h-36 w-36 rounded-full border border-[#c8b88e]/20" />
+              <div className="relative">
+                  <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d7c6a1]"><Volume2 size={14} /> Voice of the world</div>
+                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#aeb5a4]">ElevenLabs brief</span>
+                </div>
+                <p className="mt-5 max-w-md font-serif text-2xl leading-tight">“{activeWorld.voice}”</p>
+                <div className="mt-5 flex items-center gap-3 border-t border-[#687164] pt-4">
+                  <button onClick={() => setVoicePlaying((value) => !value)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#d59878] text-[#332c27] transition-transform hover:scale-105" aria-label={voicePlaying ? "Pause voice sample" : "Play voice sample"}>
+                    {voicePlaying ? <Pause size={15} /> : <Play size={15} className="ml-0.5" />}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex h-5 items-center gap-1">
+                      {[12, 18, 9, 23, 15, 25, 11, 19, 8, 16, 22, 13, 18, 10, 20, 14, 8, 17].map((height, index) => <span key={index} className={`w-1 rounded-full transition-all ${voicePlaying ? "bg-[#d59878]" : "bg-[#85917f]"}`} style={{ height }} />)}
+                    </div>
+                    <p className="mt-1 text-[10px] text-[#b9b8a7]">{voicePlaying ? "Playing a 0:18 ElevenLabs-ready sample" : "Preview the ElevenLabs-ready voice direction"}</p>
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {[["intimate", "Close + tactile"], ["ceremonial", "Ceremonial"], ["unsettling", "Unsettling"]].map(([id, label]) => <button key={id} onClick={() => setVoiceStyle(id)} className={`rounded-full border px-3 py-1.5 text-[10px] ${voiceStyle === id ? "border-[#d59878] bg-[#a35d45]/40 text-[#fff4e4]" : "border-[#6f7b6e] text-[#c8c5b7]"}`}>{label}</button>)}
+                </div>
+              </div>
+            </div>
+            <div className="border border-[#b7a995] bg-[#f7f0e3] p-5">
+              <div className="flex items-center justify-between border-b border-[#d7cbbb] pb-3">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#4c463d]"><Image size={15} className="text-[#a35d45]" /> Visual grammar</div>
+                <span className="font-mono text-[9px] uppercase tracking-[0.13em] text-[#9b8f7e]">HeyGen visual brief</span>
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                {[
+                  ["material", "Material", activeWorld.visual.split(", ")[0], activeWorld.swatch],
+                  ["motif", "Recurring motif", activeWorld.signal.split(".")[0], "linear-gradient(145deg, #c8b88e 0%, #8d9c8d 100%)"],
+                  ["light", "Light + color", "A palette the reader can feel", activeWorld.swatch],
+                ].map(([id, label, detail, swatch]) => (
+                  <button key={id} onClick={() => setVisualFocus(id)} className={`overflow-hidden border text-left transition-transform hover:-translate-y-0.5 ${visualFocus === id ? "border-[#a35d45] ring-1 ring-[#a35d45]" : "border-[#d7cbbb]"}`}>
+                    <div className="h-16" style={{ background: swatch }} />
+                    <div className="bg-[#f1e8da] p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#8c6d5f]">{label}</p>
+                      <p className="mt-2 text-xs leading-4 text-[#50483f]">{detail}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 flex items-center justify-between gap-3 border-t border-[#d7cbbb] pt-4">
+                <p className="flex items-center gap-2 text-xs text-[#756b60]"><ShieldCheck size={14} className="text-[#66785d]" /> HeyGen references guide the visual treatment; they do not replace authorship.</p>
+                <button onClick={() => setSceneStarted(true)} className="shrink-0 text-xs font-bold text-[#9a553d]">Use in next scene <ArrowRight size={13} className="ml-1 inline" /></button>
+              </div>
             </div>
           </div>
         </section>

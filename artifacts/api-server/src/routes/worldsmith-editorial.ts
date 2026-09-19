@@ -40,7 +40,7 @@ import {
 } from "../lib/worldsmith/editorial-rich-text";
 import { requireAuth } from "../lib/auth-middleware";
 import { requireStoreAccess, requireSuperAdmin } from "../middleware/requireRole";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import {
   wsCollectionsTable,
   wsVolumesTable,
@@ -92,7 +92,13 @@ import {
   renderCanonSnapshot,
   shouldAutoSyncContextSnapshot,
   snapshotHash,
+  kebab,
 } from "../lib/worldsmith/context-snapshot";
+import {
+  assignCanonImageRoles,
+  buildCanonImageExport,
+  type CanonImageRole,
+} from "../lib/worldsmith/context-snapshot-images";
 import { callAi } from "../lib/ai-proxy";
 import { generateImage } from "../lib/worldsmith/image-generation";
 import { canForceSuggestionRefresh } from "../lib/worldsmith/suggestion-refresh-policy";
@@ -1040,6 +1046,7 @@ type CanonImageGalleryEntry = {
   url: string;
   name: string;
   description: string;
+  role: CanonImageRole;
 };
 
 class CanonImageGalleryValidationError extends Error {}
@@ -1051,17 +1058,35 @@ function normaliseCanonImageGallery(
 ): CanonImageGalleryEntry[] {
   if (gallery !== undefined) {
     if (!Array.isArray(gallery)) throw new CanonImageGalleryValidationError("image_gallery must be an array");
-    return gallery.flatMap((value): CanonImageGalleryEntry[] => {
+    const parsed = gallery.flatMap((value): Array<Omit<CanonImageGalleryEntry, "role"> & { role?: CanonImageRole }> => {
       if (!value || typeof value !== "object") return [];
       const candidate = value as Record<string, unknown>;
       const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
       if (!url) return [];
+      const role = typeof candidate.role === "string"
+        && ["primary", "reference", "scene", "alternate", "detail"].includes(candidate.role)
+        ? candidate.role as CanonImageRole
+        : undefined;
+      if (candidate.role !== undefined && role === undefined) {
+        throw new CanonImageGalleryValidationError(`Unsupported Canon image role: ${String(candidate.role).slice(0, 40)}`);
+      }
       return [{
         url,
         name: typeof candidate.name === "string" ? candidate.name.trim().slice(0, 200) : "",
         description: typeof candidate.description === "string" ? candidate.description.trim().slice(0, 2000) : "",
+        ...(role ? { role } : {}),
       }];
     });
+    try {
+      return assignCanonImageRoles(parsed).map(image => ({
+        url: image.url,
+        name: image.name ?? "",
+        description: image.description ?? "",
+        role: image.role,
+      }));
+    } catch (error) {
+      throw new CanonImageGalleryValidationError(error instanceof Error ? error.message : "Invalid Canon image roles");
+    }
   }
   const legacyUrls = Array.isArray(urls)
     ? urls.filter((value: unknown): value is string => typeof value === "string" && value.trim().length > 0)
@@ -1070,6 +1095,7 @@ function normaliseCanonImageGallery(
     url,
     name: index === 0 ? "Primary Canon portrait" : "",
     description: "",
+    role: index === 0 ? "primary" : "reference",
   }));
 }
 
@@ -1734,6 +1760,9 @@ async function buildCanonContextSnapshot(recordId: string) {
         .from(wsPromptModulesTable).where(inArray(wsPromptModulesTable.id, moduleIds))
     : [];
 
+  const worldRecords = await db.select().from(wsCanonRecordsTable)
+    .where(eq(wsCanonRecordsTable.worldId, record.worldId));
+  const imageExport = await buildCanonImageExport(worldRecords);
   const snapshotRecord = {
     ...record,
     worldName: world.name,
@@ -1749,11 +1778,18 @@ async function buildCanonContextSnapshot(recordId: string) {
     }),
     linkedSpecs: specs.map(spec => ({ id: spec.id, name: spec.name || "Untitled Production Spec" })),
     linkedPromptModules: modules,
+    images: (imageExport.mappingsByRecordId.get(record.id) ?? []).map(image => ({
+      role: image.role,
+      repositoryPath: image.repositoryPath,
+    })),
   };
+  const markdown = renderCanonSnapshot(snapshotRecord, record.updatedAt);
   return {
     record,
     path: canonSnapshotPath(snapshotRecord),
-    markdown: renderCanonSnapshot(snapshotRecord),
+    markdown,
+    files: [...imageExport.files, { path: canonSnapshotPath(snapshotRecord), content: markdown }],
+    assetRoot: imageExport.assetRoot,
   };
 }
 
@@ -1761,69 +1797,94 @@ async function publishCanonContextSnapshot(recordId: string): Promise<{
   status: "current" | "sync_failed";
   snapshot: typeof wsContextSnapshotsTable.$inferSelect;
 }> {
-  const built = await buildCanonContextSnapshot(recordId);
-  if (!built) throw new Error("Canon record not found");
-  const [existingSnapshot] = await db.select({
-    githubPath: wsContextSnapshotsTable.githubPath,
-  }).from(wsContextSnapshotsTable).where(and(
-    eq(wsContextSnapshotsTable.entityType, "canon_record"),
-    eq(wsContextSnapshotsTable.entityId, recordId),
-  )).limit(1);
+  const [scope] = await db.select({ worldId: wsCanonRecordsTable.worldId })
+    .from(wsCanonRecordsTable)
+    .where(eq(wsCanonRecordsTable.id, recordId))
+    .limit(1);
+  if (!scope) throw new Error("Canon record not found");
+  const lockKey = `worldsmith:canon-context-snapshot:${scope.worldId}`;
+  const lockClient = await pool.connect();
+  let lockAcquired = false;
   try {
-    const published = await new ContextSnapshotGitHubPublisher().publish(
-      built.path,
-      built.markdown,
-      `context: update Canon snapshot for ${built.record.name}`,
-      existingSnapshot?.githubPath,
-    );
-    const now = new Date();
-    const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
-      entityType: "canon_record",
-      entityId: recordId,
-      worldId: built.record.worldId,
-      githubPath: published.path,
-      githubCommitSha: published.commitSha,
-      status: "current",
-      contentHash: snapshotHash(built.markdown),
-      recordUpdatedAt: built.record.updatedAt,
-      lastSnapshotAt: now,
-      lastError: null,
-    }).onConflictDoUpdate({
-      target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
-      set: {
+    await lockClient.query("select pg_advisory_lock(hashtext($1))", [lockKey]);
+    lockAcquired = true;
+    const built = await buildCanonContextSnapshot(recordId);
+    if (!built) throw new Error("Canon record not found");
+    const [existingSnapshot] = await db.select({
+      githubPath: wsContextSnapshotsTable.githubPath,
+    }).from(wsContextSnapshotsTable).where(and(
+      eq(wsContextSnapshotsTable.entityType, "canon_record"),
+      eq(wsContextSnapshotsTable.entityId, recordId),
+    )).limit(1);
+    try {
+      const published = await new ContextSnapshotGitHubPublisher().publishFiles(
+        built.files,
+        `context: update Canon snapshot for ${built.record.name}`,
+        existingSnapshot?.githubPath && existingSnapshot.githubPath !== built.path
+          ? [existingSnapshot.githubPath]
+          : [],
+        [],
+        [{
+          root: `${built.assetRoot}/`,
+          directoryPrefix: `${kebab(built.record.id)}-`,
+        }],
+      );
+      const now = new Date();
+      const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
+        entityType: "canon_record",
+        entityId: recordId,
         worldId: built.record.worldId,
-        githubPath: published.path,
+        githubPath: built.path,
         githubCommitSha: published.commitSha,
         status: "current",
         contentHash: snapshotHash(built.markdown),
         recordUpdatedAt: built.record.updatedAt,
         lastSnapshotAt: now,
         lastError: null,
-        updatedAt: now,
-      },
-    }).returning();
-    return { status: "current", snapshot };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Context Snapshot sync failed";
-    logger.error({ err, recordId }, "editorial: update context snapshot");
-    const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
-      entityType: "canon_record",
-      entityId: recordId,
-      worldId: built.record.worldId,
-      githubPath: existingSnapshot?.githubPath ?? built.path,
-      status: "sync_failed",
-      lastError: message.slice(0, 500),
-    }).onConflictDoUpdate({
-      target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
-      set: {
+      }).onConflictDoUpdate({
+        target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
+        set: {
+          worldId: built.record.worldId,
+          githubPath: built.path,
+          githubCommitSha: published.commitSha,
+          status: "current",
+          contentHash: snapshotHash(built.markdown),
+          recordUpdatedAt: built.record.updatedAt,
+          lastSnapshotAt: now,
+          lastError: null,
+          updatedAt: now,
+        },
+      }).returning();
+      return { status: "current", snapshot };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Context Snapshot sync failed";
+      logger.error({ err, recordId }, "editorial: update context snapshot");
+      const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
+        entityType: "canon_record",
+        entityId: recordId,
         worldId: built.record.worldId,
         githubPath: existingSnapshot?.githubPath ?? built.path,
         status: "sync_failed",
         lastError: message.slice(0, 500),
-        updatedAt: new Date(),
-      },
-    }).returning();
-    return { status: "sync_failed", snapshot };
+      }).onConflictDoUpdate({
+        target: [wsContextSnapshotsTable.entityType, wsContextSnapshotsTable.entityId],
+        set: {
+          worldId: built.record.worldId,
+          githubPath: existingSnapshot?.githubPath ?? built.path,
+          status: "sync_failed",
+          lastError: message.slice(0, 500),
+          updatedAt: new Date(),
+        },
+      }).returning();
+      return { status: "sync_failed", snapshot };
+    }
+  } finally {
+    if (lockAcquired) {
+      await lockClient.query("select pg_advisory_unlock(hashtext($1))", [lockKey]).catch(error => {
+        logger.error({ error, worldId: scope.worldId }, "editorial: release Canon context snapshot lock");
+      });
+    }
+    lockClient.release();
   }
 }
 

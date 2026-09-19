@@ -1,0 +1,253 @@
+Please update the Daybook/WorldSmith application so canon-record images are exported to GitHub alongside the generated canon context snapshots.
+
+Repository:
+`https://github.com/Transition-Trails/Daybook`
+
+Important architecture rules:
+
+- Daybook remains the source of truth.
+- The `context-snapshots` branch contains generated canon exports.
+- Do not manually edit generated snapshot files as the implementation.
+- Update the application’s snapshot-generation workflow so future exports remain automatic and repeatable.
+- Preserve existing canon-record IDs, paths, Markdown content, and branch behavior.
+- Do not expose signed URLs, credentials, storage tokens, or other secrets in GitHub.
+
+## Problem
+
+Canon-record Markdown files currently describe the characters and may reference a `portrait_url`, but the actual primary canon images are not exported in a dependable way.
+
+The repository contains many anonymously named files under `attached_assets`, but there is no reliable mapping from those files to canon records.
+
+External tools therefore cannot determine which image belongs to Elias Ashcroft, Clara Bellamy Ashcroft, Frederick Ashcroft, or another character.
+
+We need stable, human-readable image files and a machine-readable manifest.
+
+## Required behavior
+
+When Daybook generates or updates a context snapshot:
+
+1. Find every image attached to each canon record.
+2. Identify which image is marked `PRIMARY`.
+3. Export the actual image file to the `context-snapshots` branch.
+4. Preserve the original image bytes and format whenever possible.
+5. Do not recompress or resize the source image during the canon export.
+6. Give the image a stable, human-readable filename.
+7. Add the image mapping to the generated Markdown record.
+8. Generate a central JSON manifest containing all canon-record image mappings.
+9. Support records with no image without failing the snapshot.
+10. Design the schema to support additional reference images later, even if only the primary image is currently used.
+
+## Recommended directory structure
+
+Use a structure similar to:
+
+```text
+worlds/{world-slug}/context/canon/assets/
+  characters/
+    {canonical-id}-{record-slug}/
+      portrait-primary.png
+  locations/
+    {canonical-id}-{record-slug}/
+      image-primary.png
+  objects/
+    {canonical-id}-{record-slug}/
+      image-primary.png
+```
+
+Example:
+
+```text
+worlds/wyc/context/canon/assets/characters/
+  edb29f8a-af50-49fa-bf8c-9c07dadd4ad6-elias-ashcroft/
+    portrait-primary.png
+```
+
+Use the canonical record ID in the directory name so renaming a record does not create ambiguity.
+
+If an image is replaced, update the existing canonical primary-image path rather than accumulating randomly named obsolete files. Remove an obsolete exported image only when it is no longer attached to the record and the new snapshot has been generated successfully.
+
+## Markdown output
+
+Add a generated section to each canon record containing images:
+
+```markdown
+## Record Images
+
+- **Primary:** [portrait-primary.png](../assets/characters/{canonical-id}-{record-slug}/portrait-primary.png)
+```
+
+Use the correct relative path from the Markdown record.
+
+If the snapshot format supports image rendering safely, also include:
+
+```markdown
+![Primary canon portrait of Elias Ashcroft](../assets/characters/{canonical-id}-elias-ashcroft/portrait-primary.png)
+```
+
+The alt text should use:
+
+```text
+Primary canon portrait of {Record Name}
+```
+
+Do not add an empty `Record Images` section when a record has no attached image.
+
+## Image manifest
+
+Generate:
+
+```text
+worlds/{world-slug}/context/canon/image-manifest.json
+```
+
+Recommended structure:
+
+```json
+{
+  "schema_version": "1.0",
+  "world_id": "wyc",
+  "generated_at": "ISO-8601 timestamp",
+  "records": [
+    {
+      "canonical_id": "edb29f8a-af50-49fa-bf8c-9c07dadd4ad6",
+      "record_name": "Elias Ashcroft",
+      "record_slug": "elias-ashcroft",
+      "canon_type": "character",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/characters/edb29f8a-af50-49fa-bf8c-9c07dadd4ad6-elias-ashcroft/portrait-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "checksum",
+          "source_asset_id": "internal stable asset identifier",
+          "source_updated_at": "ISO-8601 timestamp"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Requirements:
+
+- Use stable internal asset IDs—not signed storage URLs.
+- Include SHA-256 checksums.
+- Include image dimensions when available.
+- Use repository-relative paths.
+- Sort records deterministically by canon type, record name, and canonical ID.
+- Sort images with `primary` first.
+- Produce deterministic JSON formatting so unchanged snapshots do not create noisy Git diffs.
+- Do not include temporary file paths.
+
+## Source-image handling
+
+Determine how Daybook currently stores canon-record images.
+
+Possible sources may include:
+
+- Object storage
+- Database asset records
+- Upload tables
+- Canon-record image relationship tables
+- Existing `portrait_url` fields
+- Visual-asset records
+
+Use the authoritative attachment relationship rather than trying to infer ownership from filenames.
+
+If files live in object storage:
+
+- Fetch them server-side using the application’s existing authenticated storage integration.
+- Do not commit signed URLs.
+- Do not expose access tokens.
+- Fail safely if an image cannot be fetched.
+- Report the affected canonical ID and asset ID clearly.
+- Continue exporting unaffected records unless the current snapshot architecture requires the entire operation to be atomic.
+
+## Primary-image rules
+
+- Use the image explicitly marked `PRIMARY`.
+- If exactly one image exists and no primary flag is set, use it as primary only if that matches current Daybook behavior; otherwise report the missing designation.
+- If multiple images exist and none is primary, do not choose arbitrarily.
+- If multiple images are marked primary, fail validation for that record and report the conflict.
+- Preserve the ability to export secondary/reference images later with roles such as:
+  - `primary`
+  - `reference`
+  - `scene`
+  - `alternate`
+  - `detail`
+
+## Backfill
+
+After implementation, regenerate the Wychcombe snapshots and verify image export for every canon record that currently has an attached image.
+
+At minimum, verify the known character records:
+
+- Elias Ashcroft
+- Clara Bellamy Ashcroft
+- Frederick Ashcroft
+
+Also report which other canon records currently have images.
+
+Do not fabricate missing images.
+
+## Git behavior
+
+- The generated image files must be committed to the `context-snapshots` branch through the existing snapshot workflow.
+- Do not commit image files to `main` unless the application’s existing architecture explicitly requires source assets there.
+- Do not commit credentials, temporary downloads, cache files, or signed URLs.
+- Check whether Git LFS is already configured.
+- Do not introduce Git LFS silently. If the repository does not use it, keep this initial implementation compatible with the existing Git workflow and report any repository-size concern separately.
+- Snapshot generation must remain idempotent: running it twice without source changes should create no meaningful Git diff.
+
+## Validation and tests
+
+Add automated tests covering:
+
+1. A record with one primary image
+2. A record with multiple images and one primary
+3. A record with no image
+4. A record with multiple images but no primary
+5. A record with conflicting primary images
+6. PNG, JPEG, and WebP preservation
+7. Safe filename and slug generation
+8. Correct Markdown relative links
+9. Correct manifest output
+10. Stable checksums
+11. Deterministic ordering
+12. Image replacement
+13. Image removal
+14. Failed object-storage retrieval
+15. Snapshot rerun with no changes
+
+## Acceptance criteria
+
+The task is complete when:
+
+- The actual primary canon images are present on the `context-snapshots` branch.
+- Each exported image has a stable path connected to its canonical ID.
+- Each applicable Markdown record links to its image.
+- `image-manifest.json` maps records to their images.
+- Elias Ashcroft, Clara Bellamy Ashcroft, and Frederick Ashcroft can be identified without inspecting anonymous assets manually.
+- No signed URLs or credentials are committed.
+- Re-running the snapshot process produces no unnecessary changes.
+- Existing canon snapshot generation continues to work for records without images.
+- Tests pass.
+
+## Final response
+
+When finished, provide:
+
+1. The files and application components changed
+2. The image-storage relationship discovered
+3. The final export path convention
+4. The manifest schema used
+5. The tests added and their results
+6. The canon records whose images were successfully backfilled
+7. Any records with missing or conflicting primary-image designations
+8. Any repository-size or Git concerns
+9. The commit or branch containing the implementation
+
+Please inspect the existing codebase and implement this using its current architecture and conventions. Do not create a parallel export system if an existing snapshot generator can be extended.

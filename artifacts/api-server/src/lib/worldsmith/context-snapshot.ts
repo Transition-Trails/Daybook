@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import path from "node:path";
 
 export interface CanonSnapshotRecord {
   id: string;
@@ -21,6 +22,7 @@ export interface CanonSnapshotRecord {
   relationships: Array<{ relationType?: string | null; recordId: string; name: string; canonType?: string | null }>;
   linkedSpecs: Array<{ id: string; name: string }>;
   linkedPromptModules: Array<{ id: string; name: string }>;
+  images?: Array<{ role: string; repositoryPath: string }>;
 }
 
 const entityMap: Record<string, string> = {
@@ -75,6 +77,25 @@ function linkedSection(title: string, records: Array<{ id: string; name: string 
   ];
 }
 
+function imageSection(record: CanonSnapshotRecord): string[] {
+  if (!record.images?.length) return [];
+  const markdownPath = canonSnapshotPath(record);
+  const markdownDir = path.posix.dirname(markdownPath);
+  const rows = [...record.images]
+    .sort((a, b) => a.role === "primary" ? -1 : b.role === "primary" ? 1 : a.repositoryPath.localeCompare(b.repositoryPath))
+    .map(image => {
+      const relativePath = path.posix.relative(markdownDir, image.repositoryPath);
+      const label = image.role === "primary" ? "Primary" : image.role.replace(/^./, value => value.toUpperCase());
+      return `- **${label}:** [${path.posix.basename(image.repositoryPath)}](${relativePath})`;
+    });
+  const primary = record.images.find(image => image.role === "primary");
+  if (primary) {
+    const relativePath = path.posix.relative(markdownDir, primary.repositoryPath);
+    rows.push("", `![Primary canon portrait of ${markdownText(record.name)}](${relativePath})`);
+  }
+  return ["## Record Images", "", ...rows, ""];
+}
+
 export function canonSnapshotPath(record: Pick<CanonSnapshotRecord, "worldId" | "canonType" | "id" | "name">): string {
   const category = `${kebab(record.canonType || "record")}s`;
   return `worlds/${kebab(record.worldId)}/context/canon/${category}/${kebab(record.id)}-${kebab(record.name)}.md`;
@@ -101,6 +122,7 @@ export function renderCanonSnapshot(record: CanonSnapshotRecord, generatedAt = n
     ...section("Temporal Scope", record.temporalScope),
     ...section("Emotional Valence", record.emotionalValence),
     ...section("Canon Notes and Open Questions", record.notes),
+    ...imageSection(record),
     ...relationshipSection(record),
     ...linkedSection("Related Production Specs", record.linkedSpecs),
     ...linkedSection("Related Prompt Modules", record.linkedPromptModules),
@@ -249,6 +271,121 @@ export class ContextSnapshotGitHubPublisher {
       }
       throw new Error("Context Snapshot publish retry exhausted.");
     });
+  }
+
+  async publishFiles(
+    files: Array<{ path: string; content: string | Buffer }>,
+    message: string,
+    deletePaths: string[] = [],
+    deletePrefixes: string[] = [],
+    deleteDirectoryScopes: Array<{ root: string; directoryPrefix: string }> = [],
+  ): Promise<{ commitSha: string; changed: boolean }> {
+    return enqueueContextSnapshotPublish(async () => {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          return await this.publishFilesNow(files, message, deletePaths, deletePrefixes, deleteDirectoryScopes);
+        } catch (error) {
+          const retryableConflict = error instanceof Error
+            && (error.message.includes("HTTP 409") || error.message.includes("HTTP 422"));
+          if (!retryableConflict || attempt === 3) throw error;
+          await new Promise(resolve => setTimeout(resolve, attempt * 250));
+        }
+      }
+      throw new Error("Context Snapshot batch publish retry exhausted.");
+    });
+  }
+
+  private async publishFilesNow(
+    files: Array<{ path: string; content: string | Buffer }>,
+    message: string,
+    deletePaths: string[],
+    deletePrefixes: string[],
+    deleteDirectoryScopes: Array<{ root: string; directoryPrefix: string }>,
+  ): Promise<{ commitSha: string; changed: boolean }> {
+    const token = this.options.token ?? process.env.GITHUB_TOKEN;
+    const repository = this.options.repository
+      ?? process.env.WORLDSMITH_CONTEXT_REPOSITORY
+      ?? "Transition-Trails/Daybook";
+    const branch = this.options.branch
+      ?? process.env.WORLDSMITH_CONTEXT_BRANCH
+      ?? "context-snapshots";
+    if (!token) throw new Error("GitHub access is not configured.");
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error("The Context Snapshot repository is invalid.");
+    const fetchImpl = this.options.fetchImpl ?? fetch;
+    const headers = {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+    };
+    await this.ensureBranch(fetchImpl, repository, branch, headers);
+    const apiRoot = `https://api.github.com/repos/${repository}`;
+    const refResponse = await fetchImpl(`${apiRoot}/git/ref/heads/${encodeURIComponent(branch)}`, { headers });
+    if (!refResponse.ok) throw new Error(`GitHub could not read the Context Snapshot branch (HTTP ${refResponse.status}).`);
+    const headSha = String((await refResponse.json() as { object?: { sha?: string } }).object?.sha || "");
+    if (!headSha) throw new Error("GitHub did not return the Context Snapshot branch head.");
+    const commitResponse = await fetchImpl(`${apiRoot}/git/commits/${headSha}`, { headers });
+    if (!commitResponse.ok) throw new Error(`GitHub could not read the Context Snapshot commit (HTTP ${commitResponse.status}).`);
+    const baseTreeSha = String((await commitResponse.json() as { tree?: { sha?: string } }).tree?.sha || "");
+    if (!baseTreeSha) throw new Error("GitHub did not return the Context Snapshot tree.");
+    const treeResponse = await fetchImpl(`${apiRoot}/git/trees/${baseTreeSha}?recursive=1`, { headers });
+    if (!treeResponse.ok) throw new Error(`GitHub could not read the Context Snapshot tree (HTTP ${treeResponse.status}).`);
+    const existingTree = (await treeResponse.json() as { tree?: Array<{ path?: string; sha?: string; type?: string }> }).tree ?? [];
+    const existingByPath = new Map(existingTree.filter(entry => entry.type === "blob" && entry.path).map(entry => [entry.path!, entry.sha ?? ""]));
+
+    const desired = new Map(files.map(file => [file.path, Buffer.isBuffer(file.content) ? file.content : Buffer.from(file.content, "utf8")]));
+    const gitBlobSha = (bytes: Buffer) => createHash("sha1")
+      .update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes]))
+      .digest("hex");
+    const changedFiles = [...desired].filter(([filePath, bytes]) => existingByPath.get(filePath) !== gitBlobSha(bytes));
+    const prefixDeletes = [...existingByPath.keys()].filter(filePath =>
+      deletePrefixes.some(prefix => filePath.startsWith(prefix)),
+    );
+    const scopedDirectoryDeletes = [...existingByPath.keys()].filter(filePath =>
+      deleteDirectoryScopes.some(({ root, directoryPrefix }) => {
+        if (!filePath.startsWith(root)) return false;
+        return filePath.slice(root.length).split("/").some(segment => segment.startsWith(directoryPrefix));
+      }),
+    );
+    const actualDeletes = [...new Set([...deletePaths, ...prefixDeletes, ...scopedDirectoryDeletes])]
+      .filter(filePath => existingByPath.has(filePath) && !desired.has(filePath));
+    if (!changedFiles.length && !actualDeletes.length) return { commitSha: headSha, changed: false };
+
+    const entries: Array<{ path: string; mode: "100644"; type: "blob"; sha: string | null }> = [];
+    for (const [filePath, bytes] of changedFiles) {
+      const blobResponse = await fetchImpl(`${apiRoot}/git/blobs`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ content: bytes.toString("base64"), encoding: "base64" }),
+      });
+      if (!blobResponse.ok) throw new Error(`GitHub could not upload ${filePath} (HTTP ${blobResponse.status}).`);
+      const blobSha = String((await blobResponse.json() as { sha?: string }).sha || "");
+      if (!blobSha) throw new Error(`GitHub did not return a blob for ${filePath}.`);
+      entries.push({ path: filePath, mode: "100644", type: "blob", sha: blobSha });
+    }
+    for (const filePath of actualDeletes) entries.push({ path: filePath, mode: "100644", type: "blob", sha: null });
+    const newTreeResponse = await fetchImpl(`${apiRoot}/git/trees`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ base_tree: baseTreeSha, tree: entries }),
+    });
+    if (!newTreeResponse.ok) throw new Error(`GitHub could not prepare the Context Snapshot tree (HTTP ${newTreeResponse.status}).`);
+    const newTreeSha = String((await newTreeResponse.json() as { sha?: string }).sha || "");
+    const newCommitResponse = await fetchImpl(`${apiRoot}/git/commits`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ message, tree: newTreeSha, parents: [headSha] }),
+    });
+    if (!newCommitResponse.ok) throw new Error(`GitHub could not create the Context Snapshot commit (HTTP ${newCommitResponse.status}).`);
+    const commitSha = String((await newCommitResponse.json() as { sha?: string }).sha || "");
+    if (!commitSha) throw new Error("GitHub did not return the Context Snapshot commit.");
+    const updateRefResponse = await fetchImpl(`${apiRoot}/git/refs/heads/${encodeURIComponent(branch)}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ sha: commitSha, force: false }),
+    });
+    if (!updateRefResponse.ok) throw new Error(`GitHub could not advance the Context Snapshot branch (HTTP ${updateRefResponse.status}).`);
+    return { commitSha, changed: true };
   }
 
   private async publishNow(

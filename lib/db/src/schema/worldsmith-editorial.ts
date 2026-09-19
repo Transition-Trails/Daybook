@@ -103,6 +103,7 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
     url: string;
     name: string;
     description: string;
+    role?: "primary" | "reference" | "scene" | "alternate" | "detail";
   }>>().notNull().default([]),
   // Rich editorial notes; markdown-formatted free text
   notes: text("notes").notNull().default(""),

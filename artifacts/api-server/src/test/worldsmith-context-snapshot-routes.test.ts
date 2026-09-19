@@ -28,6 +28,7 @@ vi.mock("../lib/worldsmith/context-snapshot.js", async importOriginal => {
     ...actual,
     ContextSnapshotGitHubPublisher: class {
       publish = mockPublish;
+      publishFiles = mockPublish;
     },
   };
 });

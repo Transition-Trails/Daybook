@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   canonSnapshotPath,
@@ -57,6 +58,25 @@ describe("WorldSmith Context Snapshots", () => {
     expect(canonSnapshotPath(record)).toBe(
       "worlds/wychcombe/context/canon/locations/wc-plc-001-stationery-house.md",
     );
+  });
+
+  it("adds correct relative image links only when a record has images", () => {
+    const withImage = renderCanonSnapshot({
+      ...record,
+      images: [{
+        role: "primary",
+        repositoryPath: "worlds/wychcombe/context/canon/assets/locations/wc-plc-001-stationery-house/image-primary.png",
+      }],
+    }, new Date("2026-09-18T12:00:00.000Z"));
+    expect(withImage).toContain("## Record Images");
+    expect(withImage).toContain(
+      "[image-primary.png](../assets/locations/wc-plc-001-stationery-house/image-primary.png)",
+    );
+    expect(withImage).toContain(
+      "![Primary canon portrait of Stationery House](../assets/locations/wc-plc-001-stationery-house/image-primary.png)",
+    );
+    expect(renderCanonSnapshot(record, new Date("2026-09-18T12:00:00.000Z")))
+      .not.toContain("## Record Images");
   });
 
   it("creates a new GitHub file and records the returned commit", async () => {
@@ -208,6 +228,103 @@ describe("WorldSmith Context Snapshots", () => {
     ]);
 
     expect(peakWrites).toBe(1);
+  });
+
+  it("publishes binary assets, Markdown, manifest, and removals in one Git tree commit", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ object: { sha: "head-1" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ tree: { sha: "tree-1" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ tree: [
+        { path: "worlds/wyc/context/canon/assets/characters/old-id-old/image-primary.png", sha: "old", type: "blob" },
+      ] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ sha: "blob-image" }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ sha: "blob-manifest" }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ sha: "tree-2" }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ sha: "commit-2" }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ object: { sha: "commit-2" } }), { status: 200 }));
+    const publisher = new ContextSnapshotGitHubPublisher({
+      fetchImpl: fetchImpl as typeof fetch,
+      token: "test-token",
+      repository: "Transition-Trails/Daybook",
+      branch: "main",
+    });
+    const result = await publisher.publishFiles([
+      { path: "worlds/wyc/context/canon/assets/characters/new-id-new/portrait-primary.png", content: Buffer.from([0, 1, 2, 3]) },
+      { path: "worlds/wyc/context/canon/image-manifest.json", content: "{\"schema_version\":\"1.0\"}\n" },
+    ], "context: export Canon images", [], ["worlds/wyc/context/canon/assets/"]);
+
+    expect(result).toEqual({ commitSha: "commit-2", changed: true });
+    const imageBlob = JSON.parse(String(fetchImpl.mock.calls[3]?.[1]?.body));
+    expect(Buffer.from(imageBlob.content, "base64")).toEqual(Buffer.from([0, 1, 2, 3]));
+    const treeBody = JSON.parse(String(fetchImpl.mock.calls[5]?.[1]?.body));
+    expect(treeBody.base_tree).toBe("tree-1");
+    expect(treeBody.tree).toContainEqual({
+      path: "worlds/wyc/context/canon/assets/characters/old-id-old/image-primary.png",
+      mode: "100644",
+      type: "blob",
+      sha: null,
+    });
+    expect(fetchImpl.mock.calls[7]?.[1]?.method).toBe("PATCH");
+    expect(JSON.parse(String(fetchImpl.mock.calls[7]?.[1]?.body))).toEqual({ sha: "commit-2", force: false });
+  });
+
+  it("scopes replacement and removal cleanup to the requested canonical ID", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ object: { sha: "head-1" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ tree: { sha: "tree-1" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ tree: [
+        { path: "worlds/wyc/context/canon/assets/characters/id-one-old/portrait-primary.jpg", sha: "old-one", type: "blob" },
+        { path: "worlds/wyc/context/canon/assets/characters/id-two-other/portrait-primary.png", sha: "keep-two", type: "blob" },
+      ] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ sha: "new-one" }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ sha: "tree-2" }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ sha: "commit-2" }), { status: 201 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    const publisher = new ContextSnapshotGitHubPublisher({
+      fetchImpl: fetchImpl as typeof fetch,
+      token: "test-token",
+      repository: "Transition-Trails/Daybook",
+      branch: "main",
+    });
+    await publisher.publishFiles([
+      { path: "worlds/wyc/context/canon/assets/characters/id-one-renamed/portrait-primary.png", content: Buffer.from("replacement") },
+    ], "replace one", [], [], [{
+      root: "worlds/wyc/context/canon/assets/",
+      directoryPrefix: "id-one-",
+    }]);
+    const entries = JSON.parse(String(fetchImpl.mock.calls[4]?.[1]?.body)).tree;
+    expect(entries).toContainEqual({
+      path: "worlds/wyc/context/canon/assets/characters/id-one-old/portrait-primary.jpg",
+      mode: "100644",
+      type: "blob",
+      sha: null,
+    });
+    expect(entries).not.toContainEqual(expect.objectContaining({
+      path: "worlds/wyc/context/canon/assets/characters/id-two-other/portrait-primary.png",
+      sha: null,
+    }));
+  });
+
+  it("does not create a Git commit when every file is unchanged", async () => {
+    const content = Buffer.from("stable\n");
+    const blobSha = createHash("sha1")
+      .update(Buffer.concat([Buffer.from(`blob ${content.length}\0`), content]))
+      .digest("hex");
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ object: { sha: "head-stable" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ tree: { sha: "tree-stable" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ tree: [
+        { path: "snapshot.md", sha: blobSha, type: "blob" },
+      ] }), { status: 200 }));
+    const publisher = new ContextSnapshotGitHubPublisher({
+      fetchImpl: fetchImpl as typeof fetch,
+      token: "test-token",
+      repository: "Transition-Trails/Daybook",
+      branch: "main",
+    });
+    await expect(publisher.publishFiles([{ path: "snapshot.md", content }], "no-op"))
+      .resolves.toEqual({ commitSha: "head-stable", changed: false });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
   it("selects missing, failed, and stale snapshots without refreshing current ones", () => {

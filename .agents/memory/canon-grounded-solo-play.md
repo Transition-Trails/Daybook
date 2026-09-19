@@ -9,4 +9,6 @@ Use a guided Prompt Deck with one limited consequential branch as the first rele
 
 Foundation Canon remains immutable to store owners. Play first produces private discoveries; owners may save owner-scoped contributions and explicitly submit proposals for editorial approval. Every derived scene and record retains provenance to its source Canon records and story moment.
 
-**How to apply:** Before production implementation, define tenant-safe narrative routes, contribution ownership and statuses, provenance, session/resume state, choices, and the editorial promotion workflow. Never expose platform-editorial routes directly to store owners.
+WorldSmith also has a membership-gated Discord community where members and collaborators discuss, interpret, and help shape the world live. Community discussion may inform foundational Canon, but it never establishes Canon directly or bypasses editorial review. Keep Community discussion, Store workspace contributions, and Editorial Canon as three explicit scopes.
+
+**How to apply:** Before production implementation, define tenant-safe narrative routes, contribution ownership and statuses, provenance, session/resume state, choices, editorial promotion, Discord membership entitlements, community roles, moderation, and proposal handoff. Never expose platform-editorial routes directly to store owners or treat Discord messages as approved Canon.

@@ -10,6 +10,8 @@ import {
   Feather,
   FileCheck2,
   GitBranch,
+  Hash,
+  MessageCircle,
   LockKeyhole,
   MoreHorizontal,
   Plus,
@@ -17,6 +19,7 @@ import {
   Scale,
   ShieldCheck,
   Sparkles,
+  Users,
   UserRound,
   X,
 } from "lucide-react";
@@ -105,6 +108,8 @@ export default function ComparisonMvp() {
   const [proposed, setProposed] = useState(false);
   const [sceneStarted, setSceneStarted] = useState(false);
   const [choice, setChoice] = useState("follow-the-light");
+  const [communityJoined, setCommunityJoined] = useState(false);
+  const [communityChannel, setCommunityChannel] = useState("canon-garden");
 
   const active = useMemo(
     () => concepts.find((concept) => concept.id === selected) ?? concepts[0],
@@ -277,6 +282,69 @@ export default function ComparisonMvp() {
               <div className="mb-3 flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#71685e]">Lifecycle</p><p className="text-[11px] text-[#8b7f70]">provenance never disappears</p></div>
               <div className="flex flex-wrap items-center gap-y-2">
                 {lifecycle.map(([name, status, tone], index) => <div key={name} className="flex items-center"><div className="w-[102px] border border-[#c8b9a7] bg-[#f7f0e3] px-2 py-2"><p className={`text-[10px] font-semibold ${tone === "clay" ? "text-[#a35d45]" : tone === "moss" ? "text-[#64755b]" : "text-[#71685e]"}`}>{name}</p><p className="mt-1 text-[9px] text-[#9b8f7e]">{status}</p></div>{index < lifecycle.length - 1 && <ArrowRight size={13} className="mx-1 text-[#aa9d8b]" />}</div>)}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-t border-[#b7a995]/60 py-9">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#a35d45]">The community layer</p>
+              <h2 className="mt-2 max-w-2xl font-serif text-3xl tracking-[-0.03em]">A living room for the world, not a shortcut around the editor.</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#766d61]">
+                Discord gives members a place to ask what the garden remembers, compare interpretations, and help shape foundational Canon in the open. Store-owned discoveries still stay scoped until someone deliberately submits them.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 text-xs text-[#6f665c]">
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-[#dfe2d1] text-[#5d7055]"><Users size={14} /></span>
+              <span><strong className="text-[#3e4d3b]">184 members</strong><br />12 in the garden now</span>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-3 lg:grid-cols-[0.75fr_1.5fr_0.75fr]">
+            <div className="border border-[#b7a995] bg-[#34372f] p-4 text-[#f4ecdc]">
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#d7c6a1]"><MessageCircle size={14} /> WorldSmith Discord</div>
+              <p className="mt-4 font-serif text-2xl">The Garden Room</p>
+              <p className="mt-2 text-xs leading-5 text-[#c7c8ba]">A moderated community for members, collaborators, and careful world-builders.</p>
+              <button onClick={() => setCommunityJoined((value) => !value)} className="mt-5 flex w-full items-center justify-center gap-2 border border-[#83907e] bg-[#465044] px-3 py-2.5 text-xs font-semibold text-[#f4ecdc] hover:bg-[#526052]">
+                <Users size={14} /> {communityJoined ? "Joined · open Discord" : "Join with membership"}
+              </button>
+            </div>
+            <div className="border border-[#b7a995] bg-[#f7f0e3] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#d7cbbb] pb-3">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#4c463d]"><span className="h-2 w-2 rounded-full bg-[#778e6d]" /> Live discussion</div>
+                <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[#9b8f7e]">member space</span>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {[
+                  ["canon-garden", "canon-garden", "Foundational Canon", "43 messages"],
+                  ["scene-lab", "scene-lab", "Scene Lab", "18 messages"],
+                  ["member-lounge", "member-lounge", "Member lounge", "9 messages"],
+                ].map(([id, channel, label, count]) => (
+                  <button key={id} onClick={() => setCommunityChannel(id)} className={`border p-3 text-left transition-colors ${communityChannel === id ? "border-[#a35d45] bg-[#efe0ce]" : "border-[#d7cbbb] bg-[#f1e8da] hover:bg-[#eee0cf]"}`}>
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#5c554d]"><Hash size={13} className="text-[#a35d45]" />{channel}</div>
+                    <p className="mt-2 text-xs font-semibold text-[#3f3a34]">{label}</p>
+                    <p className="mt-1 text-[10px] text-[#8b7f70]">{count}</p>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 border-l-2 border-[#a35d45] bg-[#eee4d4] px-3 py-2.5 text-xs leading-5 text-[#6b6258]">
+                <strong className="text-[#4a4239]">Mara / editor:</strong> “If the seed key opens a room, does that become shared Canon — or is it still your reading of the moment?”
+              </div>
+            </div>
+            <div className="border border-[#b7a995] bg-[#e4dac9] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#71685e]">Three kinds of belonging</p>
+              <div className="mt-4 space-y-3">
+                {[
+                  ["Community", "Discuss and interpret", "public room"],
+                  ["Store workspace", "Create and save", "owner scope"],
+                  ["Editorial Canon", "Approve and protect", "platform scope"],
+                ].map(([title, line, status], index) => (
+                  <div key={title} className="flex items-start gap-2 border-b border-[#cabbab] pb-3 last:border-0 last:pb-0">
+                    <span className="mt-0.5 grid h-5 w-5 place-items-center rounded-full bg-[#f7f0e3] font-mono text-[9px] text-[#a35d45]">0{index + 1}</span>
+                    <div><p className="text-xs font-semibold text-[#4b443a]">{title}</p><p className="mt-0.5 text-[10px] leading-4 text-[#7d7163]">{line}</p><p className="mt-1 font-mono text-[9px] uppercase tracking-[0.1em] text-[#9b8f7e]">{status}</p></div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

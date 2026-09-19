@@ -14,5 +14,5 @@ Margaret&#039;s younger sister, devoted to Wychcombes greenhouse and botanical p
 ---
 Generated from Daybook
 Record ID: cce3c21b-1662-4c85-906f-669cb4ac1197
-Last Updated: 2026-09-19T15:20:07.364Z
-Snapshot Generated: 2026-09-19T15:20:07.538Z
+Last Updated: 2026-09-19T15:20:18.451Z
+Snapshot Generated: 2026-09-19T15:20:18.639Z

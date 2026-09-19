@@ -38,16 +38,25 @@ The precise legal and financial circumstances through which Elias and Clara acqu
 ## Visual Notes
 
 The Wychcombe Estate should feel layered, useful, inhabited, and gradually accumulated rather than designed as one immaculate country-house composition.
+
 The principal house is substantial but not aristocratically monumental. Its architecture should reveal several periods of construction through an older central structure, later wings, changes in stone or brickwork, altered windows, service additions, enclosed passages, and an uneven roofline. Avoid the scale of a palace, castle, or ducal estate.
+
 Materials should appear locally plausible and aged by use: warm weathered stone, mellow brick, dark roof tiles or slate, lime mortar, timber doors, iron hardware, old glass, moss, lichen, and restrained climbing plants.
 The estate grounds should transition gradually from domestic and formal spaces near the house into working and agricultural landscapes. Potential elements include terraces, lawns, mature specimen trees, walled gardens, kitchen gardens, orchards, service yards, pasture, woodland edges, drainage channels, and a managed watercourse. Their exact placement must eventually be established through a canonical estate map.
 Glasshouses are essential to the estate’s identity. They should vary in age and construction rather than forming a perfectly matched conservatory complex. Include brick bases, old iron or timber frames, repaired glazing, lean-to growing houses, cold frames, propagation sheds, potting areas, water storage, heating infrastructure, and practical paths between workspaces.
+
 In pre-restoration imagery, the estate is declining but not abandoned. Show slipped tiles, patched masonry, uneven glazing, moss-softened paths, overgrown borders, leaning walls, reused repair materials, and rooms or structures no longer fully in service.
+
 Always include evidence that people still live and work there: smoke from a chimney, a cart in the service yard, stacked pots, tools, cut wood, laundry, freshly disturbed soil, repaired frames, covered plants, or workers engaged in practical tasks.
+
 The estate should never appear frozen in romantic ruin. Avoid heavy Gothic atmosphere, supernatural effects, fantasy architecture, excessive mist, theatrical darkness, or beautiful decay without evidence of labor.
 People should be shown working rather than posing. Gardeners inspect plants and glass, workers repair walls or roofs, deliveries arrive, and household activity appears through small practical details.
 The visual relationship with Wychcombe Village should be present but not overwhelming. A road, distant roofs, delivery cart, walking figure, boundary gate, or path may suggest the constant exchange between estate and village.
+
 The strongest visual principle is accumulated use: every structure and landscape should suggest that it has been built, altered, cultivated, repaired, and understood by more than one generation.
+
+Recommended first illustration:
+Show the estate shortly after Elias arrives, before restoration. Use a broad elevated three-quarter view that establishes the principal house, terraces, working gardens, several differently aged glasshouses, service buildings, mature trees, cultivated land, and the road toward Wychcombe Village. The property should appear worn but inhabited, with visible signs of ongoing work. Elias does not need to dominate the image; the estate itself is the subject.
 
 ## Canon Notes and Open Questions
 
@@ -99,5 +108,5 @@ Canon guardrails:
 ---
 Generated from Daybook
 Record ID: ff99a550-0238-4f5b-ace9-c7e0ab4dfe92
-Last Updated: 2026-09-19T16:27:47.402Z
-Snapshot Generated: 2026-09-19T16:28:01.757Z
+Last Updated: 2026-09-19T16:29:13.180Z
+Snapshot Generated: 2026-09-19T16:29:13.389Z

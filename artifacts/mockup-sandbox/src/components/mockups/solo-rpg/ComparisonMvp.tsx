@@ -103,6 +103,39 @@ const worlds = [
   { id: "salt-moon", label: "Salt Moon Country", shortLabel: "Salt Moon", era: "mythic coast · family folklore", description: "At low tide, the shoreline returns what the village forgot.", accent: "#8b6b54", swatch: "linear-gradient(135deg, #e3c9a6 0%, #7d9a99 100%)", signal: "The tide leaves a door in the salt.", voice: "A story passed between generations, playful at the shore and serious at the threshold.", visual: "Salt-crusted cloth, moonlit water, shells marked with names." },
 ];
 
+const buildArchetypes = [
+  {
+    id: "victorian",
+    label: "Victorian fantasy",
+    subtitle: "Botanical mystery · intimate stakes",
+    accent: "#a35d45",
+    premise: "A locked glasshouse remembers every promise made beneath its roof.",
+    questions: ["What social rule hides the magic?", "Which object carries the family secret?", "What does the world refuse to name?"],
+    materials: "Rain on glass · brass · pressed leaves",
+    voice: "Close, observant, and careful with silence.",
+  },
+  {
+    id: "dragon-sci-fi",
+    label: "Dragon rider / sci-fi",
+    subtitle: "Skyborne frontier · bonded technology",
+    accent: "#5f7188",
+    premise: "A generation ship bred dragons to navigate a storm no instrument can read.",
+    questions: ["What does the rider owe the creature?", "Which technology feels like ritual?", "What signal is the sky hiding?"],
+    materials: "Carbon fiber · storm light · worn flight cloth",
+    voice: "Urgent transmission softened by ancient instinct.",
+  },
+  {
+    id: "mythic-coast",
+    label: "Mythic coast folklore",
+    subtitle: "Tidebound village · inherited names",
+    accent: "#718a83",
+    premise: "At low tide, the shoreline returns what the village forgot.",
+    questions: ["Who keeps the old story alive?", "What changes when the tide turns?", "Which place remembers you?"],
+    materials: "Salt cloth · moonlit water · shell marks",
+    voice: "Generational, playful at the shore, serious at the threshold.",
+  },
+];
+
 const lifecycle = [
   ["Foundation Canon", "Immutable", "ink"],
   ["Guided scene", "In progress", "clay"],
@@ -128,6 +161,10 @@ export default function ComparisonMvp() {
   const [voicePlaying, setVoicePlaying] = useState(false);
   const [voiceStyle, setVoiceStyle] = useState("intimate");
   const [visualFocus, setVisualFocus] = useState("material");
+  const [buildMode, setBuildMode] = useState("victorian");
+  const [buildStep, setBuildStep] = useState(1);
+  const [communityDraft, setCommunityDraft] = useState("");
+  const [communityPosted, setCommunityPosted] = useState(false);
 
   const active = useMemo(
     () => concepts.find((concept) => concept.id === selected) ?? concepts[0],
@@ -136,6 +173,10 @@ export default function ComparisonMvp() {
   const activeWorld = useMemo(
     () => worlds.find((world) => world.id === selectedWorldId) ?? worlds[0],
     [selectedWorldId],
+  );
+  const activeArchetype = useMemo(
+    () => buildArchetypes.find((archetype) => archetype.id === buildMode) ?? buildArchetypes[0],
+    [buildMode],
   );
 
   return (
@@ -255,6 +296,64 @@ export default function ComparisonMvp() {
               </div>
               <div className="mt-8 flex items-center gap-2 border-t border-[#687164] pt-4 text-[11px] text-[#b9b8a7]"><Clock3 size={13} /> Last opened 8 minutes ago · 6 min remaining</div>
             </div>
+          </div>
+        </section>
+
+        <section className="border-b border-[#b7a995]/60 py-9">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#a35d45]">Worldbuilding studio · revised</p>
+              <h2 className="mt-2 max-w-3xl font-serif text-3xl tracking-[-0.03em]">Start with a feeling. Leave with a world people can enter.</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#766d61]">
+                Choose a world seed, then answer the questions that make it specific: its pressure, its voice, its materials, and the promises it asks a reader to keep.
+              </p>
+            </div>
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#8b7f70]">Step {buildStep} of 4 · saved locally</span>
+          </div>
+          <div className="mt-5 grid gap-3 lg:grid-cols-[0.8fr_1.4fr_0.8fr]">
+            <div className="border border-[#b7a995] bg-[#f7f0e3] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-[#71685e]">01 / Choose a world seed</p>
+              <div className="mt-4 space-y-2">
+                {buildArchetypes.map((archetype) => (
+                  <button key={archetype.id} onClick={() => { setBuildMode(archetype.id); setBuildStep(2); }} className={`w-full border p-3 text-left transition-transform hover:-translate-y-0.5 ${buildMode === archetype.id ? "border-[#a35d45] bg-[#efe0ce] ring-1 ring-[#a35d45]" : "border-[#d7cbbb] bg-[#f1e8da]"}`}>
+                    <p className="text-sm font-semibold text-[#443d35]">{archetype.label}</p>
+                    <p className="mt-1 text-[10px] leading-4 text-[#8b7f70]">{archetype.subtitle}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="border border-[#b7a995] bg-[#34372f] p-5 text-[#f4ecdc]">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#d7c6a1]">02 / Define the world pressure</p>
+                <Compass size={17} className="text-[#d59878]" />
+              </div>
+              <h3 className="mt-5 max-w-xl font-serif text-2xl leading-tight">What keeps this world from becoming ordinary?</h3>
+              <p className="mt-3 text-sm leading-6 text-[#c7c8ba]">Start from a suggested premise, then make it yours by answering one question at a time. The system keeps the answers connected instead of asking for a blank-page lore dump.</p>
+              <div className="mt-5 border-l-2 border-[#d59878] bg-[#465044] p-4">
+                <p className="font-serif text-lg leading-6">“{activeArchetype.premise}”</p>
+                <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-[#c8b88e]">Suggested premise · {activeArchetype.label}</p>
+              </div>
+              <div className="mt-5 grid gap-2 sm:grid-cols-3">
+                {activeArchetype.questions.map((question, index) => (
+                  <button key={question} onClick={() => setBuildStep(3)} className={`border p-3 text-left text-xs leading-4 transition-colors ${buildStep >= 3 && index === 0 ? "border-[#d59878] bg-[#a35d45]/30" : "border-[#6f7b6e] bg-[#465044]/60 hover:bg-[#566052]"}`}>
+                    <span className="font-mono text-[9px] text-[#d59878]">0{index + 1}</span>
+                    <span className="mt-2 block text-[#e6dfd1]">{question}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="border border-[#b7a995] bg-[#e4dac9] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-[#71685e]">03 / Make it tangible</p>
+              <div className="mt-5 space-y-4">
+                <div><p className="text-[10px] uppercase tracking-[0.12em] text-[#9b8f7e]">World materials</p><p className="mt-1 text-sm font-semibold text-[#494137]">{activeArchetype.materials}</p></div>
+                <div className="border-t border-[#cabbab] pt-4"><p className="text-[10px] uppercase tracking-[0.12em] text-[#9b8f7e]">Voice direction</p><p className="mt-1 text-sm leading-5 text-[#5f574e]">{activeArchetype.voice}</p></div>
+                <button onClick={() => setBuildStep(4)} className="flex w-full items-center justify-center gap-2 border border-[#66785d] bg-[#f7f0e3] px-3 py-2.5 text-xs font-bold text-[#506048] hover:bg-[#eee4d4]">Save world grammar <ArrowRight size={13} /></button>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-col gap-2 border border-[#b7a995] bg-[#efe0ce] p-3 text-xs text-[#6d665c] sm:flex-row sm:items-center sm:justify-between">
+            <span className="flex items-center gap-2"><ShieldCheck size={14} className="text-[#66785d]" /> Rich prompts become reusable Canon context, voice direction, scene cues, and future library suggestions.</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#9b5941]">{buildStep === 4 ? "World grammar saved" : "Draft stays private"}</span>
           </div>
         </section>
 
@@ -433,6 +532,15 @@ export default function ComparisonMvp() {
               <div className="mt-3 border-l-2 border-[#a35d45] bg-[#eee4d4] px-3 py-2.5 text-xs leading-5 text-[#6b6258]">
                 <strong className="text-[#4a4239]">Mara / editor:</strong> “If the seed key opens a room, does that become shared Canon — or is it still your reading of the moment?”
               </div>
+               <div className="mt-3 space-y-2 border-t border-[#d7cbbb] pt-3">
+                 <div className="flex gap-2 text-xs leading-5 text-[#6b6258]"><span className="font-semibold text-[#4a4239]">Theo / member:</span><span>“I hear the greenhouse as a threshold, not a location. Does anyone else feel that?”</span></div>
+                 <div className="flex gap-2 text-xs leading-5 text-[#6b6258]"><span className="font-semibold text-[#4a4239]">June / store owner:</span><span>“I made a private scene from that reading. Sharing the thread, not proposing Canon yet.”</span></div>
+                 {communityPosted && <div className="flex gap-2 text-xs leading-5 text-[#6b6258]"><span className="font-semibold text-[#4a4239]">You:</span><span>{communityDraft || "The key feels like a promise before it feels like a tool."}</span></div>}
+               </div>
+               <div className="mt-3 flex gap-2 border-t border-[#d7cbbb] pt-3">
+                 <input value={communityDraft} onChange={(event) => setCommunityDraft(event.target.value)} placeholder="Add your reading to the room…" className="min-w-0 flex-1 border border-[#d7cbbb] bg-[#f1e8da] px-3 py-2 text-xs text-[#4a4239] outline-none focus:border-[#a35d45]" />
+                 <button onClick={() => setCommunityPosted(true)} className="shrink-0 bg-[#66785d] px-3 py-2 text-[10px] font-bold text-[#f7f0e3]">Post reading</button>
+               </div>
             </div>
             <div className="border border-[#b7a995] bg-[#e4dac9] p-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#71685e]">Three kinds of belonging</p>

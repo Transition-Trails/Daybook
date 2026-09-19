@@ -307,6 +307,10 @@ export default function ComparisonMvp() {
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[#766d61]">
                 Choose a world seed, then answer the questions that make it specific: its pressure, its voice, its materials, and the promises it asks a reader to keep.
               </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.12em] text-[#837768]">
+                <span className="rounded-full border border-[#c8b9a7] bg-[#f7f0e3] px-2.5 py-1">Romantasy lens</span>
+                <span>Character tension, devotion, and wonder · SFW by default</span>
+              </div>
             </div>
             <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#8b7f70]">Step {buildStep} of 4 · saved locally</span>
           </div>
@@ -353,6 +357,7 @@ export default function ComparisonMvp() {
           </div>
           <div className="mt-3 flex flex-col gap-2 border border-[#b7a995] bg-[#efe0ce] p-3 text-xs text-[#6d665c] sm:flex-row sm:items-center sm:justify-between">
             <span className="flex items-center gap-2"><ShieldCheck size={14} className="text-[#66785d]" /> Rich prompts become reusable Canon context, voice direction, scene cues, and future library suggestions.</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#8f6958]">Tone boundaries travel with the world</span>
             <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#9b5941]">{buildStep === 4 ? "World grammar saved" : "Draft stays private"}</span>
           </div>
         </section>

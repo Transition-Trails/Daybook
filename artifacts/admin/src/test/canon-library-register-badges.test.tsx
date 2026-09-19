@@ -162,12 +162,43 @@ describe("CanonLibrary emotional register badges", () => {
 
     const portrait = await screen.findByRole("img", { name: "The Archive Keeper thumbnail" });
     expect(portrait).toHaveAttribute("src", "/api/storage/objects/archive-keeper");
+    expect(screen.getByTestId("canon-thumbnail-record-confidence")).toHaveClass("aspect-square");
     expect(screen.getByRole("img", { name: "Default thumbnail for Unsettled Record" })).toBeInTheDocument();
 
     fireEvent.error(portrait);
 
     expect(screen.getByRole("img", { name: "Default thumbnail for The Archive Keeper" })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "The Archive Keeper thumbnail" })).not.toBeInTheDocument();
+  });
+
+  it("groups the card grid by record type with counts and omits empty groups", async () => {
+    renderLibrary();
+
+    const characterGroup = await screen.findByRole("region", { name: "Character" });
+    const loreGroup = screen.getByRole("region", { name: "Lore" });
+
+    expect(within(characterGroup).getByText("1")).toBeInTheDocument();
+    expect(within(characterGroup).getByText("The Archive Keeper")).toBeInTheDocument();
+    expect(within(loreGroup).getByText("3")).toBeInTheDocument();
+    expect(within(loreGroup).getByText("Unsettled Record")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Location" })).not.toBeInTheDocument();
+  });
+
+  it("shows a flat card grid when a single record type is selected", async () => {
+    sessionStorage.setItem(`canon-filters-${WORLD_ID}`, JSON.stringify({
+      type: "character",
+      status: "all",
+      search: "",
+      visibility: null,
+      stability: null,
+      emotionalRegister: "all",
+    }));
+
+    renderLibrary();
+
+    expect(await screen.findByText("The Archive Keeper")).toBeInTheDocument();
+    expect(screen.queryByText("Unsettled Record")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Character" })).not.toBeInTheDocument();
   });
 
   it("does not render badges for null, empty, or unrecognized register values in either view", async () => {

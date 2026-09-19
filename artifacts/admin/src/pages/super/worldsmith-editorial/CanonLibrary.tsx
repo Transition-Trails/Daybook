@@ -242,7 +242,8 @@ function CanonCard({ record }: { record: CanonRecord }) {
       </div>
 
       <div
-        className="mb-3 flex h-28 w-full overflow-hidden rounded-lg border"
+        data-testid={`canon-thumbnail-${record.id}`}
+        className="mb-3 flex aspect-square w-full overflow-hidden rounded-lg border"
         style={{ borderColor: `${typeColor}26`, background: `${typeColor}0D` }}
       >
         {showPortrait ? (
@@ -1365,6 +1366,21 @@ export default function CanonLibrary() {
     }
     return true;
   });
+  const groupedRecords = [
+    ...CANON_TYPES.map(type => ({
+      key: type.key,
+      label: type.label,
+      color: type.color,
+      Icon: type.Icon,
+      records: filtered.filter(record => record.canonType === type.key),
+    })).filter(group => group.records.length > 0),
+    ...(() => {
+      const records = filtered.filter(record => !CANON_TYPES.some(type => type.key === record.canonType));
+      return records.length > 0
+        ? [{ key: "other", label: "Other", color: "var(--admin-muted)", Icon: BookOpen, records }]
+        : [];
+    })(),
+  ];
 
   const hasActiveFilter =
     !!debouncedSearch.trim() ||
@@ -1758,11 +1774,39 @@ export default function CanonLibrary() {
                 </button>
               </div>
             ) : viewMode === "cards" ? (
-              <div className="p-5 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
-                {filtered.map(record => (
-                  <CanonCard key={record.id} record={record} />
-                ))}
-              </div>
+              activeType === "all" ? (
+                <div className="space-y-8 p-5">
+                  {groupedRecords.map(group => (
+                    <section key={group.key} aria-labelledby={`canon-group-${group.key}`}>
+                      <div className="mb-3 flex items-center gap-2 border-b border-gray-100 pb-2">
+                        <span
+                          className="flex h-7 w-7 items-center justify-center rounded-lg"
+                          style={{ background: `${group.color}18` }}
+                        >
+                          <group.Icon className="h-3.5 w-3.5" style={{ color: group.color }} aria-hidden="true" />
+                        </span>
+                        <h2 id={`canon-group-${group.key}`} className="text-sm font-semibold text-[var(--admin-ink)]">
+                          {group.label}
+                        </h2>
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                          {group.records.length}
+                        </span>
+                      </div>
+                      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+                        {group.records.map(record => (
+                          <CanonCard key={record.id} record={record} />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid gap-3 p-5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+                  {filtered.map(record => (
+                    <CanonCard key={record.id} record={record} />
+                  ))}
+                </div>
+              )
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left">

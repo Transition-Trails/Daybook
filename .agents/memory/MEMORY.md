@@ -91,3 +91,4 @@
 - [WorldSmith post-compile editing](worldsmith-post-compile-editing.md) — edits invalidate only the current compile; immutable runs and artwork preserve prior versions
 - [PDF import fixture validity](pdf-import-fixture-validity.md) — import analysis can accept malformed font resources that make otherwise valid-looking test pages rasterize blank
 - [WorldSmith planner asset bridge](worldsmith-planner-asset-bridge.md) — planners consume approved final art through project-owned copies and reserved composition IDs
+- [Planner PDF thumbnails](planner-pdf-thumbnails.md) — production thumbnail rendering requires Poppler declared as a project system dependency

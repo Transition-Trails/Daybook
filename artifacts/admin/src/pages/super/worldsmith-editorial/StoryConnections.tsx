@@ -139,6 +139,7 @@ export default function StoryConnections() {
   const [selectedActId, setSelectedActId] = useState<string>(() => requestedActId || "");
   const [canonSearch, setCanonSearch] = useState("");
   const [newMovementTitle, setNewMovementTitle] = useState("");
+  const [movementTitleDraft, setMovementTitleDraft] = useState<Record<string, string>>({});
   const [movementNarrativeDraft, setMovementNarrativeDraft] = useState<Record<string, string>>({});
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -255,6 +256,38 @@ export default function StoryConnections() {
     },
     onError: (movementError: Error) => toast({
       title: "Could not add movement",
+      description: movementError.message,
+      variant: "destructive",
+    }),
+  });
+  const saveMovementTitle = useMutation({
+    mutationFn: ({ movementId, title }: { movementId: string; title: string }) => {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) throw new Error("A movement title is required");
+      return apiFetch<{ act: StoryAct }>(`/v1/editorial/acts/${movementId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: trimmedTitle }),
+      });
+    },
+    onSuccess: ({ act }) => {
+      setMovementTitleDraft(current => ({ ...current, [act.id]: act.title }));
+      queryClient.setQueriesData<ConnectionsResponse>(
+        { queryKey: ["ws-story-connections", selectedWorldId] },
+        current => current
+          ? {
+              ...current,
+              stories: current.stories.map(story => story.id === act.storyId
+                ? { ...story, acts: story.acts.map(item => item.id === act.id ? { ...item, ...act } : item) }
+                : story),
+            }
+          : current,
+      );
+      queryClient.invalidateQueries({ queryKey: ["ws-stories", selectedWorldId] });
+      queryClient.invalidateQueries({ queryKey: ["editorial-story", act.storyId] });
+      toast({ title: `Movement ${act.actNumber} title saved` });
+    },
+    onError: (movementError: Error) => toast({
+      title: "Could not save movement title",
       description: movementError.message,
       variant: "destructive",
     }),
@@ -460,11 +493,54 @@ export default function StoryConnections() {
                           }}
                         >
                           <div className="flex items-start justify-between gap-3">
-                            <div>
+                            <div className="min-w-0 flex-1">
                               <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: movement.id ? "#C87560" : "#98A2B3" }}>
                                 {movement.actNumber ? `Movement ${movement.actNumber}` : "Unassigned"}
                               </p>
-                              <p className="mt-0.5 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{movement.title}</p>
+                              {movement.id ? (
+                                <label className="mt-1 block">
+                                  <span className="sr-only">Movement {movement.actNumber} title</span>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      aria-label={`Movement ${movement.actNumber} title`}
+                                      value={movementTitleDraft[movement.id] ?? movement.title}
+                                      onChange={event => setMovementTitleDraft(current => ({
+                                        ...current,
+                                        [movement.id]: event.target.value,
+                                      }))}
+                                      onKeyDown={event => {
+                                        if (event.key === "Enter") {
+                                          event.preventDefault();
+                                          saveMovementTitle.mutate({
+                                            movementId: movement.id,
+                                            title: movementTitleDraft[movement.id] ?? movement.title,
+                                          });
+                                        }
+                                      }}
+                                      className="min-w-0 flex-1 rounded-md border bg-white px-2.5 py-1.5 text-sm font-semibold outline-none focus:border-[#C87560]"
+                                      style={{ color: "#1B2A4A", borderColor: "#E6DED3" }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => saveMovementTitle.mutate({
+                                        movementId: movement.id,
+                                        title: movementTitleDraft[movement.id] ?? movement.title,
+                                      })}
+                                      disabled={
+                                        saveMovementTitle.isPending
+                                        || !(movementTitleDraft[movement.id] ?? movement.title).trim()
+                                        || (movementTitleDraft[movement.id] ?? movement.title).trim() === movement.title
+                                      }
+                                      className="shrink-0 text-[10.5px] font-semibold disabled:opacity-35"
+                                      style={{ color: "#C87560" }}
+                                    >
+                                      {saveMovementTitle.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save title"}
+                                    </button>
+                                  </div>
+                                </label>
+                              ) : (
+                                <p className="mt-0.5 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{movement.title}</p>
+                              )}
                               <p className="mt-0.5 text-[10.5px]" style={{ color: "#98A2B3" }}>
                                 {movementLinks.length} Canon record{movementLinks.length === 1 ? "" : "s"}
                               </p>

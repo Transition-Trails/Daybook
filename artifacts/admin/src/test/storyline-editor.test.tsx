@@ -110,6 +110,7 @@ describe("StorylineEditor", () => {
 
     renderEditor("story-1");
     await screen.findByRole("heading", { name: "The First Crossing — Storyline" });
+    expect(screen.getByDisplayValue("The Departure")).toBeInTheDocument();
     expect(screen.getByText("Movement / Act purpose")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Move the characters beyond the familiar.")).toBeInTheDocument();
     const narrative = screen.getAllByRole("textbox").find(field => field.getAttribute("contenteditable") === "true");

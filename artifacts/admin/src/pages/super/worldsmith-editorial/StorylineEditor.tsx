@@ -80,6 +80,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
 
   const [form, setForm] = useState<StoryForm>(() => createEmptyForm(search));
   const [newActTitle, setNewActTitle] = useState("");
+  const [actTitleDrafts, setActTitleDrafts] = useState<Record<string, string>>({});
   const [actPurposeDrafts, setActPurposeDrafts] = useState<Record<string, string>>({});
   const initializedStoryRef = useRef<string | null>(null);
 
@@ -356,6 +357,37 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
     },
     onError: (error: Error) => toast({
       title: "Could not save movement purpose",
+      description: error.message,
+      variant: "destructive",
+    }),
+  });
+
+  const saveActTitleMutation = useMutation({
+    mutationFn: ({ actId, title }: { actId: string; title: string }) => {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) throw new Error("A movement name is required");
+      return apiFetch<{ act: StoryAct }>(`/v1/editorial/acts/${actId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: trimmedTitle }),
+      });
+    },
+    onSuccess: ({ act }) => {
+      queryClient.setQueryData<{ story: Story }>(["editorial-story", storyId], current => {
+        if (!current) return current;
+        return {
+          story: {
+            ...current.story,
+            acts: current.story.acts.map(item => item.id === act.id ? { ...item, ...act } : item),
+          },
+        };
+      });
+      setActTitleDrafts(current => ({ ...current, [act.id]: act.title }));
+      queryClient.invalidateQueries({ queryKey: ["ws-stories"] });
+      queryClient.invalidateQueries({ queryKey: ["ws-story-connections", worldId] });
+      toast({ title: "Movement name saved" });
+    },
+    onError: (error: Error) => toast({
+      title: "Could not save movement name",
       description: error.message,
       variant: "destructive",
     }),
@@ -1077,7 +1109,47 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
                         <div className="flex items-start justify-between gap-3 p-5 border-b" style={{ borderColor: BORDER }}>
                           <div className="min-w-0">
                             <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: CLAY }}>Movement {act.actNumber}</p>
-                            <p className="mt-1 text-sm font-semibold" style={{ color: INK }}>{act.title}</p>
+                             <label className="mt-2 block">
+                               <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#786D60" }}>
+                                 Movement name
+                               </span>
+                               <div className="mt-1 flex items-center gap-2">
+                                 <input
+                                   value={actTitleDrafts[act.id] ?? act.title}
+                                   onChange={event => setActTitleDrafts(current => ({
+                                     ...current,
+                                     [act.id]: event.target.value,
+                                   }))}
+                                   onKeyDown={event => {
+                                     if (event.key === "Enter") {
+                                       event.preventDefault();
+                                       saveActTitleMutation.mutate({
+                                         actId: act.id,
+                                         title: actTitleDrafts[act.id] ?? act.title,
+                                       });
+                                     }
+                                   }}
+                                   className="min-w-0 flex-1 rounded-lg border bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#C87560]"
+                                   style={{ color: INK, borderColor: BORDER }}
+                                 />
+                                 <button
+                                   type="button"
+                                   onClick={() => saveActTitleMutation.mutate({
+                                     actId: act.id,
+                                     title: actTitleDrafts[act.id] ?? act.title,
+                                   })}
+                                   disabled={
+                                     saveActTitleMutation.isPending
+                                     || !(actTitleDrafts[act.id] ?? act.title).trim()
+                                     || (actTitleDrafts[act.id] ?? act.title).trim() === act.title
+                                   }
+                                   className="shrink-0 text-[11px] font-semibold disabled:opacity-40"
+                                   style={{ color: CLAY }}
+                                 >
+                                   {saveActTitleMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save name"}
+                                 </button>
+                               </div>
+                             </label>
                             {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}
                              <label className="mt-3 block">
                                <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#786D60" }}>

@@ -1,8 +1,24 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T02:17:33.256Z",
+  "generated_at": "2026-09-20T18:08:46.495Z",
   "records": [
+    {
+      "canonical_id": "19ee8c11-6a1d-48db-bd74-900c63f48025",
+      "record_name": "Delivery Morning Between Village and Estate",
+      "record_slug": "delivery-morning-between-village-and-estate",
+      "canon_type": "atmosphere",
+      "status": "proposed",
+      "images": []
+    },
+    {
+      "canonical_id": "41bc574f-06e1-40de-a06c-90624b8977c8",
+      "record_name": "First Heat in the Restored Glasshouse",
+      "record_slug": "first-heat-in-the-restored-glasshouse",
+      "canon_type": "atmosphere",
+      "status": "proposed",
+      "images": []
+    },
     {
       "canonical_id": "52ab89e3-9679-42e5-9f17-b1299e0b1d31",
       "record_name": "Morning Fog on the Arboretum Grounds",
@@ -18,7 +34,8 @@
           "height": 1024,
           "sha256": "42f3a0f2a2fb092a3a6ab14a00e79ceb29fe3c4be012302010c1430c3919d9a1",
           "source_asset_id": "/objects/uploads/19018e9e-e920-47af-a916-0ea09cca0eb2",
-          "source_updated_at": "2026-09-19T18:24:01.466Z"
+          "source_updated_at": "2026-09-19T18:24:01.466Z",
+          "byte_size": 1980578
         }
       ]
     },
@@ -37,9 +54,18 @@
           "height": 1024,
           "sha256": "c92be0f9b050ebd6818023dc80735c91bcd06dcae6e5201eaeb67e7ae8d957d1",
           "source_asset_id": "/objects/uploads/9661bed7-a7cb-4ab5-90b7-4372d37c1852",
-          "source_updated_at": "2026-09-19T18:30:53.285Z"
+          "source_updated_at": "2026-09-19T18:30:53.285Z",
+          "byte_size": 1791030
         }
       ]
+    },
+    {
+      "canonical_id": "c5f3cef2-bcbe-4b1e-98a4-e5ec5a2fc5e1",
+      "record_name": "The Press Running After Dark",
+      "record_slug": "the-press-running-after-dark",
+      "canon_type": "atmosphere",
+      "status": "proposed",
+      "images": []
     },
     {
       "canonical_id": "65f7043d-c654-44a5-a3f2-ae5de16ec402",
@@ -56,7 +82,8 @@
           "height": 1024,
           "sha256": "a6b42b330c94d58343c3c031c30e230276ee3e9a74dd154031a686a4170a1368",
           "source_asset_id": "/objects/uploads/fbce02c9-9f0b-4369-912c-6aaf1eabcba3",
-          "source_updated_at": "2026-09-19T18:11:23.382Z"
+          "source_updated_at": "2026-09-19T18:11:23.382Z",
+          "byte_size": 1941651
         },
         {
           "role": "reference",
@@ -66,7 +93,8 @@
           "height": 941,
           "sha256": "acf491638221d96c3393db291443e4ad1be044f02991929c9502394c3f8b6a83",
           "source_asset_id": "/objects/uploads/547c9615-841b-40ba-8f60-e7a1f88a4340",
-          "source_updated_at": "2026-09-20T01:12:40.309Z"
+          "source_updated_at": "2026-09-20T01:12:40.309Z",
+          "byte_size": 3175578
         },
         {
           "role": "reference",
@@ -76,9 +104,18 @@
           "height": 941,
           "sha256": "d310acdec166cf740d025f1dc844c3f36edb584f242c2635aea6cbf37e99c9a9",
           "source_asset_id": "/objects/uploads/63863444-3ccd-430c-8f94-d81c520fd586",
-          "source_updated_at": "2026-09-20T01:16:04.472Z"
+          "source_updated_at": "2026-09-20T01:16:04.472Z",
+          "byte_size": 3119170
         }
       ]
+    },
+    {
+      "canonical_id": "303bd3f4-e24e-49af-bd24-a6326d1199db",
+      "record_name": "Winter Reckoning at the Worktable",
+      "record_slug": "winter-reckoning-at-the-worktable",
+      "canon_type": "atmosphere",
+      "status": "proposed",
+      "images": []
     },
     {
       "canonical_id": "cce3c21b-1662-4c85-906f-669cb4ac1197",
@@ -95,7 +132,8 @@
           "height": 1024,
           "sha256": "ade01c599c19d1fc60bdac041d95cf20cd103d6a62f30f1bb87021a270ab7d99",
           "source_asset_id": "/objects/uploads/f5ae2d08-5a0e-4390-afeb-f59b423eefc4",
-          "source_updated_at": "2026-09-19T15:17:22.717Z"
+          "source_updated_at": "2026-09-19T15:17:22.717Z",
+          "byte_size": 561740
         }
       ]
     },
@@ -114,7 +152,8 @@
           "height": 1024,
           "sha256": "31cee182403936dd7b0c34ed44322afc64c0783025b22d566ceb14acbd1e0f25",
           "source_asset_id": "/objects/uploads/f1d41b2d-eaae-4a79-8bd0-e7a338c43a89",
-          "source_updated_at": "2026-09-19T14:18:10.066Z"
+          "source_updated_at": "2026-09-19T14:18:10.066Z",
+          "byte_size": 1040272
         }
       ]
     },
@@ -133,7 +172,8 @@
           "height": 1254,
           "sha256": "abfe946616c40b00740dd748a143430bfb0ba2291cfdb8b44c3c4fa7e524720a",
           "source_asset_id": "/objects/uploads/436f2f13-76a2-427a-b80f-8eb4cda2a831",
-          "source_updated_at": "2026-09-20T02:01:01.900Z"
+          "source_updated_at": "2026-09-20T02:01:01.900Z",
+          "byte_size": 1639993
         },
         {
           "role": "reference",
@@ -143,7 +183,8 @@
           "height": 1024,
           "sha256": "83c5b42f7cfde6b951be01881579cd8626db545cba2c2f0154c31648667f2b37",
           "source_asset_id": "/objects/uploads/6e96a724-10d2-4beb-b3c2-db40a00addd0",
-          "source_updated_at": "2026-09-20T02:01:14.004Z"
+          "source_updated_at": "2026-09-20T02:01:14.004Z",
+          "byte_size": 2520861
         },
         {
           "role": "reference",
@@ -153,7 +194,8 @@
           "height": 1254,
           "sha256": "955070c425fd861dfd72d3b599779a586477b28897faafb17d4a4c29fb93b2f1",
           "source_asset_id": "/objects/uploads/ae29eee2-b01c-4711-9def-3cfd161aed13",
-          "source_updated_at": "2026-09-20T02:01:39.809Z"
+          "source_updated_at": "2026-09-20T02:01:39.809Z",
+          "byte_size": 2234149
         }
       ]
     },
@@ -172,7 +214,8 @@
           "height": 1024,
           "sha256": "affec37ee3b1b1a88269f2f72ee959ddb518e86ebe27dc80ba75357696cbd20c",
           "source_asset_id": "/objects/uploads/1f1c8953-c7a2-4e71-8734-10b0528c8bcc",
-          "source_updated_at": "2026-09-19T14:31:25.947Z"
+          "source_updated_at": "2026-09-19T14:31:25.947Z",
+          "byte_size": 516081
         }
       ]
     },
@@ -191,7 +234,8 @@
           "height": 1254,
           "sha256": "8a9815b681af42db5ff8c80a50100ef8c622f040fcf5794b9b30209dadd86e0b",
           "source_asset_id": "/objects/uploads/5a3666e2-dcd3-483f-bbb1-f9572cb33a35",
-          "source_updated_at": "2026-09-19T20:13:41.079Z"
+          "source_updated_at": "2026-09-19T20:13:41.079Z",
+          "byte_size": 1303998
         }
       ]
     },
@@ -210,7 +254,8 @@
           "height": 1024,
           "sha256": "b5255cc21a170a9be8ee19048f930472a490a3bdf0b3cdcd8a564808d734232b",
           "source_asset_id": "/objects/uploads/2e3e2ebc-b4e7-4e6c-9df3-ffe530a7c743",
-          "source_updated_at": "2026-09-19T19:11:24.230Z"
+          "source_updated_at": "2026-09-19T19:11:24.230Z",
+          "byte_size": 572554
         }
       ]
     },
@@ -229,7 +274,8 @@
           "height": 1024,
           "sha256": "948cc21d3a7ea1f3bb59da6a83defa53a5f5d8cd5f59e9dae64a92c3b29507ed",
           "source_asset_id": "/objects/uploads/f6c9d78c-f135-4158-9c0b-598b9f56933c",
-          "source_updated_at": "2026-09-19T14:44:48.228Z"
+          "source_updated_at": "2026-09-19T14:44:48.228Z",
+          "byte_size": 1460732
         }
       ]
     },
@@ -248,7 +294,8 @@
           "height": 1024,
           "sha256": "36073294f8cef174017c0bce12c70663ee6c47859c7ea534613e825b641229f1",
           "source_asset_id": "/objects/uploads/b8a6048b-1473-4a39-91e0-22f092b3d7fa",
-          "source_updated_at": "2026-09-19T20:56:12.326Z"
+          "source_updated_at": "2026-09-19T20:56:12.326Z",
+          "byte_size": 1462838
         }
       ]
     },
@@ -267,9 +314,42 @@
           "height": 1024,
           "sha256": "e8c0e76310def76a9080bcb60207a3edec30d802c3100f0508406ad0cb7b4abd",
           "source_asset_id": "/objects/uploads/691d2727-6be9-4e35-aa4a-23cb24a6c94b",
-          "source_updated_at": "2026-09-19T15:14:24.894Z"
+          "source_updated_at": "2026-09-19T15:14:24.894Z",
+          "byte_size": 1285861
         }
       ]
+    },
+    {
+      "canonical_id": "3f05cc8b-afa9-4d43-97f5-d64e825322f2",
+      "record_name": "Clara Refuses Elias’s First Proposal",
+      "record_slug": "clara-refuses-elias-s-first-proposal",
+      "canon_type": "event",
+      "status": "proposed",
+      "images": []
+    },
+    {
+      "canonical_id": "1db13b4c-dfb5-419f-9ebe-36bc8ffc916b",
+      "record_name": "Margaret Accepts the Stewardship of Wychcombe",
+      "record_slug": "margaret-accepts-the-stewardship-of-wychcombe",
+      "canon_type": "event",
+      "status": "proposed",
+      "images": []
+    },
+    {
+      "canonical_id": "ac8cd6a4-1207-4f2f-b6f5-4b1ff38e4ca3",
+      "record_name": "The First Glasshouse Returned to Cultivation",
+      "record_slug": "the-first-glasshouse-returned-to-cultivation",
+      "canon_type": "event",
+      "status": "proposed",
+      "images": []
+    },
+    {
+      "canonical_id": "876f253a-1e66-4858-96dc-af87d51d6ef2",
+      "record_name": "The First Harcourt Survey",
+      "record_slug": "the-first-harcourt-survey",
+      "canon_type": "event",
+      "status": "proposed",
+      "images": []
     },
     {
       "canonical_id": "bb981182-6d53-4a39-a2f7-8df3e1c4cb75",
@@ -286,7 +366,8 @@
           "height": 1024,
           "sha256": "ad496cfb3b0d1a6996441a5ff8c2fdeb19cdf2f8cd9f3779998fb9f87422c404",
           "source_asset_id": "/objects/uploads/fc0cc086-8b12-4438-9b62-ac8a2acb0b7a",
-          "source_updated_at": "2026-09-19T17:46:07.385Z"
+          "source_updated_at": "2026-09-19T17:46:07.385Z",
+          "byte_size": 1934728
         }
       ]
     },
@@ -305,7 +386,8 @@
           "height": 1024,
           "sha256": "fa6202d284ed81135574723b863902fe7304fd82f52a8bba2a864f5d828c0bac",
           "source_asset_id": "/objects/uploads/939849ec-f6e1-43f4-b0a4-ca6d77e6822c",
-          "source_updated_at": "2026-09-19T15:02:58.708Z"
+          "source_updated_at": "2026-09-19T15:02:58.708Z",
+          "byte_size": 2101987
         },
         {
           "role": "reference",
@@ -315,7 +397,8 @@
           "height": 941,
           "sha256": "a7a4ddcc9b59b29bd47d64579ec892bc0d90c9f104466c90bf348c37c7d2c955",
           "source_asset_id": "/objects/uploads/9fc95b32-659e-46b5-94b0-4da96e398a20",
-          "source_updated_at": "2026-09-20T01:46:04.730Z"
+          "source_updated_at": "2026-09-20T01:46:04.730Z",
+          "byte_size": 2808038
         }
       ]
     },
@@ -334,7 +417,8 @@
           "height": 1024,
           "sha256": "43f2c31a424144eb6f0bfcc1781430f3fdd6a78dfe52aa25c8cb734f6165ace4",
           "source_asset_id": "/objects/uploads/420e51db-e247-4259-a02d-42d730c4276c",
-          "source_updated_at": "2026-09-19T14:54:01.588Z"
+          "source_updated_at": "2026-09-19T14:54:01.588Z",
+          "byte_size": 2148186
         }
       ]
     },
@@ -353,7 +437,8 @@
           "height": 1024,
           "sha256": "f1e7fcc60b28429de7929747abb3279d254a9ab8fe2d9da9a9f4b8e90980be2a",
           "source_asset_id": "/objects/uploads/4b45c219-b4af-4494-9c8c-24473fc5146c",
-          "source_updated_at": "2026-09-19T18:02:22.958Z"
+          "source_updated_at": "2026-09-19T18:02:22.958Z",
+          "byte_size": 2260146
         }
       ]
     },
@@ -372,7 +457,8 @@
           "height": 1024,
           "sha256": "a0679af95c426ce7e8d28e34876b407378317d5959a58db1dae5d59a03f120a4",
           "source_asset_id": "/objects/uploads/bf82c1db-1a7a-44bd-b8af-872b3871ee36",
-          "source_updated_at": "2026-09-19T18:59:54.167Z"
+          "source_updated_at": "2026-09-19T18:59:54.167Z",
+          "byte_size": 2193266
         }
       ]
     },
@@ -391,7 +477,8 @@
           "height": 1024,
           "sha256": "ad8817d46e1338d2c4da476d1532241e5bf75bf4fbe919451b0ecc72d5a6411c",
           "source_asset_id": "/objects/uploads/2c139cb6-e222-4e27-acc8-53729500a238",
-          "source_updated_at": "2026-09-19T18:07:47.310Z"
+          "source_updated_at": "2026-09-19T18:07:47.310Z",
+          "byte_size": 2230837
         }
       ]
     },
@@ -410,7 +497,8 @@
           "height": 1024,
           "sha256": "14b264c19d887819301a169a3769fe010d2f073075745cf5e2d478c5919d2d72",
           "source_asset_id": "/objects/uploads/a9f415ec-fb4c-4651-8cbb-760fbe4fae23",
-          "source_updated_at": "2026-09-19T18:19:13.312Z"
+          "source_updated_at": "2026-09-19T18:19:13.312Z",
+          "byte_size": 2058429
         }
       ]
     },
@@ -429,7 +517,8 @@
           "height": 1024,
           "sha256": "f1fc06190fb4762de937d9ca485fd27fac67fbc1565e98297b7f5ee6bb927be0",
           "source_asset_id": "/objects/uploads/b58de8ac-d1c7-4471-81cf-36a2fbe80663",
-          "source_updated_at": "2026-09-19T16:32:25.599Z"
+          "source_updated_at": "2026-09-19T16:32:25.599Z",
+          "byte_size": 2154245
         },
         {
           "role": "reference",
@@ -439,7 +528,8 @@
           "height": 941,
           "sha256": "e0a8ddcd5bc98a037757cd42386ad8f3357f4541f0bffa3ed6a22a9580bf86b6",
           "source_asset_id": "/objects/uploads/b676fe6f-62c6-4edc-a11f-3988eacef740",
-          "source_updated_at": "2026-09-20T01:21:40.065Z"
+          "source_updated_at": "2026-09-20T01:21:40.065Z",
+          "byte_size": 3342426
         },
         {
           "role": "reference",
@@ -449,7 +539,8 @@
           "height": 941,
           "sha256": "249b6a8b6018a01d2066bdfb1654b112113ee04687954fb2896d5f883dc7bdfb",
           "source_asset_id": "/objects/uploads/7ccc4d73-c61a-45b4-8d68-d0311b7d160d",
-          "source_updated_at": "2026-09-20T01:27:05.730Z"
+          "source_updated_at": "2026-09-20T01:27:05.730Z",
+          "byte_size": 3295015
         }
       ]
     },
@@ -468,7 +559,8 @@
           "height": 1024,
           "sha256": "6848f73fd6175c8c5cd8637d47aeb68ad6b234244bd8556b823ee4c1d2186ccd",
           "source_asset_id": "/objects/uploads/5cd11f33-3a2c-4dea-b47f-c7f0136922ee",
-          "source_updated_at": "2026-09-19T14:40:32.883Z"
+          "source_updated_at": "2026-09-19T14:40:32.883Z",
+          "byte_size": 2169660
         }
       ]
     },
@@ -487,7 +579,8 @@
           "height": 941,
           "sha256": "d3e9c541455ad7b88a858ff5fd4c99f6a306dec05fcd6d226328e9f4addbe77a",
           "source_asset_id": "/objects/uploads/7f319454-e22c-4058-977e-9101835528c8",
-          "source_updated_at": "2026-09-20T02:10:31.951Z"
+          "source_updated_at": "2026-09-20T02:10:31.951Z",
+          "byte_size": 2670313
         }
       ]
     },
@@ -514,7 +607,8 @@
           "height": 1024,
           "sha256": "78ea67aead180a0f7202772b691fff24f406432d20870caa57ba848d2c5a8cbb",
           "source_asset_id": "/objects/uploads/126de48c-9e6d-4001-a050-1dafa6ef4164",
-          "source_updated_at": "2026-09-19T16:53:22.831Z"
+          "source_updated_at": "2026-09-19T16:53:22.831Z",
+          "byte_size": 1896970
         }
       ]
     },
@@ -533,9 +627,34 @@
           "height": 1024,
           "sha256": "08a6f83ea2b45cd7682d6f9d8ef022e4c0a044dbcc068259b1c5c94056d147e8",
           "source_asset_id": "/objects/uploads/f64d886b-5375-4340-8fb6-9143f1c952fc",
-          "source_updated_at": "2026-09-19T14:57:27.732Z"
+          "source_updated_at": "2026-09-19T14:57:27.732Z",
+          "byte_size": 1863696
         }
       ]
+    },
+    {
+      "canonical_id": "89c2953a-d397-4dd4-bc9c-e58f4189fd9a",
+      "record_name": "Knowledge Keeps Its Name",
+      "record_slug": "knowledge-keeps-its-name",
+      "canon_type": "motif",
+      "status": "proposed",
+      "images": []
+    },
+    {
+      "canonical_id": "92537afe-22a0-42aa-ae65-d36fc797835b",
+      "record_name": "The Visible Seam",
+      "record_slug": "the-visible-seam",
+      "canon_type": "motif",
+      "status": "proposed",
+      "images": []
+    },
+    {
+      "canonical_id": "b8f5f878-819d-428f-81d3-6964bf95480e",
+      "record_name": "The Working Table",
+      "record_slug": "the-working-table",
+      "canon_type": "motif",
+      "status": "proposed",
+      "images": []
     },
     {
       "canonical_id": "591c11dc-43aa-497b-8c2a-0fe6fc2d86af",
@@ -552,7 +671,136 @@
           "height": 1024,
           "sha256": "1baa9d976f95be85eb0d71936737db44a9239ff4b44a8ecff296cb4989cfa471",
           "source_asset_id": "/objects/uploads/161d6f4e-9a75-49e8-af35-d0c65170bad8",
-          "source_updated_at": "2026-09-19T18:50:30.620Z"
+          "source_updated_at": "2026-09-19T18:50:30.620Z",
+          "byte_size": 1328071
+        }
+      ]
+    },
+    {
+      "canonical_id": "b9dad350-fb65-436e-a140-1f1d7ff30ec5",
+      "record_name": "Use Leaves a Trace",
+      "record_slug": "use-leaves-a-trace",
+      "canon_type": "motif",
+      "status": "proposed",
+      "images": []
+    },
+    {
+      "canonical_id": "c5e1c8e7-2162-43c4-b15d-e2db9bf90ba2",
+      "record_name": "Bellamy & Son’s Harcourt Account Book",
+      "record_slug": "bellamy-son-s-harcourt-account-book",
+      "canon_type": "object",
+      "status": "proposed",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/objects/c5e1c8e7-2162-43c4-b15d-e2db9bf90ba2-bellamy-son-s-harcourt-account-book/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1254,
+          "height": 1254,
+          "sha256": "25f7841499c2dca24c3a3fb7bdf5f06df767167318dfa9547210a970855c7ed9",
+          "source_asset_id": "/objects/uploads/a8ad6c0b-155b-497b-9bf8-94118777778d",
+          "source_updated_at": "2026-09-20T16:32:27.767Z",
+          "byte_size": 2387734
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/objects/c5e1c8e7-2162-43c4-b15d-e2db9bf90ba2-bellamy-son-s-harcourt-account-book/image-reference-01.png",
+          "mime_type": "image/png",
+          "width": 1536,
+          "height": 1024,
+          "sha256": "1979209ad4300bbf492c024628290d608ff03be6b366d8bd8c214994e37574aa",
+          "source_asset_id": "/objects/uploads/1bed84b8-d80a-41a6-9920-327c506219ec",
+          "source_updated_at": "2026-09-20T16:32:39.994Z",
+          "byte_size": 2804074
+        }
+      ]
+    },
+    {
+      "canonical_id": "50205e63-0c29-48ca-b8ca-aacb69d0f895",
+      "record_name": "Eleanor Harcourt’s Annotated Garden Book",
+      "record_slug": "eleanor-harcourt-s-annotated-garden-book",
+      "canon_type": "object",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/objects/50205e63-0c29-48ca-b8ca-aacb69d0f895-eleanor-harcourt-s-annotated-garden-book/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1254,
+          "height": 1254,
+          "sha256": "195dde93d3a6061260667f7c23be53dda2e56557a900eeff743358bbf4cc0dfe",
+          "source_asset_id": "/objects/uploads/0e9534fc-725d-469a-84a7-fb11700a1cd1",
+          "source_updated_at": "2026-09-20T17:56:39.542Z",
+          "byte_size": 2252580
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/objects/50205e63-0c29-48ca-b8ca-aacb69d0f895-eleanor-harcourt-s-annotated-garden-book/image-reference-01.png",
+          "mime_type": "image/png",
+          "width": 1536,
+          "height": 1024,
+          "sha256": "e1adee4ff2d8ea7d248c9379646c98503fdc39e8811769779c461feb512972f6",
+          "source_asset_id": "/objects/uploads/5634150e-b987-4f0b-bc9f-abdc5ac582e6",
+          "source_updated_at": "2026-09-20T17:59:43.784Z",
+          "byte_size": 2628671
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/objects/50205e63-0c29-48ca-b8ca-aacb69d0f895-eleanor-harcourt-s-annotated-garden-book/image-reference-02.png",
+          "mime_type": "image/png",
+          "width": 1254,
+          "height": 1254,
+          "sha256": "195dde93d3a6061260667f7c23be53dda2e56557a900eeff743358bbf4cc0dfe",
+          "source_asset_id": "/objects/uploads/bd838ea4-b535-48dc-977c-4f8de4d21054",
+          "source_updated_at": "2026-09-20T17:59:43.792Z",
+          "byte_size": 2252580
+        }
+      ]
+    },
+    {
+      "canonical_id": "ef896c38-336a-48c5-b9e4-92b40a6fc3a3",
+      "record_name": "Elias Ashcroft’s Palimpsest Survey Plan",
+      "record_slug": "elias-ashcroft-s-palimpsest-survey-plan",
+      "canon_type": "object",
+      "status": "proposed",
+      "images": []
+    },
+    {
+      "canonical_id": "ae5c49e2-db3e-46a3-9481-c4f11ecd688d",
+      "record_name": "Frederick Ashcroft’s Letter Announcing Their Father’s Death",
+      "record_slug": "frederick-ashcroft-s-letter-announcing-their-father-s-death",
+      "canon_type": "object",
+      "status": "proposed",
+      "images": []
+    },
+    {
+      "canonical_id": "b449c8a6-b54e-42c9-9a26-19a60684e29e",
+      "record_name": "The Ashcroft Ledger",
+      "record_slug": "the-ashcroft-ledger",
+      "canon_type": "object",
+      "status": "proposed",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/objects/b449c8a6-b54e-42c9-9a26-19a60684e29e-the-ashcroft-ledger/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1254,
+          "height": 1254,
+          "sha256": "09d170009d5e832c3b41edd0ffae71c28517bdfef05b1a204ee048abcbff0e04",
+          "source_asset_id": "/objects/uploads/67915c6f-3211-4812-90b1-bd7a8499e860",
+          "source_updated_at": "2026-09-20T15:41:33.630Z",
+          "byte_size": 2298681
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/objects/b449c8a6-b54e-42c9-9a26-19a60684e29e-the-ashcroft-ledger/image-reference-01.png",
+          "mime_type": "image/png",
+          "width": 1536,
+          "height": 1024,
+          "sha256": "011b1b1ec84c291b64a31dd3c7d4f4ddf7e8c2bf35ccf0f88adf400de698e1c2",
+          "source_asset_id": "/objects/uploads/72cfeb45-4d72-4e5d-9184-e60f19e9c5ef",
+          "source_updated_at": "2026-09-20T15:42:04.540Z",
+          "byte_size": 2872243
         }
       ]
     },
@@ -571,7 +819,8 @@
           "height": 1024,
           "sha256": "ce222cb6d5d7183f7575f90d966f089edde73e2e7336ed6f95ae9ac828786b27",
           "source_asset_id": "/objects/uploads/043ebda8-5022-4ae4-aa07-21b451e691e1",
-          "source_updated_at": "2026-09-20T00:57:13.415Z"
+          "source_updated_at": "2026-09-20T00:57:13.415Z",
+          "byte_size": 1668552
         }
       ]
     },
@@ -590,9 +839,18 @@
           "height": 1024,
           "sha256": "9276bcee0f84a7447ca3031af0b7b853bfd86e8179d47b1a0baca610376c1da9",
           "source_asset_id": "/objects/uploads/29cb0dd9-3e0b-4e46-9fdd-d9d57c06ff85",
-          "source_updated_at": "2026-09-20T02:16:37.931Z"
+          "source_updated_at": "2026-09-20T02:16:37.931Z",
+          "byte_size": 1735525
         }
       ]
+    },
+    {
+      "canonical_id": "cd157815-0d59-4767-a6ec-9c30a6df0629",
+      "record_name": "The Glasshouse Repair Sample Board",
+      "record_slug": "the-glasshouse-repair-sample-board",
+      "canon_type": "object",
+      "status": "proposed",
+      "images": []
     },
     {
       "canonical_id": "57d113c2-5b24-460a-ab94-0f55063de68f",
@@ -609,7 +867,8 @@
           "height": 1024,
           "sha256": "5ad1f4cf98b2c7f208c3c1c11af04c6be3e04ea93f5c194cc845a0b01fd985d5",
           "source_asset_id": "/objects/uploads/29e12e21-c8d9-43c0-ae2d-56a354d115b0",
-          "source_updated_at": "2026-09-19T18:56:03.102Z"
+          "source_updated_at": "2026-09-19T18:56:03.102Z",
+          "byte_size": 1799240
         }
       ]
     },
@@ -628,9 +887,26 @@
           "height": 1024,
           "sha256": "df55f4fc6ef33ca52eb693f166252bddf8390f1cf7c989c1eb340a1f0126bfc8",
           "source_asset_id": "/objects/uploads/7fdfe09e-8732-409c-89b9-ec05faa352ef",
-          "source_updated_at": "2026-09-19T18:40:43.108Z"
+          "source_updated_at": "2026-09-19T18:40:43.108Z",
+          "byte_size": 1432269
         }
       ]
+    },
+    {
+      "canonical_id": "f3729967-bfdb-48c3-93af-0306a4b9f9ac",
+      "record_name": "The Stationery House’s First Useful Publication",
+      "record_slug": "the-stationery-house-s-first-useful-publication",
+      "canon_type": "object",
+      "status": "proposed",
+      "images": []
+    },
+    {
+      "canonical_id": "1ec35712-464b-4d55-8ddf-23b0f55bbede",
+      "record_name": "Thomas Vale’s Working Labels",
+      "record_slug": "thomas-vale-s-working-labels",
+      "canon_type": "object",
+      "status": "proposed",
+      "images": []
     },
     {
       "canonical_id": "d9f7de7a-4b0f-45fb-b0ff-7d04ecc044df",
@@ -647,7 +923,8 @@
           "height": 1024,
           "sha256": "6ea23270dcda2be9b7708ffe5387888872221ae2a096cae1545c469b202e0197",
           "source_asset_id": "/objects/uploads/e1fa6b6e-9d74-4c09-861e-245ef50c1ed4",
-          "source_updated_at": "2026-09-19T18:36:16.976Z"
+          "source_updated_at": "2026-09-19T18:36:16.976Z",
+          "byte_size": 1254695
         }
       ]
     },
@@ -674,7 +951,8 @@
           "height": 1024,
           "sha256": "7de668389476c823954c71cf6e70ad85e245b1ce8ac3e9d43d882d3e92df2c62",
           "source_asset_id": "/objects/uploads/97d61bcd-f1fd-4e3b-8e7f-6490c5648b7d",
-          "source_updated_at": "2026-09-19T19:03:41.832Z"
+          "source_updated_at": "2026-09-19T19:03:41.832Z",
+          "byte_size": 1926689
         }
       ]
     }

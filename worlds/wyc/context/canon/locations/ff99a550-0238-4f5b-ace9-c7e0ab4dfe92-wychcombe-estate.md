@@ -1,4 +1,4 @@
-# Wychcomb Estate
+# Wychcombe Estate
 
 > Generated from Daybook. Do not edit as source data.
 
@@ -40,23 +40,34 @@ Wychcombe was not created on untouched ground. It grew from a place that had alr
 ## Historical Context
 
 The estate predates Elias and Clara Ashcroft’s establishment of Wychcombe. Its exact age, original name, previous ownership, and earliest architectural history have not yet been established.
+
 By the time Elias arrived as a young architect, the property had already passed through multiple periods of occupation, alteration, prosperity, and decline. The principal house, gardens, glasshouses, service buildings, workers’ spaces, and cultivated land did not originate as a single unified plan. They developed over time in response to changing households, horticultural interests, agricultural use, available money, labor, and practical necessity.
 The estate’s relationship with Wychcombe Village also predated the Ashcrofts. Village families supplied workers, gardeners, builders, tradespeople, household staff, plants, materials, and services. This exchange allowed knowledge about the estate to survive outside its official archive.
+
 Thomas Vale worked on the property before Elias arrived and remained through its transition into Wychcombe. His knowledge of its land, gardens, buildings, and earlier working practices made him an important link between the pre-Ashcroft estate and the institution Elias and Clara later developed.
+
 Elias came to the property professionally to assess its buildings and future usefulness. His investigation of the estate’s old glasshouses led him to Bellamy & Son, Nurserymen and Seedsmen, and to Clara Bellamy. Clara’s horticultural knowledge helped demonstrate that the history of the property could not be understood through architecture and ownership records alone.
+
 The estate later adopted the Wychcombe name from the neighboring village. Elias did not name the village, nor did the village originate as a settlement built around the Ashcroft estate.
+
 The precise legal and financial circumstances through which Elias and Clara acquired, leased, inherited responsibility for, or otherwise gained control of the property remain unresolved. Elias should not be portrayed as independently wealthy enough to purchase a major estate casually.
 
 ## Visual Notes
 
 Use the approved first-run estate image as the primary visual reference for the Wychcombe Estate.
 The estate is viewed from an elevated three-quarter perspective. The principal house occupies the upper middle ground, while its terraces, working gardens, glasshouses, sheds, walled horticultural areas, and service paths descend toward the viewer. This composition allows the estate to be understood as an interconnected working landscape rather than as an isolated house portrait.
+
 The house is constructed primarily from warm, weathered local stone. It has steep gables, tall clustered chimneys, mullioned windows, projecting bays, an irregular roofline, and additions from more than one period. The architecture should suggest an older vernacular or Jacobean core that has been enlarged and altered over generations.
+
 A stone terrace forms the transition between the house and the working gardens. Below it are productive beds, walled enclosures, propagation areas, several differently aged glasshouses, potting sheds, cold frames, water storage, stacked terracotta pots, tools, and service structures.
+
 The gardens show restrained decline. Paths are worn, beds are uneven, masonry is weathered, vegetation has escaped some boundaries, and portions of the glass structures require repair. Nevertheless, workers remain present, soil is being cultivated, plants are being protected, smoke rises from occupied buildings, and carts continue to use the road.
+
 The old estate road follows the boundary wall and passes through a practical gate rather than a monumental ceremonial entrance. Wychcombe Village is visible beyond the estate, with accumulated roofs and a church tower establishing that the village is older, independent, and physically close enough for regular exchange.
 Behind the house, mature specimen trees and open pasture demonstrate the larger extent of the property without turning it into an extravagant aristocratic park.
+
 The color palette is muted and natural: weathered limestone, aged brick, moss and lichen, soft greens, dark timber, oxidized metal, old glass, brown earth, terracotta, and a pale overcast sky.
+
 The overall mood is quiet, observant, and historically grounded. The estate is declining but alive—worn enough to require difficult decisions, yet active enough to demonstrate why those decisions matter.
 
 ## Canon Notes and Open Questions
@@ -147,12 +158,12 @@ Do not restore the estate into flawless grandeur. Its later identity should reta
 
 ## Record Images
 
-- **Primary:** [image-primary.png](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcomb-estate/image-primary.png)
+- **Primary:** [image-primary.png](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-primary.png)
 
-![Primary canon portrait of Wychcomb Estate](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcomb-estate/image-primary.png)
+![Primary canon portrait of Wychcombe Estate](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-primary.png)
 
 ---
 Generated from Daybook
 Record ID: ff99a550-0238-4f5b-ace9-c7e0ab4dfe92
-Last Updated: 2026-09-20T01:18:24.107Z
-Snapshot Generated: 2026-09-20T01:18:24.107Z
+Last Updated: 2026-09-20T01:19:57.032Z
+Snapshot Generated: 2026-09-20T01:19:57.032Z

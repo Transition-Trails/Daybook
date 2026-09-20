@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T01:18:24.107Z",
+  "generated_at": "2026-09-20T01:19:57.032Z",
   "records": [
     {
       "canonical_id": "52ab89e3-9679-42e5-9f17-b1299e0b1d31",
@@ -386,14 +386,14 @@
     },
     {
       "canonical_id": "ff99a550-0238-4f5b-ace9-c7e0ab4dfe92",
-      "record_name": "Wychcomb Estate",
-      "record_slug": "wychcomb-estate",
+      "record_name": "Wychcombe Estate",
+      "record_slug": "wychcombe-estate",
       "canon_type": "location",
       "status": "proposed",
       "images": [
         {
           "role": "primary",
-          "relative_path": "assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcomb-estate/image-primary.png",
+          "relative_path": "assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-primary.png",
           "mime_type": "image/png",
           "width": 1024,
           "height": 1024,

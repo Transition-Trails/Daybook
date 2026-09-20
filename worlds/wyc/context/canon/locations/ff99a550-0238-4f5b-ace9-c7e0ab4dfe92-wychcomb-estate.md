@@ -10,19 +10,31 @@
 ## Narrative Details
 
 Long before Elias and Clara Ashcroft made Wychcombe a place of deliberate preservation, the estate already possessed a long and complicated life.
+
 The property stood beyond Wychcombe Village, connected to the community by roads and paths used by workers, gardeners, tradespeople, suppliers, and neighboring families. Walls, hedges, gates, and cultivated boundaries marked the transition between village and estate, but the two had never been entirely separate. Generations of villagers had worked on the land, repaired its buildings, supplied its households, cultivated its gardens, and carried away memories that rarely appeared in official records.
+
 At the estate’s center stood a substantial country house assembled across several periods. Its uneven roofline, altered windows, service wings, enclosed passages, and changes in masonry revealed that it had expanded according to the needs and fortunes of successive occupants. It was an important house, but not a palace. Its character came from accumulated use rather than architectural perfection.
+
 Formal terraces and lawns occupied the ground nearest the house. Beyond them lay older trees, walled growing areas, kitchen gardens, orchards, service yards, pasture, and cultivated land. Water, drainage, slope, shelter, and exposure had influenced where things could be built and grown. Generations of gardeners had learned the estate through experience, adapting its grounds rather than imposing a single permanent design upon them.
+
 The estate’s most distinctive feature was its collection of working gardens and glass structures. These had been built, expanded, repaired, heated, reglazed, and replanted over many years. An older brick-based glasshouse stood among later lean-to houses, cold frames, propagation sheds, workrooms, garden walls, and practical paths. Together, they formed a working horticultural landscape rather than a single ornamental conservatory.
+
 By the time Elias Ashcroft arrived to conduct his architectural survey, the property was in decline but had not been abandoned.
+
 Some rooms remained occupied while others had been closed or repurposed. Roof tiles had slipped. Gutters sagged. Paths narrowed beneath moss and self-seeded plants. Glass panes were missing or replaced unevenly. Garden walls leaned where water and roots had disturbed their foundations. Several outbuildings survived only because workers continued making practical repairs with the materials available to them.
+
 Life nevertheless continued throughout the estate. Smoke rose from working chimneys. Carts entered the service yard. Tools, stacked pots, firewood, household laundry, fresh footprints, and recently turned soil showed that the property was still being inhabited and maintained. Thomas Vale and the remaining workers kept selected parts of the gardens productive even as money, staffing, and attention diminished. Some plants were carefully protected. Others were allowed to disappear so that something judged more valuable could survive.
+
 Nothing about the estate was frozen in picturesque decay. It was still being used, negotiated with, repaired, and quietly held together.
+
 Elias initially approached the property as a collection of buildings requiring measurement and professional judgment. He expected plans, deeds, construction methods, and physical evidence to reveal its history. Instead, he found that the estate resisted a single architectural account.
+
 A blocked doorway suggested an earlier passage. Changes in brickwork showed where a glasshouse had been enlarged. Worn thresholds, reused timbers, old hooks, shelves, plant labels, drainage channels, household papers, and repairs made from salvaged materials described generations of daily life absent from the formal record.
 Thomas Vale knew which parts of the grounds flooded, which walls retained warmth, which trees predated the surviving plans, and which repairs had been made by workers whose names never entered an account book. Wychcombe Village held still more of the estate’s history in nursery records, tradesmen’s invoices, correspondence, family stories, and memories passed among former workers.
+
 The property Elias encountered was therefore neither an empty ruin awaiting rescue nor a complete estate awaiting a new owner. It was a living accumulation of architecture, labor, cultivation, memory, neglect, and survival.
 What eventually became Wychcombe began when Elias and Clara recognized that this accumulated evidence mattered. They did not attempt to return the property to a single imagined moment of perfection. They preserved its layers, restored its usefulness, and allowed new work to stand honestly beside the old.
+
 Wychcombe was not created on untouched ground. It grew from a place that had already been lived in for generations.
 
 ## Historical Context
@@ -142,5 +154,5 @@ Do not restore the estate into flawless grandeur. Its later identity should reta
 ---
 Generated from Daybook
 Record ID: ff99a550-0238-4f5b-ace9-c7e0ab4dfe92
-Last Updated: 2026-09-19T16:40:43.289Z
-Snapshot Generated: 2026-09-19T16:40:43.585Z
+Last Updated: 2026-09-20T01:18:24.107Z
+Snapshot Generated: 2026-09-20T01:18:24.107Z

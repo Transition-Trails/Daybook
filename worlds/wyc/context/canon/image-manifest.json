@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T19:45:29.723Z",
+  "generated_at": "2026-09-20T19:56:13.060Z",
   "records": [
     {
       "canonical_id": "19ee8c11-6a1d-48db-bd74-900c63f48025",
@@ -802,30 +802,7 @@
       "record_slug": "the-ashcroft-ledger",
       "canon_type": "object",
       "status": "proposed",
-      "images": [
-        {
-          "role": "primary",
-          "relative_path": "assets/objects/b449c8a6-b54e-42c9-9a26-19a60684e29e-the-ashcroft-ledger/image-primary.png",
-          "mime_type": "image/png",
-          "width": 1254,
-          "height": 1254,
-          "sha256": "09d170009d5e832c3b41edd0ffae71c28517bdfef05b1a204ee048abcbff0e04",
-          "source_asset_id": "/objects/uploads/67915c6f-3211-4812-90b1-bd7a8499e860",
-          "source_updated_at": "2026-09-20T15:41:33.630Z",
-          "byte_size": 2298681
-        },
-        {
-          "role": "reference",
-          "relative_path": "assets/objects/b449c8a6-b54e-42c9-9a26-19a60684e29e-the-ashcroft-ledger/image-reference-01.png",
-          "mime_type": "image/png",
-          "width": 1536,
-          "height": 1024,
-          "sha256": "011b1b1ec84c291b64a31dd3c7d4f4ddf7e8c2bf35ccf0f88adf400de698e1c2",
-          "source_asset_id": "/objects/uploads/72cfeb45-4d72-4e5d-9184-e60f19e9c5ef",
-          "source_updated_at": "2026-09-20T15:42:04.540Z",
-          "byte_size": 2872243
-        }
-      ]
+      "images": []
     },
     {
       "canonical_id": "4969d345-1f26-441c-8de9-eb1601fcf675",
@@ -920,7 +897,7 @@
       "record_name": "The Stationery House’s First Useful Publication",
       "record_slug": "the-stationery-house-s-first-useful-publication",
       "canon_type": "object",
-      "status": "proposed",
+      "status": "accepted",
       "images": []
     },
     {

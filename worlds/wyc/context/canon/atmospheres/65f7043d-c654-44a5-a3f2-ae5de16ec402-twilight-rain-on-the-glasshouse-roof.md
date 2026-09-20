@@ -15,11 +15,12 @@ As the last light of the day fades, the soft patter of rain on the glasshouse ro
 
 - **Primary:** [image-primary.png](../assets/atmospheres/65f7043d-c654-44a5-a3f2-ae5de16ec402-twilight-rain-on-the-glasshouse-roof/image-primary.png)
 - **Reference:** [image-reference-01.png](../assets/atmospheres/65f7043d-c654-44a5-a3f2-ae5de16ec402-twilight-rain-on-the-glasshouse-roof/image-reference-01.png)
+- **Reference:** [image-reference-02.png](../assets/atmospheres/65f7043d-c654-44a5-a3f2-ae5de16ec402-twilight-rain-on-the-glasshouse-roof/image-reference-02.png)
 
 ![Primary canon portrait of Twilight Rain on the Glasshouse Roof](../assets/atmospheres/65f7043d-c654-44a5-a3f2-ae5de16ec402-twilight-rain-on-the-glasshouse-roof/image-primary.png)
 
 ---
 Generated from Daybook
 Record ID: 65f7043d-c654-44a5-a3f2-ae5de16ec402
-Last Updated: 2026-09-20T01:13:08.789Z
-Snapshot Generated: 2026-09-20T01:13:08.789Z
+Last Updated: 2026-09-20T01:16:17.495Z
+Snapshot Generated: 2026-09-20T01:16:17.495Z

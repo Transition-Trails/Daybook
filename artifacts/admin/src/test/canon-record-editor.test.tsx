@@ -302,6 +302,63 @@ describe("CanonRecordEditor", () => {
     ));
   });
 
+  it("generates the first non-character image without a description and defaults its saved description", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith("/relations")) return Promise.resolve({ relations: [] });
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.endsWith("/context-snapshot")) return Promise.resolve({ snapshot: { status: "not_generated" } });
+      if (path === "/v1/editorial/canon-records/generate-image" && init?.method === "POST") {
+        return Promise.resolve({
+          image_data_url: "data:image/png;base64,cHJpbWFyeQ==",
+          generation: { model: "gpt-image-2" },
+        });
+      }
+      if (path.includes("/canon-records/canon-publication")) {
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-publication",
+            worldId: "world-wychcombe",
+            name: "The Stationery House’s First Useful Publication",
+            status: "proposed",
+            canonType: "object",
+            narrativeDetails: "",
+            historicalContext: "",
+            visualNotes: "",
+            notes: "",
+            portraitUrl: null,
+            imageUrls: [],
+            specRefCount: 0,
+            createdAt: "2026-08-20T00:00:00.000Z",
+            updatedAt: "2026-08-20T00:00:00.000Z",
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+    storageApi.requestUploadUrl.mockResolvedValue({
+      uploadURL: "https://storage.example/upload",
+      objectPath: "/objects/stationery-house-publication.png",
+    });
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(new Blob(["primary"], { type: "image/png" }), {
+        status: 200,
+        headers: { "Content-Type": "image/png" },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 })));
+
+    renderEditor("canon-publication");
+    fireEvent.click(await screen.findByRole("button", { name: "Generate Primary Canon Image" }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/generate-image",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"mode":"primary_portrait"'),
+      }),
+    ));
+    expect(await screen.findByDisplayValue("Primary Canon Image")).toBeInTheDocument();
+  });
+
   it("loads and saves the character-only rich-text canon sections", async () => {
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });

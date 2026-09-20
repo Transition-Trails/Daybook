@@ -1190,11 +1190,12 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   }, [toast]);
 
   const generateImage = useCallback(async (mode: "primary_portrait" | "reference") => {
+    const effectiveMode = form.images.length === 0 ? "primary_portrait" : mode;
     if (!form.name.trim()) {
       toast({ title: "Name this canon record first", description: "The record name anchors the generated reference.", variant: "destructive" });
       return;
     }
-    if (mode === "reference" && !imagePrompt.trim()) {
+    if (effectiveMode === "reference" && !imagePrompt.trim()) {
       toast({ title: "Describe the reference image", description: "Add what you want the generated image to show.", variant: "destructive" });
       return;
     }
@@ -1213,8 +1214,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           narrative_details: form.narrativeDetails,
           historical_context: form.historicalContext,
           visual_notes: form.visualNotes,
-          mode,
-          prompt: mode === "reference" ? imagePrompt.trim() : undefined,
+          mode: effectiveMode,
+          prompt: effectiveMode === "reference" ? imagePrompt.trim() : undefined,
           source_record_id: recordId,
           related_record_ids: imageRelatedRecordIds,
         }),
@@ -1228,30 +1229,30 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         { type: blob.type || "image/png" },
       );
       const uploaded = await handleImageUpload(generatedFile, {
-        name: mode === "primary_portrait"
+        name: effectiveMode === "primary_portrait"
           ? (form.canonType === "character" ? "Primary Canon portrait" : "Primary Canon image")
           : undefined,
-        description: mode === "primary_portrait"
+        description: effectiveMode === "primary_portrait"
           ? (form.canonType === "character"
-            ? `Isolated Primary Canon Portrait of ${form.name.trim()}.`
-            : `Primary Canon image of ${form.name.trim()}.`)
+            ? "Primary Canon Portrait"
+            : "Primary Canon Image")
           : imagePrompt.trim(),
-        role: mode === "primary_portrait"
+        role: effectiveMode === "primary_portrait"
           ? (form.canonType === "character" ? "primary_portrait" : "primary_image")
           : "generated_concept",
         rightsStatus: "generated",
-        workflowStatus: mode === "primary_portrait" ? "approved" : "draft",
-        generationPrompt: mode === "reference"
+        workflowStatus: effectiveMode === "primary_portrait" ? "approved" : "draft",
+        generationPrompt: effectiveMode === "reference"
           ? imagePrompt.trim()
           : (form.canonType === "character" ? "Governed Primary Canon Portrait" : "Governed Primary Canon Image"),
-        canonicalStrength: mode === "primary_portrait" ? "canonical" : "reference",
+        canonicalStrength: effectiveMode === "primary_portrait" ? "canonical" : "reference",
         generationModel: result.generation?.model,
         source: "generated",
         byteSize: blob.size,
       });
       if (!uploaded) return;
       toast({
-        title: mode === "primary_portrait"
+        title: effectiveMode === "primary_portrait"
           ? (form.canonType === "character" ? "Primary Canon Portrait generated" : "Primary Canon image generated")
           : "Reference image generated",
         description: "It is ready to save with this canon record.",

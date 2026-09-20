@@ -41,7 +41,12 @@ describe("StorylineEditor", () => {
 
   it("prefills and creates a storyline from a suggestion URL", async () => {
     useSearch.mockReturnValue("?title=The+Ashcroft+Lantern&summary=A+keeper+follows+the+light.&status=planned");
-    apiFetch.mockResolvedValue({ story: { id: "story-2", title: "The Ashcroft Lantern" } });
+    apiFetch.mockImplementation(async (path: string) => {
+      if (path.includes("/beats")) return { beats: [] };
+      if (path.includes("/reveals")) return { reveals: [] };
+      if (path.includes("/vocabularies")) return { vocabularies: [] };
+      return { story: { id: "story-2", title: "The Ashcroft Lantern", worldId: "world-wychcombe" } };
+    });
 
     renderEditor();
     expect(screen.getByRole("heading", { name: "New Storyline" })).toBeInTheDocument();
@@ -58,10 +63,17 @@ describe("StorylineEditor", () => {
           title: "The Ashcroft Lantern",
           summary: "A keeper follows the light.",
           status: "planned",
+          global_metadata: {},
         }),
       }),
     ));
-    expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/stories");
+
+    // Also expects beat / reveal saves
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/stories/story-2/beats",
+      expect.objectContaining({ method: "PUT" })
+    );
+    expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/stories/story-2");
   });
 
   it("loads an existing storyline and persists the rich narrative promise", async () => {
@@ -78,6 +90,8 @@ describe("StorylineEditor", () => {
           },
         });
       }
+      if (path.includes("/beats")) return Promise.resolve({ beats: [] });
+      if (path.includes("/reveals")) return Promise.resolve({ reveals: [] });
       return Promise.resolve({ story: { id: "story-1", title: "The First Crossing" } });
     });
 
@@ -97,8 +111,14 @@ describe("StorylineEditor", () => {
           title: "The First Crossing",
           summary: "<p>A <strong>new</strong> promise.</p>",
           status: "draft",
+          global_metadata: {}
         }),
       }),
     ));
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/stories/story-1/beats",
+      expect.objectContaining({ method: "PUT" })
+    );
   });
 });

@@ -46,6 +46,7 @@
     "svg-pathdata": "^7.2.0",
     "svix": "^1.99.1",
     "uuid": "^14.0.1"
+    ,"zod": "catalog:"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

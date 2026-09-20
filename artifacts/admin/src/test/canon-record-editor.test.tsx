@@ -53,7 +53,7 @@ describe("CanonRecordEditor", () => {
     expect(screen.getByText("Canon images")).toBeInTheDocument();
   });
 
-  it("persists image removal when an existing record is saved", async () => {
+  it("persists image removal immediately without requiring a separate save", async () => {
     apiFetch.mockImplementation((path: string) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
       if (path.includes("/canon-records/canon-1")) {
@@ -72,7 +72,6 @@ describe("CanonRecordEditor", () => {
     renderEditor("canon-1");
     await waitFor(() => expect(screen.getByRole("heading", { name: /The Ashcroft Ledger — Canon Record/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Remove primary Canon portrait" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
       "/v1/editorial/canon-records/canon-1",
@@ -121,6 +120,14 @@ describe("CanonRecordEditor", () => {
   it("saves names and descriptions for additional Canon images", async () => {
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.includes("/assets")) {
+        return Promise.resolve({
+          assets: [
+            { recordId: "canon-1", objectPath: "/objects/frederick-primary", title: "Primary Canon portrait", altText: "", role: "primary_portrait" },
+            { recordId: "canon-1", objectPath: "/objects/frederick-study", title: "Portrait study", altText: "Early reference." }
+          ]
+        });
+      }
       if (path.includes("/canon-records/canon-1")) {
         const submitted = init?.method === "PATCH" ? JSON.parse(String(init.body)) : null;
         return Promise.resolve({
@@ -148,12 +155,10 @@ describe("CanonRecordEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
-      "/v1/editorial/canon-records/canon-1",
+      expect.stringContaining("/v1/editorial/assets"),
       expect.objectContaining({
         method: "PATCH",
-        body: expect.stringContaining(
-          '"image_gallery":[{"url":"/objects/frederick-primary","name":"Primary Canon portrait","description":""},{"url":"/objects/frederick-study","name":"Winter travel attire","description":"Frederick preparing to cross the northern moor."}]',
-        ),
+        body: expect.stringMatching(/"title":"Winter travel attire"/),
       }),
     ));
   });
@@ -180,7 +185,14 @@ describe("CanonRecordEditor", () => {
           canon_record: {
             id: "canon-1", worldId: "world-wychcombe", name: "Frederick Ashcroft",
             status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
-            visualNotes: "", notes: "", portraitUrl: null, imageUrls: [],
+            visualNotes: "", notes: "", portraitUrl: "/objects/frederick-primary.png",
+            imageUrls: ["/objects/frederick-primary.png"],
+            imageGallery: [{
+              url: "/objects/frederick-primary.png",
+              name: "Primary Canon portrait",
+              description: "Isolated portrait.",
+              role: "primary_portrait",
+            }],
             specRefCount: 0, createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z",
           },
         });
@@ -206,10 +218,44 @@ describe("CanonRecordEditor", () => {
           narrative_details: "",
           historical_context: "",
           visual_notes: "",
+           mode: "reference",
           prompt: "Show Frederick preparing at the frozen river.",
           source_record_id: "canon-1",
           related_record_ids: ["canon-event"],
         }),
+      }),
+    ));
+  });
+
+  it("generates the first character image as an isolated Primary Canon Portrait without a prompt", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith("/relations")) return Promise.resolve({ relations: [] });
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.endsWith("/context-snapshot")) return Promise.resolve({ snapshot: { status: "not_generated" } });
+      if (path === "/v1/editorial/canon-records/generate-image" && init?.method === "POST") {
+        return new Promise(() => undefined);
+      }
+      if (path.includes("/canon-records/canon-1")) {
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-1", worldId: "world-wychcombe", name: "Eleanor Harcourt",
+            status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
+            visualNotes: "", notes: "", portraitUrl: null, imageUrls: [],
+            specRefCount: 0, createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z",
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor("canon-1");
+    fireEvent.click(await screen.findByRole("button", { name: "Generate Primary Canon Portrait" }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/generate-image",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"mode":"primary_portrait"'),
       }),
     ));
   });

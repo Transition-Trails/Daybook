@@ -219,7 +219,7 @@ export default function StoriesStudio() {
                     </Link>
                     <Link href={`/super/worldsmith/editorial/stories/${selectedStory.id}`}>
                       <span className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold" style={{ color: "#1B2A4A" }}>
-                        Open full editor <ChevronRight className="h-3.5 w-3.5" />
+                        Open story & scenes <ChevronRight className="h-3.5 w-3.5" />
                       </span>
                     </Link>
                   </div>
@@ -237,8 +237,8 @@ export default function StoriesStudio() {
 
                 <div className="mt-7 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[10px] uppercase tracking-[0.14em] font-bold" style={{ color: "#98A2B3" }}>Movements</p>
-                    <p className="mt-1 text-xs" style={{ color: "#667085" }}>Use acts to make the reader’s journey tangible.</p>
+                    <p className="text-[10px] uppercase tracking-[0.14em] font-bold" style={{ color: "#98A2B3" }}>Acts & scenes</p>
+                    <p className="mt-1 text-xs" style={{ color: "#667085" }}>Open the story editor to add and edit scenes inside each act.</p>
                   </div>
                   <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(selectedStory.id)}`}>
                     <span className="inline-flex items-center gap-1 text-xs font-semibold cursor-pointer" style={{ color: "#1B2A4A" }}>

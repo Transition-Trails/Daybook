@@ -20,6 +20,29 @@ export interface CanonImageExportRecord {
   status: string;
   imageGallery?: CanonImageGallerySource[] | null;
   portraitUrl?: string | null;
+  /** Explicit assets are preferred over legacy gallery entries when supplied. */
+  assets?: Array<{
+    id: string;
+    variantId?: string | null;
+    objectPath?: string | null;
+    role?: CanonImageRole | string;
+    title?: string | null;
+    altText?: string | null;
+    approvalStatus?: string | null;
+    canonicalStrength?: string | null;
+    mimeType?: string | null;
+    width?: number | null;
+    height?: number | null;
+    byteSize?: number | null;
+    checksum?: string | null;
+    source?: string | null;
+    rightsStatus?: string | null;
+    generationModel?: string | null;
+    generationPrompt?: string | null;
+    positiveGuidance?: string | null;
+    negativeGuidance?: string | null;
+    updatedAt?: Date | string | null;
+  }>;
   updatedAt: Date;
 }
 
@@ -32,6 +55,10 @@ export interface CanonImageMapping {
   height?: number;
   sha256: string;
   sourceAssetId: string;
+  sourceObjectPath?: string;
+  byteSize?: number;
+  stableAssetId?: string;
+  variantId?: string | null;
   sourceUpdatedAt: string;
 }
 
@@ -69,6 +96,28 @@ export function assignCanonImageRoles(images: CanonImageGallerySource[]): Array<
 }
 
 function sourceImages(record: CanonImageExportRecord): CanonImageGallerySource[] {
+  if (record.assets?.length) {
+    return record.assets
+      .filter(asset => ["approved", "accepted", "canon", "editor_approved", "editor-approved"].includes(String(asset.approvalStatus ?? "").toLowerCase())
+        && !["rejected", "superseded"].includes(String(asset.approvalStatus ?? "").toLowerCase())
+        && ["canonical", "reference", "defining", "locked"].includes(String(asset.canonicalStrength ?? "canonical").toLowerCase())
+        && !!asset.objectPath)
+      .sort((a, b) => `${a.role ?? "reference"}:${a.id}`.localeCompare(`${b.role ?? "reference"}:${b.id}`))
+      .map((asset, index) => ({
+        url: asset.objectPath!,
+        name: asset.title ?? asset.id,
+        description: asset.altText ?? "",
+        role: (() => {
+          const role = String(asset.role ?? "").toLowerCase().replace(/[_-]+/g, " ");
+          if (role === "primary" || role.includes("primary portrait")) return "primary" as CanonImageRole;
+          if (role.includes("scene")) return "scene" as CanonImageRole;
+          if (role.includes("alternate")) return "alternate" as CanonImageRole;
+          if (role.includes("detail")) return "detail" as CanonImageRole;
+          if (!role && index === 0) return "primary" as CanonImageRole;
+          return "reference" as CanonImageRole;
+        })(),
+      }));
+  }
   if (record.imageGallery?.length) return record.imageGallery;
   return record.portraitUrl ? [{ url: record.portraitUrl }] : [];
 }
@@ -120,6 +169,7 @@ export async function buildCanonImageExport(
         throw new Error(`Canon image for ${record.id} does not have a valid internal asset ID.`);
       }
       const safeAssetId = objectPath.split("/").at(-1) || "unknown";
+      const linkedAsset = record.assets?.find(asset => asset.objectPath === objectPath);
       let file;
       try {
         file = await storage.getObjectEntityFile(objectPath);
@@ -144,7 +194,13 @@ export async function buildCanonImageExport(
       if (!extension) throw new Error(`Canon image ${objectPath} for ${record.id} must be PNG, JPEG, or WebP.`);
       const nextRoleIndex = (roleCounts.get(image.role) ?? 0) + 1;
       roleCounts.set(image.role, nextRoleIndex);
-      const relativePath = `assets/${canonImageAssetDirectory(record)}/${imageFileName(record.canonType, image.role, nextRoleIndex, extension)}`;
+       const directory = linkedAsset?.id
+         ? `assets/${kebab(linkedAsset.id)}`
+         : `assets/${canonImageAssetDirectory(record)}`;
+       const fileName = linkedAsset?.id
+         ? `${kebab(linkedAsset.id)}.${extension}`
+         : imageFileName(record.canonType, image.role, nextRoleIndex, extension);
+       const relativePath = `${directory}/${fileName}`;
       const repositoryPath = `${canonRoot}/${relativePath}`;
       const sourceUpdatedAt = metadata.updated
         ? new Date(String(metadata.updated)).toISOString()
@@ -157,7 +213,12 @@ export async function buildCanonImageExport(
         ...(imageMetadata.width ? { width: imageMetadata.width } : {}),
         ...(imageMetadata.height ? { height: imageMetadata.height } : {}),
         sha256: createHash("sha256").update(bytes).digest("hex"),
-        sourceAssetId: objectPath,
+         sourceAssetId: linkedAsset?.id ?? objectPath,
+         ...(linkedAsset?.objectPath ? { sourceObjectPath: linkedAsset.objectPath } : {}),
+         ...(record.assets?.find(asset => asset.objectPath === objectPath)?.id
+           ? { stableAssetId: record.assets.find(asset => asset.objectPath === objectPath)!.id } : {}),
+         ...(linkedAsset?.variantId ? { variantId: linkedAsset.variantId } : {}),
+         byteSize: linkedAsset?.byteSize ?? bytes.length,
         sourceUpdatedAt,
       };
       mappings.push(mapping);
@@ -170,7 +231,10 @@ export async function buildCanonImageExport(
       record_slug: kebab(record.name),
       canon_type: record.canonType ?? null,
       status: record.status,
-      images: mappings.map(mapping => ({
+     images: mappings.map(mapping => {
+       const asset = record.assets?.find(candidate =>
+         candidate.id === mapping.sourceAssetId || candidate.objectPath === mapping.sourceObjectPath);
+       return ({
         role: mapping.role,
         relative_path: mapping.relativePath,
         mime_type: mapping.mimeType,
@@ -178,8 +242,23 @@ export async function buildCanonImageExport(
         ...(mapping.height ? { height: mapping.height } : {}),
         sha256: mapping.sha256,
         source_asset_id: mapping.sourceAssetId,
+         ...(mapping.stableAssetId ? { asset_id: mapping.stableAssetId } : {}),
+         ...(mapping.variantId ? { variant_id: mapping.variantId } : {}),
         source_updated_at: mapping.sourceUpdatedAt,
-      })),
+         ...(asset?.title ? { title: asset.title } : {}),
+         ...(asset?.altText ? { alt_text: asset.altText } : {}),
+         ...(asset?.source ? { source: asset.source } : {}),
+         ...(asset?.rightsStatus ? { rights_status: asset.rightsStatus } : {}),
+         ...(asset?.generationModel ? { generation_model: asset.generationModel } : {}),
+         ...(asset?.approvalStatus ? { approval_status: asset.approvalStatus } : {}),
+         ...(asset?.canonicalStrength ? { canonical_strength: asset.canonicalStrength } : {}),
+         byte_size: mapping.byteSize,
+         ...(asset?.generationPrompt ? { generation_prompt: asset.generationPrompt } : {}),
+         ...(asset?.positiveGuidance ? { positive_guidance: asset.positiveGuidance } : {}),
+         ...(asset?.negativeGuidance ? { negative_guidance: asset.negativeGuidance } : {}),
+         ...(asset?.updatedAt ? { updated_at: new Date(asset.updatedAt).toISOString() } : {}),
+       });
+     }),
     });
   }
 

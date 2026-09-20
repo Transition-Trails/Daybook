@@ -41,6 +41,20 @@ old hash and migration timestamp, and prove every relevant table, column, and
 data-normalization invariant before rewriting the ledger row. Never use this
 mechanism as a general drift bypass.
 
+Once a migration has run in the active development ledger, keep its SQL
+byte-identical unless an explicit checksum-repair path is being designed.
+Later columns, indexes, or data backfills belong in the next monotonic
+migration, even when the earlier migration is still uncommitted locally.
+
+**Why:** The migration guard compares checked-in file hashes with the ledger.
+Expanding an already-applied file caused the guard to reject a safe additive
+repair before any schema changes could run.
+
+**How to apply:** Compare the file hash with the ledger before editing recent
+migrations. If it has already run, restore the original bytes and add an
+idempotent repair migration with a later timestamp; then run migration
+verification to confirm every journal entry appears exactly once.
+
 The legacy WorldSmith baseline can lack the final-art run audit fields even
 when the application schema expects them. The tracked production-package repair
 migration now adds those fields and its table/indexes automatically; its

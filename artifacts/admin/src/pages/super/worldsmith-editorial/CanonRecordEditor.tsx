@@ -15,6 +15,8 @@ import {
 } from "@/components/EditorialRichText";
 import { FontLibraryPicker } from "@/components/FontLibraryPicker";
 import { CanonRecordConnections } from "@/components/editorial/CanonRecordConnections";
+import { SingleSelect, MultiChipSelect, StructuredRepeater } from "@/components/worldsmith/editorial/EditorialFields";
+import { LocationForm, ObjectForm, EventForm, LoreForm, AtmosphereForm, MotifForm, RelationshipForm, CharacterIdentityForm, CharacterKnowledgeForm, LifeStageVariantForm, GenerationLocksForm, MaterialForm } from "@/components/worldsmith/editorial/CanonTypeForms";
 
 const INK = "#1B2A4A";
 const CLAY = "#C87560";
@@ -68,6 +70,9 @@ interface CanonRecord {
   portraitUrl?: string | null;
   imageUrls?: string[];
   imageGallery?: CanonImage[];
+  globalMetadata?: Record<string, any> | null;
+  structuredProfile?: Record<string, any> | null;
+  generationProfile?: Record<string, any> | null;
   notionPageId?: string | null;
   specRefCount: number;
   createdAt: string;
@@ -75,9 +80,25 @@ interface CanonRecord {
 }
 
 interface CanonImage {
+  id?: string;
   url: string;
   name: string;
   description: string;
+  role?: string;
+  lifeStageVariant?: string;
+  rightsStatus?: string;
+  creatorCredit?: string;
+  workflowStatus?: string;
+  generationPrompt?: string;
+  canonicalStrength?: string;
+  generationModel?: string;
+  positiveGuidance?: string;
+  negativeGuidance?: string;
+  width?: number | null;
+  height?: number | null;
+  byteSize?: number | null;
+  checksum?: string | null;
+  source?: string;
 }
 
 interface CanonImageRelation {
@@ -118,6 +139,9 @@ interface FormState {
   notes: string;
   typography: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   images: CanonImage[];
+  globalMetadata: Record<string, any>;
+  structuredProfile: Record<string, any>;
+  generationProfile: Record<string, any>;
 }
 
 function createEmptyForm(search: string): FormState {
@@ -135,6 +159,9 @@ function createEmptyForm(search: string): FormState {
     notes: "",
     typography: [],
     images: [],
+    globalMetadata: {},
+    structuredProfile: {},
+    generationProfile: {},
   };
 }
 
@@ -145,6 +172,7 @@ function ImageField({
   prompt,
   relatedRecords,
   selectedRelatedRecordIds,
+  canGeneratePrimary,
   onUpload,
   onGenerate,
   onRemove,
@@ -158,10 +186,11 @@ function ImageField({
   prompt: string;
   relatedRecords: CanonImageRelation[];
   selectedRelatedRecordIds: string[];
+  canGeneratePrimary: boolean;
   onUpload: (file: File) => Promise<boolean>;
-  onGenerate: () => void;
+  onGenerate: (mode: "primary_portrait" | "reference") => void;
   onRemove: (imageUrl: string) => void;
-  onChangeMetadata: (imageUrl: string, changes: Pick<CanonImage, "name" | "description">) => void;
+  onChangeMetadata: (imageUrl: string, changes: Partial<CanonImage>) => void;
   onPromptChange: (prompt: string) => void;
   onRelatedRecordsChange: (recordIds: string[]) => void;
 }) {
@@ -201,58 +230,199 @@ function ImageField({
                 Remove
               </button>
             </div>
-            <div className="relative aspect-[4/3] overflow-hidden rounded-xl border" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
+            <div className="relative aspect-[4/3] overflow-hidden rounded-xl border mb-3" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
               <img src={`/api/storage${primary!.url}`} alt="Primary Canon portrait" className="h-full w-full object-contain" />
               <span className="absolute bottom-2 left-2 rounded-full bg-[var(--admin-ink)] px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-white">
                 Primary
               </span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
+                <label className="text-[11px] font-semibold" style={{ color: INK }}>Asset Title</label>
+                <input
+                  value={primary!.name}
+                  maxLength={200}
+                  onChange={event => onChangeMetadata(primary!.url, { name: event.target.value })}
+                  placeholder="e.g. Primary Portrait"
+                  className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                  style={{ borderColor: BORDER, color: INK }}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold" style={{ color: INK }}>Rights Status</label>
+                <select
+                  value={primary!.rightsStatus || "unknown"}
+                  onChange={e => onChangeMetadata(primary!.url, { rightsStatus: e.target.value })}
+                  className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                  style={{ borderColor: BORDER, color: INK }}
+                >
+                  <option value="owned">Owned</option>
+                  <option value="licensed">Licensed</option>
+                  <option value="public_domain">Public Domain</option>
+                  <option value="generated">Generated (No Copyright)</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold" style={{ color: INK }}>Creator / Source</label>
+                <input
+                  value={primary!.creatorCredit || ""}
+                  maxLength={200}
+                  onChange={event => onChangeMetadata(primary!.url, { creatorCredit: event.target.value })}
+                  placeholder="Creator name or source link"
+                  className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                  style={{ borderColor: BORDER, color: INK }}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
+                <label className="text-[11px] font-semibold" style={{ color: INK }}>Description & Alt Text</label>
+                <textarea
+                  value={primary!.description}
+                  maxLength={2000}
+                  rows={2}
+                  onChange={event => onChangeMetadata(primary!.url, { description: event.target.value })}
+                  className="w-full resize-y rounded-lg border bg-white px-2.5 py-2 text-xs leading-relaxed outline-none"
+                  style={{ borderColor: BORDER, color: INK }}
+                />
+              </div>
             </div>
           </div>
 
           {additional.length > 0 && (
             <div>
               <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: INK }}>Additional images</h3>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {additional.map((image, index) => (
-                  <div key={image.url} className="rounded-xl border p-3" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
-                    <div className="grid gap-3 sm:grid-cols-[110px_minmax(0,1fr)]">
-                      <div className="aspect-square overflow-hidden rounded-lg border bg-white" style={{ borderColor: BORDER }}>
-                        <img src={`/api/storage${image.url}`} alt={image.name || `Additional Canon image ${index + 1}`} className="h-full w-full object-contain" />
+                  <div key={image.url} className="rounded-xl border p-4" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex gap-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-gray-200 text-gray-700">
+                          {image.role?.replace(/_/g, ' ') || "Reference"}
+                        </span>
+                        {image.workflowStatus && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider" style={{ background: image.workflowStatus === 'approved' ? '#DEF7EC' : '#FEF3C7', color: image.workflowStatus === 'approved' ? '#03543F' : '#92400E' }}>
+                            {image.workflowStatus}
+                          </span>
+                        )}
                       </div>
-                      <div className="min-w-0 space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <label htmlFor={`canon-image-name-${index}`} className="text-[11px] font-semibold" style={{ color: INK }}>Image name</label>
-                          <button
-                            type="button"
-                            onClick={() => onRemove(image.url)}
-                            disabled={uploading || generating}
-                            aria-label={`Remove additional image ${index + 1}`}
-                            className="text-[10px] font-semibold disabled:opacity-60"
-                            style={{ color: "var(--destructive)" }}
-                          >
-                            Remove
-                          </button>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(image.url)}
+                        disabled={uploading || generating}
+                        className="text-[10px] font-semibold disabled:opacity-60"
+                        style={{ color: "var(--destructive)" }}
+                      >
+                        Remove Asset
+                      </button>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-[140px_minmax(0,1fr)] items-start">
+                      <div className="flex flex-col gap-2">
+                        <div className="aspect-square overflow-hidden rounded-lg border bg-white" style={{ borderColor: BORDER }}>
+                          <img src={`/api/storage${image.url}`} alt={image.name || `Additional Canon image ${index + 1}`} className="h-full w-full object-contain" />
                         </div>
-                        <input
-                          id={`canon-image-name-${index}`}
-                          value={image.name}
-                          maxLength={200}
-                          onChange={event => onChangeMetadata(image.url, { name: event.target.value, description: image.description })}
-                          placeholder="e.g. Winter travel attire"
-                          className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
-                          style={{ borderColor: BORDER, color: INK }}
-                        />
-                        <label htmlFor={`canon-image-description-${index}`} className="block text-[11px] font-semibold" style={{ color: INK }}>Description</label>
-                        <textarea
-                          id={`canon-image-description-${index}`}
-                          value={image.description}
-                          maxLength={2000}
-                          rows={3}
-                          onChange={event => onChangeMetadata(image.url, { name: image.name, description: event.target.value })}
-                          placeholder="Explain what this image captures and when it should be used."
-                          className="w-full resize-y rounded-lg border bg-white px-2.5 py-2 text-xs leading-relaxed outline-none"
-                          style={{ borderColor: BORDER, color: INK }}
-                        />
+                      </div>
+
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="flex flex-col gap-1.5 sm:col-span-2">
+                          <label htmlFor={`canon-image-name-${index}`} className="text-[11px] font-semibold" style={{ color: INK }}>Asset Title</label>
+                          <input
+                            id={`canon-image-name-${index}`}
+                            value={image.name}
+                            maxLength={200}
+                            onChange={event => onChangeMetadata(image.url, { name: event.target.value })}
+                            placeholder="e.g. Winter travel attire"
+                            className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                            style={{ borderColor: BORDER, color: INK }}
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[11px] font-semibold" style={{ color: INK }}>Asset Role</label>
+                          <select
+                            value={image.role || "reference"}
+                            onChange={e => onChangeMetadata(image.url, { role: e.target.value })}
+                            className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                            style={{ borderColor: BORDER, color: INK }}
+                          >
+                            <option value="primary_portrait">Primary Portrait</option>
+                            <option value="alternate_portrait">Alternate Portrait</option>
+                            <option value="full_body">Full Body</option>
+                            <option value="life_stage_reference">Life-Stage Reference</option>
+                            <option value="wardrobe_reference">Wardrobe Reference</option>
+                            <option value="expression_reference">Expression Reference</option>
+                            <option value="location_exterior">Location Exterior</option>
+                            <option value="location_interior">Location Interior</option>
+                            <option value="object_reference">Object Reference</option>
+                            <option value="mood_reference">Mood Reference</option>
+                            <option value="historical_reference">Historical Reference</option>
+                            <option value="generated_concept">Generated Concept</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[11px] font-semibold" style={{ color: INK }}>Rights Status</label>
+                          <select
+                            value={image.rightsStatus || "unknown"}
+                            onChange={e => onChangeMetadata(image.url, { rightsStatus: e.target.value })}
+                            className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                            style={{ borderColor: BORDER, color: INK }}
+                          >
+                            <option value="owned">Owned</option>
+                            <option value="licensed">Licensed</option>
+                            <option value="public_domain">Public Domain</option>
+                            <option value="generated">Generated (No Copyright)</option>
+                            <option value="unknown">Unknown</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[11px] font-semibold" style={{ color: INK }}>Creator / Source</label>
+                          <input
+                            value={image.creatorCredit || ""}
+                            maxLength={200}
+                            onChange={event => onChangeMetadata(image.url, { creatorCredit: event.target.value })}
+                            placeholder="Creator name or source link"
+                            className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                            style={{ borderColor: BORDER, color: INK }}
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[11px] font-semibold" style={{ color: INK }}>Workflow Status</label>
+                          <select
+                            value={image.workflowStatus || "suggested"}
+                            onChange={e => onChangeMetadata(image.url, { workflowStatus: e.target.value })}
+                            className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                            style={{ borderColor: BORDER, color: INK }}
+                          >
+                            <option value="suggested">Suggested</option>
+                            <option value="pending_approval">Pending Approval</option>
+                            <option value="approved">Approved</option>
+                            <option value="rejected">Rejected</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1.5 sm:col-span-2">
+                          <label htmlFor={`canon-image-description-${index}`} className="block text-[11px] font-semibold" style={{ color: INK }}>Description & Alt Text</label>
+                          <textarea
+                            id={`canon-image-description-${index}`}
+                            value={image.description}
+                            maxLength={2000}
+                            rows={2}
+                            onChange={event => onChangeMetadata(image.url, { description: event.target.value })}
+                            placeholder="Explain what this image captures and when it should be used."
+                            className="w-full resize-y rounded-lg border bg-white px-2.5 py-2 text-xs leading-relaxed outline-none"
+                            style={{ borderColor: BORDER, color: INK }}
+                          />
+                        </div>
+
+                        {image.generationPrompt && (
+                          <div className="flex flex-col gap-1.5 sm:col-span-2 p-2.5 rounded-lg border bg-gray-50 mt-1" style={{ borderColor: BORDER }}>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Generation Prompt</label>
+                            <p className="text-[11px] text-gray-700 leading-relaxed italic">{image.generationPrompt}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -281,18 +451,37 @@ function ImageField({
           <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading || generating} className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: CLAY }}>
             <Upload className="h-3.5 w-3.5" /> Add supporting images
           </button>
-          <button type="button" onClick={onGenerate} disabled={uploading || generating} className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: INK }}>
+          <button type="button" onClick={() => onGenerate("reference")} disabled={uploading || generating} className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: INK }}>
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             {generating ? "Generating…" : "Generate a new reference"}
           </button>
         </div>
       )}
-      {!hasImages && (
+      {!hasImages && canGeneratePrimary && (
+        <div className="mt-3 rounded-xl border p-3" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
+          <p className="text-[11px] font-semibold" style={{ color: INK }}>Start with the character’s identity image</p>
+          <p className="mt-1 text-[10px] leading-relaxed" style={{ color: "var(--admin-muted)" }}>
+            Generate an isolated, neutral-background portrait grounded in this character’s Canon. You can add described reference scenes after it is created.
+          </p>
+          <button
+            type="button"
+            data-testid="button-generate-primary-canon-portrait"
+            onClick={() => onGenerate("primary_portrait")}
+            disabled={uploading || generating}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+            style={{ background: INK }}
+          >
+            {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {generating ? "Generating portrait…" : "Generate Primary Canon Portrait"}
+          </button>
+        </div>
+      )}
+      {!hasImages && !canGeneratePrimary && (
         <p className="mt-3 text-[10px] leading-relaxed" style={{ color: "var(--admin-muted)" }}>
-          Upload artwork above, or generate a grounded reference below.
+          Upload the primary Canon image above. Described reference generation becomes available after the primary image is added.
         </p>
       )}
-      <div className="mt-4 rounded-xl border p-3" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
+      {hasImages && <div className="mt-4 rounded-xl border p-3" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
         <label htmlFor="canon-reference-prompt" className="text-[11px] font-semibold" style={{ color: INK }}>
           What should this reference show?
         </label>
@@ -350,7 +539,7 @@ function ImageField({
         <button
           type="button"
           data-testid="button-generate-canon-reference"
-          onClick={onGenerate}
+          onClick={() => onGenerate("reference")}
           disabled={uploading || generating || !prompt.trim()}
           className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
           style={{ background: INK }}
@@ -358,7 +547,7 @@ function ImageField({
           {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
           {generating ? "Generating reference…" : "Generate reference image"}
         </button>
-      </div>
+      </div>}
       <p className="mt-2 text-[10px] leading-relaxed" style={{ color: "#7C6F62" }}>
         Generation also uses this record’s Canon details and world visual direction. You can still upload your own artwork.
       </p>
@@ -423,21 +612,153 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   });
   const imageRelations = imageRelationsData?.relations ?? [];
 
+  const { data: recordAssetsData, isPending: isPendingAssets } = useQuery<{ assets: any[] }>({
+    queryKey: ["editorial-assets", recordId],
+    queryFn: () => apiFetch<{ assets: any[] }>(`/v1/editorial/assets?world_id=${worldId}`).then(res => ({
+      assets: (res.assets || []).filter((a: any) => a.recordId === recordId)
+    })),
+    enabled: !!recordId && !!worldId,
+  });
+
+  const { data: locksData, isPending: isPendingLocks } = useQuery<{ locks: any[] }>({
+    queryKey: ["editorial-identity-locks", recordId],
+    queryFn: () => apiFetch<{ locks: any[] }>(`/v1/editorial/identity-locks?world_id=${worldId}`).then(res => ({
+      locks: (res.locks || []).filter((a: any) => a.recordId === recordId)
+    })),
+    enabled: !!recordId && !!worldId,
+  });
+
+  const { data: variantsData, isPending: isPendingVariants } = useQuery<{ variants: any[] }>({
+    queryKey: ["editorial-character-variants", recordId],
+    queryFn: () => apiFetch<{ variants: any[] }>(`/v1/editorial/character-variants?world_id=${worldId}`).then(res => ({
+      variants: (res.variants || []).filter((a: any) => a.recordId === recordId)
+    })),
+    enabled: !!recordId && !!worldId && record?.canonType === "character",
+  });
+
+  const { data: knowledgeData, isPending: isPendingKnowledge } = useQuery<{ knowledge: any[] }>({
+    queryKey: ["editorial-knowledge", recordId],
+    queryFn: () => apiFetch<{ knowledge: any[] }>(`/v1/editorial/knowledge?world_id=${worldId}`).then(res => ({
+      knowledge: (res.knowledge || []).filter((a: any) => a.recordId === recordId)
+    })),
+    enabled: !!recordId && !!worldId && record?.canonType === "character",
+  });
+
+  const { data: profileData, isPending: isPendingProfile } = useQuery<{ profile: any }>({
+    queryKey: ["editorial-profile", recordId],
+    queryFn: () => apiFetch<{ profile: any }>(`/v1/editorial/profiles/${record?.canonType}/${recordId}?world_id=${worldId}`),
+    enabled: !!recordId && !!worldId && !!record?.canonType,
+  });
+
+  const { data: fieldContextData, isFetching: isFetchingFieldContext } = useQuery<{ context: any }>({
+    queryKey: ["editorial-canon-field-context", recordId],
+    queryFn: () => apiFetch<{ context: any }>(`/v1/editorial/canon-records/${recordId}/field-context?world_id=${worldId}`),
+    enabled: !!recordId && !!worldId,
+  });
+
   useEffect(() => {
     if (record && initializedRecordRef.current !== record.id) {
+      if (
+        (!!recordId && !!worldId && isPendingAssets) ||
+        (!!recordId && !!worldId && isPendingLocks) ||
+        (!!recordId && !!worldId && !!record.canonType && isPendingProfile) ||
+        (!!recordId && !!worldId && record.canonType === "character" && (isPendingVariants || isPendingKnowledge))
+      ) {
+        return;
+      }
       initializedRecordRef.current = record.id;
-      const savedImages: CanonImage[] = record.imageGallery?.length
-        ? record.imageGallery
-        : record.imageUrls?.length
-          ? record.imageUrls.map((url, index) => ({
-              url,
-              name: index === 0 ? "Primary Canon portrait" : "",
-              description: "",
-            }))
-          : record.portraitUrl
-            ? [{ url: record.portraitUrl, name: "Primary Canon portrait", description: "" }]
-            : [];
-      initialImagesRef.current = savedImages.map(image => image.url);
+
+      const assetImages: CanonImage[] = (recordAssetsData?.assets || []).map(a => ({
+        id: a.id,
+        url: a.objectPath,
+        name: a.title || "",
+        description: a.altText || "",
+        role: a.role,
+        lifeStageVariant: a.variantId,
+        rightsStatus: a.rightsStatus,
+        creatorCredit: a.sourceCredit,
+        workflowStatus: a.approvalStatus,
+        generationPrompt: a.generationPrompt,
+        canonicalStrength: a.canonicalStrength || "reference",
+        generationModel: a.generationModel || "",
+        positiveGuidance: a.positiveGuidance || "",
+        negativeGuidance: a.negativeGuidance || "",
+        width: a.width,
+        height: a.height,
+        byteSize: a.byteSize,
+        checksum: a.checksum,
+        source: a.source || "upload"
+      }));
+
+      // Merge with legacy URLs if they aren't in assets yet
+      const legacyUrls = new Set(assetImages.map(a => a.url));
+      if (record.imageUrls) {
+        record.imageUrls.forEach(url => {
+          if (!legacyUrls.has(url)) {
+            assetImages.push({ url, name: "", description: "" });
+            legacyUrls.add(url);
+          }
+        });
+      }
+      if (record.portraitUrl && !legacyUrls.has(record.portraitUrl)) {
+        assetImages.unshift({ url: record.portraitUrl, name: "Primary Canon portrait", description: "", role: "primary_portrait" });
+      }
+
+      initialImagesRef.current = assetImages.map(image => image.url);
+
+      const structuredProfile = profileData?.profile?.profile ?? record.structuredProfile ?? {};
+      const generationProfile = record.generationProfile ?? {};
+
+      if (variantsData?.variants) {
+        structuredProfile.variants = variantsData.variants.map(v => ({
+          id: v.id,
+          variantName: v.variantName,
+          lifeStage: v.lifeStage,
+          active: v.active,
+          isDefault: v.isDefault,
+          apparentAgeRange: v.profile?.apparent_age_range || v.profile?.apparentAgeRange || "",
+          storyPeriodLabel: v.profile?.story_period_label || v.profile?.storyPeriodLabel || "",
+          hairChanges: v.profile?.hair_changes || v.profile?.hairChanges || "",
+          facialHairChanges: v.profile?.facial_hair_changes || v.profile?.facialHairChanges || "",
+          healthMobilityChanges: v.profile?.health_mobility_changes || v.profile?.healthMobilityChanges || "",
+          wardrobeProfile: v.profile?.wardrobe_profile || v.profile?.wardrobeProfile || "",
+          occupationStatus: v.profile?.occupation_status || v.profile?.occupationStatus || "",
+          emotionalBaseline: v.profile?.emotional_baseline || v.profile?.emotionalBaseline || "",
+          referenceAssetIds: v.profile?.reference_asset_ids || v.profile?.referenceAssetIds || [],
+          allowedDeviations: v.profile?.allowed_deviations || v.profile?.allowedDeviations || "",
+          visualNotes: v.profile?.visual_notes || v.profile?.visualNotes || "",
+        }));
+      }
+      if (knowledgeData?.knowledge) {
+        structuredProfile.knowledge = knowledgeData.knowledge.map(k => ({
+          id: k.id,
+          topicRecordId: k.topicRecordId,
+          knowledgeState: k.knowledgeState,
+          confidence: k.confidence,
+          source: k.source,
+          disclosure: k.disclosure,
+          access: k.access,
+          applicableLifeStage: k.applicableLifeStage,
+          applicableEra: k.applicableEra,
+          belief: k.belief,
+          objectiveTruth: k.objectiveTruth,
+          consequence: k.consequence
+        }));
+      }
+      if (locksData?.locks) {
+        generationProfile.identityLocks = locksData.locks.map(l => ({
+          id: l.id,
+          variantId: l.variantId,
+          traitCategory: l.category,
+          canonicalValue: l.value,
+          lockStrength: l.strength,
+          appliesToLifeStages: l.appliesToLifeStages,
+          positivePrompt: l.positivePrompt,
+          negativePrompt: l.negativePrompt,
+          explanation: l.explanation
+        }));
+      }
+
       setForm({
         name: record.name,
         canonType: record.canonType ?? "location",
@@ -450,10 +771,13 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         confirmedCanon: record.confirmedCanon ?? "",
         notes: record.notes ?? "",
         typography: record.typography ?? [],
-        images: savedImages,
+        images: assetImages,
+        globalMetadata: record.globalMetadata ?? {},
+        structuredProfile,
+        generationProfile,
       });
     }
-  }, [record]);
+  }, [record, recordAssetsData, variantsData, knowledgeData, locksData, profileData]);
 
   const { data: specsData } = useQuery<{ specs: LinkedSpec[] }>({
     queryKey: ["editorial-canon-record-specs", recordId],
@@ -522,6 +846,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         portrait_url: form.images[0]?.url ?? null,
         image_urls: form.images.map(image => image.url),
         image_gallery: form.images,
+        global_metadata: form.globalMetadata,
+        structured_profile: form.structuredProfile,
+        generation_profile: form.generationProfile,
       };
       if (isNew) {
         if (!worldId) throw new Error("Choose a world before creating a record");
@@ -536,20 +863,177 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       });
     },
     onSuccess: async result => {
+      const savedRecordId = result.canon_record.id;
       const currentImageUrls = form.images.map(image => image.url);
       const removedImages = initialImagesRef.current.filter(imageUrl => !currentImageUrls.includes(imageUrl));
       await Promise.all(removedImages.map(imageUrl => storageApi.deleteObject(imageUrl).catch(() => undefined)));
       provisionalPortraitsRef.current.clear();
-      queryClient.setQueryData(["editorial-canon-record", result.canon_record.id], { canon_record: result.canon_record });
+
+      // Sync assets API
+      if (worldId) {
+        try {
+          const existingAssetsReq = await apiFetch<{ assets: any[] }>(`/v1/editorial/assets?world_id=${worldId}`);
+          const existingAssets = existingAssetsReq.assets.filter(a => a.recordId === savedRecordId);
+
+          for (const img of form.images) {
+            const existing = existingAssets.find(a => a.objectPath === img.url);
+            const payload = {
+              world_id: worldId,
+              record_id: savedRecordId,
+              role: img.role || "reference",
+              title: img.name || "Asset",
+              alt_text: img.description || "",
+              object_path: img.url,
+              source: img.source || (img.url.includes("generated") ? "generated" : "upload"),
+              source_credit: img.creatorCredit || null,
+              rights_status: img.rightsStatus || "unknown",
+              approval_status: img.workflowStatus || "draft",
+              canonical_strength: img.canonicalStrength || "reference",
+              generation_prompt: img.generationPrompt || null,
+              generation_model: img.generationModel || null,
+              positive_guidance: img.positiveGuidance || null,
+              negative_guidance: img.negativeGuidance || null,
+              width: img.width || null,
+              height: img.height || null,
+              byte_size: img.byteSize || null,
+              checksum: img.checksum || null
+            };
+
+            if (existing) {
+              await apiFetch(`/v1/editorial/assets/${existing.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+            } else {
+              await apiFetch(`/v1/editorial/assets`, { method: "POST", body: JSON.stringify(payload) });
+            }
+          }
+
+          const toDelete = existingAssets.filter(a => !currentImageUrls.includes(a.objectPath));
+          for (const a of toDelete) {
+            await apiFetch(`/v1/editorial/assets/${a.id}?world_id=${worldId}`, { method: "DELETE" }).catch(() => null);
+          }
+        } catch (err) {
+          console.error("Asset sync failed:", err);
+          throw new Error("Failed to sync assets. Record was saved but images may be inconsistent.");
+        }
+
+        try {
+          if (form.canonType !== "relationship") {
+            const profilePayload = { ...form.structuredProfile };
+
+            // Strip out duplicated collections that are stored in dedicated tables
+            if (form.canonType === "character") {
+              delete profilePayload.variants;
+              delete profilePayload.knowledge;
+            }
+
+            // Save the structured profile using the generic profile endpoint
+            // (Material canon records use the 'object' profile route on the backend but the generic route accepts 'material' and maps it internally)
+            await apiFetch(`/v1/editorial/profiles/${form.canonType}/${savedRecordId}`, {
+              method: "PUT",
+              body: JSON.stringify({
+                world_id: worldId,
+                schema_version: 1,
+                profile: profilePayload
+              })
+            });
+          }
+
+          if (form.canonType === "character") {
+            const variants = form.structuredProfile.variants || [];
+            const knowledge = form.structuredProfile.knowledge || [];
+            const identityLocks = form.generationProfile.identityLocks || [];
+
+            // Sync variants with batch endpoint, passing full camelCase array directly
+            // (variantBoundary preprocess handles the mapping automatically)
+            const mappedVariants = variants.map((v: any) => ({
+              variant_name: v.variantName,
+              life_stage: v.lifeStage,
+              is_default: v.isDefault,
+              profile: {
+                story_period_label: v.storyPeriodLabel,
+                apparent_age_range: v.apparentAgeRange,
+                hair_changes: v.hairChanges,
+                facial_hair_changes: v.facialHairChanges,
+                health_mobility_changes: v.healthMobilityChanges,
+                wardrobe_profile: v.wardrobeProfile,
+                occupation_status: v.occupationStatus,
+                emotional_baseline: v.emotionalBaseline,
+                reference_asset_ids: v.referenceAssetIds,
+                allowed_deviations: v.allowedDeviations,
+                visual_notes: v.visualNotes,
+              }
+            }));
+
+            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/variants`, {
+              method: "PUT",
+              body: JSON.stringify({
+                world_id: worldId,
+                variants: mappedVariants
+              })
+            });
+
+            // Sync knowledge with batch endpoint, mapping to expected snake_case
+            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/knowledge`, {
+              method: "PUT",
+              body: JSON.stringify({
+                world_id: worldId,
+                knowledge: knowledge.map((k: any) => ({
+                  topic_record_id: k.topicRecordId || null,
+                  knowledge_state: k.knowledgeState,
+                  confidence: k.confidence || null,
+                  source: k.source || null,
+                  disclosure: k.disclosure || null,
+                  access: k.access || null,
+                  applicable_life_stage: k.applicableLifeStage || null,
+                  applicable_era: k.applicableEra || null,
+                  belief: k.belief || null,
+                  objective_truth: k.objectiveTruth || null,
+                  consequence: k.consequence || null
+                }))
+              })
+            });
+
+            // Sync locks with batch endpoint, mapping to expected snake_case
+            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/identity-locks`, {
+              method: "PUT",
+              body: JSON.stringify({
+                world_id: worldId,
+                locks: identityLocks.map((l: any) => ({
+                  variant_id: l.variantId || null,
+                  category: l.traitCategory,
+                  value: l.canonicalValue,
+                  strength: l.lockStrength || "preferred",
+                  applies_to_life_stages: l.appliesToLifeStages || [],
+                  positive_prompt: l.positivePrompt || null,
+                  negative_prompt: l.negativePrompt || null,
+                  explanation: l.explanation || null
+                }))
+              })
+            });
+          }
+        } catch (err) {
+          console.error("Related collection sync failed:", err);
+          throw new Error("Failed to sync character metadata (variants/locks/knowledge) or profile. Record was saved but metadata may be inconsistent.");
+        }
+      }
+
+      queryClient.setQueryData(["editorial-canon-record", savedRecordId], { canon_record: result.canon_record });
       queryClient.invalidateQueries({
         predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
       });
-      queryClient.invalidateQueries({ queryKey: ["editorial-canon-context-snapshot", result.canon_record.id] });
-      initialImagesRef.current = result.canon_record.imageGallery?.length
-        ? result.canon_record.imageGallery.map(image => image.url)
-        : result.canon_record.imageUrls?.length
-          ? result.canon_record.imageUrls
-          : result.canon_record.portraitUrl ? [result.canon_record.portraitUrl] : [];
+      queryClient.invalidateQueries({ queryKey: ["editorial-assets", savedRecordId] });
+      queryClient.invalidateQueries({ queryKey: ["editorial-character-variants", savedRecordId] });
+      queryClient.invalidateQueries({ queryKey: ["editorial-identity-locks", savedRecordId] });
+      queryClient.invalidateQueries({ queryKey: ["editorial-knowledge", savedRecordId] });
+      queryClient.invalidateQueries({ queryKey: ["editorial-canon-context-snapshot", savedRecordId] });
+      initialImagesRef.current = currentImageUrls;
+
+      setForm(prev => ({
+        ...prev,
+        globalMetadata: result.canon_record.globalMetadata ?? {},
+        structuredProfile: result.canon_record.structuredProfile ?? {},
+        generationProfile: result.canon_record.generationProfile ?? {},
+      }));
+
       toast({ title: isNew ? "Canon record created" : "Canon record saved" });
       if (isNew) {
         navigate(`/super/worldsmith/editorial/canon/${result.canon_record.id}`);
@@ -582,7 +1066,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}`, { method: "DELETE" }),
+    mutationFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}?world_id=${worldId}`, { method: "DELETE" }),
     onSuccess: async () => {
       const objectsToRemove = new Set([
         ...(record?.imageGallery?.length
@@ -605,7 +1089,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     setForm(current => ({ ...current, [key]: value }));
   };
 
-  const handleImageUpload = useCallback(async (file: File): Promise<boolean> => {
+  const handleImageUpload = useCallback(async (
+    file: File,
+    generatedMetadata?: Partial<CanonImage>,
+  ): Promise<boolean> => {
     if (!IMAGE_TYPES.has(file.type)) {
       toast({ title: "Use an image file", description: "Choose a JPEG, PNG, WebP, GIF, or AVIF image.", variant: "destructive" });
       return false;
@@ -622,16 +1109,19 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       provisionalPortraitsRef.current.add(objectPath);
       setForm(current => ({
         ...current,
-        images: [
-          ...current.images,
-          {
+        images: (() => {
+          const image: CanonImage = {
             url: objectPath,
-            name: current.images.length === 0
+            name: generatedMetadata?.name ?? (current.images.length === 0
               ? "Primary Canon portrait"
-              : file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim(),
-            description: "",
-          },
-        ],
+              : file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim()),
+            description: generatedMetadata?.description ?? "",
+            ...generatedMetadata,
+          };
+          return generatedMetadata?.role === "primary_portrait"
+            ? [image, ...current.images.filter(existing => existing.role !== "primary_portrait")]
+            : [...current.images, image];
+        })(),
       }));
       return true;
     } catch (error) {
@@ -642,19 +1132,22 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     }
   }, [toast]);
 
-  const generateImage = useCallback(async () => {
+  const generateImage = useCallback(async (mode: "primary_portrait" | "reference") => {
     if (!form.name.trim()) {
       toast({ title: "Name this canon record first", description: "The record name anchors the generated reference.", variant: "destructive" });
       return;
     }
-    if (!imagePrompt.trim()) {
+    if (mode === "reference" && !imagePrompt.trim()) {
       toast({ title: "Describe the reference image", description: "Add what you want the generated image to show.", variant: "destructive" });
       return;
     }
 
     setImageGenerating(true);
     try {
-      const result = await apiFetch<{ image_data_url: string }>("/v1/editorial/canon-records/generate-image", {
+      const result = await apiFetch<{
+        image_data_url: string;
+        generation?: { model?: string; modelVersion?: string; settings?: Record<string, unknown> };
+      }>("/v1/editorial/canon-records/generate-image", {
         method: "POST",
         body: JSON.stringify({
           world_id: worldId,
@@ -663,7 +1156,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           narrative_details: form.narrativeDetails,
           historical_context: form.historicalContext,
           visual_notes: form.visualNotes,
-          prompt: imagePrompt.trim(),
+          mode,
+          prompt: mode === "reference" ? imagePrompt.trim() : undefined,
           source_record_id: recordId,
           related_record_ids: imageRelatedRecordIds,
         }),
@@ -676,9 +1170,25 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         `${form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "canon-reference"}.png`,
         { type: blob.type || "image/png" },
       );
-      const uploaded = await handleImageUpload(generatedFile);
+      const uploaded = await handleImageUpload(generatedFile, {
+        name: mode === "primary_portrait" ? "Primary Canon portrait" : undefined,
+        description: mode === "primary_portrait"
+          ? `Isolated Primary Canon Portrait of ${form.name.trim()}.`
+          : imagePrompt.trim(),
+        role: mode === "primary_portrait" ? "primary_portrait" : "generated_concept",
+        rightsStatus: "generated",
+        workflowStatus: mode === "primary_portrait" ? "approved" : "draft",
+        generationPrompt: mode === "reference" ? imagePrompt.trim() : "Governed Primary Canon Portrait",
+        canonicalStrength: mode === "primary_portrait" ? "canonical" : "reference",
+        generationModel: result.generation?.model,
+        source: "generated",
+        byteSize: blob.size,
+      });
       if (!uploaded) return;
-      toast({ title: "Reference image generated", description: "It is ready to save with this canon record." });
+      toast({
+        title: mode === "primary_portrait" ? "Primary Canon Portrait generated" : "Reference image generated",
+        description: "It is ready to save with this canon record.",
+      });
     } catch (error) {
       toast({
         title: "Image generation failed",
@@ -699,16 +1209,50 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
 
   const removeImage = async (imageUrl: string) => {
     if (isImageProcessing) return;
-    if (provisionalPortraitsRef.current.has(imageUrl)) {
-      provisionalPortraitsRef.current.delete(imageUrl);
+    const removedImage = form.images.find(image => image.url === imageUrl);
+    const nextImages = form.images.filter(image => image.url !== imageUrl);
+    setForm(current => ({ ...current, images: current.images.filter(image => image.url !== imageUrl) }));
+    setImageUploading(true);
+    try {
+      if (removedImage?.id && worldId) {
+        await apiFetch(`/v1/editorial/assets/${removedImage.id}?world_id=${worldId}`, { method: "DELETE" });
+      }
+      if (recordId) {
+        const result = await apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${recordId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            portrait_url: nextImages[0]?.url ?? null,
+            image_urls: nextImages.map(image => image.url),
+            image_gallery: nextImages,
+          }),
+        });
+        queryClient.setQueryData(["editorial-canon-record", recordId], result);
+      }
       await storageApi.deleteObject(imageUrl).catch(() => undefined);
+      provisionalPortraitsRef.current.delete(imageUrl);
+      initialImagesRef.current = initialImagesRef.current.filter(url => url !== imageUrl);
+      queryClient.invalidateQueries({ queryKey: ["editorial-assets", recordId] });
+      toast({ title: "Image removed" });
+    } catch (error) {
+      setForm(current => ({
+        ...current,
+        images: current.images.some(image => image.url === imageUrl)
+          ? current.images
+          : form.images,
+      }));
+      toast({
+        title: "Could not remove image",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setImageUploading(false);
     }
-    setField("images", form.images.filter(image => image.url !== imageUrl));
   };
 
   const updateImageMetadata = (
     imageUrl: string,
-    changes: Pick<CanonImage, "name" | "description">,
+    changes: Partial<CanonImage>,
   ) => {
     setField("images", form.images.map(image => (
       image.url === imageUrl ? { ...image, ...changes } : image
@@ -849,6 +1393,182 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               </div>
             </section>
 
+            <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h2 className="text-sm font-semibold" style={{ color: INK }}>Global Metadata</h2>
+                  <p className="mt-1 text-xs text-gray-500">Classification and governance across all canon types.</p>
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <SingleSelect
+                  label="Workflow Status"
+                  vocabKey="workflow_status"
+                  value={record?.status ?? "draft"}
+                  onChange={() => {}} // Controlled by transitions above usually, but leaving it disabled here or read-only
+                  options={[
+                    { key: "draft", label: "Draft" },
+                    { key: "under_review", label: "In Review" },
+                    { key: "accepted", label: "Accepted" },
+                    { key: "superseded", label: "Superseded" },
+                    { key: "archived", label: "Archived" }
+                  ]}
+                  placeholder={record?.status?.replace(/_/g, " ") ?? "Draft"}
+                />
+                <SingleSelect
+                  label="Canon Stability"
+                  vocabKey="canon_stability"
+                  value={form.globalMetadata.stability ?? ""}
+                  onChange={v => setField("globalMetadata", { ...form.globalMetadata, stability: v })}
+                  options={[
+                    { key: "fluid", label: "Fluid" },
+                    { key: "developing", label: "Developing" },
+                    { key: "stable", label: "Stable" },
+                    { key: "locked", label: "Locked" }
+                  ]}
+                />
+                <SingleSelect
+                  label="Narrative Visibility"
+                  vocabKey="narrative_visibility"
+                  value={form.globalMetadata.visibility ?? ""}
+                  onChange={v => setField("globalMetadata", { ...form.globalMetadata, visibility: v })}
+                  options={[
+                    { key: "public", label: "Public Knowledge" },
+                    { key: "limited", label: "Limited Knowledge" },
+                    { key: "private", label: "Private" },
+                    { key: "secret", label: "Secret" },
+                    { key: "author_only", label: "Author Only" }
+                  ]}
+                />
+                <SingleSelect
+                  label="Temporal Scope"
+                  vocabKey="temporal_scope"
+                  value={form.globalMetadata.temporalScope ?? ""}
+                  onChange={v => setField("globalMetadata", { ...form.globalMetadata, temporalScope: v })}
+                  options={[
+                    { key: "timeless", label: "Timeless" },
+                    { key: "entire_story", label: "Entire Story" },
+                    { key: "era_specific", label: "Era-Specific" },
+                    { key: "life_stage", label: "Life-Stage-Specific" },
+                    { key: "event_bound", label: "Event-Bound" },
+                    { key: "scene_bound", label: "Scene-Bound" }
+                  ]}
+                />
+                <SingleSelect
+                  label="Importance"
+                  vocabKey="importance"
+                  value={form.globalMetadata.importance ?? ""}
+                  onChange={v => setField("globalMetadata", { ...form.globalMetadata, importance: v })}
+                  options={[
+                    { key: "background", label: "Background" },
+                    { key: "supporting", label: "Supporting" },
+                    { key: "significant", label: "Significant" },
+                    { key: "central", label: "Central" },
+                    { key: "foundational", label: "Foundational" }
+                  ]}
+                />
+                <SingleSelect
+                  label="Spoiler Level"
+                  vocabKey="spoiler_level"
+                  value={form.globalMetadata.spoilerLevel ?? ""}
+                  onChange={v => setField("globalMetadata", { ...form.globalMetadata, spoilerLevel: v })}
+                  options={[
+                    { key: "none", label: "None" },
+                    { key: "mild", label: "Mild" },
+                    { key: "major", label: "Major" },
+                    { key: "endgame", label: "Endgame" }
+                  ]}
+                />
+                <SingleSelect
+                  label="Evidence Confidence"
+                  vocabKey="evidence_confidence"
+                  value={form.globalMetadata.evidenceConfidence ?? ""}
+                  onChange={v => setField("globalMetadata", { ...form.globalMetadata, evidenceConfidence: v })}
+                  options={[
+                    { key: "speculative", label: "Speculative" },
+                    { key: "plausible", label: "Plausible" },
+                    { key: "supported", label: "Supported" },
+                    { key: "confirmed", label: "Confirmed" },
+                    { key: "disputed", label: "Disputed" }
+                  ]}
+                />
+                <MultiChipSelect
+                  label="Source Type"
+                  vocabKey="source_type"
+                  values={form.globalMetadata.sourceType ?? []}
+                  onChange={v => setField("globalMetadata", { ...form.globalMetadata, sourceType: v })}
+                  options={[
+                    { key: "observation", label: "Direct Observation" },
+                    { key: "document", label: "Document" },
+                    { key: "oral", label: "Oral Account" },
+                    { key: "tradition", label: "Family Tradition" },
+                    { key: "institutional", label: "Institutional Record" },
+                    { key: "physical", label: "Physical Evidence" },
+                    { key: "inference", label: "Inference" },
+                    { key: "authorial", label: "Authorial Canon" }
+                  ]}
+                />
+              </div>
+            </section>
+
+            {form.canonType === "character" && (
+              <section className="rounded-2xl border p-7 space-y-8" style={{ background: "white", borderColor: BORDER }}>
+                <CharacterIdentityForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+                <CharacterKnowledgeForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+                <LifeStageVariantForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+                <GenerationLocksForm data={form.generationProfile} onChange={v => setField("generationProfile", v)} worldId={worldId!} />
+              </section>
+            )}
+
+            {form.canonType === "location" && (
+              <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
+                <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Location Profile</h2>
+                <LocationForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+              </section>
+            )}
+            {form.canonType === "object" && (
+              <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
+                <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Object Profile</h2>
+                <ObjectForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+              </section>
+            )}
+            {form.canonType === "event" && (
+              <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
+                <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Event Profile</h2>
+                <EventForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+              </section>
+            )}
+            {form.canonType === "lore" && (
+              <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
+                <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Lore & Principle Profile</h2>
+                <LoreForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+              </section>
+            )}
+            {form.canonType === "atmosphere" && (
+              <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
+                <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Atmosphere Profile</h2>
+                <AtmosphereForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+              </section>
+            )}
+            {form.canonType === "motif" && (
+              <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
+                <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Motif Profile</h2>
+                <MotifForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+              </section>
+            )}
+            {form.canonType === "relationship" && (
+              <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
+                <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Relationship Profile</h2>
+                <RelationshipForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+              </section>
+            )}
+            {form.canonType === "material" && (
+              <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
+                <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Material Profile</h2>
+                <MaterialForm data={form.structuredProfile} onChange={v => setField("structuredProfile", v)} worldId={worldId!} />
+              </section>
+            )}
+
             {section("narrative", "narrativeDetails", "Narrative details", "Its story, purpose, and significance in the world.", form.narrativeDetails, "Write the record’s story — how it exists in your world and what it carries…", 210)}
             {section("historical", "historicalContext", "Historical context", "Origins, era, provenance, and changes over time.", form.historicalContext, "Give this record a history and temporal grounding…", 170)}
             {section("visual", "visualNotes", "Visual notes", "Colour, light, texture, materials, and physical presence.", form.visualNotes, "Describe the details a visual artist or prompt should carry forward…", 170)}
@@ -874,6 +1594,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               prompt={imagePrompt}
               relatedRecords={imageRelations}
               selectedRelatedRecordIds={imageRelatedRecordIds}
+              canGeneratePrimary={form.canonType === "character"}
               onUpload={handleImageUpload}
               onGenerate={generateImage}
               onRemove={removeImage}
@@ -1017,6 +1738,55 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                     <div className="flex justify-between gap-3"><dt style={{ color: "#98A2B3" }}>Updated</dt><dd style={{ color: "#667085" }}>{new Date(record.updatedAt).toLocaleDateString()}</dd></div>
                     <div className="flex justify-between gap-3"><dt style={{ color: "#98A2B3" }}>Spec references</dt><dd style={{ color: "#667085" }}>{record.specRefCount}</dd></div>
                   </dl>
+                </section>
+
+                <section className="rounded-2xl border p-5" style={{ background: "white", borderColor: BORDER }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-sm font-semibold" style={{ color: INK }}>Prompt Preview</h2>
+                    {isFetchingFieldContext && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
+                  </div>
+                  {!fieldContextData?.context ? (
+                    <p className="text-xs text-gray-400">Save the record to preview prompt generation context.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {fieldContextData.context.warnings?.length > 0 && (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 space-y-1">
+                          <h3 className="text-[10px] font-bold uppercase tracking-wide text-yellow-800">Warnings</h3>
+                          <ul className="list-disc pl-4 text-[11px] text-yellow-900 space-y-0.5">
+                            {fieldContextData.context.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      <div>
+                        <h3 className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: "#786D60" }}>Generated Prompt</h3>
+                        <div className="bg-gray-50 border rounded-lg p-3 text-xs leading-relaxed" style={{ borderColor: BORDER, color: INK }}>
+                          {fieldContextData.context.prompt?.join(", ") || "No positive prompt content."}
+                        </div>
+                      </div>
+                      {fieldContextData.context.negative?.length > 0 && (
+                        <div>
+                          <h3 className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: "#786D60" }}>Negative Prompt</h3>
+                          <div className="bg-red-50 border rounded-lg p-3 text-xs leading-relaxed" style={{ borderColor: "#F4C7C2", color: "#B42318" }}>
+                            {fieldContextData.context.negative.join(", ")}
+                          </div>
+                        </div>
+                      )}
+                      {fieldContextData.context.attributions?.length > 0 && (
+                        <div>
+                          <h3 className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: "#786D60" }}>Source Attribution</h3>
+                          <ul className="space-y-1.5">
+                            {fieldContextData.context.attributions.map((attr: any, i: number) => (
+                              <li key={i} className="text-[10px] leading-tight">
+                                <span className="font-semibold" style={{ color: INK }}>{attr.clause}</span>
+                                <span className="mx-1 text-gray-400">←</span>
+                                <span style={{ color: "#667085" }}>{attr.source}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </section>
 
                 <button type="button" onClick={() => setDeleteOpen(true)} className="flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-semibold" style={{ borderColor: "#F4C7C2", background: "#FFF8F7", color: "#B42318" }}>

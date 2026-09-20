@@ -45,6 +45,17 @@ import {
   wsCollectionsTable,
   wsVolumesTable,
   wsCanonRecordsTable,
+  wsAssetsTable,
+  wsCharacterProfilesTable,
+  wsLocationProfilesTable,
+  wsObjectProfilesTable,
+  wsEventProfilesTable,
+  wsLoreProfilesTable,
+  wsCharacterVariantsTable,
+  wsIdentityLocksTable,
+  wsKnowledgeEntriesTable,
+  wsSceneAnchorsTable,
+  wsVocabularyOptionsTable,
   wsContextSnapshotsTable,
   wsCanonRecordRelationsTable,
   wsStyleGuidesTable,
@@ -60,9 +71,14 @@ import {
   worldsmithWorldsTable,
   palettesTable,
   wsStoriesTable,
+  wsStoryBeatsTable,
+  wsRevealThreadsTable,
   wsStoryActsTable,
+  wsNarrativeImagesTable,
+  wsStorySceneDetailsTable,
   wsScenesTable,
   wsSceneCanonLinksTable,
+  wsRelationshipsTable,
   wsEncountersTable,
   wsJournalPromptsTable,
   wsCanonRecordStoryLinksTable,
@@ -84,6 +100,7 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { buildProductionSpecPdf } from "../lib/worldsmith/production-spec-pdf";
 import {
   canonSnapshotPath,
+  canonArchiveSnapshotPath,
   contextSnapshotIsOutdated,
   ContextSnapshotGitHubPublisher,
   mapWithConcurrency,
@@ -99,6 +116,7 @@ import {
   buildCanonImageExport,
   type CanonImageRole,
 } from "../lib/worldsmith/context-snapshot-images";
+import { compileCharacterContext, compileEnvironmentContext, compileStoryContext } from "../lib/worldsmith/field-context";
 import { callAi } from "../lib/ai-proxy";
 import { generateImage } from "../lib/worldsmith/image-generation";
 import { canForceSuggestionRefresh } from "../lib/worldsmith/suggestion-refresh-policy";
@@ -120,6 +138,19 @@ import {
 } from "../lib/notion-client";
 
 const router = Router();
+function readStructuredNotes(notes: string): Record<string, unknown> {
+  const match = notes.match(/<!-- worldsmith-structured:([\s\S]*?) -->$/);
+  if (!match) return {};
+  try { return JSON.parse(match[1]!) as Record<string, unknown>; } catch { return {}; }
+}
+function withCanonStructured<T extends Record<string, unknown>>(row: T): T {
+  const fields = readStructuredNotes(String(row.notes ?? ""));
+  return { ...row, globalMetadata: row.globalMetadata ?? fields.globalMetadata ?? {}, structuredProfile: row.structuredProfile ?? fields.structuredProfile ?? {}, generationProfile: row.generationProfile ?? fields.generationProfile ?? {} } as T;
+}
+function withStoryStructured<T extends Record<string, unknown>>(row: T): T {
+  const match = String(row.summary ?? "").match(/<!-- worldsmith-story-fields:([\s\S]*?) -->$/);
+  try { const legacy = match ? JSON.parse(match[1]!) : {}; return { ...row, globalMetadata: row.globalMetadata ?? {}, storySpine: row.storySpine ?? legacy.storySpine ?? [], revealArchitecture: row.revealArchitecture ?? legacy.revealThreads ?? [] } as T; } catch { return { ...row, globalMetadata: row.globalMetadata ?? {}, storySpine: row.storySpine ?? [], revealArchitecture: row.revealArchitecture ?? [] } as T; }
+}
 
 // ── Daybook palette library ──────────────────────────────────────────────────
 // Store teams can select palettes for a World Bible, but only from the store
@@ -167,6 +198,201 @@ router.get(
 
 // Apply super-admin guard to all remaining editorial routes.
 router.use(requireAuth, requireSuperAdmin);
+
+/** Prompt-ready Field Architecture context. World scope is mandatory so a
+ * record can never be compiled through an unrelated world's endpoint. */
+router.get("/v1/editorial/canon-records/:id/field-context", async (req: Request, res: Response) => {
+  const worldId = typeof req.query.world_id === "string" ? req.query.world_id : "";
+  if (!worldId) { res.status(400).json({ error: "world_id is required" }); return; }
+  try {
+    const [record] = await db.select().from(wsCanonRecordsTable).where(and(
+      eq(wsCanonRecordsTable.id, req.params.id as string),
+      eq(wsCanonRecordsTable.worldId, worldId),
+    )).limit(1);
+    if (!record) { res.status(404).json({ error: "Canon record not found in this world" }); return; }
+    const [character, location] = await Promise.all([
+      db.select().from(wsCharacterProfilesTable).where(eq(wsCharacterProfilesTable.recordId, record.id)).limit(1),
+      db.select().from(wsLocationProfilesTable).where(eq(wsLocationProfilesTable.recordId, record.id)).limit(1),
+    ]);
+    const [variants, locks, knowledge, anchors, assets, vocab] = await Promise.all([
+      db.select().from(wsCharacterVariantsTable).where(eq(wsCharacterVariantsTable.recordId, record.id)),
+      db.select().from(wsIdentityLocksTable).where(eq(wsIdentityLocksTable.recordId, record.id)),
+      db.select().from(wsKnowledgeEntriesTable).where(eq(wsKnowledgeEntriesTable.recordId, record.id)),
+      db.select().from(wsSceneAnchorsTable).where(eq(wsSceneAnchorsTable.worldId, worldId)),
+      db.select().from(wsAssetsTable).where(eq(wsAssetsTable.recordId, record.id)),
+      db.select().from(wsVocabularyOptionsTable).where(or(
+        isNull(wsVocabularyOptionsTable.worldId),
+        eq(wsVocabularyOptionsTable.worldId, worldId),
+      )),
+    ]);
+    const labels = Object.fromEntries(vocab.map(option => [option.key, option.label]));
+    const requestedStage = typeof req.query.life_stage === "string" ? req.query.life_stage : undefined;
+    const audience = typeof req.query.audience === "string" ? req.query.audience : "none";
+    const source = {
+      identity: record.name,
+      profile: { ...(character[0]?.profile ?? {}), ...(location[0]?.profile ?? {}), ...(record.structuredProfile ?? {}) },
+      variant: variants.find(v => v.active && (requestedStage ? v.lifeStage === requestedStage : v.isDefault))?.profile,
+      locks: locks.map(lock => ({
+        value: lock.value,
+        strength: lock.strength,
+        positivePrompt: lock.positivePrompt ?? undefined,
+        negativePrompt: lock.negativePrompt ?? undefined,
+        source: `identity-lock:${lock.id}`,
+      })),
+      knowledge: knowledge.map(entry => ({ ...entry, source: `knowledge:${entry.id}` })),
+      anchor: (() => {
+        const requestedAnchorId = typeof req.query.anchor_id === "string" ? req.query.anchor_id : undefined;
+        const selected = requestedAnchorId
+          ? anchors.find(anchor => anchor.id === requestedAnchorId)
+          : anchors.find(anchor => anchor.details && (anchor.details as Record<string, unknown>).isDefault === true
+            || (anchor.details as Record<string, unknown>).default === true);
+        return selected?.details;
+      })(),
+      vocabulary: labels,
+      lifeStage: requestedStage,
+      audience,
+      spoilerLevel: typeof req.query.spoiler_level === "string" ? req.query.spoiler_level : "none",
+      assets: assets.filter(asset =>
+        ["approved", "accepted", "canon", "editor_approved", "editor-approved"].includes(asset.approvalStatus.toLowerCase())
+        && ["canonical", "reference", "defining", "locked"].includes(asset.canonicalStrength.toLowerCase()),
+      ).map(asset => ({ ...asset, source: `asset:${asset.id}` })),
+      positiveConstraints: [record.visualNotes, record.confirmedCanon].filter(Boolean),
+      negativeConstraints: [record.canonGuardrails].filter(Boolean),
+    };
+    const compiler = record.canonType === "location" ? compileEnvironmentContext : compileCharacterContext;
+    res.json({ record_id: record.id, world_id: worldId, context: compiler(source), assets: source.assets });
+  } catch (error) {
+    logger.error({ error, recordId: req.params.id }, "editorial: compile Field Architecture context");
+    res.status(500).json({ error: "Could not compile Field Architecture context" });
+  }
+});
+
+router.get("/v1/editorial/stories/:id/field-context", async (req: Request, res: Response) => {
+  const worldId = typeof req.query.world_id === "string" ? req.query.world_id : "";
+  if (!worldId) { res.status(400).json({ error: "world_id is required" }); return; }
+  try {
+    const [story] = await db.select().from(wsStoriesTable).where(and(
+      eq(wsStoriesTable.id, req.params.id as string), eq(wsStoriesTable.worldId, worldId),
+    )).limit(1);
+    if (!story) { res.status(404).json({ error: "Story not found in this world" }); return; }
+    const [beats, reveals, scenes, allRecords] = await Promise.all([
+      db.select().from(wsStoryBeatsTable).where(and(
+        eq(wsStoryBeatsTable.storyId, story.id), eq(wsStoryBeatsTable.worldId, worldId),
+      )),
+      db.select().from(wsRevealThreadsTable).where(and(
+        eq(wsRevealThreadsTable.storyId, story.id), eq(wsRevealThreadsTable.worldId, worldId),
+      )),
+      db.select().from(wsScenesTable).where(and(eq(wsScenesTable.storyId, story.id), eq(wsScenesTable.worldId, worldId))),
+      db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.worldId, worldId)),
+    ]);
+    const sceneDetails = scenes.length
+      ? await db.select().from(wsStorySceneDetailsTable).where(and(
+        inArray(wsStorySceneDetailsTable.sceneId, scenes.map(scene => scene.id)),
+        eq(wsStorySceneDetailsTable.worldId, worldId),
+      ))
+      : [];
+    const sceneLinks = scenes.length
+      ? await db.select().from(wsSceneCanonLinksTable).where(inArray(
+        wsSceneCanonLinksTable.sceneId, scenes.map(scene => scene.id),
+      ))
+      : [];
+    const linkedIds = new Set<string>();
+    const referencedVariantIds = new Set<string>();
+    const collectIds = (value: unknown) => {
+      if (!value || typeof value !== "object") return;
+      for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof item === "string" && /variant/i.test(key)) referencedVariantIds.add(item);
+        if (typeof item === "string" && /(character|location|object|lore|event|canon|pov|viewpoint)/i.test(key)) linkedIds.add(item);
+        else if (Array.isArray(item)) item.filter(v => typeof v === "string").forEach(v => linkedIds.add(v));
+        else collectIds(item);
+      }
+    };
+    beats.forEach(beat => collectIds(beat.details));
+    scenes.forEach(scene => collectIds(scene.attributes));
+    sceneDetails.forEach(detail => collectIds(detail.details));
+    sceneLinks.forEach(link => linkedIds.add(link.canonRecordId));
+    const linkedRecords = allRecords.filter(record => linkedIds.has(record.id));
+    const linkedRecordIds = linkedRecords.map(record => record.id);
+    const [profiles, locations, objectProfiles, eventProfiles, loreProfiles, variants, locks, knowledge, relationships] = await Promise.all([
+      linkedRecordIds.length ? db.select().from(wsCharacterProfilesTable).where(inArray(wsCharacterProfilesTable.recordId, linkedRecordIds)) : Promise.resolve([]),
+      linkedRecordIds.length ? db.select().from(wsLocationProfilesTable).where(inArray(wsLocationProfilesTable.recordId, linkedRecordIds)) : Promise.resolve([]),
+      linkedRecordIds.length ? db.select().from(wsObjectProfilesTable).where(inArray(wsObjectProfilesTable.recordId, linkedRecordIds)) : Promise.resolve([]),
+      linkedRecordIds.length ? db.select().from(wsEventProfilesTable).where(inArray(wsEventProfilesTable.recordId, linkedRecordIds)) : Promise.resolve([]),
+      linkedRecordIds.length ? db.select().from(wsLoreProfilesTable).where(inArray(wsLoreProfilesTable.recordId, linkedRecordIds)) : Promise.resolve([]),
+      linkedRecordIds.length ? db.select().from(wsCharacterVariantsTable).where(inArray(wsCharacterVariantsTable.recordId, linkedRecordIds)) : Promise.resolve([]),
+      linkedRecordIds.length ? db.select().from(wsIdentityLocksTable).where(inArray(wsIdentityLocksTable.recordId, linkedRecordIds)) : Promise.resolve([]),
+      linkedRecordIds.length ? db.select().from(wsKnowledgeEntriesTable).where(inArray(wsKnowledgeEntriesTable.recordId, linkedRecordIds)) : Promise.resolve([]),
+      linkedRecordIds.length ? db.select().from(wsRelationshipsTable).where(and(eq(wsRelationshipsTable.worldId, worldId), or(
+        inArray(wsRelationshipsTable.fromRecordId, linkedRecordIds), inArray(wsRelationshipsTable.toRecordId, linkedRecordIds),
+      ))) : Promise.resolve([]),
+    ]);
+    const details = [
+      { source: "premise", section: "identity", text: story.summary },
+      ...beats.sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)).map(beat => ({
+        source: `story-beat:${beat.id}`, section: "beats",
+        text: [beat.title, beat.summary, beat.beatType].filter(Boolean).join(" — "),
+        spoilerLevel: String(beat.details.spoilerLevel ?? beat.details.spoiler_level ?? "none"),
+      })),
+      ...reveals.sort((a, b) => a.id.localeCompare(b.id)).map(reveal => ({
+        source: `reveal:${reveal.id}`, section: "reveals",
+        text: [reveal.title, reveal.truth].filter(Boolean).join(" — "),
+        spoilerLevel: String(reveal.details.spoilerLevel ?? reveal.details.spoiler_level ?? "major"),
+      })),
+      ...scenes.sort((a, b) => a.sceneNumber - b.sceneNumber || a.id.localeCompare(b.id)).map(scene => ({
+        source: `scene:${scene.id}`, section: "scenes",
+        text: [scene.title, scene.body, JSON.stringify(scene.attributes)].filter(Boolean).join(" — "),
+      })),
+      ...sceneDetails.sort((a, b) => a.sceneId.localeCompare(b.sceneId)).map(detail => ({
+        source: `scene-details:${detail.sceneId}`, section: "scenes",
+        text: [detail.purpose, detail.viewpointDistance, JSON.stringify(detail.details)].filter(Boolean).join(" — "),
+      })),
+      ...linkedRecords.sort((a, b) => a.id.localeCompare(b.id)).map(record => ({
+        source: `canon:${record.id}`, section: record.canonType === "character" ? "characters"
+          : record.canonType === "location" ? "locations" : ["object", "material"].includes(record.canonType ?? "") ? "objects"
+            : ["lore", "motif", "atmosphere"].includes(record.canonType ?? "") ? "lore" : "events",
+        text: [record.name, record.confirmedCanon, record.narrativeDetails, record.canonGuardrails].filter(Boolean).join(" — "),
+        visibility: record.narrativeVisibility ?? undefined,
+        approved: record.status === "accepted",
+      })),
+      ...profiles.flatMap(profile => Object.entries(profile.profile).map(([key, value]) => ({
+        source: `profile:${profile.recordId}:${key}`, section: "characters", text: `${key}: ${String(value)}`,
+      }))),
+      ...locations.flatMap(profile => Object.entries(profile.profile).map(([key, value]) => ({
+        source: `location-profile:${profile.recordId}:${key}`, section: "locations", text: `${key}: ${String(value)}`,
+      }))),
+      ...objectProfiles.flatMap(profile => Object.entries(profile.profile).map(([key, value]) => ({
+        source: `object-profile:${profile.recordId}:${key}`, section: "objects", text: `${key}: ${String(value)}`,
+      }))),
+      ...eventProfiles.flatMap(profile => Object.entries(profile.profile).map(([key, value]) => ({
+        source: `event-profile:${profile.recordId}:${key}`, section: "events", text: `${key}: ${String(value)}`,
+      }))),
+      ...loreProfiles.flatMap(profile => Object.entries(profile.profile).map(([key, value]) => ({
+        source: `lore-profile:${profile.recordId}:${key}`, section: "lore", text: `${key}: ${String(value)}`,
+      }))),
+      ...linkedRecords.filter(record => record.canonType === "character").flatMap(record => {
+        const requestedLifeStage = typeof req.query.life_stage === "string" ? req.query.life_stage : undefined;
+        const typedVariants = variants as Array<{ id: string; recordId: string; active: boolean; isDefault: boolean; lifeStage: string; profile: Record<string, unknown> }>;
+        const candidates = typedVariants.filter(variant => variant.recordId === record.id && variant.active)
+          .sort((a, b) => (referencedVariantIds.has(a.id) ? -1 : referencedVariantIds.has(b.id) ? 1 : 0)
+            || (requestedLifeStage ? (a.lifeStage === requestedLifeStage ? -1 : b.lifeStage === requestedLifeStage ? 1 : 0) : 0)
+            || (a.isDefault ? -1 : b.isDefault ? 1 : 0) || a.id.localeCompare(b.id));
+        const selected = candidates[0];
+        return selected ? Object.entries(selected.profile).map(([key, value]) => ({
+          source: `variant:${selected.id}:${key}`, section: "characters", text: `${key}: ${String(value)}`,
+        })) : [];
+      }),
+      ...locks.map(lock => ({ source: `identity-lock:${lock.id}`, section: "characters", text: lock.positivePrompt ?? lock.value })),
+      ...knowledge.map(entry => ({ source: `knowledge:${entry.id}`, section: "characters", text: entry.belief ?? entry.objectiveTruth, visibility: entry.disclosure ?? undefined })),
+      ...relationships.map(relation => ({ source: `relationship:${relation.id}`, section: "relationships", text: [relation.relationshipType.join(", "), relation.details].filter(Boolean).join(" — "), visibility: relation.publicVisibility ?? undefined })),
+    ];
+    res.json({ record_id: story.id, world_id: worldId, context: compileStoryContext(details, {
+      spoilerLevel: typeof req.query.spoiler_level === "string" ? req.query.spoiler_level : "none",
+    }) });
+  } catch (error) {
+    logger.error({ error, storyId: req.params.id }, "editorial: compile story Field Architecture context");
+    res.status(500).json({ error: "Could not compile story Field Architecture context" });
+  }
+});
 
 // ── Owner discoveries ─────────────────────────────────────────────────────────
 router.get("/v1/editorial/owner-discoveries", async (req: Request, res: Response): Promise<void> => {
@@ -1035,7 +1261,7 @@ router.get("/v1/editorial/canon-records", async (req: Request, res: Response) =>
       }
     }
 
-    res.json({ canon_records: rows, total, by_type: byType });
+    res.json({ canon_records: rows.map(row => withCanonStructured(row)), total, by_type: byType });
   } catch (err) {
     logger.error({ err }, "editorial: list canon records");
     res.status(500).json({ error: "Internal server error" });
@@ -1103,11 +1329,16 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
   const {
     world_id, name, canon_type, narrative_details, historical_context, visual_notes,
     canon_guardrails, relationship_details, character_direction, confirmed_canon,
-    notes, portrait_url, image_urls, image_gallery, typography,
+    notes, portrait_url, image_urls, image_gallery, typography, global_metadata, structured_profile, generation_profile,
   } = req.body;
   if (!world_id || !name?.trim()) {
     res.status(400).json({ error: "world_id and name are required" });
     return;
+  }
+  for (const [key, value] of Object.entries({ global_metadata, structured_profile, generation_profile })) {
+    if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) {
+      res.status(400).json({ error: `${key} must be a JSON object` }); return;
+    }
   }
   try {
     const resolvedImages = normaliseCanonImageGallery(image_gallery, image_urls, portrait_url);
@@ -1128,14 +1359,17 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
         characterDirection: sanitizeEditorialRichText(character_direction ?? ""),
         confirmedCanon: sanitizeEditorialRichText(confirmed_canon ?? ""),
         ...(resolvedTypography !== undefined ? { typography: resolvedTypography } : {}),
-        notes: sanitizeEditorialRichText(notes ?? ""),
+       notes: sanitizeEditorialRichText(notes ?? ""),
+       globalMetadata: global_metadata ?? {},
+       structuredProfile: structured_profile ?? {},
+       generationProfile: generation_profile ?? {},
         portraitUrl: resolvedImages[0]?.url ?? null,
         imageUrls: resolvedImages.map(image => image.url),
         imageGallery: resolvedImages,
         createdBy: (req.user as any)?.id,
       })
       .returning();
-    res.status(201).json({ canon_record: row });
+    res.status(201).json({ canon_record: withCanonStructured(row) });
   } catch (err) {
     if (err instanceof CanonImageGalleryValidationError) {
       res.status(400).json({ error: err.message });
@@ -1692,17 +1926,85 @@ All ${suggestionCount} suggestions must be DIFFERENT from existing records and f
 });
 
 router.delete("/v1/editorial/canon-records/:id", async (req: Request, res: Response) => {
+  const recordId = req.params.id as string;
+  let lockClient: { query: (text: string, values?: unknown[]) => Promise<unknown>; release: () => void } | undefined;
+  let lockAcquired = false;
+  let lockKey: string | undefined;
+  let archiveCompleted = false;
   try {
-    const [row] = await db
-      .delete(wsCanonRecordsTable)
-      .where(eq(wsCanonRecordsTable.id, req.params.id as string))
-      .returning({ id: wsCanonRecordsTable.id });
-    if (!row) { res.status(404).json({ error: "Canon record not found" }); return; }
-    logger.info({ id: req.params.id }, "editorial: deleted canon record");
-    res.json({ deleted: true, id: row.id });
+    const [scope] = await db.select({ worldId: wsCanonRecordsTable.worldId })
+      .from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, recordId))
+      .limit(1);
+    if (!scope) { res.status(404).json({ error: "Canon record not found" }); return; }
+    lockClient = await pool.connect();
+    lockKey = `worldsmith:canon-context-snapshot:${scope.worldId}`;
+    await lockClient.query("select pg_advisory_lock(hashtext($1))", [lockKey]);
+    lockAcquired = true;
+    const built = await buildCanonContextSnapshot(recordId);
+    if (!built) { res.status(404).json({ error: "Canon record not found" }); return; }
+    const [existingSnapshot] = await db.select({ githubPath: wsContextSnapshotsTable.githubPath })
+      .from(wsContextSnapshotsTable)
+      .where(and(
+        eq(wsContextSnapshotsTable.entityType, "canon_record"),
+        eq(wsContextSnapshotsTable.entityId, recordId),
+      ))
+      .limit(1);
+    const archivedAt = new Date();
+    const archivePath = canonArchiveSnapshotPath(built.record);
+    const archivedMarkdown = [
+      `> **Archived Canon record** — removed from Daybook on ${archivedAt.toISOString()}.`,
+      `> Original Context Snapshot: \`${existingSnapshot?.githubPath ?? built.path}\``,
+      "",
+      built.markdown,
+    ].join("\n");
+    const livePaths = [...new Set([existingSnapshot?.githubPath, built.path].filter((path): path is string => !!path && path !== archivePath))];
+    const published = await new ContextSnapshotGitHubPublisher().publishFiles(
+      [{ path: archivePath, content: archivedMarkdown }],
+      `context: archive removed Canon record ${built.record.name}`,
+      livePaths,
+    );
+    archiveCompleted = true;
+    const [row] = await db.transaction(async tx => {
+      await tx.delete(wsContextSnapshotsTable).where(and(
+        eq(wsContextSnapshotsTable.entityType, "canon_record"),
+        eq(wsContextSnapshotsTable.entityId, recordId),
+      ));
+      return tx.delete(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.id, recordId))
+        .returning({ id: wsCanonRecordsTable.id });
+    });
+    if (!row) {
+      logger.error({ recordId, archivePath, commitSha: published.commitSha }, "editorial: Canon archive succeeded but database delete found no row");
+      res.status(409).json({
+        error: "The GitHub record was archived, but the Canon record could not be removed. Please refresh before retrying.",
+        code: "CANON_ARCHIVED_DELETE_CONFLICT",
+      });
+      return;
+    }
+    logger.info({ id: recordId, archivePath, commitSha: published.commitSha }, "editorial: archived and deleted canon record");
+    res.json({ deleted: true, archived: true, id: row.id, archive_path: archivePath });
   } catch (err) {
     logger.error({ err }, "editorial: delete canon record");
-    res.status(500).json({ error: "Internal server error" });
+    if (archiveCompleted) {
+      res.status(500).json({
+        error: "The GitHub snapshot was archived, but the Canon record could not be removed. Please retry.",
+        code: "CANON_DELETE_FAILED",
+      });
+    } else {
+      res.status(502).json({
+        error: "The Canon record was not removed because its GitHub snapshot could not be archived.",
+        code: "CANON_ARCHIVE_FAILED",
+      });
+    }
+  } finally {
+    if (lockClient) {
+      if (lockAcquired && lockKey) {
+        await lockClient.query("select pg_advisory_unlock(hashtext($1))", [lockKey])
+          .catch((error: unknown) => logger.error({ error, recordId }, "editorial: failed to release Canon archive lock"));
+      }
+      lockClient.release();
+    }
   }
 });
 
@@ -1714,7 +2016,7 @@ router.get("/v1/editorial/canon-records/:id", async (req: Request, res: Response
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .limit(1);
     if (!row) { res.status(404).json({ error: "Canon record not found" }); return; }
-    res.json({ canon_record: row });
+     res.json({ canon_record: withCanonStructured(row) });
   } catch (err) {
     logger.error({ err }, "editorial: get canon record");
     res.status(500).json({ error: "Internal server error" });
@@ -1762,7 +2064,39 @@ async function buildCanonContextSnapshot(recordId: string) {
 
   const worldRecords = await db.select().from(wsCanonRecordsTable)
     .where(eq(wsCanonRecordsTable.worldId, record.worldId));
-  const imageExport = await buildCanonImageExport(worldRecords);
+  const worldAssets = await db.select().from(wsAssetsTable)
+    .where(eq(wsAssetsTable.worldId, record.worldId));
+  const assetsByRecord = new Map<string, typeof worldAssets>();
+  for (const asset of worldAssets) {
+    const list = assetsByRecord.get(asset.recordId) ?? [];
+    list.push(asset);
+    assetsByRecord.set(asset.recordId, list);
+  }
+  const imageExport = await buildCanonImageExport(worldRecords.map(item => ({
+    ...item,
+    assets: assetsByRecord.get(item.id)?.map(asset => ({
+      id: asset.id,
+      variantId: asset.variantId,
+      objectPath: asset.objectPath,
+      role: asset.role as any,
+      title: asset.title,
+      altText: asset.altText,
+      approvalStatus: asset.approvalStatus,
+      canonicalStrength: asset.canonicalStrength,
+      mimeType: asset.mimeType,
+      width: asset.width,
+      height: asset.height,
+      byteSize: asset.byteSize,
+      checksum: asset.checksum,
+      source: asset.source,
+      rightsStatus: asset.rightsStatus,
+      generationModel: asset.generationModel,
+      generationPrompt: asset.generationPrompt,
+      positiveGuidance: asset.positiveGuidance,
+      negativeGuidance: asset.negativeGuidance,
+      updatedAt: asset.updatedAt,
+    })),
+  })));
   const snapshotRecord = {
     ...record,
     worldName: world.name,
@@ -1778,6 +2112,11 @@ async function buildCanonContextSnapshot(recordId: string) {
     }),
     linkedSpecs: specs.map(spec => ({ id: spec.id, name: spec.name || "Untitled Production Spec" })),
     linkedPromptModules: modules,
+    structuredFields: (withCanonStructured(record) as any).globalMetadata ? {
+      globalMetadata: (withCanonStructured(record) as any).globalMetadata,
+      structuredProfile: (withCanonStructured(record) as any).structuredProfile,
+      generationProfile: (withCanonStructured(record) as any).generationProfile,
+    } : {},
     images: (imageExport.mappingsByRecordId.get(record.id) ?? []).map(image => ({
       role: image.role,
       repositoryPath: image.repositoryPath,
@@ -2133,8 +2472,13 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     narrative_visibility, temporal_scope, canon_stability,
     from_entity_id, to_entity_id, emotional_valence,
     portrait_url, image_urls, image_gallery, notes,
-    typography,
+    typography, global_metadata, structured_profile, generation_profile,
   } = req.body;
+  for (const [key, value] of Object.entries({ global_metadata, structured_profile, generation_profile })) {
+    if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) {
+      res.status(400).json({ error: `${key} must be a JSON object` }); return;
+    }
+  }
   // Validate emotional_register if provided
   const VALID_REGISTERS = ["Withholding", "Intimate", "Guarded", "Trespass", "Absence", "Confidence"];
   if (emotional_register !== undefined && emotional_register !== null && !VALID_REGISTERS.includes(emotional_register)) {
@@ -2220,6 +2564,9 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
             }
           : portrait_url !== undefined ? { portraitUrl: portrait_url } : {}),
         ...(notes !== undefined ? { notes: sanitizeEditorialRichText(notes) } : {}),
+        ...(global_metadata !== undefined ? { globalMetadata: global_metadata } : {}),
+        ...(structured_profile !== undefined ? { structuredProfile: structured_profile } : {}),
+        ...(generation_profile !== undefined ? { generationProfile: generation_profile } : {}),
       })
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .returning();
@@ -2267,7 +2614,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
       logger.error({ err: autoSyncErr, id: row.id }, "editorial: automatic context snapshot failed");
       return "sync_failed" as const;
     });
-    res.json({ canon_record: row, context_snapshot_status: contextSnapshotStatus });
+    res.json({ canon_record: withCanonStructured(row), context_snapshot_status: contextSnapshotStatus });
   } catch (err) {
     if (err instanceof CanonImageGalleryValidationError) {
       res.status(400).json({ error: err.message });
@@ -2290,6 +2637,23 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
  * the record's portraitUrl, so generated art and hand-uploaded art follow the
  * same durable asset lifecycle.
  */
+const IMAGE_PROMPT_MAX_CHARS = 30_000;
+
+function imagePromptExcerpt(value: string | null | undefined, maxChars: number): string {
+  const normalized = editorialRichTextToPlainText(value).replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  const clipped = normalized.slice(0, Math.max(0, maxChars - 1));
+  const lastBoundary = Math.max(clipped.lastIndexOf(". "), clipped.lastIndexOf("; "), clipped.lastIndexOf(", "));
+  return `${(lastBoundary > maxChars * 0.65 ? clipped.slice(0, lastBoundary + 1) : clipped).trim()}…`;
+}
+
+function boundedImagePrompt(parts: Array<string | false | null | undefined>): string {
+  const prompt = parts.filter((part): part is string => typeof part === "string" && part.trim().length > 0).join("\n\n");
+  return prompt.length <= IMAGE_PROMPT_MAX_CHARS
+    ? prompt
+    : `${prompt.slice(0, IMAGE_PROMPT_MAX_CHARS - 1).trimEnd()}…`;
+}
+
 router.post("/v1/editorial/canon-records/generate-image", async (req: Request, res: Response) => {
   const {
     world_id,
@@ -2301,6 +2665,7 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
     historical_context,
     visual_notes,
     prompt: requested_prompt,
+    mode,
   } = req.body as {
     world_id?: string;
     source_record_id?: string;
@@ -2311,18 +2676,24 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
     historical_context?: string;
     visual_notes?: string;
     prompt?: string;
+    mode?: "primary_portrait" | "reference";
   };
+  const generationMode = mode === "primary_portrait" ? "primary_portrait" : "reference";
 
   if (!name?.trim()) {
     res.status(400).json({ error: "Give the canon record a name before generating an image." });
     return;
   }
-  if (!requested_prompt?.trim()) {
+  if (generationMode === "reference" && !requested_prompt?.trim()) {
     res.status(400).json({ error: "Describe what the reference image should show." });
     return;
   }
-  if (requested_prompt.length > 2000) {
+  if ((requested_prompt?.length ?? 0) > 2000) {
     res.status(400).json({ error: "Keep the reference image prompt under 2,000 characters." });
+    return;
+  }
+  if (generationMode === "primary_portrait" && canon_type !== "character") {
+    res.status(400).json({ error: "Primary Canon portraits are available for character records." });
     return;
   }
   if (related_record_ids !== undefined && !Array.isArray(related_record_ids)) {
@@ -2385,50 +2756,64 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
     }
 
     const visualDirection = [
-      editorialRichTextToPlainText(visual_notes).trim(),
-      editorialRichTextToPlainText(narrative_details).trim(),
-      editorialRichTextToPlainText(historical_context).trim(),
+      imagePromptExcerpt(visual_notes, 5_000),
+      imagePromptExcerpt(narrative_details, 5_000),
+      imagePromptExcerpt(historical_context, 3_000),
     ].filter(Boolean).join("\n");
 
     const worldDirection = world
       ? [
           `World: ${world.name}`,
-          world.visualPalette ? `Visual palette: ${editorialRichTextToPlainText(world.visualPalette)}` : "",
-          world.materialWorld ? `Material world: ${editorialRichTextToPlainText(world.materialWorld)}` : "",
-          world.atmosphericNotes ? `Atmosphere: ${editorialRichTextToPlainText(world.atmosphericNotes)}` : "",
+          world.visualPalette ? `Visual palette: ${imagePromptExcerpt(world.visualPalette, 1_500)}` : "",
+          world.materialWorld ? `Material world: ${imagePromptExcerpt(world.materialWorld, 1_500)}` : "",
+          world.atmosphericNotes ? `Atmosphere: ${imagePromptExcerpt(world.atmosphericNotes, 1_500)}` : "",
         ].filter(Boolean).join("\n")
       : "";
 
-    const relatedCanonDirection = relatedCanon.map(related => [
+    const relatedCanonDirection = relatedCanon.map(related => imagePromptExcerpt([
       `${related.canonType || "canon item"}: ${related.name}`,
       `Relationship: ${(related.relationType || "related").replace(/_/g, " ")}`,
-      related.relationDetails ? `Relationship context: ${editorialRichTextToPlainText(related.relationDetails)}` : "",
-      related.confirmedCanon ? `Confirmed Canon: ${editorialRichTextToPlainText(related.confirmedCanon)}` : "",
-      related.visualNotes ? `Visual notes: ${editorialRichTextToPlainText(related.visualNotes)}` : "",
-      related.narrativeDetails ? `Narrative details: ${editorialRichTextToPlainText(related.narrativeDetails)}` : "",
-      related.historicalContext ? `Historical context: ${editorialRichTextToPlainText(related.historicalContext)}` : "",
-    ].filter(Boolean).join("\n")).join("\n\n");
+      related.relationDetails ? `Relationship context: ${imagePromptExcerpt(related.relationDetails, 300)}` : "",
+      related.confirmedCanon ? `Confirmed Canon: ${imagePromptExcerpt(related.confirmedCanon, 400)}` : "",
+      related.visualNotes ? `Visual notes: ${imagePromptExcerpt(related.visualNotes, 300)}` : "",
+      related.narrativeDetails ? `Narrative details: ${imagePromptExcerpt(related.narrativeDetails, 300)}` : "",
+      related.historicalContext ? `Historical context: ${imagePromptExcerpt(related.historicalContext, 200)}` : "",
+    ].filter(Boolean).join("\n"), 1_200)).join("\n\n");
 
-    const subjectGuidance = canon_type === "object"
+    const subjectGuidance = generationMode === "primary_portrait"
+      ? [
+          "Create the authoritative Primary Canon Portrait for this character.",
+          "Show one character only, isolated and centered, in a head-and-shoulders or waist-up portrait.",
+          "Use a plain, softly lit warm-neutral studio background with clean negative space.",
+          "Give the character a natural neutral expression and a clear three-quarter or near-front view.",
+          "Prioritize repeatable facial identity, hair, complexion, age, posture, and defining wardrobe details.",
+          "No environment, narrative scene, furniture, handheld props, other people, decorative border, vignette, or dramatic action.",
+        ].join(" ")
+      : canon_type === "object"
       ? "Depict the individual object itself as the hero subject, not a scene. Keep it fully visible, isolated, and easy to reuse in future ephemera, paper, or product compositions."
       : "Depict one clear, recognisable visual reference for this canon subject. Keep the main subject fully visible with clean space around it for reuse in future production work.";
 
-    const prompt = [
-      "Create a square, production-ready canon reference illustration.",
+    const prompt = boundedImagePrompt([
+      generationMode === "primary_portrait"
+        ? "Create a square, production-ready isolated character portrait."
+        : "Create a square, production-ready canon reference illustration.",
       `Canon type: ${canon_type || "canon item"}.`,
       `Canon name: ${name.trim()}.`,
       subjectGuidance,
-      `Editor request:\n${requested_prompt.trim()}`,
+      requested_prompt?.trim() && `Editor request:\n${requested_prompt.trim()}`,
       "Use the supplied canon and world direction as fixed design constraints so later related images can repeat the same materials, motifs, palette, age, and visual language.",
       relatedCanonDirection && `Related Canon grounding:\n${relatedCanonDirection}`,
       "No words, lettering, labels, signatures, logos, watermarks, frames, or mockup presentation. Do not add unrelated objects.",
       worldDirection && `World direction:\n${worldDirection}`,
       visualDirection && `Canon direction:\n${visualDirection}`,
-    ].filter(Boolean).join("\n\n");
+    ]);
 
     const generatedImage = await generateImage(prompt, {
       size: "1024x1024",
-      quality: "high",
+      // High-quality GPT Image requests regularly exceed the interactive
+      // five-minute timeout. Medium remains production-ready and completes
+      // reliably enough for an editor-facing action.
+      quality: "medium",
       context: {
         storeId: world?.storeId ?? undefined,
         userId: (req.user as any)?.id,
@@ -2441,7 +2826,7 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
     logger.error({ err, canonName: name }, "editorial: generate canon image");
     if (err instanceof Error && err.name === "ImageGenerationTimeoutError") {
       res.status(504).json({
-        error: "Image generation took longer than five minutes. Please try again.",
+        error: "The image provider did not finish in time. Please try again; your Canon details are safe.",
         code: "IMAGE_GENERATION_TIMEOUT",
         retryable: true,
       });
@@ -4560,6 +4945,82 @@ Return ONLY a JSON array (no markdown fences or preamble). Every item must have:
 });
 
 // List stories for a world
+router.get("/v1/editorial/narrative-images", async (req: Request, res: Response) => {
+  const worldId = String(req.query.world_id || "");
+  const storyId = String(req.query.story_id || "");
+  if (!worldId || !storyId) {
+    res.status(400).json({ error: "world_id and story_id are required" });
+    return;
+  }
+  const [story] = await db.select({ id: wsStoriesTable.id }).from(wsStoriesTable)
+    .where(and(eq(wsStoriesTable.id, storyId), eq(wsStoriesTable.worldId, worldId))).limit(1);
+  if (!story) {
+    res.status(404).json({ error: "Storyline not found" });
+    return;
+  }
+  const images = await db.select().from(wsNarrativeImagesTable)
+    .where(and(eq(wsNarrativeImagesTable.worldId, worldId), eq(wsNarrativeImagesTable.storyId, storyId)))
+    .orderBy(wsNarrativeImagesTable.sortOrder, wsNarrativeImagesTable.createdAt);
+  res.json({ images });
+});
+
+router.post("/v1/editorial/narrative-images", async (req: Request, res: Response) => {
+  const {
+    world_id, story_id, target_type, target_id, title, alt_text,
+    object_path, mime_type, byte_size,
+  } = req.body as Record<string, unknown>;
+  const worldId = typeof world_id === "string" ? world_id : "";
+  const storyId = typeof story_id === "string" ? story_id : "";
+  const targetType = target_type === "act" || target_type === "scene" ? target_type : "story";
+  const targetId = typeof target_id === "string" ? target_id : "";
+  if (!worldId || !storyId || !object_path || typeof object_path !== "string") {
+    res.status(400).json({ error: "world_id, story_id, and object_path are required" });
+    return;
+  }
+  const [story] = await db.select({ id: wsStoriesTable.id }).from(wsStoriesTable)
+    .where(and(eq(wsStoriesTable.id, storyId), eq(wsStoriesTable.worldId, worldId))).limit(1);
+  if (!story) {
+    res.status(404).json({ error: "Storyline not found" });
+    return;
+  }
+  if (targetType === "act") {
+    const [act] = await db.select({ id: wsStoryActsTable.id }).from(wsStoryActsTable)
+      .where(and(eq(wsStoryActsTable.id, targetId), eq(wsStoryActsTable.storyId, storyId), eq(wsStoryActsTable.worldId, worldId))).limit(1);
+    if (!act) { res.status(400).json({ error: "Movement does not belong to this storyline" }); return; }
+  }
+  if (targetType === "scene") {
+    const [scene] = await db.select({ id: wsScenesTable.id }).from(wsScenesTable)
+      .where(and(eq(wsScenesTable.id, targetId), eq(wsScenesTable.storyId, storyId), eq(wsScenesTable.worldId, worldId))).limit(1);
+    if (!scene) { res.status(400).json({ error: "Scene does not belong to this storyline" }); return; }
+  }
+  const [image] = await db.insert(wsNarrativeImagesTable).values({
+    id: randomUUID(),
+    worldId,
+    storyId,
+    actId: targetType === "act" ? targetId : null,
+    sceneId: targetType === "scene" ? targetId : null,
+    title: typeof title === "string" && title.trim() ? title.trim().slice(0, 240) : "Story reference",
+    altText: typeof alt_text === "string" ? alt_text.trim().slice(0, 500) : "",
+    objectPath: object_path,
+    mimeType: typeof mime_type === "string" ? mime_type : null,
+    byteSize: typeof byte_size === "number" ? byte_size : null,
+    createdBy: (req.user as any)?.id,
+  }).returning();
+  res.status(201).json({ image });
+});
+
+router.delete("/v1/editorial/narrative-images/:id", async (req: Request, res: Response) => {
+  const worldId = String(req.query.world_id || "");
+  const [image] = await db.select().from(wsNarrativeImagesTable)
+    .where(and(eq(wsNarrativeImagesTable.id, req.params.id as string), eq(wsNarrativeImagesTable.worldId, worldId))).limit(1);
+  if (!image) {
+    res.status(404).json({ error: "Narrative image not found" });
+    return;
+  }
+  await db.delete(wsNarrativeImagesTable).where(eq(wsNarrativeImagesTable.id, image.id));
+  res.json({ image });
+});
+
 router.get("/v1/editorial/stories", async (req: Request, res: Response) => {
   try {
     const worldId = req.query.world_id as string;
@@ -4580,7 +5041,7 @@ router.get("/v1/editorial/stories", async (req: Request, res: Response) => {
       if (!actsById[act.storyId]) actsById[act.storyId] = [];
       actsById[act.storyId].push(act);
     }
-    res.json({ stories: stories.map(s => ({ ...s, acts: actsById[s.id] ?? [] })) });
+    res.json({ stories: stories.map(s => ({ ...withStoryStructured(s), acts: actsById[s.id] ?? [] })) });
   } catch (err) {
     logger.error({ err }, "editorial: list stories");
     res.status(500).json({ error: "Internal server error" });
@@ -4604,7 +5065,7 @@ router.get("/v1/editorial/stories/:id", async (req: Request, res: Response) => {
       .from(wsStoryActsTable)
       .where(eq(wsStoryActsTable.storyId, story.id))
       .orderBy(wsStoryActsTable.actNumber);
-    res.json({ story: { ...story, acts } });
+    res.json({ story: { ...withStoryStructured(story), acts } });
   } catch (err) {
     logger.error({ err }, "editorial: get story");
     res.status(500).json({ error: "Internal server error" });
@@ -4716,7 +5177,8 @@ router.get("/v1/editorial/story-connections", async (req: Request, res: Response
 // Create a story
 router.post("/v1/editorial/stories", async (req: Request, res: Response) => {
   try {
-    const { world_id, title, summary, status } = req.body;
+    const { world_id, title, summary, status, story_spine, reveal_threads, reveal_architecture, global_metadata } = req.body;
+    const architecture = reveal_architecture ?? reveal_threads;
     if (!world_id || typeof title !== "string" || !title.trim()) {
       res.status(400).json({ error: "world_id and title required" });
       return;
@@ -4729,11 +5191,17 @@ router.post("/v1/editorial/stories", async (req: Request, res: Response) => {
       res.status(400).json({ error: "summary must be a string" });
       return;
     }
+    if (story_spine !== undefined && !Array.isArray(story_spine)) { res.status(400).json({ error: "story_spine must be an array" }); return; }
+    if (architecture !== undefined && !Array.isArray(architecture)) { res.status(400).json({ error: "reveal_architecture must be an array" }); return; }
+    if (global_metadata !== undefined && (!global_metadata || typeof global_metadata !== "object" || Array.isArray(global_metadata))) { res.status(400).json({ error: "global_metadata must be an object" }); return; }
     const [story] = await db.insert(wsStoriesTable).values({
       id: randomUUID(),
       worldId: world_id,
       title: title.trim(),
-      summary: sanitizeEditorialRichText(summary ?? ""),
+       summary: sanitizeEditorialRichText(summary ?? ""),
+       globalMetadata: global_metadata ?? {},
+       storySpine: story_spine ?? [],
+       revealArchitecture: architecture ?? [],
       status: status ?? "draft",
     }).returning();
     res.status(201).json({ story });
@@ -4747,7 +5215,8 @@ router.post("/v1/editorial/stories", async (req: Request, res: Response) => {
 router.patch("/v1/editorial/stories/:id", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { title, summary, status, sort_order } = req.body;
+    const { title, summary, status, sort_order, story_spine, reveal_threads, reveal_architecture, global_metadata } = req.body;
+    const architecture = reveal_architecture ?? reveal_threads;
     if (title !== undefined && (typeof title !== "string" || !title.trim())) {
       res.status(400).json({ error: "title must be a non-empty string" });
       return;
@@ -4760,14 +5229,21 @@ router.patch("/v1/editorial/stories/:id", async (req: Request, res: Response) =>
       res.status(400).json({ error: "summary must be a string" });
       return;
     }
+    if (story_spine !== undefined && !Array.isArray(story_spine)) { res.status(400).json({ error: "story_spine must be an array" }); return; }
+    if (architecture !== undefined && !Array.isArray(architecture)) { res.status(400).json({ error: "reveal_architecture must be an array" }); return; }
+    if (global_metadata !== undefined && (!global_metadata || typeof global_metadata !== "object" || Array.isArray(global_metadata))) { res.status(400).json({ error: "global_metadata must be an object" }); return; }
     const update: Record<string, unknown> = {};
     if (title !== undefined) update.title = typeof title === "string" ? title.trim() : title;
-    if (summary !== undefined) update.summary = sanitizeEditorialRichText(summary ?? "");
+    if (summary !== undefined) update.summary = sanitizeEditorialRichText(summary);
     if (status !== undefined) update.status = status;
     if (sort_order !== undefined) update.sortOrder = sort_order;
+    if (req.body.global_metadata !== undefined) update.globalMetadata = req.body.global_metadata;
+    if (story_spine !== undefined) update.storySpine = story_spine;
+    if (architecture !== undefined) update.revealArchitecture = architecture;
+    if (global_metadata !== undefined) update.globalMetadata = global_metadata;
     const [story] = await db.update(wsStoriesTable).set(update).where(eq(wsStoriesTable.id, id as string)).returning();
     if (!story) { res.status(404).json({ error: "Story not found" }); return; }
-    res.json({ story });
+    res.json({ story: withStoryStructured(story) });
   } catch (err) {
     logger.error({ err }, "editorial: update story");
     res.status(500).json({ error: "Internal server error" });
@@ -4852,19 +5328,19 @@ const SCENE_ATTRIBUTE_KEYS = [
   "setting", "timeOfDay", "mood", "lighting", "weather", "composition", "imagePrompt",
 ] as const;
 
-function parseSceneAttributes(value: unknown): Record<string, string> {
+function parseSceneAttributes(value: unknown): Record<string, unknown> {
   if (value === undefined) return {};
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Scene attributes must be an object.");
   }
-  const attributes: Record<string, string> = {};
-  for (const key of SCENE_ATTRIBUTE_KEYS) {
-    const item = (value as Record<string, unknown>)[key];
+  const attributes: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
     if (item === undefined || item === null || item === "") continue;
-    if (typeof item !== "string" || item.length > 2000) {
-      throw new Error(`Scene attribute ${key} must be text under 2,000 characters.`);
+    if (typeof item === "string" && item.length > 2000) throw new Error(`Scene attribute ${key} must be text under 2,000 characters.`);
+    if (typeof item !== "string" && typeof item !== "number" && typeof item !== "boolean" && !Array.isArray(item) && (typeof item !== "object" || item === null)) {
+      throw new Error(`Scene attribute ${key} must be JSON-compatible.`);
     }
-    attributes[key] = item.trim();
+    attributes[key] = typeof item === "string" ? item.trim() : item;
   }
   return attributes;
 }

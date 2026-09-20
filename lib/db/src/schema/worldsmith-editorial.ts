@@ -61,6 +61,9 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   status: text("status").notNull().default("proposed"),
   // character | location | object | event | lore | atmosphere | material | relationship | motif
   canonType: text("canon_type"),
+  globalMetadata: jsonb("global_metadata").$type<Record<string, unknown>>().notNull().default({}),
+  structuredProfile: jsonb("structured_profile").$type<Record<string, unknown>>().notNull().default({}),
+  generationProfile: jsonb("generation_profile").$type<Record<string, unknown>>().notNull().default({}),
   narrativeDetails: text("narrative_details").notNull().default(""),
   historicalContext: text("historical_context").notNull().default(""),
   visualNotes: text("visual_notes").notNull().default(""),
@@ -377,6 +380,9 @@ export const wsStoriesTable = pgTable("ws_stories", {
   worldId:   text("world_id").notNull(),
   title:     text("title").notNull(),
   summary:   text("summary").notNull().default(""),
+  globalMetadata: jsonb("global_metadata").$type<Record<string, unknown>>().notNull().default({}),
+  storySpine: jsonb("story_spine").$type<unknown[]>().notNull().default([]),
+  revealArchitecture: jsonb("reveal_architecture").$type<unknown[]>().notNull().default([]),
   status:    text("status").notNull().default("draft"), // active | draft | planned | archived
   sortOrder: integer("sort_order").notNull().default(0),
   createdBy: text("created_by"),
@@ -419,15 +425,7 @@ export const wsScenesTable = pgTable("ws_scenes", {
   sceneNumber: integer("scene_number").notNull().default(1),
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
-  attributes: jsonb("attributes").$type<{
-    setting?: string;
-    timeOfDay?: string;
-    mood?: string;
-    lighting?: string;
-    weather?: string;
-    composition?: string;
-    imagePrompt?: string;
-  }>().notNull().default({}),
+  attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
   primaryImageUrl: text("primary_image_url"),
   primaryImagePrompt: text("primary_image_prompt"),
   primaryImageMetadata: jsonb("primary_image_metadata").$type<Record<string, unknown>>().notNull().default({}),
@@ -443,6 +441,31 @@ export const wsScenesTable = pgTable("ws_scenes", {
 
 export type WsScene = typeof wsScenesTable.$inferSelect;
 export type InsertWsScene = typeof wsScenesTable.$inferInsert;
+
+export const wsNarrativeImagesTable = pgTable("ws_narrative_images", {
+  id: text("id").primaryKey(),
+  worldId: text("world_id").notNull(),
+  storyId: text("story_id").notNull(),
+  actId: text("act_id"),
+  sceneId: text("scene_id"),
+  title: text("title").notNull(),
+  altText: text("alt_text").notNull().default(""),
+  objectPath: text("object_path").notNull(),
+  mimeType: text("mime_type"),
+  byteSize: integer("byte_size"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+    .$onUpdate(() => new Date()),
+}, (t) => [
+  index("ws_narrative_images_story_idx").on(t.storyId),
+  index("ws_narrative_images_act_idx").on(t.actId),
+  index("ws_narrative_images_scene_idx").on(t.sceneId),
+]);
+
+export type WsNarrativeImage = typeof wsNarrativeImagesTable.$inferSelect;
+export type InsertWsNarrativeImage = typeof wsNarrativeImagesTable.$inferInsert;
 
 export const wsSceneCanonLinksTable = pgTable("ws_scene_canon_links", {
   sceneId: text("scene_id").notNull(),

@@ -682,7 +682,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
           )}
           {navItem("World Bible", BookOpen, "/super/worldsmith/editorial/bible", "bible")}
           {navItem("Story Map", Network, "/super/worldsmith/editorial/connections", "connections")}
-          {navItem("Storylines", GitBranch, "/super/worldsmith/editorial/stories", "stories")}
+          {navItem("Storylines & Scenes", GitBranch, "/super/worldsmith/editorial/stories", "stories")}
           {navItem("Canon Records", ScrollText, "/super/worldsmith/editorial/canon", "canon")}
 
           {!drawerCollapsed && (

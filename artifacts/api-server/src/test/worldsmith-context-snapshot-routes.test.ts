@@ -42,6 +42,8 @@ const recordIds = {
   transition: `snapshot-transition-${run}`,
   bulkA: `snapshot-bulk-a-${run}`,
   bulkB: `snapshot-bulk-b-${run}`,
+  archiveSuccess: `snapshot-archive-success-${run}`,
+  archiveFailure: `snapshot-archive-failure-${run}`,
 };
 const allRecordIds = Object.values(recordIds);
 
@@ -73,6 +75,8 @@ beforeAll(async () => {
     { id: recordIds.transition, worldId, name: "Transition", status: "under_review", canonType: "event" },
     { id: recordIds.bulkA, worldId, name: "Bulk A", status: "under_review", canonType: "object" },
     { id: recordIds.bulkB, worldId, name: "Bulk B", status: "under_review", canonType: "object" },
+    { id: recordIds.archiveSuccess, worldId, name: "Archive Success", status: "accepted", canonType: "location" },
+    { id: recordIds.archiveFailure, worldId, name: "Archive Failure", status: "accepted", canonType: "character" },
   ]);
   await db.insert(wsContextSnapshotsTable).values(allRecordIds.map(entityId => ({
     entityType: "canon_record",
@@ -152,6 +156,48 @@ describe("governed Context Snapshot routes", () => {
       skipped: 0,
     });
     expect(response.body.context_snapshots.results).toHaveLength(2);
+  });
+
+  it("archives the GitHub snapshot before deleting a Canon record", async () => {
+    mockPublish.mockResolvedValueOnce({ commitSha: "archive-commit", changed: true });
+
+    const response = await request(app)
+      .delete(`/v1/editorial/canon-records/${recordIds.archiveSuccess}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      deleted: true,
+      archived: true,
+      id: recordIds.archiveSuccess,
+    });
+    expect(response.body.archive_path).toContain("/context/archive/canon/locations/");
+    expect(mockPublish).toHaveBeenCalledWith(
+      [expect.objectContaining({
+        path: expect.stringContaining("/context/archive/canon/locations/"),
+        content: expect.stringContaining("Archived Canon record"),
+      })],
+      expect.stringContaining("context: archive removed Canon record Archive Success"),
+      expect.arrayContaining([`worlds/${worldId}/context/canon/${recordIds.archiveSuccess}.md`]),
+    );
+    const [record] = await db.select().from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, recordIds.archiveSuccess));
+    const [snapshot] = await db.select().from(wsContextSnapshotsTable)
+      .where(eq(wsContextSnapshotsTable.entityId, recordIds.archiveSuccess));
+    expect(record).toBeUndefined();
+    expect(snapshot).toBeUndefined();
+  });
+
+  it("keeps the Canon record when GitHub archival fails", async () => {
+    mockPublish.mockRejectedValueOnce(new Error("GitHub unavailable"));
+
+    const response = await request(app)
+      .delete(`/v1/editorial/canon-records/${recordIds.archiveFailure}`);
+
+    expect(response.status).toBe(502);
+    expect(response.body.code).toBe("CANON_ARCHIVE_FAILED");
+    const [record] = await db.select().from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, recordIds.archiveFailure));
+    expect(record?.id).toBe(recordIds.archiveFailure);
   });
 });
 

@@ -56,16 +56,14 @@ describe("Storylines suggestion world switching", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Generate ideas" }));
-    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
-      "/v1/editorial/stories/suggest",
-      expect.objectContaining({ body: JSON.stringify({ world_id: "world-a", force_refresh: true }) }),
-    ));
+    // Test behavior without relying on the now-removed suggestions panel
+    expect(screen.queryByText("Generate ideas")).not.toBeInTheDocument();
 
     getWorld.mockReturnValue({
       selectedWorldId: "world-b",
       selectedWorld: { id: "world-b", name: "World B" },
     });
+
     view.rerender(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <StoriesStudio />
@@ -73,8 +71,7 @@ describe("Storylines suggestion world switching", () => {
     );
 
     expect(screen.queryByText("World A’s Lantern")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Generate ideas" }));
-    await waitFor(() => expect(screen.getByText("World B’s Lantern")).toBeInTheDocument());
+    expect(screen.queryByText("World B’s Lantern")).not.toBeInTheDocument();
 
     resolveWorldA({
       suggestions: [{
@@ -102,14 +99,15 @@ describe("Storylines suggestion world switching", () => {
       </QueryClientProvider>,
     );
 
-    const refresh = await screen.findByRole("button", { name: "Generate ideas" });
-    fireEvent.click(refresh);
+    const reviewLink = await screen.findByText(/Ideas are generated and reviewed in Discovery Review/i);
+    expect(reviewLink).toBeInTheDocument();
 
-    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+    // Since we moved this logic, we just check that the old endpoint wasn't called manually here.
+    expect(apiFetch).not.toHaveBeenCalledWith(
       "/v1/editorial/stories/suggest",
       expect.objectContaining({
-        body: JSON.stringify({ world_id: "world-a", force_refresh: true }),
+        body: expect.stringMatching(/force_refresh/),
       }),
-    ));
+    );
   });
 });

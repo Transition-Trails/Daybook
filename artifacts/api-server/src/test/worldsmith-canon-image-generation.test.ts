@@ -69,7 +69,7 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
       expect.stringContaining("Canon name: The Lantern of Ash."),
       expect.objectContaining({
         size: "1024x1024",
-        quality: "high",
+        quality: "medium",
         context: expect.objectContaining({
           userId: "canon-image-test-admin",
           feature: "editorial.canon.generate-image",
@@ -121,7 +121,7 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
 
     expect(response.status).toBe(504);
     expect(response.body).toEqual({
-      error: "Image generation took longer than five minutes. Please try again.",
+      error: "The image provider did not finish in time. Please try again; your Canon details are safe.",
       code: "IMAGE_GENERATION_TIMEOUT",
       retryable: true,
     });
@@ -137,5 +137,61 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
       error: "Describe what the reference image should show.",
     });
     expect(mockGenerateImage).not.toHaveBeenCalled();
+  });
+
+  it("generates an isolated Primary Canon Portrait without an editor prompt", async () => {
+    mockGenerateImage.mockResolvedValue({
+      dataUrl: "data:image/png;base64,cG9ydHJhaXQ=",
+      provider: "replit_ai_integrations",
+      model: "gpt-image-2",
+      settings: { size: "1024x1024", quality: "medium" },
+    });
+
+    const response = await request(app)
+      .post("/v1/editorial/canon-records/generate-image")
+      .send({
+        name: "Eleanor Harcourt",
+        canon_type: "character",
+        mode: "primary_portrait",
+        visual_notes: "Dark hair, watchful gray eyes, restrained Victorian dress.",
+      });
+
+    expect(response.status).toBe(200);
+    const submittedPrompt = String(mockGenerateImage.mock.calls[0]?.[0]);
+    expect(submittedPrompt).toContain("authoritative Primary Canon Portrait");
+    expect(submittedPrompt).toContain("one character only, isolated and centered");
+    expect(submittedPrompt).toContain("plain, softly lit warm-neutral studio background");
+    expect(mockGenerateImage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ quality: "medium" }),
+    );
+  });
+
+  it("keeps long Canon records within the provider prompt limit", async () => {
+    mockGenerateImage.mockResolvedValue({
+      dataUrl: "data:image/png;base64,Ym91bmRlZA==",
+      provider: "replit_ai_integrations",
+      model: "gpt-image-2",
+      settings: { size: "1024x1024", quality: "medium" },
+    });
+    const longProse = `<p>${"Historically grounded visual detail. ".repeat(500)}</p>`;
+
+    const response = await request(app)
+      .post("/v1/editorial/canon-records/generate-image")
+      .send({
+        name: "Bellamy & Son, Nurserymen and Seedsmen",
+        canon_type: "location",
+        mode: "reference",
+        prompt: "Show the storefront as an isolated architectural reference.",
+        visual_notes: longProse,
+        narrative_details: longProse,
+        historical_context: longProse,
+      });
+
+    expect(response.status).toBe(200);
+    const submittedPrompt = String(mockGenerateImage.mock.calls[0]?.[0]);
+    expect(submittedPrompt.length).toBeLessThanOrEqual(30_000);
+    expect(submittedPrompt).toContain("Show the storefront as an isolated architectural reference.");
+    expect(submittedPrompt).toContain("Canon name: Bellamy & Son, Nurserymen and Seedsmen.");
   });
 });

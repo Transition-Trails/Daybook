@@ -17,6 +17,9 @@ The default model is **gpt-image-2**, selected through `WS_IMAGE_MODEL` and sent
 - `options.quality` accepts `low`, `medium`, `high`, and legacy `standard`/`hd` values; legacy values map to `medium`/`high` with warnings.
 - GPT Image 1 legacy sizes are explicitly mapped for compatibility; GPT Image 2 sizes must use supported multiples of 16, aspect ratios, and pixel budgets. Custom targets must contain at least 1,048,576 pixels; a 512-pixel short side alone is insufficient.
 - Generation and optional image download share a 180-second timeout by default, configurable with `WS_IMAGE_TIMEOUT_MS` within a 30–600 second safety range. Convert timeout aborts into a named, retryable error rather than a generic provider failure.
+- Provider image prompts have a 32,000-character hard limit. Generation-facing compilers must budget each context section and stay below 30,000 characters; do not concatenate unbounded Canon or World Bible prose.
+
+**Why:** A production Canon record assembled 54,927 characters of valid source material and the provider rejected the entire generation request before rendering.
 
 ## ItemOrigin constraint
 `ItemOrigin = "starter" | "licensed" | "owned"` — `"platform"` is NOT valid.

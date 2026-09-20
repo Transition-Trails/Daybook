@@ -97,3 +97,4 @@
 - [Canon-grounded solo play](canon-grounded-solo-play.md) — start with a guided prompt deck plus one limited branch; keep foundation Canon immutable and contributions provenance-aware
 - [Late Canon-relation migration order](late-canon-relation-migration-order.md) — the 0047 relation migration intentionally follows 0050 in the journal; keep timestamps monotonic
 - [Canon snapshot world serialization](canon-snapshot-world-serialization.md) — image snapshot builds and backfills must serialize per world before reading source state
+- [Canon portrait generation](canon-portrait-generation.md) — character imagery starts with an automatic isolated identity portrait; described references come afterward

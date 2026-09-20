@@ -23,6 +23,8 @@ export interface CanonSnapshotRecord {
   linkedSpecs: Array<{ id: string; name: string }>;
   linkedPromptModules: Array<{ id: string; name: string }>;
   images?: Array<{ role: string; repositoryPath: string }>;
+  /** Versioned Field Architecture payloads are rendered without losing unknown keys. */
+  structuredFields?: Record<string, unknown>;
 }
 
 const entityMap: Record<string, string> = {
@@ -101,6 +103,11 @@ export function canonSnapshotPath(record: Pick<CanonSnapshotRecord, "worldId" | 
   return `worlds/${kebab(record.worldId)}/context/canon/${category}/${kebab(record.id)}-${kebab(record.name)}.md`;
 }
 
+export function canonArchiveSnapshotPath(record: Pick<CanonSnapshotRecord, "worldId" | "canonType" | "id" | "name">): string {
+  const category = `${kebab(record.canonType || "record")}s`;
+  return `worlds/${kebab(record.worldId)}/context/archive/canon/${category}/${kebab(record.id)}-${kebab(record.name)}.md`;
+}
+
 export function renderCanonSnapshot(record: CanonSnapshotRecord, generatedAt = new Date()): string {
   const lines = [
     `# ${markdownText(record.name)}`,
@@ -122,6 +129,9 @@ export function renderCanonSnapshot(record: CanonSnapshotRecord, generatedAt = n
     ...section("Temporal Scope", record.temporalScope),
     ...section("Emotional Valence", record.emotionalValence),
     ...section("Canon Notes and Open Questions", record.notes),
+    ...(record.structuredFields && Object.keys(record.structuredFields).length
+      ? ["## Structured Canon Fields", "", "```json", JSON.stringify(record.structuredFields, null, 2), "```", ""]
+      : []),
     ...imageSection(record),
     ...relationshipSection(record),
     ...linkedSection("Related Production Specs", record.linkedSpecs),

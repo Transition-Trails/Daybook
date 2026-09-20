@@ -18,6 +18,7 @@ export * from "./payments";
 export * from "./checkout";
 export * from "./worldsmith";
 export * from "./worldsmith-editorial";
+export * from "./worldsmith-foundation";
 export * from "./releases";
 export * from "./eink";
 export * from "./ai";

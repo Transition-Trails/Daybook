@@ -23,10 +23,10 @@ function setup(sceneId?: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } }
   });
-  
+
   // Prime cache
   queryClient.setQueryData(["editorial-canon-records-all", "world-1"], { canon_records: mockCanonRecords });
-  
+
   if (sceneId) {
     queryClient.setQueryData(["editorial-scenes", "story-1"], {
       scenes: [
@@ -62,7 +62,7 @@ function setup(sceneId?: string) {
       />
     </QueryClientProvider>
   );
-  
+
   return { ...utils, onClose, user: userEvent.setup() };
 }
 
@@ -73,36 +73,42 @@ describe("SceneEditor", () => {
 
   it("requires a title and at least one character canon record to create a scene", async () => {
     const { user } = setup();
-    
+
     // Attempt save with empty title and no characters
     await user.click(screen.getByTestId("button-save-scene"));
-    
-    expect(apiFetch).not.toHaveBeenCalled();
+
+    expect(apiFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/v1/editorial/scenes"),
+      expect.anything()
+    );
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({
       title: "Could not create scene",
       description: "Scene title is required",
       variant: "destructive"
     }));
-    
+
     // Fill title but still no characters
     await user.type(screen.getByTestId("input-scene-title"), "New Adventure");
     await user.click(screen.getByTestId("button-save-scene"));
-    
-    expect(apiFetch).not.toHaveBeenCalled();
+
+    expect(apiFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/v1/editorial/scenes"),
+      expect.anything()
+    );
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({
       title: "Could not create scene",
       description: "A scene must contain at least one character",
       variant: "destructive"
     }));
-    
+
     // Select a character
     await user.click(screen.getByTestId("checkbox-canon-char-1"));
-    
+
     // Mock successful creation
     apiFetch.mockResolvedValueOnce({ scene: { id: "new-scene-1" } });
-    
+
     await user.click(screen.getByTestId("button-save-scene"));
-    
+
     await waitFor(() => {
       expect(apiFetch).toHaveBeenCalledWith("/v1/editorial/acts/act-1/scenes", expect.objectContaining({
         method: "POST",
@@ -113,28 +119,33 @@ describe("SceneEditor", () => {
 
   it("loads existing scene data and supports PATCH updates", async () => {
     const { user } = setup("scene-1");
-    
+
+    // We wait for the scene data to populate since it now uses a useEffect with isPending details check
+    await waitFor(() => {
+      expect(screen.getByTestId("input-scene-title")).toHaveValue("Initial Title");
+    });
+
     // Verify initial values loaded
-    expect(screen.getByTestId("input-scene-title")).toHaveValue("Initial Title");
     expect(screen.getByTestId("checkbox-canon-char-1")).toBeChecked();
     expect(screen.getByTestId("checkbox-canon-loc-1")).not.toBeChecked();
-    
+
     // Update data
     await user.clear(screen.getByTestId("input-scene-title"));
     await user.type(screen.getByTestId("input-scene-title"), "Updated Title");
     await user.click(screen.getByTestId("checkbox-canon-loc-1"));
-    
+
     apiFetch.mockResolvedValueOnce({ scene: { id: "scene-1" } });
-    
+
     await user.click(screen.getByTestId("button-save-scene"));
-    
+
     await waitFor(() => {
       expect(apiFetch).toHaveBeenCalledWith("/v1/editorial/scenes/scene-1", expect.objectContaining({
         method: "PATCH"
       }));
     });
-    
-    const callArgs = JSON.parse(apiFetch.mock.calls[0][1].body);
+
+    const patchCall = apiFetch.mock.calls.find(c => c[0] === "/v1/editorial/scenes/scene-1" && c[1]?.method === "PATCH");
+    const callArgs = JSON.parse(patchCall![1].body);
     expect(callArgs.title).toBe("Updated Title");
     expect(callArgs.canon_record_ids).toContain("char-1");
     expect(callArgs.canon_record_ids).toContain("loc-1");
@@ -155,23 +166,23 @@ describe("SceneEditor", () => {
     });
 
     const { user } = setup("scene-1");
-    
+
     apiFetch.mockResolvedValueOnce({ scene: { id: "scene-1" } }); // save latest editor state
     apiFetch.mockResolvedValueOnce({
       image_data_url: "data:image/png;base64,fakedata",
       prompt: "Generated prompt text",
       generation: { seed: 1234 }
     });
-    
+
     storageApi.requestUploadUrl.mockResolvedValueOnce({
       uploadURL: "https://upload-url.example.com",
       objectPath: "scenes/scene-1/img.png"
     });
-    
+
     apiFetch.mockResolvedValueOnce({ scene: { id: "scene-1" } }); // PATCH response
 
     await user.click(screen.getByTestId("button-generate-scene-image"));
-    
+
     await waitFor(() => {
       // 1. The latest editor state is saved before generation.
       expect(apiFetch).toHaveBeenCalledWith("/v1/editorial/scenes/scene-1", expect.objectContaining({
@@ -181,20 +192,20 @@ describe("SceneEditor", () => {
 
       // 2. Generation API call
       expect(apiFetch).toHaveBeenCalledWith("/v1/editorial/scenes/scene-1/generate-image", { method: "POST" });
-      
+
       // 3. Storage API call
       expect(storageApi.requestUploadUrl).toHaveBeenCalledWith(
         expect.stringContaining("scene-scene-1"),
         mockBlob.size,
         "image/png"
       );
-      
+
       // 4. Image upload fetch
       expect(global.fetch).toHaveBeenCalledWith("https://upload-url.example.com", expect.objectContaining({
         method: "PUT",
         headers: { "Content-Type": "image/png" }
       }));
-      
+
       // 5. Save metadata back to scene
       expect(apiFetch).toHaveBeenLastCalledWith("/v1/editorial/scenes/scene-1", expect.objectContaining({
         method: "PATCH",

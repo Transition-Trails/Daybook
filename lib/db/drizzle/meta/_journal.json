@@ -358,6 +358,34 @@
       "when": 1789808400000,
       "tag": "0047_canon_relation_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1789812000000,
+      "tag": "0051_worldsmith_field_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1789815600000,
+      "tag": "0052_worldsmith_field_foundation_repair",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1789819200000,
+      "tag": "0053_worldsmith_scene_detail_ownership_repair",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1789822800000,
+      "tag": "0054_narrative_images",
+      "breakpoints": true
     }
   ]
 }

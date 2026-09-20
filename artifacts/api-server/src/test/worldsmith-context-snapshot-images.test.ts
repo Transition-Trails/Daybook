@@ -5,6 +5,7 @@ import {
   assignCanonImageRoles,
   buildCanonImageExport,
   canonImageAssetDirectory,
+  normaliseCanonImageRole,
   type CanonImageExportRecord,
 } from "../lib/worldsmith/context-snapshot-images";
 import type { ObjectStorageService } from "../lib/objectStorage";
@@ -40,6 +41,15 @@ function record(overrides: Partial<CanonImageExportRecord>): CanonImageExportRec
 }
 
 describe("WorldSmith Canon image snapshots", () => {
+  it("normalises editor image roles to the canonical gallery contract", () => {
+    expect(normaliseCanonImageRole("primary_image")).toBe("primary");
+    expect(normaliseCanonImageRole("primary_portrait")).toBe("primary");
+    expect(normaliseCanonImageRole("generated_concept")).toBe("reference");
+    expect(normaliseCanonImageRole("location-exterior")).toBe("reference");
+    expect(normaliseCanonImageRole("alternate_portrait")).toBe("alternate");
+    expect(normaliseCanonImageRole("unsupported_role")).toBeUndefined();
+  });
+
   it("keeps legacy ordered galleries compatible while assigning future-safe roles", () => {
     expect(assignCanonImageRoles([
       { url: "/objects/one" },

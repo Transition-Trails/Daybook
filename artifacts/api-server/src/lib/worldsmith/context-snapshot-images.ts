@@ -5,6 +5,32 @@ import { kebab } from "./context-snapshot";
 
 export type CanonImageRole = "primary" | "reference" | "scene" | "alternate" | "detail";
 
+const CANON_IMAGE_ROLE_ALIASES: Record<string, CanonImageRole> = {
+  primary: "primary",
+  primary_portrait: "primary",
+  primary_image: "primary",
+  reference: "reference",
+  full_body: "reference",
+  life_stage_reference: "reference",
+  wardrobe_reference: "reference",
+  expression_reference: "reference",
+  location_exterior: "reference",
+  location_interior: "reference",
+  object_reference: "reference",
+  mood_reference: "reference",
+  historical_reference: "reference",
+  generated_concept: "reference",
+  scene: "scene",
+  alternate: "alternate",
+  alternate_portrait: "alternate",
+  detail: "detail",
+};
+
+export function normaliseCanonImageRole(value: unknown): CanonImageRole | undefined {
+  if (typeof value !== "string") return undefined;
+  return CANON_IMAGE_ROLE_ALIASES[value.trim().toLowerCase().replace(/[\s-]+/g, "_")];
+}
+
 export interface CanonImageGallerySource {
   url: string;
   name?: string;

@@ -731,7 +731,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         });
       }
       if (record.portraitUrl && !legacyUrls.has(record.portraitUrl)) {
-        assetImages.unshift({ url: record.portraitUrl, name: "Primary Canon portrait", description: "", role: "primary_portrait" });
+        assetImages.unshift({ url: record.portraitUrl, name: "Primary Canon portrait", description: "", role: "primary" });
       }
 
       initialImagesRef.current = assetImages.map(image => image.url);
@@ -1175,8 +1175,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
             description: generatedMetadata?.description ?? "",
             ...generatedMetadata,
           };
-          return generatedMetadata?.role === "primary_portrait"
-            ? [image, ...current.images.filter(existing => existing.role !== "primary_portrait")]
+          return generatedMetadata?.role === "primary"
+            ? [image, ...current.images.filter(existing => existing.role !== "primary")]
             : [...current.images, image];
         })(),
       }));
@@ -1238,7 +1238,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
             : "Primary Canon Image")
           : imagePrompt.trim(),
         role: effectiveMode === "primary_portrait"
-          ? (form.canonType === "character" ? "primary_portrait" : "primary_image")
+          ? "primary"
           : "generated_concept",
         rightsStatus: "generated",
         workflowStatus: effectiveMode === "primary_portrait" ? "approved" : "draft",

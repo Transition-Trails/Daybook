@@ -114,6 +114,7 @@ import {
 import {
   assignCanonImageRoles,
   buildCanonImageExport,
+  normaliseCanonImageRole,
   type CanonImageRole,
 } from "../lib/worldsmith/context-snapshot-images";
 import { compileCharacterContext, compileEnvironmentContext, compileStoryContext } from "../lib/worldsmith/field-context";
@@ -1305,10 +1306,7 @@ function normaliseCanonImageGallery(
       const candidate = value as Record<string, unknown>;
       const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
       if (!url) return [];
-      const role = typeof candidate.role === "string"
-        && ["primary", "reference", "scene", "alternate", "detail"].includes(candidate.role)
-        ? candidate.role as CanonImageRole
-        : undefined;
+      const role = normaliseCanonImageRole(candidate.role);
       if (candidate.role !== undefined && role === undefined) {
         throw new CanonImageGalleryValidationError(`Unsupported Canon image role: ${String(candidate.role).slice(0, 40)}`);
       }

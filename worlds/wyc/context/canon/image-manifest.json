@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T02:13:05.395Z",
+  "generated_at": "2026-09-20T02:17:33.256Z",
   "records": [
     {
       "canonical_id": "52ab89e3-9679-42e5-9f17-b1299e0b1d31",
@@ -500,14 +500,6 @@
       "images": []
     },
     {
-      "canonical_id": "52e639ff-c169-45fb-ad69-f53423256abc",
-      "record_name": "The Ethics of Preservation",
-      "record_slug": "the-ethics-of-preservation",
-      "canon_type": "lore",
-      "status": "accepted",
-      "images": []
-    },
-    {
       "canonical_id": "5a384020-cb96-47de-a1b9-5f2793f4264b",
       "record_name": "The Harcourt Family and the Decline of the Estate",
       "record_slug": "the-harcourt-family-and-the-decline-of-the-estate",
@@ -580,6 +572,25 @@
           "sha256": "ce222cb6d5d7183f7575f90d966f089edde73e2e7336ed6f95ae9ac828786b27",
           "source_asset_id": "/objects/uploads/043ebda8-5022-4ae4-aa07-21b451e691e1",
           "source_updated_at": "2026-09-20T00:57:13.415Z"
+        }
+      ]
+    },
+    {
+      "canonical_id": "52e639ff-c169-45fb-ad69-f53423256abc",
+      "record_name": "The Ethics of Preservation",
+      "record_slug": "the-ethics-of-preservation",
+      "canon_type": "object",
+      "status": "accepted",
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/objects/52e639ff-c169-45fb-ad69-f53423256abc-the-ethics-of-preservation/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "9276bcee0f84a7447ca3031af0b7b853bfd86e8179d47b1a0baca610376c1da9",
+          "source_asset_id": "/objects/uploads/29cb0dd9-3e0b-4e46-9fdd-d9d57c06ff85",
+          "source_updated_at": "2026-09-20T02:16:37.931Z"
         }
       ]
     },

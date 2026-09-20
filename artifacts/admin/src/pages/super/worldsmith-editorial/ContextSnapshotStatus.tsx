@@ -5,7 +5,8 @@ import { useToast } from "@/hooks/use-toast";
 
 export type ContextSnapshotEntityType =
   | "production-specs" | "component-specs" | "style-guides" | "prompt-modules"
-  | "collections" | "volumes" | "production-profiles" | "punch-templates";
+  | "collections" | "volumes" | "production-profiles" | "punch-templates"
+  | "stories" | "scenes";
 
 export interface ContextSnapshotStatus {
   status: "not_generated" | "current" | "out_of_date" | "sync_failed" | string;

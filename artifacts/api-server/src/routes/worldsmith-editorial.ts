@@ -5879,6 +5879,8 @@ const editorialSnapshotResources: Record<string, { getTable: () => any; kind: st
   volumes: { getTable: () => wsVolumesTable, kind: "volume" },
   "production-profiles": { getTable: () => wsProductionProfilesTable, kind: "production profile", global: true },
   "punch-templates": { getTable: () => wsPunchTemplatesTable, kind: "punch template", global: true },
+  stories: { getTable: () => wsStoriesTable, kind: "storyline" },
+  scenes: { getTable: () => wsScenesTable, kind: "scene" },
 };
 
 async function persistEditorialSnapshotFailure(
@@ -5895,7 +5897,7 @@ async function persistEditorialSnapshotFailure(
     worldId: record.worldId ?? null,
     githubPath: editorialSnapshotPath(definition.kind, {
       id: record.id,
-      name: record.name ?? record.productionItem ?? record.code,
+      name: record.name ?? record.title ?? record.productionItem ?? record.code,
       worldId: definition.global ? null : record.worldId,
     }),
     status: "sync_failed",
@@ -5914,6 +5916,7 @@ async function buildEditorialSnapshot(resource: string, id: string) {
   if (!record) return null;
   let sourceUpdatedAt = record.updatedAt as Date;
   const relationships: Array<{ label: string; id: string; name: string }> = [];
+  let snapshotRecord = record as Record<string, unknown>;
   if (record.worldId) {
     const [world] = await db.select({
       id: worldsmithWorldsTable.id,
@@ -5924,6 +5927,47 @@ async function buildEditorialSnapshot(resource: string, id: string) {
     if (world) {
       relationships.push({ label: "World", id: world.id, name: world.name });
       if (world.updatedAt > sourceUpdatedAt) sourceUpdatedAt = world.updatedAt;
+    }
+  }
+  if (resource === "stories") {
+    const [acts, scenes] = await Promise.all([
+      db.select().from(wsStoryActsTable).where(eq(wsStoryActsTable.storyId, record.id))
+        .orderBy(wsStoryActsTable.actNumber),
+      db.select().from(wsScenesTable).where(eq(wsScenesTable.storyId, record.id))
+        .orderBy(wsScenesTable.sceneNumber, wsScenesTable.createdAt),
+    ]);
+    snapshotRecord = { ...record, acts, scenes };
+    for (const act of acts) {
+      relationships.push({ label: "Movement", id: act.id, name: act.title });
+      if (act.updatedAt > sourceUpdatedAt) sourceUpdatedAt = act.updatedAt;
+    }
+    for (const scene of scenes) {
+      relationships.push({ label: "Scene", id: scene.id, name: scene.title });
+      if (scene.updatedAt > sourceUpdatedAt) sourceUpdatedAt = scene.updatedAt;
+    }
+  }
+  if (resource === "scenes") {
+    const [[story], [act], canonRecords, narrativeImages] = await Promise.all([
+      db.select().from(wsStoriesTable).where(eq(wsStoriesTable.id, record.storyId)).limit(1),
+      db.select().from(wsStoryActsTable).where(eq(wsStoryActsTable.id, record.actId)).limit(1),
+      getSceneCanonRecords(record.id),
+      db.select().from(wsNarrativeImagesTable).where(eq(wsNarrativeImagesTable.sceneId, record.id))
+        .orderBy(wsNarrativeImagesTable.sortOrder, wsNarrativeImagesTable.createdAt),
+    ]);
+    snapshotRecord = { ...record, canonRecords, narrativeImages };
+    if (story) {
+      relationships.push({ label: "Storyline", id: story.id, name: story.title });
+      if (story.updatedAt > sourceUpdatedAt) sourceUpdatedAt = story.updatedAt;
+    }
+    if (act) {
+      relationships.push({ label: "Movement", id: act.id, name: act.title });
+      if (act.updatedAt > sourceUpdatedAt) sourceUpdatedAt = act.updatedAt;
+    }
+    for (const canon of canonRecords) {
+      relationships.push({ label: `Canon · ${canon.role}`, id: canon.id, name: canon.name });
+    }
+    for (const image of narrativeImages) {
+      if (image.updatedAt > sourceUpdatedAt) sourceUpdatedAt = image.updatedAt;
     }
   }
   const relationTables = [
@@ -5969,13 +6013,13 @@ async function buildEditorialSnapshot(resource: string, id: string) {
   }
   const path = editorialSnapshotPath(definition.kind, {
     id: record.id,
-    name: record.name ?? record.productionItem ?? record.code,
+    name: record.name ?? record.title ?? record.productionItem ?? record.code,
     worldId: definition.global ? null : record.worldId,
   });
   return {
     record,
     path,
-    markdown: renderEditorialSnapshot(definition.kind, record, relationships),
+    markdown: renderEditorialSnapshot(definition.kind, snapshotRecord, relationships),
     relationships,
     sourceUpdatedAt,
   };
@@ -6009,7 +6053,7 @@ router.post("/v1/editorial/:resource/:id/context-snapshot", async (req, res) => 
     const built = await buildEditorialSnapshot(resource, req.params.id as string);
     if (!built) { res.status(404).json({ error: `${definition.kind} not found` }); return; }
     const published = await new ContextSnapshotGitHubPublisher().publish(
-      built.path, built.markdown, `context: update ${definition.kind} for ${built.record.name ?? built.record.id}`,
+      built.path, built.markdown, `context: update ${definition.kind} for ${built.record.name ?? built.record.title ?? built.record.id}`,
     );
     const now = new Date();
     const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
@@ -6076,7 +6120,7 @@ router.post("/worldsmith/editorial/context-snapshots/:resource/:id/update", asyn
     const built = await buildEditorialSnapshot(resource, req.params.id as string);
     if (!built) { res.status(404).json({ error: `${definition.kind} not found` }); return; }
     const published = await new ContextSnapshotGitHubPublisher().publish(
-      built.path, built.markdown, `context: update ${definition.kind} for ${built.record.name ?? built.record.id}`,
+      built.path, built.markdown, `context: update ${definition.kind} for ${built.record.name ?? built.record.title ?? built.record.id}`,
     );
     const now = new Date();
     const [snapshot] = await db.insert(wsContextSnapshotsTable).values({

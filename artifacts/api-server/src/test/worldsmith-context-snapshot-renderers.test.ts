@@ -10,6 +10,8 @@ const records = [
   ["volumes", "volume", "worlds/w-1/context/volumes/volume-1-card.md"],
   ["production-profiles", "production profile", "global/context/production-profiles/profile-1-card.md"],
   ["punch-templates", "punch template", "global/context/punch-templates/punch-1-card.md"],
+  ["stories", "storyline", "worlds/w-1/context/storylines/story-1-card.md"],
+  ["scenes", "scene", "worlds/w-1/context/scenes/scene-1-card.md"],
 ] as const;
 
 describe("WorldSmith editorial context snapshot renderers", () => {
@@ -22,6 +24,13 @@ describe("WorldSmith editorial context snapshot renderers", () => {
     expect(markdown).toContain("## Status");
     expect(markdown).toContain("## Relationships");
     expect(markdown).not.toContain("## Empty");
+  });
+
+  it("uses a storyline title as the snapshot heading", () => {
+    const markdown = renderEditorialSnapshot("storyline", {
+      id: "story-1", title: "The Winter Crossing", worldId: "w-1", status: "active",
+    });
+    expect(markdown).toContain("# The Winter Crossing");
   });
 
   it("sorts fields and relationships without summarizing or inferring", () => {

@@ -15,6 +15,17 @@ const CLAY = "#C87560";
 const BORDER = "var(--admin-border)";
 const STORY_STATUSES = ["draft", "planned", "active", "archived"] as const;
 
+function promptPreviewText(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === "string")
+      .map(item => item.trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+  return typeof value === "string" ? value.trim() : "";
+}
+
 interface StoryAct {
   id: string;
   storyId: string;
@@ -350,6 +361,12 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
   if (isNew && !selectedWorld) {
     return <div className="flex h-full items-center justify-center text-sm" style={{ color: "#7D8797" }}>Choose a world before creating a storyline.</div>;
   }
+
+  const fieldContext = fieldContextData?.context;
+  const fieldWarnings = Array.isArray(fieldContext?.warnings) ? fieldContext.warnings : [];
+  const fieldNegative = Array.isArray(fieldContext?.negative) ? fieldContext.negative : [];
+  const fieldAttributions = Array.isArray(fieldContext?.attributions) ? fieldContext.attributions : [];
+  const fieldPrompt = promptPreviewText(fieldContext?.prompt);
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card-subtle)" }}>
@@ -1139,42 +1156,43 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
           </div>
 
           <aside className="space-y-4">
+            {!isNew && story && <ContextSnapshotStatus entityType="stories" entityId={story.id} />}
             <section className="rounded-2xl border p-5" style={{ background: "white", borderColor: BORDER }}>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold" style={{ color: INK }}>Prompt Preview</h2>
                 {isFetchingFieldContext && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
               </div>
-              {!fieldContextData?.context ? (
+              {!fieldContext ? (
                 <p className="text-xs text-gray-400">Save the storyline to preview prompt generation context.</p>
               ) : (
                 <div className="space-y-4">
-                  {fieldContextData.context.warnings?.length > 0 && (
+                  {fieldWarnings.length > 0 && (
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 space-y-1">
                       <h3 className="text-[10px] font-bold uppercase tracking-wide text-yellow-800">Warnings</h3>
                       <ul className="list-disc pl-4 text-[11px] text-yellow-900 space-y-0.5">
-                        {fieldContextData.context.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                        {fieldWarnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
                       </ul>
                     </div>
                   )}
                   <div>
                     <h3 className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: "#786D60" }}>Generated Prompt</h3>
                     <div className="bg-gray-50 border rounded-lg p-3 text-xs leading-relaxed" style={{ borderColor: BORDER, color: INK }}>
-                      {fieldContextData.context.prompt?.join(", ") || "No positive prompt content."}
+                      {fieldPrompt || "No positive prompt content."}
                     </div>
                   </div>
-                  {fieldContextData.context.negative?.length > 0 && (
+                  {fieldNegative.length > 0 && (
                     <div>
                       <h3 className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: "#786D60" }}>Negative Prompt</h3>
                       <div className="bg-red-50 border rounded-lg p-3 text-xs leading-relaxed" style={{ borderColor: "#F4C7C2", color: "#B42318" }}>
-                        {fieldContextData.context.negative.join(", ")}
+                        {fieldNegative.join(", ")}
                       </div>
                     </div>
                   )}
-                  {fieldContextData.context.attributions?.length > 0 && (
+                  {fieldAttributions.length > 0 && (
                     <div>
                       <h3 className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: "#786D60" }}>Source Attribution</h3>
                       <ul className="space-y-1.5">
-                        {fieldContextData.context.attributions.map((attr: any, i: number) => (
+                        {fieldAttributions.map((attr: any, i: number) => (
                           <li key={i} className="text-[10px] leading-tight">
                             <span className="font-semibold" style={{ color: INK }}>{attr.clause}</span>
                             <span className="mx-1 text-gray-400">←</span>

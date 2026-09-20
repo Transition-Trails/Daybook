@@ -161,7 +161,7 @@ export function renderEditorialSnapshot(
   relationships: Array<{ label: string; id: string; name: string }> = [],
   generatedAt = new Date(),
 ): string {
-  const title = String(record.name ?? record.productionItem ?? record.code ?? record.id ?? "Untitled");
+  const title = String(record.name ?? record.title ?? record.productionItem ?? record.code ?? record.id ?? "Untitled");
   const lines = [`# ${markdownText(title)}`, "", "> Generated from Daybook. Do not edit as source data.", ""];
   const excluded = new Set(["id", "name", "createdAt", "updatedAt", "createdBy", "notionPageId", "syncedAt"]);
   const format = (value: unknown): string => {
@@ -489,7 +489,7 @@ export async function mapWithConcurrency<T, R>(
 }
 
 export function editorialSnapshotPath(kind: string, record: { id: string; name?: string | null; worldId?: string | null }): string {
-  const folder = `${kebab(kind)}s`;
+  const folder = kind === "storyline" ? "storylines" : `${kebab(kind)}s`;
   const base = `${kebab(record.id)}-${kebab(record.name || record.id)}.md`;
   return record.worldId
     ? `worlds/${kebab(record.worldId)}/context/${folder}/${base}`

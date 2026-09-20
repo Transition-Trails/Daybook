@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { EditorialRichTextField } from "@/components/EditorialRichText";
 import { SingleSelect, CanonPicker, MultiChipSelect } from "@/components/worldsmith/editorial/EditorialFields";
 import { NarrativeImageGallery } from "@/components/worldsmith/editorial/NarrativeImageGallery";
+import { ContextSnapshotStatus } from "@/pages/super/worldsmith-editorial/ContextSnapshotStatus";
 
 const INK = "var(--admin-ink)";
 const CLAY = "var(--admin-clay)";
@@ -730,6 +731,7 @@ export function SceneEditor({
               {/* Primary Image */}
               {!isNew && (
                 <div className="space-y-4">
+                <ContextSnapshotStatus entityType="scenes" entityId={sceneId} />
                 <section className="rounded-xl border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
                   <h3 className="mb-3 text-sm font-bold text-gray-800">Scene Visualization</h3>
                   {scene?.primaryImageUrl ? (

@@ -121,4 +121,42 @@ describe("StorylineEditor", () => {
       expect.objectContaining({ method: "PUT" })
     );
   });
+
+  it("opens a saved storyline when prompt context is returned as a string", async () => {
+    apiFetch.mockImplementation((path: string) => {
+      if (path === "/v1/editorial/stories/story-1") {
+        return Promise.resolve({
+          story: {
+            id: "story-1",
+            worldId: "world-wychcombe",
+            title: "The First Crossing",
+            summary: "<p>Existing promise</p>",
+            status: "draft",
+            acts: [],
+          },
+        });
+      }
+      if (path.includes("/field-context")) {
+        return Promise.resolve({
+          context: {
+            prompt: "A winter crossing shaped by Wychcombe Canon",
+            warnings: [],
+            attributions: [],
+          },
+        });
+      }
+      if (path.includes("/beats")) return Promise.resolve({ beats: [] });
+      if (path.includes("/reveals")) return Promise.resolve({ reveals: [] });
+      if (path.includes("/scenes")) return Promise.resolve({ scenes: [] });
+      if (path.includes("/context-snapshots/")) {
+        return Promise.resolve({ status: { status: "not_generated" } });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor("story-1");
+
+    expect(await screen.findByRole("heading", { name: "The First Crossing — Storyline" })).toBeInTheDocument();
+    expect(screen.getByText("A winter crossing shaped by Wychcombe Canon")).toBeInTheDocument();
+  });
 });

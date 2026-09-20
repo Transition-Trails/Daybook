@@ -15,6 +15,10 @@ import {
   wsPromptModulesTable,
   wsPunchTemplatesTable,
   wsStyleGuidesTable,
+  wsStoriesTable,
+  wsStoryActsTable,
+  wsScenesTable,
+  wsSceneCanonLinksTable,
   wsVolumesTable,
   worldsmithWorldsTable,
   type User,
@@ -210,6 +214,8 @@ const editorialIds = {
   volumes: `snapshot-volume-${run}`,
   "production-profiles": `snapshot-profile-${run}`,
   "punch-templates": `snapshot-punch-${run}`,
+  stories: `snapshot-story-${run}`,
+  scenes: `snapshot-scene-${run}`,
 };
 const editorialResources = Object.keys(editorialIds) as Array<keyof typeof editorialIds>;
 
@@ -223,11 +229,18 @@ describe("editorial context snapshot compatibility routes", () => {
     await db.insert(wsPunchTemplatesTable).values({ id: editorialIds["punch-templates"], name: "Punch", code: `P${run}`, status: "draft" });
     await db.insert(wsProductionProfilesTable).values({ id: editorialIds["production-profiles"], name: "Profile", code: `PR${run}`, outputMedium: "print", orientationBehavior: "portrait" });
     await db.insert(wsProductionSpecsTable).values({ id: editorialIds["production-specs"], worldId, productionItem: "Spec", status: "draft", promptModuleIds: [], canonRecordIds: [] });
+    await db.insert(wsStoriesTable).values({ id: editorialIds.stories, worldId, title: "The Winter Crossing", status: "active" });
+    await db.insert(wsStoryActsTable).values({ id: `snapshot-act-${run}`, storyId: editorialIds.stories, worldId, actNumber: 1, title: "Departure" });
+    await db.insert(wsScenesTable).values({ id: editorialIds.scenes, storyId: editorialIds.stories, actId: `snapshot-act-${run}`, worldId, sceneNumber: 1, title: "At the frozen river" });
   });
 
   afterAll(async () => {
     await db.delete(wsContextSnapshotsTable).where(inArray(wsContextSnapshotsTable.entityId, Object.values(editorialIds)));
     await db.delete(wsProductionSpecsTable).where(eq(wsProductionSpecsTable.id, editorialIds["production-specs"]));
+    await db.delete(wsSceneCanonLinksTable).where(eq(wsSceneCanonLinksTable.sceneId, editorialIds.scenes));
+    await db.delete(wsScenesTable).where(eq(wsScenesTable.id, editorialIds.scenes));
+    await db.delete(wsStoryActsTable).where(eq(wsStoryActsTable.id, `snapshot-act-${run}`));
+    await db.delete(wsStoriesTable).where(eq(wsStoriesTable.id, editorialIds.stories));
     await db.delete(wsComponentSpecsTable).where(eq(wsComponentSpecsTable.id, editorialIds["component-specs"]));
     await db.delete(wsStyleGuidesTable).where(eq(wsStyleGuidesTable.id, editorialIds["style-guides"]));
     await db.delete(wsPromptModulesTable).where(eq(wsPromptModulesTable.id, editorialIds["prompt-modules"]));
@@ -262,5 +275,39 @@ describe("editorial context snapshot compatibility routes", () => {
 
     expect(status.status).toBe(200);
     expect(status.body.status.status).toBe("out_of_date");
+  });
+
+  it("exports a storyline with its movements and scenes", async () => {
+    mockPublish.mockResolvedValueOnce({
+      path: `worlds/${worldId}/context/storylines/${editorialIds.stories}-the-winter-crossing.md`,
+      commitSha: `story-sha-${run}`,
+    });
+
+    const response = await request(app)
+      .post(`/worldsmith/editorial/context-snapshots/stories/${editorialIds.stories}/update`);
+
+    expect(response.status).toBe(200);
+    expect(mockPublish).toHaveBeenLastCalledWith(
+      expect.stringContaining("/context/storylines/"),
+      expect.stringMatching(/"title": "Departure"[\s\S]*"title": "At the frozen river"/),
+      expect.stringContaining("update storyline"),
+    );
+  });
+
+  it("exports a scene with its parent storyline and movement", async () => {
+    mockPublish.mockResolvedValueOnce({
+      path: `worlds/${worldId}/context/scenes/${editorialIds.scenes}-at-the-frozen-river.md`,
+      commitSha: `scene-sha-${run}`,
+    });
+
+    const response = await request(app)
+      .post(`/worldsmith/editorial/context-snapshots/scenes/${editorialIds.scenes}/update`);
+
+    expect(response.status).toBe(200);
+    const [path, markdown, message] = mockPublish.mock.calls.at(-1) ?? [];
+    expect(path).toContain("/context/scenes/");
+    expect(markdown).toContain("**Storyline:** The Winter Crossing");
+    expect(markdown).toContain("**Movement:** Departure");
+    expect(message).toContain("update scene for At the frozen river");
   });
 });

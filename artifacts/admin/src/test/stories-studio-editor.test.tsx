@@ -86,4 +86,61 @@ describe("StoriesStudio editor", () => {
     expect(screen.queryByRole("heading", { name: "Suggested storylines" })).not.toBeInTheDocument();
     expect(apiFetch).not.toHaveBeenCalledWith("/v1/editorial/stories/suggest", expect.anything());
   });
+
+  it("edits an existing Movement/Act after it has been created", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/acts/act-1" && init?.method === "PATCH") {
+        const submitted = JSON.parse(String(init.body));
+        return Promise.resolve({
+          act: {
+            id: "act-1",
+            storyId: "story-1",
+            actNumber: 1,
+            tagline: "",
+            title: submitted.title,
+            narrative: submitted.narrative,
+          },
+        });
+      }
+      return Promise.resolve({
+        stories: [{
+          id: "story-1",
+          title: "The Wychcombe Origin Story",
+          summary: "<p>A promise worth keeping.</p>",
+          status: "draft",
+          acts: [{
+            id: "act-1",
+            storyId: "story-1",
+            actNumber: 1,
+            title: "The Departure",
+            tagline: "",
+            narrative: "Leave the familiar world.",
+          }],
+        }],
+      });
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StoriesStudio />
+      </QueryClientProvider>,
+    );
+
+    const name = await screen.findByRole("textbox", { name: "Movement 1 name" });
+    const purpose = screen.getByRole("textbox", { name: "Movement 1 purpose" });
+    fireEvent.change(name, { target: { value: "The Crossing" } });
+    fireEvent.change(purpose, { target: { value: "Force the household beyond safety." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save movement" }));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/acts/act-1",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: "The Crossing",
+          narrative: "Force the household beyond safety.",
+        }),
+      },
+    ));
+  });
 });

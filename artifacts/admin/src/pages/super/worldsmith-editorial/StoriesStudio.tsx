@@ -13,6 +13,7 @@ interface StoryAct {
   actNumber: number;
   title: string;
   tagline: string;
+  narrative: string;
 }
 
 interface Story {
@@ -50,6 +51,8 @@ export default function StoriesStudio() {
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const [summaryDraft, setSummaryDraft] = useState<Record<string, string>>({});
   const [titleDraft, setTitleDraft] = useState<Record<string, string>>({});
+  const [actTitleDraft, setActTitleDraft] = useState<Record<string, string>>({});
+  const [actPurposeDraft, setActPurposeDraft] = useState<Record<string, string>>({});
   const [newActTitle, setNewActTitle] = useState("");
 
   const { data, isLoading } = useQuery({
@@ -85,6 +88,37 @@ export default function StoriesStudio() {
       refreshStories();
     },
     onError: () => toast({ title: "Could not add chapter", variant: "destructive" }),
+  });
+
+  const updateAct = useMutation({
+    mutationFn: ({ actId, title, narrative }: { actId: string; title: string; narrative: string }) => {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) throw new Error("A movement name is required");
+      return apiFetch<{ act: StoryAct }>(`/v1/editorial/acts/${actId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: trimmedTitle, narrative }),
+      });
+    },
+    onSuccess: ({ act }) => {
+      setActTitleDraft(current => ({ ...current, [act.id]: act.title }));
+      setActPurposeDraft(current => ({ ...current, [act.id]: act.narrative ?? "" }));
+      queryClient.setQueryData<{ stories: Story[] }>(["ws-stories", selectedWorldId], current => {
+        if (!current) return current;
+        return {
+          stories: current.stories.map(story => story.id === act.storyId
+            ? { ...story, acts: story.acts.map(item => item.id === act.id ? { ...item, ...act } : item) }
+            : story),
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ["editorial-story", act.storyId] });
+      queryClient.invalidateQueries({ queryKey: ["ws-story-connections", selectedWorldId] });
+      toast({ title: "Movement saved" });
+    },
+    onError: (error: Error) => toast({
+      title: "Could not save movement",
+      description: error.message,
+      variant: "destructive",
+    }),
   });
 
   const saveStoryField = (story: Story, field: "title" | "summary") => {
@@ -250,10 +284,52 @@ export default function StoriesStudio() {
                   {selectedStory.acts.map(act => (
                     <div key={act.id} className="rounded-xl p-4" style={{ background: "var(--admin-card-subtle)", border: "1px solid var(--admin-border)" }}>
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="text-[10px] uppercase tracking-[0.13em] font-bold" style={{ color: "#C87560" }}>Movement {act.actNumber}</p>
-                          <p className="mt-1 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{act.title}</p>
+                          <label className="mt-2 block">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#786D60" }}>Movement name</span>
+                            <input
+                              aria-label={`Movement ${act.actNumber} name`}
+                              value={actTitleDraft[act.id] ?? act.title}
+                              onChange={event => setActTitleDraft(current => ({ ...current, [act.id]: event.target.value }))}
+                              className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#C87560]"
+                              style={{ color: "#1B2A4A", borderColor: "var(--admin-border)" }}
+                            />
+                          </label>
                           {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}
+                          <label className="mt-3 block">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#786D60" }}>Movement / Act purpose</span>
+                            <textarea
+                              aria-label={`Movement ${act.actNumber} purpose`}
+                              value={actPurposeDraft[act.id] ?? act.narrative ?? ""}
+                              onChange={event => setActPurposeDraft(current => ({ ...current, [act.id]: event.target.value }))}
+                              rows={3}
+                              placeholder="Describe what this movement must accomplish in the storyline."
+                              className="mt-1 w-full resize-y rounded-lg border bg-white px-3 py-2 text-xs leading-relaxed outline-none focus:border-[#C87560]"
+                              style={{ color: "#1B2A4A", borderColor: "var(--admin-border)" }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => updateAct.mutate({
+                              actId: act.id,
+                              title: actTitleDraft[act.id] ?? act.title,
+                              narrative: actPurposeDraft[act.id] ?? act.narrative ?? "",
+                            })}
+                            disabled={
+                              updateAct.isPending
+                              || !(actTitleDraft[act.id] ?? act.title).trim()
+                              || (
+                                (actTitleDraft[act.id] ?? act.title).trim() === act.title
+                                && (actPurposeDraft[act.id] ?? act.narrative ?? "") === (act.narrative ?? "")
+                              )
+                            }
+                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold disabled:opacity-40"
+                            style={{ color: "#C87560" }}
+                          >
+                            {updateAct.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                            Save movement
+                          </button>
                         </div>
                         <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(selectedStory.id)}&act_id=${encodeURIComponent(act.id)}`}>
                           <span className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold" style={{ color: "#1B2A4A" }}>

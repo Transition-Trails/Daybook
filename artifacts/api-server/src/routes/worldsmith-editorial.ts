@@ -474,11 +474,7 @@ router.post("/v1/editorial/owner-discoveries/generated", async (req: Request, re
       res.status(404).json({ error: "World not found" });
       return;
     }
-    if (!world.storeId) {
-      res.status(409).json({ error: "Generated discoveries require a store-owned world" });
-      return;
-    }
-    const storeId = world.storeId;
+    const storeId = world.storeId ?? null;
     const userId = String((req.user as any)?.id ?? "");
     if (!userId) {
       res.status(401).json({ error: "Authentication required" });

@@ -553,7 +553,10 @@ export const wsSuggestionRefreshesTable = pgTable("ws_suggestion_refreshes", {
 export const wsOwnerDiscoveriesTable = pgTable("ws_owner_discoveries", {
   id: text("id").primaryKey(),
   worldId: text("world_id").notNull().references(() => worldsmithWorldsTable.id, { onDelete: "cascade" }),
-  storeId: text("store_id").notNull().references(() => storesTable.id, { onDelete: "cascade" }),
+  // Platform-owned worlds have no store. Store-owner submissions still require
+  // a store in the owner-facing route; only editorially generated candidates
+  // may persist with a null store.
+  storeId: text("store_id").references(() => storesTable.id, { onDelete: "cascade" }),
   ownerUserId: text("owner_user_id").notNull().references(() => usersTable.id),
   sourceCanonRecordId: text("source_canon_record_id").references(() => wsCanonRecordsTable.id, { onDelete: "set null" }),
   storyId: text("story_id").references(() => wsStoriesTable.id, { onDelete: "set null" }),

@@ -53,6 +53,47 @@ describe("CanonRecordEditor", () => {
     expect(screen.getByText("Canon images")).toBeInTheDocument();
   });
 
+  it("renders legacy string prompt context without blanking the record editor", async () => {
+    apiFetch.mockImplementation((path: string) => {
+      if (path.endsWith("/field-context?world_id=world-wychcombe")) {
+        return Promise.resolve({
+          context: {
+            prompt: "Victorian seed merchant storefront, painted lettering, timber drawers",
+            warnings: [],
+            attributions: [{ clause: "painted lettering", source: "Visual notes" }],
+          },
+        });
+      }
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.includes("/canon-records/canon-legacy")) {
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-legacy",
+            worldId: "world-wychcombe",
+            name: "Bellamy & Son, Nurserymen and Seedsmen",
+            status: "proposed",
+            canonType: "location",
+            narrativeDetails: "",
+            historicalContext: "",
+            visualNotes: "",
+            notes: "",
+            specRefCount: 0,
+            createdAt: "2026-08-20T00:00:00.000Z",
+            updatedAt: "2026-08-20T00:00:00.000Z",
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor("canon-legacy");
+
+    expect(await screen.findByRole("heading", {
+      name: /Bellamy & Son, Nurserymen and Seedsmen — Canon Record/,
+    })).toBeInTheDocument();
+    expect(screen.getByText("Victorian seed merchant storefront, painted lettering, timber drawers")).toBeInTheDocument();
+  });
+
   it("persists image removal immediately without requiring a separate save", async () => {
     apiFetch.mockImplementation((path: string) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });

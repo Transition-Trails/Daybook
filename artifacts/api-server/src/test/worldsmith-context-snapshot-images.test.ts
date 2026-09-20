@@ -5,6 +5,7 @@ import {
   assignCanonImageRoles,
   buildCanonImageExport,
   canonImageAssetDirectory,
+  enforceCanonImageOrder,
   normaliseCanonImageRole,
   type CanonImageExportRecord,
 } from "../lib/worldsmith/context-snapshot-images";
@@ -48,6 +49,14 @@ describe("WorldSmith Canon image snapshots", () => {
     expect(normaliseCanonImageRole("location-exterior")).toBe("reference");
     expect(normaliseCanonImageRole("alternate_portrait")).toBe("alternate");
     expect(normaliseCanonImageRole("unsupported_role")).toBeUndefined();
+  });
+
+  it("enforces ordered editor galleries even when stale metadata has no primary", () => {
+    expect(enforceCanonImageOrder([
+      { url: "/objects/one", role: "reference" },
+      { url: "/objects/two", role: "primary" },
+      { url: "/objects/three", role: "detail" },
+    ]).map(image => image.role)).toEqual(["primary", "reference", "detail"]);
   });
 
   it("keeps legacy ordered galleries compatible while assigning future-safe roles", () => {
@@ -105,7 +114,15 @@ describe("WorldSmith Canon image snapshots", () => {
       record({
         id: "frederick-id",
         name: "Frederick Ashcroft",
+        portraitUrl: "/objects/frederick-primary",
         imageGallery: [{ url: "/objects/frederick-primary", role: "primary" }],
+        assets: [{
+          id: "frederick-asset",
+          objectPath: "/objects/frederick-primary",
+          role: "reference",
+          approvalStatus: "approved",
+          canonicalStrength: "reference",
+        }],
       }),
       record({
         id: "elias-id",

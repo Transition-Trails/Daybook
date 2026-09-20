@@ -114,6 +114,7 @@ import {
 import {
   assignCanonImageRoles,
   buildCanonImageExport,
+  enforceCanonImageOrder,
   normaliseCanonImageRole,
   type CanonImageRole,
 } from "../lib/worldsmith/context-snapshot-images";
@@ -1318,7 +1319,7 @@ function normaliseCanonImageGallery(
       }];
     });
     try {
-      return assignCanonImageRoles(parsed).map(image => ({
+      return assignCanonImageRoles(enforceCanonImageOrder(parsed)).map(image => ({
         url: image.url,
         name: image.name ?? "",
         description: image.description ?? "",

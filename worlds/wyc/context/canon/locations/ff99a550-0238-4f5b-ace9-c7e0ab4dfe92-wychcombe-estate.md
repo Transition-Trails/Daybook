@@ -159,11 +159,12 @@ Do not restore the estate into flawless grandeur. Its later identity should reta
 ## Record Images
 
 - **Primary:** [image-primary.png](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-primary.png)
+- **Reference:** [image-reference-01.png](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-reference-01.png)
 
 ![Primary canon portrait of Wychcombe Estate](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-primary.png)
 
 ---
 Generated from Daybook
 Record ID: ff99a550-0238-4f5b-ace9-c7e0ab4dfe92
-Last Updated: 2026-09-20T01:19:57.032Z
-Snapshot Generated: 2026-09-20T01:19:57.032Z
+Last Updated: 2026-09-20T01:22:06.010Z
+Snapshot Generated: 2026-09-20T01:22:06.010Z

@@ -16,6 +16,7 @@
     "migrate-canon-records-v2": "tsx ./src/migrate-canon-records-v2.ts",
     "migrate-canon-records-v3": "tsx ./src/migrate-canon-records-v3.ts",
     "migrate-canon-records-v4": "tsx ./src/migrate-canon-records-v4.ts",
+    "reconcile-canon-image-roles": "tsx ./src/reconcile-canon-image-roles.ts",
     "seed-recipes": "tsx ./src/seed-recipes.ts",
     "migrate-themes": "tsx ./src/migrate-themes.ts",
     "migrate-notebooks": "tsx ./src/migrate-notebooks.ts",

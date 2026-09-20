@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
+    "./canon-image-reconciliation": "./src/canon-image-reconciliation.ts",
     "./catalog-constants": "./src/catalog-constants.ts",
     "./planner-pages": "./src/planner-pages.ts"
   },

@@ -2063,13 +2063,22 @@ When should authority pass to someone else?
 
 What happens when the institution fails to live by the principle it celebrates?
 
+## Record Images
+
+- **Primary:** [image-primary.png](../assets/lores/eeb7c737-4491-4f49-ae78-3722ca6a96ae-the-ashcroft-principle-of-stewardship/image-primary.png)
+
+![Primary canon portrait of The Ashcroft Principle of Stewardship](../assets/lores/eeb7c737-4491-4f49-ae78-3722ca6a96ae-the-ashcroft-principle-of-stewardship/image-primary.png)
+
 ## Related Canon Records
 
-- **related**: Clara Bellamy Ashcroft (`fd7bc083-fe37-4c83-8a9e-b7ac230b4644`)
-- **related**: Elias Ashcroft (`edb29f8a-af50-49fa-bf8c-9c07dadd4ad6`)
+- **involved_in**: Cecily Ashcroft (`cce3c21b-1662-4c85-906f-669cb4ac1197`)
+- **involved_in**: Clara Bellamy Ashcroft (`fd7bc083-fe37-4c83-8a9e-b7ac230b4644`)
+- **involved_in**: Elias Ashcroft (`edb29f8a-af50-49fa-bf8c-9c07dadd4ad6`)
+- **involved_in**: James Ashcroft (`3b68d864-60e7-4aea-932c-26ed11939554`)
+- **owns**: Margaret Ashcroft (`25473151-193d-4b27-8728-8e9fc8356b9a`)
 
 ---
 Generated from Daybook
 Record ID: eeb7c737-4491-4f49-ae78-3722ca6a96ae
-Last Updated: 2026-09-20T02:05:47.422Z
-Snapshot Generated: 2026-09-20T02:05:47.422Z
+Last Updated: 2026-09-20T02:13:05.395Z
+Snapshot Generated: 2026-09-20T02:13:05.395Z

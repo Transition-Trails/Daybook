@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T02:05:47.422Z",
+  "generated_at": "2026-09-20T02:13:05.395Z",
   "records": [
     {
       "canonical_id": "52ab89e3-9679-42e5-9f17-b1299e0b1d31",
@@ -478,7 +478,18 @@
       "record_slug": "the-ashcroft-principle-of-stewardship",
       "canon_type": "lore",
       "status": "accepted",
-      "images": []
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/lores/eeb7c737-4491-4f49-ae78-3722ca6a96ae-the-ashcroft-principle-of-stewardship/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1672,
+          "height": 941,
+          "sha256": "d3e9c541455ad7b88a858ff5fd4c99f6a306dec05fcd6d226328e9f4addbe77a",
+          "source_asset_id": "/objects/uploads/7f319454-e22c-4058-977e-9101835528c8",
+          "source_updated_at": "2026-09-20T02:10:31.951Z"
+        }
+      ]
     },
     {
       "canonical_id": "585870b4-9afb-469a-9e86-d0070de84f28",

@@ -163,8 +163,12 @@ Do not restore the estate into flawless grandeur. Its later identity should reta
 
 ![Primary canon portrait of Wychcombe Estate](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-primary.png)
 
+## Related Canon Records
+
+- **owns**: Clara Bellamy Ashcroft (`fd7bc083-fe37-4c83-8a9e-b7ac230b4644`)
+
 ---
 Generated from Daybook
 Record ID: ff99a550-0238-4f5b-ace9-c7e0ab4dfe92
-Last Updated: 2026-09-20T01:22:06.010Z
-Snapshot Generated: 2026-09-20T01:22:06.010Z
+Last Updated: 2026-09-20T01:26:19.034Z
+Snapshot Generated: 2026-09-20T01:26:19.034Z

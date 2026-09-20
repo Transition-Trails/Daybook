@@ -196,7 +196,10 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
           }),
         });
         savedStoryId = res.story.id;
-        resultStory = res.story;
+        resultStory = {
+          ...res.story,
+          acts: Array.isArray(res.story.acts) ? res.story.acts : [],
+        };
       } else {
         const res = await apiFetch<{ story: Story }>(`/v1/editorial/stories/${storyId}`, {
           method: "PATCH",
@@ -207,7 +210,10 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
             global_metadata: form.globalMetadata,
           }),
         });
-        resultStory = res.story;
+        resultStory = {
+          ...res.story,
+          acts: Array.isArray(res.story.acts) ? res.story.acts : (story?.acts ?? []),
+        };
       }
 
       // Sync Beats

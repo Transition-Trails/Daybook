@@ -25,11 +25,15 @@ vi.mock("wouter", () => ({
 import StorylineEditor from "@/pages/super/worldsmith-editorial/StorylineEditor";
 
 function renderEditor(storyId?: string) {
-  return render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return {
+    ...render(
+    <QueryClientProvider client={queryClient}>
       <StorylineEditor storyId={storyId} />
     </QueryClientProvider>,
-  );
+    ),
+    queryClient,
+  };
 }
 
 describe("StorylineEditor", () => {
@@ -48,7 +52,7 @@ describe("StorylineEditor", () => {
       return { story: { id: "story-2", title: "The Ashcroft Lantern", worldId: "world-wychcombe" } };
     });
 
-    renderEditor();
+    const { queryClient } = renderEditor();
     expect(screen.getByRole("heading", { name: "New Storyline" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("The Ashcroft Lantern")).toBeInTheDocument();
     expect(screen.getByDisplayValue("planned")).toBeInTheDocument();
@@ -74,6 +78,8 @@ describe("StorylineEditor", () => {
       expect.objectContaining({ method: "PUT" })
     );
     expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/stories/story-2");
+    expect(queryClient.getQueryData<{ story: { acts?: unknown[] } }>(["editorial-story", "story-2"]))
+      .toMatchObject({ story: { acts: [] } });
   });
 
   it("loads an existing storyline and persists the rich narrative promise", async () => {

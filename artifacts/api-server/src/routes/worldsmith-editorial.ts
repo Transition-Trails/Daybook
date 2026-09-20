@@ -5326,7 +5326,7 @@ router.post("/v1/editorial/stories", async (req: Request, res: Response) => {
        revealArchitecture: architecture ?? [],
       status: status ?? "draft",
     }).returning();
-    res.status(201).json({ story });
+    res.status(201).json({ story: { ...story, acts: [] } });
   } catch (err) {
     logger.error({ err }, "editorial: create story");
     res.status(500).json({ error: "Internal server error" });

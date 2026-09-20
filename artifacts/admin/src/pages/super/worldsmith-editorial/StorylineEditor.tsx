@@ -32,6 +32,7 @@ interface StoryAct {
   actNumber: number;
   title: string;
   tagline: string;
+  narrative: string;
 }
 
 interface Story {
@@ -79,6 +80,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
 
   const [form, setForm] = useState<StoryForm>(() => createEmptyForm(search));
   const [newActTitle, setNewActTitle] = useState("");
+  const [actPurposeDrafts, setActPurposeDrafts] = useState<Record<string, string>>({});
   const initializedStoryRef = useRef<string | null>(null);
 
   // Scene Editor state
@@ -328,6 +330,32 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
     },
     onError: (error: Error) => toast({
       title: "Could not add movement",
+      description: error.message,
+      variant: "destructive",
+    }),
+  });
+
+  const saveActPurposeMutation = useMutation({
+    mutationFn: ({ actId, purpose }: { actId: string; purpose: string }) =>
+      apiFetch<{ act: StoryAct }>(`/v1/editorial/acts/${actId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ narrative: purpose }),
+      }),
+    onSuccess: ({ act }) => {
+      queryClient.setQueryData<{ story: Story }>(["editorial-story", storyId], current => {
+        if (!current) return current;
+        return {
+          story: {
+            ...current.story,
+            acts: current.story.acts.map(item => item.id === act.id ? { ...item, ...act } : item),
+          },
+        };
+      });
+      setActPurposeDrafts(current => ({ ...current, [act.id]: act.narrative ?? "" }));
+      toast({ title: "Movement purpose saved" });
+    },
+    onError: (error: Error) => toast({
+      title: "Could not save movement purpose",
       description: error.message,
       variant: "destructive",
     }),
@@ -1051,6 +1079,38 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
                             <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: CLAY }}>Movement {act.actNumber}</p>
                             <p className="mt-1 text-sm font-semibold" style={{ color: INK }}>{act.title}</p>
                             {act.tagline && <p className="mt-1 text-xs italic" style={{ color: "#667085" }}>{act.tagline}</p>}
+                             <label className="mt-3 block">
+                               <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#786D60" }}>
+                                 Movement / Act purpose
+                               </span>
+                               <textarea
+                                 value={actPurposeDrafts[act.id] ?? act.narrative ?? ""}
+                                 onChange={event => setActPurposeDrafts(current => ({
+                                   ...current,
+                                   [act.id]: event.target.value,
+                                 }))}
+                                 rows={2}
+                                 placeholder="Describe what this movement must accomplish in the storyline."
+                                 className="mt-1 w-full resize-y rounded-lg border bg-white px-3 py-2 text-xs leading-relaxed outline-none focus:border-[#C87560]"
+                                 style={{ color: INK, borderColor: BORDER }}
+                               />
+                               <button
+                                 type="button"
+                                 onClick={() => saveActPurposeMutation.mutate({
+                                   actId: act.id,
+                                   purpose: actPurposeDrafts[act.id] ?? act.narrative ?? "",
+                                 })}
+                                 disabled={
+                                   saveActPurposeMutation.isPending
+                                   || (actPurposeDrafts[act.id] ?? act.narrative ?? "") === (act.narrative ?? "")
+                                 }
+                                 className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold disabled:opacity-40"
+                                 style={{ color: CLAY }}
+                               >
+                                 {saveActPurposeMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                                 Save purpose
+                               </button>
+                             </label>
                           </div>
                           <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(story.id)}&act_id=${encodeURIComponent(act.id)}`}>
                             <span className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold hover:underline" style={{ color: INK }}>

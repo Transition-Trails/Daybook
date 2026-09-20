@@ -92,7 +92,14 @@ describe("StorylineEditor", () => {
             title: "The First Crossing",
             summary: "<p>Existing promise</p>",
             status: "draft",
-            acts: [],
+             acts: [{
+               id: "act-1",
+               storyId: "story-1",
+               actNumber: 1,
+               title: "The Departure",
+               tagline: "",
+               narrative: "Move the characters beyond the familiar.",
+             }],
           },
         });
       }
@@ -103,6 +110,8 @@ describe("StorylineEditor", () => {
 
     renderEditor("story-1");
     await screen.findByRole("heading", { name: "The First Crossing — Storyline" });
+    expect(screen.getByText("Movement / Act purpose")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Move the characters beyond the familiar.")).toBeInTheDocument();
     const narrative = screen.getAllByRole("textbox").find(field => field.getAttribute("contenteditable") === "true");
     expect(narrative).toBeDefined();
     narrative!.innerHTML = "<p>A <strong>new</strong> promise.</p>";

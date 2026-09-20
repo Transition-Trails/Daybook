@@ -176,6 +176,17 @@ function crud(path: string, table: any, schema: z.ZodTypeAny, key: string, owner
     res.json({ [key]: rows });
   });
 
+  router.get(`${path}/:id`, async (req: Request, res: Response): Promise<void> => {
+    const worldId = String(req.query.world_id || "");
+    if (!worldId) { res.status(400).json({ error: "world_id is required" }); return; }
+    const [row] = await db.select().from(table).where(eq(table[idField], String(req.params.id))).limit(1);
+    const owned = row && (owner === "recordId"
+      ? await ownsRecord(row.recordId, worldId)
+      : row[owner] === worldId);
+    if (!owned) { res.status(404).json({ error: "Resource not found in world" }); return; }
+    res.json({ [key.slice(0, -1)]: row });
+  });
+
   router.post(path, async (req: Request, res: Response): Promise<void> => {
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) { bad(res, parsed); return; }

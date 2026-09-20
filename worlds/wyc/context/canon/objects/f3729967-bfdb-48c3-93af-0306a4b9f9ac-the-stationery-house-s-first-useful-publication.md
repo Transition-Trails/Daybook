@@ -828,6 +828,13 @@ The Ashcroft Ledger
 }
 ```
 
+## Record Images
+
+- **Primary:** [image-primary.png](../assets/objects/f3729967-bfdb-48c3-93af-0306a4b9f9ac-the-stationery-house-s-first-useful-publication/image-primary.png)
+- **Reference:** [image-reference-01.png](../assets/objects/f3729967-bfdb-48c3-93af-0306a4b9f9ac-the-stationery-house-s-first-useful-publication/image-reference-01.png)
+
+![Primary canon portrait of The Stationery House’s First Useful Publication](../assets/objects/f3729967-bfdb-48c3-93af-0306a4b9f9ac-the-stationery-house-s-first-useful-publication/image-primary.png)
+
 ## Related Canon Records
 
 - **owns**: Margaret Ashcroft (`25473151-193d-4b27-8728-8e9fc8356b9a`)
@@ -836,5 +843,5 @@ The Ashcroft Ledger
 ---
 Generated from Daybook
 Record ID: f3729967-bfdb-48c3-93af-0306a4b9f9ac
-Last Updated: 2026-09-20T19:56:13.060Z
-Snapshot Generated: 2026-09-20T19:56:13.060Z
+Last Updated: 2026-09-20T19:56:21.063Z
+Snapshot Generated: 2026-09-20T19:56:21.063Z

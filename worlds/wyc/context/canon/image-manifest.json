@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T19:56:13.060Z",
+  "generated_at": "2026-09-20T19:56:21.063Z",
   "records": [
     {
       "canonical_id": "19ee8c11-6a1d-48db-bd74-900c63f48025",
@@ -898,7 +898,30 @@
       "record_slug": "the-stationery-house-s-first-useful-publication",
       "canon_type": "object",
       "status": "accepted",
-      "images": []
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/objects/f3729967-bfdb-48c3-93af-0306a4b9f9ac-the-stationery-house-s-first-useful-publication/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1254,
+          "height": 1254,
+          "sha256": "09d170009d5e832c3b41edd0ffae71c28517bdfef05b1a204ee048abcbff0e04",
+          "source_asset_id": "/objects/uploads/ac7857e5-5516-4491-b4ac-39a6f8a9b481",
+          "source_updated_at": "2026-09-20T19:55:17.917Z",
+          "byte_size": 2298681
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/objects/f3729967-bfdb-48c3-93af-0306a4b9f9ac-the-stationery-house-s-first-useful-publication/image-reference-01.png",
+          "mime_type": "image/png",
+          "width": 1536,
+          "height": 1024,
+          "sha256": "011b1b1ec84c291b64a31dd3c7d4f4ddf7e8c2bf35ccf0f88adf400de698e1c2",
+          "source_asset_id": "/objects/uploads/51237619-f1cb-48c8-9358-e09bca0bbf13",
+          "source_updated_at": "2026-09-20T19:55:28.861Z",
+          "byte_size": 2872243
+        }
+      ]
     },
     {
       "canonical_id": "1ec35712-464b-4d55-8ddf-23b0f55bbede",

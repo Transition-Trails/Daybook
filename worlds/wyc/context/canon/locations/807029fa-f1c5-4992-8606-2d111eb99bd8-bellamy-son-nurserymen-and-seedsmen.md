@@ -54,11 +54,16 @@ Samuel&#039;s illness is chronic and limits exertion, but a specific medical dia
 ## Record Images
 
 - **Primary:** [image-primary.png](../assets/locations/807029fa-f1c5-4992-8606-2d111eb99bd8-bellamy-son-nurserymen-and-seedsmen/image-primary.png)
+- **Reference:** [image-reference-01.png](../assets/locations/807029fa-f1c5-4992-8606-2d111eb99bd8-bellamy-son-nurserymen-and-seedsmen/image-reference-01.png)
 
 ![Primary canon portrait of Bellamy & Son, Nurserymen and Seedsmen](../assets/locations/807029fa-f1c5-4992-8606-2d111eb99bd8-bellamy-son-nurserymen-and-seedsmen/image-primary.png)
+
+## Related Canon Records
+
+- **involved_in**: Clara Bellamy Ashcroft (`fd7bc083-fe37-4c83-8a9e-b7ac230b4644`)
 
 ---
 Generated from Daybook
 Record ID: 807029fa-f1c5-4992-8606-2d111eb99bd8
-Last Updated: 2026-09-19T15:04:01.881Z
-Snapshot Generated: 2026-09-19T15:04:02.058Z
+Last Updated: 2026-09-20T01:46:22.563Z
+Snapshot Generated: 2026-09-20T01:46:22.563Z

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T01:28:13.975Z",
+  "generated_at": "2026-09-20T01:46:22.563Z",
   "records": [
     {
       "canonical_id": "52ab89e3-9679-42e5-9f17-b1299e0b1d31",
@@ -286,6 +286,16 @@
           "sha256": "fa6202d284ed81135574723b863902fe7304fd82f52a8bba2a864f5d828c0bac",
           "source_asset_id": "/objects/uploads/939849ec-f6e1-43f4-b0a4-ca6d77e6822c",
           "source_updated_at": "2026-09-19T15:02:58.708Z"
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/locations/807029fa-f1c5-4992-8606-2d111eb99bd8-bellamy-son-nurserymen-and-seedsmen/image-reference-01.png",
+          "mime_type": "image/png",
+          "width": 1672,
+          "height": 941,
+          "sha256": "a7a4ddcc9b59b29bd47d64579ec892bc0d90c9f104466c90bf348c37c7d2c955",
+          "source_asset_id": "/objects/uploads/9fc95b32-659e-46b5-94b0-4da96e398a20",
+          "source_updated_at": "2026-09-20T01:46:04.730Z"
         }
       ]
     },

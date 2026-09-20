@@ -18,6 +18,8 @@ export interface CanonSnapshotRecord {
   canonStability?: string | null;
   emotionalValence?: string | null;
   notes?: string | null;
+  promptSummary?: string | null;
+  identitySummary?: string | null;
   updatedAt: Date;
   relationships: Array<{ relationType?: string | null; recordId: string; name: string; canonType?: string | null }>;
   linkedSpecs: Array<{ id: string; name: string }>;
@@ -129,6 +131,8 @@ export function renderCanonSnapshot(record: CanonSnapshotRecord, generatedAt = n
     ...section("Temporal Scope", record.temporalScope),
     ...section("Emotional Valence", record.emotionalValence),
     ...section("Canon Notes and Open Questions", record.notes),
+    ...section("Approved Prompt Summary", record.promptSummary),
+    ...section("Approved Identity Summary", record.identitySummary),
     ...(record.structuredFields && Object.keys(record.structuredFields).length
       ? ["## Structured Canon Fields", "", "```json", JSON.stringify(record.structuredFields, null, 2), "```", ""]
       : []),

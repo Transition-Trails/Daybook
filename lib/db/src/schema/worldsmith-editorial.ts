@@ -71,6 +71,12 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   relationshipDetails: text("relationship_details").notNull().default(""),
   characterDirection: text("character_direction").notNull().default(""),
   confirmedCanon: text("confirmed_canon").notNull().default(""),
+  promptSummary: text("prompt_summary").notNull().default(""),
+  promptSummarySourceHash: text("prompt_summary_source_hash"),
+  promptSummaryGeneratedAt: timestamp("prompt_summary_generated_at", { withTimezone: true }),
+  identitySummary: text("identity_summary").notNull().default(""),
+  identitySummarySourceHash: text("identity_summary_source_hash"),
+  identitySummaryGeneratedAt: timestamp("identity_summary_generated_at", { withTimezone: true }),
   typography: jsonb("typography").$type<Array<{
     fontId: string;
     family: string;

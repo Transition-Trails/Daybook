@@ -122,6 +122,14 @@ import { generateImage } from "../lib/worldsmith/image-generation";
 import { canForceSuggestionRefresh } from "../lib/worldsmith/suggestion-refresh-policy";
 import { ownerDiscoveryDecisionAllowed, type OwnerDiscoveryDecision } from "../lib/worldsmith/owner-discovery-policy";
 import { isPromptModuleSection } from "../lib/worldsmith/types";
+import {
+  buildCanonSummarySource,
+  canonSummarySourceHash,
+  canonSummaryStatus,
+  normalizeGeneratedSummary,
+  withCanonSummaryStatus,
+  type CanonSummaryKind,
+} from "../lib/worldsmith/canon-summary";
 import { resolveTypographyChoices, TypographyValidationError } from "../lib/worldsmith/typography";
 import { ORIENTATION_AWARE_TYPES } from "@workspace/api-zod/readiness";
 import {
@@ -146,6 +154,9 @@ function readStructuredNotes(notes: string): Record<string, unknown> {
 function withCanonStructured<T extends Record<string, unknown>>(row: T): T {
   const fields = readStructuredNotes(String(row.notes ?? ""));
   return { ...row, globalMetadata: row.globalMetadata ?? fields.globalMetadata ?? {}, structuredProfile: row.structuredProfile ?? fields.structuredProfile ?? {}, generationProfile: row.generationProfile ?? fields.generationProfile ?? {} } as T;
+}
+function withCanonPresentation<T extends Parameters<typeof withCanonSummaryStatus>[0] & Record<string, unknown>>(row: T) {
+  return withCanonSummaryStatus(withCanonStructured(row));
 }
 function withStoryStructured<T extends Record<string, unknown>>(row: T): T {
   const match = String(row.summary ?? "").match(/<!-- worldsmith-story-fields:([\s\S]*?) -->$/);
@@ -256,7 +267,12 @@ router.get("/v1/editorial/canon-records/:id/field-context", async (req: Request,
         ["approved", "accepted", "canon", "editor_approved", "editor-approved"].includes(asset.approvalStatus.toLowerCase())
         && ["canonical", "reference", "defining", "locked"].includes(asset.canonicalStrength.toLowerCase()),
       ).map(asset => ({ ...asset, source: `asset:${asset.id}` })),
-      positiveConstraints: [record.visualNotes, record.confirmedCanon].filter(Boolean),
+      positiveConstraints: [
+        canonSummaryStatus(record, "prompt") === "current" ? record.promptSummary : "",
+        canonSummaryStatus(record, "identity") === "current" ? record.identitySummary : "",
+        record.visualNotes,
+        record.confirmedCanon,
+      ].filter(Boolean),
       negativeConstraints: [record.canonGuardrails].filter(Boolean),
     };
     const compiler = record.canonType === "location" ? compileEnvironmentContext : compileCharacterContext;
@@ -1369,7 +1385,7 @@ router.post("/v1/editorial/canon-records", async (req: Request, res: Response) =
         createdBy: (req.user as any)?.id,
       })
       .returning();
-    res.status(201).json({ canon_record: withCanonStructured(row) });
+    res.status(201).json({ canon_record: withCanonPresentation(row) });
   } catch (err) {
     if (err instanceof CanonImageGalleryValidationError) {
       res.status(400).json({ error: err.message });
@@ -2016,7 +2032,7 @@ router.get("/v1/editorial/canon-records/:id", async (req: Request, res: Response
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .limit(1);
     if (!row) { res.status(404).json({ error: "Canon record not found" }); return; }
-     res.json({ canon_record: withCanonStructured(row) });
+     res.json({ canon_record: withCanonPresentation(row) });
   } catch (err) {
     logger.error({ err }, "editorial: get canon record");
     res.status(500).json({ error: "Internal server error" });
@@ -2099,6 +2115,8 @@ async function buildCanonContextSnapshot(recordId: string) {
   })));
   const snapshotRecord = {
     ...record,
+    promptSummary: canonSummaryStatus(record, "prompt") === "current" ? record.promptSummary : "",
+    identitySummary: canonSummaryStatus(record, "identity") === "current" ? record.identitySummary : "",
     worldName: world.name,
     relationships: edges.flatMap(edge => {
       const targetId = edge.fromRecordId === recordId ? edge.toRecordId : edge.fromRecordId;
@@ -2464,6 +2482,75 @@ router.get("/v1/editorial/context-snapshot-jobs/:id", async (req: Request, res: 
   res.json(job);
 });
 
+router.post("/v1/editorial/canon-records/:id/regenerate-summary", async (req: Request, res: Response) => {
+  const recordId = req.params.id as string;
+  const requestedKind = req.body?.kind === "prompt" || req.body?.kind === "identity" || req.body?.kind === "both"
+    ? req.body.kind as CanonSummaryKind | "both"
+    : "both";
+  try {
+    const [record] = await db.select().from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, recordId)).limit(1);
+    if (!record) { res.status(404).json({ error: "Canon record not found" }); return; }
+    if ((requestedKind === "identity" || requestedKind === "both") && record.canonType !== "character") {
+      if (requestedKind === "identity") {
+        res.status(400).json({ error: "Identity summaries are only available for character records." });
+        return;
+      }
+    }
+    const kinds: CanonSummaryKind[] = requestedKind === "both"
+      ? (record.canonType === "character" ? ["prompt", "identity"] : ["prompt"])
+      : [requestedKind];
+    const [world] = await db.select({ storeId: worldsmithWorldsTable.storeId })
+      .from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, record.worldId)).limit(1);
+    const sources = Object.fromEntries(kinds.map(kind => [kind, buildCanonSummarySource(record, kind)]));
+    const result = await callAi(
+      [{
+        role: "user",
+        content: `Create the requested compact Canon prompt projections from this authoritative source.\n\n${JSON.stringify(sources)}`,
+      }],
+      process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
+      [
+        "You are a WorldSmith prompt editor.",
+        "Return only valid JSON with the requested keys: prompt and/or identity.",
+        "The prompt summary must preserve essential identity, visual anchors, materials, atmosphere, continuity, relationships, and prohibitions in at most 3,500 characters.",
+        "The identity summary must preserve repeatable face, age, complexion, hair, body, posture, wardrobe, and immutable identity constraints in at most 2,000 characters.",
+        "Do not invent facts. Prefer dense, direct production language over prose.",
+      ].join(" "),
+      {
+        context: {
+          storeId: world?.storeId ?? undefined,
+          userId: (req.user as any)?.id,
+          feature: "editorial.canon-summary",
+        },
+      },
+    );
+    const clean = result.content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    const parsed = JSON.parse(clean) as Record<string, unknown>;
+    const generatedAt = new Date();
+    const updates: Partial<typeof wsCanonRecordsTable.$inferInsert> = {};
+    if (kinds.includes("prompt")) {
+      updates.promptSummary = normalizeGeneratedSummary(parsed.prompt, 3_500);
+      updates.promptSummarySourceHash = canonSummarySourceHash(record, "prompt");
+      updates.promptSummaryGeneratedAt = generatedAt;
+    }
+    if (kinds.includes("identity")) {
+      updates.identitySummary = normalizeGeneratedSummary(parsed.identity, 2_000);
+      updates.identitySummarySourceHash = canonSummarySourceHash(record, "identity");
+      updates.identitySummaryGeneratedAt = generatedAt;
+    }
+    const [updated] = await db.update(wsCanonRecordsTable).set(updates)
+      .where(eq(wsCanonRecordsTable.id, recordId)).returning();
+    const contextSnapshotStatus = await autoPublishCanonContextSnapshot(updated).catch(autoSyncErr => {
+      logger.error({ err: autoSyncErr, id: updated.id }, "editorial: automatic context snapshot failed after summary regeneration");
+      return "sync_failed" as const;
+    });
+    res.json({ canon_record: withCanonPresentation(updated), context_snapshot_status: contextSnapshotStatus });
+  } catch (err) {
+    logger.error({ err, recordId }, "editorial: regenerate Canon prompt summary");
+    res.status(502).json({ error: "The Canon prompt summary could not be generated. Try again." });
+  }
+});
+
 router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Response) => {
   const {
     name, canon_type, narrative_details, historical_context, visual_notes,
@@ -2473,6 +2560,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     from_entity_id, to_entity_id, emotional_valence,
     portrait_url, image_urls, image_gallery, notes,
     typography, global_metadata, structured_profile, generation_profile,
+    prompt_summary, identity_summary,
   } = req.body;
   for (const [key, value] of Object.entries({ global_metadata, structured_profile, generation_profile })) {
     if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) {
@@ -2530,11 +2618,14 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     }
   }
   try {
+    const [existingRecord] = await db.select().from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, req.params.id as string)).limit(1);
+    if (!existingRecord) { res.status(404).json({ error: "Canon record not found" }); return; }
     const resolvedImages = image_gallery !== undefined || image_urls !== undefined
       ? normaliseCanonImageGallery(image_gallery, image_urls, portrait_url)
       : undefined;
     const resolvedTypography = typography === undefined ? undefined : await resolveTypographyChoices(typography);
-    const [row] = await db
+    let [row] = await db
       .update(wsCanonRecordsTable)
       .set({
         ...(name !== undefined ? { name } : {}),
@@ -2567,10 +2658,27 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(global_metadata !== undefined ? { globalMetadata: global_metadata } : {}),
         ...(structured_profile !== undefined ? { structuredProfile: structured_profile } : {}),
         ...(generation_profile !== undefined ? { generationProfile: generation_profile } : {}),
+        ...(prompt_summary !== undefined ? { promptSummary: String(prompt_summary).slice(0, 3_500) } : {}),
+        ...(identity_summary !== undefined ? { identitySummary: String(identity_summary).slice(0, 2_000) } : {}),
       })
       .where(eq(wsCanonRecordsTable.id, req.params.id as string))
       .returning();
     if (!row) { res.status(404).json({ error: "Canon record not found" }); return; }
+    const summaryProvenance: Partial<typeof wsCanonRecordsTable.$inferInsert> = {};
+    if (prompt_summary !== undefined && String(prompt_summary) !== existingRecord.promptSummary) {
+      summaryProvenance.promptSummarySourceHash = canonSummarySourceHash(row, "prompt");
+      summaryProvenance.promptSummaryGeneratedAt = new Date();
+    }
+    if (identity_summary !== undefined && String(identity_summary) !== existingRecord.identitySummary) {
+      summaryProvenance.identitySummarySourceHash = row.canonType === "character"
+        ? canonSummarySourceHash(row, "identity")
+        : null;
+      summaryProvenance.identitySummaryGeneratedAt = row.canonType === "character" ? new Date() : null;
+    }
+    if (Object.keys(summaryProvenance).length) {
+      [row] = await db.update(wsCanonRecordsTable).set(summaryProvenance)
+        .where(eq(wsCanonRecordsTable.id, row.id)).returning();
+    }
 
     // Write updated fields back to Notion if this record is linked to a page.
     // All Notion writes are non-fatal: local save already succeeded above.
@@ -2614,7 +2722,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
       logger.error({ err: autoSyncErr, id: row.id }, "editorial: automatic context snapshot failed");
       return "sync_failed" as const;
     });
-    res.json({ canon_record: withCanonStructured(row), context_snapshot_status: contextSnapshotStatus });
+    res.json({ canon_record: withCanonPresentation(row), context_snapshot_status: contextSnapshotStatus });
   } catch (err) {
     if (err instanceof CanonImageGalleryValidationError) {
       res.status(400).json({ error: err.message });
@@ -2711,8 +2819,9 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
   }
 
   try {
-    const [world] = world_id
-      ? await db
+    const [[world], [sourceRecord]] = await Promise.all([
+      world_id
+      ? db
           .select({
             storeId: worldsmithWorldsTable.storeId,
             name: worldsmithWorldsTable.name,
@@ -2723,7 +2832,14 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
           .from(worldsmithWorldsTable)
           .where(eq(worldsmithWorldsTable.id, world_id))
           .limit(1)
-      : [];
+      : Promise.resolve([]),
+      source_record_id
+        ? db.select().from(wsCanonRecordsTable).where(and(
+            eq(wsCanonRecordsTable.id, source_record_id),
+            ...(world_id ? [eq(wsCanonRecordsTable.worldId, world_id)] : []),
+          )).limit(1)
+        : Promise.resolve([]),
+    ]);
 
     const relatedCanon = selectedRelatedIds.length > 0 && source_record_id
       ? await db
@@ -2760,6 +2876,14 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
       imagePromptExcerpt(narrative_details, 5_000),
       imagePromptExcerpt(historical_context, 3_000),
     ].filter(Boolean).join("\n");
+    const currentPromptSummary = sourceRecord && canonSummaryStatus(sourceRecord, "prompt") === "current"
+      ? imagePromptExcerpt(sourceRecord.promptSummary, 3_500)
+      : "";
+    const currentIdentitySummary = generationMode === "primary_portrait"
+      && sourceRecord
+      && canonSummaryStatus(sourceRecord, "identity") === "current"
+      ? imagePromptExcerpt(sourceRecord.identitySummary, 2_000)
+      : "";
 
     const worldDirection = world
       ? [
@@ -2801,6 +2925,8 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
       `Canon name: ${name.trim()}.`,
       subjectGuidance,
       requested_prompt?.trim() && `Editor request:\n${requested_prompt.trim()}`,
+      currentIdentitySummary && `Approved identity summary:\n${currentIdentitySummary}`,
+      currentPromptSummary && `Approved prompt summary:\n${currentPromptSummary}`,
       "Use the supplied canon and world direction as fixed design constraints so later related images can repeat the same materials, motifs, palette, age, and visual language.",
       relatedCanonDirection && `Related Canon grounding:\n${relatedCanonDirection}`,
       "No words, lettering, labels, signatures, logos, watermarks, frames, or mockup presentation. Do not add unrelated objects.",

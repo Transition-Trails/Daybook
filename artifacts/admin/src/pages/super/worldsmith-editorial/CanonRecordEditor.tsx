@@ -65,6 +65,14 @@ interface CanonRecord {
   relationshipDetails: string;
   characterDirection: string;
   confirmedCanon: string;
+  promptSummary: string;
+  promptSummarySourceHash?: string | null;
+  promptSummaryGeneratedAt?: string | null;
+  promptSummaryStatus?: "missing" | "current" | "stale";
+  identitySummary: string;
+  identitySummarySourceHash?: string | null;
+  identitySummaryGeneratedAt?: string | null;
+  identitySummaryStatus?: "missing" | "current" | "stale" | "not_applicable";
   notes?: string | null;
   typography?: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   portraitUrl?: string | null;
@@ -136,6 +144,8 @@ interface FormState {
   relationshipDetails: string;
   characterDirection: string;
   confirmedCanon: string;
+  promptSummary: string;
+  identitySummary: string;
   notes: string;
   typography: Array<{fontId:string; family:string; roles:Array<{role:string;weight?:string}>}>;
   images: CanonImage[];
@@ -156,6 +166,8 @@ function createEmptyForm(search: string): FormState {
     relationshipDetails: "",
     characterDirection: "",
     confirmedCanon: "",
+    promptSummary: "",
+    identitySummary: "",
     notes: "",
     typography: [],
     images: [],
@@ -769,6 +781,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         relationshipDetails: record.relationshipDetails ?? "",
         characterDirection: record.characterDirection ?? "",
         confirmedCanon: record.confirmedCanon ?? "",
+        promptSummary: record.promptSummary ?? "",
+        identitySummary: record.identitySummary ?? "",
         notes: record.notes ?? "",
         typography: record.typography ?? [],
         images: assetImages,
@@ -829,6 +843,29 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     }),
   });
 
+  const summaryMutation = useMutation({
+    mutationFn: (kind: "prompt" | "identity" | "both") =>
+      apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${recordId}/regenerate-summary`, {
+        method: "POST",
+        body: JSON.stringify({ kind }),
+      }),
+    onSuccess: result => {
+      queryClient.setQueryData(["editorial-canon-record", recordId], result);
+      setForm(current => ({
+        ...current,
+        promptSummary: result.canon_record.promptSummary ?? "",
+        identitySummary: result.canon_record.identitySummary ?? "",
+      }));
+      queryClient.invalidateQueries({ queryKey: ["editorial-canon-context-snapshot", recordId] });
+      toast({ title: "Prompt summary regenerated" });
+    },
+    onError: (error: Error) => toast({
+      title: "Could not regenerate summary",
+      description: error.message,
+      variant: "destructive",
+    }),
+  });
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const payload = {
@@ -841,6 +878,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         relationship_details: form.relationshipDetails,
         character_direction: form.characterDirection,
         confirmed_canon: form.confirmedCanon,
+        prompt_summary: form.promptSummary,
+        identity_summary: form.identitySummary,
         notes: form.notes,
         typography: form.typography,
         portrait_url: form.images[0]?.url ?? null,
@@ -1587,6 +1626,78 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           </div>
 
           <aside className="space-y-5">
+            {!isNew && record && (
+              <section className="rounded-2xl border p-5" style={{ background: "white", borderColor: BORDER }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: INK }}>
+                      <Sparkles className="h-4 w-4" style={{ color: CLAY }} /> Prompt summary
+                    </h2>
+                    <p className="mt-1 text-xs leading-relaxed" style={{ color: "#667085" }}>
+                      Compact, reviewed Canon context used by image generation.
+                    </p>
+                  </div>
+                  <span
+                    className="shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold"
+                    style={{
+                      color: record.promptSummaryStatus === "current" ? "#027A48" : record.promptSummaryStatus === "stale" ? "#B54708" : "#667085",
+                      background: record.promptSummaryStatus === "current" ? "#ECFDF3" : record.promptSummaryStatus === "stale" ? "#FFFAEB" : "#F2F4F7",
+                    }}
+                  >
+                    {record.promptSummaryStatus ?? "missing"}
+                  </span>
+                </div>
+                <textarea
+                  value={form.promptSummary}
+                  onChange={event => setField("promptSummary", event.target.value)}
+                  maxLength={3500}
+                  rows={8}
+                  placeholder="Generate a compact production summary from this Canon record."
+                  className="mt-4 w-full resize-y rounded-xl border px-3 py-2 text-xs leading-relaxed outline-none focus:ring-2 focus:ring-[#C87560]/20"
+                  style={{ borderColor: BORDER, color: INK }}
+                />
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="text-[10px]" style={{ color: "#98A2B3" }}>{form.promptSummary.length.toLocaleString()} / 3,500</span>
+                  <button
+                    type="button"
+                    onClick={() => summaryMutation.mutate(form.canonType === "character" ? "both" : "prompt")}
+                    disabled={summaryMutation.isPending}
+                    className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                    style={{ borderColor: BORDER, color: INK }}
+                  >
+                    {summaryMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                    {form.canonType === "character" ? "Regenerate both" : "Regenerate"}
+                  </button>
+                </div>
+                {form.canonType === "character" && (
+                  <div className="mt-5 border-t pt-4" style={{ borderColor: BORDER }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-xs font-semibold" style={{ color: INK }}>Identity summary</label>
+                      <span
+                        className="rounded-full px-2 py-1 text-[10px] font-semibold"
+                        style={{
+                          color: record.identitySummaryStatus === "current" ? "#027A48" : record.identitySummaryStatus === "stale" ? "#B54708" : "#667085",
+                          background: record.identitySummaryStatus === "current" ? "#ECFDF3" : record.identitySummaryStatus === "stale" ? "#FFFAEB" : "#F2F4F7",
+                        }}
+                      >
+                        {record.identitySummaryStatus ?? "missing"}
+                      </span>
+                    </div>
+                    <textarea
+                      value={form.identitySummary}
+                      onChange={event => setField("identitySummary", event.target.value)}
+                      maxLength={2000}
+                      rows={6}
+                      placeholder="Repeatable face, age, hair, posture, wardrobe, and identity constraints."
+                      className="mt-2 w-full resize-y rounded-xl border px-3 py-2 text-xs leading-relaxed outline-none focus:ring-2 focus:ring-[#C87560]/20"
+                      style={{ borderColor: BORDER, color: INK }}
+                    />
+                    <p className="mt-1 text-right text-[10px]" style={{ color: "#98A2B3" }}>{form.identitySummary.length.toLocaleString()} / 2,000</p>
+                  </div>
+                )}
+              </section>
+            )}
+
             <ImageField
               images={form.images}
               uploading={imageUploading}

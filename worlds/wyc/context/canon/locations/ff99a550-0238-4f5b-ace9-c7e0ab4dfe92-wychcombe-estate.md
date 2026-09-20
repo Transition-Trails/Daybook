@@ -160,15 +160,17 @@ Do not restore the estate into flawless grandeur. Its later identity should reta
 
 - **Primary:** [image-primary.png](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-primary.png)
 - **Reference:** [image-reference-01.png](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-reference-01.png)
+- **Reference:** [image-reference-02.png](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-reference-02.png)
 
 ![Primary canon portrait of Wychcombe Estate](../assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-primary.png)
 
 ## Related Canon Records
 
 - **owns**: Clara Bellamy Ashcroft (`fd7bc083-fe37-4c83-8a9e-b7ac230b4644`)
+- **owns**: Elias Ashcroft (`edb29f8a-af50-49fa-bf8c-9c07dadd4ad6`)
 
 ---
 Generated from Daybook
 Record ID: ff99a550-0238-4f5b-ace9-c7e0ab4dfe92
-Last Updated: 2026-09-20T01:26:19.034Z
-Snapshot Generated: 2026-09-20T01:26:19.034Z
+Last Updated: 2026-09-20T01:28:13.975Z
+Snapshot Generated: 2026-09-20T01:28:13.975Z

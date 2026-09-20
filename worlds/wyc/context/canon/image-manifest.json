@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T01:26:19.034Z",
+  "generated_at": "2026-09-20T01:28:13.975Z",
   "records": [
     {
       "canonical_id": "52ab89e3-9679-42e5-9f17-b1299e0b1d31",
@@ -410,6 +410,16 @@
           "sha256": "e0a8ddcd5bc98a037757cd42386ad8f3357f4541f0bffa3ed6a22a9580bf86b6",
           "source_asset_id": "/objects/uploads/b676fe6f-62c6-4edc-a11f-3988eacef740",
           "source_updated_at": "2026-09-20T01:21:40.065Z"
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/locations/ff99a550-0238-4f5b-ace9-c7e0ab4dfe92-wychcombe-estate/image-reference-02.png",
+          "mime_type": "image/png",
+          "width": 1672,
+          "height": 941,
+          "sha256": "249b6a8b6018a01d2066bdfb1654b112113ee04687954fb2896d5f883dc7bdfb",
+          "source_asset_id": "/objects/uploads/7ccc4d73-c61a-45b4-8d68-d0311b7d160d",
+          "source_updated_at": "2026-09-20T01:27:05.730Z"
         }
       ]
     },

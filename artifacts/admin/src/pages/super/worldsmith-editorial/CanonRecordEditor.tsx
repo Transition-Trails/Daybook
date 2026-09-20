@@ -364,14 +364,16 @@ function ImageField({
                         </div>
 
                         <div className="flex flex-col gap-1.5">
-                          <label className="text-[11px] font-semibold" style={{ color: INK }}>Asset Role</label>
+                          <label htmlFor={`canon-image-role-${index}`} className="text-[11px] font-semibold" style={{ color: INK }}>Asset Role</label>
                           <select
+                            id={`canon-image-role-${index}`}
+                            aria-label={`Additional image ${index + 1} asset role`}
                             value={image.role || "reference"}
                             onChange={e => onChangeMetadata(image.url, { role: e.target.value })}
                             className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
                             style={{ borderColor: BORDER, color: INK }}
                           >
-                            <option value="primary_portrait">Primary Portrait</option>
+                            <option value="reference">Reference</option>
                             <option value="alternate_portrait">Alternate Portrait</option>
                             <option value="full_body">Full Body</option>
                             <option value="life_stage_reference">Life-Stage Reference</option>
@@ -698,39 +700,54 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       }
       initializedRecordRef.current = record.id;
 
-      const assetImages: CanonImage[] = (recordAssetsData?.assets || []).map(a => ({
-        id: a.id,
-        url: a.objectPath,
-        name: a.title || "",
-        description: a.altText || "",
-        role: a.role,
-        lifeStageVariant: a.variantId,
-        rightsStatus: a.rightsStatus,
-        creatorCredit: a.sourceCredit,
-        workflowStatus: a.approvalStatus,
-        generationPrompt: a.generationPrompt,
-        canonicalStrength: a.canonicalStrength || "reference",
-        generationModel: a.generationModel || "",
-        positiveGuidance: a.positiveGuidance || "",
-        negativeGuidance: a.negativeGuidance || "",
-        width: a.width,
-        height: a.height,
-        byteSize: a.byteSize,
-        checksum: a.checksum,
-        source: a.source || "upload"
+      const galleryByUrl = new Map((record.imageGallery ?? []).map(image => [image.url, image]));
+      const assetByUrl = new Map<string, CanonImage>(
+        (recordAssetsData?.assets || []).map(a => {
+          const galleryImage = galleryByUrl.get(a.objectPath);
+          return [a.objectPath, {
+            id: a.id,
+            url: a.objectPath,
+            name: galleryImage?.name || a.title || "",
+            description: galleryImage?.description || a.altText || "",
+            // The Canon gallery owns primary/reference ordering. Asset records
+            // carry richer metadata but must not downgrade the primary image.
+            role: galleryImage?.role || a.role,
+            lifeStageVariant: a.variantId,
+            rightsStatus: a.rightsStatus,
+            creatorCredit: a.sourceCredit,
+            workflowStatus: a.approvalStatus,
+            generationPrompt: a.generationPrompt,
+            canonicalStrength: a.canonicalStrength || "reference",
+            generationModel: a.generationModel || "",
+            positiveGuidance: a.positiveGuidance || "",
+            negativeGuidance: a.negativeGuidance || "",
+            width: a.width,
+            height: a.height,
+            byteSize: a.byteSize,
+            checksum: a.checksum,
+            source: a.source || "upload",
+          }];
+        }),
+      );
+      const orderedGallery = record.imageGallery?.length
+        ? record.imageGallery
+        : (record.imageUrls ?? []).map((url, index) => ({
+            url,
+            name: index === 0 ? "Primary Canon image" : "",
+            description: "",
+            role: index === 0 ? "primary" : "reference",
+          }));
+      const assetImages: CanonImage[] = orderedGallery.map(image => ({
+        ...image,
+        ...assetByUrl.get(image.url),
+        name: image.name || assetByUrl.get(image.url)?.name || "",
+        description: image.description || assetByUrl.get(image.url)?.description || "",
+        role: image.role || assetByUrl.get(image.url)?.role,
       }));
-
-      // Merge with legacy URLs if they aren't in assets yet
-      const legacyUrls = new Set(assetImages.map(a => a.url));
-      if (record.imageUrls) {
-        record.imageUrls.forEach(url => {
-          if (!legacyUrls.has(url)) {
-            assetImages.push({ url, name: "", description: "" });
-            legacyUrls.add(url);
-          }
-        });
+      for (const [url, image] of assetByUrl) {
+        if (!assetImages.some(existing => existing.url === url)) assetImages.push(image);
       }
-      if (record.portraitUrl && !legacyUrls.has(record.portraitUrl)) {
+      if (record.portraitUrl && !assetImages.some(image => image.url === record.portraitUrl)) {
         assetImages.unshift({ url: record.portraitUrl, name: "Primary Canon portrait", description: "", role: "primary" });
       }
 

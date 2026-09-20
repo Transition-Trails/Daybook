@@ -159,6 +159,72 @@ describe("CanonRecordEditor", () => {
     ));
   });
 
+  it("keeps the gallery primary authoritative when asset metadata calls it a reference", async () => {
+    let savedPayload: any;
+    const canonRecord = {
+      id: "canon-glasshouse",
+      worldId: "world-wychcombe",
+      name: "The Glasshouse Repair Sample Board",
+      status: "proposed",
+      canonType: "object",
+      narrativeDetails: "",
+      historicalContext: "",
+      visualNotes: "",
+      notes: "",
+      portraitUrl: "/objects/glasshouse-primary",
+      imageUrls: ["/objects/glasshouse-primary", "/objects/glasshouse-detail"],
+      imageGallery: [
+        { url: "/objects/glasshouse-primary", name: "Primary Canon image", description: "", role: "primary" },
+        { url: "/objects/glasshouse-detail", name: "Repair detail", description: "A supporting repair detail.", role: "reference" },
+      ],
+      specRefCount: 0,
+      createdAt: "2026-08-20T00:00:00.000Z",
+      updatedAt: "2026-08-20T00:00:00.000Z",
+    };
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/assets?world_id=world-wychcombe") {
+        return Promise.resolve({
+          assets: [{
+            id: "asset-primary",
+            recordId: "canon-glasshouse",
+            objectPath: "/objects/glasshouse-primary",
+            title: "Primary Canon image",
+            altText: "",
+            role: "reference",
+          }, {
+            id: "asset-detail",
+            recordId: "canon-glasshouse",
+            objectPath: "/objects/glasshouse-detail",
+            title: "Repair detail",
+            altText: "A supporting repair detail.",
+            role: "reference",
+          }],
+        });
+      }
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.endsWith("/relations")) return Promise.resolve({ relations: [] });
+      if (path.endsWith("/context-snapshot")) return Promise.resolve({ snapshot: { status: "not_generated" } });
+      if (path === "/v1/editorial/canon-records/canon-glasshouse" && init?.method === "PATCH") {
+        savedPayload = JSON.parse(String(init.body));
+        return Promise.resolve({ canon_record: canonRecord });
+      }
+      if (path === "/v1/editorial/canon-records/canon-glasshouse") {
+        return Promise.resolve({ canon_record: canonRecord });
+      }
+      if (path.includes("/profiles/object/")) return Promise.resolve({ profile: { profile: {} } });
+      return Promise.resolve({});
+    });
+
+    renderEditor("canon-glasshouse");
+    const roleSelect = await screen.findByRole("combobox", { name: "Additional image 1 asset role" });
+    expect(roleSelect).toHaveValue("reference");
+    expect(screen.queryByRole("option", { name: "Primary Portrait" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(savedPayload?.image_gallery?.[0]?.role).toBe("primary"));
+    expect(savedPayload.image_gallery[1].role).toBe("reference");
+  });
+
   it("saves names and descriptions for additional Canon images", async () => {
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });

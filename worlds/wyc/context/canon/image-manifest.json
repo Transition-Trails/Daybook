@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T18:08:46.495Z",
+  "generated_at": "2026-09-20T19:45:29.723Z",
   "records": [
     {
       "canonical_id": "19ee8c11-6a1d-48db-bd74-900c63f48025",
@@ -763,7 +763,30 @@
       "record_slug": "elias-ashcroft-s-palimpsest-survey-plan",
       "canon_type": "object",
       "status": "proposed",
-      "images": []
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/objects/ef896c38-336a-48c5-b9e4-92b40a6fc3a3-elias-ashcroft-s-palimpsest-survey-plan/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1254,
+          "height": 1254,
+          "sha256": "10629ac05868df38e1a9b09b74850f36ce53ba5760c2b01294dc8cc3fb408a86",
+          "source_asset_id": "/objects/uploads/d8b09fd9-7f3b-46f0-a7fd-01438f1babe2",
+          "source_updated_at": "2026-09-20T19:44:28.406Z",
+          "byte_size": 2621176
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/objects/ef896c38-336a-48c5-b9e4-92b40a6fc3a3-elias-ashcroft-s-palimpsest-survey-plan/image-reference-01.png",
+          "mime_type": "image/png",
+          "width": 1448,
+          "height": 1086,
+          "sha256": "73fdf99c22664a70e3af80ac1dbc1f1eecaa9e3525a3c481cd669eb5fc26acdd",
+          "source_asset_id": "/objects/uploads/3c741d5d-8c97-4aab-bddd-fdf28b19056c",
+          "source_updated_at": "2026-09-20T19:44:52.098Z",
+          "byte_size": 2695246
+        }
+      ]
     },
     {
       "canonical_id": "ae5c49e2-db3e-46a3-9481-c4f11ecd688d",

@@ -99,6 +99,13 @@ The core visual principle is that the plan does not erase contradiction. It give
 }
 ```
 
+## Record Images
+
+- **Primary:** [image-primary.png](../assets/objects/ef896c38-336a-48c5-b9e4-92b40a6fc3a3-elias-ashcroft-s-palimpsest-survey-plan/image-primary.png)
+- **Reference:** [image-reference-01.png](../assets/objects/ef896c38-336a-48c5-b9e4-92b40a6fc3a3-elias-ashcroft-s-palimpsest-survey-plan/image-reference-01.png)
+
+![Primary canon portrait of Elias Ashcroft’s Palimpsest Survey Plan](../assets/objects/ef896c38-336a-48c5-b9e4-92b40a6fc3a3-elias-ashcroft-s-palimpsest-survey-plan/image-primary.png)
+
 ## Related Canon Records
 
 - **owns**: Elias Ashcroft (`edb29f8a-af50-49fa-bf8c-9c07dadd4ad6`)
@@ -106,5 +113,5 @@ The core visual principle is that the plan does not erase contradiction. It give
 ---
 Generated from Daybook
 Record ID: ef896c38-336a-48c5-b9e4-92b40a6fc3a3
-Last Updated: 2026-09-20T18:08:46.495Z
-Snapshot Generated: 2026-09-20T18:08:46.495Z
+Last Updated: 2026-09-20T19:45:29.723Z
+Snapshot Generated: 2026-09-20T19:45:29.723Z

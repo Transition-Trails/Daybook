@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T00:37:06.498Z",
+  "generated_at": "2026-09-20T01:13:08.789Z",
   "records": [
     {
       "canonical_id": "52ab89e3-9679-42e5-9f17-b1299e0b1d31",
@@ -57,6 +57,16 @@
           "sha256": "a6b42b330c94d58343c3c031c30e230276ee3e9a74dd154031a686a4170a1368",
           "source_asset_id": "/objects/uploads/fbce02c9-9f0b-4369-912c-6aaf1eabcba3",
           "source_updated_at": "2026-09-19T18:11:23.382Z"
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/atmospheres/65f7043d-c654-44a5-a3f2-ae5de16ec402-twilight-rain-on-the-glasshouse-roof/image-reference-01.png",
+          "mime_type": "image/png",
+          "width": 1672,
+          "height": 941,
+          "sha256": "acf491638221d96c3393db291443e4ad1be044f02991929c9502394c3f8b6a83",
+          "source_asset_id": "/objects/uploads/547c9615-841b-40ba-8f60-e7a1f88a4340",
+          "source_updated_at": "2026-09-20T01:12:40.309Z"
         }
       ]
     },
@@ -489,7 +499,18 @@
       "record_slug": "the-codex-of-recurring-blooms",
       "canon_type": "object",
       "status": "accepted",
-      "images": []
+      "images": [
+        {
+          "role": "primary",
+          "relative_path": "assets/objects/4969d345-1f26-441c-8de9-eb1601fcf675-the-codex-of-recurring-blooms/image-primary.png",
+          "mime_type": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "ce222cb6d5d7183f7575f90d966f089edde73e2e7336ed6f95ae9ac828786b27",
+          "source_asset_id": "/objects/uploads/043ebda8-5022-4ae4-aa07-21b451e691e1",
+          "source_updated_at": "2026-09-20T00:57:13.415Z"
+        }
+      ]
     },
     {
       "canonical_id": "57d113c2-5b24-460a-ab94-0f55063de68f",

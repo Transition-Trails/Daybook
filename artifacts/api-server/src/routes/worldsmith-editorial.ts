@@ -343,7 +343,11 @@ router.get("/v1/editorial/stories/:id/field-context", async (req: Request, res: 
       ))) : Promise.resolve([]),
     ]);
     const details = [
-      { source: "premise", section: "identity", text: story.summary },
+      {
+        source: "premise",
+        section: "identity",
+        text: editorialRichTextToPlainText(story.summary),
+      },
       ...beats.sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)).map(beat => ({
         source: `story-beat:${beat.id}`, section: "beats",
         text: [beat.title, beat.summary, beat.beatType].filter(Boolean).join(" — "),

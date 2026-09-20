@@ -67,6 +67,72 @@ describe("WorldSmith Canon image snapshots", () => {
     expect(assignCanonImageRoles([])).toEqual([]);
   });
 
+  it("uses one explicit asset primary even when a reference asset sorts first", async () => {
+    const assets = await fixtures();
+    const storage = {
+      getObjectEntityFile: async (objectPath: string) => {
+        const fixture = assets[objectPath as keyof typeof assets];
+        if (!fixture) throw new Error("missing object");
+        return {
+          download: async () => [fixture.bytes],
+          getMetadata: async () => [{
+            contentType: fixture.contentType,
+            updated: "2026-09-19T10:00:00.000Z",
+          }],
+        };
+      },
+    } as unknown as ObjectStorageService;
+    const result = await buildCanonImageExport([
+      record({
+        id: "legacy-assets",
+        imageGallery: [],
+        assets: [{
+          id: "a-reference",
+          objectPath: "/objects/elias-reference",
+          role: "reference",
+          approvalStatus: "approved",
+          canonicalStrength: "reference",
+        }, {
+          id: "z-primary",
+          objectPath: "/objects/elias-primary",
+          role: "primary",
+          approvalStatus: "approved",
+          canonicalStrength: "canonical",
+        }],
+      }),
+    ], storage);
+    const manifest = JSON.parse(String(result.files.find(file => file.path === result.manifestPath)?.content));
+    expect(manifest.records[0].images.map((image: { role: string }) => image.role))
+      .toEqual(["primary", "reference"]);
+    expect(manifest.records[0].images[0].source_asset_id).toBe("z-primary");
+  });
+
+  it("repairs a legacy gallery with no primary before snapshot validation", async () => {
+    const assets = await fixtures();
+    const storage = {
+      getObjectEntityFile: async (objectPath: string) => {
+        const fixture = assets[objectPath as keyof typeof assets];
+        if (!fixture) throw new Error("missing object");
+        return {
+          download: async () => [fixture.bytes],
+          getMetadata: async () => [{ contentType: fixture.contentType, updated: "2026-09-19T10:00:00.000Z" }],
+        };
+      },
+    } as unknown as ObjectStorageService;
+    const result = await buildCanonImageExport([
+      record({
+        id: "legacy-gallery",
+        imageGallery: [
+          { url: "/objects/elias-primary", role: "reference" },
+          { url: "/objects/elias-reference", role: "alternate" },
+        ],
+      }),
+    ], storage);
+    const manifest = JSON.parse(String(result.files.find(file => file.path === result.manifestPath)?.content));
+    expect(manifest.records[0].images.map((image: { role: string }) => image.role))
+      .toEqual(["primary", "alternate"]);
+  });
+
   it("rejects explicit galleries with no primary or conflicting primaries", () => {
     expect(() => assignCanonImageRoles([
       { url: "/objects/one", role: "reference" },

@@ -127,6 +127,21 @@ describe("POST /v1/editorial/canon-records/generate-image", () => {
     });
   });
 
+  it("reports an overlapping identical request without claiming generation failed", async () => {
+    mockGenerateImage.mockRejectedValue(new Error("An identical image request is already in flight"));
+
+    const response = await request(app)
+      .post("/v1/editorial/canon-records/generate-image")
+      .send({ name: "The Busy Lantern", canon_type: "object", mode: "primary_portrait" });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      error: "This image is already being generated. Wait for the current request to finish.",
+      code: "IMAGE_GENERATION_ALREADY_IN_PROGRESS",
+      retryable: false,
+    });
+  });
+
   it("requires an editor prompt before generating", async () => {
     const response = await request(app)
       .post("/v1/editorial/canon-records/generate-image")

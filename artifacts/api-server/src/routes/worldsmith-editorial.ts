@@ -2962,6 +2962,14 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
       });
       return;
     }
+    if (err instanceof Error && err.message.includes("identical image request is already in flight")) {
+      res.status(409).json({
+        error: "This image is already being generated. Wait for the current request to finish.",
+        code: "IMAGE_GENERATION_ALREADY_IN_PROGRESS",
+        retryable: false,
+      });
+      return;
+    }
     res.status(502).json({ error: "Image generation could not be completed. Please try again." });
   }
 });

@@ -137,33 +137,37 @@ export function enforceCanonImageOrder(
 function sourceImages(record: CanonImageExportRecord): CanonImageGallerySource[] {
   if (record.assets?.length) {
     const galleryPrimaryUrl = record.imageGallery?.find(image => image.role === "primary")?.url;
-    const primaryUrl = galleryPrimaryUrl ?? record.portraitUrl ?? undefined;
-    return record.assets
+    const eligibleAssets = record.assets
       .filter(asset => ["approved", "accepted", "canon", "editor_approved", "editor-approved"].includes(String(asset.approvalStatus ?? "").toLowerCase())
         && !["rejected", "superseded"].includes(String(asset.approvalStatus ?? "").toLowerCase())
         && ["canonical", "reference", "defining", "locked"].includes(String(asset.canonicalStrength ?? "canonical").toLowerCase())
-        && !!asset.objectPath)
+        && !!asset.objectPath);
+    const explicitAssetPrimaryUrl = eligibleAssets.find(asset =>
+      normaliseCanonImageRole(asset.role) === "primary",
+    )?.objectPath;
+    const primaryUrl = galleryPrimaryUrl ?? record.portraitUrl ?? explicitAssetPrimaryUrl ?? eligibleAssets[0]?.objectPath;
+    return eligibleAssets
       .sort((a, b) => {
         if (a.objectPath === primaryUrl) return -1;
         if (b.objectPath === primaryUrl) return 1;
         return `${a.role ?? "reference"}:${a.id}`.localeCompare(`${b.role ?? "reference"}:${b.id}`);
       })
-      .map((asset, index) => ({
+      .map(asset => ({
         url: asset.objectPath!,
         name: asset.title ?? asset.id,
         description: asset.altText ?? "",
         role: (() => {
           const role = String(asset.role ?? "").toLowerCase().replace(/[_-]+/g, " ");
-          if (asset.objectPath === primaryUrl || role === "primary" || role.includes("primary portrait")) return "primary" as CanonImageRole;
+          if (asset.objectPath === primaryUrl) return "primary" as CanonImageRole;
+          if (role === "primary" || role.includes("primary portrait")) return "reference" as CanonImageRole;
           if (role.includes("scene")) return "scene" as CanonImageRole;
           if (role.includes("alternate")) return "alternate" as CanonImageRole;
           if (role.includes("detail")) return "detail" as CanonImageRole;
-          if (index === 0 && !primaryUrl) return "primary" as CanonImageRole;
           return "reference" as CanonImageRole;
         })(),
       }));
   }
-  if (record.imageGallery?.length) return record.imageGallery;
+  if (record.imageGallery?.length) return enforceCanonImageOrder(record.imageGallery);
   return record.portraitUrl ? [{ url: record.portraitUrl }] : [];
 }
 

@@ -625,6 +625,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const initialImagesRef = useRef<string[]>([]);
   const initializedRecordRef = useRef<string | null>(null);
   const provisionalPortraitsRef = useRef<Set<string>>(new Set());
+  const imageGenerationLockRef = useRef(false);
 
   const { data: recordData, isLoading, isError } = useQuery<{ canon_record: CanonRecord }>({
     queryKey: ["editorial-canon-record", recordId],
@@ -1207,6 +1208,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   }, [toast]);
 
   const generateImage = useCallback(async (mode: "primary_portrait" | "reference") => {
+    if (imageGenerationLockRef.current) return;
     const effectiveMode = form.images.length === 0 ? "primary_portrait" : mode;
     if (!form.name.trim()) {
       toast({ title: "Name this canon record first", description: "The record name anchors the generated reference.", variant: "destructive" });
@@ -1217,6 +1219,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       return;
     }
 
+    imageGenerationLockRef.current = true;
     setImageGenerating(true);
     try {
       const result = await apiFetch<{
@@ -1281,6 +1284,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         variant: "destructive",
       });
     } finally {
+      imageGenerationLockRef.current = false;
       setImageGenerating(false);
     }
   }, [form, handleImageUpload, imagePrompt, imageRelatedRecordIds, recordId, toast, worldId]);

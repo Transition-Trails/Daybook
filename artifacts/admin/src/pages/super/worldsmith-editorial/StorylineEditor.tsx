@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, BookOpen, ChevronRight, Loader2, Plus, Image as ImageIcon, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, BookOpen, ChevronRight, Loader2, Plus, Image as ImageIcon, Trash2 } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { EditorialRichTextField } from "@/components/EditorialRichText";
 import { SingleSelect, MultiChipSelect, CanonPicker, StructuredRepeater } from "@/components/worldsmith/editorial/EditorialFields";
@@ -410,6 +410,32 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
     }),
   });
 
+  const moveSceneMutation = useMutation({
+    mutationFn: ({ sceneId, actId, sceneNumber }: { sceneId: string; actId: string; sceneNumber: number }) =>
+      apiFetch<{ scenes: Array<Pick<Scene, "id" | "actId" | "sceneNumber">> }>(`/v1/editorial/scenes/${sceneId}/move`, {
+        method: "POST",
+        body: JSON.stringify({ act_id: actId, scene_number: sceneNumber }),
+      }),
+    onSuccess: ({ scenes: movedScenes }) => {
+      const updates = new Map(movedScenes.map(scene => [scene.id, scene]));
+      queryClient.setQueryData<{ scenes: Scene[] }>(["editorial-scenes", storyId], current => {
+        if (!current) return current;
+        return {
+          scenes: current.scenes.map(scene => {
+            const update = updates.get(scene.id);
+            return update ? { ...scene, ...update } : scene;
+          }),
+        };
+      });
+      toast({ title: "Scene order updated" });
+    },
+    onError: (error: Error) => toast({
+      title: "Could not move scene",
+      description: error.message,
+      variant: "destructive",
+    }),
+  });
+
   if (isLoading) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" style={{ color: CLAY }} /></div>;
   }
@@ -442,7 +468,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
           worldId={worldId}
           actId={editingScene.actId}
           sceneId={editingScene.sceneId}
-          defaultSceneNumber={scenes.length + 1}
+          defaultSceneNumber={scenes.filter(scene => scene.actId === editingScene.actId).length + 1}
           onClose={() => setEditingScene(null)}
         />
       )}
@@ -1221,7 +1247,67 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
                                   </span>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                <div className="flex items-center rounded-md border bg-white" style={{ borderColor: BORDER }}>
+                                  <button
+                                    type="button"
+                                    aria-label={`Move ${scene.title} up`}
+                                    title="Move scene up"
+                                    disabled={moveSceneMutation.isPending || scene.sceneNumber <= 1}
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      moveSceneMutation.mutate({
+                                        sceneId: scene.id,
+                                        actId: act.id,
+                                        sceneNumber: scene.sceneNumber - 1,
+                                      });
+                                    }}
+                                    className="p-1.5 text-gray-500 hover:text-gray-900 disabled:opacity-30"
+                                  >
+                                    <ArrowUp className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Move ${scene.title} down`}
+                                    title="Move scene down"
+                                    disabled={moveSceneMutation.isPending || scene.sceneNumber >= actScenes.length}
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      moveSceneMutation.mutate({
+                                        sceneId: scene.id,
+                                        actId: act.id,
+                                        sceneNumber: scene.sceneNumber + 1,
+                                      });
+                                    }}
+                                    className="p-1.5 text-gray-500 hover:text-gray-900 disabled:opacity-30"
+                                  >
+                                    <ArrowDown className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                                <select
+                                  aria-label={`Move ${scene.title} to movement`}
+                                  value={scene.actId}
+                                  disabled={moveSceneMutation.isPending}
+                                  onClick={event => event.stopPropagation()}
+                                  onChange={event => {
+                                    event.stopPropagation();
+                                    const destinationActId = event.target.value;
+                                    const destinationCount = scenes.filter(item => item.actId === destinationActId).length;
+                                    moveSceneMutation.mutate({
+                                      sceneId: scene.id,
+                                      actId: destinationActId,
+                                      sceneNumber: destinationCount + 1,
+                                    });
+                                  }}
+                                  className="max-w-40 rounded-md border bg-white px-2 py-1.5 text-[11px] outline-none"
+                                  style={{ color: INK, borderColor: BORDER }}
+                                >
+                                  {story.acts.map(movement => (
+                                    <option key={movement.id} value={movement.id}>
+                                      Movement {movement.actNumber}
+                                    </option>
+                                  ))}
+                                </select>
                                 {scene.primaryImageUrl && (
                                   <ImageIcon className="h-4 w-4 text-indigo-400" />
                                 )}

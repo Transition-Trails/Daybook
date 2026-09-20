@@ -5642,9 +5642,75 @@ router.patch("/v1/editorial/scenes/:id", async (req: Request, res: Response) => 
   }
 });
 
+router.post("/v1/editorial/scenes/:id/move", async (req: Request, res: Response) => {
+  try {
+    const sceneId = req.params.id as string;
+    const { act_id, scene_number } = req.body as { act_id?: string; scene_number?: number };
+    if (!act_id || !Number.isInteger(scene_number) || Number(scene_number) < 1) {
+      res.status(400).json({ error: "Choose a movement and a valid scene position." });
+      return;
+    }
+
+    const [[scene], [targetAct]] = await Promise.all([
+      db.select().from(wsScenesTable).where(eq(wsScenesTable.id, sceneId)).limit(1),
+      db.select().from(wsStoryActsTable).where(eq(wsStoryActsTable.id, act_id)).limit(1),
+    ]);
+    if (!scene) { res.status(404).json({ error: "Scene not found." }); return; }
+    if (!targetAct || targetAct.storyId !== scene.storyId || targetAct.worldId !== scene.worldId) {
+      res.status(400).json({ error: "The destination movement must belong to this storyline." });
+      return;
+    }
+
+    const updates = await db.transaction(async tx => {
+      const storyScenes = await tx.select().from(wsScenesTable)
+        .where(eq(wsScenesTable.storyId, scene.storyId))
+        .orderBy(wsScenesTable.sceneNumber, wsScenesTable.createdAt, wsScenesTable.id);
+      const sourceScenes = storyScenes.filter(item => item.actId === scene.actId && item.id !== scene.id);
+      const targetScenes = scene.actId === act_id
+        ? sourceScenes
+        : storyScenes.filter(item => item.actId === act_id && item.id !== scene.id);
+      const targetIndex = Math.min(Number(scene_number) - 1, targetScenes.length);
+      targetScenes.splice(targetIndex, 0, { ...scene, actId: act_id });
+
+      const affected = scene.actId === act_id
+        ? targetScenes
+        : [...sourceScenes, ...targetScenes];
+      return Promise.all(affected.map((item, index) => {
+        const movementScenes = item.actId === scene.actId && scene.actId !== act_id
+          ? sourceScenes
+          : targetScenes;
+        const position = movementScenes.findIndex(candidate => candidate.id === item.id) + 1;
+        return tx.update(wsScenesTable)
+          .set({ actId: item.actId, sceneNumber: position })
+          .where(eq(wsScenesTable.id, item.id))
+          .returning({ id: wsScenesTable.id, actId: wsScenesTable.actId, sceneNumber: wsScenesTable.sceneNumber })
+          .then(rows => rows[0]!);
+      }));
+    });
+
+    res.json({ scenes: updates });
+  } catch (err) {
+    logger.error({ err }, "editorial: move scene");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.delete("/v1/editorial/scenes/:id", async (req: Request, res: Response) => {
   try {
-    await db.delete(wsScenesTable).where(eq(wsScenesTable.id, req.params.id as string));
+    const sceneId = req.params.id as string;
+    const [scene] = await db.select().from(wsScenesTable).where(eq(wsScenesTable.id, sceneId)).limit(1);
+    if (!scene) { res.status(404).json({ error: "Scene not found." }); return; }
+    await db.transaction(async tx => {
+      await tx.delete(wsScenesTable).where(eq(wsScenesTable.id, sceneId));
+      const remaining = await tx.select({ id: wsScenesTable.id }).from(wsScenesTable)
+        .where(eq(wsScenesTable.actId, scene.actId))
+        .orderBy(wsScenesTable.sceneNumber, wsScenesTable.createdAt, wsScenesTable.id);
+      await Promise.all(remaining.map((item, index) =>
+        tx.update(wsScenesTable)
+          .set({ sceneNumber: index + 1 })
+          .where(eq(wsScenesTable.id, item.id)),
+      ));
+    });
     res.status(204).end();
   } catch (err) {
     logger.error({ err }, "editorial: delete scene");

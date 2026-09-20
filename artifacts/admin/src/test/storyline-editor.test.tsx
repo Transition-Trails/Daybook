@@ -175,4 +175,77 @@ describe("StorylineEditor", () => {
     expect(await screen.findByRole("heading", { name: "The First Crossing — Storyline" })).toBeInTheDocument();
     expect(screen.getByText("A winter crossing shaped by Wychcombe Canon")).toBeInTheDocument();
   });
+
+  it("reorders scenes within a movement and moves them to another movement", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/stories/story-scenes") {
+        return Promise.resolve({
+          story: {
+            id: "story-scenes",
+            worldId: "world-wychcombe",
+            title: "The Winter Passage",
+            summary: "",
+            status: "draft",
+            acts: [
+              { id: "act-1", storyId: "story-scenes", actNumber: 1, title: "Departure", tagline: "", narrative: "" },
+              { id: "act-2", storyId: "story-scenes", actNumber: 2, title: "Arrival", tagline: "", narrative: "" },
+            ],
+          },
+        });
+      }
+      if (path === "/v1/editorial/stories/story-scenes/scenes") {
+        return Promise.resolve({
+          scenes: [
+            { id: "scene-1", actId: "act-1", storyId: "story-scenes", worldId: "world-wychcombe", sceneNumber: 1, title: "Pack the Cart", body: "", attributes: {}, canonRecords: [] },
+            { id: "scene-2", actId: "act-1", storyId: "story-scenes", worldId: "world-wychcombe", sceneNumber: 2, title: "Close the Gate", body: "", attributes: {}, canonRecords: [] },
+            { id: "scene-3", actId: "act-2", storyId: "story-scenes", worldId: "world-wychcombe", sceneNumber: 1, title: "Reach the Inn", body: "", attributes: {}, canonRecords: [] },
+          ],
+        });
+      }
+      if (path === "/v1/editorial/scenes/scene-2/move" && init?.method === "POST") {
+        return Promise.resolve({
+          scenes: [
+            { id: "scene-2", actId: "act-1", sceneNumber: 1 },
+            { id: "scene-1", actId: "act-1", sceneNumber: 2 },
+          ],
+        });
+      }
+      if (path === "/v1/editorial/scenes/scene-1/move" && init?.method === "POST") {
+        return Promise.resolve({
+          scenes: [
+            { id: "scene-2", actId: "act-1", sceneNumber: 1 },
+            { id: "scene-3", actId: "act-2", sceneNumber: 1 },
+            { id: "scene-1", actId: "act-2", sceneNumber: 2 },
+          ],
+        });
+      }
+      if (path.includes("/beats")) return Promise.resolve({ beats: [] });
+      if (path.includes("/reveals")) return Promise.resolve({ reveals: [] });
+      if (path.includes("/context-snapshot")) return Promise.resolve({ snapshot: { status: "not_generated" } });
+      if (path.includes("/field-context")) return Promise.resolve({ context: { prompt: "", warnings: [], attributions: [] } });
+      return Promise.resolve({});
+    });
+
+    renderEditor("story-scenes");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Move Close the Gate up" }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/scenes/scene-2/move",
+      {
+        method: "POST",
+        body: JSON.stringify({ act_id: "act-1", scene_number: 1 }),
+      },
+    ));
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Move Pack the Cart to movement" }), {
+      target: { value: "act-2" },
+    });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/scenes/scene-1/move",
+      {
+        method: "POST",
+        body: JSON.stringify({ act_id: "act-2", scene_number: 2 }),
+      },
+    ));
+  });
 });

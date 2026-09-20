@@ -2800,10 +2800,6 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
     res.status(400).json({ error: "Keep the reference image prompt under 2,000 characters." });
     return;
   }
-  if (generationMode === "primary_portrait" && canon_type !== "character") {
-    res.status(400).json({ error: "Primary Canon portraits are available for character records." });
-    return;
-  }
   if (related_record_ids !== undefined && !Array.isArray(related_record_ids)) {
     res.status(400).json({ error: "Related Canon records must be supplied as a list." });
     return;
@@ -2880,6 +2876,7 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
       ? imagePromptExcerpt(sourceRecord.promptSummary, 3_500)
       : "";
     const currentIdentitySummary = generationMode === "primary_portrait"
+      && canon_type === "character"
       && sourceRecord
       && canonSummaryStatus(sourceRecord, "identity") === "current"
       ? imagePromptExcerpt(sourceRecord.identitySummary, 2_000)
@@ -2904,7 +2901,7 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
       related.historicalContext ? `Historical context: ${imagePromptExcerpt(related.historicalContext, 200)}` : "",
     ].filter(Boolean).join("\n"), 1_200)).join("\n\n");
 
-    const subjectGuidance = generationMode === "primary_portrait"
+    const subjectGuidance = generationMode === "primary_portrait" && canon_type === "character"
       ? [
           "Create the authoritative Primary Canon Portrait for this character.",
           "Show one character only, isolated and centered, in a head-and-shoulders or waist-up portrait.",
@@ -2913,13 +2910,21 @@ router.post("/v1/editorial/canon-records/generate-image", async (req: Request, r
           "Prioritize repeatable facial identity, hair, complexion, age, posture, and defining wardrobe details.",
           "No environment, narrative scene, furniture, handheld props, other people, decorative border, vignette, or dramatic action.",
         ].join(" ")
+      : generationMode === "primary_portrait" && canon_type === "object"
+      ? "Create the authoritative Primary Canon Image for this object. Depict the individual object itself as the hero subject, fully visible and isolated on a simple neutral background. Prioritize repeatable materials, construction, wear, proportions, markings, and defining details. No surrounding scene, people, hands, decorative border, vignette, or unrelated props."
+      : generationMode === "primary_portrait" && canon_type === "location"
+      ? "Create the authoritative Primary Canon Image for this location. Show one clear, stable establishing view that defines its architecture, materials, scale, spatial relationships, and repeatable landmarks. Avoid dramatic action, crowds, decorative borders, or unrelated foreground objects."
+      : generationMode === "primary_portrait"
+      ? `Create the authoritative Primary Canon Image for this ${canon_type || "canon subject"}. Show one clear, stable composition that makes its defining visual traits repeatable in later production work. Keep the subject fully visible and avoid unrelated objects, decorative borders, or dramatic action.`
       : canon_type === "object"
       ? "Depict the individual object itself as the hero subject, not a scene. Keep it fully visible, isolated, and easy to reuse in future ephemera, paper, or product compositions."
       : "Depict one clear, recognisable visual reference for this canon subject. Keep the main subject fully visible with clean space around it for reuse in future production work.";
 
     const prompt = boundedImagePrompt([
       generationMode === "primary_portrait"
-        ? "Create a square, production-ready isolated character portrait."
+        ? canon_type === "character"
+          ? "Create a square, production-ready isolated character portrait."
+          : "Create a square, production-ready Primary Canon Image."
         : "Create a square, production-ready canon reference illustration.",
       `Canon type: ${canon_type || "canon item"}.`,
       `Canon name: ${name.trim()}.`,

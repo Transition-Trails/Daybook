@@ -196,6 +196,7 @@ function ImageField({
   relatedRecords,
   selectedRelatedRecordIds,
   canGeneratePrimary,
+  canonType,
   onUpload,
   onGenerate,
   onRemove,
@@ -210,6 +211,7 @@ function ImageField({
   relatedRecords: CanonImageRelation[];
   selectedRelatedRecordIds: string[];
   canGeneratePrimary: boolean;
+  canonType: string;
   onUpload: (file: File) => Promise<boolean>;
   onGenerate: (mode: "primary_portrait" | "reference") => void;
   onRemove: (imageUrl: string) => void;
@@ -221,13 +223,14 @@ function ImageField({
   const hasImages = images.length > 0;
   const primary = images[0];
   const additional = images.slice(1);
+  const primaryLabel = canonType === "character" ? "Primary Canon portrait" : "Primary Canon image";
   return (
     <section className="rounded-2xl border p-5" style={{ background: "white", borderColor: BORDER }}>
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
           <h2 className="text-sm font-semibold" style={{ color: INK }}>Canon images</h2>
           <p className="mt-1 text-xs leading-relaxed" style={{ color: "#667085" }}>
-            Capture one primary Canon portrait, then add named supporting images with descriptions.
+            Capture one primary Canon image, then add named supporting images with descriptions.
           </p>
         </div>
         <span className="text-[11px] font-semibold" style={{ color: "var(--admin-muted)" }}>
@@ -239,7 +242,7 @@ function ImageField({
           <div>
             <div className="mb-2 flex items-center justify-between">
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: INK }}>Primary Canon portrait</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: INK }}>{primaryLabel}</h3>
                 <p className="mt-0.5 text-[11px]" style={{ color: "var(--admin-muted)" }}>The authoritative image used across the Canon Library.</p>
               </div>
               <button
@@ -254,7 +257,7 @@ function ImageField({
               </button>
             </div>
             <div className="relative aspect-[4/3] overflow-hidden rounded-xl border mb-3" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
-              <img src={`/api/storage${primary!.url}`} alt="Primary Canon portrait" className="h-full w-full object-contain" />
+              <img src={`/api/storage${primary!.url}`} alt={primaryLabel} className="h-full w-full object-contain" />
               <span className="absolute bottom-2 left-2 rounded-full bg-[var(--admin-ink)] px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-white">
                 Primary
               </span>
@@ -464,7 +467,7 @@ function ImageField({
         >
           <span className="flex w-full flex-col items-center justify-center gap-2 px-5 py-7">
             {uploading || generating ? <Loader2 className="h-6 w-6 animate-spin" style={{ color: CLAY }} /> : <ImageIcon className="h-6 w-6" style={{ color: "#A49687" }} />}
-            <span className="text-xs font-semibold" style={{ color: INK }}>{generating ? "Generating portrait…" : uploading ? "Uploading portrait…" : "Add the primary Canon portrait"}</span>
+            <span className="text-xs font-semibold" style={{ color: INK }}>{generating ? `Generating ${canonType === "character" ? "portrait" : "image"}…` : uploading ? "Uploading image…" : `Add the ${primaryLabel.toLowerCase()}`}</span>
             <span className="text-[11px]" style={{ color: "#7C6F62" }}>JPEG, PNG, WebP, GIF, or AVIF · up to 8 MB</span>
           </span>
         </button>
@@ -482,9 +485,13 @@ function ImageField({
       )}
       {!hasImages && canGeneratePrimary && (
         <div className="mt-3 rounded-xl border p-3" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
-          <p className="text-[11px] font-semibold" style={{ color: INK }}>Start with the character’s identity image</p>
+          <p className="text-[11px] font-semibold" style={{ color: INK }}>
+            {canonType === "character" ? "Start with the character’s identity image" : `Generate the authoritative image for this ${canonType || "Canon record"}`}
+          </p>
           <p className="mt-1 text-[10px] leading-relaxed" style={{ color: "var(--admin-muted)" }}>
-            Generate an isolated, neutral-background portrait grounded in this character’s Canon. You can add described reference scenes after it is created.
+            {canonType === "character"
+              ? "Generate an isolated, neutral-background portrait grounded in this character’s Canon. You can add described reference scenes after it is created."
+              : "Generate a clear primary image grounded in this record’s Canon and world direction. You can add described supporting images after it is created."}
           </p>
           <button
             type="button"
@@ -495,13 +502,13 @@ function ImageField({
             style={{ background: INK }}
           >
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {generating ? "Generating portrait…" : "Generate Primary Canon Portrait"}
+            {generating ? "Generating primary image…" : canonType === "character" ? "Generate Primary Canon Portrait" : "Generate Primary Canon Image"}
           </button>
         </div>
       )}
       {!hasImages && !canGeneratePrimary && (
         <p className="mt-3 text-[10px] leading-relaxed" style={{ color: "var(--admin-muted)" }}>
-          Upload the primary Canon image above. Described reference generation becomes available after the primary image is added.
+          Save and name this Canon record before generating its primary image.
         </p>
       )}
       {hasImages && <div className="mt-4 rounded-xl border p-3" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
@@ -1163,7 +1170,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           const image: CanonImage = {
             url: objectPath,
             name: generatedMetadata?.name ?? (current.images.length === 0
-              ? "Primary Canon portrait"
+              ? "Primary Canon image"
               : file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim()),
             description: generatedMetadata?.description ?? "",
             ...generatedMetadata,
@@ -1221,14 +1228,22 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         { type: blob.type || "image/png" },
       );
       const uploaded = await handleImageUpload(generatedFile, {
-        name: mode === "primary_portrait" ? "Primary Canon portrait" : undefined,
+        name: mode === "primary_portrait"
+          ? (form.canonType === "character" ? "Primary Canon portrait" : "Primary Canon image")
+          : undefined,
         description: mode === "primary_portrait"
-          ? `Isolated Primary Canon Portrait of ${form.name.trim()}.`
+          ? (form.canonType === "character"
+            ? `Isolated Primary Canon Portrait of ${form.name.trim()}.`
+            : `Primary Canon image of ${form.name.trim()}.`)
           : imagePrompt.trim(),
-        role: mode === "primary_portrait" ? "primary_portrait" : "generated_concept",
+        role: mode === "primary_portrait"
+          ? (form.canonType === "character" ? "primary_portrait" : "primary_image")
+          : "generated_concept",
         rightsStatus: "generated",
         workflowStatus: mode === "primary_portrait" ? "approved" : "draft",
-        generationPrompt: mode === "reference" ? imagePrompt.trim() : "Governed Primary Canon Portrait",
+        generationPrompt: mode === "reference"
+          ? imagePrompt.trim()
+          : (form.canonType === "character" ? "Governed Primary Canon Portrait" : "Governed Primary Canon Image"),
         canonicalStrength: mode === "primary_portrait" ? "canonical" : "reference",
         generationModel: result.generation?.model,
         source: "generated",
@@ -1236,7 +1251,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       });
       if (!uploaded) return;
       toast({
-        title: mode === "primary_portrait" ? "Primary Canon Portrait generated" : "Reference image generated",
+        title: mode === "primary_portrait"
+          ? (form.canonType === "character" ? "Primary Canon Portrait generated" : "Primary Canon image generated")
+          : "Reference image generated",
         description: "It is ready to save with this canon record.",
       });
     } catch (error) {
@@ -1721,7 +1738,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               prompt={imagePrompt}
               relatedRecords={imageRelations}
               selectedRelatedRecordIds={imageRelatedRecordIds}
-              canGeneratePrimary={form.canonType === "character"}
+              canGeneratePrimary={Boolean(form.name.trim())}
+              canonType={form.canonType}
               onUpload={handleImageUpload}
               onGenerate={generateImage}
               onRemove={removeImage}

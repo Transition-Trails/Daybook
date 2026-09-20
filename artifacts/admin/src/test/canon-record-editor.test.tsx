@@ -51,6 +51,7 @@ describe("CanonRecordEditor", () => {
     expect(screen.getByText(/^Selected:/)).toHaveTextContent("Selected: Object");
     expect(screen.getAllByRole("textbox").some(field => field.textContent === "A weathered diary with family secrets.")).toBe(true);
     expect(screen.getByText("Canon images")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate Primary Canon Image" })).toBeInTheDocument();
   });
 
   it("renders legacy string prompt context without blanking the record editor", async () => {

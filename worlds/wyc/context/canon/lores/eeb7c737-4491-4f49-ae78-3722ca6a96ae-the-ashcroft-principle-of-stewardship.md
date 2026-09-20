@@ -2063,8 +2063,13 @@ When should authority pass to someone else?
 
 What happens when the institution fails to live by the principle it celebrates?
 
+## Related Canon Records
+
+- **related**: Clara Bellamy Ashcroft (`fd7bc083-fe37-4c83-8a9e-b7ac230b4644`)
+- **related**: Elias Ashcroft (`edb29f8a-af50-49fa-bf8c-9c07dadd4ad6`)
+
 ---
 Generated from Daybook
 Record ID: eeb7c737-4491-4f49-ae78-3722ca6a96ae
-Last Updated: 2026-09-19T22:54:37.279Z
-Snapshot Generated: 2026-09-19T22:54:37.544Z
+Last Updated: 2026-09-20T02:05:47.422Z
+Snapshot Generated: 2026-09-20T02:05:47.422Z

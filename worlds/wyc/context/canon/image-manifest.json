@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "world_id": "wyc",
-  "generated_at": "2026-09-20T01:46:22.563Z",
+  "generated_at": "2026-09-20T02:05:47.422Z",
   "records": [
     {
       "canonical_id": "52ab89e3-9679-42e5-9f17-b1299e0b1d31",
@@ -129,11 +129,31 @@
           "role": "primary",
           "relative_path": "assets/characters/789dc8f9-1fcf-4dc3-ae06-a06942496989-eleanor-harcourt/portrait-primary.png",
           "mime_type": "image/png",
+          "width": 1254,
+          "height": 1254,
+          "sha256": "abfe946616c40b00740dd748a143430bfb0ba2291cfdb8b44c3c4fa7e524720a",
+          "source_asset_id": "/objects/uploads/436f2f13-76a2-427a-b80f-8eb4cda2a831",
+          "source_updated_at": "2026-09-20T02:01:01.900Z"
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/characters/789dc8f9-1fcf-4dc3-ae06-a06942496989-eleanor-harcourt/image-reference-01.png",
+          "mime_type": "image/png",
           "width": 1536,
           "height": 1024,
           "sha256": "83c5b42f7cfde6b951be01881579cd8626db545cba2c2f0154c31648667f2b37",
-          "source_asset_id": "/objects/uploads/03b14b19-77f1-4a4d-a44b-643cb1e159b8",
-          "source_updated_at": "2026-09-19T17:16:13.688Z"
+          "source_asset_id": "/objects/uploads/6e96a724-10d2-4beb-b3c2-db40a00addd0",
+          "source_updated_at": "2026-09-20T02:01:14.004Z"
+        },
+        {
+          "role": "reference",
+          "relative_path": "assets/characters/789dc8f9-1fcf-4dc3-ae06-a06942496989-eleanor-harcourt/image-reference-02.png",
+          "mime_type": "image/png",
+          "width": 1254,
+          "height": 1254,
+          "sha256": "955070c425fd861dfd72d3b599779a586477b28897faafb17d4a4c29fb93b2f1",
+          "source_asset_id": "/objects/uploads/ae29eee2-b01c-4711-9def-3cfd161aed13",
+          "source_updated_at": "2026-09-20T02:01:39.809Z"
         }
       ]
     },

@@ -500,6 +500,17 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => saveMutation.mutate()}
+              disabled={!form.title.trim() || saveMutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-45"
+              style={{ background: INK, color: "white" }}
+              data-testid="button-save-storyline-header"
+            >
+              {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookOpen className="h-3.5 w-3.5" />}
+              {isNew ? "Create now" : "Save changes"}
+            </button>
             {!isNew && (
               <button
                 type="button"

@@ -117,7 +117,7 @@ describe("StorylineEditor", () => {
     expect(narrative).toBeDefined();
     narrative!.innerHTML = "<p>A <strong>new</strong> promise.</p>";
     fireEvent.input(narrative!);
-    fireEvent.click(screen.getByRole("button", { name: "Save storyline" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
       "/v1/editorial/stories/story-1",

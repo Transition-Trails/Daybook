@@ -67,11 +67,17 @@ describe("EditorialReviewQueue", () => {
     await waitFor(() => {
       expect(apiFetch).toHaveBeenCalledWith(
         "/v1/editorial/canon-records/suggest",
-        expect.objectContaining({ method: "POST" }),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ world_id: "world-1", force_refresh: true }),
+        }),
       );
       expect(apiFetch).toHaveBeenCalledWith(
         "/v1/editorial/stories/suggest",
-        expect.objectContaining({ method: "POST" }),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ world_id: "world-1", force_refresh: true }),
+        }),
       );
       expect(apiFetch).toHaveBeenCalledWith(
         "/v1/editorial/owner-discoveries/generated",
@@ -81,6 +87,9 @@ describe("EditorialReviewQueue", () => {
         }),
       );
     });
+    expect(await screen.findByTestId("generated-ideas-result")).toHaveTextContent(
+      "2 new ideas added to Discovery Review.",
+    );
   });
 
   it("requires an explanation before a generated idea can be rejected", async () => {

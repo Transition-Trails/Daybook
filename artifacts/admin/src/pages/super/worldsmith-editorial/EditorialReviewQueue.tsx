@@ -8,6 +8,7 @@ import { useEditorialPageFilters } from "./EditorialShell";
 type JsonObject = Record<string, any>;
 type Discovery = JsonObject & { id: string; title?: string; status?: string; decisionStatus?: string; decisionReason?: string | null; revisions?: JsonObject[]; submissionSnapshot?: JsonObject | null; immutableSubmissionSnapshot?: JsonObject | null };
 type SuggestionResponse = { suggestions?: JsonObject[] };
+type GeneratedIdeasResponse = { created_count?: number; skipped_count?: number };
 const statuses = ["all", "submitted", "in_review", "returned", "accepted", "rejected"];
 const label = (value: unknown) => String(value ?? "").replace(/_/g, " ");
 const snapshotOf = (item?: Discovery | null) => item?.immutableSubmissionSnapshot ?? item?.submissionSnapshot ?? {};
@@ -29,6 +30,7 @@ export default function EditorialReviewQueue() {
   const [draft, setDraft] = useState<JsonObject>({});
   const [acceptMode, setAcceptMode] = useState<"existing" | "create">("existing");
   const [canonId, setCanonId] = useState("");
+  const [generationResult, setGenerationResult] = useState<{ created: number; skipped: number } | null>(null);
   const [newCanon, setNewCanon] = useState({ name: "", canon_type: "character", narrative_details: "", historical_context: "", visual_notes: "" });
   const query = useQuery({ queryKey: ["editorial/owner-discoveries", selectedWorldId, status], enabled: Boolean(selectedWorldId), queryFn: () => apiFetch<{ discoveries: Discovery[] }>(`/v1/editorial/owner-discoveries?world_id=${encodeURIComponent(selectedWorldId!)}${status !== "all" ? `&status=${encodeURIComponent(status)}` : ""}`) });
   const canonQuery = useQuery({ queryKey: ["editorial/canon-records", selectedWorldId], enabled: Boolean(selectedWorldId), queryFn: () => apiFetch<{ canon_records: Array<{ id: string; name: string; canonType?: string; canon_type?: string }> }>(`/v1/editorial/canon-records?world_id=${encodeURIComponent(selectedWorldId!)}&limit=300`) });
@@ -50,13 +52,20 @@ export default function EditorialReviewQueue() {
     mutationFn: async () => {
       if (!selectedWorldId) throw new Error("Choose a world first.");
       const [canon, stories] = await Promise.all([
-        apiFetch<SuggestionResponse>("/v1/editorial/canon-records/suggest", { method: "POST", body: JSON.stringify({ world_id: selectedWorldId }) }),
-        apiFetch<SuggestionResponse>("/v1/editorial/stories/suggest", { method: "POST", body: JSON.stringify({ world_id: selectedWorldId }) }),
+        apiFetch<SuggestionResponse>("/v1/editorial/canon-records/suggest", { method: "POST", body: JSON.stringify({ world_id: selectedWorldId, force_refresh: true }) }),
+        apiFetch<SuggestionResponse>("/v1/editorial/stories/suggest", { method: "POST", body: JSON.stringify({ world_id: selectedWorldId, force_refresh: true }) }),
       ]);
       const list = (value: SuggestionResponse) => Array.isArray(value.suggestions) ? value.suggestions : [];
-      return apiFetch("/v1/editorial/owner-discoveries/generated", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ world_id: selectedWorldId, canon_suggestions: list(canon), story_suggestions: list(stories) }) });
+      return apiFetch<GeneratedIdeasResponse>("/v1/editorial/owner-discoveries/generated", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ world_id: selectedWorldId, canon_suggestions: list(canon), story_suggestions: list(stories) }) });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["editorial/owner-discoveries"] }),
+    onMutate: () => setGenerationResult(null),
+    onSuccess: (result) => {
+      setGenerationResult({
+        created: Number(result.created_count ?? 0),
+        skipped: Number(result.skipped_count ?? 0),
+      });
+      qc.invalidateQueries({ queryKey: ["editorial/owner-discoveries"] });
+    },
   });
   const updateDraft = (key: string, value: string) => setDraft(current => ({ ...current, [key]: value }));
   const editable = useMemo(() => selectedKind === "canon_idea" ? ["name", "canonType", "narrativeDetails", "rationale"] : ["title", "narrativePromise", "rationale", "recommendedStatus"], [selectedKind]);
@@ -81,9 +90,10 @@ export default function EditorialReviewQueue() {
   return <div className="flex h-full min-h-0 flex-col bg-[#FAF9F7]">
     <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#E5E7EB] bg-white px-6 py-4">
       <div><p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#C87560]">Editorial</p><h1 className="font-display text-xl font-semibold text-[#1B2A4A]" data-testid="heading-discovery-review">Discovery Review</h1><p className="mt-0.5 text-xs text-gray-500">{pending} item{pending === 1 ? "" : "s"} needing editorial attention</p></div>
-      <div className="flex items-center gap-2"><button type="button" data-testid="button-generate-ideas" disabled={!selectedWorldId || generate.isPending} onClick={() => generate.mutate()} className="inline-flex items-center gap-1.5 rounded-lg bg-[#C87560] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" />{generate.isPending ? "Generating…" : "Generate ideas"}</button><select data-testid="select-discovery-status-header" value={status} onChange={e => setStatus(e.target.value)} className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-xs">{statuses.map(item => <option key={item} value={item}>{item === "all" ? "All statuses" : label(item)}</option>)}</select></div>
+      <div className="flex items-center gap-2"><button type="button" data-testid="button-generate-ideas" disabled={!selectedWorldId || generate.isPending} onClick={() => generate.mutate()} className="inline-flex items-center gap-1.5 rounded-lg bg-[#C87560] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" />{generate.isPending ? "Discovering…" : "Discover new ideas"}</button><select data-testid="select-discovery-status-header" value={status} onChange={e => setStatus(e.target.value)} className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-xs">{statuses.map(item => <option key={item} value={item}>{item === "all" ? "All statuses" : label(item)}</option>)}</select></div>
     </header>
     {generate.error && <p className="border-b border-red-200 bg-red-50 px-6 py-2 text-xs text-red-700">Ideas could not be generated. Try again.</p>}
+    {generationResult && <p data-testid="generated-ideas-result" className={`border-b px-6 py-2 text-xs ${generationResult.created > 0 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{generationResult.created > 0 ? `${generationResult.created} new idea${generationResult.created === 1 ? "" : "s"} added to Discovery Review.${generationResult.skipped > 0 ? ` ${generationResult.skipped} duplicate${generationResult.skipped === 1 ? "" : "s"} skipped.` : ""}` : "No new ideas were added. The generated suggestions matched ideas already in Discovery Review."}</p>}
     {!selectedWorldId ? <div className="p-8 text-sm text-gray-500">Select a world to review discoveries.</div> : <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto lg:grid-cols-[minmax(240px,0.8fr)_minmax(0,2fr)]">
       <aside className="border-r border-[#E5E7EB] bg-white p-3">{query.isLoading && <Loader2 className="mx-auto my-8 h-5 w-5 animate-spin text-[#C87560]" />}{query.error && <p className="p-4 text-xs text-red-600">Unable to load the discovery queue.</p>}{!query.isLoading && !discoveries.length && <p className="p-4 text-xs text-gray-500">No discoveries match this filter.</p>}<div className="space-y-1">{discoveries.map(item => { const k = kindOf(item); const s = String(item.status ?? item.decisionStatus ?? "submitted"); return <button type="button" key={item.id} data-testid={`button-discovery-${item.id}`} onClick={() => { setSelectedId(item.id); setDraft(snapshotOf(item)); }} className={`w-full rounded-lg p-3 text-left ${selected?.id === item.id ? "bg-[#F8EDEA]" : "hover:bg-gray-50"}`}><div className="flex items-center gap-2"><FileText className="h-4 w-4 shrink-0 text-[#C87560]" /><span className="truncate text-sm font-medium text-[#1B2A4A]">{item.title ?? snapshotOf(item).name ?? "Untitled discovery"}</span><ChevronRight className="ml-auto h-3.5 w-3.5 text-gray-400" /></div><div className="mt-1 flex items-center gap-1 text-[10px] text-gray-500"><span className="rounded-full bg-[#F3F4F6] px-1.5 py-0.5">{kindLabel(k)}</span><Clock className="h-3 w-3" />{label(s)}</div></button>; })}</div></aside>
       {selected ? <main className="space-y-4 p-5 lg:p-7"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-[#C87560]">{kindLabel(selectedKind)}</div><h2 className="font-display text-lg font-semibold text-[#1B2A4A]">{selected.title ?? selectedSnapshot.name ?? "Untitled discovery"}</h2><p className="text-xs text-gray-500">Submission {selected.id}</p></div><span data-testid="status-selected-discovery" className="rounded-full bg-[#F3F4F6] px-3 py-1 text-xs font-medium text-gray-600">{label(selectedStatus)}</span></div>

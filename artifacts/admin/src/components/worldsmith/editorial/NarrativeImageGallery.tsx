@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, Loader2, Sparkles, Trash2 } from "lucide-react";
+import { Download, ImagePlus, Loader2, Sparkles, Trash2, X } from "lucide-react";
 import { apiFetch, storageApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
@@ -19,6 +19,20 @@ export interface NarrativeImage {
 
 const ACCEPTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+function imageDownloadName(image: NarrativeImage): string {
+  const name = image.title.replace(/[^a-z0-9-_ ]/gi, "").trim().replace(/\s+/g, "-").slice(0, 100) || "image";
+  const extension = ({
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/avif": "avif",
+  } as Record<string, string>)[image.mimeType ?? ""]
+    ?? image.objectPath.split(".").pop()?.match(/^(png|jpe?g|webp|gif|avif)$/i)?.[0]?.toLowerCase()
+    ?? "png";
+  return `${name}.${extension}`;
+}
 
 export function NarrativeImageGallery({
   worldId,
@@ -40,6 +54,20 @@ export function NarrativeImageGallery({
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [imagePrompt, setImagePrompt] = useState("");
+  const [selectedImage, setSelectedImage] = useState<NarrativeImage | null>(null);
+  const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const closePreview = () => {
+    setSelectedImage(null);
+    previewTriggerRef.current?.focus();
+  };
+  useEffect(() => {
+    if (!selectedImage) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePreview();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [selectedImage]);
   const queryKey = ["editorial-narrative-images", worldId, storyId];
   const { data, error: loadError } = useQuery<{ images: NarrativeImage[] }>({
     queryKey,
@@ -207,10 +235,20 @@ export function NarrativeImageGallery({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {images.map(image => (
             <div key={image.id} className="group relative overflow-hidden rounded-lg border bg-gray-50">
-              <img src={`/api/storage${image.objectPath}`} alt={image.altText || image.title} className="aspect-video h-full w-full object-cover" />
-              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent p-2 pt-8">
+              <button
+                type="button"
+                aria-label={`Open full image: ${image.title}`}
+                onClick={event => {
+                  previewTriggerRef.current = event.currentTarget;
+                  setSelectedImage(image);
+                }}
+                className="block w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--admin-ink)]"
+              >
+                <img src={`/api/storage${image.objectPath}`} alt={image.altText || image.title} className="aspect-video h-full w-full object-cover" />
+              </button>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent p-2 pt-8">
                 <span className="truncate text-[11px] font-medium text-white">{image.title}</span>
-                <button type="button" aria-label={`Remove ${image.title}`} onClick={() => remove(image)} disabled={busy} className="rounded bg-black/30 p-1 text-white hover:bg-red-600">
+                <button type="button" aria-label={`Remove ${image.title}`} onClick={() => remove(image)} disabled={busy} className="pointer-events-auto rounded bg-black/30 p-1 text-white hover:bg-red-600">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -219,6 +257,44 @@ export function NarrativeImageGallery({
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-gray-300 px-4 py-5 text-center text-xs text-gray-400">No linked images yet.</div>
+      )}
+      {selectedImage && (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 sm:p-8"
+          onMouseDown={event => { if (event.target === event.currentTarget) closePreview(); }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`image-preview-title-${selectedImage.id}`}
+            className="flex max-h-[95vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
+              <h2 id={`image-preview-title-${selectedImage.id}`} className="truncate text-sm font-semibold text-gray-800">{selectedImage.title}</h2>
+              <button type="button" onClick={closePreview} autoFocus aria-label="Close image preview" className="rounded-lg p-2 text-gray-600 hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--admin-ink)]">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center bg-gray-100 p-2">
+              <img
+                src={`/api/storage${selectedImage.objectPath}`}
+                alt={selectedImage.altText || selectedImage.title}
+                className="max-h-[calc(95vh-125px)] max-w-full object-contain"
+              />
+            </div>
+            <div className="flex justify-end border-t px-4 py-3">
+              <a
+                href={`/api/storage${selectedImage.objectPath}`}
+                download={imageDownloadName(selectedImage)}
+                className="inline-flex items-center gap-2 rounded-lg bg-[var(--admin-ink)] px-4 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--admin-ink)]"
+              >
+                <Download className="h-4 w-4" />
+                Download original
+              </a>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

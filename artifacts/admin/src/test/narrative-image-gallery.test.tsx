@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { apiFetch, requestUploadUrl, deleteObject, toast } = vi.hoisted(() => ({
@@ -112,5 +112,42 @@ describe("NarrativeImageGallery", () => {
     ));
     expect(requestUploadUrl).toHaveBeenCalledOnce();
     expect(screen.getByTestId("input-act-image-prompt-act-2")).toHaveValue("");
+  });
+
+  it("opens the original movement image and offers a named download without removing it", async () => {
+    const image = {
+      id: "img-1",
+      worldId: "world-1",
+      storyId: "story-1",
+      actId: "act-2",
+      title: "Glasshouse arrival",
+      altText: "Two people in a glasshouse",
+      objectPath: "/objects/story-reference.png",
+      mimeType: "image/png",
+    };
+    apiFetch.mockImplementation((path: string) => (
+      path.startsWith("/v1/editorial/narrative-images?")
+        ? Promise.resolve({ images: [image] })
+        : Promise.resolve({ image })
+    ));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <NarrativeImageGallery worldId="world-1" storyId="story-1" targetType="act" targetId="act-2" />
+      </QueryClientProvider>,
+    );
+
+    const open = await screen.findByRole("button", { name: "Open full image: Glasshouse arrival" });
+    fireEvent.click(open);
+    const dialog = screen.getByRole("dialog", { name: "Glasshouse arrival" });
+    expect(within(dialog).getByRole("img", { name: "Two people in a glasshouse" }))
+      .toHaveAttribute("src", "/api/storage/objects/story-reference.png");
+    expect(within(dialog).getByRole("link", { name: "Download original" }))
+      .toHaveAttribute("download", "Glasshouse-arrival.png");
+    expect(within(dialog).getByRole("link", { name: "Download original" }))
+      .toHaveAttribute("href", "/api/storage/objects/story-reference.png");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(open).toHaveFocus();
+    expect(apiFetch).not.toHaveBeenCalledWith(expect.stringContaining("/narrative-images/img-1"), expect.anything());
   });
 });

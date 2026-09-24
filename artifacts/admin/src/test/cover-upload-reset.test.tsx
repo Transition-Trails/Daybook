@@ -71,6 +71,7 @@ const MOCK_WORLD = {
   name: "The Verdant Realms",
   code: "VR",
   description: "A living world of ancient forests.",
+  visualPalette: "",
   status: "active" as const,
   coverColor: "#2D4A2D",
   coverAccent: "#8FAF6D",
@@ -179,6 +180,32 @@ describe("cover upload — input reset", () => {
       "value",
     )!;
     ({ getResetCount } = installValueSetterSpy(originalDescriptor));
+  });
+
+  it("shows more of the world cover and collapses the Bible preview without losing its content", async () => {
+    renderApp({
+      ...MOCK_WORLD_WITH_COVER,
+      visualPalette: "<p>A garden of amber glass.</p>",
+    });
+    await navigateToWorld();
+
+    expect(screen.getByTestId("world-hero")).toHaveClass("md:min-h-[300px]");
+    expect(screen.getByTestId("world-cover-image")).toBeInTheDocument();
+    const toggle = screen.getByTestId("button-toggle-world-bible-preview");
+    const preview = document.getElementById("world-bible-preview");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(preview).not.toHaveAttribute("hidden");
+    expect(preview).toHaveTextContent("A garden of amber glass.");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(preview).toHaveAttribute("hidden");
+    expect(screen.getByTestId("button-edit-world-bible")).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(preview).not.toHaveAttribute("hidden");
+    expect(preview).toHaveTextContent("A garden of amber glass.");
   });
 
   afterEach(() => {

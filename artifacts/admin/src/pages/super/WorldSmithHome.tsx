@@ -777,7 +777,7 @@ function FocusedWorldView({
       {/* World hero */}
       <div
         data-testid="world-hero"
-        className="rounded-2xl overflow-hidden border border-border relative group/hero"
+        className="rounded-2xl overflow-hidden border border-border relative group/hero min-h-[220px] md:min-h-[300px]"
         style={{ background: world.coverColor }}
       >
         {world.coverImageUrl && (
@@ -991,6 +991,7 @@ function OverviewSection({
   onGoToBible: () => void;
   storeId?: string;
 }) {
+  const [bibleExpanded, setBibleExpanded] = useState(true);
   const byState = {
     total: assets.length,
     underReview: assets.filter(a => a.readinessState === "Under Review").length,
@@ -1083,12 +1084,25 @@ function OverviewSection({
         )}
       </div>
 
-      {/* World Bible — always visible; Edit opens the dedicated editorial studio */}
+      {/* World Bible preview; Edit opens the dedicated editorial studio */}
       <div className="md:col-span-2 rounded-xl border border-border bg-card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">World Bible &amp; Rules</p>
+        <div className={`flex items-center justify-between gap-3 ${bibleExpanded ? "mb-4" : ""}`}>
           <button
+            type="button"
+            data-testid="button-toggle-world-bible-preview"
+            aria-expanded={bibleExpanded}
+            aria-controls="world-bible-preview"
+            onClick={() => setBibleExpanded(expanded => !expanded)}
+            className="flex min-w-0 items-center gap-2 text-left text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground hover:text-foreground"
+          >
+            <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${bibleExpanded ? "" : "-rotate-90"}`} />
+            World Bible &amp; Rules
+            <span className="sr-only">{bibleExpanded ? "Collapse" : "Expand"}</span>
+          </button>
+          <button
+            type="button"
             onClick={onGoToBible}
+            data-testid="button-edit-world-bible"
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-medium bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
           >
             <Pencil className="w-3 h-3" />
@@ -1096,6 +1110,7 @@ function OverviewSection({
           </button>
         </div>
 
+        <div id="world-bible-preview" hidden={!bibleExpanded}>
         {/* Empty state */}
         {!world.worldRules?.length && !world.visualPalette && !world.proseVoice && !world.atmosphericNotes && !world.materialWorld ? (
           <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
@@ -1151,6 +1166,7 @@ function OverviewSection({
             )}
           </div>
         )}
+        </div>
       </div>
 
       {/* Recent runs (last 5) */}

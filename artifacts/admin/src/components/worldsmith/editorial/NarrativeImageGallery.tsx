@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { ImagePlus, Loader2, Sparkles, Trash2 } from "lucide-react";
 import { apiFetch, storageApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
@@ -39,8 +39,9 @@ export function NarrativeImageGallery({
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
-  const queryKey = ["editorial-narrative-images", storyId];
-  const { data } = useQuery<{ images: NarrativeImage[] }>({
+  const [imagePrompt, setImagePrompt] = useState("");
+  const queryKey = ["editorial-narrative-images", worldId, storyId];
+  const { data, error: loadError } = useQuery<{ images: NarrativeImage[] }>({
     queryKey,
     queryFn: () => apiFetch(`/v1/editorial/narrative-images?world_id=${encodeURIComponent(worldId)}&story_id=${encodeURIComponent(storyId)}`),
   });
@@ -52,18 +53,15 @@ export function NarrativeImageGallery({
         : image.sceneId === targetId
   ));
 
-  const upload = async (file?: File) => {
-    if (!file) return;
+  const saveFile = async (file: File, imageTitle?: string) => {
     if (!ACCEPTED_TYPES.has(file.type)) {
-      toast({ title: "Use an image file", description: "Choose a JPEG, PNG, WebP, GIF, or AVIF image.", variant: "destructive" });
-      return;
+      throw new Error("Choose a JPEG, PNG, WebP, GIF, or AVIF image.");
     }
     if (file.size > MAX_IMAGE_BYTES) {
-      toast({ title: "Image is too large", description: "Choose an image smaller than 8 MB.", variant: "destructive" });
-      return;
+      throw new Error("Choose an image smaller than 8 MB.");
     }
-    setBusy(true);
     let objectPath: string | undefined;
+    let linked = false;
     try {
       const uploadTarget = await storageApi.requestUploadUrl(file.name, file.size, file.type);
       objectPath = uploadTarget.objectPath;
@@ -80,21 +78,70 @@ export function NarrativeImageGallery({
           story_id: storyId,
           target_type: targetType,
           target_id: targetId,
-          title: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim() || "Story reference",
+          title: imageTitle?.slice(0, 240) || file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim() || "Story reference",
           alt_text: "",
           object_path: objectPath,
           mime_type: file.type,
           byte_size: file.size,
         }),
       });
-      await queryClient.invalidateQueries({ queryKey });
-      toast({ title: "Image uploaded", description: `Linked to this ${targetType === "act" ? "movement" : targetType}.` });
+      linked = true;
     } catch (error) {
-      if (objectPath) await storageApi.deleteObject(objectPath).catch(() => undefined);
-      toast({ title: "Image upload failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+      if (objectPath && !linked) await storageApi.deleteObject(objectPath).catch(() => undefined);
+      throw error;
+    }
+  };
+
+  const upload = async (files?: FileList | null) => {
+    if (!files?.length || busy) return;
+    setBusy(true);
+    let saved = 0;
+    try {
+      for (const file of Array.from(files)) {
+        await saveFile(file);
+        saved++;
+      }
+      await queryClient.invalidateQueries({ queryKey });
+      toast({ title: `${saved} image${saved === 1 ? "" : "s"} uploaded`, description: `Linked to this ${targetType === "act" ? "movement" : targetType}.` });
+    } catch (error) {
+      if (saved) await queryClient.invalidateQueries({ queryKey });
+      toast({ title: "Image upload failed", description: `${saved ? `${saved} image(s) saved. ` : ""}${error instanceof Error ? error.message : "Please try again."}`, variant: "destructive" });
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  const generate = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await apiFetch<{ image_data_url: string }>(
+        "/v1/editorial/narrative-images/generate", {
+          method: "POST",
+          body: JSON.stringify({
+            world_id: worldId,
+            story_id: storyId,
+            target_type: targetType,
+            target_id: targetId,
+            prompt: imagePrompt.trim(),
+          }),
+        },
+      );
+      const response = await fetch(result.image_data_url);
+      if (!response.ok) throw new Error("The generated image could not be prepared for saving.");
+      const blob = await response.blob();
+      const type = blob.type || "image/png";
+      const extension = type === "image/jpeg" ? "jpg" : type.split("/")[1] || "png";
+      const file = new File([blob], `generated-${targetType}-${Date.now()}.${extension}`, { type });
+      await saveFile(file, imagePrompt.trim().slice(0, 240) || `Generated ${targetType === "act" ? "movement" : "storyline"} image`);
+      await queryClient.invalidateQueries({ queryKey });
+      setImagePrompt("");
+      toast({ title: "Image generated and saved", description: `Linked to this ${targetType === "act" ? "movement" : "storyline"}.` });
+    } catch (error) {
+      toast({ title: "Could not generate image", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -123,13 +170,39 @@ export function NarrativeImageGallery({
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={busy}
+          data-testid={`button-upload-${targetType}-image-${targetId}`}
           className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold text-[#1B2A4A] hover:bg-gray-50 disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
           Upload image
         </button>
-        <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" className="hidden" onChange={event => upload(event.target.files?.[0])} />
+        <input ref={inputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/avif" className="hidden" onChange={event => upload(event.target.files)} />
       </div>
+      {targetType !== "scene" && <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-[160px] flex-1 text-xs text-gray-600">
+          Image direction (optional)
+          <input
+            type="text"
+            data-testid={`input-${targetType}-image-prompt-${targetId}`}
+            value={imagePrompt}
+            onChange={event => setImagePrompt(event.target.value)}
+            maxLength={4000}
+            placeholder="A scene, place, or motif to depict"
+            className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-800"
+          />
+        </label>
+        <button
+          type="button"
+          data-testid={`button-generate-${targetType}-image-${targetId}`}
+          onClick={generate}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--admin-ink)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {busy ? "Working…" : "Generate image"}
+        </button>
+      </div>}
+      {loadError && <p role="alert" className="text-xs text-red-700">Images could not be loaded. Try reloading this page.</p>}
       {images.length > 0 ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {images.map(image => (

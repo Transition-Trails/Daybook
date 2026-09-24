@@ -65,4 +65,52 @@ describe("NarrativeImageGallery", () => {
     );
     expect(screen.getByText("Movement 2 images")).toBeInTheDocument();
   });
+
+  it("uploads multiple selected images as separate storyline records", async () => {
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <NarrativeImageGallery worldId="world-1" storyId="story-1" targetType="story" targetId="story-1" />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: [
+        new File(["a"], "first.png", { type: "image/png" }),
+        new File(["b"], "second.png", { type: "image/png" }),
+      ] },
+    });
+    await waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path === "/v1/editorial/narrative-images")).toHaveLength(2));
+    const saves = apiFetch.mock.calls.filter(([path]) => path === "/v1/editorial/narrative-images");
+    expect(saves.map(([, options]) => JSON.parse(options.body).title)).toEqual(["first", "second"]);
+    expect(saves.every(([, options]) => JSON.parse(options.body).target_type === "story")).toBe(true);
+  });
+
+  it("generates and saves a movement image using the same durable gallery endpoint", async () => {
+    const fileBytes = new Blob(["generated"], { type: "image/png" });
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(url.startsWith("data:")
+        ? { ok: true, blob: () => Promise.resolve(fileBytes) }
+        : { ok: true }),
+    ));
+    apiFetch.mockImplementation((path: string) => {
+      if (path.includes("/generate")) return Promise.resolve({ image_data_url: "data:image/png;base64,aW1hZ2U=" });
+      return Promise.resolve(path.startsWith("/v1/editorial/narrative-images?") ? { images: [] } : { image: { id: "generated-1" } });
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <NarrativeImageGallery worldId="world-1" storyId="story-1" targetType="act" targetId="act-2" />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(screen.getByTestId("input-act-image-prompt-act-2"), { target: { value: "An amber garden" } });
+    fireEvent.click(screen.getByTestId("button-generate-act-image-act-2"));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/narrative-images/generate",
+      expect.objectContaining({ body: expect.stringContaining('"prompt":"An amber garden"') }),
+    ));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/narrative-images",
+      expect.objectContaining({ body: expect.stringContaining('"target_id":"act-2"') }),
+    ));
+    expect(requestUploadUrl).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("input-act-image-prompt-act-2")).toHaveValue("");
+  });
 });

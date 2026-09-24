@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { EditorialRichTextField } from "@/components/EditorialRichText";
+import { NarrativeImageGallery } from "@/components/worldsmith/editorial/NarrativeImageGallery";
 
 interface StoryAct {
   id: string;
@@ -268,6 +269,15 @@ export default function StoriesStudio() {
                   minHeight={150}
                   placeholder="What is this story about? Who is changed by it, and what will a reader carry into the physical world?"
                 />
+                <div className="mt-6">
+                  <NarrativeImageGallery
+                    worldId={selectedWorldId}
+                    storyId={selectedStory.id}
+                    targetType="story"
+                    targetId={selectedStory.id}
+                    title="Storyline images"
+                  />
+                </div>
 
                 <div className="mt-7 flex items-center justify-between gap-3">
                   <div>
@@ -336,6 +346,16 @@ export default function StoriesStudio() {
                             Link canon <ChevronRight className="h-3 w-3" />
                           </span>
                         </Link>
+                      </div>
+                      <div className="mt-4 border-t border-[var(--admin-border)] pt-4">
+                        <NarrativeImageGallery
+                          worldId={selectedWorldId}
+                          storyId={selectedStory.id}
+                          targetType="act"
+                          targetId={act.id}
+                          title={`Movement ${act.actNumber} images`}
+                          compact
+                        />
                       </div>
                     </div>
                   ))}

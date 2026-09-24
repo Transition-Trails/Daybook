@@ -5102,6 +5102,77 @@ router.get("/v1/editorial/narrative-images", async (req: Request, res: Response)
   res.json({ images });
 });
 
+router.post("/v1/editorial/narrative-images/generate", async (req: Request, res: Response) => {
+  const { world_id, story_id, target_type, target_id, prompt: editorPrompt } = req.body ?? {};
+  if (typeof world_id !== "string" || !world_id || typeof story_id !== "string" || !story_id
+    || (target_type !== "story" && target_type !== "act")
+    || typeof target_id !== "string" || !target_id
+    || (editorPrompt !== undefined && (typeof editorPrompt !== "string" || editorPrompt.length > 4000))) {
+    res.status(400).json({ error: "Choose a storyline or movement and provide valid image direction." });
+    return;
+  }
+  if (target_type === "story" && target_id !== story_id) {
+    res.status(400).json({ error: "Storyline image target does not match the selected storyline." });
+    return;
+  }
+  try {
+    const [story] = await db.select().from(wsStoriesTable)
+      .where(and(eq(wsStoriesTable.id, story_id), eq(wsStoriesTable.worldId, world_id))).limit(1);
+    if (!story) { res.status(404).json({ error: "Storyline not found in this world." }); return; }
+
+    const [world] = await db.select({
+      name: worldsmithWorldsTable.name,
+      storeId: worldsmithWorldsTable.storeId,
+      visualPalette: worldsmithWorldsTable.visualPalette,
+      atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
+      materialWorld: worldsmithWorldsTable.materialWorld,
+      worldRules: worldsmithWorldsTable.worldRules,
+    }).from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, world_id)).limit(1);
+    if (!world) { res.status(404).json({ error: "World not found." }); return; }
+
+    let act: typeof wsStoryActsTable.$inferSelect | undefined;
+    if (target_type === "act") {
+      [act] = await db.select().from(wsStoryActsTable)
+        .where(and(eq(wsStoryActsTable.id, target_id), eq(wsStoryActsTable.storyId, story_id),
+          eq(wsStoryActsTable.worldId, world_id))).limit(1);
+      if (!act) { res.status(404).json({ error: "Movement not found in this storyline." }); return; }
+    }
+    const prompt = boundedImagePrompt([
+      `Create a production-ready visual reference for the ${act ? "movement" : "storyline"} below. Depict a distinct moment, place, or motif from this narrative. No text, letters, labels, frames, signatures, or watermarks.`,
+      `World: ${world.name}. Storyline: ${story.title}.`,
+      story.summary && `Story promise: ${editorialRichTextToPlainText(story.summary).slice(0, 5000)}`,
+      act && `Movement ${act.actNumber}: ${act.title}. ${editorialRichTextToPlainText(act.narrative ?? "").slice(0, 5000)}`,
+      world.visualPalette && `Visual palette: ${editorialRichTextToPlainText(world.visualPalette).slice(0, 3000)}`,
+      world.materialWorld && `Materials: ${editorialRichTextToPlainText(world.materialWorld).slice(0, 3000)}`,
+      world.atmosphericNotes && `Atmosphere: ${editorialRichTextToPlainText(world.atmosphericNotes).slice(0, 3000)}`,
+      Array.isArray(world.worldRules) && world.worldRules.length > 0
+        && `World rules: ${world.worldRules.map(rule => editorialRichTextToPlainText(rule)).join("; ").slice(0, 3000)}`,
+      typeof editorPrompt === "string" && editorPrompt.trim() && `Editor image direction: ${editorPrompt.trim()}`,
+      "Respect the established world and storyline. Do not invent named characters, readable symbols, or continuity-defining facts.",
+    ]);
+    const generated = await generateImage(prompt, {
+      size: "1024x1024",
+      quality: "medium",
+      context: {
+        storeId: world.storeId ?? undefined,
+        userId: (req.user as any)?.id,
+        feature: act ? "editorial.movement.generate-image" : "editorial.storyline.generate-image",
+      },
+    });
+    const { dataUrl, ...generation } = generated;
+    res.json({ image_data_url: dataUrl, prompt, generation });
+  } catch (err) {
+    logger.error({ err, worldId: world_id, storyId: story_id, targetType: target_type }, "editorial: generate narrative image");
+    if (err instanceof Error && err.name === "ImageGenerationTimeoutError") {
+      res.status(504).json({ error: "Image generation timed out. Please try again.", retryable: true });
+    } else if (err instanceof Error && err.message.includes("identical image request is already in flight")) {
+      res.status(409).json({ error: "This image is already being generated. Wait for the current request to finish." });
+    } else {
+      res.status(502).json({ error: "Narrative image generation could not be completed." });
+    }
+  }
+});
+
 router.post("/v1/editorial/narrative-images", async (req: Request, res: Response) => {
   const {
     world_id, story_id, target_type, target_id, title, alt_text,

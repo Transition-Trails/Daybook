@@ -6,6 +6,7 @@ id = "DRT1Fbs9sxQgVd6cQfUqB"
 uri = "file://.local/outputs/Daybook-App.pdf"
 type = "pdf"
 title = "Daybook App.pdf"
+logical_id = "afb8ce13-a3a3-4d3b-a2fd-17eca61fd80a"
 
 [[outputs]]
 id = "EovsQvLK7aaM6kriGE6HF"
@@ -13,6 +14,7 @@ uri = "file://proof/2027-monday-vertical.pdf"
 type = "pdf"
 title = "2027 Monday Vertical Planner"
 description = "Verified 452-page Terracotta proof PDF; 7,774 links and zero dead internal links."
+logical_id = "f5bfc242-3885-4b25-a132-4311b8531a4d"
 
 [[outputs]]
 id = "AMNOQpKeTj4jAtB-kgJJb"
@@ -20,6 +22,7 @@ uri = "file://proof/2027-sunday-vertical.pdf"
 type = "pdf"
 title = "2027 Sunday Vertical Planner"
 description = "Verified 452-page Terracotta proof PDF with Sunday-start weekly and month calendars."
+logical_id = "bcfdac7f-98fd-4b75-a70e-d36e6ed5f75a"
 
 [[outputs]]
 id = "BjGLCdMwWMijgSHKxfG5u"
@@ -27,6 +30,7 @@ uri = "file://proof/2027-monday-landscape.pdf"
 type = "pdf"
 title = "2027 Monday Landscape Planner"
 description = "Verified 452-page landscape Terracotta proof PDF."
+logical_id = "06046d6f-bb3c-4cb3-95e8-739e3d5a4bd1"
 
 [[outputs]]
 id = "zvRXRXwRUoNLu1y3QtSQR"
@@ -34,3 +38,32 @@ uri = "file://proof/2027-13month-monday.pdf"
 type = "pdf"
 title = "2027–January 2028 Planner"
 description = "Verified 490-page, 13-month Terracotta proof PDF spanning through January 2028."
+logical_id = "5ff0f980-8a77-4f24-9b3a-f301181ae156"
+
+[[outputs]]
+id = "8rcWgOJcmNNej2RGeE3-s"
+uri = "file://docs/WorldSmith-Canon-Field-Guide.pdf"
+type = "pdf"
+title = "WorldSmith Canon field guide (PDF)"
+description = "Nine record types, shared fields, built-in picklist options, field purposes, and editor-versus-schema distinctions."
+logical_id = "448c5d66-026e-4409-9ce2-6d46182cbec9"
+content_hash = "sha256:8144a9b41ccd4228e9fc81067f8db3a9fe82c90fc3543a02f55ef8125059b8ab"
+size = 485254
+mtime_ms = 1790295473417
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:ab91bd00-435d-4417-93b2-d659cceafa2c/448c5d66-026e-4409-9ce2-6d46182cbec9/4f763459-f785-4629-9e62-368e0dbccd5c"
+storage_version_token = "1790295502868550"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "5YD2BtS5gfu4umpRu3JPn"
+uri = "file://docs/WorldSmith-Canon-Field-Guide.html"
+type = "html"
+title = "WorldSmith Canon field guide (HTML)"
+description = "Searchable, self-contained version of the Canon record reference."
+logical_id = "881899f8-8fd1-49af-a524-a137438445bb"
+content_hash = "sha256:cbb3ca4c18967419f37dded77e1b85f8f7e699709800238c01e8ed41dbdb80e9"
+size = 58903
+mtime_ms = 1790295472470
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:ab91bd00-435d-4417-93b2-d659cceafa2c/881899f8-8fd1-49af-a524-a137438445bb/202caa74-1ca3-4591-8e91-549584db4c90"
+storage_version_token = "1790295503527136"
+content_type = "text/html"

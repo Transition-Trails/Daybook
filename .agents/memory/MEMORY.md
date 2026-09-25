@@ -104,5 +104,6 @@
 - [WorldSmith MCP boundary](worldsmith-mcp-boundary.md) — external canon edits use current user grants and never imply editorial approval
 - [WorldSmith MCP editorial coverage](worldsmith-mcp-editorial-coverage.md) — “stories” means scenes and Story Map, separate from storylines; new edit domains require explicit consent
 - [Wychcombe environment divergence](wychcombe-environment-divergence.md) — development's Wychcombe story is not the populated production source; migrate editorial data separately from schema
+- [Wychcombe mystery placement](wychcombe-mystery-placement.md) — place the four mystery-heavy draft storylines provisionally in Margaret's era, without treating their claims as Canon
 - [MCP refresh-family serialization](mcp-refresh-family-serialization.md) — refresh rotation and family revocation must share a database lock through replacement issuance
 - [Postgres lock-chain tests](postgres-lock-chain-tests.md) — identify concurrent row-lock waiters by blocker chain, not pg_stat_activity query text

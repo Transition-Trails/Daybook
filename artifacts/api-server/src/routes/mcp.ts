@@ -117,6 +117,11 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
       reply({});
       return;
     case "tools/list":
+      logger.info({
+        mcpMethod: "tools/list",
+        toolCount: visibleTools.length,
+        scopes: identity.scopes,
+      }, "MCP tool discovery completed");
       reply({ tools: visibleTools });
       return;
     case "tools/call": {
@@ -139,6 +144,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
           || (canonEditorialTool && !identity.scopes.includes(READ_SCOPE))
           || (sceneTool && !identity.scopes.includes(SCENES_READ_SCOPE))
           || (editorialRecordOrViewTool && !identity.scopes.includes(EDITORIAL_READ_SCOPE))) {
+        logger.info({ mcpTool: name, outcome: "insufficient_scope" }, "MCP tool call denied");
         challenge(req, res, "insufficient_scope");
         return;
       }
@@ -149,6 +155,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
             && !identity.scopes.includes(STORY_DETAILS_WRITE_SCOPE))
           || ((RECORD_WRITE_TOOLS.has(name) || VIEW_WRITE_TOOLS.has(name))
             && !identity.scopes.includes(EDITORIAL_WRITE_SCOPE))) {
+        logger.info({ mcpTool: name, outcome: "insufficient_scope" }, "MCP tool call denied");
         challenge(req, res, "insufficient_scope");
         return;
       }
@@ -162,12 +169,24 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
             : VIEW_TOOLS.some(tool => tool.name === name)
               ? await executeViewTool(identity.userId, name, args ?? {}, publicOrigin(req))
               : await executeSceneTool(identity.userId, name, args ?? {}, publicOrigin(req));
-        reply({
+        const result = {
           content: [{ type: "text", text: JSON.stringify(data) }],
           structuredContent: data,
-        });
+        };
+        logger.info({
+          mcpTool: name,
+          outcome: "success",
+          responseBytes: Buffer.byteLength(JSON.stringify({ jsonrpc: "2.0", id, result })),
+        }, "MCP tool call completed");
+        reply(result);
       } catch (err) {
         const error = err as Error & { code?: string; status?: number };
+        logger.warn({
+          mcpTool: name,
+          outcome: "tool_error",
+          code: error.code ?? "tool_error",
+          status: error.status ?? null,
+        }, "MCP tool call returned an error");
         if (error.status && error.status >= 500) {
           logger.error({ err, method: name }, "MCP canon tool failed");
         }

@@ -1,0 +1,70 @@
+I’d test it in this order
+1. Call tools/list from a fresh OAuth session
+   Confirm get_storyline is actually advertised to the client, with the same schema we see here.
+2. Call get_storyline directly outside ChatGPT
+   Use the same OAuth client/token you already tested with:
+   - pick a known storyline ID
+   - call get_storyline
+   - capture the raw response
+   If that succeeds, your MCP server and OAuth permissions are probably fine.
+3. Check the server logs for that exact request
+   You want to know whether ChatGPT’s failed call ever reached your MCP server.
+   - No server log entry = the block happened before your MCP
+   - Request reached server and returned 401/403 = auth/scope issue
+   - Request reached server and returned 4xx/5xx = endpoint/schema/server logic issue
+   - Request succeeded server-side but ChatGPT still reports blocked = connector/runtime issue
+4. Compare search_storylines vs get_storyline
+   Specifically compare:
+   - required scopes
+   - auth middleware
+   - request schema
+   - response schema
+   - response size
+   - HTML-rich fields
+   - nested JSON
+   - any URLs or embedded content
+The most useful test right now
+Use the exact storyline we tried:
+3c137628-9fb1-402c-be59-677bcc994ef3
+The First Harcourt Survey
+Call:
+{
+  "storyline_id": "3c137628-9fb1-402c-be59-677bcc994ef3"
+}
+
+against get_storyline.
+Then record:
+- HTTP status
+- MCP result
+- OAuth scopes on the token
+- whether the request appears in server logs
+- approximate response size
+One thing I would inspect closely
+search_storylines works, and it already returns summaries.
+get_storyline probably returns more deeply nested content such as:
+- storySpine
+- revealArchitecture
+- metadata
+- possibly beats/reveals inline
+If the full response is very large or contains malformed nested values, the issue may be response-shape validation, not permission.
+So I’d also temporarily test a minimal version of get_storyline that returns only:
+{
+  "id": "...",
+  "title": "...",
+  "summary": "...",
+  "revision": "..."
+}
+
+If that works, then add fields back incrementally:
+1. globalMetadata
+2. storySpine
+3. revealArchitecture
+4. beats
+5. reveals
+That will isolate the offending field quickly.
+Best debugging artifact to send me
+If you paste either:
+- the raw successful/failed get_storyline MCP response, or
+- the relevant server log entry,
+I can help you pinpoint whether the problem is scope, schema, payload, or connector behavior.
+My current suspicion is not permissions. It looks more like the full-read call is getting blocked at the connector/runtime layer before the MCP result reaches me.

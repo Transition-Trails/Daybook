@@ -475,6 +475,8 @@ describe("CanonRecordEditor", () => {
     expect(screen.getByText("Character Direction")).toBeInTheDocument();
     expect(screen.getByText("Confirmed Canon")).toBeInTheDocument();
     expect(screen.getByText("Never abandons the family archive.")).toBeInTheDocument();
+    // The heading renders from the query before the editable form is hydrated.
+    await waitFor(() => expect(screen.getByDisplayValue("Frederick Ashcroft")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(

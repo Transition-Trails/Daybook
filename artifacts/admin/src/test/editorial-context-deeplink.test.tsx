@@ -57,7 +57,7 @@ describe("EditorialContext world deep links", () => {
     renderProvider();
 
     await waitFor(() => expect(screen.getByTestId("selected-world")).toHaveTextContent("world-b"));
-    expect(localStorage.getItem("daybook:worldsmith:v1:selected-world")).toBe("world-b");
+    await waitFor(() => expect(localStorage.getItem("daybook:worldsmith:v1:selected-world")).toBe("world-b"));
   });
 
   it.each([

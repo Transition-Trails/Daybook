@@ -66,6 +66,31 @@ const argsSchemas = {
       revealArchitecture: jsonArraySchema.optional(),
     }).strict().refine(value => Object.keys(value).length > 0, "changes must include at least one editorial field"),
   }).strict(),
+  get_story_beat: z.object({ storyline_id: z.string().min(1).max(200), beat_id: z.string().min(1).max(200) }).strict(),
+  update_story_beat: z.object({
+    storyline_id: z.string().min(1).max(200),
+    beat_id: z.string().min(1).max(200),
+    expected_revision: z.string().min(1).max(100),
+    changes: z.object({
+      beatType: z.string().min(1).max(200).optional(),
+      title: z.string().min(1).max(500).optional(),
+      summary: z.string().max(20_000).optional(),
+      sortOrder: z.number().int().min(0).max(100_000).optional(),
+      details: jsonObjectSchema.optional(),
+    }).strict().refine(value => Object.keys(value).length > 0, "changes must include an editorial field"),
+  }).strict(),
+  get_reveal_thread: z.object({ storyline_id: z.string().min(1).max(200), reveal_id: z.string().min(1).max(200) }).strict(),
+  update_reveal_thread: z.object({
+    storyline_id: z.string().min(1).max(200),
+    reveal_id: z.string().min(1).max(200),
+    expected_revision: z.string().min(1).max(100),
+    changes: z.object({
+      title: z.string().min(1).max(500).optional(),
+      truth: z.string().max(20_000).optional(),
+      audienceKnowledge: z.string().max(20_000).nullable().optional(),
+      details: jsonObjectSchema.optional(),
+    }).strict().refine(value => Object.keys(value).length > 0, "changes must include an editorial field"),
+  }).strict(),
   search_movements: z.object({
     storyline_id: z.string().min(1).max(200),
     query: z.string().max(500).optional(),
@@ -134,6 +159,18 @@ export const RECORD_TOOLS: EditorialToolDescriptor[] = [
       globalMetadata: jsonObjectField, storySpine: jsonArrayField, revealArchitecture: jsonArrayField,
     }, [], 1),
   }, ["storyline_id", "expected_revision", "changes"]) },
+  { name: "get_story_beat", description: "Read a beat and its current revision within a storyline.", inputSchema: schema({ storyline_id: textField(200, 1), beat_id: textField(200, 1) }, ["storyline_id", "beat_id"]) },
+  { name: "update_story_beat", description: "Edit beat prose and ordering at its own expected revision; cannot change status or Canon records.", inputSchema: schema({
+    storyline_id: textField(200, 1), beat_id: textField(200, 1), expected_revision: textField(100, 1),
+    changes: schema({ beatType: textField(200, 1), title: textField(500, 1), summary: textField(20_000),
+      sortOrder: { type: "integer", minimum: 0, maximum: 100_000 }, details: jsonObjectField }, [], 1),
+  }, ["storyline_id", "beat_id", "expected_revision", "changes"]) },
+  { name: "get_reveal_thread", description: "Read a reveal thread and its current revision within a storyline.", inputSchema: schema({ storyline_id: textField(200, 1), reveal_id: textField(200, 1) }, ["storyline_id", "reveal_id"]) },
+  { name: "update_reveal_thread", description: "Edit reveal-thread prose at its own expected revision; cannot change Canon records.", inputSchema: schema({
+    storyline_id: textField(200, 1), reveal_id: textField(200, 1), expected_revision: textField(100, 1),
+    changes: schema({ title: textField(500, 1), truth: textField(20_000),
+      audienceKnowledge: { anyOf: [textField(20_000), { type: "null" }] }, details: jsonObjectField }, [], 1),
+  }, ["storyline_id", "reveal_id", "expected_revision", "changes"]) },
   { name: "search_movements", description: "Search movements within a storyline by optional title, tagline, or narrative query.", inputSchema: schema({ storyline_id: textField(200, 1), query: textField(500) }, ["storyline_id"]) },
   { name: "get_movement", description: "Read a complete movement and its current content revision.", inputSchema: schema({ movement_id: textField(200, 1) }, ["movement_id"]) },
   { name: "update_movement", description: "Update whitelisted movement editorial fields at the expected content revision; ordering is managed separately.", inputSchema: schema({
@@ -212,7 +249,7 @@ function conflict(expected: string, row: Record<string, unknown>): never {
 async function insertAudit(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   userId: string,
-  type: "world" | "storyline" | "movement",
+  type: "world" | "storyline" | "movement" | "story_beat" | "reveal_thread",
   id: string,
   diff: Record<string, { before: unknown; after: unknown }>,
 ): Promise<void> {
@@ -328,8 +365,8 @@ export async function executeRecordTool(
         revision: revisionFor(row),
         editor_url: editorUrl(origin, "storyline", row.id, row.worldId),
         movements: movementRows.slice(0, EDITORIAL_CHILD_LIMIT),
-        story_beats: beatRows.slice(0, EDITORIAL_CHILD_LIMIT),
-        reveal_threads: revealRows.slice(0, EDITORIAL_CHILD_LIMIT),
+        story_beats: beatRows.slice(0, EDITORIAL_CHILD_LIMIT).map(withRevision),
+        reveal_threads: revealRows.slice(0, EDITORIAL_CHILD_LIMIT).map(withRevision),
         movements_truncated: movementRows.length > EDITORIAL_CHILD_LIMIT,
         story_beats_truncated: beatRows.length > EDITORIAL_CHILD_LIMIT,
         reveal_threads_truncated: revealRows.length > EDITORIAL_CHILD_LIMIT,
@@ -346,6 +383,48 @@ export async function executeRecordTool(
         const [updated] = await tx.update(wsStoriesTable).set({ ...input.changes, updatedAt: new Date() })
           .where(eq(wsStoriesTable.id, row.id)).returning();
         await insertAudit(tx, userId, "storyline", row.id, diff);
+        return { record: updated, revision: revisionFor(updated), diff };
+      });
+    }
+    case "get_story_beat":
+    case "get_reveal_thread":
+    case "update_story_beat":
+    case "update_reveal_thread": {
+      const isBeat = name === "get_story_beat" || name === "update_story_beat";
+      const isWrite = name === "update_story_beat" || name === "update_reveal_thread";
+      const input = isBeat
+        ? (isWrite ? parseArgs("update_story_beat", args) : parseArgs("get_story_beat", args))
+        : (isWrite ? parseArgs("update_reveal_thread", args) : parseArgs("get_reveal_thread", args));
+      const childId = "beat_id" in input ? input.beat_id : input.reveal_id;
+      const table = isBeat ? wsStoryBeatsTable : wsRevealThreadsTable;
+      const notFound = isBeat ? "STORY_BEAT_NOT_FOUND" : "REVEAL_THREAD_NOT_FOUND";
+      // Parent first, then child: all MCP writes acquire locks in this order.
+      return db.transaction(async tx => {
+        const [story] = await tx.select().from(wsStoriesTable)
+          .where(eq(wsStoriesTable.id, input.storyline_id)).for("update").limit(1);
+        if (!story) throw new CanonToolError("Storyline not found", 404, "STORYLINE_NOT_FOUND");
+        await requireWorldInTransaction(tx, story.worldId);
+        if (isBeat) {
+          const [row] = await tx.select().from(wsStoryBeatsTable).where(eq(wsStoryBeatsTable.id, childId)).for("update").limit(1);
+          if (!row) throw new CanonToolError("Story beat not found", 404, notFound);
+          if (row.storyId !== story.id || row.worldId !== story.worldId) throw new CanonToolError("Beat does not belong to this storyline and world", 409, "INVALID_PARENT");
+          if (name !== "update_story_beat") return { record: row, revision: revisionFor(row), editor_url: editorUrl(origin, "storyline", story.id, story.worldId) };
+          const edit = parseArgs("update_story_beat", args);
+          if (revisionFor(row) !== edit.expected_revision) conflict(edit.expected_revision, row);
+          const diff = fieldDiff(row, edit.changes);
+          const [updated] = await tx.update(wsStoryBeatsTable).set({ ...edit.changes, updatedAt: new Date() }).where(eq(wsStoryBeatsTable.id, row.id)).returning();
+          await insertAudit(tx, userId, "story_beat", row.id, diff);
+          return { record: updated, revision: revisionFor(updated), diff };
+        }
+        const [row] = await tx.select().from(wsRevealThreadsTable).where(eq(wsRevealThreadsTable.id, childId)).for("update").limit(1);
+        if (!row) throw new CanonToolError("Reveal thread not found", 404, notFound);
+        if (row.storyId !== story.id || row.worldId !== story.worldId) throw new CanonToolError("Reveal does not belong to this storyline and world", 409, "INVALID_PARENT");
+        if (name !== "update_reveal_thread") return { record: row, revision: revisionFor(row), editor_url: editorUrl(origin, "storyline", story.id, story.worldId) };
+        const edit = parseArgs("update_reveal_thread", args);
+        if (revisionFor(row) !== edit.expected_revision) conflict(edit.expected_revision, row);
+        const diff = fieldDiff(row, edit.changes);
+        const [updated] = await tx.update(wsRevealThreadsTable).set({ ...edit.changes, updatedAt: new Date() }).where(eq(wsRevealThreadsTable.id, row.id)).returning();
+        await insertAudit(tx, userId, "reveal_thread", row.id, diff);
         return { record: updated, revision: revisionFor(updated), diff };
       });
     }

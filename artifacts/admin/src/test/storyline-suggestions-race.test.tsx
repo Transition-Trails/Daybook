@@ -16,6 +16,7 @@ vi.mock("@/contexts/EditorialContext", () => ({
 vi.mock("wouter", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useLocation: () => ["/super/worldsmith/editorial/stories", navigate],
+  useSearch: () => "",
 }));
 
 import StoriesStudio from "@/pages/super/worldsmith-editorial/StoriesStudio";

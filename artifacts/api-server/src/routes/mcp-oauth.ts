@@ -88,8 +88,9 @@ function describeScope(scope: McpScope): string {
   switch (scope) {
     case "worldsmith:canon:read": return "Read Canon data";
     case "worldsmith:canon:write": return "Write Canon data";
-    case "worldsmith:editorial:read": return "Read WorldSmith worlds, story maps, storylines, movements, and sequences";
+    case "worldsmith:editorial:read": return "Read WorldSmith worlds, story maps, storylines (including beats and reveals), movements, and sequences";
     case "worldsmith:editorial:write": return "Write WorldSmith worlds, story maps, storylines, movements, and sequences";
+    case "worldsmith:editorial:story-details:write": return "Edit storyline beats and reveal threads (not lifecycle status or accepted Canon)";
   }
 }
 
@@ -240,6 +241,7 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
   const callbackOrigin = new URL(redirectUri).origin;
   const requestsCanonWrite = scopes.includes("worldsmith:canon:write");
   const requestsEditorialWrite = scopes.includes("worldsmith:editorial:write");
+  const requestsStoryDetailsWrite = scopes.includes("worldsmith:editorial:story-details:write");
   const consent: ConsentSession = {
     csrf,
     userId: user.id,
@@ -270,6 +272,8 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
       `<label><input type="checkbox" name="allow_write" value="yes" required> I explicitly authorize this unverified client to write Canon data on my behalf.</label></fieldset>` : ""}` +
     `${requestsEditorialWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate WorldSmith editorial write permission</legend>` +
       `<label><input type="checkbox" name="allow_editorial_write" value="yes" required> I explicitly authorize this unverified client to write WorldSmith worlds, story maps, storylines, movements, and sequences on my behalf.</label></fieldset>` : ""}` +
+    `${requestsStoryDetailsWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate storyline details write permission</legend>` +
+      `<label><input type="checkbox" name="allow_story_details_write" value="yes" required> I explicitly authorize this unverified client to edit storyline beats and reveal threads on my behalf; this does not grant Canon approval or lifecycle changes.</label></fieldset>` : ""}` +
     `<button type="submit" name="consent" value="approve">Approve requested access</button> ` +
     `<button type="submit" name="consent" value="deny" formnovalidate>Deny</button></form></main></body></html>`,
   );
@@ -284,6 +288,7 @@ oauthRouter.post("/authorize", async (req, res): Promise<void> => {
     consent?: unknown;
     allow_write?: unknown;
     allow_editorial_write?: unknown;
+    allow_story_details_write?: unknown;
   };
   const csrf = typeof body?.csrf_token === "string" ? body.csrf_token : "";
   if (!req.isAuthenticated() || !consent || !csrf || csrf !== consent.csrf || !["approve", "deny"].includes(String(body?.consent))) {
@@ -308,6 +313,10 @@ oauthRouter.post("/authorize", async (req, res): Promise<void> => {
   }
   if (consent.scopes.includes("worldsmith:editorial:write") && body.allow_editorial_write !== "yes") {
     oauthError(res, 400, "access_denied", "Explicit separate consent is required for WorldSmith editorial write access");
+    return;
+  }
+  if (consent.scopes.includes("worldsmith:editorial:story-details:write") && body.allow_story_details_write !== "yes") {
+    oauthError(res, 400, "access_denied", "Explicit separate consent is required for storyline beat and reveal edits");
     return;
   }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, consent.userId)).limit(1);

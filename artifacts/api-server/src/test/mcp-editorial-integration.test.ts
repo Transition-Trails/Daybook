@@ -5,6 +5,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import {
   db, usersTable, worldsmithWorldsTable, wsStoriesTable, wsStoryActsTable,
+  wsStoryBeatsTable, wsRevealThreadsTable,
   wsCanonRecordsTable, wsCanonRecordStoryLinksTable, auditLogTable,
   mcpOAuthClientsTable, mcpOAuthTokensTable,
 } from "@workspace/db";
@@ -20,12 +21,17 @@ describe("authenticated editorial MCP tools", () => {
     const storyId = `mcp-story-${randomUUID()}`;
     const secondStoryId = `mcp-story-${randomUUID()}`;
     const movementId = `mcp-movement-${randomUUID()}`;
+    const beatId = `mcp-beat-${randomUUID()}`;
+    const otherBeatId = `mcp-beat-${randomUUID()}`;
+    const mismatchedBeatId = `mcp-beat-${randomUUID()}`;
+    const revealId = `mcp-reveal-${randomUUID()}`;
     const canonId = `mcp-canon-${randomUUID()}`;
     const clientId = `mcp-client-${randomUUID()}`;
     const readToken = randomBytes(32).toString("base64url");
     const writeToken = randomBytes(32).toString("base64url");
     const canonOnlyToken = randomBytes(32).toString("base64url");
     const editorialOnlyToken = randomBytes(32).toString("base64url");
+    const childWriteToken = randomBytes(32).toString("base64url");
     const app = express();
     app.use(express.json());
     app.use(mcpRouter);
@@ -46,6 +52,13 @@ describe("authenticated editorial MCP tools", () => {
       await db.insert(wsStoryActsTable).values({
         id: movementId, worldId, storyId, title: "Test Movement", actNumber: 1,
       });
+      await db.insert(wsStoryBeatsTable).values([
+        { id: beatId, worldId, storyId, beatType: "setup", title: "Opening", status: "draft" },
+        { id: otherBeatId, worldId, storyId: secondStoryId, beatType: "turn", title: "Other story" },
+      ]);
+      await db.insert(wsRevealThreadsTable).values({
+        id: revealId, worldId, storyId, title: "Hidden motive", truth: "Original truth",
+      });
       await db.insert(wsCanonRecordsTable).values({
         id: canonId, worldId, name: "Disposable proposed character", canonType: "character", status: "proposed",
       });
@@ -57,6 +70,7 @@ describe("authenticated editorial MCP tools", () => {
         [writeToken, ["worldsmith:canon:read", "worldsmith:canon:write", "worldsmith:editorial:read", "worldsmith:editorial:write"]],
         [canonOnlyToken, ["worldsmith:canon:read", "worldsmith:canon:write"]],
         [editorialOnlyToken, ["worldsmith:editorial:read"]],
+        [childWriteToken, ["worldsmith:editorial:read", "worldsmith:editorial:story-details:write"]],
       ] as const) {
         await db.insert(mcpOAuthTokensTable).values({
           tokenHash: createHash("sha256").update(token).digest("hex"),
@@ -73,6 +87,7 @@ describe("authenticated editorial MCP tools", () => {
         "search_worlds", "get_world", "update_world",
         "search_story_maps", "get_story_map", "update_story_map",
         "search_storylines", "get_storyline", "update_storyline",
+        "get_story_beat", "update_story_beat", "get_reveal_thread", "update_reveal_thread",
         "search_movements", "get_movement", "update_movement",
         "search_sequences", "get_sequence", "update_sequence",
       ]));
@@ -121,8 +136,50 @@ describe("authenticated editorial MCP tools", () => {
       expect(storylines.storylines[0]).toEqual(expect.objectContaining({ id: storyId, world_id: worldId }));
       const storyline = await result("get_storyline", { storyline_id: storyId });
       expect(storyline.movements).toEqual(expect.arrayContaining([expect.objectContaining({ id: movementId })]));
-      expect(storyline.story_beats).toEqual([]);
-      expect(storyline.reveal_threads).toEqual([]);
+      expect(storyline.story_beats).toEqual([expect.objectContaining({ id: beatId, revision: expect.any(String) })]);
+      expect(storyline.reveal_threads).toEqual([expect.objectContaining({ id: revealId, revision: expect.any(String) })]);
+      const beat = await result("get_story_beat", { storyline_id: storyId, beat_id: beatId });
+      const reveal = await result("get_reveal_thread", { storyline_id: storyId, reveal_id: revealId });
+      expect(beat.revision).toBe(storyline.story_beats[0].revision);
+      expect(reveal.revision).toBe(storyline.reveal_threads[0].revision);
+      const beatArgs = { storyline_id: storyId, beat_id: beatId, expected_revision: beat.revision, changes: { summary: "New beat summary" } };
+      expect((await call(writeToken, "update_story_beat", beatArgs)).status).toBe(403);
+      expect((await call(readToken, "update_story_beat", beatArgs)).status).toBe(403);
+      const updatedBeat = (await call(childWriteToken, "update_story_beat", beatArgs)).body.result.structuredContent;
+      expect(updatedBeat.record).toEqual(expect.objectContaining({ summary: "New beat summary", status: "draft" }));
+      const staleBeat = await call(childWriteToken, "update_story_beat", beatArgs);
+      expect(staleBeat.body.result.content[0].text).toContain("REVISION_CONFLICT");
+      const wrongParent = await call(childWriteToken, "update_story_beat", {
+        storyline_id: storyId, beat_id: otherBeatId, expected_revision: beat.revision, changes: { title: "Stolen" },
+      });
+      expect(wrongParent.body.result.content[0].text).toContain("INVALID_PARENT");
+      await db.insert(wsStoryBeatsTable).values({
+        id: mismatchedBeatId, worldId: "unrelated-world", storyId, beatType: "setup", title: "Invalid world",
+      });
+      expect((await call(childWriteToken, "get_story_beat", {
+        storyline_id: storyId, beat_id: mismatchedBeatId,
+      })).body.result.content[0].text).toContain("INVALID_PARENT");
+      expect((await call(childWriteToken, "update_story_beat", {
+        storyline_id: storyId, beat_id: mismatchedBeatId, expected_revision: beat.revision, changes: { title: "Wrong world" },
+      })).body.result.content[0].text).toContain("INVALID_PARENT");
+      const invalidBeat = await call(childWriteToken, "update_story_beat", {
+        storyline_id: storyId, beat_id: beatId, expected_revision: updatedBeat.revision, changes: { status: "accepted" },
+      });
+      expect(invalidBeat.body.result.content[0].text).toContain("INVALID_ARGUMENTS");
+      const updatedReveal = (await call(childWriteToken, "update_reveal_thread", {
+        storyline_id: storyId, reveal_id: revealId, expected_revision: reveal.revision, changes: { truth: "New truth" },
+      })).body.result.structuredContent;
+      expect(updatedReveal.record.truth).toBe("New truth");
+      await db.update(wsRevealThreadsTable).set({ title: "Edited outside MCP" }).where(eq(wsRevealThreadsTable.id, revealId));
+      expect((await call(childWriteToken, "update_reveal_thread", {
+        storyline_id: storyId, reveal_id: revealId, expected_revision: updatedReveal.revision, changes: { title: "Stale overwrite" },
+      })).body.result.content[0].text).toContain("REVISION_CONFLICT");
+      expect((await call(childWriteToken, "update_reveal_thread", {
+        storyline_id: secondStoryId, reveal_id: revealId, expected_revision: updatedReveal.revision, changes: { title: "Wrong parent" },
+      })).body.result.content[0].text).toContain("INVALID_PARENT");
+      expect((await call(childWriteToken, "update_reveal_thread", {
+        storyline_id: storyId, reveal_id: revealId, expected_revision: updatedReveal.revision, changes: { worldId: "elsewhere" },
+      })).body.result.content[0].text).toContain("INVALID_ARGUMENTS");
       const editedStory = await result("update_storyline", {
         storyline_id: storyId, expected_revision: storyline.revision, changes: { summary: "Temporary summary" },
       });
@@ -141,12 +198,12 @@ describe("authenticated editorial MCP tools", () => {
       expect(editedMovement.record.storyId).toBe(storyId);
 
       const currentMap = await result("get_story_map", { map_id: worldId });
-      const wrongParent = await call(writeToken, "update_story_map", {
+      const wrongLinkParent = await call(writeToken, "update_story_map", {
         map_id: worldId, expected_revision: currentMap.revision,
         add_links: [{ canon_record_id: canonId, story_id: secondStoryId, act_id: movementId }],
       });
-      expect(wrongParent.body.result.isError).toBe(true);
-      expect(wrongParent.body.result.content[0].text).toContain("INVALID_MOVEMENT");
+      expect(wrongLinkParent.body.result.isError).toBe(true);
+      expect(wrongLinkParent.body.result.content[0].text).toContain("INVALID_MOVEMENT");
       const linkedMap = await result("update_story_map", {
         map_id: worldId, expected_revision: currentMap.revision,
         add_links: [{ canon_record_id: canonId, story_id: storyId, act_id: movementId }],
@@ -177,13 +234,22 @@ describe("authenticated editorial MCP tools", () => {
       expect(sequenceStale.body.result.content[0].text).toContain("REVISION_CONFLICT");
       const audits = await db.select().from(auditLogTable)
         .where(and(eq(auditLogTable.actorUserId, user.id),
-          inArray(auditLogTable.targetId, [worldId, storyId, movementId])));
-      expect(audits.filter(entry => entry.action.startsWith("worldsmith."))).toHaveLength(5);
+          inArray(auditLogTable.targetId, [worldId, storyId, movementId, beatId, revealId])));
+      expect(audits.filter(entry => entry.action.startsWith("worldsmith."))).toHaveLength(7);
+      expect(audits.find(entry => entry.targetId === beatId)?.metadata).toEqual(expect.objectContaining({
+        actor_user_id: user.id, before_after: { summary: { before: "", after: "New beat summary" } },
+      }));
+      expect(audits.find(entry => entry.targetId === revealId)?.metadata).toEqual(expect.objectContaining({
+        actor_user_id: user.id, before_after: { truth: { before: "Original truth", after: "New truth" } },
+      }));
+      expect((await db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, canonId)))[0]?.status).toBe("proposed");
     } finally {
-      await db.delete(auditLogTable).where(inArray(auditLogTable.targetId, [worldId, storyId, movementId]));
+      await db.delete(auditLogTable).where(inArray(auditLogTable.targetId, [worldId, storyId, movementId, beatId, revealId]));
       await db.delete(wsCanonRecordStoryLinksTable).where(eq(wsCanonRecordStoryLinksTable.canonRecordId, canonId));
       await db.delete(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, canonId));
       await db.delete(wsStoryActsTable).where(eq(wsStoryActsTable.id, movementId));
+      await db.delete(wsStoryBeatsTable).where(inArray(wsStoryBeatsTable.id, [beatId, otherBeatId, mismatchedBeatId]));
+      await db.delete(wsRevealThreadsTable).where(eq(wsRevealThreadsTable.id, revealId));
       await db.delete(wsStoriesTable).where(eq(wsStoriesTable.worldId, worldId));
       await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
       await db.delete(mcpOAuthTokensTable).where(eq(mcpOAuthTokensTable.clientId, clientId));

@@ -213,6 +213,8 @@ describe("MCP OAuth authorization server", () => {
     expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:editorial:write"])).toBe(false);
     expect(hasWriteWithoutRead(["worldsmith:canon:read", "worldsmith:editorial:write"])).toBe(true);
     expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:canon:write"])).toBe(true);
+    expect(hasWriteWithoutRead(["worldsmith:editorial:story-details:write"])).toBe(true);
+    expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:editorial:story-details:write"])).toBe(false);
   });
 
   it("rejects write-only scope instead of silently adding read permission", async () => {
@@ -242,6 +244,7 @@ describe("MCP OAuth authorization server", () => {
       "worldsmith:canon:write",
       "worldsmith:editorial:read",
       "worldsmith:editorial:write",
+      "worldsmith:editorial:story-details:write",
     ];
     expect(authorizationMetadata.body.scopes_supported).toEqual(allScopes);
     expect(scoped.body.scopes_supported).toEqual(allScopes);
@@ -329,7 +332,7 @@ describe("MCP OAuth authorization server", () => {
     const consent = await authorize().expect(200);
     expect(consent.text).toContain("Read Canon data");
     expect(consent.text).toContain("Write Canon data");
-    expect(consent.text).toContain("Read WorldSmith worlds, story maps, storylines, movements, and sequences");
+    expect(consent.text).toContain("Read WorldSmith worlds, story maps, storylines (including beats and reveals), movements, and sequences");
     expect(consent.text).toContain("Write WorldSmith worlds, story maps, storylines, movements, and sequences");
     expect(consent.text).toContain('name="allow_write"');
     expect(consent.text).toContain('name="allow_editorial_write"');
@@ -355,6 +358,30 @@ describe("MCP OAuth authorization server", () => {
       "worldsmith:editorial:read",
       "worldsmith:editorial:write",
     ]);
+  });
+
+  it("requires a distinct approval for storyline beat and reveal writes", async () => {
+    const authorize = () => request(app).get("/mcp/oauth/authorize").query({
+      response_type: "code", client_id: clientId, redirect_uri: redirectUri,
+      state: "story-details", code_challenge: challenge(), code_challenge_method: "S256",
+      resource: getMcpResource(),
+      scope: "worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:story-details:write",
+    });
+    const consent = await authorize().expect(200);
+    expect(consent.text).toContain('name="allow_story_details_write"');
+    expect(consent.text).toContain("Edit storyline beats and reveal threads");
+    const csrf = consent.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: csrf, consent: "approve", allow_editorial_write: "yes",
+    }).expect(400);
+    expect(mocks.data.codes).toHaveLength(0);
+    const retry = await authorize().expect(200);
+    const retryCsrf = retry.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: retryCsrf, consent: "approve",
+      allow_editorial_write: "yes", allow_story_details_write: "yes",
+    }).expect(302);
+    expect(mocks.data.codes[0].scopes).toContain("worldsmith:editorial:story-details:write");
   });
 
   it("uses the trusted Replit domain in development and still requires resource at authorize and token", async () => {

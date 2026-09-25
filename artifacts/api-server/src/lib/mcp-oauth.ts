@@ -9,6 +9,7 @@ export const MCP_SCOPES = [
   "worldsmith:canon:write",
   "worldsmith:editorial:read",
   "worldsmith:editorial:write",
+  "worldsmith:editorial:story-details:write",
 ] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 export const AUTHORIZATION_CODE_TTL_SECONDS = 5 * 60;
@@ -82,7 +83,8 @@ export function parseMcpScopes(value: unknown): McpScope[] | null {
 export function hasWriteWithoutRead(scopes: readonly string[]): boolean {
   return (
     (scopes.includes("worldsmith:canon:write") && !scopes.includes("worldsmith:canon:read")) ||
-    (scopes.includes("worldsmith:editorial:write") && !scopes.includes("worldsmith:editorial:read"))
+    (scopes.includes("worldsmith:editorial:write") && !scopes.includes("worldsmith:editorial:read")) ||
+    (scopes.includes("worldsmith:editorial:story-details:write") && !scopes.includes("worldsmith:editorial:read"))
   );
 }
 

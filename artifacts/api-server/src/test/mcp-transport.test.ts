@@ -53,7 +53,7 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       "https://daybook.example/.well-known/oauth-protected-resource/mcp",
     );
     expect(response.headers["www-authenticate"]).toContain(
-      'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write"',
+      'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:story-details:write"',
     );
     expect(mocked.execute).not.toHaveBeenCalled();
   });

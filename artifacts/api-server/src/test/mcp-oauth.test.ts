@@ -22,6 +22,11 @@ const mocks = vi.hoisted(() => {
   const data: Record<string, Record<string, unknown>[]> = {
     clients: [], codes: [], tokens: [], users: [],
   };
+  let transactionQueue = Promise.resolve();
+  let pauseReplacement: (() => Promise<void>) | undefined;
+  let transactionQueued: (() => void) | undefined;
+  const setReplacementPause = (pause?: () => Promise<void>) => { pauseReplacement = pause; };
+  const setTransactionQueued = (notify?: () => void) => { transactionQueued = notify; };
   const tableName = (table: unknown) => table === tables.clients ? "clients"
     : table === tables.codes ? "codes" : table === tables.tokens ? "tokens" : "users";
   const match = (row: Record<string, unknown>, condition: any): boolean => {
@@ -34,6 +39,7 @@ const mocks = vi.hoisted(() => {
     return true;
   };
   const db = {
+    execute: async () => ({ rows: [] }),
     select: () => ({
       from: (table: unknown) => ({
         where: (condition: unknown) => ({
@@ -43,6 +49,9 @@ const mocks = vi.hoisted(() => {
     }),
     insert: (table: unknown) => ({
       values: async (values: Record<string, unknown> | Record<string, unknown>[]) => {
+        if (table === tables.tokens && Array.isArray(values) && pauseReplacement) {
+          await pauseReplacement();
+        }
         const rows = Array.isArray(values) ? values : [values];
         data[tableName(table)].push(...rows.map((row) => ({ ...row })));
       },
@@ -65,11 +74,27 @@ const mocks = vi.hoisted(() => {
             rows.forEach((row) => Object.assign(row, change));
             return rows;
           },
+          then: (resolve: (rows: Record<string, unknown>[]) => void) => {
+            const rows = data[tableName(table)].filter((row) => match(row, condition));
+            rows.forEach((row) => Object.assign(row, change));
+            resolve(rows);
+          },
         }),
       }),
     }),
   };
-  return { tables, data, db };
+  Object.assign(db, {
+    transaction: async <T>(callback: (tx: typeof db) => Promise<T>): Promise<T> => {
+      const previous = transactionQueue;
+      let release!: () => void;
+      transactionQueue = new Promise<void>((resolve) => { release = resolve; });
+      transactionQueued?.();
+      await previous;
+      try { return await callback(db); }
+      finally { release(); }
+    },
+  });
+  return { tables, data, db, setReplacementPause, setTransactionQueued };
 });
 
 vi.mock("@workspace/db", () => ({
@@ -84,9 +109,14 @@ vi.mock("drizzle-orm", () => ({
   eq: (column: string, value: unknown) => ({ op: "eq", column, value }),
   gt: (column: string, value: unknown) => ({ op: "gt", column, value }),
   isNull: (column: string) => ({ op: "isNull", column }),
+  sql: (parts: TemplateStringsArray, ...values: unknown[]) => parts.join("?") + values.length,
+}));
+vi.mock("../lib/mcp-registration-limit.js", () => ({
+  limitMcpRegistration: vi.fn(async () => ({ allowed: true })),
 }));
 
 import { metadataRouter, oauthRouter } from "../routes/mcp-oauth.js";
+import { limitMcpRegistration } from "../lib/mcp-registration-limit.js";
 import {
   getMcpIssuer,
   getMcpResource,
@@ -124,6 +154,8 @@ const challenge = () => createHash("sha256").update(verifier).digest("base64url"
 const app = makeApp();
 
 function resetState() {
+  mocks.setReplacementPause();
+  mocks.setTransactionQueued();
   for (const rows of Object.values(mocks.data)) rows.length = 0;
   mocks.data.users.push({ ...user });
   mocks.data.clients.push({
@@ -135,8 +167,30 @@ function resetState() {
 describe("MCP OAuth authorization server", () => {
   beforeEach(() => {
     resetState();
+    vi.mocked(limitMcpRegistration).mockReset().mockResolvedValue({ allowed: true });
     process.env.MCP_PUBLIC_ORIGIN = "https://daybook.example";
     process.env.NODE_ENV = "test";
+  });
+
+  it("keeps ChatGPT dynamic registration open but refuses limited attempts without creating clients", async () => {
+    const registration = () => request(app).post("/mcp/oauth/register").send({
+      client_name: "ChatGPT",
+      redirect_uris: ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    });
+    const created = await registration().expect(201);
+    expect(created.body.client_id).toBeTruthy();
+    expect(mocks.data.clients).toHaveLength(2);
+
+    vi.mocked(limitMcpRegistration).mockResolvedValueOnce({ allowed: false, retryAfter: 42 });
+    const denied = await registration().expect(429);
+    expect(denied.body.error).toBe("slow_down");
+    expect(denied.headers["retry-after"]).toBe("42");
+    expect(mocks.data.clients).toHaveLength(2);
+
+    vi.mocked(limitMcpRegistration).mockRejectedValueOnce(new Error("DB unavailable"));
+    const unavailable = await registration().expect(503);
+    expect(unavailable.body.error).toBe("server_error");
+    expect(mocks.data.clients).toHaveLength(2);
   });
 
   it("validates S256 PKCE verifiers and refuses malformed challenges", () => {
@@ -312,6 +366,36 @@ describe("MCP OAuth authorization server", () => {
       resource: getMcpResource(),
     }).expect(400);
     expect(await verifyMcpBearer(rotated.body.access_token)).toBeNull();
+  });
+
+  it("revokes newly issued credentials when a concurrent old-token replay follows rotation", async () => {
+    const initial = await issueMcpTokenPair({
+      userId: user.id, clientId, resource: getMcpResource(), scopes: ["worldsmith:canon:read"],
+    });
+    let notifyPaused!: () => void;
+    let resumeInsert!: () => void;
+    const paused = new Promise<void>((resolve) => { notifyPaused = resolve; });
+    const resume = new Promise<void>((resolve) => { resumeInsert = resolve; });
+    mocks.setReplacementPause(async () => { notifyPaused(); await resume; });
+    const refresh = (token: string) => request(app).post("/mcp/oauth/token").type("form").send({
+      grant_type: "refresh_token", client_id: clientId, refresh_token: token, resource: getMcpResource(),
+    });
+    const first = refresh(initial.refresh_token).then((response) => response);
+    await paused;
+    let notifyQueued!: () => void;
+    const queued = new Promise<void>((resolve) => { notifyQueued = resolve; });
+    mocks.setTransactionQueued(notifyQueued);
+    const replay = refresh(initial.refresh_token).then((response) => response);
+    await queued;
+    mocks.setTransactionQueued();
+    resumeInsert();
+    const issued = await first;
+    expect(issued.status).toBe(200);
+    expect((await replay).status).toBe(400);
+    expect(await verifyMcpBearer(issued.body.access_token)).toBeNull();
+    const replacement = await refresh(issued.body.refresh_token);
+    expect(replacement.status).toBe(400);
+    expect(replacement.body.error).toBe("invalid_grant");
   });
 
   it("revokes an access credential and rechecks current privilege on every verification", async () => {

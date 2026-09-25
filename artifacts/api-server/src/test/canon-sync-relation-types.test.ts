@@ -7,7 +7,7 @@
  * The sync route (POST /v1/editorial/canon-records/sync-notion) previously
  * deleted all outgoing edges for synced records and reinserted them as
  * "related". This test verifies the differential-sync fix: existing edges
- * are preserved; only stale edges (removed in Notion) are deleted.
+ * are preserved; manually-authored edges are never removed by Notion sync.
  *
  * Strategy:
  *   - Mock `notion-client.queryDatabase` to return two controlled pages
@@ -209,7 +209,7 @@ beforeAll(async () => {
   localB = rowB!.id;
   localC = rowC!.id;
 
-  // Pre-insert a "contradicts" edge A→B and a "precedes" edge A→C (stale — will vanish from Notion)
+  // Pre-insert manually-authored edges. Notion sync must not delete manual edges.
   await db.insert(wsCanonRecordRelationsTable).values([
     { fromRecordId: localA, toRecordId: localB, relationType: "contradicts" },
     { fromRecordId: localA, toRecordId: localC, relationType: "precedes" },
@@ -240,11 +240,11 @@ afterAll(async () => {
 
 describe("Notion sync — relation type preservation", () => {
   it("preserves a manually-set 'contradicts' type on re-sync", async () => {
-    // Notion now only lists A→B (not A→C), so A→C becomes stale.
+    // Notion now only lists A→B (not A→C). The A→C edge is manual, so it survives.
     mockQueryDatabase.mockResolvedValue([
       makeNotionPage(NOTION_A, "Sync Record A", [NOTION_B]),
       makeNotionPage(NOTION_B, "Sync Record B"),
-      // NOTION_C is absent → its inbound edge from A should be deleted as stale
+      // NOTION_C is absent from this sync.
     ]);
 
     const res = await request(server)
@@ -253,38 +253,30 @@ describe("Notion sync — relation type preservation", () => {
 
     expect(res.status).toBe(200);
 
-    // A→B edge must still be "contradicts", NOT reset to "related"
-    const [edgeAB] = await db
-      .select({ relationType: wsCanonRecordRelationsTable.relationType })
-      .from(wsCanonRecordRelationsTable)
-      .where(
-        eq(wsCanonRecordRelationsTable.fromRecordId, localA),
-      );
-
-    // Only one remaining edge from A (A→C was stale and should be gone)
+    // Both manually-authored edges from A remain unchanged.
     const allEdgesFromA = await db
       .select()
       .from(wsCanonRecordRelationsTable)
       .where(eq(wsCanonRecordRelationsTable.fromRecordId, localA));
 
-    expect(allEdgesFromA.length).toBe(1);
-    expect(allEdgesFromA[0]!.toRecordId).toBe(localB);
-    expect(allEdgesFromA[0]!.relationType).toBe("contradicts");
+    expect(allEdgesFromA).toHaveLength(2);
+    expect(allEdgesFromA.find(edge => edge.toRecordId === localB)?.relationType).toBe("contradicts");
+    expect(allEdgesFromA.find(edge => edge.toRecordId === localC)?.relationType).toBe("precedes");
   });
 
-  it("removes a stale edge (A→C) that Notion no longer lists", async () => {
-    // After the sync above, A→C should be gone
+  it("preserves a manually-set edge (A→C) that Notion no longer lists", async () => {
+    // Manually-authored edges remain even when Notion no longer lists them.
     const edgesFromA = await db
       .select()
       .from(wsCanonRecordRelationsTable)
       .where(eq(wsCanonRecordRelationsTable.fromRecordId, localA));
 
     const stale = edgesFromA.find(e => e.toRecordId === localC);
-    expect(stale).toBeUndefined();
+    expect(stale?.relationType).toBe("precedes");
   });
 
-  it("inserts a new edge as 'related' when Notion adds one that didn't exist locally", async () => {
-    // Notion now adds A→C as a new link
+  it("preserves an existing manual edge when Notion lists it again", async () => {
+    // Notion lists A→C again; the existing manual edge retains its type.
     mockQueryDatabase.mockResolvedValue([
       makeNotionPage(NOTION_A, "Sync Record A", [NOTION_B, NOTION_C]),
       makeNotionPage(NOTION_B, "Sync Record B"),
@@ -302,13 +294,13 @@ describe("Notion sync — relation type preservation", () => {
       .from(wsCanonRecordRelationsTable)
       .where(eq(wsCanonRecordRelationsTable.fromRecordId, localA));
 
-    // Two edges: A→B (still "contradicts") and A→C (new, "related")
+    // Two edges: A→B ("contradicts") and A→C ("precedes"), both preserved.
     expect(edgesFromA.length).toBe(2);
 
     const edgeToB = edgesFromA.find(e => e.toRecordId === localB);
     expect(edgeToB?.relationType).toBe("contradicts"); // preserved
 
     const edgeToC = edgesFromA.find(e => e.toRecordId === localC);
-    expect(edgeToC?.relationType).toBe("related"); // new edge defaults to "related"
+    expect(edgeToC?.relationType).toBe("precedes"); // existing manual type is preserved
   });
 });

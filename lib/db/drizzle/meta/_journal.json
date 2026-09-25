@@ -414,6 +414,13 @@
       "when": 1789837200000,
       "tag": "0058_worldsmith_mcp_oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1789840800000,
+      "tag": "0059_mcp_registration_limits",
+      "breakpoints": true
     }
   ]
 }

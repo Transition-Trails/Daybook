@@ -164,7 +164,7 @@ export async function issueMcpTokenPair(args: {
   resource: string;
   scopes: McpScope[];
   familyId?: string;
-}): Promise<IssuedMcpTokens> {
+}, writer: Pick<typeof db, "insert"> = db): Promise<IssuedMcpTokens> {
   if (hasWriteWithoutRead(args.scopes)) {
     throw new Error("Canon write access requires an explicitly requested read scope");
   }
@@ -173,7 +173,7 @@ export async function issueMcpTokenPair(args: {
   const familyId = args.familyId ?? createOpaqueSecret();
   const accessExpiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_SECONDS * 1000);
   const refreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000);
-  await db.insert(mcpOAuthTokensTable).values([
+  await writer.insert(mcpOAuthTokensTable).values([
     {
       tokenHash: sha256(accessToken),
       kind: "access",

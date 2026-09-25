@@ -1,7 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { db, mcpOAuthAuthorizationCodesTable, mcpOAuthClientsTable, mcpOAuthTokensTable, usersTable } from "@workspace/db";
 import { isSuperAdmin } from "../lib/roles";
+import { limitMcpRegistration } from "../lib/mcp-registration-limit";
 import {
   createOpaqueSecret,
   AUTHORIZATION_CODE_TTL_SECONDS,
@@ -20,9 +21,6 @@ import {
 
 const oauthRouter: IRouter = Router();
 const metadataRouter: IRouter = Router();
-const dcrRequestsByIp = new Map<string, { windowStartedAt: number; count: number }>();
-const DCR_LIMIT_PER_WINDOW = 30;
-const DCR_WINDOW_MS = 60 * 60 * 1000;
 
 interface ConsentSession {
   csrf: string;
@@ -129,30 +127,19 @@ metadataRouter.get("/.well-known/oauth-protected-resource", protectedResourceMet
 
 // Mount this router at /mcp/oauth (the routes below are relative to that base).
 oauthRouter.post("/register", async (req, res): Promise<void> => {
-  const now = Date.now();
-  const ip = req.ip || req.socket.remoteAddress || "unknown";
-  let limit = dcrRequestsByIp.get(ip);
-  if (!limit || now - limit.windowStartedAt >= DCR_WINDOW_MS) {
-    limit = { windowStartedAt: now, count: 0 };
-    dcrRequestsByIp.set(ip, limit);
+  let admission: Awaited<ReturnType<typeof limitMcpRegistration>>;
+  try {
+    admission = await limitMcpRegistration(req.ip || req.socket.remoteAddress || "unknown");
+  } catch (error) {
+    req.log?.error({ err: error }, "MCP registration rate limiter unavailable");
+    oauthError(res, 503, "server_error", "Registration is temporarily unavailable");
+    return;
   }
-  // Bound memory in case the endpoint is hit from many one-off source addresses.
-  if (dcrRequestsByIp.size > 10_000) {
-    for (const [key, entry] of dcrRequestsByIp) {
-      if (now - entry.windowStartedAt >= DCR_WINDOW_MS) dcrRequestsByIp.delete(key);
-    }
-    while (dcrRequestsByIp.size > 10_000) {
-      const oldestKey = dcrRequestsByIp.keys().next().value;
-      if (oldestKey === undefined) break;
-      dcrRequestsByIp.delete(oldestKey);
-    }
-  }
-  if (limit.count >= DCR_LIMIT_PER_WINDOW) {
-    res.setHeader("Retry-After", String(Math.ceil((limit.windowStartedAt + DCR_WINDOW_MS - now) / 1000)));
+  if (!admission.allowed) {
+    res.setHeader("Retry-After", String(admission.retryAfter));
     oauthError(res, 429, "slow_down", "Dynamic client registration limit exceeded");
     return;
   }
-  limit.count++;
   const body = req.body as { redirect_uris?: unknown; client_name?: unknown };
   if (!Array.isArray(body?.redirect_uris) || body.redirect_uris.length < 1 || body.redirect_uris.length > 20 ||
       !body.redirect_uris.every(validRedirectUri) || new Set(body.redirect_uris).size !== body.redirect_uris.length) {
@@ -410,52 +397,55 @@ oauthRouter.post("/token", async (req, res): Promise<void> => {
       oauthError(res, 400, "invalid_grant");
       return;
     }
-    if (existing.revokedAt) {
-      await db.update(mcpOAuthTokensTable).set({ revokedAt: new Date() })
-        .where(eq(mcpOAuthTokensTable.familyId, existing.familyId)).returning();
-      oauthError(res, 400, "invalid_grant", "Refresh token replay detected; token family revoked");
-      return;
-    }
     const requestedScopes = body.scope === undefined ? existing.scopes as McpScope[] : parseMcpScopes(body.scope);
     if (!requestedScopes || hasWriteWithoutRead(requestedScopes)) {
       oauthError(res, 400, "invalid_scope", "Canon write scope requires the read scope to be explicitly requested as well");
       return;
     }
-    if (existing.expiresAt <= new Date() || existing.resource !== resource ||
+    if (existing.resource !== resource ||
         requestedScopes.some((scope) => !(existing.scopes as string[]).includes(scope))) {
       oauthError(res, 400, "invalid_grant", "Refresh token is expired, audience-mismatched, or scope escalation was requested");
       return;
     }
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, existing.userId)).limit(1);
-    if (!user || !isSuperAdmin(user)) {
-      await db.update(mcpOAuthTokensTable).set({ revokedAt: new Date() })
-        .where(eq(mcpOAuthTokensTable.familyId, existing.familyId)).returning();
-      oauthError(res, 400, "invalid_grant", "The authorizing account is no longer eligible");
-      return;
-    }
-    const [consumed] = await db.update(mcpOAuthTokensTable)
-      .set({ revokedAt: new Date() })
-      .where(and(
-        eq(mcpOAuthTokensTable.tokenHash, tokenHash),
-        isNull(mcpOAuthTokensTable.revokedAt),
-        gt(mcpOAuthTokensTable.expiresAt, new Date()),
-      ))
-      .returning();
-    if (!consumed) {
-      await db.update(mcpOAuthTokensTable).set({ revokedAt: new Date() })
-        .where(eq(mcpOAuthTokensTable.familyId, existing.familyId)).returning();
-      oauthError(res, 400, "invalid_grant", "Refresh token replay detected; token family revoked");
-      return;
-    }
-    const tokens = await issueMcpTokenPair({
-      userId: existing.userId,
-      clientId,
-      resource,
-      scopes: requestedScopes,
-      familyId: existing.familyId,
+    const outcome = await db.transaction(async (tx) => {
+      // Every mutation of a refresh family uses this database-wide lock. A
+      // replay cannot revoke the family between consuming and issuing tokens.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${existing.familyId}, 0))`);
+      const [current] = await tx.select().from(mcpOAuthTokensTable)
+        .where(eq(mcpOAuthTokensTable.tokenHash, tokenHash)).limit(1);
+      if (!current || current.revokedAt) {
+        await tx.update(mcpOAuthTokensTable).set({ revokedAt: new Date() })
+          .where(eq(mcpOAuthTokensTable.familyId, existing.familyId));
+        return { error: "Refresh token replay detected; token family revoked" } as const;
+      }
+      if (current.expiresAt <= new Date()) {
+        return { error: "Refresh token is expired" } as const;
+      }
+      const [user] = await tx.select().from(usersTable).where(eq(usersTable.id, current.userId)).limit(1);
+      if (!user || !isSuperAdmin(user)) {
+        await tx.update(mcpOAuthTokensTable).set({ revokedAt: new Date() })
+          .where(eq(mcpOAuthTokensTable.familyId, existing.familyId));
+        return { error: "The authorizing account is no longer eligible" } as const;
+      }
+      const [consumed] = await tx.update(mcpOAuthTokensTable).set({ revokedAt: new Date() })
+        .where(and(
+          eq(mcpOAuthTokensTable.tokenHash, tokenHash),
+          isNull(mcpOAuthTokensTable.revokedAt),
+          gt(mcpOAuthTokensTable.expiresAt, new Date()),
+        )).returning();
+      if (!consumed) return { error: "Refresh token is expired" } as const;
+      const tokens = await issueMcpTokenPair({
+        userId: current.userId, clientId, resource, scopes: requestedScopes,
+        familyId: current.familyId,
+      }, tx);
+      return { tokens } as const;
     });
+    if ("error" in outcome) {
+      oauthError(res, 400, "invalid_grant", outcome.error);
+      return;
+    }
     setPrivateHeaders(res);
-    res.json({ ...tokens, refresh_token_expires_in: REFRESH_TOKEN_TTL_SECONDS });
+    res.json({ ...outcome.tokens, refresh_token_expires_in: REFRESH_TOKEN_TTL_SECONDS });
     return;
   }
   oauthError(res, 400, "unsupported_grant_type");
@@ -478,11 +468,15 @@ oauthRouter.post("/revoke", async (req, res): Promise<void> => {
     eq(mcpOAuthTokensTable.clientId, clientId),
   )).limit(1);
   if (grant) {
-    await db.update(mcpOAuthTokensTable).set({ revokedAt: new Date() })
-      .where(eq(mcpOAuthTokensTable.tokenHash, grant.tokenHash)).returning();
     if (grant.kind === "refresh") {
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${grant.familyId}, 0))`);
+        await tx.update(mcpOAuthTokensTable).set({ revokedAt: new Date() })
+          .where(eq(mcpOAuthTokensTable.familyId, grant.familyId));
+      });
+    } else {
       await db.update(mcpOAuthTokensTable).set({ revokedAt: new Date() })
-        .where(eq(mcpOAuthTokensTable.familyId, grant.familyId)).returning();
+        .where(eq(mcpOAuthTokensTable.tokenHash, grant.tokenHash)).returning();
     }
   }
   setPrivateHeaders(res);

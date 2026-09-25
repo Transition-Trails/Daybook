@@ -32,12 +32,14 @@ const {
   mockQueryDatabase,
   mockExtractRelation,
   dbSelectQueue,
+  lastSelectedRows,
   capturedUpdateSet,
   capturedInsertValues,
   onConflictDoNothingCallCount,
 } = vi.hoisted(() => {
   /** Queue of row-arrays returned in order by successive db.select() chains. */
   const dbSelectQueue: Array<unknown[]> = [];
+  const lastSelectedRows: { value: unknown[] } = { value: [] };
   /** Stores the most-recent .set({...}) payload so tests can assert on it. */
   const capturedUpdateSet: { value: Record<string, unknown> | null } = { value: null };
   /** Stores the most-recent .values({...}) payload so tests can assert on it. */
@@ -52,6 +54,7 @@ const {
     mockQueryDatabase,
     mockExtractRelation,
     dbSelectQueue,
+    lastSelectedRows,
     capturedUpdateSet,
     capturedInsertValues,
     onConflictDoNothingCallCount,
@@ -74,6 +77,9 @@ vi.mock("@workspace/db", () => {
     const leaf = Object.assign(terminus, {
       limit: (_n: number) => terminus,
     });
+    Object.assign(leaf, {
+      for: (_lock: string) => leaf,
+    });
     // Allow both .where().limit() and bare .where() to resolve.
     const withWhere = { where: () => leaf };
     const withFrom  = { from: () => withWhere };
@@ -81,7 +87,10 @@ vi.mock("@workspace/db", () => {
   }
 
   const db = {
-    select: vi.fn(() => makeSelectChain(dbSelectQueue.shift() ?? [])),
+    select: vi.fn(() => {
+      lastSelectedRows.value = dbSelectQueue.shift() ?? [];
+      return makeSelectChain(lastSelectedRows.value);
+    }),
     update: vi.fn(() => ({
       set: (payload: Record<string, unknown>) => {
         capturedUpdateSet.value = payload;
@@ -106,6 +115,27 @@ vi.mock("@workspace/db", () => {
     delete: vi.fn(() => ({
       where: () => Promise.resolve([]),
     })),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        select: vi.fn(() => makeSelectChain(lastSelectedRows.value)),
+        update: vi.fn(() => ({
+          set: (payload: Record<string, unknown>) => {
+            capturedUpdateSet.value = payload;
+            return {
+              where: () => ({
+                returning: () => Promise.resolve([
+                  { ...(lastSelectedRows.value[0] as Record<string, unknown>), ...payload },
+                ]),
+              }),
+            };
+          },
+        })),
+        insert: vi.fn(() => ({
+          values: () => Promise.resolve([]),
+        })),
+      };
+      return callback(tx);
+    }),
   };
 
   // Stub table objects — drizzle-orm operators receive these as column references.
@@ -119,6 +149,7 @@ vi.mock("@workspace/db", () => {
   return {
     db,
     wsCanonRecordsTable:         tableStub,
+    mcpCanonHistoryTable:        tableStub,
     wsCanonRecordRelationsTable: tableStub,
     wsCollectionsTable:          tableStub,
     wsVolumesTable:              tableStub,
@@ -265,6 +296,7 @@ function buildApp() {
 beforeEach(() => {
   process.env.NOTION_TOKEN = "test-token-not-real";
   dbSelectQueue.length = 0;
+  lastSelectedRows.value = [];
   capturedUpdateSet.value           = null;
   capturedInsertValues.value        = null;
   onConflictDoNothingCallCount.value = 0;

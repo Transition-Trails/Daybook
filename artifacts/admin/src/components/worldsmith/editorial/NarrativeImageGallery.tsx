@@ -199,7 +199,7 @@ export function NarrativeImageGallery({
           onClick={() => inputRef.current?.click()}
           disabled={busy}
           data-testid={`button-upload-${targetType}-image-${targetId}`}
-          className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold text-[#1B2A4A] hover:bg-gray-50 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold text-[var(--admin-ink)] hover:bg-gray-50 disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
           Upload image

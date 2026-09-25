@@ -57,7 +57,7 @@ describe("EditorialShell drawer", () => {
     const firstRender = renderShell();
 
     await screen.findByRole("button", { name: "Select world · Glasswater" });
-    expect(screen.getByRole("link", { name: "Storylines" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Storylines & Scenes" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByTestId("editorial-drawer")).toHaveStyle({ width: "260px" });
 
     const worldSelector = screen.getByRole("button", { name: "Select world · Glasswater" });
@@ -83,7 +83,7 @@ describe("EditorialShell drawer", () => {
 
     expect(screen.getByRole("button", { name: "Reopen editorial navigation" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByTestId("editorial-drawer")).toHaveStyle({ width: "72px" });
-    expect(screen.getByRole("link", { name: "Storylines" })).toHaveAttribute("title", "Storylines");
+    expect(screen.getByRole("link", { name: "Storylines & Scenes" })).toHaveAttribute("title", "Storylines & Scenes");
     expect(screen.getByTestId("editorial-workspace")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Select world · Glasswater" }));

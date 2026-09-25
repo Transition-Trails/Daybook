@@ -6,6 +6,8 @@ import passport from "passport";
 import cookieParser from "cookie-parser";
 import path from "node:path";
 import router from "./routes";
+import mcpRouter from "./routes/mcp";
+import { metadataRouter, oauthRouter } from "./routes/mcp-oauth";
 import { logger } from "./lib/logger";
 import "./lib/passport"; // configure passport strategies
 import {
@@ -73,6 +75,9 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+app.use(metadataRouter);
+app.use("/mcp/oauth", oauthRouter);
+app.use(mcpRouter);
 app.use("/api", router);
 
 // ── CI / staging: serve admin SPA from same port ─────────────────────────────
@@ -87,7 +92,7 @@ if (adminDist) {
   const distPath = path.resolve(adminDist);
   app.use(express.static(distPath));
   // SPA fallback — any non-/api path serves index.html
-  app.get(/^(?!\/api).*$/, (_req, res) => {
+  app.get(/^(?!\/(?:api|mcp|\.well-known)(?:\/|$)).*$/, (_req, res) => {
     res.sendFile(path.join(distPath, "index.html"));
   });
   logger.info({ distPath }, "Serving admin SPA (SERVE_ADMIN_DIST mode)");

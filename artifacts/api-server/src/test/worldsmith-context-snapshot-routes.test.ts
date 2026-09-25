@@ -7,6 +7,7 @@ import {
   db,
   pool,
   wsCanonRecordsTable,
+  mcpCanonHistoryTable,
   wsCollectionsTable,
   wsComponentSpecsTable,
   wsContextSnapshotsTable,
@@ -48,6 +49,7 @@ const recordIds = {
   bulkB: `snapshot-bulk-b-${run}`,
   archiveSuccess: `snapshot-archive-success-${run}`,
   archiveFailure: `snapshot-archive-failure-${run}`,
+  versionedPatch: `snapshot-versioned-patch-${run}`,
 };
 const allRecordIds = Object.values(recordIds);
 
@@ -81,6 +83,7 @@ beforeAll(async () => {
     { id: recordIds.bulkB, worldId, name: "Bulk B", status: "under_review", canonType: "object" },
     { id: recordIds.archiveSuccess, worldId, name: "Archive Success", status: "accepted", canonType: "location" },
     { id: recordIds.archiveFailure, worldId, name: "Archive Failure", status: "accepted", canonType: "character" },
+    { id: recordIds.versionedPatch, worldId, name: "Versioned Patch", status: "accepted", canonType: "character" },
   ]);
   await db.insert(wsContextSnapshotsTable).values(allRecordIds.map(entityId => ({
     entityType: "canon_record",
@@ -92,6 +95,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(mcpCanonHistoryTable).where(inArray(mcpCanonHistoryTable.recordId, allRecordIds));
   await db.delete(wsContextSnapshotsTable).where(inArray(wsContextSnapshotsTable.entityId, allRecordIds));
   await db.delete(wsCanonRecordsTable).where(inArray(wsCanonRecordsTable.id, allRecordIds));
   await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
@@ -134,12 +138,46 @@ describe("governed Context Snapshot routes", () => {
     expect(stored?.status).toBe("sync_failed");
   });
 
+  it("bumps version and audits legacy canon PATCH writes atomically, rejecting stale versions", async () => {
+    const [before] = await db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, recordIds.versionedPatch));
+    const response = await request(app)
+      .patch(`/v1/editorial/canon-records/${recordIds.versionedPatch}`)
+      .send({ name: "Versioned Patch Updated" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.canon_record.version).toBe(before.version + 1);
+    const history = await db.select().from(mcpCanonHistoryTable).where(eq(mcpCanonHistoryTable.recordId, recordIds.versionedPatch));
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      actorUserId: `snapshot-admin-${run}`,
+      changeType: "canon_patch",
+      diff: { name: { before: "Versioned Patch", after: "Versioned Patch Updated" } },
+    });
+
+    const stale = await request(app)
+      .patch(`/v1/editorial/canon-records/${recordIds.versionedPatch}`)
+      .send({ name: "Stale update", expected_version: before.version });
+    expect(stale.status).toBe(409);
+    const [after] = await db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, recordIds.versionedPatch));
+    expect(after.name).toBe("Versioned Patch Updated");
+    expect(after.version).toBe(before.version + 1);
+  });
+
   it("publishes after individual acceptance", async () => {
+    const [before] = await db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, recordIds.transition));
     const response = await request(app)
       .post(`/v1/editorial/canon-records/${recordIds.transition}/transition`)
       .send({ status: "accepted" });
 
     expect(response.status).toBe(200);
+    expect(response.body.canon_record.version).toBe(before.version + 1);
+    const history = await db.select().from(mcpCanonHistoryTable).where(eq(mcpCanonHistoryTable.recordId, recordIds.transition));
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      actorUserId: `snapshot-admin-${run}`,
+      changeType: "status_transition",
+      diff: { status: { before: "under_review", after: "accepted" } },
+    });
     expect(response.body.context_snapshot_status).toBe("current");
     expect(mockPublish).toHaveBeenCalledOnce();
   });

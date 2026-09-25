@@ -15,6 +15,7 @@ import {
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth-middleware";
 import { requireSuperAdmin } from "../middleware/requireRole";
+import { CanonToolError, updateCharacterProfile } from "../lib/worldsmith/mcp-canon";
 
 const router = Router();
 router.use(requireAuth, requireSuperAdmin);
@@ -338,6 +339,13 @@ for (const [name, table] of [["character", wsCharacterProfilesTable], ["location
   router.put(`/v1/editorial/profiles/${name}/:recordId`, async (req: Request, res: Response): Promise<void> => {
     const worldId = typeof req.body.world_id === "string" ? req.body.world_id : "";
     const schemaVersion = z.number().int().positive().default(1).safeParse(req.body.schema_version);
+    const expectedVersion = req.body.expected_version === undefined
+      ? undefined
+      : z.number().int().positive().safeParse(req.body.expected_version);
+    if (expectedVersion && !expectedVersion.success) {
+      res.status(400).json({ error: "expected_version must be a positive integer", code: "INVALID_VERSION" });
+      return;
+    }
     const parsed = schema.safeParse(req.body.profile ?? req.body);
     if (!worldId || !schemaVersion.success || !parsed.success) {
       res.status(400).json({ error: "world_id, schema_version, and a valid typed profile are required" }); return;
@@ -347,6 +355,30 @@ for (const [name, table] of [["character", wsCharacterProfilesTable], ["location
     if (!record) { res.status(422).json({ error: "record_id must belong to world_id" }); return; }
     if (record.canonType !== name && !(name === "material" && record.canonType === "object")) {
       res.status(422).json({ error: `profile type ${name} does not match canon type` }); return;
+    }
+    if (name === "character") {
+      try {
+        const result = await updateCharacterProfile(
+          String((req.user as { id?: string } | undefined)?.id ?? ""),
+          String(req.params.recordId),
+          parsed.data,
+          expectedVersion?.data,
+          schemaVersion.data,
+          true,
+        );
+        res.json({
+          profile: { recordId: String(req.params.recordId), schemaVersion: schemaVersion.data, profile: result.profile },
+          schemaVersion: schemaVersion.data,
+          version: result.version,
+        });
+      } catch (error) {
+        if (error instanceof CanonToolError) {
+          res.status(error.status).json({ error: error.message, code: error.code });
+          return;
+        }
+        throw error;
+      }
+      return;
     }
     const [row] = await db.insert(table).values({ recordId: String(req.params.recordId), schemaVersion: schemaVersion.data, profile: parsed.data })
       .onConflictDoUpdate({ target: table.recordId, set: { schemaVersion: schemaVersion.data, profile: parsed.data, updatedAt: new Date() } }).returning();

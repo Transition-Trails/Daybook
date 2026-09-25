@@ -59,6 +59,7 @@ export const wsCanonRecordsTable = pgTable("ws_canon_records", {
   name: text("name").notNull(),
   // proposed | under_review | accepted | superseded | rejected
   status: text("status").notNull().default("proposed"),
+  version: integer("version").notNull().default(1),
   // character | location | object | event | lore | atmosphere | material | relationship | motif
   canonType: text("canon_type"),
   globalMetadata: jsonb("global_metadata").$type<Record<string, unknown>>().notNull().default({}),

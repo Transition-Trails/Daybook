@@ -82,6 +82,7 @@ import {
   wsEncountersTable,
   wsJournalPromptsTable,
   wsCanonRecordStoryLinksTable,
+  mcpCanonHistoryTable,
   wsSuggestionRefreshesTable,
   wsOwnerDiscoveriesTable,
   wsOwnerDiscoveryRevisionsTable,
@@ -1580,42 +1581,44 @@ router.post("/v1/editorial/canon-records/sync-notion", async (req: Request, res:
 
       // Check if a local record already exists for this Notion page
       const [existing] = await db
-        .select({
-          id: wsCanonRecordsTable.id,
-          emotionalRegister: wsCanonRecordsTable.emotionalRegister,
-          sensoryClauses: wsCanonRecordsTable.sensoryClauses,
-          registerLocked: wsCanonRecordsTable.registerLocked,
-        })
+        .select()
         .from(wsCanonRecordsTable)
         .where(eq(wsCanonRecordsTable.notionPageId, notionPageId));
 
       if (existing) {
-        // Local-wins: only overwrite the three new fields if locally empty/null
-        const mergedEmotionalRegister =
-          existing.emotionalRegister ?? (notionEmotionalRegister || null);
-        const mergedSensoryClauses =
-          existing.sensoryClauses?.trim()
-            ? existing.sensoryClauses
-            : notionSensoryClauses;
-        // register_locked: local wins if already true; otherwise take Notion value
-        const mergedRegisterLocked =
-          existing.registerLocked ? true : notionRegisterLocked;
-
-        await db
-          .update(wsCanonRecordsTable)
-          .set({
+        await db.transaction(async tx => {
+          const [locked] = await tx.select().from(wsCanonRecordsTable)
+            .where(eq(wsCanonRecordsTable.id, existing.id)).for("update").limit(1);
+          if (!locked) return;
+          // Local-wins: only overwrite these fields if locally empty/null.
+          const changes = {
             name: name.trim(),
             canonType: canonType ?? null,
             status,
             narrativeDetails,
             historicalContext,
             visualNotes,
-            emotionalRegister: mergedEmotionalRegister,
-            sensoryClauses: mergedSensoryClauses,
-            registerLocked: mergedRegisterLocked,
+            emotionalRegister: locked.emotionalRegister ?? (notionEmotionalRegister || null),
+            sensoryClauses: locked.sensoryClauses?.trim() ? locked.sensoryClauses : notionSensoryClauses,
+            registerLocked: locked.registerLocked ? true : notionRegisterLocked,
             syncedAt: new Date(),
-          })
-          .where(eq(wsCanonRecordsTable.id, existing.id));
+          };
+          const [updated] = await tx.update(wsCanonRecordsTable)
+            .set({ ...changes, version: locked.version + 1, updatedAt: new Date() })
+            .where(and(eq(wsCanonRecordsTable.id, locked.id), eq(wsCanonRecordsTable.version, locked.version)))
+            .returning();
+          if (!updated) return;
+          const diff: Record<string, { before: unknown; after: unknown }> = {};
+          for (const key of [...Object.keys(changes), "version"]) {
+            const before = (locked as Record<string, unknown>)[key];
+            const after = (updated as Record<string, unknown>)[key];
+            if (JSON.stringify(before) !== JSON.stringify(after)) diff[key] = { before: before ?? null, after: after ?? null };
+          }
+          await tx.insert(mcpCanonHistoryTable).values({
+            id: randomUUID(), recordId: locked.id, actorUserId: String((req.user as any)?.id ?? ""),
+            changeType: "notion_sync", before: locked, after: updated, diff,
+          });
+        });
         notionIdToLocalId.set(notionPageId, existing.id);
         updated++;
       } else {
@@ -2542,14 +2545,40 @@ router.post("/v1/editorial/canon-records/:id/regenerate-summary", async (req: Re
       updates.identitySummarySourceHash = canonSummarySourceHash(record, "identity");
       updates.identitySummaryGeneratedAt = generatedAt;
     }
-    const [updated] = await db.update(wsCanonRecordsTable).set(updates)
-      .where(eq(wsCanonRecordsTable.id, recordId)).returning();
+    const updated = await db.transaction(async tx => {
+      const [locked] = await tx.select().from(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.id, recordId)).for("update").limit(1);
+      if (!locked) throw new Error("Canon record not found");
+      if (locked.version !== record.version) {
+        throw Object.assign(new Error("Canon record changed while its summary was being generated"), { code: "VERSION_CONFLICT" });
+      }
+      const [saved] = await tx.update(wsCanonRecordsTable)
+        .set({ ...updates, version: locked.version + 1, updatedAt: new Date() })
+        .where(and(eq(wsCanonRecordsTable.id, recordId), eq(wsCanonRecordsTable.version, locked.version)))
+        .returning();
+      if (!saved) throw Object.assign(new Error("Canon record changed while its summary was being generated"), { code: "VERSION_CONFLICT" });
+      const diff: Record<string, { before: unknown; after: unknown }> = {};
+      for (const key of [...Object.keys(updates), "version"]) {
+        const before = (locked as Record<string, unknown>)[key];
+        const after = (saved as Record<string, unknown>)[key];
+        if (JSON.stringify(before) !== JSON.stringify(after)) diff[key] = { before: before ?? null, after: after ?? null };
+      }
+      await tx.insert(mcpCanonHistoryTable).values({
+        id: randomUUID(), recordId, actorUserId: String((req.user as any)?.id ?? ""),
+        changeType: "canon_summary_regenerated", before: locked, after: saved, diff,
+      });
+      return saved;
+    });
     const contextSnapshotStatus = await autoPublishCanonContextSnapshot(updated).catch(autoSyncErr => {
       logger.error({ err: autoSyncErr, id: updated.id }, "editorial: automatic context snapshot failed after summary regeneration");
       return "sync_failed" as const;
     });
     res.json({ canon_record: withCanonPresentation(updated), context_snapshot_status: contextSnapshotStatus });
   } catch (err) {
+    if ((err as { code?: string }).code === "VERSION_CONFLICT") {
+      res.status(409).json({ error: (err as Error).message, code: "VERSION_CONFLICT" });
+      return;
+    }
     logger.error({ err, recordId }, "editorial: regenerate Canon prompt summary");
     res.status(502).json({ error: "The Canon prompt summary could not be generated. Try again." });
   }
@@ -2565,7 +2594,12 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     portrait_url, image_urls, image_gallery, notes,
     typography, global_metadata, structured_profile, generation_profile,
     prompt_summary, identity_summary,
+    expected_version,
   } = req.body;
+  if (expected_version !== undefined && (!Number.isInteger(expected_version) || expected_version < 1)) {
+    res.status(400).json({ error: "expected_version must be a positive integer", code: "INVALID_VERSION" });
+    return;
+  }
   for (const [key, value] of Object.entries({ global_metadata, structured_profile, generation_profile })) {
     if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) {
       res.status(400).json({ error: `${key} must be a JSON object` }); return;
@@ -2622,16 +2656,21 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     }
   }
   try {
-    const [existingRecord] = await db.select().from(wsCanonRecordsTable)
-      .where(eq(wsCanonRecordsTable.id, req.params.id as string)).limit(1);
-    if (!existingRecord) { res.status(404).json({ error: "Canon record not found" }); return; }
     const resolvedImages = image_gallery !== undefined || image_urls !== undefined
       ? normaliseCanonImageGallery(image_gallery, image_urls, portrait_url)
       : undefined;
     const resolvedTypography = typography === undefined ? undefined : await resolveTypographyChoices(typography);
-    let [row] = await db
-      .update(wsCanonRecordsTable)
-      .set({
+    const result = await db.transaction(async tx => {
+      const [existingRecord] = await tx.select().from(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.id, req.params.id as string)).for("update").limit(1);
+      if (!existingRecord) return null;
+      if (expected_version !== undefined && expected_version !== existingRecord.version) {
+        throw Object.assign(new Error(`Version conflict: expected ${expected_version}, current version is ${existingRecord.version}`), {
+          code: "VERSION_CONFLICT",
+          currentVersion: existingRecord.version,
+        });
+      }
+      const changes: Partial<typeof wsCanonRecordsTable.$inferInsert> = {
         ...(name !== undefined ? { name } : {}),
         ...(canon_type !== undefined ? { canonType: canon_type } : {}),
         ...(narrative_details !== undefined ? { narrativeDetails: sanitizeEditorialRichText(narrative_details) } : {}),
@@ -2664,25 +2703,52 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
         ...(generation_profile !== undefined ? { generationProfile: generation_profile } : {}),
         ...(prompt_summary !== undefined ? { promptSummary: String(prompt_summary).slice(0, 3_500) } : {}),
         ...(identity_summary !== undefined ? { identitySummary: String(identity_summary).slice(0, 2_000) } : {}),
-      })
-      .where(eq(wsCanonRecordsTable.id, req.params.id as string))
-      .returning();
-    if (!row) { res.status(404).json({ error: "Canon record not found" }); return; }
-    const summaryProvenance: Partial<typeof wsCanonRecordsTable.$inferInsert> = {};
-    if (prompt_summary !== undefined && String(prompt_summary) !== existingRecord.promptSummary) {
-      summaryProvenance.promptSummarySourceHash = canonSummarySourceHash(row, "prompt");
-      summaryProvenance.promptSummaryGeneratedAt = new Date();
-    }
-    if (identity_summary !== undefined && String(identity_summary) !== existingRecord.identitySummary) {
-      summaryProvenance.identitySummarySourceHash = row.canonType === "character"
-        ? canonSummarySourceHash(row, "identity")
-        : null;
-      summaryProvenance.identitySummaryGeneratedAt = row.canonType === "character" ? new Date() : null;
-    }
-    if (Object.keys(summaryProvenance).length) {
-      [row] = await db.update(wsCanonRecordsTable).set(summaryProvenance)
-        .where(eq(wsCanonRecordsTable.id, row.id)).returning();
-    }
+      };
+      let [row] = await tx.update(wsCanonRecordsTable)
+        .set({ ...changes, version: existingRecord.version + 1, updatedAt: new Date() })
+        .where(and(eq(wsCanonRecordsTable.id, req.params.id as string), eq(wsCanonRecordsTable.version, existingRecord.version)))
+        .returning();
+      if (!row) {
+        throw Object.assign(new Error("Canon record changed concurrently; retry with the latest version"), { code: "VERSION_CONFLICT" });
+      }
+      const summaryProvenance: Partial<typeof wsCanonRecordsTable.$inferInsert> = {};
+      if (prompt_summary !== undefined && String(prompt_summary) !== existingRecord.promptSummary) {
+        summaryProvenance.promptSummarySourceHash = canonSummarySourceHash(row, "prompt");
+        summaryProvenance.promptSummaryGeneratedAt = new Date();
+      }
+      if (identity_summary !== undefined && String(identity_summary) !== existingRecord.identitySummary) {
+        summaryProvenance.identitySummarySourceHash = row.canonType === "character"
+          ? canonSummarySourceHash(row, "identity")
+          : null;
+        summaryProvenance.identitySummaryGeneratedAt = row.canonType === "character" ? new Date() : null;
+      }
+      if (Object.keys(summaryProvenance).length) {
+        [row] = await tx.update(wsCanonRecordsTable).set(summaryProvenance)
+          .where(and(eq(wsCanonRecordsTable.id, row.id), eq(wsCanonRecordsTable.version, row.version))).returning();
+      }
+      const diff: Record<string, { before: unknown; after: unknown }> = {};
+      const auditKeys = new Set([...Object.keys(changes), ...Object.keys(summaryProvenance), "version"]);
+      for (const key of auditKeys) {
+        const beforeValue = (existingRecord as Record<string, unknown>)[key];
+        const afterValue = (row as Record<string, unknown>)[key];
+        if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
+          diff[key] = { before: beforeValue ?? null, after: afterValue ?? null };
+        }
+      }
+      await tx.insert(mcpCanonHistoryTable).values({
+        id: randomUUID(),
+        recordId: row.id,
+        actorUserId: String((req.user as { id?: string } | undefined)?.id ?? ""),
+        changeType: "canon_patch",
+        before: existingRecord as unknown as Record<string, unknown>,
+        after: row as unknown as Record<string, unknown>,
+        diff,
+      });
+      return { existingRecord, row };
+    });
+    if (!result) { res.status(404).json({ error: "Canon record not found" }); return; }
+    const { existingRecord } = result;
+    let { row } = result;
 
     // Write updated fields back to Notion if this record is linked to a page.
     // All Notion writes are non-fatal: local save already succeeded above.
@@ -2728,6 +2794,14 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     });
     res.json({ canon_record: withCanonPresentation(row), context_snapshot_status: contextSnapshotStatus });
   } catch (err) {
+    if ((err as { code?: string }).code === "VERSION_CONFLICT") {
+      res.status(409).json({
+        error: (err as Error).message,
+        code: "VERSION_CONFLICT",
+        current_version: (err as { currentVersion?: number }).currentVersion,
+      });
+      return;
+    }
     if (err instanceof CanonImageGalleryValidationError) {
       res.status(400).json({ error: err.message });
       return;
@@ -2993,35 +3067,44 @@ router.post("/v1/editorial/canon-records/:id/transition", async (req: Request, r
   if (!status) { res.status(400).json({ error: "status is required" }); return; }
 
   try {
-    const [existing] = await db
-      .select()
-      .from(wsCanonRecordsTable)
-      .where(eq(wsCanonRecordsTable.id, req.params.id as string))
-      .limit(1);
-
-    if (!existing) { res.status(404).json({ error: "Canon record not found" }); return; }
-
-    const allowed = CANON_TRANSITIONS[existing.status] ?? [];
-    if (!allowed.includes(status)) {
+    const result = await db.transaction(async tx => {
+      const [existing] = await tx.select().from(wsCanonRecordsTable)
+        .where(eq(wsCanonRecordsTable.id, req.params.id as string)).for("update").limit(1);
+      if (!existing) return { kind: "not_found" as const };
+      const allowed = CANON_TRANSITIONS[existing.status] ?? [];
+      if (!allowed.includes(status)) return { kind: "invalid" as const, existing, allowed };
+      const [updated] = await tx.update(wsCanonRecordsTable)
+        .set({ status, version: existing.version + 1, updatedAt: new Date() })
+        .where(and(eq(wsCanonRecordsTable.id, existing.id), eq(wsCanonRecordsTable.version, existing.version)))
+        .returning();
+      if (!updated) throw Object.assign(new Error("Canon record changed concurrently"), { code: "VERSION_CONFLICT" });
+      await tx.insert(mcpCanonHistoryTable).values({
+        id: randomUUID(), recordId: updated.id, actorUserId: String((req.user as any)?.id ?? ""),
+        changeType: "status_transition",
+        before: existing, after: updated,
+        diff: { status: { before: existing.status, after: updated.status }, version: { before: existing.version, after: updated.version } },
+      });
+      return { kind: "updated" as const, updated };
+    });
+    if (result.kind === "not_found") { res.status(404).json({ error: "Canon record not found" }); return; }
+    if (result.kind === "invalid") {
       res.status(422).json({
-        error: `Cannot transition from "${existing.status}" to "${status}".`,
-        allowed_transitions: allowed,
+        error: `Cannot transition from "${result.existing.status}" to "${status}".`,
+        allowed_transitions: result.allowed,
       });
       return;
     }
-
-    const [updated] = await db
-      .update(wsCanonRecordsTable)
-      .set({ status })
-      .where(eq(wsCanonRecordsTable.id, req.params.id as string))
-      .returning();
-
+    const updated = result.updated;
     const contextSnapshotStatus = await autoPublishCanonContextSnapshot(updated).catch(autoSyncErr => {
       logger.error({ err: autoSyncErr, id: updated.id }, "editorial: automatic context snapshot failed after transition");
       return "sync_failed" as const;
     });
     res.json({ canon_record: updated, context_snapshot_status: contextSnapshotStatus });
   } catch (err) {
+    if ((err as { code?: string }).code === "VERSION_CONFLICT") {
+      res.status(409).json({ error: (err as Error).message, code: "VERSION_CONFLICT" });
+      return;
+    }
     logger.error({ err }, "editorial: canon record transition");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -3109,25 +3192,50 @@ router.post("/v1/editorial/canon-records/:id/cascade-register", async (req: Requ
       frontier = nextFrontier;
     }
 
-    // Batch update all unlocked descendants
+    let updatedCount = 0;
+    // Batch update all unlocked descendants, advancing each record version and
+    // auditing the authorial cascade atomically with the record updates.
     if (toUpdate.length > 0) {
-      await db
-        .update(wsCanonRecordsTable)
-        .set({ emotionalRegister: register })
-        .where(inArray(wsCanonRecordsTable.id, toUpdate));
+      updatedCount = await db.transaction(async tx => {
+        const descendants = await tx.select().from(wsCanonRecordsTable)
+          .where(inArray(wsCanonRecordsTable.id, toUpdate)).for("update");
+        let count = 0;
+        for (const record of descendants) {
+          if (record.registerLocked) { skippedLocked++; continue; }
+          const [updated] = await tx.update(wsCanonRecordsTable)
+            .set({ emotionalRegister: register, version: record.version + 1, updatedAt: new Date() })
+            .where(and(eq(wsCanonRecordsTable.id, record.id), eq(wsCanonRecordsTable.version, record.version)))
+            .returning();
+          if (!updated) throw Object.assign(new Error("Canon record changed concurrently"), { code: "VERSION_CONFLICT" });
+          await tx.insert(mcpCanonHistoryTable).values({
+            id: randomUUID(), recordId: record.id, actorUserId: String((req.user as any)?.id ?? ""),
+            changeType: "register_cascade", before: record, after: updated,
+            diff: {
+              emotionalRegister: { before: record.emotionalRegister, after: updated.emotionalRegister },
+              version: { before: record.version, after: updated.version },
+            },
+          });
+          count++;
+        }
+        return count;
+      });
     }
 
     logger.info(
-      { sourceId, register, updated: toUpdate.length, skipped_locked: skippedLocked },
+      { sourceId, register, updated: updatedCount, skipped_locked: skippedLocked },
       "editorial: cascade-register complete",
     );
 
     res.json({
-      updated: toUpdate.length,
+      updated: updatedCount,
       skipped_locked: skippedLocked,
       register,
     });
   } catch (err) {
+    if ((err as { code?: string }).code === "VERSION_CONFLICT") {
+      res.status(409).json({ error: (err as Error).message, code: "VERSION_CONFLICT" });
+      return;
+    }
     logger.error({ err }, "editorial: cascade-register");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -3451,29 +3559,43 @@ router.post("/v1/editorial/canon-records/bulk-transition", async (req: Request, 
   }
 
   try {
-    // Validate all can transition to the target status
-    const records = await db
-      .select({ id: wsCanonRecordsTable.id, status: wsCanonRecordsTable.status })
-      .from(wsCanonRecordsTable)
-      .where(sql`${wsCanonRecordsTable.id} = ANY(${sql.raw(`ARRAY[${ids.map(id => `'${id.replace(/'/g, "''")}'`).join(",")}]`)})`)
-      .limit(200);
-
-    const invalid = records.filter(r => !(CANON_TRANSITIONS[r.status] ?? []).includes(status));
-    if (invalid.length > 0) {
+    const transition = await db.transaction(async tx => {
+      const records = await tx.select().from(wsCanonRecordsTable)
+        .where(inArray(wsCanonRecordsTable.id, ids)).limit(200).for("update");
+      const invalid = records.filter(r => !(CANON_TRANSITIONS[r.status] ?? []).includes(status));
+      if (invalid.length) return { invalidIds: invalid.map(record => record.id), updatedRecords: [] };
+      const updatedRecords = [];
+      for (const record of records) {
+        const [updated] = await tx.update(wsCanonRecordsTable)
+          .set({ status, version: record.version + 1, updatedAt: new Date() })
+          .where(and(eq(wsCanonRecordsTable.id, record.id), eq(wsCanonRecordsTable.version, record.version)))
+          .returning({ id: wsCanonRecordsTable.id, status: wsCanonRecordsTable.status, version: wsCanonRecordsTable.version });
+        if (!updated) throw Object.assign(new Error("Canon record changed concurrently"), { code: "VERSION_CONFLICT" });
+        await tx.insert(mcpCanonHistoryTable).values({
+          id: randomUUID(), recordId: record.id, actorUserId: String((req.user as any)?.id ?? ""),
+          changeType: "status_transition",
+          before: record,
+          after: { ...record, status: updated.status, version: updated.version },
+          diff: {
+            status: { before: record.status, after: updated.status },
+            version: { before: record.version, after: updated.version },
+          },
+        });
+        updatedRecords.push(updated);
+      }
+      return { invalidIds: [], updatedRecords };
+    });
+    if (transition.invalidIds.length > 0) {
       res.status(422).json({
-        error: `${invalid.length} record(s) cannot transition to "${status}".`,
-        invalid_ids: invalid.map(r => r.id),
+        error: `${transition.invalidIds.length} record(s) cannot transition to "${status}".`,
+        invalid_ids: transition.invalidIds,
       });
       return;
     }
 
     // Apply transition to all. Snapshot publication remains non-fatal and runs
     // only after the authoritative Daybook update succeeds.
-    const updatedRecords = await db
-      .update(wsCanonRecordsTable)
-      .set({ status })
-      .where(sql`${wsCanonRecordsTable.id} = ANY(${sql.raw(`ARRAY[${ids.map(id => `'${id.replace(/'/g, "''")}'`).join(",")}]`)})`)
-      .returning({ id: wsCanonRecordsTable.id, status: wsCanonRecordsTable.status });
+    const updatedRecords = transition.updatedRecords;
 
     const snapshotResults: Array<{ id: string; status: "current" | "sync_failed" | "skipped" }> = [];
     const concurrency = 4;
@@ -3503,6 +3625,10 @@ router.post("/v1/editorial/canon-records/bulk-transition", async (req: Request, 
       },
     });
   } catch (err) {
+    if ((err as { code?: string }).code === "VERSION_CONFLICT") {
+      res.status(409).json({ error: (err as Error).message, code: "VERSION_CONFLICT" });
+      return;
+    }
     logger.error({ err }, "editorial: canon bulk transition");
     res.status(500).json({ error: "Internal server error" });
   }

@@ -101,3 +101,4 @@
 - [Canon prompt summaries](canon-prompt-summaries.md) — derived summaries are editable, hash-versioned projections; only current summaries may govern downstream prompts
 - [Storyline chronology](storyline-chronology.md) — simultaneous stories share a positive sequence position; legacy zeroes stay independent until an editor saves a board
 - [Chromium printing of HTML details](chromium-print-details.md) — explicitly open details before PDF printing or hidden appendix text may be omitted
+- [WorldSmith MCP boundary](worldsmith-mcp-boundary.md) — external canon edits use current user grants and never imply editorial approval

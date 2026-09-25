@@ -1,7 +1,6 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useLocation } from "wouter";
 import { useStaffLogin } from "@workspace/api-client-react";
 import { Loader2, BookMarked } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,9 +28,9 @@ const loginSchema = z.object({
 });
 
 export default function Login() {
-  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const loginMutation = useStaffLogin();
+  const returnTo = getSameOriginReturnTo();
 
   function handleGoogleSignIn() {
     const w = 500, h = 620;
@@ -48,7 +47,7 @@ export default function Login() {
         popup?.close();
         // Hard reload so React Query's stale 401 cache is cleared and
         // the app re-fetches /auth/me with the new session cookie.
-        window.location.href = "/";
+        window.location.href = returnTo ?? "/";
       }
     }
     window.addEventListener("message", onMessage);
@@ -66,7 +65,7 @@ export default function Login() {
     loginMutation.mutate({ data }, {
       onSuccess: () => {
         toast({ title: "Welcome back", description: "Signed in successfully." });
-        setLocation("/");
+        window.location.href = returnTo ?? "/";
       },
       onError: (err) => {
         toast({ title: "Sign-in failed", description: err.message || "Check your credentials and try again.", variant: "destructive" });
@@ -188,4 +187,17 @@ export default function Login() {
       </div>
     </div>
   );
+}
+
+/** Accept only an absolute path on this origin; login returnTo is untrusted input. */
+function getSameOriginReturnTo(): string | null {
+  const raw = new URLSearchParams(window.location.search).get("returnTo");
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return null;
+  try {
+    const target = new URL(raw, window.location.origin);
+    if (target.origin !== window.location.origin) return null;
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return null;
+  }
 }

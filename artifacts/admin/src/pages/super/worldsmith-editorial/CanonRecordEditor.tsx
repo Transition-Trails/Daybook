@@ -55,6 +55,7 @@ const TRANSITION_LABELS: Record<string, string> = {
 interface CanonRecord {
   id: string;
   worldId: string;
+  version: number;
   name: string;
   status: string;
   canonType?: string | null;
@@ -607,6 +608,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(() => createEmptyForm(search));
+  const [conflictedRecordId, setConflictedRecordId] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imageGenerating, setImageGenerating] = useState(false);
   const [imagePrompt, setImagePrompt] = useState("");
@@ -932,13 +934,18 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           body: JSON.stringify({ ...payload, world_id: worldId }),
         });
       }
+      if (typeof record?.version !== "number" || !Number.isInteger(record.version)) {
+        throw new Error("The latest Canon record version is unavailable. Reload the record before saving.");
+      }
+      const expectedVersion = record.version;
       return apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${recordId}`, {
         method: "PATCH",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, expected_version: expectedVersion }),
       });
     },
     onSuccess: async result => {
       const savedRecordId = result.canon_record.id;
+      let latestRecord = result.canon_record;
       const currentImageUrls = form.images.map(image => image.url);
       const removedImages = initialImagesRef.current.filter(imageUrl => !currentImageUrls.includes(imageUrl));
       await Promise.all(removedImages.map(imageUrl => storageApi.deleteObject(imageUrl).catch(() => undefined)));
@@ -1002,14 +1009,21 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
 
             // Save the structured profile using the generic profile endpoint
             // (Material canon records use the 'object' profile route on the backend but the generic route accepts 'material' and maps it internally)
-            await apiFetch(`/v1/editorial/profiles/${form.canonType}/${savedRecordId}`, {
+            if (form.canonType === "character" && !Number.isInteger(latestRecord.version)) {
+              throw new Error("The latest Character version is unavailable. Reload the record before saving.");
+            }
+            const profileResult = await apiFetch<{ version?: number }>(`/v1/editorial/profiles/${form.canonType}/${savedRecordId}`, {
               method: "PUT",
               body: JSON.stringify({
                 world_id: worldId,
                 schema_version: 1,
+                ...(form.canonType === "character" ? { expected_version: latestRecord.version } : {}),
                 profile: profilePayload
               })
             });
+            if (form.canonType === "character" && Number.isInteger(profileResult.version)) {
+              latestRecord = { ...latestRecord, version: profileResult.version! };
+            }
           }
 
           if (form.canonType === "character") {
@@ -1087,11 +1101,12 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           }
         } catch (err) {
           console.error("Related collection sync failed:", err);
+          if ((err as Error & { status?: number }).status === 409) throw err;
           throw new Error("Failed to sync character metadata (variants/locks/knowledge) or profile. Record was saved but metadata may be inconsistent.");
         }
       }
 
-      queryClient.setQueryData(["editorial-canon-record", savedRecordId], { canon_record: result.canon_record });
+      queryClient.setQueryData(["editorial-canon-record", savedRecordId], { canon_record: latestRecord });
       queryClient.invalidateQueries({
         predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
       });
@@ -1104,9 +1119,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
 
       setForm(prev => ({
         ...prev,
-        globalMetadata: result.canon_record.globalMetadata ?? {},
-        structuredProfile: result.canon_record.structuredProfile ?? {},
-        generationProfile: result.canon_record.generationProfile ?? {},
+        globalMetadata: latestRecord.globalMetadata ?? {},
+        structuredProfile: latestRecord.structuredProfile ?? {},
+        generationProfile: latestRecord.generationProfile ?? {},
       }));
 
       toast({ title: isNew ? "Canon record created" : "Canon record saved" });
@@ -1121,7 +1136,16 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         ...current,
         images: current.images.filter(image => initialImagesRef.current.includes(image.url)),
       }));
-      toast({ title: isNew ? "Could not create canon record" : "Could not save canon record", description: error.message, variant: "destructive" });
+      const conflict = (error as Error & { status?: number }).status === 409;
+      if (conflict && recordId) {
+        setConflictedRecordId(recordId);
+        await queryClient.invalidateQueries({ queryKey: ["editorial-canon-record", recordId] });
+      }
+      toast({
+        title: conflict ? "Canon record changed" : isNew ? "Could not create canon record" : "Could not save canon record",
+        description: conflict ? "Another save updated this record. Reload it before trying again." : error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -1967,7 +1991,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
             <p className="text-xs" style={{ color: "#786D60" }}>{isNew ? "The record will be saved as Proposed." : "Save your changes before leaving this record."}</p>
             <div className="flex items-center gap-2">
               <button type="button" onClick={cancel} disabled={saveMutation.isPending || isImageProcessing} className="rounded-lg border px-3.5 py-2 text-xs font-semibold disabled:opacity-50" style={{ borderColor: "#DDD4C4", color: "#667085" }}>Cancel</button>
-              <button type="submit" disabled={saveMutation.isPending || isImageProcessing} className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ background: INK }}>
+              <button type="submit" disabled={saveMutation.isPending || isImageProcessing || conflictedRecordId === recordId} className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ background: INK }}>
                 {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                 {isNew ? "Create record" : "Save"}
               </button>

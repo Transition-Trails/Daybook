@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import {
   db,
   wsCanonRecordsTable,
+  mcpCanonHistoryTable,
   worldsmithWorldsTable,
   type User,
 } from "@workspace/db";
@@ -71,6 +72,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(mcpCanonHistoryTable).where(eq(mcpCanonHistoryTable.recordId, characterId));
+  await db.delete(mcpCanonHistoryTable).where(eq(mcpCanonHistoryTable.recordId, locationId));
   await db.delete(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.worldId, worldId));
   await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
 });
@@ -118,6 +121,7 @@ describe("Canon prompt summaries", () => {
   });
 
   it("generates both summaries and marks them stale after source Canon changes", async () => {
+    const [before] = await db.select().from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, characterId));
     const generated = await request(app)
       .post(`/v1/editorial/canon-records/${characterId}/regenerate-summary`)
       .send({ kind: "both" });
@@ -126,8 +130,15 @@ describe("Canon prompt summaries", () => {
     expect(generated.body.canon_record).toMatchObject({
       promptSummaryStatus: "current",
       identitySummaryStatus: "current",
+      version: before.version + 1,
     });
     expect(callAi).toHaveBeenCalledOnce();
+    const summaryHistory = await db.select().from(mcpCanonHistoryTable).where(eq(mcpCanonHistoryTable.recordId, characterId));
+    expect(summaryHistory).toHaveLength(1);
+    expect(summaryHistory[0]).toMatchObject({
+      actorUserId: `summary-admin-${run}`,
+      changeType: "canon_summary_regenerated",
+    });
 
     await request(app)
       .post("/v1/editorial/canon-records/generate-image")

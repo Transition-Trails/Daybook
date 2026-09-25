@@ -70,6 +70,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-legacy",
+            version: 1,
             worldId: "world-wychcombe",
             name: "Bellamy & Son, Nurserymen and Seedsmen",
             status: "proposed",
@@ -102,6 +103,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-1", worldId: "world-wychcombe", name: "The Ashcroft Ledger",
+            version: 1,
             status: "proposed", canonType: "object", narrativeDetails: "", historicalContext: "",
             visualNotes: "", notes: "", portraitUrl: "/objects/portrait-1", specRefCount: 0,
             createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z",
@@ -135,6 +137,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-1", worldId: "world-wychcombe", name: "Frederick Ashcroft",
+            version: 1,
             status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
             visualNotes: "", notes: "", portraitUrl: submitted?.portrait_url ?? "/objects/frederick-primary",
             imageUrls: submitted?.image_urls ?? ["/objects/frederick-primary", "/objects/frederick-study"],
@@ -163,6 +166,7 @@ describe("CanonRecordEditor", () => {
     let savedPayload: any;
     const canonRecord = {
       id: "canon-glasshouse",
+      version: 1,
       worldId: "world-wychcombe",
       name: "The Glasshouse Repair Sample Board",
       status: "proposed",
@@ -241,6 +245,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-1", worldId: "world-wychcombe", name: "Frederick Ashcroft",
+            version: 1,
             status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
             visualNotes: "", notes: "", portraitUrl: "/objects/frederick-primary",
             imageUrls: ["/objects/frederick-primary", "/objects/frederick-study"],
@@ -269,6 +274,20 @@ describe("CanonRecordEditor", () => {
         body: expect.stringMatching(/"title":"Winter travel attire"/),
       }),
     ));
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/canon-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: expect.stringContaining('"expected_version":1'),
+      }),
+    );
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/profiles/character/canon-1",
+      expect.objectContaining({
+        method: "PUT",
+        body: expect.stringContaining('"expected_version":1'),
+      }),
+    );
   });
 
   it("generates a reference from an editor prompt and selected related Canon", async () => {
@@ -292,6 +311,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-1", worldId: "world-wychcombe", name: "Frederick Ashcroft",
+            version: 1,
             status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
             visualNotes: "", notes: "", portraitUrl: "/objects/frederick-primary.png",
             imageUrls: ["/objects/frederick-primary.png"],
@@ -347,6 +367,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-1", worldId: "world-wychcombe", name: "Eleanor Harcourt",
+            version: 1,
             status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
             visualNotes: "", notes: "", portraitUrl: null, imageUrls: [],
             specRefCount: 0, createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:00.000Z",
@@ -383,6 +404,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-publication",
+            version: 1,
             worldId: "world-wychcombe",
             name: "The Stationery House’s First Useful Publication",
             status: "proposed",
@@ -433,6 +455,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-character", worldId: "world-wychcombe", name: "Frederick Ashcroft",
+            version: 1,
             status: "proposed", canonType: "character", narrativeDetails: "", historicalContext: "",
             visualNotes: "", notes: "", portraitUrl: null, imageUrls: [],
             canonGuardrails: submitted?.canon_guardrails ?? "<p>Never abandons the family archive.</p>",
@@ -470,6 +493,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-1", worldId: "world-wychcombe", name: "The Ashcroft Ledger",
+            version: 1,
             status: path.endsWith("/transition") ? "under_review" : "proposed", canonType: "object",
             narrativeDetails: "<p>Server narrative</p>", historicalContext: "", visualNotes: "",
             notes: "", portraitUrl: null, specRefCount: 0,
@@ -508,6 +532,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-1", worldId: "world-wychcombe", name: "Stationery House",
+            version: 1,
             status: "accepted", canonType: "location", narrativeDetails: "", historicalContext: "",
             visualNotes: "", notes: "", portraitUrl: null, specRefCount: 0,
             createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z",
@@ -549,6 +574,7 @@ describe("CanonRecordEditor", () => {
         return Promise.resolve({
           canon_record: {
             id: "canon-1", worldId: "world-wychcombe", name: "Stationery House",
+            version: 1,
             status: "accepted", canonType: "location", narrativeDetails: "", historicalContext: "",
             visualNotes: "", notes: "", portraitUrl: null, specRefCount: 0,
             createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z",

@@ -44,14 +44,14 @@ logical_id = "5ff0f980-8a77-4f24-9b3a-f301181ae156"
 id = "8rcWgOJcmNNej2RGeE3-s"
 uri = "file://docs/WorldSmith-Canon-Field-Guide.pdf"
 type = "pdf"
-title = "WorldSmith Canon field guide (PDF)"
-description = "Nine record types, shared fields, built-in picklist options, field purposes, and editor-versus-schema distinctions."
+title = "Download WorldSmith Canon Field Guide (PDF)"
+description = "20-page PDF reference. Use the file card's download action, or find it in Library."
 logical_id = "448c5d66-026e-4409-9ce2-6d46182cbec9"
 content_hash = "sha256:8144a9b41ccd4228e9fc81067f8db3a9fe82c90fc3543a02f55ef8125059b8ab"
 size = 485254
 mtime_ms = 1790295473417
-storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:ab91bd00-435d-4417-93b2-d659cceafa2c/448c5d66-026e-4409-9ce2-6d46182cbec9/4f763459-f785-4629-9e62-368e0dbccd5c"
-storage_version_token = "1790295502868550"
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:ab91bd00-435d-4417-93b2-d659cceafa2c/448c5d66-026e-4409-9ce2-6d46182cbec9/dcba8310-fe38-476d-880f-de67b80a0295"
+storage_version_token = "1790296032408666"
 content_type = "application/pdf"
 
 [[outputs]]

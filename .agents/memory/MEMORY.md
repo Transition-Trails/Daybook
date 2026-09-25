@@ -99,3 +99,4 @@
 - [Canon snapshot world serialization](canon-snapshot-world-serialization.md) — image snapshot builds and backfills must serialize per world before reading source state
 - [Canon portrait generation](canon-portrait-generation.md) — character imagery starts with an automatic isolated identity portrait; described references come afterward
 - [Canon prompt summaries](canon-prompt-summaries.md) — derived summaries are editable, hash-versioned projections; only current summaries may govern downstream prompts
+- [Storyline chronology](storyline-chronology.md) — simultaneous stories share a positive sequence position; legacy zeroes stay independent until an editor saves a board

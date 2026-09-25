@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
 import { EditorialRichTextField } from "@/components/EditorialRichText";
 import { NarrativeImageGallery } from "@/components/worldsmith/editorial/NarrativeImageGallery";
+import { StorySequenceBoard } from "@/components/worldsmith/editorial/StorySequenceBoard";
 
 interface StoryAct {
   id: string;
@@ -22,6 +23,7 @@ interface Story {
   title: string;
   summary: string;
   status: string;
+  sortOrder?: number;
   acts: StoryAct[];
 }
 
@@ -55,6 +57,7 @@ export default function StoriesStudio() {
   const [actTitleDraft, setActTitleDraft] = useState<Record<string, string>>({});
   const [actPurposeDraft, setActPurposeDraft] = useState<Record<string, string>>({});
   const [newActTitle, setNewActTitle] = useState("");
+  const [viewMode, setViewMode] = useState<"editor" | "sequence">("editor");
 
   const { data, isLoading } = useQuery({
     queryKey: ["ws-stories", selectedWorldId],
@@ -197,6 +200,34 @@ export default function StoriesStudio() {
             </button>
           </section>
         ) : (
+          <div>
+            <div className="mb-5 flex items-center gap-1 rounded-xl border border-[var(--admin-border)] bg-white p-1 w-fit" aria-label="Storylines view">
+              <button
+                type="button"
+                data-testid="button-storylines-editor-view"
+                aria-pressed={viewMode === "editor"}
+                onClick={() => setViewMode("editor")}
+                className={`rounded-lg px-4 py-2 text-xs font-semibold ${viewMode === "editor" ? "bg-[var(--admin-ink)] text-white" : "text-[var(--admin-muted)] hover:bg-[var(--admin-card-subtle)]"}`}
+              >
+                Edit storylines
+              </button>
+              <button
+                type="button"
+                data-testid="button-storylines-sequence-view"
+                aria-pressed={viewMode === "sequence"}
+                onClick={() => setViewMode("sequence")}
+                className={`rounded-lg px-4 py-2 text-xs font-semibold ${viewMode === "sequence" ? "bg-[var(--admin-ink)] text-white" : "text-[var(--admin-muted)] hover:bg-[var(--admin-card-subtle)]"}`}
+              >
+                Sequence board
+              </button>
+            </div>
+            {viewMode === "sequence" ? (
+              <StorySequenceBoard
+                worldId={selectedWorldId}
+                stories={stories.map(story => ({ ...story, sortOrder: story.sortOrder ?? 0 }))}
+                onOpen={id => navigate(`/super/worldsmith/editorial/stories/${id}`)}
+              />
+            ) : (
           <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
             <aside className="rounded-2xl p-2.5" style={{ background: "white", border: "1px solid var(--admin-border)" }}>
               <p className="px-2.5 pt-1 pb-2 text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#98A2B3" }}>
@@ -396,6 +427,8 @@ export default function StoriesStudio() {
                   </Link>
                 </div>
               </section>
+            )}
+          </div>
             )}
           </div>
         )}

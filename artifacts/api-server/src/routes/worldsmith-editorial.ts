@@ -729,12 +729,17 @@ async function decideDiscovery(req: Request, res: Response, action: OwnerDiscove
           const title = typeof snapshot.title === "string" ? snapshot.title.trim() : discovery.title;
           if (!title) throw Object.assign(new Error("A storyline title is required"), { status: 400 });
           const requestedStatus = typeof snapshot.recommendedStatus === "string" ? snapshot.recommendedStatus : "draft";
+          await tx.execute(sql`SELECT id FROM worldsmith_worlds WHERE id = ${discovery.worldId} FOR UPDATE`);
+          const [position] = await tx.select({
+            next: sql<number>`greatest(coalesce(max(${wsStoriesTable.sortOrder}), 0) + 1, 1)`,
+          }).from(wsStoriesTable).where(eq(wsStoriesTable.worldId, discovery.worldId));
           const [story] = await tx.insert(wsStoriesTable).values({
             id: randomUUID(),
             worldId: discovery.worldId,
             title: title.slice(0, 120),
             summary: sanitizeEditorialRichText(typeof snapshot.narrativePromise === "string" ? snapshot.narrativePromise : ""),
             status: isStoryStatus(requestedStatus) ? requestedStatus : "draft",
+            sortOrder: position?.next ?? 1,
             createdBy: (req.user as any)?.id,
           }).returning({ id: wsStoriesTable.id });
           const [updated] = await tx.update(wsOwnerDiscoveriesTable).set({
@@ -5230,6 +5235,62 @@ router.delete("/v1/editorial/narrative-images/:id", async (req: Request, res: Re
   res.json({ image });
 });
 
+// Save the complete chronology in one transaction. Stories in the same group
+// share an order; legacy unsequenced stories (order 0) remain independent until saved.
+router.post("/v1/editorial/stories/sequence", async (req: Request, res: Response) => {
+  const worldId = req.body?.world_id;
+  const groups = req.body?.groups;
+  const expected = req.body?.expected;
+  if (typeof worldId !== "string" || !worldId.trim() || !Array.isArray(groups)
+    || groups.length === 0 || groups.length > 250
+    || !groups.every((group: unknown) => Array.isArray(group)
+      && group.length > 0 && group.length <= 250
+      && group.every((id: unknown) => typeof id === "string" && id.length > 0))
+    || !Array.isArray(expected) || expected.length > 250
+    || !expected.every((item: unknown) => item !== null && typeof item === "object"
+      && typeof (item as { id?: unknown }).id === "string"
+      && Number.isInteger((item as { sort_order?: unknown }).sort_order))) {
+    res.status(400).json({ error: "Provide a non-empty sequence of storyline groups." });
+    return;
+  }
+  const ids = (groups as string[][]).flat();
+  const expectedOrders = new Map((expected as { id: string; sort_order: number }[])
+    .map(({ id, sort_order }) => [id, sort_order]));
+  if (ids.length > 250 || new Set(ids).size !== ids.length
+    || expectedOrders.size !== ids.length || ids.some(id => !expectedOrders.has(id))) {
+    res.status(400).json({ error: "Each storyline must appear exactly once." });
+    return;
+  }
+  try {
+    const result = await db.transaction(async tx => {
+      // Serialize sequence writes for a world, including newly created stories.
+      const locked = await tx.execute(sql`SELECT id FROM worldsmith_worlds WHERE id = ${worldId} FOR UPDATE`);
+      if (!locked.rows.length) return { status: 404 as const };
+      const existing = await tx.select({ id: wsStoriesTable.id, sortOrder: wsStoriesTable.sortOrder }).from(wsStoriesTable)
+        .where(eq(wsStoriesTable.worldId, worldId));
+      if (existing.length !== ids.length || existing.some(row =>
+        !expectedOrders.has(row.id) || expectedOrders.get(row.id) !== row.sortOrder)) {
+        return { status: 409 as const };
+      }
+      for (const [index, group] of (groups as string[][]).entries()) {
+        await tx.update(wsStoriesTable).set({ sortOrder: index + 1 })
+          .where(and(eq(wsStoriesTable.worldId, worldId), inArray(wsStoriesTable.id, group)));
+      }
+      return { status: 200 as const, stories: groups.flatMap((group: string[], index: number) =>
+        group.map(id => ({ id, sortOrder: index + 1 }))) };
+    });
+    if (result.status === 404) { res.status(404).json({ error: "World not found." }); return; }
+    if (result.status === 409) {
+      res.status(409).json({ error: "Storylines changed. Refresh the board and try again." });
+      return;
+    }
+    res.json({ stories: result.stories });
+  } catch (err) {
+    logger.error({ err, worldId }, "editorial: save storyline sequence");
+    res.status(500).json({ error: "Could not save storyline sequence." });
+  }
+});
+
 router.get("/v1/editorial/stories", async (req: Request, res: Response) => {
   try {
     const worldId = req.query.world_id as string;
@@ -5238,7 +5299,7 @@ router.get("/v1/editorial/stories", async (req: Request, res: Response) => {
       .select()
       .from(wsStoriesTable)
       .where(eq(wsStoriesTable.worldId, worldId))
-      .orderBy(wsStoriesTable.sortOrder, wsStoriesTable.createdAt);
+       .orderBy(wsStoriesTable.sortOrder, wsStoriesTable.createdAt, wsStoriesTable.id);
     const storyIds = stories.map(s => s.id);
     const acts = storyIds.length > 0
       ? await db.select().from(wsStoryActsTable)
@@ -5403,16 +5464,26 @@ router.post("/v1/editorial/stories", async (req: Request, res: Response) => {
     if (story_spine !== undefined && !Array.isArray(story_spine)) { res.status(400).json({ error: "story_spine must be an array" }); return; }
     if (architecture !== undefined && !Array.isArray(architecture)) { res.status(400).json({ error: "reveal_architecture must be an array" }); return; }
     if (global_metadata !== undefined && (!global_metadata || typeof global_metadata !== "object" || Array.isArray(global_metadata))) { res.status(400).json({ error: "global_metadata must be an object" }); return; }
-    const [story] = await db.insert(wsStoriesTable).values({
-      id: randomUUID(),
-      worldId: world_id,
-      title: title.trim(),
-       summary: sanitizeEditorialRichText(summary ?? ""),
-       globalMetadata: global_metadata ?? {},
-       storySpine: story_spine ?? [],
-       revealArchitecture: architecture ?? [],
-      status: status ?? "draft",
-    }).returning();
+    const story = await db.transaction(async tx => {
+      const locked = await tx.execute(sql`SELECT id FROM worldsmith_worlds WHERE id = ${world_id} FOR UPDATE`);
+      if (!locked.rows.length) return null;
+      const [position] = await tx.select({
+        next: sql<number>`greatest(coalesce(max(${wsStoriesTable.sortOrder}), 0) + 1, 1)`,
+      }).from(wsStoriesTable).where(eq(wsStoriesTable.worldId, world_id));
+      const [created] = await tx.insert(wsStoriesTable).values({
+        id: randomUUID(),
+        worldId: world_id,
+        title: title.trim(),
+        summary: sanitizeEditorialRichText(summary ?? ""),
+        globalMetadata: global_metadata ?? {},
+        storySpine: story_spine ?? [],
+        revealArchitecture: architecture ?? [],
+        status: status ?? "draft",
+        sortOrder: position?.next ?? 1,
+      }).returning();
+      return created;
+    });
+    if (!story) { res.status(404).json({ error: "World not found" }); return; }
     res.status(201).json({ story: { ...story, acts: [] } });
   } catch (err) {
     logger.error({ err }, "editorial: create story");

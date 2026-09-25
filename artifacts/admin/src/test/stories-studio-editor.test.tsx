@@ -2,10 +2,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { apiFetch, navigate } = vi.hoisted(() => ({ apiFetch: vi.fn(), navigate: vi.fn() }));
+const { apiFetch, navigate, toast } = vi.hoisted(() => ({ apiFetch: vi.fn(), navigate: vi.fn(), toast: vi.fn() }));
 
 vi.mock("@/lib/api", () => ({ apiFetch }));
-vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast }) }));
 vi.mock("@/contexts/EditorialContext", () => ({
   useEditorial: () => ({
     selectedWorldId: "world-wychcombe",
@@ -23,6 +23,7 @@ describe("StoriesStudio editor", () => {
   beforeEach(() => {
     apiFetch.mockReset();
     navigate.mockReset();
+    toast.mockReset();
     apiFetch.mockImplementation((path: string) => {
       return Promise.resolve({
         stories: [{
@@ -142,5 +143,70 @@ describe("StoriesStudio editor", () => {
         }),
       },
     ));
+  });
+
+  it("sequences story cards, groups simultaneous stories, and separates them again", async () => {
+    let stories = ["Origin", "Letters", "Return"].map((title, index) => ({
+      id: `story-${index + 1}`, title, summary: "<p>At the manor.</p>", status: "draft",
+      sortOrder: 0, acts: [],
+    }));
+    const saves: string[][][] = [];
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/stories/sequence" && init?.method === "POST") {
+        const { world_id, groups, expected } = JSON.parse(String(init.body));
+        expect(world_id).toBe("world-wychcombe");
+        expect(expected).toEqual(expect.arrayContaining(
+          stories.map(({ id, sortOrder }) => ({ id, sort_order: sortOrder })),
+        ));
+        saves.push(groups);
+        stories = groups.flatMap((group: string[], index: number) =>
+          group.map(id => ({ ...stories.find(story => story.id === id)!, sortOrder: index + 1 })));
+        return Promise.resolve({ stories: stories.map(({ id, sortOrder }) => ({ id, sortOrder })) });
+      }
+      return Promise.resolve({ stories });
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StoriesStudio />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("textbox", { name: "Story title" });
+    fireEvent.click(screen.getByTestId("button-storylines-sequence-view"));
+    expect(screen.getByTestId("count-sequence-moments")).toHaveTextContent("3 moments");
+    fireEvent.click(screen.getByRole("button", { name: "Make Origin simultaneous with next moment" }));
+    await waitFor(() => expect(saves).toEqual([[["story-2", "story-1"], ["story-3"]]]));
+    await waitFor(() => expect(screen.getByTestId("status-simultaneous-1")).toHaveTextContent("Same time"));
+    fireEvent.click(screen.getByRole("button", { name: "Give Origin its own moment" }));
+    await waitFor(() => expect(saves[1]).toEqual([["story-2"], ["story-1"], ["story-3"]]));
+    await waitFor(() => expect(screen.getByTestId("count-sequence-moments")).toHaveTextContent("3 moments"));
+    fireEvent.click(screen.getByRole("button", { name: "Open Return" }));
+    expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/stories/story-3");
+  });
+
+  it("restores the previous order when a sequence save fails", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/stories/sequence" && init?.method === "POST") {
+        return Promise.reject(new Error("Storylines changed. Refresh the board and try again."));
+      }
+      return Promise.resolve({ stories: [
+        { id: "a", title: "A", summary: "", status: "draft", sortOrder: 1, acts: [] },
+        { id: "b", title: "B", summary: "", status: "planned", sortOrder: 2, acts: [] },
+      ] });
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StoriesStudio />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("textbox", { name: "Story title" });
+    fireEvent.click(screen.getByTestId("button-storylines-sequence-view"));
+    fireEvent.click(screen.getByRole("button", { name: "Move A later" }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Could not save story sequence",
+      variant: "destructive",
+    })));
+    expect(screen.getByTestId("group-sequence-1")).toContainElement(screen.getByTestId("card-sequence-story-a"));
+    expect(screen.getByTestId("group-sequence-2")).toContainElement(screen.getByTestId("card-sequence-story-b"));
   });
 });

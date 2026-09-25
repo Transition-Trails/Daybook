@@ -61,6 +61,15 @@ describe("authenticated editorial MCP tools", () => {
       }
       const initial = await content(oldToken, "search_sequences", { world_id: worldId });
       const anchor = initial.sequences[0].id as string;
+      const foreignSequence = await content(oldToken, "search_sequences", { world_id: otherWorldId });
+      const wrongWorld = await call(oldToken, "get_sequence", {
+        world_id: worldId, sequence_id: foreignSequence.sequences[0].id,
+      });
+      expect(wrongWorld.body.result.content[0].text).toContain("SEQUENCE_NOT_FOUND");
+      const missingWorld = await call(oldToken, "get_sequence", {
+        world_id: `missing-${suffix}`, sequence_id: anchor,
+      });
+      expect(missingWorld.body.result.content[0].text).toContain("WORLD_NOT_FOUND");
       const attempted = { world_id: worldId, sequence_id: anchor, expected_revision: initial.revision,
         groups: [[first]], references: [second] };
       expect((await call(oldToken, "update_sequence", attempted)).status).toBe(403);
@@ -88,8 +97,10 @@ describe("authenticated editorial MCP tools", () => {
       });
       expect(allReferences.sequences).toEqual([]);
       expect(allReferences.references).toHaveLength(2);
-      const anchored = await content(consentedToken, "get_sequence", { sequence_id: worldId });
+      const anchored = await content(consentedToken, "get_sequence", { world_id: worldId, sequence_id: worldId });
       expect(anchored.revision).toBe(allReferences.revision);
+      const staleRead = await call(consentedToken, "get_sequence", { world_id: worldId, sequence_id: singleGroup });
+      expect(staleRead.body.result.content[0].text).toContain("SEQUENCE_NOT_FOUND");
       const restored = await content(consentedToken, "update_sequence", {
         world_id: worldId, sequence_id: worldId, expected_revision: anchored.revision,
         groups: [[second], [first]], references: [],
@@ -1693,7 +1704,12 @@ describe("authenticated editorial MCP tools", () => {
         name: expect.any(String), editor_url: expect.stringContaining("story_id="),
       }));
       const selectedId = sequences.sequences[0].id;
-      const sequence = await result("get_sequence", { sequence_id: selectedId });
+      const getSequenceSchema = (await rpc(readToken, "tools/list")).body.result.tools
+        .find((tool: { name: string }) => tool.name === "get_sequence").inputSchema;
+      expect(getSequenceSchema.required).toEqual(["world_id", "sequence_id"]);
+      const missingWorld = await call(readToken, "get_sequence", { sequence_id: selectedId });
+      expect(missingWorld.body.result.content[0].text).toContain("INVALID_ARGUMENTS");
+      const sequence = await result("get_sequence", { world_id: worldId, sequence_id: selectedId });
       expect(sequence.sequence.id).toBe(selectedId);
       const reordered = await result("update_sequence", {
         world_id: worldId, sequence_id: selectedId, expected_revision: sequences.revision,

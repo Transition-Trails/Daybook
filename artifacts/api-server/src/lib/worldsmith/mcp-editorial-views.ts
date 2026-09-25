@@ -46,8 +46,11 @@ const schemas = {
     }, required: ["world_id"], additionalProperties: false,
   },
   get_sequence: {
-    type: "object", properties: { sequence_id: { type: "string", minLength: 1 } },
-    required: ["sequence_id"], additionalProperties: false,
+    type: "object", properties: {
+      world_id: { type: "string", minLength: 1 },
+      sequence_id: { type: "string", minLength: 1, description: "A current sequence ID, or the world ID as a stable anchor when no ordered groups remain." },
+    },
+    required: ["world_id", "sequence_id"], additionalProperties: false,
   },
   update_sequence: {
     type: "object", properties: {
@@ -65,7 +68,7 @@ export const VIEW_TOOLS = [
   { name: "get_story_map", description: "Read a complete Story Map graph of storylines, movements, and canon links.", inputSchema: schemas.get_story_map },
   { name: "update_story_map", description: "Partially update Story Map storyline order and canon links; does not edit canon records.", inputSchema: schemas.update_story_map },
   { name: "search_sequences", description: "Search storyline chronology groups and cross-era reference stories by title or summary, not scenes. Results may be filtered or paginated; use get_sequence with the world ID for a complete layout before writing.", inputSchema: schemas.search_sequences },
-  { name: "get_sequence", description: "Read the complete world chronology and reference lane using the world ID, or read a virtual storyline chronology group using its sequence ID.", inputSchema: schemas.get_sequence },
+  { name: "get_sequence", description: "Read a current virtual chronology group within its world, or use the world ID as a stable anchor to read the complete chronology and reference lane. Always supply world_id.", inputSchema: schemas.get_sequence },
   { name: "update_sequence", description: "Save the complete world chronology atomically. Supply references to move stories into or out of the reference lane (requires reference-lane write consent); omit references for ordered-group-only edits.", inputSchema: schemas.update_sequence },
 ];
 
@@ -89,7 +92,7 @@ const argsSchemas = {
     world_id: z.string().min(1), query: z.string().min(1).max(500).optional(),
     after_id: z.string().min(1).optional(), limit: z.number().int().min(1).max(100).optional(),
   }).strict(),
-  get_sequence: z.object({ sequence_id: z.string().min(1) }).strict(),
+  get_sequence: z.object({ world_id: z.string().min(1), sequence_id: z.string().min(1) }).strict(),
   update_sequence: z.object({
     world_id: z.string().min(1), sequence_id: z.string().min(1), expected_revision: z.string().min(1),
     groups: z.array(z.array(z.string().min(1)).min(1).max(500)).max(500),
@@ -419,21 +422,12 @@ export async function executeViewTool(userId: string, name: string, args: unknow
     }
     case "get_sequence": {
       const input = parse(name, args);
+      const result = await readSequenceSet(input.world_id, origin);
       // The stable world anchor remains readable even when every story is a reference.
-      const [anchoredWorld] = await db.select({ id: worldsmithWorldsTable.id }).from(worldsmithWorldsTable)
-        .where(eq(worldsmithWorldsTable.id, input.sequence_id)).limit(1);
-      if (anchoredWorld) return readSequenceSet(anchoredWorld.id, origin);
-      const [worldId, originWorld] = await (async () => {
-        // Virtual IDs are globally unique across membership; find their world by scanning worlds' storyline groups.
-        const worlds = await db.select({ id: worldsmithWorldsTable.id }).from(worldsmithWorldsTable);
-        for (const world of worlds) {
-          const result = await readSequenceSet(world.id, origin);
-          const sequence = result.sequences.find(group => group.id === input.sequence_id);
-          if (sequence) return [world.id, { ...result, sequence }] as const;
-        }
-        throw new CanonToolError("Sequence not found", 404, "SEQUENCE_NOT_FOUND");
-      })();
-      return { ...originWorld, world_id: worldId };
+      if (input.sequence_id === input.world_id) return result;
+      const sequence = result.sequences.find(group => group.id === input.sequence_id);
+      if (!sequence) throw new CanonToolError("Sequence not found in this world (the ID may be stale)", 404, "SEQUENCE_NOT_FOUND");
+      return { ...result, sequence };
     }
     case "update_sequence": {
       const input = parse(name, args);

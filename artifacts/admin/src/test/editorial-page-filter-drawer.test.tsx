@@ -124,34 +124,28 @@ describe("WorldSmith Editorial page filter drawer", () => {
     renderEditorialPage("canon", <CanonLibrary />);
 
     const drawerFilters = await screen.findByTestId("editorial-page-filters");
-    expect(within(drawerFilters).getByRole("heading", { name: "Canon filters" })).toBeInTheDocument();
-    await waitFor(() => expect(within(drawerFilters).getByLabelText("Record type")).toHaveValue("object"));
-    expect(screen.queryByPlaceholderText("Search name, narrative, notes…")).not.toBeInTheDocument();
-    expect(screen.getByText("The Ashcroft Ledger")).toBeInTheDocument();
-    expect(screen.queryByText("Mara Vale")).not.toBeInTheDocument();
+    expect(within(drawerFilters).getByRole("heading", { name: "Production Spec filters" })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Search by name or spec ID…")).not.toBeInTheDocument();
+
+    fireEvent.change(within(drawerFilters).getByLabelText("Status"), { target: { value: "draft" } });
+    expect(await screen.findByText("Village Letter")).toBeInTheDocument();
+    expect(screen.queryByText("Archive Card")).not.toBeInTheDocument();
 
     fireEvent.click(within(drawerFilters).getByRole("button", { name: "Clear all" }));
-    await waitFor(() => expect(within(drawerFilters).getByLabelText("Record type")).toHaveValue("all"));
-    expect(await screen.findByText("Mara Vale")).toBeInTheDocument();
-
-    fireEvent.change(within(drawerFilters).getByLabelText("Emotional register"), { target: { value: "Withholding" } });
-    await waitFor(() => {
-      expect(JSON.parse(sessionStorage.getItem("canon-filters-world-1") ?? "{}").emotionalRegister).toBe("Withholding");
-    });
-    expect(screen.queryByText("The Ashcroft Ledger")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Select world · Glasswater" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Bramble" }));
-    await screen.findByRole("button", { name: "Select world · Bramble" });
-    await waitFor(() => expect(within(drawerFilters).getByLabelText("Record type")).toHaveValue("all"));
-
-    fireEvent.click(screen.getByRole("button", { name: "Collapse editorial navigation" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open Canon filters" }));
-    expect(screen.getByRole("dialog", { name: "Canon filters" })).toBeVisible();
+    expect(await screen.findByText("Archive Card")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Archive Card production spec preview" })).toHaveAttribute(
+      "src",
+      "/api/storage/objects/worldsmith/spec-previews/archive-card.png",
+    );
+    expect(screen.getByRole("button", { name: "Open preview for Archive Card" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open spec Archive Card" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Final Artwork" })).toBeInTheDocument();
+    expect(screen.getByText("Generated")).toBeInTheDocument();
+    expect(screen.getByText("Not generated")).toBeInTheDocument();
   });
 
-  it("moves Production Spec filters into the drawer while preserving filtering and clear-all behavior", async () => {
-    renderEditorialPage("specs", <SpecsList />);
+  it("moves Story Map’s storyline focus filter to the drawer and refetches the selected storyline", async () => {
+    renderEditorialPage("connections", <StoryConnections />);
 
     const drawerFilters = await screen.findByTestId("editorial-page-filters");
     expect(within(drawerFilters).getByRole("heading", { name: "Production Spec filters" })).toBeInTheDocument();

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, ilike, inArray, isNull, or } from "drizzle-orm";
 import {
   db, usersTable, worldsmithWorldsTable, wsCanonRecordsTable, wsCharacterProfilesTable,
   wsAssetsTable, wsAssetLinksTable, wsVocabulariesTable, wsVocabularyOptionsTable,
@@ -78,7 +78,9 @@ const toolSchemas = {
       world_id: { type: "string", minLength: 1 },
       query: { type: "string", minLength: 1, maxLength: 500 },
       canon_type: { type: "string", minLength: 1 },
-    }, required: ["world_id", "query"], additionalProperties: false,
+      after_id: { type: "string", minLength: 1, maxLength: 200 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+    }, required: ["world_id"], additionalProperties: false,
   },
   get_canon_record: { type: "object", properties: { record_id: { type: "string", minLength: 1 } }, required: ["record_id"], additionalProperties: false },
   get_canon_field_options: { type: "object", properties: { world_id: { type: "string", minLength: 1 }, canon_type: { type: "string", minLength: 1 } }, required: ["world_id", "canon_type"], additionalProperties: false },
@@ -108,7 +110,13 @@ export const CANON_TOOLS = [
 ];
 
 const argsSchemas = {
-  search_canon_records: z.object({ world_id: z.string().min(1), query: z.string().min(1).max(500), canon_type: z.string().min(1).optional() }).strict(),
+  search_canon_records: z.object({
+    world_id: z.string().min(1).max(200),
+    query: z.string().min(1).max(500).optional(),
+    canon_type: z.string().min(1).max(200).optional(),
+    after_id: z.string().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+  }).strict(),
   get_canon_record: z.object({ record_id: z.string().min(1) }).strict(),
   get_canon_field_options: z.object({ world_id: z.string().min(1), canon_type: z.string().min(1) }).strict(),
   update_canon_record: z.object({ record_id: z.string().min(1), expected_revision: z.number().int().positive(), changes: z.unknown() }).strict(),
@@ -309,16 +317,34 @@ export async function executeCanonTool(userId: string, name: string, args: unkno
     case "search_canon_records": {
       const input = parseArgs("search_canon_records", args);
       await requireWorld(input.world_id);
-      const conditions = [
-        eq(wsCanonRecordsTable.worldId, input.world_id),
-        or(ilike(wsCanonRecordsTable.name, `%${input.query}%`), ilike(wsCanonRecordsTable.narrativeDetails, `%${input.query}%`), ilike(wsCanonRecordsTable.notes, `%${input.query}%`))!,
-      ];
+      const conditions = [eq(wsCanonRecordsTable.worldId, input.world_id)];
+      if (input.query !== undefined) {
+        conditions.push(or(
+          ilike(wsCanonRecordsTable.name, `%${input.query}%`),
+          ilike(wsCanonRecordsTable.narrativeDetails, `%${input.query}%`),
+          ilike(wsCanonRecordsTable.notes, `%${input.query}%`),
+        )!);
+      }
       if (input.canon_type) conditions.push(eq(wsCanonRecordsTable.canonType, input.canon_type));
-      const records = await db.select({
+      const totalConditions = and(...conditions);
+      const [totalRow] = await db.select({ total: count() }).from(wsCanonRecordsTable).where(totalConditions);
+      const pageConditions = input.after_id
+        ? [...conditions, gt(wsCanonRecordsTable.id, input.after_id)]
+        : conditions;
+      const pageSize = input.limit ?? 100;
+      const rows = await db.select({
         id: wsCanonRecordsTable.id, name: wsCanonRecordsTable.name, canonType: wsCanonRecordsTable.canonType,
         status: wsCanonRecordsTable.status, version: wsCanonRecordsTable.version,
-      }).from(wsCanonRecordsTable).where(and(...conditions)).orderBy(asc(wsCanonRecordsTable.name)).limit(100);
-      return { records: records.map(row => ({ ...row, revision: row.version, editor_url: editorUrl(editorOrigin, input.world_id, row.id) })) };
+      }).from(wsCanonRecordsTable).where(and(...pageConditions))
+        .orderBy(asc(wsCanonRecordsTable.id)).limit(pageSize + 1);
+      const hasMore = rows.length > pageSize;
+      const page = rows.slice(0, pageSize);
+      return {
+        records: page.map(row => ({ ...row, revision: row.version, editor_url: editorUrl(editorOrigin, input.world_id, row.id) })),
+        total: totalRow?.total ?? 0,
+        has_more: hasMore,
+        next_cursor: hasMore ? page.at(-1)?.id ?? null : null,
+      };
     }
     case "get_canon_record": {
       const input = parseArgs("get_canon_record", args);

@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { CANON_TOOLS, executeCanonTool } from "../lib/worldsmith/mcp-canon";
+import { CANON_EDITORIAL_TOOLS, CANON_EDITORIAL_WRITE_TOOLS, executeCanonEditorialTool } from "../lib/worldsmith/mcp-canon-editorial";
 import { RECORD_TOOLS, RECORD_WRITE_TOOLS, executeRecordTool } from "../lib/worldsmith/mcp-editorial-records";
+import { SCENE_TOOLS, SCENE_WRITE_TOOLS, executeSceneTool } from "../lib/worldsmith/mcp-editorial-scenes";
 import { VIEW_TOOLS, VIEW_WRITE_TOOLS, executeViewTool } from "../lib/worldsmith/mcp-editorial-views";
 import { getMcpIssuer, verifyMcpAccessToken } from "../lib/mcp-oauth";
 import { logger } from "../lib/logger";
@@ -12,9 +14,12 @@ const WRITE_SCOPE = "worldsmith:canon:write";
 const EDITORIAL_READ_SCOPE = "worldsmith:editorial:read";
 const EDITORIAL_WRITE_SCOPE = "worldsmith:editorial:write";
 const STORY_DETAILS_WRITE_SCOPE = "worldsmith:editorial:story-details:write";
+const CANON_EDITORIAL_WRITE_SCOPE = "worldsmith:canon:editorial:write";
+const SCENES_READ_SCOPE = "worldsmith:editorial:scenes:read";
+const SCENES_WRITE_SCOPE = "worldsmith:editorial:scenes:write";
 const MCP_RESOURCE = "/mcp";
 const MAX_BODY_BYTES = 1_000_000;
-const tools = [...CANON_TOOLS, ...RECORD_TOOLS, ...VIEW_TOOLS];
+const tools = [...CANON_TOOLS, ...CANON_EDITORIAL_TOOLS, ...RECORD_TOOLS, ...VIEW_TOOLS, ...SCENE_TOOLS];
 
 function publicOrigin(req: Request): string {
   return getMcpIssuer();
@@ -22,7 +27,7 @@ function publicOrigin(req: Request): string {
 
 function challenge(req: Request, res: Response, error = "invalid_token"): void {
   const url = `${publicOrigin(req)}/.well-known/oauth-protected-resource/mcp`;
-  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE} ${STORY_DETAILS_WRITE_SCOPE}`;
+  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE} ${STORY_DETAILS_WRITE_SCOPE} ${CANON_EDITORIAL_WRITE_SCOPE} ${SCENES_READ_SCOPE} ${SCENES_WRITE_SCOPE}`;
   res.set("WWW-Authenticate", `Bearer realm="WorldSmith", error="${error}", resource_metadata="${url}", scope="${requiredScopes}"`);
   res.status(error === "insufficient_scope" ? 403 : 401).json({ error });
 }
@@ -53,7 +58,8 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
     challenge(req, res);
     return;
   }
-  if (!identity.scopes.includes(READ_SCOPE) && !identity.scopes.includes(EDITORIAL_READ_SCOPE)) {
+  if (!identity.scopes.includes(READ_SCOPE) && !identity.scopes.includes(EDITORIAL_READ_SCOPE)
+      && !identity.scopes.includes(SCENES_READ_SCOPE)) {
     challenge(req, res, "insufficient_scope");
     return;
   }
@@ -80,6 +86,11 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
   const visibleTools = tools.filter(tool => (
     CANON_TOOLS.some(canon => canon.name === tool.name)
       ? identity.scopes.includes(READ_SCOPE)
+      : CANON_EDITORIAL_TOOLS.some(canonEditorial => canonEditorial.name === tool.name)
+        ? identity.scopes.includes(READ_SCOPE) && identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE)
+        : SCENE_TOOLS.some(scene => scene.name === tool.name)
+          ? identity.scopes.includes(SCENES_READ_SCOPE)
+            && (!SCENE_WRITE_TOOLS.has(tool.name) || identity.scopes.includes(SCENES_WRITE_SCOPE))
       : identity.scopes.includes(EDITORIAL_READ_SCOPE)
   ));
   if (id === undefined) {
@@ -120,12 +131,20 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
         return;
       }
       const canonTool = CANON_TOOLS.some(tool => tool.name === name);
+      const canonEditorialTool = CANON_EDITORIAL_TOOLS.some(tool => tool.name === name);
+      const sceneTool = SCENE_TOOLS.some(tool => tool.name === name);
+      const editorialRecordOrViewTool = RECORD_TOOLS.some(tool => tool.name === name)
+        || VIEW_TOOLS.some(tool => tool.name === name);
       if ((canonTool && !identity.scopes.includes(READ_SCOPE))
-          || (!canonTool && !identity.scopes.includes(EDITORIAL_READ_SCOPE))) {
+          || (canonEditorialTool && !identity.scopes.includes(READ_SCOPE))
+          || (sceneTool && !identity.scopes.includes(SCENES_READ_SCOPE))
+          || (editorialRecordOrViewTool && !identity.scopes.includes(EDITORIAL_READ_SCOPE))) {
         challenge(req, res, "insufficient_scope");
         return;
       }
       if ((name === "update_canon_record" && !identity.scopes.includes(WRITE_SCOPE))
+          || (CANON_EDITORIAL_WRITE_TOOLS.has(name) && !identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
+          || (SCENE_WRITE_TOOLS.has(name) && !identity.scopes.includes(SCENES_WRITE_SCOPE))
           || ((name === "update_story_beat" || name === "update_reveal_thread")
             && !identity.scopes.includes(STORY_DETAILS_WRITE_SCOPE))
           || ((RECORD_WRITE_TOOLS.has(name) || VIEW_WRITE_TOOLS.has(name))
@@ -136,9 +155,13 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
       try {
         const data = CANON_TOOLS.some(tool => tool.name === name)
           ? await executeCanonTool(identity.userId, name, args ?? {}, publicOrigin(req))
+          : CANON_EDITORIAL_TOOLS.some(tool => tool.name === name)
+            ? await executeCanonEditorialTool(identity.userId, name, args ?? {}, publicOrigin(req))
           : RECORD_TOOLS.some(tool => tool.name === name)
             ? await executeRecordTool(identity.userId, name, args ?? {}, publicOrigin(req))
-            : await executeViewTool(identity.userId, name, args ?? {}, publicOrigin(req));
+            : VIEW_TOOLS.some(tool => tool.name === name)
+              ? await executeViewTool(identity.userId, name, args ?? {}, publicOrigin(req))
+              : await executeSceneTool(identity.userId, name, args ?? {}, publicOrigin(req));
         reply({
           content: [{ type: "text", text: JSON.stringify(data) }],
           structuredContent: data,

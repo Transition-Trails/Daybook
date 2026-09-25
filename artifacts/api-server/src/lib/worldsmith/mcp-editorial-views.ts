@@ -12,6 +12,8 @@ const schemas = {
     type: "object", properties: {
       world_id: { type: "string", minLength: 1 },
       query: { type: "string", minLength: 1, maxLength: 500 },
+      after_id: { type: "string", minLength: 1 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
     }, required: ["world_id"], additionalProperties: false,
   },
   get_story_map: {
@@ -39,6 +41,8 @@ const schemas = {
     type: "object", properties: {
       world_id: { type: "string", minLength: 1 },
       query: { type: "string", minLength: 1, maxLength: 500 },
+      after_id: { type: "string", minLength: 1 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
     }, required: ["world_id"], additionalProperties: false,
   },
   get_sequence: {
@@ -67,7 +71,10 @@ export const VIEW_TOOLS = [
 export const VIEW_WRITE_TOOLS = new Set(["update_story_map", "update_sequence"]);
 
 const argsSchemas = {
-  search_story_maps: z.object({ world_id: z.string().min(1), query: z.string().min(1).max(500).optional() }).strict(),
+  search_story_maps: z.object({
+    world_id: z.string().min(1), query: z.string().min(1).max(500).optional(),
+    after_id: z.string().min(1).optional(), limit: z.number().int().min(1).max(100).optional(),
+  }).strict(),
   get_story_map: z.object({ map_id: z.string().min(1) }).strict(),
   update_story_map: z.object({
     map_id: z.string().min(1), expected_revision: z.string().min(1),
@@ -77,7 +84,10 @@ const argsSchemas = {
     }).strict()).max(160).optional(),
     remove_link_ids: z.array(z.string().min(1)).max(160).optional(),
   }).strict().refine(value => !!(value.story_order || value.add_links || value.remove_link_ids), "Provide at least one partial map operation"),
-  search_sequences: z.object({ world_id: z.string().min(1), query: z.string().min(1).max(500).optional() }).strict(),
+  search_sequences: z.object({
+    world_id: z.string().min(1), query: z.string().min(1).max(500).optional(),
+    after_id: z.string().min(1).optional(), limit: z.number().int().min(1).max(100).optional(),
+  }).strict(),
   get_sequence: z.object({ sequence_id: z.string().min(1) }).strict(),
   update_sequence: z.object({
     world_id: z.string().min(1), sequence_id: z.string().min(1), expected_revision: z.string().min(1),
@@ -253,7 +263,17 @@ export async function executeViewTool(userId: string, name: string, args: unknow
           eq(worldsmithWorldsTable.id, input.world_id),
           ...(input.query ? [or(ilike(worldsmithWorldsTable.name, `%${input.query}%`), ilike(worldsmithWorldsTable.id, `%${input.query}%`))!] : []),
         )).limit(1);
-      return { maps: map ? [{ id: map.id, world_id: map.id, name: map.name, editor_url: mapUrl(origin, map.id), revision: (await readMap(map.id, origin)).revision }] : [] };
+      const matches = map ? [{ id: map.id, world_id: map.id, name: map.name, editor_url: mapUrl(origin, map.id), revision: (await readMap(map.id, origin)).revision }] : [];
+      const bounded = input.after_id !== undefined || input.limit !== undefined;
+      const ordered = bounded ? matches.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : matches;
+      const remaining = input.after_id === undefined ? ordered : ordered.filter(item => item.id > input.after_id!);
+      const page = remaining.slice(0, input.limit ?? remaining.length);
+      return {
+        maps: page,
+        total: matches.length,
+        has_more: remaining.length > page.length,
+        next_cursor: remaining.length > page.length ? page[page.length - 1]!.id : null,
+      };
     }
     case "get_story_map": {
       const { map_id } = parse(name, args);
@@ -364,10 +384,21 @@ export async function executeViewTool(userId: string, name: string, args: unknow
     case "search_sequences": {
       const input = parse(name, args);
       const result = await readSequenceSet(input.world_id, origin);
-      const sequences = input.query
+      const matchingSequences = input.query
         ? result.sequences.filter(group => group.members.some(story => `${story.title} ${story.summary}`.toLowerCase().includes(input.query!.toLowerCase())))
         : result.sequences;
-      return { world_id: input.world_id, sequences, revision: result.revision };
+      const bounded = input.after_id !== undefined || input.limit !== undefined;
+      const ordered = bounded
+        ? [...matchingSequences].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+        : matchingSequences;
+      const remaining = input.after_id === undefined ? ordered : ordered.filter(group => group.id > input.after_id!);
+      const sequences = remaining.slice(0, input.limit ?? remaining.length);
+      return {
+        world_id: input.world_id, sequences, revision: result.revision,
+        total: matchingSequences.length,
+        has_more: remaining.length > sequences.length,
+        next_cursor: remaining.length > sequences.length ? sequences[sequences.length - 1]!.id : null,
+      };
     }
     case "get_sequence": {
       const input = parse(name, args);

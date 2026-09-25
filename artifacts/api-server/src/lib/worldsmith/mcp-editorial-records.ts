@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, count, eq, gt, ilike, or } from "drizzle-orm";
 import {
   auditLogTable,
   db,
@@ -31,7 +31,11 @@ const typographySchema = z.array(z.object({
 const EDITORIAL_CHILD_LIMIT = 100;
 
 const argsSchemas = {
-  search_worlds: z.object({ query: z.string().max(500).optional() }).strict(),
+  search_worlds: z.object({
+    query: z.string().max(500).optional(),
+    after_id: z.string().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+  }).strict(),
   get_world: z.object({ world_id: z.string().min(1).max(200) }).strict(),
   update_world: z.object({
     world_id: z.string().min(1).max(200),
@@ -53,6 +57,8 @@ const argsSchemas = {
   search_storylines: z.object({
     world_id: z.string().min(1).max(200),
     query: z.string().max(500).optional(),
+    after_id: z.string().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
   }).strict(),
   get_storyline: z.object({ storyline_id: z.string().min(1).max(200) }).strict(),
   update_storyline: z.object({
@@ -94,6 +100,8 @@ const argsSchemas = {
   search_movements: z.object({
     storyline_id: z.string().min(1).max(200),
     query: z.string().max(500).optional(),
+    after_id: z.string().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
   }).strict(),
   get_movement: z.object({ movement_id: z.string().min(1).max(200) }).strict(),
   update_movement: z.object({
@@ -130,7 +138,9 @@ const schema = (properties: Record<string, unknown>, required: string[] = [], mi
 });
 
 export const RECORD_TOOLS: EditorialToolDescriptor[] = [
-  { name: "search_worlds", description: "Search editorial worlds by optional name query.", inputSchema: schema({ query: textField(500) }) },
+  { name: "search_worlds", description: "Search editorial worlds by optional name query; use after_id and limit to discover every result in stable ID order.", inputSchema: schema({
+    query: textField(500), after_id: textField(200, 1), limit: { type: "integer", minimum: 1, maximum: 100 },
+  }) },
   { name: "get_world", description: "Read a complete editorial world and its current content revision.", inputSchema: schema({ world_id: textField(200, 1) }, ["world_id"]) },
   { name: "update_world", description: "Update whitelisted World Bible editorial fields at the expected content revision.", inputSchema: schema({
     world_id: textField(200, 1), expected_revision: textField(100, 1),
@@ -150,7 +160,10 @@ export const RECORD_TOOLS: EditorialToolDescriptor[] = [
       } },
     }, [], 1),
   }, ["world_id", "expected_revision", "changes"]) },
-  { name: "search_storylines", description: "Search storylines in a world by optional title or summary query.", inputSchema: schema({ world_id: textField(200, 1), query: textField(500) }, ["world_id"]) },
+  { name: "search_storylines", description: "Search storylines in a world by optional title or summary query; use after_id and limit to discover every result in stable ID order.", inputSchema: schema({
+    world_id: textField(200, 1), query: textField(500), after_id: textField(200, 1),
+    limit: { type: "integer", minimum: 1, maximum: 100 },
+  }, ["world_id"]) },
   { name: "get_storyline", description: "Read a complete storyline and its current content revision.", inputSchema: schema({ storyline_id: textField(200, 1) }, ["storyline_id"]) },
   { name: "update_storyline", description: "Update whitelisted storyline editorial fields at the expected content revision.", inputSchema: schema({
     storyline_id: textField(200, 1), expected_revision: textField(100, 1),
@@ -171,7 +184,10 @@ export const RECORD_TOOLS: EditorialToolDescriptor[] = [
     changes: schema({ title: textField(500, 1), truth: textField(20_000),
       audienceKnowledge: { anyOf: [textField(20_000), { type: "null" }] }, details: jsonObjectField }, [], 1),
   }, ["storyline_id", "reveal_id", "expected_revision", "changes"]) },
-  { name: "search_movements", description: "Search movements within a storyline by optional title, tagline, or narrative query.", inputSchema: schema({ storyline_id: textField(200, 1), query: textField(500) }, ["storyline_id"]) },
+  { name: "search_movements", description: "Search movements within a storyline by optional title, tagline, or narrative query; use after_id and limit to discover every result in stable ID order.", inputSchema: schema({
+    storyline_id: textField(200, 1), query: textField(500), after_id: textField(200, 1),
+    limit: { type: "integer", minimum: 1, maximum: 100 },
+  }, ["storyline_id"]) },
   { name: "get_movement", description: "Read a complete movement and its current content revision.", inputSchema: schema({ movement_id: textField(200, 1) }, ["movement_id"]) },
   { name: "update_movement", description: "Update whitelisted movement editorial fields at the expected content revision; ordering is managed separately.", inputSchema: schema({
     movement_id: textField(200, 1), expected_revision: textField(100, 1),
@@ -267,10 +283,24 @@ export async function executeRecordTool(
     case "search_worlds": {
       const input = parseArgs("search_worlds", args);
       const query = input.query?.trim();
-      const worlds = await db.select().from(worldsmithWorldsTable)
-        .where(query ? ilike(worldsmithWorldsTable.name, `%${query}%`) : undefined)
-        .orderBy(asc(worldsmithWorldsTable.name), asc(worldsmithWorldsTable.id)).limit(100);
-      return { worlds: worlds.map(row => ({ ...withRevision(row), editor_url: editorUrl(origin, "world", row.id, row.id) })) };
+      const conditions = query ? [ilike(worldsmithWorldsTable.name, `%${query}%`)] : [];
+      const [totalRow] = await db.select({ total: count() }).from(worldsmithWorldsTable)
+        .where(conditions.length ? and(...conditions) : undefined);
+      const pageConditions = input.after_id
+        ? [...conditions, gt(worldsmithWorldsTable.id, input.after_id)]
+        : conditions;
+      const pageSize = input.limit ?? 100;
+      const rows = await db.select().from(worldsmithWorldsTable)
+        .where(pageConditions.length ? and(...pageConditions) : undefined)
+        .orderBy(asc(worldsmithWorldsTable.id)).limit(pageSize + 1);
+      const hasMore = rows.length > pageSize;
+      const page = rows.slice(0, pageSize);
+      return {
+        worlds: page.map(row => ({ ...withRevision(row), editor_url: editorUrl(origin, "world", row.id, row.id) })),
+        total: totalRow?.total ?? 0,
+        has_more: hasMore,
+        next_cursor: hasMore ? page.at(-1)?.id ?? null : null,
+      };
     }
     case "get_world": {
       const { world_id } = parseArgs("get_world", args);
@@ -315,13 +345,25 @@ export async function executeRecordTool(
           ilike(wsStoriesTable.summary, `%${query}%`),
         )!);
       }
-      const stories = await db.select().from(wsStoriesTable).where(and(...conditions))
-        .orderBy(asc(wsStoriesTable.sortOrder), asc(wsStoriesTable.id)).limit(100);
-      return { storylines: stories.map(row => ({
+      const [totalRow] = await db.select({ total: count() }).from(wsStoriesTable).where(and(...conditions));
+      const pageConditions = input.after_id
+        ? [...conditions, gt(wsStoriesTable.id, input.after_id)]
+        : conditions;
+      const pageSize = input.limit ?? 100;
+      const rows = await db.select().from(wsStoriesTable).where(and(...pageConditions))
+        .orderBy(asc(wsStoriesTable.id)).limit(pageSize + 1);
+      const hasMore = rows.length > pageSize;
+      const page = rows.slice(0, pageSize);
+      return {
+        storylines: page.map(row => ({
         id: row.id, name: row.title, title: row.title, world_id: row.worldId,
         story_map_id: row.worldId, status: row.status,
         revision: revisionFor(row), editor_url: editorUrl(origin, "storyline", row.id, row.worldId),
-      })) };
+        })),
+        total: totalRow?.total ?? 0,
+        has_more: hasMore,
+        next_cursor: hasMore ? page.at(-1)?.id ?? null : null,
+      };
     }
     case "get_storyline": {
       const { storyline_id } = parseArgs("get_storyline", args);
@@ -428,13 +470,25 @@ export async function executeRecordTool(
           ilike(wsStoryActsTable.narrative, `%${query}%`),
         )!);
       }
-      const movements = await db.select().from(wsStoryActsTable).where(and(...conditions))
-        .orderBy(asc(wsStoryActsTable.actNumber), asc(wsStoryActsTable.id)).limit(100);
-      return { movements: movements.map(row => ({
+      const [totalRow] = await db.select({ total: count() }).from(wsStoryActsTable).where(and(...conditions));
+      const pageConditions = input.after_id
+        ? [...conditions, gt(wsStoryActsTable.id, input.after_id)]
+        : conditions;
+      const pageSize = input.limit ?? 100;
+      const rows = await db.select().from(wsStoryActsTable).where(and(...pageConditions))
+        .orderBy(asc(wsStoryActsTable.id)).limit(pageSize + 1);
+      const hasMore = rows.length > pageSize;
+      const page = rows.slice(0, pageSize);
+      return {
+        movements: page.map(row => ({
         id: row.id, name: row.title, title: row.title, storyline_id: row.storyId,
         world_id: row.worldId, story_map_id: row.worldId,
         revision: revisionFor(row), editor_url: editorUrl(origin, "movement", story.id, story.worldId),
-      })) };
+        })),
+        total: totalRow?.total ?? 0,
+        has_more: hasMore,
+        next_cursor: hasMore ? page.at(-1)?.id ?? null : null,
+      };
     }
     case "get_movement": {
       const { movement_id } = parseArgs("get_movement", args);

@@ -43,6 +43,32 @@ describe("StorylineEditor", () => {
     useSearch.mockReturnValue("");
   });
 
+  function configureStoryAndScenes(scenes: Array<Record<string, any>>) {
+    apiFetch.mockImplementation((path: string) => {
+      if (path === "/v1/editorial/stories/story-scenes") {
+        return Promise.resolve({
+          story: {
+            id: "story-scenes",
+            worldId: "world-wychcombe",
+            title: "The Winter Passage",
+            summary: "",
+            status: "draft",
+            acts: [{ id: "act-1", storyId: "story-scenes", actNumber: 1, title: "Departure", tagline: "", narrative: "" }],
+          },
+        });
+      }
+      if (path === "/v1/editorial/stories/story-scenes/scenes") return Promise.resolve({ scenes });
+      if (path.includes("/beats")) return Promise.resolve({ beats: [] });
+      if (path.includes("/reveals")) return Promise.resolve({ reveals: [] });
+      if (path.includes("/field-context")) return Promise.resolve({ context: { prompt: "", warnings: [], attributions: [] } });
+      if (path.includes("/context-snapshot")) return Promise.resolve({ snapshot: { status: "not_generated" } });
+      if (path.includes("/scene-details")) return Promise.resolve({ scenes: [] });
+      if (path.includes("/scene-anchors")) return Promise.resolve({ anchors: [] });
+      if (path.includes("/canon-records")) return Promise.resolve({ canon_records: [] });
+      return Promise.resolve({});
+    });
+  }
+
   it("prefills and creates a storyline from a suggestion URL", async () => {
     useSearch.mockReturnValue("?title=The+Ashcroft+Lantern&summary=A+keeper+follows+the+light.&status=planned");
     apiFetch.mockImplementation(async (path: string) => {
@@ -251,6 +277,37 @@ describe("StorylineEditor", () => {
 
     expect(await screen.findByRole("heading", { name: "The First Crossing — Storyline" })).toBeInTheDocument();
     expect(screen.getByText("A winter crossing shaped by Wychcombe Canon")).toBeInTheDocument();
+  });
+
+  it("opens the scene from a valid scene deep link and leaves later manual selection in control", async () => {
+    const scenes = [
+      { id: "scene-1", actId: "act-1", storyId: "story-scenes", worldId: "world-wychcombe", sceneNumber: 1, title: "Pack the Cart", body: "", attributes: {}, canonRecords: [] },
+      { id: "scene-2", actId: "act-1", storyId: "story-scenes", worldId: "world-wychcombe", sceneNumber: 2, title: "Close the Gate", body: "", attributes: {}, canonRecords: [] },
+    ];
+    useSearch.mockReturnValue("?world_id=world-wychcombe&scene_id=scene-2");
+    configureStoryAndScenes(scenes);
+
+    renderEditor("story-scenes");
+
+    expect(await screen.findByText("Editing Scene 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByTestId("card-scene-scene-1"));
+    expect(await screen.findByText("Editing Scene 1")).toBeInTheDocument();
+  });
+
+  it("does not open a scene when the deep-linked scene does not belong to the current story", async () => {
+    const scenes = [
+      { id: "scene-1", actId: "act-1", storyId: "story-scenes", worldId: "world-wychcombe", sceneNumber: 1, title: "Pack the Cart", body: "", attributes: {}, canonRecords: [] },
+      { id: "scene-foreign", actId: "act-1", storyId: "another-story", worldId: "world-wychcombe", sceneNumber: 2, title: "Another Story's Scene", body: "", attributes: {}, canonRecords: [] },
+    ];
+    useSearch.mockReturnValue("?world_id=world-wychcombe&scene_id=scene-foreign");
+    configureStoryAndScenes(scenes);
+
+    renderEditor("story-scenes");
+
+    expect(await screen.findByTestId("card-scene-scene-1")).toBeInTheDocument();
+    expect(screen.queryByText("Editing Scene 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("Editing Scene 2")).not.toBeInTheDocument();
   });
 
   it("reorders scenes within a movement and moves them to another movement", async () => {

@@ -84,6 +84,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
   const [actPurposeDrafts, setActPurposeDrafts] = useState<Record<string, string>>({});
   const initializedStoryRef = useRef<string | null>(null);
   const createdStoryRef = useRef<string | null>(null);
+  const handledSceneDeepLinkStoryRef = useRef<string | null>(null);
 
   // Scene Editor state
   const [editingScene, setEditingScene] = useState<{ actId: string, sceneId?: string } | null>(null);
@@ -111,6 +112,23 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
     staleTime: 30_000,
   });
   const scenes = scenesData?.scenes ?? [];
+  const searchParams = new URLSearchParams(search);
+  const deepLinkedSceneId = searchParams.get("scene_id");
+  const deepLinkWorldId = searchParams.get("world_id");
+
+  useEffect(() => {
+    if (!story || !scenesData || handledSceneDeepLinkStoryRef.current === story.id) return;
+    handledSceneDeepLinkStoryRef.current = story.id;
+    if (!deepLinkedSceneId) return;
+
+    const scene = scenes.find(candidate =>
+      candidate.id === deepLinkedSceneId &&
+      candidate.storyId === story.id &&
+      candidate.worldId === story.worldId &&
+      (!deepLinkWorldId || candidate.worldId === deepLinkWorldId)
+    );
+    if (scene) setEditingScene({ actId: scene.actId, sceneId: scene.id });
+  }, [story, scenesData, scenes, deepLinkedSceneId, deepLinkWorldId]);
 
   const { data: beatsData, isPending: isPendingBeats, isError: beatsError } = useQuery({
     queryKey: ["editorial-story-beats", storyId],

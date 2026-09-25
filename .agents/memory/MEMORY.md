@@ -103,3 +103,4 @@
 - [Chromium printing of HTML details](chromium-print-details.md) — explicitly open details before PDF printing or hidden appendix text may be omitted
 - [WorldSmith MCP boundary](worldsmith-mcp-boundary.md) — external canon edits use current user grants and never imply editorial approval
 - [MCP refresh-family serialization](mcp-refresh-family-serialization.md) — refresh rotation and family revocation must share a database lock through replacement issuance
+- [Postgres lock-chain tests](postgres-lock-chain-tests.md) — identify concurrent row-lock waiters by blocker chain, not pg_stat_activity query text

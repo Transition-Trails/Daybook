@@ -4,7 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import {
-  db, usersTable, worldsmithWorldsTable, wsStoriesTable, wsStoryActsTable,
+  db, pool, usersTable, worldsmithWorldsTable, wsStoriesTable, wsStoryActsTable,
   wsStoryBeatsTable, wsRevealThreadsTable,
   wsCanonRecordsTable, wsCanonRecordStoryLinksTable, auditLogTable,
   mcpOAuthClientsTable, mcpOAuthTokensTable,
@@ -13,6 +13,112 @@ import { getMcpResource } from "../lib/mcp-oauth";
 import mcpRouter from "../routes/mcp";
 
 describe("authenticated editorial MCP tools", () => {
+  it("serializes simultaneous beat and reveal edits behind the storyline lock", async () => {
+    const [user] = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(eq(usersTable.platformRole, "super_admin")).limit(1);
+    if (!user) throw new Error("A seeded development super-admin is required");
+    const worldId = `mcp-world-${randomUUID()}`;
+    const storyId = `mcp-story-${randomUUID()}`;
+    const beatId = `mcp-beat-${randomUUID()}`;
+    const revealId = `mcp-reveal-${randomUUID()}`;
+    const clientId = `mcp-client-${randomUUID()}`;
+    const token = randomBytes(32).toString("base64url");
+    const app = express();
+    app.use(express.json());
+    app.use(mcpRouter);
+    const call = (name: string, args: Record<string, unknown>) =>
+      request(app).post("/mcp").set("Authorization", `Bearer ${token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
+
+    try {
+      await db.insert(worldsmithWorldsTable).values({ id: worldId, name: "Concurrent MCP World", code: "CMW" });
+      await db.insert(wsStoriesTable).values({ id: storyId, worldId, title: "Concurrent Story", status: "draft" });
+      await db.insert(wsStoryBeatsTable).values({ id: beatId, worldId, storyId, beatType: "setup", title: "Opening" });
+      await db.insert(wsRevealThreadsTable).values({ id: revealId, worldId, storyId, title: "Secret", truth: "Original" });
+      await db.insert(mcpOAuthClientsTable).values({
+        clientId, clientName: "Concurrent editorial MCP test", redirectUris: ["https://example.com/cb"],
+      });
+      await db.insert(mcpOAuthTokensTable).values({
+        tokenHash: createHash("sha256").update(token).digest("hex"),
+        kind: "access", familyId: randomUUID(), clientId, userId: user.id,
+        resource: getMcpResource(), scopes: ["worldsmith:editorial:read", "worldsmith:editorial:story-details:write"],
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      for (const { getName, updateName, idKey, id, field, table } of [
+        { getName: "get_story_beat", updateName: "update_story_beat", idKey: "beat_id", id: beatId, field: "summary", table: wsStoryBeatsTable },
+        { getName: "get_reveal_thread", updateName: "update_reveal_thread", idKey: "reveal_id", id: revealId, field: "truth", table: wsRevealThreadsTable },
+      ] as const) {
+        const before = await call(getName, { storyline_id: storyId, [idKey]: id });
+        expect(before.status).toBe(200);
+        const revision = before.body.result.structuredContent.revision as string;
+        const holder = await pool.connect();
+        let pending: Promise<import("supertest").Response>[] = [];
+        let blocked = 0;
+        try {
+          await holder.query("BEGIN");
+          const { rows: [{ pid }] } = await holder.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+          await holder.query("SELECT id FROM ws_stories WHERE id = $1 FOR UPDATE", [storyId]);
+          // Start both HTTP requests while the parent row is held by another connection.
+          pending = ["first", "second"].map(value =>
+            call(updateName, {
+              storyline_id: storyId, [idKey]: id, expected_revision: revision,
+              changes: { [field]: value },
+            }).then(response => response));
+          const deadline = Date.now() + 8_000;
+          while (Date.now() < deadline) {
+            const { rows } = await pool.query<{ blocked: number }>(
+              `SELECT count(*)::int AS blocked FROM pg_stat_activity
+               WHERE pid <> $1 AND wait_event_type = 'Lock'
+                 AND ($1 = ANY(pg_blocking_pids(pid))
+                   OR EXISTS (
+                     SELECT 1 FROM pg_stat_activity AS first_waiter
+                     WHERE first_waiter.pid = ANY(pg_blocking_pids(pg_stat_activity.pid))
+                       AND $1 = ANY(pg_blocking_pids(first_waiter.pid))
+                   ))`,
+              [pid],
+            );
+            blocked = rows[0].blocked;
+            if (blocked >= 2) break;
+            await new Promise(resolve => setTimeout(resolve, 25));
+          }
+        } finally {
+          await holder.query("ROLLBACK");
+          holder.release();
+        }
+        const responses = await Promise.all(pending);
+        expect(blocked).toBe(2);
+        const winners = responses.filter(response => response.body.result?.isError !== true);
+        const losers = responses.filter(response => response.body.result?.isError === true);
+        expect(responses.map(response => response.status)).toEqual([200, 200]);
+        expect(winners).toHaveLength(1);
+        expect(losers).toHaveLength(1);
+        expect(losers[0].body.result.content[0].text).toContain("REVISION_CONFLICT");
+        const winningRecord = winners[0].body.result.structuredContent;
+        const [persisted] = await db.select().from(table).where(eq(table.id, id));
+        const savedValue = "summary" in persisted ? persisted.summary : persisted.truth;
+        expect(savedValue).toBe(winningRecord.record[field]);
+        expect(["first", "second"]).toContain(savedValue);
+        const after = await call(getName, { storyline_id: storyId, [idKey]: id });
+        expect(after.body.result.structuredContent.revision).toBe(winningRecord.revision);
+        const audits = await db.select().from(auditLogTable).where(eq(auditLogTable.targetId, id));
+        expect(audits).toHaveLength(1);
+        expect(audits[0].metadata).toEqual(expect.objectContaining({
+          actor_user_id: user.id,
+          before_after: { [field]: { before: field === "summary" ? "" : "Original", after: savedValue } },
+        }));
+      }
+    } finally {
+      await db.delete(auditLogTable).where(inArray(auditLogTable.targetId, [beatId, revealId]));
+      await db.delete(wsStoryBeatsTable).where(eq(wsStoryBeatsTable.id, beatId));
+      await db.delete(wsRevealThreadsTable).where(eq(wsRevealThreadsTable.id, revealId));
+      await db.delete(wsStoriesTable).where(eq(wsStoriesTable.id, storyId));
+      await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
+      await db.delete(mcpOAuthTokensTable).where(eq(mcpOAuthTokensTable.clientId, clientId));
+      await db.delete(mcpOAuthClientsTable).where(eq(mcpOAuthClientsTable.clientId, clientId));
+    }
+  });
+
   it("discovers the hierarchy, validates and audits reversible edits on disposable records", async () => {
     const [user] = await db.select({ id: usersTable.id }).from(usersTable)
       .where(eq(usersTable.platformRole, "super_admin")).limit(1);

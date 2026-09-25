@@ -1,0 +1,63 @@
+{
+  "worldPremise": "Wychcombe grows from a deteriorating rural property into a place devoted to preserving the evidence of ordinary lives. Its stories ask who is remembered, who gets to decide what is worth keeping, and how inherited responsibilities can change.",
+  "foundationalHistory": "Architect Elias Ashcroft first arrives near Wychcombe Village to survey a deteriorating rural property. The plans and official records reveal only part of its history. Thomas Vale, a longtime gardener, knows the landscape through years of work and leads Elias toward the memories, businesses, correspondence, and family histories of the village. Questions about the glasshouses lead Elias to Bellamy & Son and Clara Bellamy, whose knowledge of plants, propagation, and systematic records changes how he reads evidence; Elias helps Clara read the history in altered buildings.\n\nTheir partnership turns an architectural survey into an undertaking to preserve evidence of the people who built, repaired, planted, worked, traded, remembered, and lived there. Elias and Clara marry and make the property their shared work. Thomas maintains continuity with the landscape before their arrival; Bellamy & Son remains part of its horticultural and commercial network; Wychcombe Village retains its own history and identity.\n\nTheir children carry the undertaking in different directions: James shapes its physical fabric, Cecily continues botanical observation and documentation, and Margaret sees that preservation alone is not enough if knowledge remains inaccessible. Elias rejects automatic primogeniture and recognizes Margaret as Wychcombe's future steward. The work begins to become something capable of surviving the family itself.",
+  "centralDramaticQuestion": "If inherited rank does not determine whose life deserves to be remembered, why should inherited rank alone determine who is entrusted with remembering it?",
+  "coreThemes": [
+    "Stewardship",
+    "Memory",
+    "Evidence",
+    "Inheritance",
+    "Work",
+    "Preservation",
+    "Access",
+    "Responsibility"
+  ],
+  "narrativeGravity": "Stories turn toward the evidence that survives ordinary work, the responsibility of deciding what deserves preservation, and the tension between keeping knowledge safe and making it useful to others. People, places, objects, habits, documents, and omissions all carry memory.",
+  "conflictGrammar": "Conflict grows from incomplete records, different forms of expertise, family obligation, and competing ideas about preservation and access. A disagreement about what to keep, what can be known, or who should be entrusted with stewardship does not require a villain.",
+  "discoveryRules": "Discoveries emerge through evidence, relationship, sequence, place, and interpretation rather than arbitrary revelation. Use correspondence, working records, material alterations, landscape knowledge, and conflicting testimony to complicate or correct understanding. Distinguish dated fact, approximate sequence, remembered history, disputed accounts, and the order in which a story reveals information.",
+  "storyGuardrails": [
+    "Do not treat Wychcombe Village as merely an extension of the estate; it has its own history and identity.",
+    "Do not make inherited rank the sole measure of whose life or work deserves to be remembered.",
+    "Do not replace material evidence and careful interpretation with an arbitrary revelation.",
+    "Do not resolve uncertain or disputed records merely for dramatic neatness.",
+    "Do not make every disagreement into villainy."
+  ],
+  "historicalEras": [
+    {
+      "id": "wychcombe-before-survey",
+      "name": "The Property Before the Survey",
+      "order": 1,
+      "summary": "The rural property, its working landscape, and Wychcombe Village have histories that precede Elias Ashcroft's arrival.",
+      "narrativeCondition": "Landscape knowledge, work, repairs, and remembered history exist alongside incomplete official records.",
+      "approximatePeriod": null,
+      "notes": null
+    },
+    {
+      "id": "wychcombe-survey-and-founding",
+      "name": "Survey and Founding",
+      "order": 2,
+      "summary": "Elias's architectural survey expands through Thomas Vale's knowledge and his partnership with Clara Bellamy into a shared preservation undertaking.",
+      "narrativeCondition": "Evidence of ordinary lives begins to matter as much as the estate's formal record.",
+      "approximatePeriod": null,
+      "notes": null
+    },
+    {
+      "id": "wychcombe-second-generation",
+      "name": "The Second Generation",
+      "order": 3,
+      "summary": "James, Cecily, and Margaret inherit different parts of the family's work: physical fabric, botanical documentation, and the wider use of preserved knowledge.",
+      "narrativeCondition": "The undertaking begins to grow beyond the capacities and assumptions of its founders.",
+      "approximatePeriod": null,
+      "notes": null
+    },
+    {
+      "id": "wychcombe-stewardship-transition",
+      "name": "Stewardship Transition",
+      "order": 4,
+      "summary": "Elias rejects automatic primogeniture and recognizes Margaret as Wychcombe's future steward.",
+      "narrativeCondition": "Responsibility is judged by the work and purpose of stewardship rather than inheritance alone.",
+      "approximatePeriod": null,
+      "notes": null
+    }
+  ]
+}

@@ -58,6 +58,8 @@ import { resolveInheritanceChain, InheritanceError } from "../lib/worldsmith/inh
 import { normalizeNotionId as normalizeId } from "../lib/worldsmith/normalize-id";
 import { sanitizeWorldBibleRichText, worldBibleRichTextToPlainText } from "../lib/worldsmith/world-bible-rich-text";
 import { resolveTypographyChoices, TypographyValidationError } from "../lib/worldsmith/typography";
+import { revisionFor } from "../lib/worldsmith/editorial-revision";
+import { validateWorldEditorialFields, worldEditorialFieldNames } from "../lib/worldsmith/world-editorial-fields";
 import { filterEntitled, type EntitlementContext } from "../lib/entitlement";
 
 const router = Router();
@@ -341,6 +343,7 @@ router.get("/v1/worldsmith/worlds/:id/font-library", requireStoreAccess("store_s
 
 router.post("/v1/prompt-compilations", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
   const body = req.body as {
+    expected_revision?: unknown;
     production_spec_id?: string;
     notion_production_spec_id?: string;
     operation?: string;
@@ -1108,6 +1111,25 @@ export function buildEnrichedWorld(
     materialWorld: w.materialWorld,
     worldRules: w.worldRules,
     typography: w.typography,
+    worldPremise: w.worldPremise,
+    foundationalHistory: w.foundationalHistory,
+    centralDramaticQuestion: w.centralDramaticQuestion,
+    coreThemes: w.coreThemes,
+    narrativePillars: w.narrativePillars,
+    historicalEras: w.historicalEras,
+    institutions: w.institutions,
+    economyAndResources: w.economyAndResources,
+    knowledgeAndAuthority: w.knowledgeAndAuthority,
+    currentWorldState: w.currentWorldState,
+    narrativeGravity: w.narrativeGravity,
+    conflictGrammar: w.conflictGrammar,
+    discoveryRules: w.discoveryRules,
+    storyGuardrails: w.storyGuardrails,
+    continuityAnchors: w.continuityAnchors,
+    openQuestions: w.openQuestions,
+    visualGuardrails: w.visualGuardrails,
+    imageDirection: w.imageDirection,
+    revision: revisionFor(w),
     coverImageUrl: w.coverImageUrl ?? null,
   };
 }
@@ -2079,7 +2101,34 @@ router.patch("/v1/worldsmith/worlds/:id", requireStoreAccess("store_staff"), req
     materialWorld?: unknown;
     coverImageUrl?: unknown;
     typography?: unknown;
+    [key: string]: unknown;
   };
+  if (body.expected_revision !== undefined
+    && (typeof body.expected_revision !== "string" || body.expected_revision.length < 1 || body.expected_revision.length > 100)) {
+    res.status(400).json({ error: "expected_revision must be a nonempty string no longer than 100 characters", code: "INVALID_REVISION" });
+    return;
+  }
+
+  const suppliedEditorialFields = worldEditorialFieldNames.filter(field => field in body);
+  if (
+    suppliedEditorialFields.length > 0 &&
+    req.actor?.isSuperAdmin !== true &&
+    req.actor?.storeRole !== "store_owner"
+  ) {
+    res.status(403).json({
+      error: "Forbidden: World Creative Director fields can only be updated by a store owner or super admin",
+      code: "CREATIVE_DIRECTOR_OWNER_REQUIRED",
+      fields: suppliedEditorialFields,
+    });
+    return;
+  }
+  if (suppliedEditorialFields.length > 0 && body.expected_revision === undefined) {
+    res.status(400).json({
+      error: "expected_revision is required when updating World Creative Director fields",
+      code: "MISSING_REVISION",
+    });
+    return;
+  }
 
   if (
     "worldRules" in body &&
@@ -2176,6 +2225,21 @@ router.patch("/v1/worldsmith/worlds/:id", requireStoreAccess("store_staff"), req
     }
   }
 
+  const editorialSource: Record<string, unknown> = {};
+  for (const field of worldEditorialFieldNames) {
+    if (field in body) editorialSource[field] = body[field];
+  }
+  const editorialValidation = validateWorldEditorialFields(editorialSource);
+  if (!editorialValidation.valid) {
+    res.status(400).json({
+      error: `${editorialValidation.field} is invalid: ${editorialValidation.message}`,
+      code: "INVALID_EDITORIAL_FIELD",
+      field: editorialValidation.field,
+    });
+    return;
+  }
+  Object.assign(patch, editorialSource);
+
   if (Object.keys(patch).length === 0) {
     res.status(400).json({ error: "No updatable fields provided", code: "MISSING_FIELDS" });
     return;
@@ -2184,20 +2248,43 @@ router.patch("/v1/worldsmith/worlds/:id", requireStoreAccess("store_staff"), req
   patch.updatedAt = new Date();
 
   try {
-    const [updated] = await db
-      .update(worldsmithWorldsTable)
-      .set(patch)
-      .where(scopedStoreId(req)
-        ? and(eq(worldsmithWorldsTable.id, worldId), eq(worldsmithWorldsTable.storeId, scopedStoreId(req)!))
-        : eq(worldsmithWorldsTable.id, worldId))
-      .returning();
+    const worldCondition = scopedStoreId(req)
+      ? and(eq(worldsmithWorldsTable.id, worldId), eq(worldsmithWorldsTable.storeId, scopedStoreId(req)!))
+      : eq(worldsmithWorldsTable.id, worldId);
+    let updated: typeof worldsmithWorldsTable.$inferSelect | undefined;
+    if (typeof body.expected_revision === "string") {
+      const result = await db.transaction(async tx => {
+        const [current] = await tx.select().from(worldsmithWorldsTable).where(worldCondition).for("update").limit(1);
+        if (!current) return { kind: "missing" as const };
+        const revision = revisionFor(current);
+        if (revision !== body.expected_revision) return { kind: "conflict" as const, revision };
+        const [saved] = await tx.update(worldsmithWorldsTable).set(patch)
+          .where(eq(worldsmithWorldsTable.id, worldId)).returning();
+        return { kind: "saved" as const, row: saved };
+      });
+      if (result.kind === "missing") {
+        res.status(404).json({ error: "World not found", code: "NOT_FOUND" });
+        return;
+      }
+      if (result.kind === "conflict") {
+        res.status(409).json({ error: "World changed since it was loaded", code: "REVISION_CONFLICT", revision: result.revision });
+        return;
+      }
+      updated = result.row;
+    } else {
+      [updated] = await db
+        .update(worldsmithWorldsTable)
+        .set(patch)
+        .where(worldCondition)
+        .returning();
+    }
 
     if (!updated) {
       res.status(404).json({ error: "World not found", code: "NOT_FOUND" });
       return;
     }
 
-    res.json(updated);
+    res.json({ ...updated, revision: revisionFor(updated) });
   } catch (err) {
     logger.error({ err, worldId }, "Failed to update world");
     res.status(500).json({ error: "Internal server error" });

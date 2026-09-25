@@ -962,26 +962,10 @@ router.patch("/v1/editorial/image-targets/:componentType", async (req: Request, 
 router.get("/v1/editorial/worlds", async (_req: Request, res: Response) => {
   try {
     const worlds = await db
-      .select({
-        id: worldsmithWorldsTable.id,
-        name: worldsmithWorldsTable.name,
-        code: worldsmithWorldsTable.code,
-        status: worldsmithWorldsTable.status,
-        description: worldsmithWorldsTable.description,
-        currentCollection: worldsmithWorldsTable.currentCollection,
-        currentVolume: worldsmithWorldsTable.currentVolume,
-        notionProductionDbId: worldsmithWorldsTable.notionProductionDbId,
-        notionCanonDbId: worldsmithWorldsTable.notionCanonDbId,
-        visualPalette: worldsmithWorldsTable.visualPalette,
-        proseVoice: worldsmithWorldsTable.proseVoice,
-        atmosphericNotes: worldsmithWorldsTable.atmosphericNotes,
-        materialWorld: worldsmithWorldsTable.materialWorld,
-        worldRules: worldsmithWorldsTable.worldRules,
-        typography: worldsmithWorldsTable.typography,
-      })
+      .select()
       .from(worldsmithWorldsTable)
       .orderBy(worldsmithWorldsTable.name);
-    res.json({ worlds });
+    res.json({ worlds: worlds.map(world => ({ ...world, revision: revisionFor(world) })) });
   } catch (err) {
     logger.error({ err }, "editorial: list worlds error");
     res.status(500).json({ error: "Internal server error" });

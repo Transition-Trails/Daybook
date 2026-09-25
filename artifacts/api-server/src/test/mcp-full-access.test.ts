@@ -82,11 +82,11 @@ describe("full editorial MCP grant and discovery", () => {
       const fullList = await rpc(fullToken, "tools/list");
       expect(fullList.status).toBe(200);
       const names = fullList.body.result.tools.map((tool: { name: string }) => tool.name);
-      expect(names).toHaveLength(28);
+      expect(names).toHaveLength(29);
       expect(new Set(names).size).toBe(names.length);
       expect(names).toEqual(expect.arrayContaining([
         "search_canon_records", "get_canon_record", "update_canon_record", "update_canon_editorial_fields",
-        "search_worlds", "get_world", "update_world",
+        "search_worlds", "get_world", "get_world_creative_context", "update_world",
         "search_story_maps", "get_story_map", "update_story_map",
         "search_storylines", "get_storyline", "update_storyline",
         "search_movements", "get_movement", "update_movement",
@@ -96,6 +96,66 @@ describe("full editorial MCP grant and discovery", () => {
       ]));
       const worlds = await call(fullToken, "search_worlds", { query: "MCP Full Access" });
       expect(worlds.body.result.structuredContent.worlds[0].id).toBe(worldId);
+      const creativeBefore = await call(fullToken, "get_world_creative_context", { world_id: worldId });
+      const creativeContextKeys = [
+        "world_id", "name", "worldPremise", "centralDramaticQuestion", "coreThemes",
+        "narrativePillars", "historicalEras", "currentWorldState", "narrativeGravity",
+        "conflictGrammar", "discoveryRules", "storyGuardrails", "continuityAnchors",
+        "openQuestions", "worldRules", "proseVoice", "visualPalette", "atmosphericNotes",
+        "materialWorld", "imageDirection", "visualGuardrails", "revision",
+      ];
+      expect(Object.keys(creativeBefore.body.result.structuredContent).sort())
+        .toEqual([...creativeContextKeys].sort());
+      expect(creativeBefore.body.result.structuredContent).toMatchObject({
+        coreThemes: [], narrativePillars: [], historicalEras: [], storyGuardrails: [],
+        continuityAnchors: [], openQuestions: [], visualGuardrails: [],
+      });
+      const forbiddenStatusEdit = await call(fullToken, "update_world", {
+        world_id: worldId,
+        expected_revision: creativeBefore.body.result.structuredContent.revision,
+        changes: { status: "archived" },
+      });
+      expect(forbiddenStatusEdit.body.result.isError).toBe(true);
+      expect(forbiddenStatusEdit.body.result.content[0].text).toContain("INVALID_ARGUMENTS");
+      const pillars = [
+        { id: "pillar-preservation", name: "Preservation", description: "Use keeps things meaningful." },
+        { id: "pillar-memory", name: "Memory", description: "Remembered evidence shapes the present." },
+      ];
+      const eras = [
+        { id: "era-later", name: "Later", order: 2, summary: "A later period." },
+        { id: "era-earlier", name: "Earlier", order: 1, summary: "An earlier period." },
+      ];
+      const worldEdit = await call(fullToken, "update_world", {
+        world_id: worldId,
+        expected_revision: creativeBefore.body.result.structuredContent.revision,
+        changes: {
+          worldPremise: "A world defined by careful stewardship.",
+          narrativePillars: pillars,
+          historicalEras: eras,
+          coreThemes: ["Stewardship", "Memory"],
+          currentWorldState: "The archive remains in active use.",
+        },
+      });
+      expect(worldEdit.body.result.isError).toBeUndefined();
+      expect(worldEdit.body.result.structuredContent.record).toMatchObject({
+        worldPremise: "A world defined by careful stewardship.",
+        narrativePillars: pillars,
+        historicalEras: eras,
+        coreThemes: ["Stewardship", "Memory"],
+      });
+      const rereadWorld = await call(fullToken, "get_world", { world_id: worldId });
+      expect(rereadWorld.body.result.structuredContent.record.historicalEras).toEqual(eras);
+      const creativeAfter = await call(fullToken, "get_world_creative_context", { world_id: worldId });
+      expect(creativeAfter.body.result.structuredContent.narrativePillars).toEqual(pillars);
+      expect(creativeAfter.body.result.structuredContent.revision)
+        .toBe(worldEdit.body.result.structuredContent.revision);
+      const staleWorldEdit = await call(fullToken, "update_world", {
+        world_id: worldId,
+        expected_revision: creativeBefore.body.result.structuredContent.revision,
+        changes: { worldPremise: "Stale overwrite" },
+      });
+      expect(staleWorldEdit.body.result.isError).toBe(true);
+      expect(staleWorldEdit.body.result.content[0].text).toContain("REVISION_CONFLICT");
       const maps = await call(fullToken, "get_story_map", { map_id: worldId });
       expect(maps.body.result.structuredContent.world_id).toBe(worldId);
       const storylines = await call(fullToken, "get_storyline", { storyline_id: storyId });

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { EditorialProvider, useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
+import { creativeDraft } from "@/lib/worldsmith/world-editor-types";
 import { CopilotPanel, type RecordSuggestion } from "@/components/CopilotPanel";
 import { apiFetch } from "@/lib/api";
 import { worldsmithStorage } from "@/lib/worldsmith/storage";
@@ -135,6 +136,7 @@ function EditorialCopilot({
               context: {
                 worldName: world.name,
                 worldBible: {
+                  ...creativeDraft(world),
                   description: world.description,
                   visualPalette: world.visualPalette,
                   proseVoice: world.proseVoice,
@@ -163,6 +165,7 @@ function EditorialCopilot({
               context: {
                 worldName: world.name,
                 worldBible: {
+                  ...creativeDraft(world),
                   description: world.description,
                   visualPalette: world.visualPalette,
                   proseVoice: world.proseVoice,

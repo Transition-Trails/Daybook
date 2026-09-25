@@ -78,10 +78,13 @@ describe("World Bible editor building blocks", () => {
         />
       </QueryClientProvider>,
     );
+    fireEvent.click(screen.getByTestId("button-section-creative-direction"));
+    expect(screen.getByTestId("note-creative-direction-read-only")).toHaveTextContent("reserved for store owners");
+    expect(screen.queryByTestId("input-imageDirection")).not.toBeInTheDocument();
 
-    expect(screen.getByRole("note")).toHaveTextContent(
+    expect(screen.getAllByRole("note").some(note => note.textContent?.includes(
       "World Rules are read-only for store staff",
-    );
+    ))).toBe(true);
     expect(screen.getByText("No modern objects")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Remove rule/i })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Add a rule…")).not.toBeInTheDocument();
@@ -97,7 +100,11 @@ describe("World Bible editor building blocks", () => {
     });
     const [, request] = apiFetch.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(request.body));
+    expect(body.expected_revision).toBe(1);
     expect(body).not.toHaveProperty("worldRules");
+    expect(body).not.toHaveProperty("worldPremise");
+    expect(body).not.toHaveProperty("coreThemes");
+    expect(body).not.toHaveProperty("historicalEras");
     expect(body.typography).toEqual([{
       fontId: "font-lora",
       family: "Lora",
@@ -126,10 +133,12 @@ describe("World Bible editor building blocks", () => {
         />
       </QueryClientProvider>,
     );
+    fireEvent.click(screen.getByTestId("button-section-creative-direction"));
+    expect(screen.queryByTestId("note-creative-direction-read-only")).not.toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: "Remove rule 1" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Add a rule…")).toBeInTheDocument();
-    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("note-creative-direction-read-only")).not.toBeInTheDocument();
   });
 
   it("routes the overview World Bible edit action to the editorial Bible studio", () => {

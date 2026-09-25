@@ -91,7 +91,13 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
         : SCENE_TOOLS.some(scene => scene.name === tool.name)
           ? identity.scopes.includes(SCENES_READ_SCOPE)
             && (!SCENE_WRITE_TOOLS.has(tool.name) || identity.scopes.includes(SCENES_WRITE_SCOPE))
-      : identity.scopes.includes(EDITORIAL_READ_SCOPE)
+      : RECORD_TOOLS.some(record => record.name === tool.name)
+        ? identity.scopes.includes(EDITORIAL_READ_SCOPE)
+          && (!RECORD_WRITE_TOOLS.has(tool.name) || identity.scopes.includes(EDITORIAL_WRITE_SCOPE))
+        : VIEW_TOOLS.some(view => view.name === tool.name)
+          ? identity.scopes.includes(EDITORIAL_READ_SCOPE)
+            && (!VIEW_WRITE_TOOLS.has(tool.name) || identity.scopes.includes(EDITORIAL_WRITE_SCOPE))
+          : false
   ));
   if (id === undefined) {
     // Stateless MCP notifications (including notifications/initialized) have no response body.

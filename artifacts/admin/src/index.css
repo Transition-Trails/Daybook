@@ -5,6 +5,20 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* World Bible: a compact editorial index paired with a writing surface. */
+.world-bible-nav { background: #f3eee5; border: 1px solid #ddd2c3; }
+.world-bible-nav button[aria-current="page"] { background: #26364a; color: #f8f0e5; box-shadow: 0 5px 14px rgba(38,54,74,.14); }
+.world-bible-input { width: 100%; background: #fcfaf6; border: 1px solid #dcd4c9; border-radius: .65rem; padding: .65rem .8rem; color: #26364a; outline: none; }
+.world-bible-input:focus { border-color: #b96e58; box-shadow: 0 0 0 2px rgba(185,110,88,.12); }
+.world-bible-entry { background: #fcfaf6; border: 1px solid #e4dcd1; border-radius: .8rem; padding: 1rem; }
+.world-bible-nav-item { color: #665d57; }
+.world-bible-nav-item:hover { background: #eae0d4; }
+.world-bible-eyebrow { color: #b36b55; }
+.world-bible-error { border-color: #cb927d; background: #fbefe8; color: #713d30; }
+.world-bible-repeater-entry { border-color: #e0d8cd; background: #f8f4ed; }
+.world-bible-add { border-color: #c8b5a4; color: #8f5142; }
+.world-bible-add:hover { background: #f0e8dc; }
+
 /* Invitation surfaces: a quiet editorial insert within the existing studio palette. */
 .invitation-page {
   background: var(--admin-paper);

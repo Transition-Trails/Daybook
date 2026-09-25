@@ -212,4 +212,29 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       "super-admin", "update_scene", { scene_id: "scene-1" }, "https://daybook.example",
     );
   });
+
+  it("requires editorial read scope to discover or call creative world context", async () => {
+    mocked.verify.mockResolvedValue({
+      userId: "super-admin", clientId: "client-1", scopes: ["worldsmith:canon:read"],
+    });
+    const canonOnly = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
+    expect(canonOnly.body.result.tools.map((tool: { name: string }) => tool.name))
+      .not.toContain("get_world_creative_context");
+    expect((await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("get_world_creative_context", { world_id: "world-1" }))).status).toBe(403);
+
+    mocked.verify.mockResolvedValue({
+      userId: "super-admin", clientId: "client-1", scopes: ["worldsmith:editorial:read"],
+    });
+    const editorialRead = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    expect(editorialRead.body.result.tools.map((tool: { name: string }) => tool.name))
+      .toContain("get_world_creative_context");
+    expect(editorialRead.body.result.tools.map((tool: { name: string }) => tool.name))
+      .not.toContain("update_world");
+    expect((await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("update_world", { world_id: "world-1", expected_revision: "r", changes: { worldPremise: "x" } }))).status)
+      .toBe(403);
+  });
 });

@@ -1,0 +1,713 @@
+We want to expand the existing **WorldSmith World Editor** so the World record becomes the authoritative **Creative Director layer** for everything underneath it: Story Maps, Storylines, Movements, Beats, Reveal Threads, Scenes, and Canon.
+
+The goal is not simply to add more text fields. We want the World Editor to hold the creative and narrative rules that downstream storywriting can inherit and that ChatGPT can reliably read through the MCP.
+
+## Current World Editor
+
+The current World record already supports fields such as:
+
+- name
+- description
+- tags
+- worldRules
+- visualPalette
+- proseVoice
+- atmosphericNotes
+- materialWorld
+- typography
+- cover fields and other system metadata
+
+These existing fields should remain intact.
+
+The MCP currently supports:
+
+- `search_worlds`
+- `get_world`
+- `update_world`
+
+Any new editorial fields added in this work must be exposed through both `get_world` and `update_world`, with the same revision-based optimistic concurrency currently used by WorldSmith.
+
+Do not expose lifecycle/status controls through the editorial MCP.
+
+---
+
+# Product Goal
+
+The World Editor should answer:
+
+**“What kinds of stories can exist in this realm, how does this world behave, and what creative rules should every downstream story respect?”**
+
+The hierarchy should conceptually become:
+
+WORLD  
+What stories can exist here and why?
+
+↓  
+STORY MAP  
+How do stories relate across the world?
+
+↓  
+STORYLINE  
+What changes?
+
+↓  
+MOVEMENT  
+How does that change unfold?
+
+↓  
+BEAT / REVEAL  
+What happens and what becomes known?
+
+↓  
+SCENE  
+What does the reader experience?
+
+↓  
+CANON  
+What is established as true?
+
+The World level should therefore contain the durable creative context that helps AI or a human writer make consistent decisions everywhere downstream.
+
+---
+
+# World Editor Information Architecture
+
+Please organize the World Editor into four clear editorial sections.
+
+## 1. Identity
+
+Add the following fields:
+
+### World Premise
+Field:
+`worldPremise`
+
+Purpose:
+A concise authoritative statement of what the realm fundamentally is about.
+
+Suggested type:
+Long text / rich text
+
+Suggested limit:
+10,000 characters
+
+---
+
+### Origin / Foundational History
+Field:
+`foundationalHistory`
+
+Purpose:
+The authoritative origin of the realm and how it became what it is.
+
+This is where material currently stored as a “World Origin Story” can live so downstream stories flow from it rather than treating it as an ordinary storyline.
+
+Suggested type:
+Long text / rich text
+
+Suggested limit:
+30,000 characters
+
+---
+
+### Central Dramatic Question
+Field:
+`centralDramaticQuestion`
+
+Purpose:
+The recurring question the world keeps asking through different stories.
+
+Example from Wychcombe:
+
+“If inherited rank does not determine whose life deserves to be remembered, why should inherited rank alone determine who is entrusted with remembering it?”
+
+Suggested type:
+Long text
+
+Suggested limit:
+5,000 characters
+
+---
+
+### Core Themes
+Field:
+`coreThemes`
+
+Purpose:
+The ideas repeatedly examined across stories.
+
+Suggested type:
+Array of strings
+
+Examples:
+- Stewardship
+- Memory
+- Evidence
+- Inheritance
+- Work
+- Preservation
+- Usefulness
+- Correction
+- Access
+- Responsibility
+
+Suggested max:
+50
+
+---
+
+### Narrative Pillars
+Field:
+`narrativePillars`
+
+Purpose:
+Defines the kinds of stories that naturally belong in this realm.
+
+Suggested type:
+Array of structured objects:
+
+```ts
+{
+  id: string,
+  name: string,
+  description: string
+}
+```
+
+Example:
+
+```json
+{
+  "name": "Preservation Through Use",
+  "description": "Stories examine how things remain meaningful by continuing to be used rather than simply being frozen in place."
+}
+```
+
+These IDs should be stable because Storylines may later reference them.
+
+---
+
+# 2. Reality
+
+## Historical Eras
+
+This is one of the most important additions.
+
+Create structured World-level eras rather than one long prose timeline.
+
+Field:
+`historicalEras`
+
+Suggested structure:
+
+```ts
+{
+  id: string,
+  name: string,
+  order: number,
+  summary: string,
+  narrativeCondition?: string,
+  approximatePeriod?: string | null,
+  notes?: string | null
+}
+```
+
+Example for Wychcombe:
+
+1. Harcourt Estate
+2. Survey & Founding
+3. Early Wychcombe
+4. Second Generation
+5. Institutional Wychcombe
+6. Stewardship Transition
+7. Later Wychcombe
+
+Important:
+
+- Era IDs should be stable.
+- Allow reordering.
+- Do not require exact dates.
+- Exact dates are optional.
+- This feature must support worlds where chronology is intentionally approximate.
+
+Eventually Storylines, Scenes, and Canon records may reference these IDs, so design accordingly even if those lookups are not part of this ticket.
+
+---
+
+## Institutions & Social Structure
+Field:
+`institutions`
+
+Suggested structure:
+
+```ts
+{
+  id: string,
+  name: string,
+  type?: string,
+  description: string,
+  roleInWorld?: string,
+  notes?: string
+}
+```
+
+Purpose:
+Define the organizations, households, businesses, communities, institutions, and power structures that organize life in the realm.
+
+Example Wychcombe institutions:
+
+- Wychcombe Estate
+- Bellamy & Son
+- Stationery House
+- Wychcombe Village
+- Household staff
+- Garden staff
+
+---
+
+## Economy & Resources
+Field:
+`economyAndResources`
+
+Purpose:
+Explain how material constraints work in the world.
+
+This should cover things such as:
+
+- money
+- labor
+- trade
+- scarcity
+- infrastructure
+- heating
+- food
+- production
+- publishing
+- restoration resources
+
+Suggested type:
+Long text / rich text
+
+Suggested limit:
+20,000 characters
+
+---
+
+## Knowledge & Authority
+Field:
+`knowledgeAndAuthority`
+
+Purpose:
+Explain how truth, expertise, testimony, evidence, scholarship, memory, authority, and correction operate within the realm.
+
+This is particularly important for worlds where different sources may disagree.
+
+Suggested type:
+Long text / rich text
+
+Suggested limit:
+20,000 characters
+
+---
+
+## Current World State
+Field:
+`currentWorldState`
+
+Purpose:
+Describe the present narrative condition of the realm.
+
+This should answer:
+
+- What currently exists?
+- Who currently holds responsibility?
+- What major institutions exist?
+- What major unresolved tensions remain?
+- What is considered established at the current narrative horizon?
+
+Suggested type:
+Long text / rich text
+
+Suggested limit:
+20,000 characters
+
+---
+
+# 3. Story Engine
+
+These fields are particularly important for AI-assisted storytelling.
+
+## Narrative Gravity
+Field:
+`narrativeGravity`
+
+Purpose:
+Describe the kinds of questions and tensions stories in this realm naturally gravitate toward.
+
+Example for Wychcombe:
+
+“Stories tend toward questions of stewardship, evidence, memory, work, responsibility, preservation, correction, access, and the tension between keeping something and allowing it to remain useful.”
+
+Suggested type:
+Long text
+
+Suggested limit:
+10,000 characters
+
+---
+
+## Conflict Grammar
+Field:
+`conflictGrammar`
+
+Purpose:
+Describe how conflict typically works in this world.
+
+This should help prevent AI from defaulting to villains, conspiracies, melodrama, or genre drift.
+
+Example Wychcombe guidance:
+
+“Conflict usually emerges from competing legitimate responsibilities, incomplete evidence, scarcity, changing use, professional disagreement, family obligation, or different interpretations of stewardship. Antagonism does not require villainy.”
+
+Suggested type:
+Long text
+
+Suggested limit:
+10,000 characters
+
+---
+
+## Mystery / Discovery Rules
+Field:
+`discoveryRules`
+
+Purpose:
+Describe how revelations and discoveries should emerge.
+
+Example Wychcombe guidance:
+
+“Discoveries emerge through material evidence, correspondence, conflicting testimony, alterations, working records, provenance, omissions, sequence, and accumulated use. Revelations should usually complicate understanding rather than expose a hidden mastermind.”
+
+Suggested type:
+Long text
+
+Suggested limit:
+10,000 characters
+
+---
+
+## Story Guardrails
+Field:
+`storyGuardrails`
+
+Purpose:
+Define what stories in this world should avoid becoming.
+
+Suggested type:
+Array of strings
+
+Examples for Wychcombe:
+
+- Avoid secret-society logic unless explicitly supported by Canon.
+- Avoid villains created solely to manufacture conflict.
+- Avoid supernatural explanations unless Canon establishes them.
+- Avoid treating every hidden object as treasure.
+- Do not resolve documentary ambiguity merely for dramatic neatness.
+- Do not make Wychcombe the sole authority over village history.
+
+Suggested max:
+100
+
+This field is specifically intended to be consumed by AI writing tools.
+
+---
+
+## Continuity Anchors
+Field:
+`continuityAnchors`
+
+Purpose:
+Store compact facts that downstream stories should always respect.
+
+Suggested structure:
+
+```ts
+{
+  id: string,
+  label: string,
+  statement: string,
+  severity?: "advisory" | "important" | "critical"
+}
+```
+
+These are not a replacement for Canon.
+
+They are compact editorial reminders for high-level continuity.
+
+Example:
+
+```json
+{
+  "label": "Village Independence",
+  "statement": "Wychcombe Village has its own history and identity and must never be treated merely as an extension of the estate.",
+  "severity": "critical"
+}
+```
+
+---
+
+## Open Questions
+Field:
+`openQuestions`
+
+Purpose:
+Track questions intentionally left unanswered.
+
+Suggested structure:
+
+```ts
+{
+  id: string,
+  question: string,
+  notes?: string,
+  status?: "open" | "developing" | "deferred"
+}
+```
+
+Important:
+These should explicitly tell AI that the question is unresolved and should not be automatically answered.
+
+---
+
+# 4. Creative Direction
+
+Keep the existing fields:
+
+- `visualPalette`
+- `proseVoice`
+- `atmosphericNotes`
+- `materialWorld`
+- `typography`
+
+Please improve the UI grouping so these appear together as **Creative Direction**.
+
+Consider adding:
+
+## Visual Guardrails
+Field:
+`visualGuardrails`
+
+Purpose:
+Rules that imagery should consistently respect.
+
+Suggested type:
+Array of strings
+
+---
+
+## Image Direction
+Field:
+`imageDirection`
+
+Purpose:
+High-level direction for generated world imagery.
+
+Suggested type:
+Long text
+
+This is distinct from `visualPalette`.
+
+`visualPalette` describes what the world looks like.
+
+`imageDirection` describes how WorldSmith should portray it.
+
+---
+
+# UI Requirements
+
+The World Editor should use clear section navigation:
+
+1. Identity
+2. Reality
+3. Story Engine
+4. Creative Direction
+
+Avoid presenting the editor as one enormous form.
+
+Use cards, collapsible sections, tabs, or a left-navigation pattern consistent with the current WorldSmith UI.
+
+For structured repeaters such as:
+
+- Historical Eras
+- Narrative Pillars
+- Institutions
+- Continuity Anchors
+- Open Questions
+
+support:
+
+- Add
+- Edit
+- Delete
+- Reorder where applicable
+
+Use stable IDs for structured child records.
+
+---
+
+# MCP Requirements
+
+Update the MCP so `get_world` returns all of the new editorial fields.
+
+Update `update_world` so ChatGPT can edit all of the new editorial fields using the existing expected-revision mechanism.
+
+Do not expose lifecycle status changes through this editorial update tool.
+
+Preserve backwards compatibility with existing World records.
+
+Older worlds with no values in these fields should return sensible empty values rather than error.
+
+---
+
+# Add a Creative Context MCP Read
+
+Please add a new MCP tool:
+
+`get_world_creative_context`
+
+Input:
+
+```ts
+{
+  world_id: string
+}
+```
+
+Purpose:
+
+Return a compact Creative Director context package that AI can load before writing or editing downstream story content.
+
+It should return:
+
+```ts
+{
+  world_id,
+  name,
+  worldPremise,
+  centralDramaticQuestion,
+  coreThemes,
+  narrativePillars,
+  historicalEras,
+  currentWorldState,
+  narrativeGravity,
+  conflictGrammar,
+  discoveryRules,
+  storyGuardrails,
+  continuityAnchors,
+  openQuestions,
+  worldRules,
+  proseVoice,
+  visualPalette,
+  atmosphericNotes,
+  materialWorld,
+  imageDirection,
+  visualGuardrails,
+  revision
+}
+```
+
+Do not return unrelated administrative fields.
+
+This tool should be optimized for AI context loading.
+
+---
+
+# Wychcombe Migration
+
+After implementing the fields, migrate the existing Wychcombe World thoughtfully.
+
+Do not invent new Canon.
+
+Use the existing Wychcombe World record and existing “The Wychcombe Origin Story” storyline as the source material.
+
+Populate:
+
+- World Premise
+- Foundational History
+- Central Dramatic Question
+- Core Themes
+- Narrative Gravity
+- Conflict Grammar
+- Discovery Rules
+- Story Guardrails
+- Historical Eras
+
+Preserve the existing:
+
+- worldRules
+- proseVoice
+- visualPalette
+- atmosphericNotes
+- materialWorld
+
+Do not delete “The Wychcombe Origin Story” storyline during the migration.
+
+Once the World-level content is populated and verified, we will decide separately whether that storyline should be archived, repurposed, or retained as a reference.
+
+---
+
+# Important Design Principle
+
+WorldSmith should distinguish between:
+
+**Canon Truth**
+What is established as true.
+
+**World Creative Direction**
+How stories belonging to this realm should behave.
+
+**Narrative Structure**
+How particular stories unfold.
+
+The World Editor owns Creative Direction.
+
+Canon remains the authority for established facts.
+
+Story Maps, Storylines, Movements, Beats, Reveals, and Scenes express individual narratives beneath those two layers.
+
+Do not collapse these responsibilities together.
+
+---
+
+# Acceptance Criteria
+
+This work is complete when:
+
+1. The World Editor contains the four major sections:
+   - Identity
+   - Reality
+   - Story Engine
+   - Creative Direction
+
+2. All new fields persist correctly.
+
+3. Structured child fields use stable IDs.
+
+4. `get_world` returns all new fields.
+
+5. `update_world` can edit all new editorial fields with revision protection.
+
+6. `get_world_creative_context` exists and returns the compact AI writing context.
+
+7. Existing World records remain compatible.
+
+8. Wychcombe is migrated using existing source material without inventing new Canon.
+
+9. The existing Origin Story storyline remains untouched for now.
+
+10. A fresh MCP client can:
+    - search for Wychcombe
+    - read Wychcombe
+    - retrieve Wychcombe creative context
+    - update a World editorial field
+    - reread the record and confirm the change

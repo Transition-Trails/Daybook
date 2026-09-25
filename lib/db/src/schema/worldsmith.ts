@@ -271,6 +271,26 @@ export const worldsmithWorldsTable = pgTable("worldsmith_worlds", {
     family: string;
     roles: Array<{ role: string; weight?: string }>;
   }>>().notNull().default([]),
+  // World-level Creative Director context. These fields are intentionally
+  // additive so existing World records remain valid after the migration.
+  worldPremise: text("world_premise"),
+  foundationalHistory: text("foundational_history"),
+  centralDramaticQuestion: text("central_dramatic_question"),
+  coreThemes: jsonb("core_themes").$type<string[]>().notNull().default([]),
+  narrativePillars: jsonb("narrative_pillars").$type<NarrativePillar[]>().notNull().default([]),
+  historicalEras: jsonb("historical_eras").$type<HistoricalEra[]>().notNull().default([]),
+  institutions: jsonb("institutions").$type<WorldInstitution[]>().notNull().default([]),
+  economyAndResources: text("economy_and_resources"),
+  knowledgeAndAuthority: text("knowledge_and_authority"),
+  currentWorldState: text("current_world_state"),
+  narrativeGravity: text("narrative_gravity"),
+  conflictGrammar: text("conflict_grammar"),
+  discoveryRules: text("discovery_rules"),
+  storyGuardrails: jsonb("story_guardrails").$type<string[]>().notNull().default([]),
+  continuityAnchors: jsonb("continuity_anchors").$type<ContinuityAnchor[]>().notNull().default([]),
+  openQuestions: jsonb("open_questions").$type<WorldOpenQuestion[]>().notNull().default([]),
+  visualGuardrails: jsonb("visual_guardrails").$type<string[]>().notNull().default([]),
+  imageDirection: text("image_direction"),
   // Bumped when a style rule changes; triggers re-flagging of all affected assets
   styleGuideVersion: integer("style_guide_version").notNull().default(1),
   // Google Drive folder
@@ -289,3 +309,42 @@ export const worldsmithWorldsTable = pgTable("worldsmith_worlds", {
 
 export type WorldsmithWorld = typeof worldsmithWorldsTable.$inferSelect;
 export type InsertWorldsmithWorld = typeof worldsmithWorldsTable.$inferInsert;
+
+export interface NarrativePillar {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface HistoricalEra {
+  id: string;
+  name: string;
+  order: number;
+  summary: string;
+  narrativeCondition?: string;
+  approximatePeriod?: string | null;
+  notes?: string | null;
+}
+
+export interface WorldInstitution {
+  id: string;
+  name: string;
+  type?: string;
+  description: string;
+  roleInWorld?: string;
+  notes?: string;
+}
+
+export interface ContinuityAnchor {
+  id: string;
+  label: string;
+  statement: string;
+  severity?: "advisory" | "important" | "critical";
+}
+
+export interface WorldOpenQuestion {
+  id: string;
+  question: string;
+  notes?: string;
+  status?: "open" | "developing" | "deferred";
+}

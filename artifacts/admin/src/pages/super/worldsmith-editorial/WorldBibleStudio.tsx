@@ -1,10 +1,20 @@
 import { Link } from "wouter";
 import { ArrowRight, BookOpen } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
-import { WorldBibleSection } from "@/pages/super/WorldSmithHome";
+import { WorldBibleSection, type WsWorld } from "@/pages/super/WorldSmithHome";
 
 export default function WorldBibleStudio() {
   const { selectedWorld, updateWorld } = useEditorial();
+  const queryClient = useQueryClient();
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["worldsmith/worlds", "bible-studio"],
+    queryFn: () => apiFetch<{ worlds: WsWorld[] }>("/v1/worldsmith/worlds"),
+    enabled: !!selectedWorld,
+    staleTime: 0,
+  });
+  const fullWorld = data?.worlds.find(w => w.id === selectedWorld?.id);
 
   if (!selectedWorld) {
     return (
@@ -13,6 +23,8 @@ export default function WorldBibleStudio() {
       </div>
     );
   }
+  if (isLoading) return <div className="p-8 space-y-4" aria-label="Loading World Bible"><div className="h-8 w-48 animate-pulse rounded bg-muted"/><div className="h-32 max-w-3xl animate-pulse rounded-xl bg-muted"/></div>;
+  if (error || !fullWorld) return <div role="alert" className="world-bible-error m-8 rounded-xl border p-6 text-sm">Could not load the current World Bible. <button type="button" onClick={() => refetch()} className="underline">Retry</button></div>;
 
   return (
     <div className="h-full overflow-y-auto" style={{ background: "var(--admin-card-subtle)" }}>
@@ -35,8 +47,7 @@ export default function WorldBibleStudio() {
               {selectedWorld.name} — World Bible
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed" style={{ color: "#667085" }}>
-              Write the visual, tonal, and sensory rules that every story, canon record, and physical piece should carry.
-              Your Co-write partner is available in the right drawer whenever you need another creative angle.
+              Define what stories can exist here, how this realm behaves, and the direction every downstream story should respect.
             </p>
           </div>
           <Link href="/super/worldsmith/editorial/board">
@@ -48,10 +59,15 @@ export default function WorldBibleStudio() {
 
         <section className="rounded-2xl p-7" style={{ background: "var(--admin-card)", border: "1px solid var(--admin-border)" }}>
           <WorldBibleSection
-            key={selectedWorld.id}
-            world={selectedWorld}
+            key={fullWorld.id}
+            world={fullWorld}
             showCopilot={false}
-            onSaved={updatedWorld => updateWorld({ ...selectedWorld, ...updatedWorld })}
+            onSaved={updatedWorld => {
+              queryClient.setQueryData<{ worlds: WsWorld[] }>(["worldsmith/worlds", "bible-studio"], current => current
+                ? { ...current, worlds: current.worlds.map(w => w.id === updatedWorld.id ? { ...w, ...updatedWorld } : w) }
+                : current);
+              updateWorld({ ...selectedWorld, ...updatedWorld });
+            }}
           />
         </section>
       </div>

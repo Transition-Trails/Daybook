@@ -20,10 +20,12 @@ import { CopilotPanel } from "@/components/CopilotPanel";
 import { PaletteLibraryPicker, paletteReferenceText } from "@/components/PaletteLibraryPicker";
 import { FontLibraryPicker } from "@/components/FontLibraryPicker";
 import { worldsmithStorage } from "@/lib/worldsmith/storage";
+import { WorldCreativeEditor, WORLD_SECTIONS } from "@/components/WorldCreativeEditor";
+import { creativeDraft, type CreativeDraft, type WorldCreativeFields } from "@/lib/worldsmith/world-editor-types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface WsWorld {
+export interface WsWorld extends WorldCreativeFields {
   id: string;
   name: string;
   code: string;
@@ -663,7 +665,7 @@ export function openWorldBibleEditor(worldId: string, navigate: (path: string) =
   navigate("/super/worldsmith/editorial/bible");
 }
 
-function FocusedWorldView({
+export function FocusedWorldView({
   world,
   assets,
   integrations,
@@ -956,7 +958,7 @@ function FocusedWorldView({
       </div>
 
       <div style={{ display: activeSection === "bible" ? undefined : "none" }}>
-        <WorldBibleSection world={world} storeId={storeId} canEditWorldRules={canEditWorldRules} />
+        <WorldBibleSection key={world.id} world={world} storeId={storeId} canEditWorldRules={canEditWorldRules} />
       </div>
 
       {/* IntegrationsSection must stay mounted so its form state survives tab switches.
@@ -1112,11 +1114,11 @@ function OverviewSection({
 
         <div id="world-bible-preview" hidden={!bibleExpanded}>
         {/* Empty state */}
-        {!world.worldRules?.length && !world.visualPalette && !world.proseVoice && !world.atmosphericNotes && !world.materialWorld ? (
+        {!Object.values(creativeDraft(world)).some(value => Array.isArray(value) ? value.length > 0 : Boolean(value)) && !world.worldRules?.length && !world.visualPalette && !world.proseVoice && !world.atmosphericNotes && !world.materialWorld ? (
           <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
             <p className="text-[13px] font-medium text-foreground">No World Bible set yet</p>
             <p className="text-[12px] text-muted-foreground max-w-sm">
-              Add Visual Palette, Prose Voice, Atmospheric Notes, Material World, and World Rules — they're injected into every generation prompt for this world.
+              Begin with the premise, history, story engine or creative direction that defines this realm.
             </p>
             <button
               onClick={onGoToBible}
@@ -1127,6 +1129,10 @@ function OverviewSection({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {world.worldPremise && <div data-testid="text-world-premise" className="md:col-span-2"><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">World Premise</p><p className="whitespace-pre-wrap text-sm">{world.worldPremise}</p></div>}
+            {world.centralDramaticQuestion && <div className="md:col-span-2"><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Central Dramatic Question</p><p className="text-sm">{world.centralDramaticQuestion}</p></div>}
+            {!!world.coreThemes?.length && <div className="md:col-span-2"><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Core Themes</p><p className="text-sm">{world.coreThemes.join(" · ")}</p></div>}
+            {!!world.historicalEras?.length && <div className="md:col-span-2"><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Historical Eras</p><p className="text-sm">{world.historicalEras.slice().sort((a,b) => a.order-b.order).map(era => era.name).join(" → ")}</p></div>}
             {world.visualPalette && (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-1">Visual Palette</p>
@@ -1755,7 +1761,7 @@ export function WorldBibleSection({
   storeId,
   canEditWorldRules = true,
 }: {
-  world: Pick<WsWorld, "id" | "name" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "worldRules" | "typography">;
+  world: Pick<WsWorld, "id" | "name" | "visualPalette" | "proseVoice" | "atmosphericNotes" | "materialWorld" | "worldRules" | "typography"> & WorldCreativeFields;
   showCopilot?: boolean;
   onSaved?: (updatedWorld: WsWorld) => void;
   storeId?: string;
@@ -1772,6 +1778,12 @@ export function WorldBibleSection({
     typography: world.typography ?? [],
   });
   const [newRule, setNewRule] = useState("");
+  const [creative, setCreative] = useState<CreativeDraft>(() => creativeDraft(world));
+  const [section, setSection] = useState<(typeof WORLD_SECTIONS)[number]>("Identity");
+  const [revision, setRevision] = useState(world.revision ?? 1);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [showConflictDraft, setShowConflictDraft] = useState(false);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     visualPalette: true,
@@ -1790,6 +1802,9 @@ export function WorldBibleSection({
   const formRef = useRef(form);
   activeFieldRef.current = activeField;
   formRef.current = form;
+  const draftSignature = JSON.stringify({ form, creative });
+  const draftSignatureRef = useRef(draftSignature);
+  draftSignatureRef.current = draftSignature;
 
   const handleCopilotSend = useCallback(async (
     message: string,
@@ -1850,27 +1865,56 @@ export function WorldBibleSection({
   };
 
   const saveMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: ({ payload }: { payload: Record<string, unknown>; signature: string }) =>
       worldsmithFetch<WsWorld>(`/v1/worldsmith/worlds/${encodeURIComponent(world.id)}`, storeId, {
         method: "PATCH",
-        body: JSON.stringify({
-          visualPalette: sanitizeBibleRichText(form.visualPalette).trim() || null,
-          proseVoice: sanitizeBibleRichText(form.proseVoice).trim() || null,
-          atmosphericNotes: sanitizeBibleRichText(form.atmosphericNotes).trim() || null,
-          materialWorld: sanitizeBibleRichText(form.materialWorld).trim() || null,
-          typography: form.typography,
-          ...(canEditWorldRules ? { worldRules: form.worldRules } : {}),
-        }),
+        body: JSON.stringify(payload),
       }),
-    onSuccess: (updatedWorld) => {
+    onSuccess: (updatedWorld, variables) => {
       qc.invalidateQueries({ queryKey: ["worldsmith/worlds"] });
       onSaved?.(updatedWorld);
       toast({ title: "World Bible saved" });
-      setDirty(false);
+      setRevision(updatedWorld.revision ?? revision);
+      setSaveError(null);
+      setShowConflictDraft(false);
+      if (draftSignatureRef.current === variables.signature) setDirty(false);
       setUndoBuffer(null);
     },
-    onError: () => toast({ title: "Failed to save", variant: "destructive" }),
+    onError: (error: Error & { status?: number }) => {
+      setSaveError(error.status === 409
+        ? "This world changed in another session. Your edits remain here, but cannot be saved against this revision. Show your draft below to copy it before refreshing the page manually."
+        : `Could not save: ${error.message}. Your edits are still here; try again.`);
+      toast({ title: error.status === 409 ? "World changed elsewhere" : "Failed to save", variant: "destructive" });
+    },
   });
+  const save = () => saveMutation.mutate({
+    signature: draftSignature,
+    payload: {
+      expected_revision: revision,
+      ...(canEditWorldRules ? creative : {}),
+      visualPalette: sanitizeBibleRichText(form.visualPalette).trim() || null,
+      proseVoice: sanitizeBibleRichText(form.proseVoice).trim() || null,
+      atmosphericNotes: sanitizeBibleRichText(form.atmosphericNotes).trim() || null,
+      materialWorld: sanitizeBibleRichText(form.materialWorld).trim() || null,
+      typography: form.typography,
+      ...(canEditWorldRules ? { worldRules: form.worldRules } : {}),
+    },
+  });
+  const draftForCopy = JSON.stringify({
+    worldId: world.id, expected_revision: revision, ...(canEditWorldRules ? creative : {}),
+    visualPalette: form.visualPalette, proseVoice: form.proseVoice,
+    atmosphericNotes: form.atmosphericNotes, materialWorld: form.materialWorld,
+    typography: form.typography, ...(canEditWorldRules ? { worldRules: form.worldRules } : {}),
+  }, null, 2);
+  const copyDraft = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(draftForCopy);
+      setCopyMessage("Draft copied to clipboard.");
+    } catch {
+      setCopyMessage("Clipboard unavailable. Select the draft text and copy it manually.");
+    }
+  };
 
   const set = (field: BibleTextField | "typography", value: any) => {
     setForm(f => ({ ...f, [field]: value })); setDirty(true);
@@ -1911,7 +1955,23 @@ export function WorldBibleSection({
           )}
         </div>
 
-        <div className="space-y-3">
+        <nav aria-label="World Bible sections" className="world-bible-nav grid grid-cols-2 gap-1 rounded-xl p-1.5 sm:grid-cols-4">
+          {WORLD_SECTIONS.map((name, index) => <button key={name} type="button" data-testid={`button-section-${name.toLowerCase().replace(/ /g, "-")}`} aria-current={section === name ? "page" : undefined}
+            onClick={() => setSection(name)} className="world-bible-nav-item rounded-lg px-3 py-2.5 text-left text-xs font-semibold transition-colors">
+            <span className="mr-2 opacity-60">{String(index + 1).padStart(2, "0")}</span>{name}
+          </button>)}
+        </nav>
+        <div className="border-b border-border pb-3">
+          <p className="world-bible-eyebrow text-[10px] font-bold uppercase tracking-[.18em]">World creative direction / {section}</p>
+          <h3 className="mt-1 font-display text-xl text-foreground">{section}</h3>
+        </div>
+        {canEditWorldRules
+          ? <WorldCreativeEditor section={section} draft={creative} onChange={next => { setCreative(next); setDirty(true); setSaveError(null); }} />
+          : <div role="note" data-testid="note-creative-direction-read-only" className="world-bible-entry text-sm text-muted-foreground">
+              World creative direction is reserved for store owners and platform admins. You can still edit the visual and prose fields below.
+            </div>}
+
+        {section === "Creative Direction" && <div className="space-y-3">
           {QUESTIONS.map(({ field, label, q, hint }) => (
             <BibleSection
               key={field}
@@ -2015,10 +2075,10 @@ export function WorldBibleSection({
               </div>
             )}
           </BibleSection>
-        </div>
+        </div>}
 
         <div className="pt-2 flex items-center gap-3">
-          <button onClick={() => saveMutation.mutate()} disabled={!dirty || saveMutation.isPending}
+          <button onClick={save} disabled={!dirty || saveMutation.isPending}
             className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
             style={{ background: "#1B2A4A" }}>
             {saveMutation.isPending ? "Saving…" : dirty ? "Save World Bible" : "Saved"}
@@ -2034,6 +2094,16 @@ export function WorldBibleSection({
             </button>
           )}
         </div>
+        {saveError && <div role="alert" data-testid="status-world-bible-save-error" className="world-bible-error rounded-xl border p-4 text-sm">{saveError}
+          {saveMutation.error && (saveMutation.error as Error & { status?: number }).status === 409 && <>
+            <button type="button" data-testid="button-show-world-bible-draft" onClick={() => setShowConflictDraft(current => !current)} className="ml-2 underline font-semibold">{showConflictDraft ? "Hide draft" : "Show draft for copying"}</button>
+            {showConflictDraft && <div className="mt-3">
+              <button type="button" data-testid="button-copy-world-bible-draft" onClick={copyDraft} className="mb-2 underline font-semibold">Copy draft</button>
+              {copyMessage && <p role="status" data-testid="status-copy-world-bible-draft">{copyMessage}</p>}
+              <textarea readOnly aria-label="Unsaved World Bible draft" data-testid="input-unsaved-world-bible-draft" onFocus={event => event.currentTarget.select()} className="world-bible-input mt-2 min-h-48 font-mono text-xs" value={draftForCopy} />
+            </div>}
+          </>}
+        </div>}
       </div>
 
       {showCopilot && (

@@ -2,8 +2,9 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import { useLocation, useSearch } from "wouter";
 import { apiFetch } from "@/lib/api";
 import { worldsmithStorage } from "@/lib/worldsmith/storage";
+import type { WorldCreativeFields } from "@/lib/worldsmith/world-editor-types";
 
-export interface WorldRecord {
+export interface WorldRecord extends WorldCreativeFields {
   id: string;
   name: string;
   code: string;
@@ -17,6 +18,7 @@ export interface WorldRecord {
   atmosphericNotes?: string | null;
   materialWorld?: string | null;
   worldRules?: string[] | null;
+  typography?: Array<{ fontId: string; family: string; roles: Array<{ role: string; weight?: string }> }>;
 }
 
 export interface CollectionRecord {

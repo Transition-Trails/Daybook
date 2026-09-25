@@ -14,6 +14,7 @@ import { z } from "zod";
 import { CanonToolError } from "./mcp-canon";
 import { resolveTypographyChoices, TypographyValidationError } from "./typography";
 import { revisionFor } from "./editorial-revision";
+import { worldEditorialFieldSchemas } from "./world-editorial-fields";
 
 const jsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
   z.string().max(20_000),
@@ -29,6 +30,46 @@ const typographySchema = z.array(z.object({
   fontId: z.string().min(1).max(200),
 }).strict()).max(100);
 const EDITORIAL_CHILD_LIMIT = 100;
+const textField = (maxLength: number, minLength?: number) => ({
+  type: "string",
+  ...(minLength ? { minLength } : {}),
+  maxLength,
+});
+const nullableTextField = (maxLength: number) => ({ anyOf: [textField(maxLength), { type: "null" }] });
+const worldEditorialPatchSchemas = Object.fromEntries(
+  Object.entries(worldEditorialFieldSchemas).map(([field, fieldSchema]) => [field, fieldSchema.optional()]),
+);
+const worldEditorialInputProperties: Record<string, unknown> = {
+  worldPremise: nullableTextField(10_000), foundationalHistory: nullableTextField(30_000),
+  centralDramaticQuestion: nullableTextField(5_000),
+  coreThemes: { type: "array", maxItems: 50, items: textField(500) },
+  narrativePillars: { type: "array", maxItems: 100, items: { type: "object", properties: {
+    id: textField(200, 1), name: textField(500), description: textField(10_000),
+  }, required: ["id", "name", "description"], additionalProperties: false } },
+  historicalEras: { type: "array", maxItems: 100, items: { type: "object", properties: {
+    id: textField(200, 1), name: textField(500), order: { type: "integer", minimum: 0, maximum: 100_000 },
+    summary: textField(10_000), narrativeCondition: textField(10_000),
+    approximatePeriod: { anyOf: [textField(500), { type: "null" }] }, notes: { anyOf: [textField(10_000), { type: "null" }] },
+  }, required: ["id", "name", "order", "summary"], additionalProperties: false } },
+  institutions: { type: "array", maxItems: 100, items: { type: "object", properties: {
+    id: textField(200, 1), name: textField(500), type: textField(200), description: textField(10_000),
+    roleInWorld: textField(10_000), notes: textField(10_000),
+  }, required: ["id", "name", "description"], additionalProperties: false } },
+  economyAndResources: nullableTextField(20_000), knowledgeAndAuthority: nullableTextField(20_000),
+  currentWorldState: nullableTextField(20_000), narrativeGravity: nullableTextField(10_000),
+  conflictGrammar: nullableTextField(10_000), discoveryRules: nullableTextField(10_000),
+  storyGuardrails: { type: "array", maxItems: 100, items: textField(5_000) },
+  continuityAnchors: { type: "array", maxItems: 100, items: { type: "object", properties: {
+    id: textField(200, 1), label: textField(500), statement: textField(10_000),
+    severity: { type: "string", enum: ["advisory", "important", "critical"] },
+  }, required: ["id", "label", "statement"], additionalProperties: false } },
+  openQuestions: { type: "array", maxItems: 100, items: { type: "object", properties: {
+    id: textField(200, 1), question: textField(5_000), notes: textField(10_000),
+    status: { type: "string", enum: ["open", "developing", "deferred"] },
+  }, required: ["id", "question"], additionalProperties: false } },
+  visualGuardrails: { type: "array", maxItems: 100, items: textField(5_000) },
+  imageDirection: nullableTextField(10_000),
+};
 
 const argsSchemas = {
   search_worlds: z.object({
@@ -37,6 +78,7 @@ const argsSchemas = {
     limit: z.number().int().min(1).max(100).optional(),
   }).strict(),
   get_world: z.object({ world_id: z.string().min(1).max(200) }).strict(),
+  get_world_creative_context: z.object({ world_id: z.string().min(1).max(200) }).strict(),
   update_world: z.object({
     world_id: z.string().min(1).max(200),
     expected_revision: z.string().min(1).max(100),
@@ -52,6 +94,7 @@ const argsSchemas = {
       atmosphericNotes: z.string().max(20_000).nullable().optional(),
       materialWorld: z.string().max(20_000).nullable().optional(),
       typography: typographySchema.optional(),
+      ...worldEditorialPatchSchemas,
     }).strict().refine(value => Object.keys(value).length > 0, "changes must include at least one editorial field"),
   }).strict(),
   search_storylines: z.object({
@@ -122,11 +165,6 @@ type EditorialToolDescriptor = {
   inputSchema: Record<string, unknown>;
 };
 
-const textField = (maxLength: number, minLength?: number) => ({
-  type: "string",
-  ...(minLength ? { minLength } : {}),
-  maxLength,
-});
 const jsonObjectField = { type: "object", additionalProperties: true };
 const jsonArrayField = { type: "array", items: {} };
 const schema = (properties: Record<string, unknown>, required: string[] = [], minProperties?: number) => ({
@@ -142,6 +180,7 @@ export const RECORD_TOOLS: EditorialToolDescriptor[] = [
     query: textField(500), after_id: textField(200, 1), limit: { type: "integer", minimum: 1, maximum: 100 },
   }) },
   { name: "get_world", description: "Read a complete editorial world and its current content revision.", inputSchema: schema({ world_id: textField(200, 1) }, ["world_id"]) },
+  { name: "get_world_creative_context", description: "Read the compact Creative Director context package for a world before writing downstream story content.", inputSchema: schema({ world_id: textField(200, 1) }, ["world_id"]) },
   { name: "update_world", description: "Update whitelisted World Bible editorial fields at the expected content revision.", inputSchema: schema({
     world_id: textField(200, 1), expected_revision: textField(100, 1),
     changes: schema({
@@ -158,6 +197,7 @@ export const RECORD_TOOLS: EditorialToolDescriptor[] = [
         required: ["fontId"],
         additionalProperties: false,
       } },
+      ...worldEditorialInputProperties,
     }, [], 1),
   }, ["world_id", "expected_revision", "changes"]) },
   { name: "search_storylines", description: "Search storylines in a world by optional title or summary query; use after_id and limit to discover every result in stable ID order.", inputSchema: schema({
@@ -307,6 +347,35 @@ export async function executeRecordTool(
       const [row] = await db.select().from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, world_id)).limit(1);
       if (!row) throw new CanonToolError("World not found", 404, "WORLD_NOT_FOUND");
       return { record: row, revision: revisionFor(row), editor_url: editorUrl(origin, "world", row.id, row.id) };
+    }
+    case "get_world_creative_context": {
+      const { world_id } = parseArgs("get_world_creative_context", args);
+      const [row] = await db.select().from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, world_id)).limit(1);
+      if (!row) throw new CanonToolError("World not found", 404, "WORLD_NOT_FOUND");
+      return {
+        world_id: row.id,
+        name: row.name,
+        worldPremise: row.worldPremise ?? null,
+        centralDramaticQuestion: row.centralDramaticQuestion ?? null,
+        coreThemes: row.coreThemes ?? [],
+        narrativePillars: row.narrativePillars ?? [],
+        historicalEras: row.historicalEras ?? [],
+        currentWorldState: row.currentWorldState ?? null,
+        narrativeGravity: row.narrativeGravity ?? null,
+        conflictGrammar: row.conflictGrammar ?? null,
+        discoveryRules: row.discoveryRules ?? null,
+        storyGuardrails: row.storyGuardrails ?? [],
+        continuityAnchors: row.continuityAnchors ?? [],
+        openQuestions: row.openQuestions ?? [],
+        worldRules: row.worldRules ?? [],
+        proseVoice: row.proseVoice ?? null,
+        visualPalette: row.visualPalette ?? null,
+        atmosphericNotes: row.atmosphericNotes ?? null,
+        materialWorld: row.materialWorld ?? null,
+        imageDirection: row.imageDirection ?? null,
+        visualGuardrails: row.visualGuardrails ?? [],
+        revision: revisionFor(row),
+      };
     }
     case "update_world": {
       const input = parseArgs("update_world", args);

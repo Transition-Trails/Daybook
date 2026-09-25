@@ -421,6 +421,13 @@
       "when": 1789840800000,
       "tag": "0059_mcp_registration_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1789844400000,
+      "tag": "0060_world_creative_director_fields",
+      "breakpoints": true
     }
   ]
 }

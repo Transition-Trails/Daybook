@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, eq, ilike, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   auditLogTable, db, usersTable, worldsmithWorldsTable, wsCanonRecordsTable,
   wsCanonRecordStoryLinksTable, wsStoriesTable, wsStoryActsTable,
@@ -198,6 +198,7 @@ async function readMap(worldId: string, origin: string, tx: QueryExecutor | type
 function chronologyGroups(stories: StoryRow[]) {
   const grouped: Array<{ order: number; members: StoryRow[] }> = [];
   for (const story of stories) {
+    if (story.sequenceRole === "reference") continue;
     const previous = grouped[grouped.length - 1];
     if (story.sortOrder > 0 && previous?.order === story.sortOrder) {
       previous.members.push(story);
@@ -300,14 +301,15 @@ export async function executeViewTool(userId: string, name: string, args: unknow
         const changedStoriesBefore = new Map<string, { id: string; sortOrder: number }>();
         const changedStoriesAfter = new Map<string, { id: string; sortOrder: number }>();
         if (input.story_order) {
+          const chronologicalIds = new Set(before.stories.filter(story => story.sequenceRole !== "reference").map(story => story.id));
           const seen = new Set<string>();
           for (const item of input.story_order) {
-            if (!storyIds.has(item.story_id)) throw new CanonToolError("Every ordered story must belong to this world", 400, "INVALID_STORY");
+            if (!chronologicalIds.has(item.story_id)) throw new CanonToolError("Reference stories cannot be assigned a chronology position", 400, "INVALID_STORY");
             if (seen.has(item.story_id)) throw new CanonToolError("Every world story must appear exactly once in story_order", 400, "INVALID_STORY_ORDER");
             seen.add(item.story_id);
           }
-          if (seen.size !== storyIds.size || [...storyIds].some(id => !seen.has(id))) {
-            throw new CanonToolError("Every world story must appear exactly once in story_order", 400, "INVALID_STORY_ORDER");
+          if (seen.size !== chronologicalIds.size || [...chronologicalIds].some(id => !seen.has(id))) {
+            throw new CanonToolError("Every chronological story must appear exactly once in story_order", 400, "INVALID_STORY_ORDER");
           }
           const orders = [...new Set(input.story_order.map(item => item.order))].sort((a, b) => a - b);
           if (orders.some((order, index) => order !== index + 1)) {
@@ -323,6 +325,9 @@ export async function executeViewTool(userId: string, name: string, args: unknow
               changedStoriesAfter.set(item.story_id, { id: item.story_id, sortOrder: updated.sortOrder });
             }
           }
+          if (changedStoriesAfter.size) await tx.update(worldsmithWorldsTable)
+            .set({ storySequenceRevision: sql`${worldsmithWorldsTable.storySequenceRevision} + 1` })
+            .where(eq(worldsmithWorldsTable.id, input.map_id));
         }
         if (new Set(removeIds).size !== removeIds.length) throw new CanonToolError("remove_link_ids must not contain duplicates", 400, "INVALID_LINKS");
         if (removeIds.length) {
@@ -445,6 +450,9 @@ export async function executeViewTool(userId: string, name: string, args: unknow
             changed.push({ id, sortOrder: order });
           }
         }
+        await tx.update(worldsmithWorldsTable)
+          .set({ storySequenceRevision: sql`${worldsmithWorldsTable.storySequenceRevision} + 1` })
+          .where(eq(worldsmithWorldsTable.id, input.world_id));
         const after = await readSequenceSet(input.world_id, origin, tx);
         const afterStories = after.sequences.flatMap(group => group.members);
         const beforeById = new Map(existingStories.map(story => [story.id, story]));

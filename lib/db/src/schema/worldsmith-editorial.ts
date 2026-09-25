@@ -392,6 +392,7 @@ export const wsStoriesTable = pgTable("ws_stories", {
   revealArchitecture: jsonb("reveal_architecture").$type<unknown[]>().notNull().default([]),
   status:    text("status").notNull().default("draft"), // active | draft | planned | archived
   sortOrder: integer("sort_order").notNull().default(0),
+  sequenceRole: text("sequence_role").notNull().default("chronological"), // chronological | reference
   createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()

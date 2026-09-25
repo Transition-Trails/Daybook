@@ -745,6 +745,9 @@ async function decideDiscovery(req: Request, res: Response, action: OwnerDiscove
             sortOrder: position?.next ?? 1,
             createdBy: (req.user as any)?.id,
           }).returning({ id: wsStoriesTable.id });
+          await tx.update(worldsmithWorldsTable)
+            .set({ storySequenceRevision: sql`${worldsmithWorldsTable.storySequenceRevision} + 1` })
+            .where(eq(worldsmithWorldsTable.id, discovery.worldId));
           const [updated] = await tx.update(wsOwnerDiscoveriesTable).set({
             status: "accepted",
             storyId: story.id,
@@ -5347,56 +5350,73 @@ router.delete("/v1/editorial/narrative-images/:id", async (req: Request, res: Re
   res.json({ image });
 });
 
-// Save the complete chronology in one transaction. Stories in the same group
-// share an order; legacy unsequenced stories (order 0) remain independent until saved.
+// Save the complete world layout in one transaction. References are not moments.
 router.post("/v1/editorial/stories/sequence", async (req: Request, res: Response) => {
   const worldId = req.body?.world_id;
   const groups = req.body?.groups;
+  const references = req.body?.references;
   const expected = req.body?.expected;
+  const expectedRevision = req.body?.expected_revision;
   if (typeof worldId !== "string" || !worldId.trim() || !Array.isArray(groups)
-    || groups.length === 0 || groups.length > 250
+    || groups.length > 250 || !Array.isArray(references) || references.length > 250
+    || !references.every((id: unknown) => typeof id === "string" && id.length > 0)
+    || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0
     || !groups.every((group: unknown) => Array.isArray(group)
       && group.length > 0 && group.length <= 250
       && group.every((id: unknown) => typeof id === "string" && id.length > 0))
     || !Array.isArray(expected) || expected.length > 250
     || !expected.every((item: unknown) => item !== null && typeof item === "object"
       && typeof (item as { id?: unknown }).id === "string"
-      && Number.isInteger((item as { sort_order?: unknown }).sort_order))) {
-    res.status(400).json({ error: "Provide a non-empty sequence of storyline groups." });
+      && Number.isInteger((item as { sort_order?: unknown }).sort_order)
+      && ["chronological", "reference"].includes((item as { sequence_role?: string }).sequence_role ?? ""))) {
+    res.status(400).json({ error: "Provide a complete storyline layout and revision." });
     return;
   }
-  const ids = (groups as string[][]).flat();
-  const expectedOrders = new Map((expected as { id: string; sort_order: number }[])
-    .map(({ id, sort_order }) => [id, sort_order]));
+  const ids = [...(groups as string[][]).flat(), ...(references as string[])];
+  const expectedRows = new Map((expected as { id: string; sort_order: number; sequence_role: string }[])
+    .map(row => [row.id, row]));
   if (ids.length > 250 || new Set(ids).size !== ids.length
-    || expectedOrders.size !== ids.length || ids.some(id => !expectedOrders.has(id))) {
+    || expectedRows.size !== ids.length || ids.some(id => !expectedRows.has(id))) {
     res.status(400).json({ error: "Each storyline must appear exactly once." });
     return;
   }
   try {
     const result = await db.transaction(async tx => {
       // Serialize sequence writes for a world, including newly created stories.
-      const locked = await tx.execute(sql`SELECT id FROM worldsmith_worlds WHERE id = ${worldId} FOR UPDATE`);
+      const locked = await tx.execute(sql`SELECT id, story_sequence_revision FROM worldsmith_worlds WHERE id = ${worldId} FOR UPDATE`);
       if (!locked.rows.length) return { status: 404 as const };
-      const existing = await tx.select({ id: wsStoriesTable.id, sortOrder: wsStoriesTable.sortOrder }).from(wsStoriesTable)
+      if (locked.rows[0]?.story_sequence_revision !== expectedRevision) return { status: 409 as const };
+      const existing = await tx.select({ id: wsStoriesTable.id, sortOrder: wsStoriesTable.sortOrder, sequenceRole: wsStoriesTable.sequenceRole }).from(wsStoriesTable)
         .where(eq(wsStoriesTable.worldId, worldId));
       if (existing.length !== ids.length || existing.some(row =>
-        !expectedOrders.has(row.id) || expectedOrders.get(row.id) !== row.sortOrder)) {
+        !expectedRows.has(row.id) || expectedRows.get(row.id)?.sort_order !== row.sortOrder
+        || expectedRows.get(row.id)?.sequence_role !== row.sequenceRole)) {
         return { status: 409 as const };
       }
       for (const [index, group] of (groups as string[][]).entries()) {
-        await tx.update(wsStoriesTable).set({ sortOrder: index + 1 })
+        await tx.update(wsStoriesTable).set({ sortOrder: index + 1, sequenceRole: "chronological" })
           .where(and(eq(wsStoriesTable.worldId, worldId), inArray(wsStoriesTable.id, group)));
       }
-      return { status: 200 as const, stories: groups.flatMap((group: string[], index: number) =>
-        group.map(id => ({ id, sortOrder: index + 1 }))) };
+      // Preserve the stored order of references; returning one to chronology is explicit.
+      if (references.length) await tx.update(wsStoriesTable).set({ sequenceRole: "reference" })
+        .where(and(eq(wsStoriesTable.worldId, worldId), inArray(wsStoriesTable.id, references)));
+      await tx.update(worldsmithWorldsTable)
+        .set({ storySequenceRevision: sql`${worldsmithWorldsTable.storySequenceRevision} + 1` })
+        .where(eq(worldsmithWorldsTable.id, worldId));
+      return { status: 200 as const, revision: expectedRevision + 1, stories: [
+        ...groups.flatMap((group: string[], index: number) =>
+          group.map(id => ({ id, sortOrder: index + 1, sequenceRole: "chronological" }))),
+        ...references.map((id: string) => ({
+          id, sortOrder: existing.find(row => row.id === id)!.sortOrder, sequenceRole: "reference",
+        })),
+      ] };
     });
     if (result.status === 404) { res.status(404).json({ error: "World not found." }); return; }
     if (result.status === 409) {
       res.status(409).json({ error: "Storylines changed. Refresh the board and try again." });
       return;
     }
-    res.json({ stories: result.stories });
+    res.json({ stories: result.stories, revision: result.revision });
   } catch (err) {
     logger.error({ err, worldId }, "editorial: save storyline sequence");
     res.status(500).json({ error: "Could not save storyline sequence." });
@@ -5407,23 +5427,28 @@ router.get("/v1/editorial/stories", async (req: Request, res: Response) => {
   try {
     const worldId = req.query.world_id as string;
     if (!worldId) { res.status(400).json({ error: "world_id required" }); return; }
-    const stories = await db
+    const { stories, acts, revision } = await db.transaction(async tx => {
+    const [world] = await tx.select({ revision: worldsmithWorldsTable.storySequenceRevision })
+      .from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId)).limit(1);
+    const stories = await tx
       .select()
       .from(wsStoriesTable)
       .where(eq(wsStoriesTable.worldId, worldId))
        .orderBy(wsStoriesTable.sortOrder, wsStoriesTable.createdAt, wsStoriesTable.id);
     const storyIds = stories.map(s => s.id);
     const acts = storyIds.length > 0
-      ? await db.select().from(wsStoryActsTable)
+      ? await tx.select().from(wsStoryActsTable)
           .where(inArray(wsStoryActsTable.storyId, storyIds))
           .orderBy(wsStoryActsTable.storyId, wsStoryActsTable.actNumber)
       : [];
+    return { stories, acts, revision: world?.revision ?? 0 };
+    }, { isolationLevel: "repeatable read" });
     const actsById: Record<string, typeof acts> = {};
     for (const act of acts) {
       if (!actsById[act.storyId]) actsById[act.storyId] = [];
       actsById[act.storyId].push(act);
     }
-    res.json({ stories: stories.map(s => ({ ...withStoryStructured(s), acts: actsById[s.id] ?? [] })) });
+    res.json({ stories: stories.map(s => ({ ...withStoryStructured(s), acts: actsById[s.id] ?? [] })), sequenceRevision: revision });
   } catch (err) {
     logger.error({ err }, "editorial: list stories");
     res.status(500).json({ error: "Internal server error" });
@@ -5593,6 +5618,9 @@ router.post("/v1/editorial/stories", async (req: Request, res: Response) => {
         status: status ?? "draft",
         sortOrder: position?.next ?? 1,
       }).returning();
+      await tx.update(worldsmithWorldsTable)
+        .set({ storySequenceRevision: sql`${worldsmithWorldsTable.storySequenceRevision} + 1` })
+        .where(eq(worldsmithWorldsTable.id, world_id));
       return created;
     });
     if (!story) { res.status(404).json({ error: "World not found" }); return; }
@@ -5628,7 +5656,10 @@ router.patch("/v1/editorial/stories/:id", async (req: Request, res: Response) =>
     if (title !== undefined) update.title = typeof title === "string" ? title.trim() : title;
     if (summary !== undefined) update.summary = sanitizeEditorialRichText(summary);
     if (status !== undefined) update.status = status;
-    if (sort_order !== undefined) update.sortOrder = sort_order;
+    if (sort_order !== undefined) {
+      res.status(400).json({ error: "Use the world-scoped sequence board to change chronology." });
+      return;
+    }
     if (req.body.global_metadata !== undefined) update.globalMetadata = req.body.global_metadata;
     if (story_spine !== undefined) update.storySpine = story_spine;
     if (architecture !== undefined) update.revealArchitecture = architecture;
@@ -5645,7 +5676,16 @@ router.patch("/v1/editorial/stories/:id", async (req: Request, res: Response) =>
 // Delete a story
 router.delete("/v1/editorial/stories/:id", async (req: Request, res: Response) => {
   try {
-    await db.delete(wsStoriesTable).where(eq(wsStoriesTable.id, req.params.id as string));
+    await db.transaction(async tx => {
+      const [existing] = await tx.select({ worldId: wsStoriesTable.worldId }).from(wsStoriesTable)
+        .where(eq(wsStoriesTable.id, req.params.id as string)).limit(1);
+      if (!existing) return;
+      await tx.execute(sql`SELECT id FROM worldsmith_worlds WHERE id = ${existing.worldId} FOR UPDATE`);
+      await tx.delete(wsStoriesTable).where(eq(wsStoriesTable.id, req.params.id as string));
+      await tx.update(worldsmithWorldsTable)
+        .set({ storySequenceRevision: sql`${worldsmithWorldsTable.storySequenceRevision} + 1` })
+        .where(eq(worldsmithWorldsTable.id, existing.worldId));
+    });
     res.status(204).end();
   } catch (err) {
     logger.error({ err }, "editorial: delete story");

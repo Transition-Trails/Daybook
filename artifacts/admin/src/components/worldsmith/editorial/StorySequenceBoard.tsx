@@ -10,16 +10,18 @@ type Story = {
   summary: string;
   status: string;
   sortOrder: number;
+  sequenceRole: "chronological" | "reference";
   acts: Array<unknown>;
 };
 
-type SequenceResponse = { stories: Array<{ id: string; sortOrder: number }> };
+type SequenceResponse = { stories: Array<{ id: string; sortOrder: number; sequenceRole: "chronological" | "reference" }>; revision: number };
 type Placement = "before" | "after" | "alongside";
 type Groups = string[][];
 
 export interface StorySequenceBoardProps {
   worldId: string;
   stories: Story[];
+  revision: number;
   onOpen: (id: string) => void;
   selectedStoryId?: string | null;
 }
@@ -34,7 +36,7 @@ const STATUS_STYLES: Record<string, { background: string; color: string }> = {
 function groupsFromStories(stories: Story[]): Groups {
   // Existing legacy records have no meaningful sequence. Keep their incoming
   // order, and never accidentally coalesce all the zero-order records.
-  const ordered = stories.map((story, index) => ({ story, index }));
+  const ordered = stories.filter(story => story.sequenceRole !== "reference").map((story, index) => ({ story, index }));
   if (ordered.every(({ story }) => story.sortOrder > 0)) {
     ordered.sort((a, b) => a.story.sortOrder - b.story.sortOrder || a.index - b.index);
   }
@@ -86,11 +88,12 @@ function plainText(html: string): string {
   return (doc.body.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
-export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }: StorySequenceBoardProps) {
+export function StorySequenceBoard({ worldId, stories, revision, onOpen, selectedStoryId }: StorySequenceBoardProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const incoming = useMemo(() => groupsFromStories(stories), [stories]);
-  const [local, setLocal] = useState<{ worldId: string; groups: Groups } | null>(null);
+  const incomingReferences = useMemo(() => stories.filter(story => story.sequenceRole === "reference").map(story => story.id), [stories]);
+  const [local, setLocal] = useState<{ worldId: string; groups: Groups; references: string[] } | null>(null);
   const [saving, setSaving] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -104,10 +107,11 @@ export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }
   useEffect(() => {
     if (local && local.worldId !== worldId) {
       setLocal(null);
-    } else if (!inFlight.current.has(worldId) && local?.worldId === worldId && sameGroups(local.groups, incoming)) {
+    } else if (!inFlight.current.has(worldId) && local?.worldId === worldId
+      && sameGroups(local.groups, incoming) && local.references.join("\0") === incomingReferences.join("\0")) {
       setLocal(null);
     }
-  }, [incoming, local, worldId]);
+  }, [incoming, incomingReferences, local, worldId]);
 
   useEffect(() => {
     setSaving(inFlight.current.has(worldId));
@@ -116,6 +120,7 @@ export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }
   }, [worldId]);
 
   const groups = local?.worldId === worldId ? local.groups : incoming;
+  const references = local?.worldId === worldId ? local.references : incomingReferences;
   const storiesById = useMemo(() => new Map(stories.map(story => [story.id, story])), [stories]);
   const storyCount = stories.length;
   const simultaneousCount = groups.filter(group => group.length > 1).length;
@@ -126,35 +131,39 @@ export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }
     selectedGroupElement.current.scrollIntoView?.({ behavior: "smooth", block: "center" });
   }, [groups, selectedStoryId, worldId]);
 
-  const save = async (next: Groups) => {
-    if (inFlight.current.has(worldId) || sameGroups(groups, next)) return;
-    const ids = next.flat();
+  const save = async (next: Groups, nextReferences = references) => {
+    if (inFlight.current.has(worldId) || (sameGroups(groups, next) && references.join("\0") === nextReferences.join("\0"))) return;
+    const ids = [...next.flat(), ...nextReferences];
     if (ids.length !== stories.length || new Set(ids).size !== stories.length || ids.some(id => !storiesById.has(id))) return;
-    const previous = groups;
+    const previous = { groups, references };
     const requestWorld = worldId;
     inFlight.current.add(requestWorld);
     setSaving(true);
-    setLocal({ worldId: requestWorld, groups: next });
+    setLocal({ worldId: requestWorld, groups: next, references: nextReferences });
     try {
       const result = await apiFetch<SequenceResponse>("/v1/editorial/stories/sequence", {
         method: "POST",
         body: JSON.stringify({
           world_id: requestWorld,
           groups: next,
-          expected: stories.map(story => ({ id: story.id, sort_order: story.sortOrder })),
+          references: nextReferences,
+          expected_revision: revision,
+          expected: stories.map(story => ({ id: story.id, sort_order: story.sortOrder, sequence_role: story.sequenceRole })),
         }),
       });
       // Patch the exact cache consumed by StoriesStudio before invalidating it.
       // This prevents a stale parent render from replacing the optimistic board.
-      const positions = new Map(result.stories.map(item => [item.id, item.sortOrder]));
-      queryClient.setQueryData<{ stories: Story[] }>(["ws-stories", requestWorld], current => {
+      const positions = new Map(result.stories.map(item => [item.id, item]));
+      queryClient.setQueryData<{ stories: Story[]; sequenceRevision: number }>(["ws-stories", requestWorld], current => {
         if (!current) return current;
         const rank = new Map(ids.map((id, index) => [id, index]));
         return {
           ...current,
+          sequenceRevision: result.revision,
           stories: current.stories.map(story => ({
             ...story,
-            sortOrder: positions.get(story.id) ?? next.findIndex(group => group.includes(story.id)) + 1,
+            sortOrder: positions.get(story.id)?.sortOrder ?? story.sortOrder,
+            sequenceRole: positions.get(story.id)?.sequenceRole ?? story.sequenceRole,
           })).sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity)),
         };
       });
@@ -170,7 +179,7 @@ export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }
       }
     } catch (error) {
       if (worldRef.current === requestWorld) {
-        setLocal({ worldId: requestWorld, groups: previous });
+        setLocal({ worldId: requestWorld, ...previous });
         if (error instanceof Error && "status" in error && error.status === 409) {
           await queryClient.invalidateQueries({ queryKey: ["ws-stories", requestWorld] });
           setLocal(null);
@@ -197,7 +206,19 @@ export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }
     const id = draggedId || event.dataTransfer.getData("text/plain");
     finishDrag();
     if (!id || inFlight.current.has(worldId)) return;
-    void save(targetId ? moveStory(groups, id, targetId, placement) : insertAtEnd(groups, id));
+    if (targetId && references.includes(id)) {
+      const nextReferences = references.filter(item => item !== id);
+      const targetIndex = groups.findIndex(group => group.includes(targetId));
+      if (targetIndex < 0) return;
+      const next = groups.map(group => [...group]);
+      if (placement === "alongside") next[targetIndex]!.push(id);
+      else next.splice(targetIndex + (placement === "after" ? 1 : 0), 0, [id]);
+      void save(next, nextReferences);
+    } else if (!targetId && references.includes(id)) {
+      void save([...groups, [id]], references.filter(item => item !== id));
+    } else {
+      void save(targetId ? moveStory(groups, id, targetId, placement) : insertAtEnd(groups, id));
+    }
   };
 
   const dropZone = (key: string, label: string, targetId: string | null, placement: Placement) => (
@@ -221,6 +242,14 @@ export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }
     </div>
   );
 
+  const addReference = (id: string) => {
+    void save(groups.map(group => group.filter(item => item !== id)).filter(group => group.length), [...references, id]);
+  };
+
+  const restoreReference = (id: string) => {
+    void save([...groups, [id]], references.filter(item => item !== id));
+  };
+
   return (
     <section data-testid="story-sequence-board" className="w-full rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-card)] p-4 shadow-[0_12px_32px_color-mix(in_srgb,var(--admin-ink)_4%,transparent)] sm:p-6">
       <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--admin-border)] pb-5">
@@ -228,18 +257,19 @@ export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--admin-clay)]">The narrative order</p>
           <h2 className="mt-1 text-2xl text-[var(--admin-ink)]" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>Sequence board</h2>
           <p className="mt-2 max-w-xl text-xs leading-relaxed text-[var(--admin-muted)]">
-            Put storylines in reading order. Stories in the same moment unfold at the same time.
+             Put chronological storylines in reading order. Stories in the same moment unfold at the same time. Cross-era accounts belong in References, outside the timeline.
           </p>
         </div>
         <div className="flex gap-4 rounded-xl bg-[var(--admin-sunken)] px-4 py-3 text-xs text-[var(--admin-secondary)]">
           <span data-testid="count-sequence-stories"><strong className="mr-1 text-[var(--admin-ink)]">{storyCount}</strong> stories</span>
           <span data-testid="count-sequence-moments"><strong className="mr-1 text-[var(--admin-ink)]">{groups.length}</strong> moments</span>
           <span data-testid="count-sequence-simultaneous"><strong className="mr-1 text-[var(--admin-ink)]">{simultaneousCount}</strong> shared</span>
+          <span data-testid="count-sequence-references"><strong className="mr-1 text-[var(--admin-ink)]">{references.length}</strong> references</span>
         </div>
       </header>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[var(--admin-muted)]">
-        <span>Drag a card between moments or into a moment to make stories simultaneous.</span>
+        <span>Drag a card between moments, into a moment, or into References. Use the buttons for keyboard access.</span>
         <span aria-live="polite" data-testid="status-sequence-save" className="font-semibold text-[var(--admin-clay-hover)]">
           {saving ? "Saving sequence…" : "Changes save automatically"}
         </span>
@@ -249,7 +279,7 @@ export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }
         <div data-testid="empty-sequence-board" className="mt-6 rounded-xl border border-dashed border-[var(--admin-border)] bg-[var(--admin-card-subtle)] px-6 py-12 text-center">
           <BookOpen className="mx-auto h-7 w-7 text-[var(--admin-clay)]" />
           <h3 className="mt-3 text-base font-semibold text-[var(--admin-ink)]">No storylines to sequence yet</h3>
-          <p className="mt-1 text-xs text-[var(--admin-muted)]">New storylines will appear here as moments to arrange.</p>
+            <p className="mt-1 text-xs text-[var(--admin-muted)]">New storylines will appear here as moments to arrange. References remain below.</p>
         </div>
       ) : (
         <div className="mt-5">
@@ -326,6 +356,7 @@ export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }
                               <button type="button" data-testid={`button-join-previous-sequence-${id}`} aria-label={`Make ${story.title} simultaneous with previous moment`} disabled={saving || groupIndex === 0} onClick={() => void save(moveStory(groups, id, groups[groupIndex - 1]![0]!, "alongside"))} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-[var(--admin-clay-hover)] hover:bg-[color-mix(in_srgb,var(--admin-clay)_12%,var(--admin-card))] disabled:cursor-not-allowed disabled:opacity-35"><Link2 className="h-3 w-3" /> Join above</button>
                               <button type="button" data-testid={`button-join-next-sequence-${id}`} aria-label={`Make ${story.title} simultaneous with next moment`} disabled={saving || groupIndex === groups.length - 1} onClick={() => void save(moveStory(groups, id, groups[groupIndex + 1]![0]!, "alongside"))} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-[var(--admin-clay-hover)] hover:bg-[color-mix(in_srgb,var(--admin-clay)_12%,var(--admin-card))] disabled:cursor-not-allowed disabled:opacity-35"><Link2 className="h-3 w-3" /> Join below</button>
                               {group.length > 1 && <button type="button" data-testid={`button-separate-sequence-${id}`} aria-label={`Give ${story.title} its own moment`} disabled={saving} onClick={() => void save(moveStory(groups, id, group.find(item => item !== id)!, "after"))} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-[var(--admin-slate)] hover:bg-[var(--admin-sunken)] disabled:cursor-not-allowed disabled:opacity-35"><Unlink2 className="h-3 w-3" /> Separate</button>}
+                               <button type="button" data-testid={`button-reference-sequence-${id}`} aria-label={`Move ${story.title} to references`} disabled={saving} onClick={() => addReference(id)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-[var(--admin-slate)] hover:bg-[var(--admin-sunken)] disabled:cursor-not-allowed disabled:opacity-35"><BookOpen className="h-3 w-3" /> Make reference</button>
                             </div>
                           </div>
                         );
@@ -340,6 +371,44 @@ export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }
           {dropZone("end", "Place at the end", null, "after")}
         </div>
       )}
+      <div className="mt-7 border-t border-[var(--admin-border)] pt-5" data-testid="story-reference-lane">
+        <h3 className="text-sm font-semibold text-[var(--admin-ink)]">References · cross-era accounts</h3>
+        <p className="mt-1 text-xs text-[var(--admin-muted)]">These stories and their movements remain available, but have no single chronological moment.</p>
+        <div
+          data-testid="drop-sequence-references"
+          onDragOver={event => { if (draggedId && !saving) event.preventDefault(); }}
+          onDrop={event => {
+            event.preventDefault();
+            const id = draggedId || event.dataTransfer.getData("text/plain");
+            finishDrag();
+            if (id && groups.some(group => group.includes(id)) && !saving) addReference(id);
+          }}
+          className="mt-3 space-y-2 rounded-xl border border-dashed border-[var(--admin-border)] bg-[var(--admin-card-subtle)] p-3"
+        >
+          {references.length === 0 && <p className="text-xs text-[var(--admin-muted)]">Drop a cross-era story here or choose “Make reference” on its card.</p>}
+          {references.map(id => {
+            const story = storiesById.get(id);
+            if (!story) return null;
+            const selected = id === selectedStoryId;
+            return <div key={id} ref={selected ? selectedGroupElement : undefined} tabIndex={selected ? -1 : undefined}
+              data-testid={`card-reference-story-${id}`} data-selected-sequence-group={selected ? "true" : undefined}
+              draggable={!saving} onDragStart={event => { event.dataTransfer.setData("text/plain", id); setDraggedId(id); }}
+              onDragEnd={finishDrag}
+              className={`rounded-lg border bg-[var(--admin-card)] p-3 ${selected ? "border-[var(--admin-clay)] ring-2 ring-[var(--admin-clay)]" : "border-[var(--admin-border)]"}`}>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div><p className="text-sm font-semibold text-[var(--admin-ink)]">{story.title || "Untitled storyline"}</p>
+                  <p className="mt-1 text-xs text-[var(--admin-muted)]">{story.acts.length} movement{story.acts.length === 1 ? "" : "s"} · {story.status}</p>
+                  {story.summary && <p className="mt-1 line-clamp-2 text-xs text-[var(--admin-muted)]">{plainText(story.summary)}</p>}
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" disabled={saving} onClick={() => restoreReference(id)} className="text-xs font-semibold text-[var(--admin-clay-hover)] disabled:opacity-35" aria-label={`Return ${story.title} to chronology`}>Return to chronology</button>
+                  <button type="button" onClick={() => onOpen(id)} className="text-xs font-semibold text-[var(--admin-ink)]" aria-label={`Open ${story.title}`}>Open <ArrowRight className="inline h-3 w-3" /></button>
+                </div>
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>
     </section>
   );
 }

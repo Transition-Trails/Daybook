@@ -244,6 +244,7 @@ export const worldsmithWorldsTable = pgTable("worldsmith_worlds", {
   name: text("name").notNull(),
   code: text("code").notNull(),             // 3-letter code, e.g. "WYC"
   description: text("description").notNull().default(""),
+  storySequenceRevision: integer("story_sequence_revision").notNull().default(0),
   status: text("status").notNull().default("in_setup"),
   // active | in_setup | archived
   coverColor: text("cover_color").notNull().default("linear-gradient(135deg, #1B2A4A 0%, #2A4A6A 100%)"),

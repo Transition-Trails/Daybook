@@ -42,17 +42,17 @@ afterAll(async () => {
 });
 
 describe("world-scoped storyline chronology", () => {
-  const initial = () => ids.map(id => ({ id, sort_order: 0 }));
+  const initial = () => ids.map(id => ({ id, sort_order: 0, sequence_role: "chronological" }));
 
   it("atomically groups simultaneous stories and reads them back in order", async () => {
     const response = await request(app).post("/v1/editorial/stories/sequence").send({
-      world_id: worldId, groups: [[ids[1], ids[0]], [ids[2]]], expected: initial(),
+      world_id: worldId, groups: [[ids[1], ids[0]], [ids[2]]], references: [], expected: initial(), expected_revision: 0,
     });
     expect(response.status).toBe(200);
     expect(response.body.stories).toEqual([
-      { id: ids[1], sortOrder: 1 },
-      { id: ids[0], sortOrder: 1 },
-      { id: ids[2], sortOrder: 2 },
+      { id: ids[1], sortOrder: 1, sequenceRole: "chronological" },
+      { id: ids[0], sortOrder: 1, sequenceRole: "chronological" },
+      { id: ids[2], sortOrder: 2, sequenceRole: "chronological" },
     ]);
     const listing = await request(app).get("/v1/editorial/stories").query({ world_id: worldId });
     expect(listing.status).toBe(200);
@@ -61,16 +61,20 @@ describe("world-scoped storyline chronology", () => {
 
   it("rejects stale, duplicate, and cross-world layouts without changing the sequence", async () => {
     const stale = await request(app).post("/v1/editorial/stories/sequence").send({
-      world_id: worldId, groups: [[ids[2]], [ids[0]], [ids[1]]], expected: initial(),
+      world_id: worldId, groups: [[ids[2]], [ids[0]], [ids[1]]], references: [], expected: initial(), expected_revision: 0,
     });
     expect(stale.status).toBe(409);
     const duplicate = await request(app).post("/v1/editorial/stories/sequence").send({
-      world_id: worldId, groups: [[ids[0], ids[0]], [ids[2]]], expected: initial(),
+      world_id: worldId, groups: [[ids[0], ids[0]], [ids[2]]], references: [], expected: initial(), expected_revision: 1,
     });
     expect(duplicate.status).toBe(400);
+    const duplicateAcrossLanes = await request(app).post("/v1/editorial/stories/sequence").send({
+      world_id: worldId, groups: [[ids[0]], [ids[1]], [ids[2]]], references: [ids[1]], expected: initial(), expected_revision: 1,
+    });
+    expect(duplicateAcrossLanes.status).toBe(400);
     const crossWorld = await request(app).post("/v1/editorial/stories/sequence").send({
-      world_id: worldId, groups: [[ids[0]], [ids[1]], [otherId]],
-      expected: [{ id: ids[0], sort_order: 1 }, { id: ids[1], sort_order: 1 }, { id: otherId, sort_order: 0 }],
+      world_id: worldId, groups: [[ids[0]], [ids[1]], [otherId]], references: [], expected_revision: 1,
+      expected: [{ id: ids[0], sort_order: 1, sequence_role: "chronological" }, { id: ids[1], sort_order: 1, sequence_role: "chronological" }, { id: otherId, sort_order: 0, sequence_role: "chronological" }],
     });
     expect(crossWorld.status).toBe(409);
     const rows = await db.select({ id: wsStoriesTable.id, sortOrder: wsStoriesTable.sortOrder })
@@ -78,6 +82,44 @@ describe("world-scoped storyline chronology", () => {
     expect(new Map(rows.map(row => [row.id, row.sortOrder]))).toEqual(
       new Map([[ids[0], 1], [ids[1], 1], [ids[2], 2]]),
     );
+  });
+
+  it("moves a cross-era story into references without deleting it or its place history", async () => {
+    const response = await request(app).post("/v1/editorial/stories/sequence").send({
+      world_id: worldId, groups: [[ids[0]], [ids[2]]], references: [ids[1]], expected_revision: 1,
+      expected: [
+        { id: ids[0], sort_order: 1, sequence_role: "chronological" },
+        { id: ids[1], sort_order: 1, sequence_role: "chronological" },
+        { id: ids[2], sort_order: 2, sequence_role: "chronological" },
+      ],
+    });
+    expect(response.status).toBe(200);
+    expect(response.body.revision).toBe(2);
+    expect(response.body.stories.find((story: { id: string }) => story.id === ids[1])).toMatchObject({
+      sortOrder: 1, sequenceRole: "reference",
+    });
+    const listing = await request(app).get("/v1/editorial/stories").query({ world_id: worldId });
+    expect(listing.body.stories.find((story: { id: string }) => story.id === ids[1])).toMatchObject({
+      sortOrder: 1, sequenceRole: "reference",
+    });
+    expect(listing.body.sequenceRevision).toBe(2);
+    const stale = await request(app).post("/v1/editorial/stories/sequence").send({
+      world_id: worldId, groups: [[ids[0]], [ids[1]], [ids[2]]], references: [], expected_revision: 1,
+      expected: response.body.stories.map((story: { id: string; sortOrder: number; sequenceRole: string }) =>
+        ({ id: story.id, sort_order: story.sortOrder, sequence_role: story.sequenceRole })),
+    });
+    expect(stale.status).toBe(409);
+    const wrongWorld = await request(app).post("/v1/editorial/stories/sequence").send({
+      world_id: otherWorldId, groups: [], references: [ids[1]], expected_revision: 0,
+      expected: [{ id: ids[1], sort_order: 1, sequence_role: "reference" }],
+    });
+    expect(wrongWorld.status).toBe(409);
+    const emptyTimeline = await request(app).post("/v1/editorial/stories/sequence").send({
+      world_id: worldId, groups: [], references: ids, expected_revision: 2,
+      expected: listing.body.stories.map((story: { id: string; sortOrder: number; sequenceRole: string }) =>
+        ({ id: story.id, sort_order: story.sortOrder, sequence_role: story.sequenceRole })),
+    });
+    expect(emptyTimeline.status).toBe(200);
   });
 
   it("appends newly created stories after the existing moments", async () => {

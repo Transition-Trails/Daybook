@@ -155,22 +155,24 @@ describe("StoriesStudio editor", () => {
   it("sequences story cards, groups simultaneous stories, and separates them again", async () => {
     let stories = ["Origin", "Letters", "Return"].map((title, index) => ({
       id: `story-${index + 1}`, title, summary: "<p>At the manor.</p>", status: "draft",
-      sortOrder: 0, acts: [],
+      sortOrder: 0, sequenceRole: "chronological" as const, acts: [],
     }));
     const saves: string[][][] = [];
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       if (path === "/v1/editorial/stories/sequence" && init?.method === "POST") {
-        const { world_id, groups, expected } = JSON.parse(String(init.body));
+        const { world_id, groups, references, expected, expected_revision } = JSON.parse(String(init.body));
         expect(world_id).toBe("world-wychcombe");
+        expect(references).toEqual([]);
+        expect(expected_revision).toBe(saves.length);
         expect(expected).toEqual(expect.arrayContaining(
-          stories.map(({ id, sortOrder }) => ({ id, sort_order: sortOrder })),
+          stories.map(({ id, sortOrder }) => ({ id, sort_order: sortOrder, sequence_role: "chronological" })),
         ));
         saves.push(groups);
         stories = groups.flatMap((group: string[], index: number) =>
           group.map(id => ({ ...stories.find(story => story.id === id)!, sortOrder: index + 1 })));
-        return Promise.resolve({ stories: stories.map(({ id, sortOrder }) => ({ id, sortOrder })) });
+        return Promise.resolve({ stories: stories.map(({ id, sortOrder, sequenceRole }) => ({ id, sortOrder, sequenceRole })), revision: saves.length });
       }
-      return Promise.resolve({ stories });
+      return Promise.resolve({ stories, sequenceRevision: saves.length });
     });
 
     render(
@@ -189,6 +191,45 @@ describe("StoriesStudio editor", () => {
     await waitFor(() => expect(screen.getByTestId("count-sequence-moments")).toHaveTextContent("3 moments"));
     fireEvent.click(screen.getByRole("button", { name: "Open Return" }));
     expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/stories/story-3?world_id=world-wychcombe");
+  });
+
+  it("shows an origin reference outside numbered moments and can return it to chronology", async () => {
+    useSearch.mockReturnValue("?view=sequence&sequence_id=legacy-origin&story_id=origin");
+    let revision = 4;
+    let stories = [
+      { id: "survey", title: "The First Harcourt Survey", summary: "", status: "draft", sortOrder: 1, sequenceRole: "chronological", acts: [] },
+      { id: "origin", title: "The Wychcombe Origin Story", summary: "<p>Spans eras.</p>", status: "draft", sortOrder: 2, sequenceRole: "reference", acts: [{ id: "act-1" }] },
+      { id: "later", title: "Later", summary: "", status: "draft", sortOrder: 3, sequenceRole: "chronological", acts: [] },
+    ];
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/stories/sequence" && init?.method === "POST") {
+        const { groups, references, expected_revision } = JSON.parse(String(init.body));
+        expect(expected_revision).toBe(revision);
+        revision += 1;
+        stories = stories.map(story => ({
+          ...story,
+          sequenceRole: references.includes(story.id) ? "reference" : "chronological",
+          sortOrder: references.includes(story.id) ? story.sortOrder : groups.findIndex((group: string[]) => group.includes(story.id)) + 1,
+        }));
+        return Promise.resolve({ stories, revision });
+      }
+      return Promise.resolve({ stories, sequenceRevision: revision });
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StoriesStudio />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("story-sequence-board");
+    expect(screen.getByTestId("count-sequence-moments")).toHaveTextContent("2 moments");
+    expect(screen.getByTestId("card-reference-story-origin")).toHaveTextContent("1 movement");
+    expect(screen.getByTestId("card-reference-story-origin")).toHaveFocus();
+    expect(screen.getByTestId("group-sequence-2")).toHaveTextContent("Later");
+    fireEvent.click(screen.getByRole("button", { name: "Return The Wychcombe Origin Story to chronology" }));
+    await waitFor(() => expect(screen.getByTestId("count-sequence-moments")).toHaveTextContent("3 moments"));
+    expect(screen.getByTestId("group-sequence-3")).toHaveTextContent("The Wychcombe Origin Story");
+    fireEvent.click(screen.getByRole("button", { name: "Move The Wychcombe Origin Story to references" }));
+    await waitFor(() => expect(screen.getByTestId("card-reference-story-origin")).toBeInTheDocument());
   });
 
   it("opens the sequence board from an MCP sequence deep link", async () => {

@@ -1452,12 +1452,17 @@ describe("authenticated editorial MCP tools", () => {
       const names = discovery.body.result.tools.map((tool: { name: string }) => tool.name);
       expect(names).toEqual(expect.arrayContaining([
         "search_canon_records", "get_canon_record", "get_canon_field_options", "update_canon_record", "get_record_change_history",
-        "search_worlds", "get_world", "update_world",
-        "search_story_maps", "get_story_map", "update_story_map",
-        "search_storylines", "get_storyline", "update_storyline",
+        "search_worlds", "get_world", "get_world_creative_context",
+        "search_story_maps", "get_story_map",
+        "search_storylines", "get_storyline",
         "get_story_beat", "update_story_beat", "get_reveal_thread", "update_reveal_thread",
-        "search_movements", "get_movement", "update_movement",
-        "search_sequences", "get_sequence", "update_sequence",
+        "search_movements", "get_movement",
+        "search_sequences", "get_sequence",
+      ]));
+      expect(names).not.toContain("update_sequence");
+      const writeNames = (await rpc(writeToken, "tools/list")).body.result.tools.map((tool: { name: string }) => tool.name);
+      expect(writeNames).toEqual(expect.arrayContaining([
+        "update_world", "update_story_map", "update_storyline", "update_movement", "update_sequence",
       ]));
       const canonOnly = await rpc(canonOnlyToken, "tools/list");
       expect(canonOnly.body.result.tools.map((tool: { name: string }) => tool.name)).toHaveLength(5);

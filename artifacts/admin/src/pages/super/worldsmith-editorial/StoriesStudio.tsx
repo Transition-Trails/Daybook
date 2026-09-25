@@ -24,6 +24,7 @@ interface Story {
   summary: string;
   status: string;
   sortOrder?: number;
+  sequenceRole?: "chronological" | "reference";
   acts: StoryAct[];
 }
 
@@ -73,7 +74,7 @@ export default function StoriesStudio() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["ws-stories", selectedWorldId],
-    queryFn: () => apiFetch<{ stories: Story[] }>(`/v1/editorial/stories?world_id=${encodeURIComponent(selectedWorldId!)}`),
+    queryFn: () => apiFetch<{ stories: Story[]; sequenceRevision: number }>(`/v1/editorial/stories?world_id=${encodeURIComponent(selectedWorldId!)}`),
     enabled: !!selectedWorldId,
     staleTime: 30_000,
   });
@@ -255,7 +256,8 @@ export default function StoriesStudio() {
                 )}
                 <StorySequenceBoard
                   worldId={selectedWorldId}
-                  stories={stories.map(story => ({ ...story, sortOrder: story.sortOrder ?? 0 }))}
+                  stories={stories.map(story => ({ ...story, sortOrder: story.sortOrder ?? 0, sequenceRole: story.sequenceRole ?? "chronological" }))}
+                  revision={data?.sequenceRevision ?? 0}
                   selectedStoryId={isSequenceDeepLink ? requestedStoryId : null}
                   onOpen={id => navigate(`/super/worldsmith/editorial/stories/${id}?world_id=${encodeURIComponent(selectedWorldId)}`)}
                 />

@@ -5,6 +5,35 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Invitation surfaces: a quiet editorial insert within the existing studio palette. */
+.invitation-page {
+  background: var(--admin-paper);
+  color: var(--admin-ink);
+  min-height: 100dvh;
+}
+.invitation-page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: .18;
+  background-image: radial-gradient(#c9ae92 0.45px, transparent 0.45px);
+  background-size: 7px 7px;
+}
+.invitation-panel {
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
+  box-shadow: 0 22px 65px -48px rgba(27, 42, 74, .48);
+}
+.invitation-eyebrow {
+  color: var(--admin-clay-hover);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));

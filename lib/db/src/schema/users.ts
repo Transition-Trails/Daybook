@@ -1,4 +1,6 @@
 import { pgTable, text, boolean, timestamp, jsonb, integer } from "drizzle-orm/pg-core";
+import { check, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export type UserConnections = {
   googleDrive: boolean;
@@ -65,6 +67,26 @@ export const usersTable = pgTable("users", {
     .defaultNow()
     .$onUpdate(() => new Date()),
 });
+
+/** One-use invitation records. Only a digest of the bearer token is stored. */
+export const userInvitationsTable = pgTable("user_invitations", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  email: text("email").notNull(),
+  role: text("role").notNull(),
+  storeId: text("store_id"),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  createdBy: text("created_by").notNull().references(() => usersTable.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  emailIdx: index("user_invitations_email_idx").on(table.email),
+  expiresAtIdx: index("user_invitations_expires_at_idx").on(table.expiresAt),
+  roleStoreCheck: check(
+    "user_invitations_role_store_ck",
+    sql`(${table.role} = 'super_admin' AND ${table.storeId} IS NULL) OR (${table.role} IN ('store_owner', 'store_staff', 'support') AND ${table.storeId} IS NOT NULL)`,
+  ),
+}));
 
 /**
  * The runtime row always includes these nullable columns. Keep them optional in

@@ -57,6 +57,9 @@ import type {
   Insert,
   InsertInput,
   InsertUpdate,
+  InvitationAcceptanceInput,
+  InvitationAcceptanceResult,
+  InvitationPreview,
   ListAiProviderConfigsParams,
   ListAiUsageParams,
   ListEditionsParams,
@@ -71,6 +74,7 @@ import type {
   PlannerConfig,
   PlannerConfigInput,
   PlannerConfigUpdate,
+  PreviewUserInvitationParams,
   RelatedProduct,
   RelatedProductInput,
   RelatedProductUpdate,
@@ -90,6 +94,9 @@ import type {
   UploadUrlRequest,
   UploadUrlResponse,
   User,
+  UserInvitationCreated,
+  UserInvitationInput,
+  UserInvitationList,
   UserPurchases,
   UserUpdate
 } from './api.schemas';
@@ -435,6 +442,161 @@ export function useGetMe<TData = Awaited<ReturnType<typeof getMe>>, TError = Err
 
 
 
+
+export const getPreviewUserInvitationUrl = (params: PreviewUserInvitationParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/auth/invitations/preview?${stringifiedParams}` : `/api/auth/invitations/preview`
+}
+
+/**
+ * @summary Preview a user invitation
+ */
+export const previewUserInvitation = async (params: PreviewUserInvitationParams, options?: Parameters<typeof customFetch>[1]): Promise<InvitationPreview> => {
+
+  return customFetch<InvitationPreview>(getPreviewUserInvitationUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getPreviewUserInvitationQueryKey = (params?: PreviewUserInvitationParams,) => {
+    return [
+    `/api/auth/invitations/preview`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getPreviewUserInvitationQueryOptions = <TData = Awaited<ReturnType<typeof previewUserInvitation>>, TError = ErrorType<void>>(params: PreviewUserInvitationParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof previewUserInvitation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getPreviewUserInvitationQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof previewUserInvitation>>> = ({ signal }) => previewUserInvitation(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof previewUserInvitation>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type PreviewUserInvitationQueryResult = NonNullable<Awaited<ReturnType<typeof previewUserInvitation>>>
+export type PreviewUserInvitationQueryError = ErrorType<void>
+
+
+/**
+ * @summary Preview a user invitation
+ */
+
+export function usePreviewUserInvitation<TData = Awaited<ReturnType<typeof previewUserInvitation>>, TError = ErrorType<void>>(
+ params: PreviewUserInvitationParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof previewUserInvitation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getPreviewUserInvitationQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAcceptUserInvitationUrl = () => {
+
+
+
+
+  return `/api/auth/invitations/accept`
+}
+
+/**
+ * @summary Accept an invitation and establish a session
+ */
+export const acceptUserInvitation = async (invitationAcceptanceInput: InvitationAcceptanceInput, options?: Parameters<typeof customFetch>[1]): Promise<InvitationAcceptanceResult> => {
+
+  return customFetch<InvitationAcceptanceResult>(getAcceptUserInvitationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(invitationAcceptanceInput)
+  }
+);}
+
+
+
+
+
+export const getAcceptUserInvitationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptUserInvitation>>, TError,{data: BodyType<InvitationAcceptanceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof acceptUserInvitation>>, TError,{data: BodyType<InvitationAcceptanceInput>}, TContext> => {
+
+const mutationKey = ['acceptUserInvitation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof acceptUserInvitation>>, {data: BodyType<InvitationAcceptanceInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  acceptUserInvitation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AcceptUserInvitationMutationResult = NonNullable<Awaited<ReturnType<typeof acceptUserInvitation>>>
+    export type AcceptUserInvitationMutationBody = BodyType<InvitationAcceptanceInput>
+    export type AcceptUserInvitationMutationError = ErrorType<void>
+
+    /**
+ * @summary Accept an invitation and establish a session
+ */
+export const useAcceptUserInvitation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptUserInvitation>>, TError,{data: BodyType<InvitationAcceptanceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof acceptUserInvitation>>,
+        TError,
+        {data: BodyType<InvitationAcceptanceInput>},
+        TContext
+      > => {
+      return useMutation(getAcceptUserInvitationMutationOptions(options));
+    }
 
 export const getLogoutUrl = () => {
 
@@ -4124,6 +4286,154 @@ export function useListUsers<TData = Awaited<ReturnType<typeof listUsers>>, TErr
 
 
 
+
+export const getListUserInvitationsUrl = () => {
+
+
+
+
+  return `/api/users/invitations`
+}
+
+/**
+ * @summary List invitations (platform super admin)
+ */
+export const listUserInvitations = async ( options?: Parameters<typeof customFetch>[1]): Promise<UserInvitationList> => {
+
+  return customFetch<UserInvitationList>(getListUserInvitationsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListUserInvitationsQueryKey = () => {
+    return [
+    `/api/users/invitations`
+    ] as const;
+    }
+
+
+export const getListUserInvitationsQueryOptions = <TData = Awaited<ReturnType<typeof listUserInvitations>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listUserInvitations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListUserInvitationsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUserInvitations>>> = ({ signal }) => listUserInvitations({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listUserInvitations>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListUserInvitationsQueryResult = NonNullable<Awaited<ReturnType<typeof listUserInvitations>>>
+export type ListUserInvitationsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List invitations (platform super admin)
+ */
+
+export function useListUserInvitations<TData = Awaited<ReturnType<typeof listUserInvitations>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listUserInvitations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListUserInvitationsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateUserInvitationUrl = () => {
+
+
+
+
+  return `/api/users/invitations`
+}
+
+/**
+ * @summary Invite a user to Daybook or a store
+ */
+export const createUserInvitation = async (userInvitationInput: UserInvitationInput, options?: Parameters<typeof customFetch>[1]): Promise<UserInvitationCreated> => {
+
+  return customFetch<UserInvitationCreated>(getCreateUserInvitationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(userInvitationInput)
+  }
+);}
+
+
+
+
+
+export const getCreateUserInvitationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createUserInvitation>>, TError,{data: BodyType<UserInvitationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createUserInvitation>>, TError,{data: BodyType<UserInvitationInput>}, TContext> => {
+
+const mutationKey = ['createUserInvitation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createUserInvitation>>, {data: BodyType<UserInvitationInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createUserInvitation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateUserInvitationMutationResult = NonNullable<Awaited<ReturnType<typeof createUserInvitation>>>
+    export type CreateUserInvitationMutationBody = BodyType<UserInvitationInput>
+    export type CreateUserInvitationMutationError = ErrorType<void>
+
+    /**
+ * @summary Invite a user to Daybook or a store
+ */
+export const useCreateUserInvitation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createUserInvitation>>, TError,{data: BodyType<UserInvitationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createUserInvitation>>,
+        TError,
+        {data: BodyType<UserInvitationInput>},
+        TContext
+      > => {
+      return useMutation(getCreateUserInvitationMutationOptions(options));
+    }
 
 export const getGetUserUrl = (id: number,) => {
 

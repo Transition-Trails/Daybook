@@ -2,6 +2,7 @@ import { db } from "@workspace/db";
 import { emailLogTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { getAdapter } from "./index";
+import { nullAdapter } from "./null-adapter";
 import { resolveEmailIdentity } from "./identity";
 import { checkTier1RateLimit } from "./rate-limit";
 
@@ -13,7 +14,8 @@ export type EmailTemplate =
   | "new_ticket_store"
   | "new_ticket_platform"
   | "order_receipt"
-  | "auto_response";
+  | "auto_response"
+  | "user_invitation";
 
 export interface SendEmailOpts {
   /** Caller-supplied idempotency key. A retry with the same key is a no-op if
@@ -28,6 +30,8 @@ export interface SendEmailOpts {
   text: string;
   /** Extra RFC 2822 headers (e.g. Auto-Submitted for auto-responses). */
   headers?: Record<string, string>;
+  /** Refuse delivery through the development no-op adapter. */
+  requireProvider?: boolean;
 }
 
 /**
@@ -38,7 +42,7 @@ export interface SendEmailOpts {
  * - Never logs full email bodies.
  */
 export async function sendEmail(opts: SendEmailOpts): Promise<void> {
-  const { idempotencyKey, storeId, storeName, to, template, subject, html, text, headers } = opts;
+  const { idempotencyKey, storeId, storeName, to, template, subject, html, text, headers, requireProvider } = opts;
 
   // ── Idempotency check ──────────────────────────────────────────────────────
   const [existing] = await db
@@ -84,6 +88,9 @@ export async function sendEmail(opts: SendEmailOpts): Promise<void> {
   // ── Send ───────────────────────────────────────────────────────────────────
   try {
     const adapter = getAdapter();
+    if (requireProvider && adapter === nullAdapter) {
+      throw new Error("A real email provider is required for invitation delivery");
+    }
     const result = await adapter.send({
       to,
       from: identity.from,

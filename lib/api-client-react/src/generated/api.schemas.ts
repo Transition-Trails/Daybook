@@ -9,6 +9,108 @@ export interface HealthStatus {
   status: string;
 }
 
+export type UserInvitationInputRole = typeof UserInvitationInputRole[keyof typeof UserInvitationInputRole];
+
+
+export const UserInvitationInputRole = {
+  super_admin: 'super_admin',
+  store_owner: 'store_owner',
+  store_staff: 'store_staff',
+  support: 'support',
+} as const;
+
+export interface UserInvitationInput {
+  /** @minLength 3 */
+  email: string;
+  role: UserInvitationInputRole;
+  /** @minLength 1 */
+  storeId?: string;
+}
+
+export type UserInvitationRole = typeof UserInvitationRole[keyof typeof UserInvitationRole];
+
+
+export const UserInvitationRole = {
+  super_admin: 'super_admin',
+  store_owner: 'store_owner',
+  store_staff: 'store_staff',
+  support: 'support',
+} as const;
+
+export interface UserInvitation {
+  id: string;
+  email: string;
+  role: UserInvitationRole;
+  /** @nullable */
+  storeId: string | null;
+  expiresAt: string;
+  /** @nullable */
+  acceptedAt?: string | null;
+  createdAt?: string;
+}
+
+export type UserInvitationCreatedRole = typeof UserInvitationCreatedRole[keyof typeof UserInvitationCreatedRole];
+
+
+export const UserInvitationCreatedRole = {
+  super_admin: 'super_admin',
+  store_owner: 'store_owner',
+  store_staff: 'store_staff',
+  support: 'support',
+} as const;
+
+export interface UserInvitationCreated {
+  id: string;
+  email: string;
+  role: UserInvitationCreatedRole;
+  /** @nullable */
+  storeId: string | null;
+  expiresAt: string;
+}
+
+export interface UserInvitationList {
+  invitations: UserInvitation[];
+}
+
+export type InvitationPreviewRole = typeof InvitationPreviewRole[keyof typeof InvitationPreviewRole];
+
+
+export const InvitationPreviewRole = {
+  super_admin: 'super_admin',
+  store_owner: 'store_owner',
+  store_staff: 'store_staff',
+  support: 'support',
+} as const;
+
+export interface InvitationPreview {
+  email: string;
+  role: InvitationPreviewRole;
+  /** @nullable */
+  storeName?: string | null;
+  expiresAt: string;
+  accountExists: boolean;
+  requiresSignIn: boolean;
+}
+
+export interface InvitationAcceptanceInput {
+  /** @minLength 1 */
+  token: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  name?: string;
+  /**
+     * @minLength 8
+     * @maxLength 256
+     */
+  password?: string;
+}
+
+export interface InvitationAcceptanceResult {
+  success: true;
+}
+
 export interface UploadUrlRequest {
   /** @minLength 1 */
   name: string;
@@ -1115,6 +1217,13 @@ export interface TrendResearchResult {
 export type GoogleAuthCallbackParams = {
 code?: string;
 state?: string;
+};
+
+export type PreviewUserInvitationParams = {
+/**
+ * @minLength 1
+ */
+token: string;
 };
 
 export type ListThemesParams = {

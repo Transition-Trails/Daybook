@@ -95,6 +95,49 @@ paths:
         "401":
           description: Not authenticated
 
+  /auth/invitations/preview:
+    get:
+      operationId: previewUserInvitation
+      tags: [auth]
+      summary: Preview a user invitation
+      parameters:
+        - in: query
+          name: token
+          required: true
+          schema: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: Invitation details without its bearer token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InvitationPreview" }
+        "404":
+          description: Invalid, expired, or used invitation
+
+  /auth/invitations/accept:
+    post:
+      operationId: acceptUserInvitation
+      tags: [auth]
+      summary: Accept an invitation and establish a session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvitationAcceptanceInput" }
+      responses:
+        "200":
+          description: Invitation accepted and session established
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InvitationAcceptanceResult" }
+        "400":
+          description: Invalid invitation or registration details
+        "401":
+          description: Matching account must sign in before acceptance
+        "403":
+          description: Signed-in identity does not match invitation
+
+
   /auth/logout:
     post:
       operationId: logout
@@ -1002,6 +1045,41 @@ paths:
                 items:
                   $ref: "#/components/schemas/User"
 
+  /users/invitations:
+    get:
+      operationId: listUserInvitations
+      tags: [users]
+      summary: List invitations (platform super admin)
+      responses:
+        "200":
+          description: Invitations, without bearer tokens
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserInvitationList" }
+        "403":
+          description: Super admin required
+    post:
+      operationId: createUserInvitation
+      tags: [users]
+      summary: Invite a user to Daybook or a store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserInvitationInput" }
+      responses:
+        "201":
+          description: Invitation created and email sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserInvitationCreated" }
+        "400":
+          description: Invalid role, email, or store
+        "403":
+          description: Super admin required
+        "503":
+          description: Invitation email could not be sent
+
   /users/{id}:
     get:
       operationId: getUser
@@ -1550,6 +1628,71 @@ components:
         status:
           type: string
       required: [status]
+
+    UserInvitationInput:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string, format: email, minLength: 3 }
+        role:
+          type: string
+          enum: [super_admin, store_owner, store_staff, support]
+        storeId: { type: string, minLength: 1 }
+
+    UserInvitation:
+      type: object
+      required: [id, email, role, storeId, expiresAt]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        role: { type: string, enum: [super_admin, store_owner, store_staff, support] }
+        storeId: { type: ["string", "null"] }
+        expiresAt: { type: string, format: date-time }
+        acceptedAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+
+    UserInvitationCreated:
+      type: object
+      required: [id, email, role, storeId, expiresAt]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        role: { type: string, enum: [super_admin, store_owner, store_staff, support] }
+        storeId: { type: ["string", "null"] }
+        expiresAt: { type: string, format: date-time }
+
+    UserInvitationList:
+      type: object
+      required: [invitations]
+      properties:
+        invitations:
+          type: array
+          items: { $ref: "#/components/schemas/UserInvitation" }
+
+    InvitationPreview:
+      type: object
+      required: [email, role, expiresAt, accountExists, requiresSignIn]
+      properties:
+        email: { type: string, format: email }
+        role: { type: string, enum: [super_admin, store_owner, store_staff, support] }
+        storeName: { type: ["string", "null"] }
+        expiresAt: { type: string, format: date-time }
+        accountExists: { type: boolean }
+        requiresSignIn: { type: boolean }
+
+    InvitationAcceptanceInput:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, minLength: 1 }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        password: { type: string, minLength: 8, maxLength: 256 }
+
+    InvitationAcceptanceResult:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean, enum: [true] }
 
     UploadUrlRequest:
       type: object

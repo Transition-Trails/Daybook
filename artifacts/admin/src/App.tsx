@@ -20,6 +20,7 @@ import { useConsole } from "@/lib/useConsole";
 import { resolveStoreId, inkApi } from "@/lib/api";
 import { confirmSpecNavigation } from "@/lib/spec-navigation-guard";
 import Login from "@/pages/login";
+import Invite from "@/pages/invite";
 import Unauthorized from "@/pages/unauthorized";
 import NotFound from "@/pages/not-found";
 
@@ -961,6 +962,7 @@ function AppRouter() {
       <Route path="/daybook/calendar"><Redirect to="/super/settings/calendar" replace /></Route>
       <Route path="/daybook/planners/:id/ink">{(p) => <Redirect to={`/super/ink/${p.id}`} replace />}</Route>
 
+      <Route path="/invite" component={Invite} />
       <Route path="/login" component={Login} />
       <Route path="/unauthorized" component={Unauthorized} />
 

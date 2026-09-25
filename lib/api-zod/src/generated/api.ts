@@ -52,6 +52,48 @@ export const GetMeResponse = zod.object({
 
 
 /**
+ * @summary Preview a user invitation
+ */
+
+
+
+export const PreviewUserInvitationQueryParams = zod.object({
+  "token": zod.coerce.string().min(1)
+})
+
+export const PreviewUserInvitationResponse = zod.object({
+  "email": zod.string().email(),
+  "role": zod.enum(['super_admin', 'store_owner', 'store_staff', 'support']),
+  "storeName": zod.string().nullish(),
+  "expiresAt": zod.coerce.date(),
+  "accountExists": zod.boolean(),
+  "requiresSignIn": zod.boolean()
+})
+
+
+/**
+ * @summary Accept an invitation and establish a session
+ */
+
+export const acceptUserInvitationBodyNameMax = 200;
+
+export const acceptUserInvitationBodyPasswordMin = 8;
+export const acceptUserInvitationBodyPasswordMax = 256;
+
+
+
+export const AcceptUserInvitationBody = zod.object({
+  "token": zod.string().min(1),
+  "name": zod.string().min(1).max(acceptUserInvitationBodyNameMax).optional(),
+  "password": zod.string().min(acceptUserInvitationBodyPasswordMin).max(acceptUserInvitationBodyPasswordMax).optional()
+})
+
+export const AcceptUserInvitationResponse = zod.object({
+  "success": zod.literal(true)
+})
+
+
+/**
  * @summary Logout
  */
 export const LogoutResponse = zod.unknown()
@@ -1287,6 +1329,45 @@ export const ListUsersResponseItem = zod.object({
   "updatedAt": zod.coerce.date().optional()
 })
 export const ListUsersResponse = zod.array(ListUsersResponseItem)
+
+
+/**
+ * @summary List invitations (platform super admin)
+ */
+export const ListUserInvitationsResponse = zod.object({
+  "invitations": zod.array(zod.object({
+  "id": zod.string(),
+  "email": zod.string().email(),
+  "role": zod.enum(['super_admin', 'store_owner', 'store_staff', 'support']),
+  "storeId": zod.string().nullable(),
+  "expiresAt": zod.coerce.date(),
+  "acceptedAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date().optional()
+}))
+})
+
+
+/**
+ * @summary Invite a user to Daybook or a store
+ */
+export const createUserInvitationBodyEmailMin = 3;
+
+
+
+
+export const CreateUserInvitationBody = zod.object({
+  "email": zod.string().email().min(createUserInvitationBodyEmailMin),
+  "role": zod.enum(['super_admin', 'store_owner', 'store_staff', 'support']),
+  "storeId": zod.string().min(1).optional()
+})
+
+export const CreateUserInvitationResponse = zod.object({
+  "id": zod.string(),
+  "email": zod.string().email(),
+  "role": zod.enum(['super_admin', 'store_owner', 'store_staff', 'support']),
+  "storeId": zod.string().nullable(),
+  "expiresAt": zod.coerce.date()
+})
 
 
 /**

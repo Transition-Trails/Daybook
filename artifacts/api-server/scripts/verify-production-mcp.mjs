@@ -57,16 +57,21 @@ try {
   if (metadata.issuer !== origin || !metadata.scopes_supported.includes("worldsmith:canon:read")) {
     throw new Error("Unexpected production OAuth issuer or scope");
   }
-  const registration = await send("/mcp/oauth/register", {
-    method: "POST",
-    contentType: "application/json",
-    body: JSON.stringify({
-      client_name: "WorldSmith production verification",
-      redirect_uris: [callback],
-    }),
-  });
-  requireStatus(registration, 201, "OAuth client registration");
-  clientId = (await registration.json()).client_id;
+  // Reuse our already-registered public client if new registrations are
+  // unavailable; authorization, explicit consent, and all grants still run.
+  clientId = process.env.MCP_EXISTING_CLIENT_ID;
+  if (!clientId) {
+    const registration = await send("/mcp/oauth/register", {
+      method: "POST",
+      contentType: "application/json",
+      body: JSON.stringify({
+        client_name: "WorldSmith production verification",
+        redirect_uris: [callback],
+      }),
+    });
+    requireStatus(registration, 201, "OAuth client registration");
+    clientId = (await registration.json()).client_id;
+  }
 
   const login = await send("/api/auth/staff/login", {
     method: "POST",
@@ -159,6 +164,12 @@ try {
     }
     const field = existingField ?? "pronouns";
     const originalValue = existingField ? original[field] : null;
+    if (originalValue === null) {
+      const property = updateTool.inputSchema.properties?.changes?.properties?.[field];
+      if (!property?.anyOf?.some(option => option.type === "null")) {
+        throw new Error("Published tool does not yet support clearing the temporary field");
+      }
+    }
     const initialRevision = result.revision ?? result.version;
     const temporary = originalValue === null
       ? `Temporary MCP verification ${randomBytes(4).toString("hex")}`

@@ -9,6 +9,17 @@ are baselined only after they match the known consolidated base schema. Any
 tracked changes already present from an earlier schema push are recorded first;
 remaining tracked migrations then run normally.
 
+Tables created by hand-written tracked SQL must also be declared in the
+application's Drizzle schema when Publish manages the production database.
+
+**Why:** A shared OAuth rate-limit table existed in development and its checked-in
+migration, but was absent after Publish; new client registration failed closed.
+Publish did not carry the unmodeled table into production.
+
+**How to apply:** Keep the checked-in migration, the Drizzle table declaration,
+and the development migration ledger aligned before publishing a new table.
+Verify new public onboarding against the published database afterward.
+
 Record only a contiguous migration prefix when relying on Drizzle to replay
 missing history. Drizzle advances from the latest recorded migration timestamp,
 so a later recorded entry causes older missing entries to be skipped. A known

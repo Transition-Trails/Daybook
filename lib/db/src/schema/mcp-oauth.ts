@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, timestamp, jsonb, integer, index, primaryKey, check } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 /** OAuth clients registered by remote MCP clients. Redirects are exact HTTPS URLs. */
@@ -46,6 +47,18 @@ export const mcpOAuthTokensTable = pgTable("mcp_oauth_tokens", {
   userIdx: index("mcp_oauth_tokens_user_idx").on(table.userId),
   expiryIdx: index("mcp_oauth_tokens_expiry_idx").on(table.expiresAt),
 }));
+
+/** Shared limiter storage; keep this declaration aligned with migration 0059. */
+export const mcpOAuthRegistrationLimitsTable = pgTable("mcp_oauth_registration_limits", {
+  scope: text("scope").notNull(),
+  subjectKey: text("subject_key").notNull(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull(),
+  attempts: integer("attempts").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.scope, table.subjectKey, table.windowStartedAt] }),
+  check("mcp_oauth_registration_limits_attempts_check", sql`${table.attempts} > 0`),
+  index("mcp_oauth_registration_limits_window_idx").on(table.windowStartedAt),
+]);
 
 export type McpOAuthClient = typeof mcpOAuthClientsTable.$inferSelect;
 export type McpOAuthAuthorizationCode = typeof mcpOAuthAuthorizationCodesTable.$inferSelect;

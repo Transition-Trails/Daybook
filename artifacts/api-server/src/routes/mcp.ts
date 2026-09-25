@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { CANON_TOOLS, executeCanonTool } from "../lib/worldsmith/mcp-canon";
+import { RECORD_TOOLS, RECORD_WRITE_TOOLS, executeRecordTool } from "../lib/worldsmith/mcp-editorial-records";
+import { VIEW_TOOLS, VIEW_WRITE_TOOLS, executeViewTool } from "../lib/worldsmith/mcp-editorial-views";
 import { getMcpIssuer, verifyMcpAccessToken } from "../lib/mcp-oauth";
 import { logger } from "../lib/logger";
 
@@ -7,8 +9,11 @@ const router = Router();
 const PROTOCOL_VERSION = "2025-11-25";
 const READ_SCOPE = "worldsmith:canon:read";
 const WRITE_SCOPE = "worldsmith:canon:write";
+const EDITORIAL_READ_SCOPE = "worldsmith:editorial:read";
+const EDITORIAL_WRITE_SCOPE = "worldsmith:editorial:write";
 const MCP_RESOURCE = "/mcp";
 const MAX_BODY_BYTES = 1_000_000;
+const tools = [...CANON_TOOLS, ...RECORD_TOOLS, ...VIEW_TOOLS];
 
 function publicOrigin(req: Request): string {
   return getMcpIssuer();
@@ -16,7 +21,7 @@ function publicOrigin(req: Request): string {
 
 function challenge(req: Request, res: Response, error = "invalid_token"): void {
   const url = `${publicOrigin(req)}/.well-known/oauth-protected-resource/mcp`;
-  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE}`;
+  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE}`;
   res.set("WWW-Authenticate", `Bearer realm="WorldSmith", error="${error}", resource_metadata="${url}", scope="${requiredScopes}"`);
   res.status(error === "insufficient_scope" ? 403 : 401).json({ error });
 }
@@ -47,7 +52,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
     challenge(req, res);
     return;
   }
-  if (!identity.scopes.includes(READ_SCOPE)) {
+  if (!identity.scopes.includes(READ_SCOPE) && !identity.scopes.includes(EDITORIAL_READ_SCOPE)) {
     challenge(req, res, "insufficient_scope");
     return;
   }
@@ -71,6 +76,11 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
   }
   const id = message.id;
   const method = message.method;
+  const visibleTools = tools.filter(tool => (
+    CANON_TOOLS.some(canon => canon.name === tool.name)
+      ? identity.scopes.includes(READ_SCOPE)
+      : identity.scopes.includes(EDITORIAL_READ_SCOPE)
+  ));
   if (id === undefined) {
     // Stateless MCP notifications (including notifications/initialized) have no response body.
     res.status(202).end();
@@ -95,7 +105,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
       reply({});
       return;
     case "tools/list":
-      reply({ tools: CANON_TOOLS });
+      reply({ tools: visibleTools });
       return;
     case "tools/call": {
       const params = message.params;
@@ -104,16 +114,28 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
         return;
       }
       const { name, arguments: args } = params as { name?: unknown; arguments?: unknown };
-      if (typeof name !== "string" || !CANON_TOOLS.some(tool => tool.name === name)) {
+      if (typeof name !== "string" || !tools.some(tool => tool.name === name)) {
         res.status(200).json(rpcError(id, -32602, "Unknown tool"));
         return;
       }
-      if (name === "update_canon_record" && !identity.scopes.includes(WRITE_SCOPE)) {
+      const canonTool = CANON_TOOLS.some(tool => tool.name === name);
+      if ((canonTool && !identity.scopes.includes(READ_SCOPE))
+          || (!canonTool && !identity.scopes.includes(EDITORIAL_READ_SCOPE))) {
+        challenge(req, res, "insufficient_scope");
+        return;
+      }
+      if ((name === "update_canon_record" && !identity.scopes.includes(WRITE_SCOPE))
+          || ((RECORD_WRITE_TOOLS.has(name) || VIEW_WRITE_TOOLS.has(name))
+            && !identity.scopes.includes(EDITORIAL_WRITE_SCOPE))) {
         challenge(req, res, "insufficient_scope");
         return;
       }
       try {
-        const data = await executeCanonTool(identity.userId, name, args ?? {}, publicOrigin(req));
+        const data = CANON_TOOLS.some(tool => tool.name === name)
+          ? await executeCanonTool(identity.userId, name, args ?? {}, publicOrigin(req))
+          : RECORD_TOOLS.some(tool => tool.name === name)
+            ? await executeRecordTool(identity.userId, name, args ?? {}, publicOrigin(req))
+            : await executeViewTool(identity.userId, name, args ?? {}, publicOrigin(req));
         reply({
           content: [{ type: "text", text: JSON.stringify(data) }],
           structuredContent: data,

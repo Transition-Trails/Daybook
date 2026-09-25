@@ -200,9 +200,19 @@ describe("MCP OAuth authorization server", () => {
     expect(parseMcpScopes("worldsmith:canon:read worldsmith:canon:write")).toEqual([
       "worldsmith:canon:read", "worldsmith:canon:write",
     ]);
+    expect(parseMcpScopes(
+      "worldsmith:editorial:read worldsmith:editorial:write",
+    )).toEqual(["worldsmith:editorial:read", "worldsmith:editorial:write"]);
+    expect(parseMcpScopes(
+      "worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write",
+    )).toHaveLength(4);
     expect(parseMcpScopes("read write")).toBeNull();
     expect(hasWriteWithoutRead(["worldsmith:canon:write"])).toBe(true);
     expect(hasWriteWithoutRead(["worldsmith:canon:read", "worldsmith:canon:write"])).toBe(false);
+    expect(hasWriteWithoutRead(["worldsmith:editorial:write"])).toBe(true);
+    expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:editorial:write"])).toBe(false);
+    expect(hasWriteWithoutRead(["worldsmith:canon:read", "worldsmith:editorial:write"])).toBe(true);
+    expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:canon:write"])).toBe(true);
   });
 
   it("rejects write-only scope instead of silently adding read permission", async () => {
@@ -221,10 +231,20 @@ describe("MCP OAuth authorization server", () => {
   });
 
   it("aliases root protected-resource metadata and defaults omitted scope to read-only explicit consent", async () => {
+    const authorizationMetadata = await request(app)
+      .get("/.well-known/oauth-authorization-server").expect(200);
     const scoped = await request(app).get("/.well-known/oauth-protected-resource/mcp").expect(200);
     const unscoped = await request(app).get("/.well-known/oauth-protected-resource").expect(200);
     expect(unscoped.body).toEqual(scoped.body);
     expect(unscoped.body.resource).toBe(getMcpResource());
+    const allScopes = [
+      "worldsmith:canon:read",
+      "worldsmith:canon:write",
+      "worldsmith:editorial:read",
+      "worldsmith:editorial:write",
+    ];
+    expect(authorizationMetadata.body.scopes_supported).toEqual(allScopes);
+    expect(scoped.body.scopes_supported).toEqual(allScopes);
 
     const consent = await request(app).get("/mcp/oauth/authorize").query({
       response_type: "code",
@@ -295,6 +315,48 @@ describe("MCP OAuth authorization server", () => {
     expect(mocks.data.codes[0].scopes).toEqual(["worldsmith:canon:read", "worldsmith:canon:write"]);
   });
 
+  it("describes WorldSmith editorial scopes and separately requires consent for each write domain", async () => {
+    const authorize = () => request(app).get("/mcp/oauth/authorize").query({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      state: "combined-write-state",
+      code_challenge: challenge(),
+      code_challenge_method: "S256",
+      resource: getMcpResource(),
+      scope: "worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write",
+    });
+    const consent = await authorize().expect(200);
+    expect(consent.text).toContain("Read Canon data");
+    expect(consent.text).toContain("Write Canon data");
+    expect(consent.text).toContain("Read WorldSmith worlds, story maps, storylines, movements, and sequences");
+    expect(consent.text).toContain("Write WorldSmith worlds, story maps, storylines, movements, and sequences");
+    expect(consent.text).toContain('name="allow_write"');
+    expect(consent.text).toContain('name="allow_editorial_write"');
+    const csrf = consent.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: csrf,
+      consent: "approve",
+      allow_write: "yes",
+    }).expect(400);
+    expect(mocks.data.codes).toHaveLength(0);
+
+    const retry = await authorize().expect(200);
+    const retryCsrf = retry.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: retryCsrf,
+      consent: "approve",
+      allow_write: "yes",
+      allow_editorial_write: "yes",
+    }).expect(302);
+    expect(mocks.data.codes[0].scopes).toEqual([
+      "worldsmith:canon:read",
+      "worldsmith:canon:write",
+      "worldsmith:editorial:read",
+      "worldsmith:editorial:write",
+    ]);
+  });
+
   it("uses the trusted Replit domain in development and still requires resource at authorize and token", async () => {
     delete process.env.MCP_PUBLIC_ORIGIN;
     process.env.APP_URL = "http://localhost:5000";
@@ -346,6 +408,44 @@ describe("MCP OAuth authorization server", () => {
       grant_type: "authorization_code", client_id: clientId, code, redirect_uri: redirectUri,
       code_verifier: verifier, resource: getMcpResource(),
     }).expect(400);
+  });
+
+  it("enforces the editorial read/write pair during code exchange and refresh", async () => {
+    const code = "editorial-authorization-code";
+    mocks.data.codes.push({
+      codeHash: sha256(code),
+      clientId,
+      userId: user.id,
+      redirectUri,
+      resource: getMcpResource(),
+      scopes: ["worldsmith:editorial:read", "worldsmith:editorial:write"],
+      codeChallenge: challenge(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const redeemed = await request(app).post("/mcp/oauth/token").type("form").send({
+      grant_type: "authorization_code",
+      client_id: clientId,
+      code,
+      redirect_uri: redirectUri,
+      code_verifier: verifier,
+      resource: getMcpResource(),
+    }).expect(200);
+    expect(redeemed.body.scope).toBe("worldsmith:editorial:read worldsmith:editorial:write");
+
+    await request(app).post("/mcp/oauth/token").type("form").send({
+      grant_type: "refresh_token",
+      client_id: clientId,
+      refresh_token: redeemed.body.refresh_token,
+      resource: getMcpResource(),
+      scope: "worldsmith:editorial:write",
+    }).expect(400);
+    const refreshed = await request(app).post("/mcp/oauth/token").type("form").send({
+      grant_type: "refresh_token",
+      client_id: clientId,
+      refresh_token: redeemed.body.refresh_token,
+      resource: getMcpResource(),
+    }).expect(200);
+    expect(refreshed.body.scope).toBe("worldsmith:editorial:read worldsmith:editorial:write");
   });
 
   it("rotates refresh tokens and revokes the family when an old token is replayed", async () => {

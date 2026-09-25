@@ -14,3 +14,15 @@ External MCP hosts may send JSON-RPC with a nonstandard or absent Content-Type. 
 **Why:** Production connection attempts reached OAuth but repeatedly received HTTP 415 from the MCP endpoint, including after token exchange; the strict media-type gate prevented tool discovery.
 
 **How to apply:** Keep the bearer and read/write-scope checks, size limit, and JSON-RPC validation when adjusting MCP transport compatibility. A 401 challenge should not depend on the request media type.
+
+Canon OAuth consent does not grant WorldSmith editorial authority. Expanded editorial tools require their own read/write grants, with write separately approved; existing Canon clients retain their original tools but gain no implicit editorial access.
+
+**Why:** A client previously approved to edit Canon attributes must not silently gain the ability to edit World Bible prose, storyline chronology, or relationship links when the MCP server grows.
+
+**How to apply:** When adding a new class of MCP mutation, make its consent language and per-tool scope checks match the actual authority. Do not reinterpret older grants as broader permission.
+
+For editorial records without an application-wide version counter, compare a revision derived from the current content immediately before a row-locked write rather than introducing an MCP-only version field.
+
+**Why:** Existing editor routes can update those rows without incrementing an MCP-specific counter; such a counter would miss out-of-band edits and let stale clients overwrite current content.
+
+**How to apply:** Include the latest revision in read results, require it on partial edits, and serialize writes against the affected rows before checking it. For virtual views, lock the world and affected stories and validate full ordering membership.

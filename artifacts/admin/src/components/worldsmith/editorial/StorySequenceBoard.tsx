@@ -21,6 +21,7 @@ export interface StorySequenceBoardProps {
   worldId: string;
   stories: Story[];
   onOpen: (id: string) => void;
+  selectedStoryId?: string | null;
 }
 
 const STATUS_STYLES: Record<string, { background: string; color: string }> = {
@@ -85,7 +86,7 @@ function plainText(html: string): string {
   return (doc.body.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
-export function StorySequenceBoard({ worldId, stories, onOpen }: StorySequenceBoardProps) {
+export function StorySequenceBoard({ worldId, stories, onOpen, selectedStoryId }: StorySequenceBoardProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const incoming = useMemo(() => groupsFromStories(stories), [stories]);
@@ -95,6 +96,7 @@ export function StorySequenceBoard({ worldId, stories, onOpen }: StorySequenceBo
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const inFlight = useRef(new Set<string>());
   const worldRef = useRef(worldId);
+  const selectedGroupElement = useRef<HTMLDivElement | null>(null);
   worldRef.current = worldId;
 
   // Local order remains authoritative through the mutation and cache refresh.
@@ -117,6 +119,12 @@ export function StorySequenceBoard({ worldId, stories, onOpen }: StorySequenceBo
   const storiesById = useMemo(() => new Map(stories.map(story => [story.id, story])), [stories]);
   const storyCount = stories.length;
   const simultaneousCount = groups.filter(group => group.length > 1).length;
+
+  useEffect(() => {
+    if (!selectedStoryId || !selectedGroupElement.current) return;
+    selectedGroupElement.current.focus({ preventScroll: true });
+    selectedGroupElement.current.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  }, [groups, selectedStoryId, worldId]);
 
   const save = async (next: Groups) => {
     if (inFlight.current.has(worldId) || sameGroups(groups, next)) return;
@@ -247,8 +255,16 @@ export function StorySequenceBoard({ worldId, stories, onOpen }: StorySequenceBo
         <div className="mt-5">
           {groups.map((group, groupIndex) => {
             const anchor = group[0]!;
+            const isSelectedGroup = !!selectedStoryId && group.includes(selectedStoryId);
             return (
-              <div key={anchor} data-testid={`group-sequence-${groupIndex + 1}`}>
+              <div
+                key={anchor}
+                ref={isSelectedGroup ? selectedGroupElement : undefined}
+                tabIndex={isSelectedGroup ? -1 : undefined}
+                aria-label={isSelectedGroup ? `Selected chronology moment ${groupIndex + 1}` : undefined}
+                data-testid={`group-sequence-${groupIndex + 1}`}
+                data-selected-sequence-group={isSelectedGroup ? "true" : undefined}
+              >
                 {dropZone(`before-${anchor}`, `Place before moment ${groupIndex + 1}`, anchor, "before")}
                 <div className="flex gap-3 sm:gap-4">
                   <div className="flex w-9 shrink-0 flex-col items-center pt-3 sm:w-12">
@@ -257,9 +273,11 @@ export function StorySequenceBoard({ worldId, stories, onOpen }: StorySequenceBo
                     </span>
                     {groupIndex < groups.length - 1 && <span className="mt-2 min-h-5 w-px flex-1 bg-[var(--admin-border)]" />}
                   </div>
-                  <div className={`mb-3 min-w-0 flex-1 rounded-xl border p-3 sm:p-4 ${group.length > 1 ? "border-[color-mix(in_srgb,var(--admin-clay)_45%,var(--admin-border))] bg-[color-mix(in_srgb,var(--admin-clay)_7%,var(--admin-card))]" : "border-[var(--admin-border)] bg-[var(--admin-card-subtle)]"}`}>
+                  <div className={`mb-3 min-w-0 flex-1 rounded-xl border p-3 sm:p-4 ${isSelectedGroup ? "border-[var(--admin-clay)] bg-[color-mix(in_srgb,var(--admin-clay)_13%,var(--admin-card))] ring-2 ring-[color-mix(in_srgb,var(--admin-clay)_35%,transparent)]" : group.length > 1 ? "border-[color-mix(in_srgb,var(--admin-clay)_45%,var(--admin-border))] bg-[color-mix(in_srgb,var(--admin-clay)_7%,var(--admin-card))]" : "border-[var(--admin-border)] bg-[var(--admin-card-subtle)]"}`}>
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--admin-muted)]">Moment {String(groupIndex + 1).padStart(2, "0")}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--admin-muted)]">
+                        Moment {String(groupIndex + 1).padStart(2, "0")}{isSelectedGroup && <span className="ml-2 text-[var(--admin-clay-hover)]">· Focused from link</span>}
+                      </p>
                       {group.length > 1 && (
                         <span data-testid={`status-simultaneous-${groupIndex + 1}`} className="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--admin-clay)_18%,var(--admin-card))] px-2.5 py-1 text-[10px] font-bold text-[var(--admin-clay-hover)]">
                           <Layers2 className="h-3 w-3" /> Same time · {group.length} stories

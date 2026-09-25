@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, BookOpen, ChevronRight, Loader2, Plus, Sparkles } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -51,13 +51,25 @@ export default function StoriesStudio() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
+  const search = useSearch();
+  const searchParams = new URLSearchParams(search);
+  const isSequenceDeepLink = searchParams.get("view") === "sequence"
+    && !!searchParams.get("sequence_id");
+  const requestedStoryId = isSequenceDeepLink ? searchParams.get("story_id") : null;
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const [summaryDraft, setSummaryDraft] = useState<Record<string, string>>({});
   const [titleDraft, setTitleDraft] = useState<Record<string, string>>({});
   const [actTitleDraft, setActTitleDraft] = useState<Record<string, string>>({});
   const [actPurposeDraft, setActPurposeDraft] = useState<Record<string, string>>({});
   const [newActTitle, setNewActTitle] = useState("");
-  const [viewMode, setViewMode] = useState<"editor" | "sequence">("editor");
+  const [viewMode, setViewMode] = useState<"editor" | "sequence">(() =>
+    searchParams.get("view") === "sequence" ? "sequence" : "editor"
+  );
+
+  useEffect(() => {
+    if (searchParams.get("view") === "sequence") setViewMode("sequence");
+    else if (searchParams.get("view") === "editor") setViewMode("editor");
+  }, [search]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["ws-stories", selectedWorldId],
@@ -222,11 +234,32 @@ export default function StoriesStudio() {
               </button>
             </div>
             {viewMode === "sequence" ? (
-              <StorySequenceBoard
-                worldId={selectedWorldId}
-                stories={stories.map(story => ({ ...story, sortOrder: story.sortOrder ?? 0 }))}
-                onOpen={id => navigate(`/super/worldsmith/editorial/stories/${id}`)}
-              />
+              <>
+                {isSequenceDeepLink && !requestedStoryId && (
+                  <p
+                    role="status"
+                    data-testid="sequence-deeplink-unfocused"
+                    className="mb-3 text-xs text-[var(--admin-muted)]"
+                  >
+                    This sequence link has no storyline anchor, so no chronology moment can be focused.
+                  </p>
+                )}
+                {isSequenceDeepLink && requestedStoryId && data && !stories.some(story => story.id === requestedStoryId) && (
+                  <p
+                    role="status"
+                    data-testid="sequence-deeplink-stale"
+                    className="mb-3 text-xs text-[var(--admin-muted)]"
+                  >
+                    This sequence link is stale; its storyline is no longer in this world. Showing the current chronology.
+                  </p>
+                )}
+                <StorySequenceBoard
+                  worldId={selectedWorldId}
+                  stories={stories.map(story => ({ ...story, sortOrder: story.sortOrder ?? 0 }))}
+                  selectedStoryId={isSequenceDeepLink ? requestedStoryId : null}
+                  onOpen={id => navigate(`/super/worldsmith/editorial/stories/${id}?world_id=${encodeURIComponent(selectedWorldId)}`)}
+                />
+              </>
             ) : (
           <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
             <aside className="rounded-2xl p-2.5" style={{ background: "white", border: "1px solid var(--admin-border)" }}>
@@ -283,7 +316,7 @@ export default function StoriesStudio() {
                         See its story map <ArrowRight className="w-3.5 h-3.5" />
                       </span>
                     </Link>
-                    <Link href={`/super/worldsmith/editorial/stories/${selectedStory.id}`}>
+                    <Link href={`/super/worldsmith/editorial/stories/${selectedStory.id}?world_id=${encodeURIComponent(selectedWorldId)}`}>
                       <span className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold" style={{ color: "#1B2A4A" }}>
                         Open story & scenes <ChevronRight className="h-3.5 w-3.5" />
                       </span>

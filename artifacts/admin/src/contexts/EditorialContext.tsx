@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useLocation, useSearch } from "wouter";
 import { apiFetch } from "@/lib/api";
 import { worldsmithStorage } from "@/lib/worldsmith/storage";
 
@@ -46,6 +47,8 @@ interface EditorialContextValue {
 const EditorialContext = createContext<EditorialContextValue | null>(null);
 
 export function EditorialProvider({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  const search = useSearch();
   const [worlds, setWorlds] = useState<WorldRecord[]>([]);
   const [worldsLoading, setWorldsLoading] = useState(true);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(() =>
@@ -57,6 +60,13 @@ export function EditorialProvider({ children }: { children: ReactNode }) {
     worldsmithStorage.selectedCollection()
   );
   const [lastSyncedAt] = useState<Date | null>(new Date());
+  const worldLinkLocation = useRef<string | null>(null);
+
+  const isWorldSelectableEditorialRoute = (
+    path: string,
+  ) => path === "/super/worldsmith/editorial/bible"
+    || path === "/super/worldsmith/editorial/connections"
+    || /^\/super\/worldsmith\/editorial\/stories(?:\/(?:new|[^/]+))?$/.test(path);
 
   // Load worlds
   useEffect(() => {
@@ -64,15 +74,49 @@ export function EditorialProvider({ children }: { children: ReactNode }) {
     apiFetch<{ worlds: WorldRecord[] }>("/v1/editorial/worlds")
       .then(data => {
         setWorlds(data.worlds);
-        // Auto-select first active world if none selected
-        if (!selectedWorldId && data.worlds.length > 0) {
-          const active = data.worlds.find(w => w.status === "active") ?? data.worlds[0];
-          setSelectedWorldId(active.id);
-        }
       })
       .catch(() => {})
       .finally(() => setWorldsLoading(false));
   }, []);
+
+  // A world_id is an explicit deep-link instruction only on the editorial
+  // editor routes. Validate it after worlds load so stale/unknown IDs never
+  // displace the current selection.
+  useEffect(() => {
+    if (!isWorldSelectableEditorialRoute(location)) {
+      worldLinkLocation.current = null;
+      return;
+    }
+    if (worldsLoading) return;
+
+    const routeKey = `${location}?${search}`;
+    if (worldLinkLocation.current === routeKey) return;
+    worldLinkLocation.current = routeKey;
+
+    const params = new URLSearchParams(search);
+    const requestedWorldId = params.get("world_id");
+    const linkedWorld = requestedWorldId
+      ? worlds.find(world => world.id === requestedWorldId)
+      : undefined;
+    if (linkedWorld) {
+      setSelectedWorldId(linkedWorld.id);
+      return;
+    }
+
+    setSelectedWorldId(current => {
+      if (current && worlds.some(world => world.id === current)) return current;
+      const active = worlds.find(world => world.status === "active") ?? worlds[0];
+      return active?.id ?? null;
+    });
+  }, [location, search, worlds, worldsLoading]);
+
+  // Preserve the default active-world selection on editorial surfaces that
+  // do not accept world_id deep links.
+  useEffect(() => {
+    if (isWorldSelectableEditorialRoute(location) || worldsLoading || selectedWorldId || worlds.length === 0) return;
+    const active = worlds.find(world => world.status === "active") ?? worlds[0];
+    if (active) setSelectedWorldId(active.id);
+  }, [location, selectedWorldId, worlds, worldsLoading]);
 
   // Persist world selection
   useEffect(() => {

@@ -79,6 +79,20 @@ function getRequestParam(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function isSupportedScopeSet(value: unknown): value is McpScope[] {
+  return Array.isArray(value) && value.length > 0 &&
+    value.every((scope) => typeof scope === "string" && MCP_SCOPES.includes(scope as McpScope));
+}
+
+function describeScope(scope: McpScope): string {
+  switch (scope) {
+    case "worldsmith:canon:read": return "Read Canon data";
+    case "worldsmith:canon:write": return "Write Canon data";
+    case "worldsmith:editorial:read": return "Read WorldSmith worlds, story maps, storylines, movements, and sequences";
+    case "worldsmith:editorial:write": return "Write WorldSmith worlds, story maps, storylines, movements, and sequences";
+  }
+}
+
 metadataRouter.get("/.well-known/oauth-authorization-server", (_req, res) => {
   let issuer: string;
   try {
@@ -189,7 +203,7 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
     return;
   }
   if (hasWriteWithoutRead(scopes)) {
-    oauthError(res, 400, "invalid_scope", "Canon write scope requires the read scope to be explicitly requested as well");
+    oauthError(res, 400, "invalid_scope", "Each write scope requires its corresponding read scope to be explicitly requested as well");
     return;
   }
   let expectedResource: string;
@@ -224,7 +238,8 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
   }
   const csrf = createOpaqueSecret();
   const callbackOrigin = new URL(redirectUri).origin;
-  const requestsWrite = scopes.includes("worldsmith:canon:write");
+  const requestsCanonWrite = scopes.includes("worldsmith:canon:write");
+  const requestsEditorialWrite = scopes.includes("worldsmith:editorial:write");
   const consent: ConsentSession = {
     csrf,
     userId: user.id,
@@ -248,11 +263,13 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
     `<p><strong>Exact registered callback origin:</strong> <code>${htmlEscape(callbackOrigin)}</code></p>` +
     `<p><strong>Exact registered callback URL:</strong> <code>${htmlEscape(redirectUri)}</code></p>` +
     `<p>These HTTPS URLs match this client's registration; the registrant's identity/domain ownership is not independently verified.</p></section>` +
-    `<p>This client requests:</p><ul>${scopes.map((scope) => `<li>${htmlEscape(scope === "worldsmith:canon:read" ? "Read Canon data" : "Write Canon data")}</li>`).join("")}</ul>` +
+    `<p>This client requests:</p><ul>${scopes.map((scope) => `<li>${htmlEscape(describeScope(scope))}</li>`).join("")}</ul>` +
     `<p>Only approve if you trust the client and the callback details above.</p><form method="post" action="/mcp/oauth/authorize">` +
     `<input type="hidden" name="csrf_token" value="${htmlEscape(csrf)}">` +
-    `${requestsWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate write permission</legend>` +
+    `${requestsCanonWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate write permission</legend>` +
       `<label><input type="checkbox" name="allow_write" value="yes" required> I explicitly authorize this unverified client to write Canon data on my behalf.</label></fieldset>` : ""}` +
+    `${requestsEditorialWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate WorldSmith editorial write permission</legend>` +
+      `<label><input type="checkbox" name="allow_editorial_write" value="yes" required> I explicitly authorize this unverified client to write WorldSmith worlds, story maps, storylines, movements, and sequences on my behalf.</label></fieldset>` : ""}` +
     `<button type="submit" name="consent" value="approve">Approve requested access</button> ` +
     `<button type="submit" name="consent" value="deny" formnovalidate>Deny</button></form></main></body></html>`,
   );
@@ -262,7 +279,12 @@ oauthRouter.post("/authorize", async (req, res): Promise<void> => {
   const session = req.session as typeof req.session & { mcpOAuthConsent?: ConsentSession };
   const consent = session.mcpOAuthConsent;
   delete session.mcpOAuthConsent;
-  const body = req.body as { csrf_token?: unknown; consent?: unknown; allow_write?: unknown };
+  const body = req.body as {
+    csrf_token?: unknown;
+    consent?: unknown;
+    allow_write?: unknown;
+    allow_editorial_write?: unknown;
+  };
   const csrf = typeof body?.csrf_token === "string" ? body.csrf_token : "";
   if (!req.isAuthenticated() || !consent || !csrf || csrf !== consent.csrf || !["approve", "deny"].includes(String(body?.consent))) {
     oauthError(res, 400, "invalid_request", "Consent form expired or invalid; restart authorization");
@@ -282,6 +304,10 @@ oauthRouter.post("/authorize", async (req, res): Promise<void> => {
   }
   if (consent.scopes.includes("worldsmith:canon:write") && body.allow_write !== "yes") {
     oauthError(res, 400, "access_denied", "Explicit separate consent is required for Canon write access");
+    return;
+  }
+  if (consent.scopes.includes("worldsmith:editorial:write") && body.allow_editorial_write !== "yes") {
+    oauthError(res, 400, "access_denied", "Explicit separate consent is required for WorldSmith editorial write access");
     return;
   }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, consent.userId)).limit(1);
@@ -352,16 +378,20 @@ oauthRouter.post("/token", async (req, res): Promise<void> => {
       oauthError(res, 400, "invalid_grant", "Code is invalid, expired, already redeemed, or PKCE verification failed");
       return;
     }
-    let approvedScopes = codeRow.scopes as McpScope[];
+    if (!isSupportedScopeSet(codeRow.scopes)) {
+      oauthError(res, 400, "invalid_scope", "Authorization grant contains unsupported scopes");
+      return;
+    }
+    let approvedScopes = codeRow.scopes;
     if (hasWriteWithoutRead(approvedScopes)) {
-      oauthError(res, 400, "invalid_scope", "Authorization grant has write scope without the required read scope");
+      oauthError(res, 400, "invalid_scope", "Authorization grant has a write scope without its corresponding read scope");
       return;
     }
     if (body.scope !== undefined) {
       const requestedScopes = parseMcpScopes(body.scope);
       if (!requestedScopes || hasWriteWithoutRead(requestedScopes) ||
           requestedScopes.some((scope) => !approvedScopes.includes(scope))) {
-        oauthError(res, 400, "invalid_scope", "Requested scopes exceed the user's authorization");
+        oauthError(res, 400, "invalid_scope", "Requested scopes are invalid or exceed the user's authorization");
         return;
       }
       approvedScopes = requestedScopes;
@@ -397,9 +427,13 @@ oauthRouter.post("/token", async (req, res): Promise<void> => {
       oauthError(res, 400, "invalid_grant");
       return;
     }
-    const requestedScopes = body.scope === undefined ? existing.scopes as McpScope[] : parseMcpScopes(body.scope);
+    if (!isSupportedScopeSet(existing.scopes)) {
+      oauthError(res, 400, "invalid_scope", "Refresh token contains unsupported scopes");
+      return;
+    }
+    const requestedScopes = body.scope === undefined ? existing.scopes : parseMcpScopes(body.scope);
     if (!requestedScopes || hasWriteWithoutRead(requestedScopes)) {
-      oauthError(res, 400, "invalid_scope", "Canon write scope requires the read scope to be explicitly requested as well");
+      oauthError(res, 400, "invalid_scope", "Each write scope requires its corresponding read scope to be explicitly requested as well");
       return;
     }
     if (existing.resource !== resource ||

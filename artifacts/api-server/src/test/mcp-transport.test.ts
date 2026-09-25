@@ -53,7 +53,7 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       "https://daybook.example/.well-known/oauth-protected-resource/mcp",
     );
     expect(response.headers["www-authenticate"]).toContain(
-      'scope="worldsmith:canon:read worldsmith:canon:write"',
+      'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write"',
     );
     expect(mocked.execute).not.toHaveBeenCalled();
   });
@@ -66,17 +66,17 @@ describe("WorldSmith Streamable HTTP MCP", () => {
     expect(response.headers["www-authenticate"]).toContain("oauth-protected-resource/mcp");
   });
 
-  it("negotiates and lists exactly the five tools", async () => {
+  it("negotiates and retains the five original canon tools", async () => {
     const initialized = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
       .send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25" } });
     expect(initialized.status).toBe(200);
     expect(initialized.body.result.capabilities.tools).toBeDefined();
     const listed = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
       .send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
-    expect(listed.body.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+    expect(listed.body.result.tools.map((tool: { name: string }) => tool.name)).toEqual(expect.arrayContaining([
       "search_canon_records", "get_canon_record", "get_canon_field_options",
       "update_canon_record", "get_record_change_history",
-    ]);
+    ]));
   });
 
   it("accepts a bounded JSON-RPC body even when a host labels it as text", async () => {

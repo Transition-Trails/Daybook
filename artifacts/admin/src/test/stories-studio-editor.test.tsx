@@ -2,7 +2,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { apiFetch, navigate, toast } = vi.hoisted(() => ({ apiFetch: vi.fn(), navigate: vi.fn(), toast: vi.fn() }));
+const { apiFetch, navigate, toast, useSearch } = vi.hoisted(() => ({
+  apiFetch: vi.fn(),
+  navigate: vi.fn(),
+  toast: vi.fn(),
+  useSearch: vi.fn(),
+}));
 
 vi.mock("@/lib/api", () => ({ apiFetch }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast }) }));
@@ -15,6 +20,7 @@ vi.mock("@/contexts/EditorialContext", () => ({
 vi.mock("wouter", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useLocation: () => ["/super/worldsmith/editorial/stories", navigate],
+  useSearch,
 }));
 
 import StoriesStudio from "@/pages/super/worldsmith-editorial/StoriesStudio";
@@ -24,6 +30,7 @@ describe("StoriesStudio editor", () => {
     apiFetch.mockReset();
     navigate.mockReset();
     toast.mockReset();
+    useSearch.mockReturnValue("");
     apiFetch.mockImplementation((path: string) => {
       return Promise.resolve({
         stories: [{
@@ -181,7 +188,48 @@ describe("StoriesStudio editor", () => {
     await waitFor(() => expect(saves[1]).toEqual([["story-2"], ["story-1"], ["story-3"]]));
     await waitFor(() => expect(screen.getByTestId("count-sequence-moments")).toHaveTextContent("3 moments"));
     fireEvent.click(screen.getByRole("button", { name: "Open Return" }));
-    expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/stories/story-3");
+    expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/stories/story-3?world_id=world-wychcombe");
+  });
+
+  it("opens the sequence board from an MCP sequence deep link", async () => {
+    useSearch.mockReturnValue("?view=sequence&sequence_id=sequence-world-wychcombe-1&story_id=story-1");
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StoriesStudio />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("story-sequence-board")).toBeInTheDocument();
+    expect(screen.getByTestId("button-storylines-sequence-view")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("group-sequence-1")).toHaveAttribute("data-selected-sequence-group", "true");
+    expect(screen.getByTestId("group-sequence-1")).toHaveFocus();
+    expect(screen.getByText(/Moment 01/)).toHaveTextContent("Focused from link");
+    expect(screen.queryByText("sequence-world-wychcombe-1")).not.toBeInTheDocument();
+  });
+
+  it("gracefully leaves a stale sequence deep link unfocused", async () => {
+    useSearch.mockReturnValue("?view=sequence&sequence_id=sequence-deleted&story_id=story-deleted");
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StoriesStudio />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("sequence-deeplink-stale")).toBeInTheDocument();
+    expect(screen.getByTestId("group-sequence-1")).not.toHaveAttribute("data-selected-sequence-group");
+    expect(screen.getByTestId("button-storylines-sequence-view")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("reports when a legacy sequence deep link has no focus anchor", async () => {
+    useSearch.mockReturnValue("?view=sequence&sequence_id=sequence-without-anchor");
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StoriesStudio />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("sequence-deeplink-unfocused")).toBeInTheDocument();
+    expect(screen.getByTestId("group-sequence-1")).not.toHaveAttribute("data-selected-sequence-group");
   });
 
   it("restores the previous order when a sequence save fails", async () => {

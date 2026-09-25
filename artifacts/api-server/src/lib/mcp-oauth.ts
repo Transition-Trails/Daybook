@@ -4,7 +4,12 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { db, mcpOAuthTokensTable, usersTable } from "@workspace/db";
 import { isSuperAdmin } from "./roles";
 
-export const MCP_SCOPES = ["worldsmith:canon:read", "worldsmith:canon:write"] as const;
+export const MCP_SCOPES = [
+  "worldsmith:canon:read",
+  "worldsmith:canon:write",
+  "worldsmith:editorial:read",
+  "worldsmith:editorial:write",
+] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 export const AUTHORIZATION_CODE_TTL_SECONDS = 5 * 60;
 export const ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
@@ -73,9 +78,12 @@ export function parseMcpScopes(value: unknown): McpScope[] | null {
   return scopes as McpScope[];
 }
 
-/** Canon write permission depends on read access; never silently add read. */
+/** Each write permission depends only on its matching, explicitly requested read scope. */
 export function hasWriteWithoutRead(scopes: readonly string[]): boolean {
-  return scopes.includes("worldsmith:canon:write") && !scopes.includes("worldsmith:canon:read");
+  return (
+    (scopes.includes("worldsmith:canon:write") && !scopes.includes("worldsmith:canon:read")) ||
+    (scopes.includes("worldsmith:editorial:write") && !scopes.includes("worldsmith:editorial:read"))
+  );
 }
 
 export interface McpBearerClaims {
@@ -166,7 +174,7 @@ export async function issueMcpTokenPair(args: {
   familyId?: string;
 }, writer: Pick<typeof db, "insert"> = db): Promise<IssuedMcpTokens> {
   if (hasWriteWithoutRead(args.scopes)) {
-    throw new Error("Canon write access requires an explicitly requested read scope");
+    throw new Error("Write access requires its corresponding read scope to be explicitly requested");
   }
   const accessToken = createOpaqueSecret();
   const refreshToken = createOpaqueSecret();

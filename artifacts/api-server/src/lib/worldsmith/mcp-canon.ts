@@ -28,19 +28,28 @@ export function validateCharacterProfileChanges(
   existing: unknown,
   changes: unknown,
 ): { profile: Record<string, unknown>; changes: Record<string, unknown> } {
-  const partial = characterChangesSchema.safeParse(changes);
-  if (!partial.success || Object.keys(partial.data).length === 0) {
+  if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
+    throw new CanonToolError("changes must contain one or more valid Character profile fields", 400, "INVALID_CHANGES");
+  }
+  const supplied = changes as Record<string, unknown>;
+  const keys = Object.keys(supplied);
+  const deletions = keys.filter(key => supplied[key] === null);
+  const assignments = Object.fromEntries(keys.filter(key => supplied[key] !== null).map(key => [key, supplied[key]]));
+  const partial = characterChangesSchema.safeParse(assignments);
+  if (!keys.length || deletions.some(key => !Object.hasOwn(schemaShape, key)) || !partial.success) {
     throw new CanonToolError("changes must contain one or more valid Character profile fields", 400, "INVALID_CHANGES");
   }
   const current = characterProfileSchema.safeParse(existing ?? {});
   if (!current.success) {
     throw new CanonToolError("Stored Character profile is invalid and cannot be safely updated", 409, "INVALID_STORED_PROFILE");
   }
-  const merged = characterProfileSchema.safeParse({ ...current.data, ...partial.data });
+  const next = { ...current.data, ...partial.data } as Record<string, unknown>;
+  for (const key of deletions) delete next[key];
+  const merged = characterProfileSchema.safeParse(next);
   if (!merged.success) {
     throw new CanonToolError(merged.error.issues.map(issue => `${issue.path.join(".")}: ${issue.message}`).join("; "), 400, "INVALID_PROFILE");
   }
-  return { profile: merged.data as Record<string, unknown>, changes: partial.data as Record<string, unknown> };
+  return { profile: merged.data as Record<string, unknown>, changes: supplied };
 }
 
 export function validateCharacterProfileReplacement(input: unknown): Record<string, unknown> {
@@ -77,13 +86,13 @@ const toolSchemas = {
     type: "object", properties: {
       record_id: { type: "string", minLength: 1 }, expected_revision: { type: "integer", minimum: 1 },
       changes: { type: "object", properties: Object.fromEntries(Object.entries(schemaShape).map(([field]) => [
-        field, listLimits[field] ? {
+         field, { anyOf: [listLimits[field] ? {
           type: "array", maxItems: listLimits[field],
           items: { oneOf: [
             { type: "string", minLength: 1, maxLength: 80 },
             { type: "object", properties: { key: { type: "string", minLength: 1, maxLength: 80 }, custom: { type: "string", maxLength: 240 } }, required: ["key"], additionalProperties: false },
           ] },
-        } : { type: "string" },
+         } : { type: "string" }, { type: "null" }] },
       ])), additionalProperties: false, minProperties: 1 },
     }, required: ["record_id", "expected_revision", "changes"], additionalProperties: false,
   },
@@ -94,7 +103,7 @@ export const CANON_TOOLS = [
   { name: "search_canon_records", description: "Search canon records in a world and return editor links.", inputSchema: toolSchemas.search_canon_records },
   { name: "get_canon_record", description: "Read a complete canon record, Character profile, and linked images.", inputSchema: toolSchemas.get_canon_record },
   { name: "get_canon_field_options", description: "Read Character profile field limits and current world/global vocabulary choices.", inputSchema: toolSchemas.get_canon_field_options },
-  { name: "update_canon_record", description: "Save a partial set of validated Character fields at the expected record revision; does not approve or reject Canon.", inputSchema: toolSchemas.update_canon_record },
+  { name: "update_canon_record", description: "Save partial validated Character fields at the expected record revision; pass null to clear an optional field. Does not approve or reject Canon.", inputSchema: toolSchemas.update_canon_record },
   { name: "get_record_change_history", description: "Read audited profile changes for a canon record.", inputSchema: toolSchemas.get_record_change_history },
 ];
 
@@ -200,7 +209,8 @@ export async function updateCharacterProfile(
     const target = replaceProfile
       ? validateCharacterProfileReplacement(changes)
       : validateCharacterProfileChanges(current, changes).profile;
-    const fieldsToValidate = replaceProfile ? target : changes as Record<string, unknown>;
+    const fieldsToValidate = replaceProfile ? target
+      : Object.fromEntries(Object.entries(changes as Record<string, unknown>).filter(([, value]) => value !== null));
     await validatePicklists(record.worldId, fieldsToValidate);
     const diff: Record<string, { before: unknown; after: unknown }> = {};
     for (const key of new Set([...Object.keys(current), ...Object.keys(target)])) {
@@ -214,12 +224,16 @@ export async function updateCharacterProfile(
     if (!Object.keys(diff).length && profileRow?.schemaVersion === effectiveSchemaVersion) {
       return { record, profile: target, version: record.version, schemaVersion: effectiveSchemaVersion, diff };
     }
-    await tx.insert(wsCharacterProfilesTable).values({
-      recordId, schemaVersion: effectiveSchemaVersion, profile: target,
-    }).onConflictDoUpdate({
-      target: wsCharacterProfilesTable.recordId,
-      set: { schemaVersion: effectiveSchemaVersion, profile: target, updatedAt: new Date() },
-    });
+    if (!replaceProfile && !Object.keys(target).length) {
+      await tx.delete(wsCharacterProfilesTable).where(eq(wsCharacterProfilesTable.recordId, recordId));
+    } else {
+      await tx.insert(wsCharacterProfilesTable).values({
+        recordId, schemaVersion: effectiveSchemaVersion, profile: target,
+      }).onConflictDoUpdate({
+        target: wsCharacterProfilesTable.recordId,
+        set: { schemaVersion: effectiveSchemaVersion, profile: target, updatedAt: new Date() },
+      });
+    }
     const [updated] = await tx.update(wsCanonRecordsTable).set({
       version: record.version + 1,
       updatedAt: new Date(),

@@ -152,11 +152,17 @@ try {
       throw new Error("Published update_canon_record does not expose the required revision-based input");
     }
     const original = result.character_profile ?? {};
-    const field = ["coreDesire", "coreNeed", "coreFear", "misconception", "pronouns"]
+    const existingField = ["coreDesire", "coreNeed", "coreFear", "misconception", "pronouns"]
       .find(key => typeof original[key] === "string" && original[key].length > 0);
-    if (!field) throw new Error("No existing, reversible free-text Character field is available");
+    if (!existingField && result.character_profile !== null) {
+      throw new Error("An existing profile has no safely reversible free-text field");
+    }
+    const field = existingField ?? "pronouns";
+    const originalValue = existingField ? original[field] : null;
     const initialRevision = result.revision ?? result.version;
-    const temporary = `${original[field]} [temporary MCP verification ${randomBytes(4).toString("hex")}]`;
+    const temporary = originalValue === null
+      ? `Temporary MCP verification ${randomBytes(4).toString("hex")}`
+      : `${originalValue} [temporary MCP verification ${randomBytes(4).toString("hex")}]`;
     const args = {
       record_id: result.record.id, expected_revision: initialRevision,
       changes: { [field]: temporary },
@@ -254,21 +260,23 @@ try {
       if (writeAttempted) {
         const latest = (await tool("get_canon_record", { record_id: result.record.id })).structuredContent;
         if (!latest) throw new Error(`Cannot inspect ${field} after the attempted write`);
-        if (latest.character_profile?.[field] === original[field] && latest.revision === initialRevision) {
+        if (latest.character_profile?.[field] === originalValue && latest.revision === initialRevision) {
           // The write was rejected before any mutation.
         } else if (latest.character_profile?.[field] !== temporary) {
           throw new Error(`Cannot safely restore ${field}: the field changed outside this verification`);
         } else {
           const restored = await tool("update_canon_record", {
             record_id: result.record.id, expected_revision: latest.revision,
-            changes: { [field]: original[field] },
+            changes: { [field]: originalValue },
           });
-          if (restored?.isError || restored?.structuredContent?.character_profile?.[field] !== original[field]) {
+          if (restored?.isError || restored?.structuredContent?.character_profile?.[field] !==
+              (originalValue ?? undefined)) {
             throw new Error(`Restoring ${field} failed; inspect the record change history`);
           }
           const verified = (await tool("get_canon_record", { record_id: result.record.id })).structuredContent;
-          if (verified?.character_profile?.[field] !== original[field] ||
-              verified.workflow_status !== result.workflow_status) {
+          if (JSON.stringify(verified?.character_profile) !== JSON.stringify(result.character_profile) ||
+              verified.workflow_status !== result.workflow_status ||
+              verified.revision !== initialRevision + 2) {
             throw new Error(`Restoration check failed for ${field}`);
           }
           console.log(JSON.stringify({

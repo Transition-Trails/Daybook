@@ -32,6 +32,7 @@ vi.mock("@workspace/db", async () => {
     select: () => queryBuilder(),
     insert: () => queryBuilder(),
     update: () => queryBuilder(),
+    delete: () => queryBuilder(),
     transaction: (callback: (tx: unknown) => Promise<unknown>) => callback(fakeDb),
   });
   return { ...actual, db: fakeDb };
@@ -104,6 +105,8 @@ describe("WorldSmith canon MCP service", () => {
     expect(() => validateCharacterProfileChanges({}, { occupation: [{ key: "custom" }] })).toThrow(CanonToolError);
     expect(validateCharacterProfileChanges({}, { occupation: [{ key: "custom", custom: "Archivist of forbidden maps" }] }).profile)
       .toEqual({ occupation: [{ key: "custom", custom: "Archivist of forbidden maps" }] });
+    expect(validateCharacterProfileChanges({ pronouns: "she/her" }, { pronouns: null }).profile).toEqual({});
+    expect(() => validateCharacterProfileChanges({}, { unknownField: null })).toThrow(CanonToolError);
   });
 
   it("rejects stale compare-and-swap versions before mutating profile state", async () => {

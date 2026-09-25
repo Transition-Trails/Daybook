@@ -100,6 +100,21 @@ describe("Canon MCP / editorial save integration", () => {
       const history = await rpc("get_record_change_history", { record_id: recordId });
       expect(history.body.result.structuredContent.history).toHaveLength(2);
       expect(history.body.result.structuredContent.history[0].actorUserId).toBe(user.id);
+
+      const temporary = await rpc("update_canon_record", {
+        record_id: recordId, expected_revision: version + 2,
+        changes: { pronouns: "Temporary verification" },
+      });
+      expect(temporary.body.result.structuredContent.character_profile).toEqual({ pronouns: "Temporary verification" });
+      const restored = await rpc("update_canon_record", {
+        record_id: recordId, expected_revision: version + 3,
+        changes: { pronouns: null },
+      });
+      expect(restored.body.result.isError).toBeUndefined();
+      expect(restored.body.result.structuredContent.character_profile).toEqual({});
+      const emptyAgain = await rpc("get_canon_record", { record_id: recordId });
+      expect(emptyAgain.body.result.structuredContent.character_profile).toBeNull();
+      expect(emptyAgain.body.result.structuredContent.workflow_status).toBe("proposed");
     } finally {
       await db.delete(mcpCanonHistoryTable).where(eq(mcpCanonHistoryTable.recordId, recordId));
       await db.delete(wsCharacterProfilesTable).where(eq(wsCharacterProfilesTable.recordId, recordId));

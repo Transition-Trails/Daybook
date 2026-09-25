@@ -48,6 +48,7 @@ describe("StoryConnections Movement title editing", () => {
             title: "The First Harcourt Survey",
             summary: "A young architect arrives.",
             status: "active",
+            sequenceRole: "reference",
             acts: [{
               id: "act-2",
               storyId: "story-1",
@@ -75,6 +76,8 @@ describe("StoryConnections Movement title editing", () => {
     );
 
     const title = await screen.findByRole("textbox", { name: "Movement 2 title" });
+    expect(screen.getAllByText("Reference · outside chronology").length).toBeGreaterThan(0);
+    expect(screen.getByRole("option", { name: /The First Harcourt Survey — Reference · outside chronology/ })).toBeTruthy();
     fireEvent.change(title, { target: { value: "The Survey Expands" } });
     fireEvent.click(screen.getByRole("button", { name: "Save title" }));
 

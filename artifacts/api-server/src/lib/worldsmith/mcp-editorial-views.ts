@@ -170,6 +170,8 @@ async function readMap(worldId: string, origin: string, tx: QueryExecutor | type
     editor_url: mapUrl(origin, worldId),
     stories: stories.map(story => ({
       ...story,
+      sequence_role: story.sequenceRole,
+      sequence_label: story.sequenceRole === "reference" ? "Reference · outside chronology" : "Chronological",
       editor_url: storyUrl(origin, story.id, worldId),
       movements: (actsByStory.get(story.id) ?? []).map(act => ({ ...act })),
     })),

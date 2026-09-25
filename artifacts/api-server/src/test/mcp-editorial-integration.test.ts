@@ -1505,6 +1505,9 @@ describe("authenticated editorial MCP tools", () => {
       }));
       const map = await result("get_story_map", { map_id: worldId });
       expect(map.stories).toHaveLength(2);
+      expect(map.stories[0]).toEqual(expect.objectContaining({
+        sequence_role: "chronological", sequence_label: "Chronological",
+      }));
       const storylines = await result("search_storylines", { world_id: worldId, query: "Story One" });
       expect(storylines.storylines[0]).toEqual(expect.objectContaining({ id: storyId, world_id: worldId }));
       const storyline = await result("get_storyline", { storyline_id: storyId });
@@ -1605,6 +1608,15 @@ describe("authenticated editorial MCP tools", () => {
       });
       expect(sequenceStale.body.result.isError).toBe(true);
       expect(sequenceStale.body.result.content[0].text).toContain("REVISION_CONFLICT");
+      await db.update(wsStoriesTable).set({ sequenceRole: "reference" }).where(eq(wsStoriesTable.id, secondStoryId));
+      const referenceMap = await result("get_story_map", { map_id: worldId });
+      expect(referenceMap.stories.find((story: { id: string }) => story.id === secondStoryId))
+        .toEqual(expect.objectContaining({
+          sequence_role: "reference", sequence_label: "Reference · outside chronology",
+        }));
+      const referenceSequences = await result("search_sequences", { world_id: worldId });
+      expect(referenceSequences.sequences.flatMap((group: { story_ids: string[] }) => group.story_ids))
+        .not.toContain(secondStoryId);
       const audits = await db.select().from(auditLogTable)
         .where(and(eq(auditLogTable.actorUserId, user.id),
           inArray(auditLogTable.targetId, [worldId, storyId, movementId, beatId, revealId])));

@@ -20,7 +20,26 @@ interface Story {
   title: string;
   summary: string;
   status: string;
+  sequenceRole: "chronological" | "reference";
   acts: StoryAct[];
+}
+
+function storyPlacement(story: Story) {
+  return story.sequenceRole === "reference" ? "Reference · outside chronology" : "Chronological";
+}
+
+function PlacementBadge({ story, dark = false }: { story: Story; dark?: boolean }) {
+  return (
+    <span
+      className="inline-flex rounded-full px-2 py-1 text-[10px] font-semibold"
+      style={{
+        background: dark ? "rgba(255,255,255,.16)" : story.sequenceRole === "reference" ? "#F0E9DF" : "#EAF0F7",
+        color: dark ? "white" : "#1B2A4A",
+      }}
+    >
+      {storyPlacement(story)}
+    </span>
+  );
 }
 
 interface CanonRecord {
@@ -84,7 +103,7 @@ function StoryMapFilterControls({
         style={{ borderColor: "#E5E7EB" }}
       >
         <option value="all">All storylines</option>
-        {stories.map(story => <option key={story.id} value={story.id}>{story.title}</option>)}
+        {stories.map(story => <option key={story.id} value={story.id}>{story.title} — {storyPlacement(story)}</option>)}
       </select>
     </div>
   );
@@ -393,7 +412,7 @@ export default function StoryConnections() {
                   style={{ border: "1px solid #D8CFC3", color: "#475467" }}
                 >
                   <option value="all">Select a storyline…</option>
-                  {stories.map(story => <option key={story.id} value={story.id}>{story.title}</option>)}
+                   {stories.map(story => <option key={story.id} value={story.id}>{story.title} — {storyPlacement(story)}</option>)}
                 </select>
                 {selectedStory && (
                   <>
@@ -429,6 +448,7 @@ export default function StoryConnections() {
                 </p>
                 {selectedStory ? (
                   <>
+                     <div className="mt-3"><PlacementBadge story={selectedStory} dark /></div>
                     <h2 className="mt-3 text-xl leading-tight" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>{selectedStory.title}</h2>
                     <p className="mt-3 text-xs leading-relaxed" style={{ color: "rgba(255,255,255,.68)" }}>
                       {editorialRichTextToPlainText(selectedStory.summary) || "This storyline is waiting for its narrative promise."}
@@ -458,9 +478,9 @@ export default function StoryConnections() {
                       {selectedStory ? `${visibleLinks.length} Canon connection${visibleLinks.length === 1 ? "" : "s"}` : "Choose a storyline to arrange its Canon"}
                     </h2>
                   </div>
-                  <span className="text-[11px] rounded-full px-2 py-1" style={{ background: "#EFE9E1", color: "#786D60" }}>
-                    {selectedStory ? selectedStory.title : "All stories"}
-                  </span>
+                   {selectedStory ? <PlacementBadge story={selectedStory} /> : (
+                     <span className="text-[11px] rounded-full px-2 py-1" style={{ background: "#EFE9E1", color: "#786D60" }}>All stories</span>
+                   )}
                 </div>
                 {!selectedStory ? (
                   <div className="rounded-xl p-6 text-center" style={{ background: "white", border: "1px dashed #C9BFB2" }}>

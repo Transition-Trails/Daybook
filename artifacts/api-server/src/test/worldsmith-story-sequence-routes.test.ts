@@ -102,6 +102,12 @@ describe("world-scoped storyline chronology", () => {
     expect(listing.body.stories.find((story: { id: string }) => story.id === ids[1])).toMatchObject({
       sortOrder: 1, sequenceRole: "reference",
     });
+    const connections = await request(app).get("/v1/editorial/story-connections").query({ world_id: worldId });
+    expect(connections.status).toBe(200);
+    expect(connections.body.stories.find((story: { id: string }) => story.id === ids[1]))
+      .toMatchObject({ sequenceRole: "reference" });
+    expect(connections.body.stories.find((story: { id: string }) => story.id === ids[0]))
+      .toMatchObject({ sequenceRole: "chronological" });
     expect(listing.body.sequenceRevision).toBe(2);
     const stale = await request(app).post("/v1/editorial/stories/sequence").send({
       world_id: worldId, groups: [[ids[0]], [ids[1]], [ids[2]]], references: [], expected_revision: 1,

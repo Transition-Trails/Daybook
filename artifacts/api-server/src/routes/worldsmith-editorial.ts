@@ -5494,6 +5494,7 @@ router.get("/v1/editorial/story-connections", async (req: Request, res: Response
       title: wsStoriesTable.title,
       summary: wsStoriesTable.summary,
       status: wsStoriesTable.status,
+      sequenceRole: wsStoriesTable.sequenceRole,
     })
       .from(wsStoriesTable)
       .where(eq(wsStoriesTable.worldId, worldId))

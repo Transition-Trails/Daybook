@@ -1101,6 +1101,159 @@ describe("authenticated editorial MCP tools", () => {
     }
   });
 
+  it("rejects only the stale beat in a queued storyline, beat, and reveal burst", async () => {
+    const [user] = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(eq(usersTable.platformRole, "super_admin")).limit(1);
+    if (!user) throw new Error("A seeded development super-admin is required");
+    const worldId = `mcp-world-${randomUUID()}`;
+    const storyId = `mcp-story-${randomUUID()}`;
+    const beatId = `mcp-beat-${randomUUID()}`;
+    const revealId = `mcp-reveal-${randomUUID()}`;
+    const clientId = `mcp-client-${randomUUID()}`;
+    const token = randomBytes(32).toString("base64url");
+    const app = express();
+    app.use(express.json());
+    app.use(mcpRouter);
+    const call = (name: string, args: Record<string, unknown>) =>
+      request(app).post("/mcp").set("Authorization", `Bearer ${token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
+
+    try {
+      await db.insert(worldsmithWorldsTable).values({ id: worldId, name: "Stale Burst MCP World", code: "SBW" });
+      await db.insert(wsStoriesTable).values({ id: storyId, worldId, title: "Stale Burst", status: "draft" });
+      await db.insert(wsStoryBeatsTable).values({ id: beatId, worldId, storyId, beatType: "setup", title: "Opening" });
+      await db.insert(wsRevealThreadsTable).values({ id: revealId, worldId, storyId, title: "Secret", truth: "Original truth" });
+      await db.insert(mcpOAuthClientsTable).values({
+        clientId, clientName: "Stale burst editorial test", redirectUris: ["https://example.com/cb"],
+      });
+      await db.insert(mcpOAuthTokensTable).values({
+        tokenHash: createHash("sha256").update(token).digest("hex"),
+        kind: "access", familyId: randomUUID(), clientId, userId: user.id,
+        resource: getMcpResource(),
+        scopes: ["worldsmith:editorial:read", "worldsmith:editorial:write", "worldsmith:editorial:story-details:write"],
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      const before = await Promise.all([
+        call("get_storyline", { storyline_id: storyId }),
+        call("get_story_beat", { storyline_id: storyId, beat_id: beatId }),
+        call("get_reveal_thread", { storyline_id: storyId, reveal_id: revealId }),
+      ]);
+      for (const response of before) expect(response.status).toBe(200);
+      const originalRevisions = before.map(response => response.body.result.structuredContent.revision as string);
+      // Simulate an intervening save without an MCP audit: the queued beat request
+      // carries a real, formerly valid revision rather than an invented token.
+      const existingBeatSummary = "Already revised";
+      await db.update(wsStoryBeatsTable).set({ summary: existingBeatSummary, updatedAt: new Date() })
+        .where(eq(wsStoryBeatsTable.id, beatId));
+      const currentBeat = await call("get_story_beat", { storyline_id: storyId, beat_id: beatId });
+      expect(currentBeat.status).toBe(200);
+      const currentBeatRevision = currentBeat.body.result.structuredContent.revision as string;
+      expect(currentBeatRevision).not.toBe(originalRevisions[1]);
+
+      const storySummary = "Valid storyline save";
+      const rejectedBeatSummary = "Stale beat save";
+      const revealTruth = "Valid reveal save";
+      const holder = await pool.connect();
+      let pending: Promise<import("supertest").Response>[] = [];
+      let blocked = 0;
+      try {
+        await holder.query("BEGIN");
+        const { rows: [{ pid }] } = await holder.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+        await holder.query("SELECT id FROM ws_stories WHERE id = $1 FOR UPDATE", [storyId]);
+        pending = [
+          call("update_storyline", {
+            storyline_id: storyId, expected_revision: originalRevisions[0], changes: { summary: storySummary },
+          }).then(response => response),
+          call("update_story_beat", {
+            storyline_id: storyId, beat_id: beatId, expected_revision: originalRevisions[1],
+            changes: { summary: rejectedBeatSummary },
+          }).then(response => response),
+          call("update_reveal_thread", {
+            storyline_id: storyId, reveal_id: revealId, expected_revision: originalRevisions[2],
+            changes: { truth: revealTruth },
+          }).then(response => response),
+        ];
+        const deadline = Date.now() + 8_000;
+        while (Date.now() < deadline) {
+          const { rows } = await pool.query<{ blocked: number }>(
+            `WITH RECURSIVE waiters(pid) AS (
+               SELECT pid FROM pg_stat_activity
+               WHERE pid <> $1 AND wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))
+               UNION
+               SELECT activity.pid FROM pg_stat_activity AS activity
+               JOIN waiters ON waiters.pid = ANY(pg_blocking_pids(activity.pid))
+               WHERE activity.wait_event_type = 'Lock'
+             )
+             SELECT count(*)::int AS blocked FROM waiters`,
+            [pid],
+          );
+          blocked = rows[0].blocked;
+          if (blocked >= 3) break;
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+      }
+      const responses = await Promise.all(pending);
+      expect(blocked).toBe(3);
+      expect(responses.map(response => response.status)).toEqual([200, 200, 200]);
+      expect(responses[0].body.result.isError).not.toBe(true);
+      expect(responses[1].body.result.isError).toBe(true);
+      expect(responses[1].body.result.content[0].text).toContain("REVISION_CONFLICT");
+      expect(responses[2].body.result.isError).not.toBe(true);
+
+      const [savedStory] = await db.select().from(wsStoriesTable).where(eq(wsStoriesTable.id, storyId));
+      const [savedBeat] = await db.select().from(wsStoryBeatsTable).where(eq(wsStoryBeatsTable.id, beatId));
+      const [savedReveal] = await db.select().from(wsRevealThreadsTable).where(eq(wsRevealThreadsTable.id, revealId));
+      expect([savedStory.summary, savedBeat.summary, savedReveal.truth])
+        .toEqual([storySummary, existingBeatSummary, revealTruth]);
+      const after = await Promise.all([
+        call("get_storyline", { storyline_id: storyId }),
+        call("get_story_beat", { storyline_id: storyId, beat_id: beatId }),
+        call("get_reveal_thread", { storyline_id: storyId, reveal_id: revealId }),
+      ]);
+      for (const response of after) expect(response.status).toBe(200);
+      const storyRevision = responses[0].body.result.structuredContent.revision as string;
+      const revealRevision = responses[2].body.result.structuredContent.revision as string;
+      expect(new Set([storyRevision, currentBeatRevision, revealRevision]).size).toBe(3);
+      expect(storyRevision).not.toBe(originalRevisions[0]);
+      expect(revealRevision).not.toBe(originalRevisions[2]);
+      expect(after[0].body.result.structuredContent.revision).toBe(storyRevision);
+      expect(after[0].body.result.structuredContent.story_beats[0].revision).toBe(currentBeatRevision);
+      expect(after[0].body.result.structuredContent.reveal_threads[0].revision).toBe(revealRevision);
+      expect(after[1].body.result.structuredContent.revision).toBe(currentBeatRevision);
+      expect(after[2].body.result.structuredContent.revision).toBe(revealRevision);
+
+      for (const { id, kind, field, previous, value } of [
+        { id: storyId, kind: "storyline", field: "summary", previous: "", value: storySummary },
+        { id: revealId, kind: "reveal_thread", field: "truth", previous: "Original truth", value: revealTruth },
+      ]) {
+        const audits = await db.select().from(auditLogTable).where(eq(auditLogTable.targetId, id));
+        expect(audits).toHaveLength(1);
+        expect(audits[0]).toEqual(expect.objectContaining({
+          actorUserId: user.id,
+          action: `worldsmith.editorial.${kind}.update`,
+          targetType: `worldsmith_${kind}`,
+          metadata: expect.objectContaining({
+            actor_user_id: user.id,
+            before_after: { [field]: { before: previous, after: value } },
+          }),
+        }));
+      }
+      expect(await db.select().from(auditLogTable).where(eq(auditLogTable.targetId, beatId))).toHaveLength(0);
+    } finally {
+      await db.delete(auditLogTable).where(inArray(auditLogTable.targetId, [storyId, beatId, revealId]));
+      await db.delete(wsStoryBeatsTable).where(eq(wsStoryBeatsTable.id, beatId));
+      await db.delete(wsRevealThreadsTable).where(eq(wsRevealThreadsTable.id, revealId));
+      await db.delete(wsStoriesTable).where(eq(wsStoriesTable.id, storyId));
+      await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
+      await db.delete(mcpOAuthTokensTable).where(eq(mcpOAuthTokensTable.clientId, clientId));
+      await db.delete(mcpOAuthClientsTable).where(eq(mcpOAuthClientsTable.clientId, clientId));
+    }
+  });
+
   it("discovers the hierarchy, validates and audits reversible edits on disposable records", async () => {
     const [user] = await db.select({ id: usersTable.id }).from(usersTable)
       .where(eq(usersTable.platformRole, "super_admin")).limit(1);

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { and, asc, eq, ilike, or } from "drizzle-orm";
 import {
   auditLogTable,
@@ -14,6 +13,7 @@ import {
 import { z } from "zod";
 import { CanonToolError } from "./mcp-canon";
 import { resolveTypographyChoices, TypographyValidationError } from "./typography";
+import { revisionFor } from "./editorial-revision";
 
 const jsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
   z.string().max(20_000),
@@ -210,23 +210,6 @@ async function requireWorldInTransaction(
   const [world] = await tx.select({ id: worldsmithWorldsTable.id }).from(worldsmithWorldsTable)
     .where(eq(worldsmithWorldsTable.id, worldId)).limit(1);
   if (!world) throw new CanonToolError("World not found", 404, "WORLD_NOT_FOUND");
-}
-
-function stableValue(value: unknown, omitUpdatedAt = false): unknown {
-  if (value instanceof Date) return value.toISOString();
-  if (Array.isArray(value)) return value.map(entry => stableValue(entry));
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => !omitUpdatedAt || key !== "updatedAt")
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, entry]) => [key, stableValue(entry)]);
-    return Object.fromEntries(entries);
-  }
-  return value;
-}
-
-function revisionFor(row: Record<string, unknown>): string {
-  return `sha256:${createHash("sha256").update(JSON.stringify(stableValue(row, true))).digest("hex")}`;
 }
 
 function editorUrl(origin: string, type: "world" | "storyline" | "movement", rowId: string, worldId: string): string {

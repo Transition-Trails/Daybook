@@ -97,6 +97,8 @@ import { calculateSafeAreas } from "../lib/worldsmith/safe-area-geometry";
 import { and, eq, inArray, isNull, like, desc, ne, or, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
+import { revisionFor } from "../lib/worldsmith/editorial-revision";
+import { z } from "zod";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { buildProductionSpecPdf } from "../lib/worldsmith/production-spec-pdf";
 import {
@@ -5666,6 +5668,92 @@ router.delete("/v1/editorial/stories/:id", async (req: Request, res: Response) =
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// Keep child identities stable across admin saves. An explicit revision is required for
+// each existing row, including removals, so an MCP edit cannot be silently replaced.
+const childDetails = z.record(z.unknown());
+const childBase = z.object({
+  id: z.string().min(1).optional(),
+  revision: z.string().min(1).optional(),
+  title: z.string().trim().min(1).max(500),
+  details: childDetails,
+}).strict();
+const beatInput = childBase.extend({
+  beat_type: z.string().min(1).max(200),
+  summary: z.string().max(20_000),
+  sort_order: z.number().int().min(0).max(100_000),
+});
+const revealInput = childBase.extend({
+  truth: z.string().max(20_000),
+  audience_knowledge: z.string().max(20_000).nullable(),
+});
+const removal = z.object({ id: z.string().min(1), revision: z.string().min(1) }).strict();
+
+function childRowsRoute(kind: "beats" | "reveals") {
+  const isBeat = kind === "beats";
+  const input = z.object({
+    world_id: z.string().min(1),
+    [kind]: z.array(isBeat ? beatInput : revealInput).max(isBeat ? 500 : 200),
+    deleted: z.array(removal).max(isBeat ? 500 : 200).default([]),
+  }).strict();
+  router.put(`/v1/editorial/stories/:id/${kind}`, async (req: Request, res: Response): Promise<void> => {
+    const parsed = input.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    const worldId = parsed.data.world_id as string;
+    const deleted = parsed.data.deleted as z.infer<typeof removal>[];
+    const items = parsed.data[kind] as Array<z.infer<typeof beatInput> | z.infer<typeof revealInput>>;
+    const ids = [...items.filter(item => item.id).map(item => item.id!), ...deleted.map(item => item.id)];
+    if (new Set(ids).size !== ids.length || items.some(item => !!item.id !== !!item.revision)) {
+      res.status(400).json({ error: "Existing rows need unique IDs and revisions" }); return;
+    }
+    const storyId = req.params.id as string;
+    const result = await db.transaction(async tx => {
+      const [story] = await tx.select().from(wsStoriesTable).where(eq(wsStoriesTable.id, storyId)).for("update").limit(1);
+      if (!story || story.worldId !== worldId) return { status: 404 as const };
+      const [world] = await tx.select({ id: worldsmithWorldsTable.id }).from(worldsmithWorldsTable)
+        .where(eq(worldsmithWorldsTable.id, worldId)).limit(1);
+      if (!world) return { status: 404 as const };
+      // Parent first, then children, matching MCP's lock order.
+      const existing = isBeat
+        ? await tx.select().from(wsStoryBeatsTable).where(eq(wsStoryBeatsTable.storyId, storyId)).for("update")
+        : await tx.select().from(wsRevealThreadsTable).where(eq(wsRevealThreadsTable.storyId, storyId)).for("update");
+      const byId = new Map(existing.map(row => [row.id, row]));
+      if (ids.some(id => {
+        const row = byId.get(id);
+        const expected = items.find(item => item.id === id)?.revision ?? deleted.find(item => item.id === id)?.revision;
+        return !row || row.worldId !== worldId || revisionFor(row) !== expected;
+      })) return { status: 409 as const };
+      for (const item of deleted) {
+        if (isBeat) await tx.delete(wsStoryBeatsTable).where(eq(wsStoryBeatsTable.id, item.id));
+        else await tx.delete(wsRevealThreadsTable).where(eq(wsRevealThreadsTable.id, item.id));
+      }
+      const rows = [];
+      for (const item of items) {
+        if (isBeat) {
+          const beat = item as z.infer<typeof beatInput>;
+          const values = { beatType: beat.beat_type, title: beat.title, summary: beat.summary, sortOrder: beat.sort_order, details: beat.details };
+          const [row] = beat.id
+            ? await tx.update(wsStoryBeatsTable).set({ ...values, updatedAt: new Date() }).where(eq(wsStoryBeatsTable.id, beat.id)).returning()
+            : await tx.insert(wsStoryBeatsTable).values({ ...values, id: randomUUID(), storyId, worldId }).returning();
+          rows.push({ ...row, revision: revisionFor(row) });
+        } else {
+          const reveal = item as z.infer<typeof revealInput>;
+          const values = { title: reveal.title, truth: reveal.truth, audienceKnowledge: reveal.audience_knowledge, details: reveal.details };
+          const [row] = reveal.id
+            ? await tx.update(wsRevealThreadsTable).set({ ...values, updatedAt: new Date() }).where(eq(wsRevealThreadsTable.id, reveal.id)).returning()
+            : await tx.insert(wsRevealThreadsTable).values({ ...values, id: randomUUID(), storyId, worldId }).returning();
+          rows.push({ ...row, revision: revisionFor(row) });
+        }
+      }
+      return { status: 200 as const, rows };
+    });
+    if (result.status === 404) { res.status(404).json({ error: "Storyline not found in world" }); return; }
+    if (result.status === 409) { res.status(409).json({ error: "Child records changed. Reload the storyline before saving." }); return; }
+    res.json({ [kind]: result.rows });
+  });
+}
+childRowsRoute("beats");
+childRowsRoute("reveals");
 
 // List acts for a story
 router.get("/v1/editorial/stories/:id/acts", async (req: Request, res: Response) => {

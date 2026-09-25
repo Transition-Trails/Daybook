@@ -138,6 +138,83 @@ describe("StorylineEditor", () => {
     );
   });
 
+  it("edits existing child rows by ID and revision without changing their lifecycle status", async () => {
+    const beat = {
+      id: "beat-1", revision: "sha256:beat", beatType: "setup", title: "Arrival",
+      summary: "First meeting", status: "locked", sortOrder: 0, details: { custom_note: "keep me" },
+    };
+    const reveal = {
+      id: "reveal-1", revision: "sha256:reveal", title: "The letter",
+      truth: "The letter is real", audienceKnowledge: "hinted", details: { custom_note: "keep me" },
+    };
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/stories/story-1" && init?.method === "PATCH") {
+        return Promise.resolve({ story: { id: "story-1", worldId: "world-wychcombe", title: "Story", summary: "", status: "draft", acts: [] } });
+      }
+      if (path === "/v1/editorial/stories/story-1") {
+        return Promise.resolve({ story: { id: "story-1", worldId: "world-wychcombe", title: "Story", summary: "", status: "draft", acts: [] } });
+      }
+      if (path.includes("/beats")) return Promise.resolve(init?.method === "PUT" ? { beats: [{ ...beat, revision: "sha256:new-beat" }] } : { beats: [beat] });
+      if (path.includes("/reveals")) return Promise.resolve(init?.method === "PUT" ? { reveals: [{ ...reveal, revision: "sha256:new-reveal" }] } : { reveals: [reveal] });
+      return Promise.resolve({});
+    });
+    renderEditor("story-1");
+    await screen.findByRole("heading", { name: "Story — Storyline" });
+    expect(await screen.findByText("Lifecycle status: locked (managed separately)")).toBeInTheDocument();
+    fireEvent.change(screen.getByDisplayValue("Arrival"), { target: { value: "Arrival revised" } });
+    fireEvent.change(screen.getByDisplayValue("The letter"), { target: { value: "The second letter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/stories/story-1/beats",
+      expect.objectContaining({ method: "PUT", body: expect.stringContaining('"revision":"sha256:beat"') }),
+    ));
+    const beatCall = apiFetch.mock.calls.find(([path, init]) => path.endsWith("/beats") && init?.method === "PUT");
+    expect(JSON.parse(beatCall![1].body)).toMatchObject({
+      beats: [{ id: "beat-1", title: "Arrival revised", details: { custom_note: "keep me" } }],
+      deleted: [],
+    });
+    expect(JSON.parse(beatCall![1].body).beats[0]).not.toHaveProperty("status");
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/stories/story-1/reveals",
+      expect.objectContaining({ method: "PUT", body: expect.stringContaining('"title":"The second letter"') }),
+    ));
+  });
+
+  it("retries after a reveal conflict without inserting a saved beat again", async () => {
+    let revealWrites = 0;
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/stories/story-1") {
+        return Promise.resolve({ story: { id: "story-1", worldId: "world-wychcombe", title: "Story", summary: "", status: "draft", acts: [] } });
+      }
+      if (path.includes("/beats")) {
+        return Promise.resolve(init?.method === "PUT"
+          ? { beats: [{ id: "beat-new", revision: revealWrites ? "sha256:beat-2" : "sha256:beat-1", beatType: "setup", title: "A new beat", details: {} }] }
+          : { beats: [] });
+      }
+      if (path.includes("/reveals")) {
+        if (init?.method === "PUT" && ++revealWrites === 1) return Promise.reject(new Error("Reveal changed. Reload and try again."));
+        return Promise.resolve({ reveals: [] });
+      }
+      return Promise.resolve({});
+    });
+    renderEditor("story-1");
+    await screen.findByRole("heading", { name: "Story — Storyline" });
+    fireEvent.click(await screen.findByText("Add Story Beat"));
+    const title = screen.getAllByRole("textbox").find(el => el.previousElementSibling?.textContent === "Beat Title");
+    fireEvent.change(title!, { target: { value: "A new beat" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(revealWrites).toBe(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(revealWrites).toBe(2));
+    const writes = apiFetch.mock.calls.filter(([path, init]) => path.endsWith("/beats") && init?.method === "PUT");
+    expect(writes).toHaveLength(2);
+    expect(JSON.parse(writes[0]![1].body).beats[0].id).toBeUndefined();
+    expect(JSON.parse(writes[1]![1].body).beats[0]).toMatchObject({
+      id: "beat-new", revision: "sha256:beat-1", title: "A new beat",
+    });
+  });
+
   it("opens a saved storyline when prompt context is returned as a string", async () => {
     apiFetch.mockImplementation((path: string) => {
       if (path === "/v1/editorial/stories/story-1") {

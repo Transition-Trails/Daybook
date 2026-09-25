@@ -16,6 +16,7 @@ import {
 import { requireAuth } from "../lib/auth-middleware";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { CanonToolError, updateCharacterProfile } from "../lib/worldsmith/mcp-canon";
+import { revisionFor } from "../lib/worldsmith/editorial-revision";
 
 const router = Router();
 router.use(requireAuth, requireSuperAdmin);
@@ -316,14 +317,14 @@ router.get("/v1/editorial/stories/:storyId/beats", async (req: Request, res: Res
   const beats = await db.select().from(wsStoryBeatsTable)
     .where(and(eq(wsStoryBeatsTable.storyId, String(req.params.storyId)), eq(wsStoryBeatsTable.worldId, worldId)))
     .orderBy(wsStoryBeatsTable.sortOrder);
-  res.json({ beats });
+  res.json({ beats: beats.map(row => ({ ...row, revision: revisionFor(row) })) });
 });
 router.get("/v1/editorial/stories/:storyId/reveals", async (req: Request, res: Response): Promise<void> => {
   const worldId = String(req.query.world_id || "");
   if (!(await ownsStory(String(req.params.storyId), worldId))) { res.status(404).json({ error: "Story not found in world" }); return; }
   const reveals = await db.select().from(wsRevealThreadsTable)
     .where(and(eq(wsRevealThreadsTable.storyId, String(req.params.storyId)), eq(wsRevealThreadsTable.worldId, worldId)));
-  res.json({ reveals });
+  res.json({ reveals: reveals.map(row => ({ ...row, revision: revisionFor(row) })) });
 });
 
 for (const [name, table] of [["character", wsCharacterProfilesTable], ["location", wsLocationProfilesTable], ["object", wsObjectProfilesTable], ["material", wsObjectProfilesTable], ["event", wsEventProfilesTable], ["lore", wsLoreProfilesTable], ["atmosphere", wsAtmosphereProfilesTable], ["motif", wsMotifProfilesTable]] as const) {

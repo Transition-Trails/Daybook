@@ -83,6 +83,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
   const [actTitleDrafts, setActTitleDrafts] = useState<Record<string, string>>({});
   const [actPurposeDrafts, setActPurposeDrafts] = useState<Record<string, string>>({});
   const initializedStoryRef = useRef<string | null>(null);
+  const createdStoryRef = useRef<string | null>(null);
 
   // Scene Editor state
   const [editingScene, setEditingScene] = useState<{ actId: string, sceneId?: string } | null>(null);
@@ -111,13 +112,13 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
   });
   const scenes = scenesData?.scenes ?? [];
 
-  const { data: beatsData, isPending: isPendingBeats } = useQuery({
+  const { data: beatsData, isPending: isPendingBeats, isError: beatsError } = useQuery({
     queryKey: ["editorial-story-beats", storyId],
     queryFn: () => apiFetch<{ beats: any[] }>(`/v1/editorial/stories/${storyId}/beats?world_id=${worldId}`),
     enabled: !!storyId && !!worldId,
   });
 
-  const { data: revealsData, isPending: isPendingReveals } = useQuery({
+  const { data: revealsData, isPending: isPendingReveals, isError: revealsError } = useQuery({
     queryKey: ["editorial-story-reveals", storyId],
     queryFn: () => apiFetch<{ reveals: any[] }>(`/v1/editorial/stories/${storyId}/reveals?world_id=${worldId}`),
     enabled: !!storyId && !!worldId,
@@ -125,11 +126,13 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
 
   useEffect(() => {
     if (story && initializedStoryRef.current !== story.id) {
-      if (!!storyId && !!worldId && (isPendingBeats || isPendingReveals)) return;
+      if (!!storyId && !!worldId && (isPendingBeats || isPendingReveals || beatsError || revealsError)) return;
       initializedStoryRef.current = story.id;
 
       const storySpine = beatsData?.beats?.map(b => ({
         id: b.id,
+        revision: b.revision,
+        details: b.details ?? {},
         beatType: b.beatType,
         title: b.title,
         summary: b.summary,
@@ -152,6 +155,8 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
 
       const revealArchitecture = revealsData?.reveals?.map(r => ({
         id: r.id,
+        revision: r.revision,
+        details: r.details ?? {},
         title: r.title,
         truth: r.truth,
         audienceState: r.audienceKnowledge,
@@ -177,11 +182,14 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
         globalMetadata: story.globalMetadata ?? {},
       });
     }
-  }, [story, beatsData, revealsData, isPendingBeats, isPendingReveals, storyId, worldId]);
+  }, [story, beatsData, revealsData, isPendingBeats, isPendingReveals, beatsError, revealsError, storyId, worldId]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!form.title.trim()) throw new Error("A storyline title is required");
+      if (!isNew && (isPendingBeats || isPendingReveals || beatsError || revealsError || initializedStoryRef.current !== storyId)) {
+        throw new Error("Beats and reveals must finish loading before saving. Reload and try again.");
+      }
 
       let savedStoryId = storyId;
       let resultStory = story;
@@ -199,10 +207,12 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
           }),
         });
         savedStoryId = res.story.id;
+        createdStoryRef.current = savedStoryId;
         resultStory = {
           ...res.story,
           acts: Array.isArray(res.story.acts) ? res.story.acts : [],
         };
+        queryClient.setQueryData(["editorial-story", savedStoryId], { story: resultStory });
       } else {
         const res = await apiFetch<{ story: Story }>(`/v1/editorial/stories/${storyId}`, {
           method: "PATCH",
@@ -221,11 +231,13 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
 
       // Sync Beats
       const beats = form.storySpine.map((b: any, idx: number) => ({
+        ...(b.id ? { id: b.id, revision: b.revision } : {}),
         beat_type: b.beatType || "setup",
         title: b.title || `Beat ${idx + 1}`,
         summary: b.summary || "",
         sort_order: idx,
         details: {
+          ...b.details,
           point_of_view_character_id: b.povCharacter || null,
           location_record_id: b.location || null,
           character_goal: b.goal || null,
@@ -240,20 +252,35 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
           involved_character_ids: b.involvedCharacters ? (Array.isArray(b.involvedCharacters) ? b.involvedCharacters : b.involvedCharacters.split(',').map((s: string) => s.trim())) : [],
           spoiler_level: b.spoilerLevel || null
         },
-        status: b.status || "draft"
       }));
 
-      await apiFetch(`/v1/editorial/stories/${savedStoryId}/beats`, {
+      const removedBeats = (beatsData?.beats ?? []).filter(b => !form.storySpine.some(item => item.id === b.id))
+        .map(b => ({ id: b.id, revision: b.revision }));
+      const savedBeats = await apiFetch<{ beats: any[] }>(`/v1/editorial/stories/${savedStoryId}/beats`, {
         method: "PUT",
-        body: JSON.stringify({ world_id: worldId, beats })
+        body: JSON.stringify({ world_id: worldId, beats, deleted: removedBeats })
       });
+      // Commit returned IDs and revisions immediately. A later reveal conflict must not
+      // turn an already-created beat into another insert on the next Save.
+      queryClient.setQueryData(["editorial-story-beats", savedStoryId], savedBeats);
+      setForm(current => ({
+        ...current,
+        storySpine: current.storySpine.map((item, index) => ({
+          ...item,
+          id: savedBeats.beats[index]?.id,
+          revision: savedBeats.beats[index]?.revision,
+          details: savedBeats.beats[index]?.details ?? item.details,
+        })),
+      }));
 
       // Sync Reveals
       const reveals = form.revealArchitecture.map((r: any, idx: number) => ({
-        title: r.truth ? r.truth.slice(0, 50) : `Reveal ${idx + 1}`,
+        ...(r.id ? { id: r.id, revision: r.revision } : {}),
+        title: r.title || (r.truth ? r.truth.slice(0, 50) : `Reveal ${idx + 1}`),
         truth: r.truth || "",
         audience_knowledge: r.audienceState || "withheld",
         details: {
+          ...r.details,
           first_clue: r.firstClue || null,
           who_knows_record_ids: r.whoKnowsRecordIds ? (Array.isArray(r.whoKnowsRecordIds) ? r.whoKnowsRecordIds : r.whoKnowsRecordIds.split(',').map((s: string) => s.trim())) : [],
           false_belief_record_ids: r.falseBeliefRecordIds ? (Array.isArray(r.falseBeliefRecordIds) ? r.falseBeliefRecordIds : r.falseBeliefRecordIds.split(',').map((s: string) => s.trim())) : [],
@@ -268,37 +295,52 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
         }
       }));
 
-      await apiFetch(`/v1/editorial/stories/${savedStoryId}/reveals`, {
+      const removedReveals = (revealsData?.reveals ?? []).filter(r => !form.revealArchitecture.some(item => item.id === r.id))
+        .map(r => ({ id: r.id, revision: r.revision }));
+      const savedReveals = await apiFetch<{ reveals: any[] }>(`/v1/editorial/stories/${savedStoryId}/reveals`, {
         method: "PUT",
-        body: JSON.stringify({ world_id: worldId, reveals })
+        body: JSON.stringify({ world_id: worldId, reveals, deleted: removedReveals })
       });
+      queryClient.setQueryData(["editorial-story-reveals", savedStoryId], savedReveals);
+      setForm(current => ({
+        ...current,
+        revealArchitecture: current.revealArchitecture.map((item, index) => ({
+          ...item,
+          id: savedReveals.reveals[index]?.id,
+          revision: savedReveals.reveals[index]?.revision,
+          details: savedReveals.reveals[index]?.details ?? item.details,
+        })),
+      }));
 
-      return { story: resultStory };
+      return { story: resultStory, beats: savedBeats.beats, reveals: savedReveals.reveals };
     },
     onSuccess: result => {
       queryClient.setQueryData(["editorial-story", result.story.id], { story: result.story });
+      queryClient.setQueryData(["editorial-story-beats", result.story.id], { beats: result.beats });
+      queryClient.setQueryData(["editorial-story-reveals", result.story.id], { reveals: result.reveals });
       queryClient.invalidateQueries({ queryKey: ["ws-stories"] });
       queryClient.invalidateQueries({ queryKey: ["ws-story-connections", result.story.worldId] });
-      queryClient.invalidateQueries({ queryKey: ["editorial-story-beats", result.story.id] });
-      queryClient.invalidateQueries({ queryKey: ["editorial-story-reveals", result.story.id] });
+      // Rehydrate the child forms with persisted IDs and revisions after each save.
+      initializedStoryRef.current = null;
       toast({ title: isNew ? "Storyline created" : "Storyline saved" });
       if (isNew) {
         navigate(`/super/worldsmith/editorial/stories/${result.story.id}`);
       } else {
-        setForm(current => ({
-          ...current,
-          title: result.story.title,
-          summary: result.story.summary ?? "",
-          status: result.story.status ?? "draft",
-          globalMetadata: result.story.globalMetadata ?? {},
-        }));
+        queryClient.invalidateQueries({ queryKey: ["editorial-story", result.story.id] });
       }
     },
-    onError: (error: Error) => toast({
-      title: isNew ? "Could not create storyline" : "Could not save storyline",
-      description: error.message,
-      variant: "destructive",
-    }),
+    onError: (error: Error) => {
+      // A new parent may already exist when a child write fails. Resume that
+      // record rather than creating a second storyline on retry.
+      if (isNew && createdStoryRef.current) {
+        navigate(`/super/worldsmith/editorial/stories/${createdStoryRef.current}`);
+      }
+      toast({
+        title: isNew && !createdStoryRef.current ? "Could not create storyline" : "Could not finish saving storyline",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const createActMutation = useMutation({
@@ -503,7 +545,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
             <button
               type="button"
               onClick={() => saveMutation.mutate()}
-              disabled={!form.title.trim() || saveMutation.isPending}
+               disabled={!form.title.trim() || saveMutation.isPending || (!isNew && (isPendingBeats || isPendingReveals || beatsError || revealsError))}
               className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-45"
               style={{ background: INK, color: "white" }}
               data-testid="button-save-storyline-header"
@@ -780,6 +822,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
             <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
               <h2 className="text-sm font-semibold mb-2" style={{ color: INK }}>Story Spine</h2>
               <p className="text-xs text-gray-500 mb-6">Represent the story spine as ordered structured beats.</p>
+              {beatsError && <p role="alert" className="text-sm text-red-700">Beats could not be loaded. Reload before saving.</p>}
 
               <StructuredRepeater
                 items={form.storySpine ?? []}
@@ -961,16 +1004,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
                           { key: "ruins_plot", label: "Ruins Plot" }
                         ]}
                       />
-                      <SingleSelect
-                        label="Status"
-                        value={item.status}
-                        onChange={v => update({ status: v })}
-                        options={[
-                          { key: "draft", label: "Draft" },
-                          { key: "locked", label: "Locked" },
-                          { key: "cut", label: "Cut" }
-                        ]}
-                      />
+                      {item.id && <span className="text-xs text-gray-500">Lifecycle status: {item.status ?? "draft"} (managed separately)</span>}
                     </div>
                   </div>
                 )}
@@ -980,6 +1014,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
             <section className="rounded-2xl border p-7" style={{ background: "white", borderColor: BORDER }}>
               <h2 className="text-sm font-semibold mb-2" style={{ color: INK }}>Reveal Architecture</h2>
               <p className="text-xs text-gray-500 mb-6">Track secrets, mysteries, and delayed information.</p>
+              {revealsError && <p role="alert" className="text-sm text-red-700">Reveals could not be loaded. Reload before saving.</p>}
 
               <StructuredRepeater
                 items={form.revealArchitecture ?? []}
@@ -988,6 +1023,11 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
                 addButtonLabel="Add Reveal Track"
                 renderItem={(item, idx, update, remove) => (
                   <div className="flex flex-col gap-4">
+                    <label className="flex flex-col gap-1.5 text-[11px] font-semibold" style={{ color: INK }}>
+                      Reveal Title
+                      <input value={item.title || ""} onChange={e => update({ title: e.target.value })}
+                        className="px-3 py-2 text-sm bg-white border rounded-lg" style={{ borderColor: BORDER }} />
+                    </label>
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[11px] font-semibold" style={{ color: INK }}>The Secret / Truth</label>
                       <input
@@ -1449,7 +1489,7 @@ export default function StorylineEditor({ storyId }: { storyId?: string }) {
             </section>
             <button
               type="submit"
-              disabled={!form.title.trim() || saveMutation.isPending}
+              disabled={!form.title.trim() || saveMutation.isPending || (!isNew && (isPendingBeats || isPendingReveals || beatsError || revealsError))}
               className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-45"
               style={{ background: INK, color: "white" }}
               data-testid="button-save-storyline"

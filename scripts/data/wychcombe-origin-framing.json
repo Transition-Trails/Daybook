@@ -1,0 +1,24 @@
+{
+  "worldOpening": "Before Elias Ashcroft's survey, the rural property, its working landscape, and Wychcombe Village already have histories that plans and official records do not fully preserve. Elias arrives near the village to survey a deteriorating property; that commission is the first dramatized turning point in Wychcombe's founding, not the beginning of the place itself.",
+  "storyFraming": "<p><strong>World origin / Story Map frame.</strong> The First Harcourt Survey is the opening dramatized storyline. This Origin Story is a cross-era account, not a second event immediately after that survey: it gathers the property's life before Elias, the work by which Elias, Thomas, and Clara begin Wychcombe, and the transition to Margaret's stewardship. Later storylines may test this foundation, but their unresolved discoveries are not established simply by appearing here.</p>",
+  "acts": [
+    {
+      "actNumber": 1,
+      "title": "Before the Ashcrofts",
+      "tagline": "The place has a history before the survey.",
+      "narrative": "<p>The property and Wychcombe Village have histories before Elias Ashcroft's arrival. Plans and official records leave out parts of the work, repairs, trades, family memory, and accumulated uses that shaped the place. Thomas Vale knows the landscape through years of work before the survey. This movement leaves exact chronology open where the evidence is incomplete; it does not treat the village as an extension of the estate.</p><p>Its threshold is Elias's arrival. The First Harcourt Survey begins with his commission, then lets those existing histories complicate the judgment he expected to make.</p>"
+    },
+    {
+      "actNumber": 2,
+      "title": "The Making of Wychcombe",
+      "tagline": "A survey becomes a shared undertaking.",
+      "narrative": "<p>Elias expects to evaluate buildings. Thomas Vale's knowledge of the landscape leads him beyond the plans and into the lives of people who worked, repaired, traded, and remembered there. Questions about the glasshouses lead to Bellamy & Son and Clara Bellamy. Clara's knowledge of plants, propagation, and records changes how Elias reads evidence; Elias helps her read the accumulated history in altered buildings.</p><p>Their partnership turns an architectural survey into a commitment to preserve evidence of ordinary lives, not only important structures or distinguished owners. Elias and Clara marry and make the property their shared work. Thomas continues to bring knowledge that predates their undertaking, Bellamy & Son remains part of its commercial and horticultural network, and Wychcombe Village retains its own identity.</p>"
+    },
+    {
+      "actNumber": 3,
+      "title": "Wychcombe Today",
+      "tagline": "Responsibility outgrows inheritance.",
+      "narrative": "<p>The next generation carries the undertaking in different directions. James helps shape its physical fabric, Cecily continues botanical observation and documentation, and Margaret sees that preservation alone is insufficient if knowledge remains inaccessible. Their work begins to make Wychcombe capable of surviving the family that founded it.</p><p>Elias must answer the question running through this history: if inherited rank does not decide whose life deserves remembrance, why should it alone decide who is entrusted with remembering it? He rejects automatic primogeniture and recognizes Margaret as Wychcombe's future steward. This is the current horizon of the origin account, not a claim that every later institution or unresolved discovery is already settled.</p>"
+    }
+  ]
+}

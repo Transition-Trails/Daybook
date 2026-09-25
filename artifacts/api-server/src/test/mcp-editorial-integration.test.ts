@@ -1101,6 +1101,133 @@ describe("authenticated editorial MCP tools", () => {
     }
   });
 
+  it("leaves only the winning editor's edit and audit when two editors save the same revision", async () => {
+    const suffix = randomUUID();
+    const operators = [
+      { id: `mcp-editor-a-${suffix}`, token: randomBytes(32).toString("base64url") },
+      { id: `mcp-editor-b-${suffix}`, token: randomBytes(32).toString("base64url") },
+    ];
+    const worldId = `mcp-world-${suffix}`;
+    const storyId = `mcp-story-${suffix}`;
+    const beatId = `mcp-beat-${suffix}`;
+    const clientId = `mcp-client-${suffix}`;
+    const app = express();
+    app.use(express.json());
+    app.use(mcpRouter);
+    const call = (operator: number, name: string, args: Record<string, unknown>) =>
+      request(app).post("/mcp").set("Authorization", `Bearer ${operators[operator].token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
+
+    try {
+      await db.insert(usersTable).values(operators.map((operator, index) => ({
+        id: operator.id, email: `mcp-conflict-${index}-${suffix}@example.com`,
+        name: `Conflicting Editor ${index}`, platformRole: "super_admin",
+      })));
+      await db.insert(worldsmithWorldsTable).values({ id: worldId, name: "Conflicting MCP World", code: "CFW" });
+      await db.insert(wsStoriesTable).values({ id: storyId, worldId, title: "Conflicting Story", status: "draft" });
+      await db.insert(wsStoryBeatsTable).values({ id: beatId, worldId, storyId, beatType: "setup", title: "Opening" });
+      await db.insert(mcpOAuthClientsTable).values({
+        clientId, clientName: "Conflicting editorial saves test", redirectUris: ["https://example.com/cb"],
+      });
+      await db.insert(mcpOAuthTokensTable).values(operators.map(operator => ({
+        tokenHash: createHash("sha256").update(operator.token).digest("hex"),
+        kind: "access" as const, familyId: randomUUID(), clientId, userId: operator.id,
+        resource: getMcpResource(),
+        scopes: ["worldsmith:editorial:read", "worldsmith:editorial:write", "worldsmith:editorial:story-details:write"],
+        expiresAt: new Date(Date.now() + 60_000),
+      })));
+
+      for (const edit of [
+        { id: storyId, kind: "storyline", get: "get_storyline", update: "update_storyline",
+          args: { storyline_id: storyId }, table: wsStoriesTable },
+        { id: beatId, kind: "story_beat", get: "get_story_beat", update: "update_story_beat",
+          args: { storyline_id: storyId, beat_id: beatId }, table: wsStoryBeatsTable },
+      ] as const) {
+        const before = await Promise.all(operators.map((_, index) => call(index, edit.get, edit.args)));
+        for (const response of before) {
+          expect(response.status).toBe(200);
+          expect(response.body.result.isError).not.toBe(true);
+        }
+        const revision = before[0].body.result.structuredContent.revision as string;
+        expect(before[1].body.result.structuredContent.revision).toBe(revision);
+        const values = operators.map((_, index) => `${edit.kind} from editor ${index}`);
+        const holder = await pool.connect();
+        let pending: Promise<import("supertest").Response>[] = [];
+        let blocked = 0;
+        try {
+          await holder.query("BEGIN");
+          const { rows: [{ pid }] } = await holder.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+          await holder.query("SELECT id FROM ws_stories WHERE id = $1 FOR UPDATE", [storyId]);
+          pending = operators.map((_, index) =>
+            call(index, edit.update, {
+              ...edit.args, expected_revision: revision, changes: { summary: values[index] },
+            }).then(response => response));
+          const deadline = Date.now() + 8_000;
+          while (Date.now() < deadline) {
+            const { rows } = await pool.query<{ blocked: number }>(
+              `WITH RECURSIVE waiters(pid) AS (
+                 SELECT pid FROM pg_stat_activity
+                 WHERE pid <> $1 AND wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))
+                 UNION
+                 SELECT activity.pid FROM pg_stat_activity AS activity
+                 JOIN waiters ON waiters.pid = ANY(pg_blocking_pids(activity.pid))
+                 WHERE activity.wait_event_type = 'Lock'
+               )
+               SELECT count(*)::int AS blocked FROM waiters`,
+              [pid],
+            );
+            blocked = rows[0].blocked;
+            if (blocked >= 2) break;
+            await new Promise(resolve => setTimeout(resolve, 25));
+          }
+        } finally {
+          await holder.query("ROLLBACK");
+          holder.release();
+        }
+        const responses = await Promise.all(pending);
+        expect(blocked).toBe(2);
+        expect(responses.map(response => response.status)).toEqual([200, 200]);
+        const winningIndex = responses.findIndex(response => response.body.result?.isError !== true);
+        expect(winningIndex).toBeGreaterThanOrEqual(0);
+        const losingIndex = 1 - winningIndex;
+        expect(responses[losingIndex].body.result.isError).toBe(true);
+        expect(responses[losingIndex].body.result.content[0].text).toContain("REVISION_CONFLICT");
+        const winningRecord = responses[winningIndex].body.result.structuredContent;
+        expect(winningRecord.record.summary).toBe(values[winningIndex]);
+        expect(winningRecord.revision).not.toBe(revision);
+
+        const [saved] = await db.select().from(edit.table).where(eq(edit.table.id, edit.id));
+        expect(saved.summary).toBe(values[winningIndex]);
+        const after = await call(losingIndex, edit.get, edit.args);
+        expect(after.status).toBe(200);
+        expect(after.body.result.structuredContent.revision).toBe(winningRecord.revision);
+        expect(after.body.result.structuredContent.record.summary).toBe(values[winningIndex]);
+
+        const audits = await db.select().from(auditLogTable).where(eq(auditLogTable.targetId, edit.id));
+        expect(audits).toHaveLength(1);
+        expect(audits[0]).toEqual(expect.objectContaining({
+          actorUserId: operators[winningIndex].id,
+          action: `worldsmith.editorial.${edit.kind}.update`,
+          targetType: `worldsmith_${edit.kind}`,
+          metadata: expect.objectContaining({
+            actor_user_id: operators[winningIndex].id,
+            before_after: { summary: { before: "", after: values[winningIndex] } },
+          }),
+        }));
+        expect(audits.some(audit => audit.actorUserId === operators[losingIndex].id ||
+          (audit.metadata as { actor_user_id?: string })?.actor_user_id === operators[losingIndex].id)).toBe(false);
+      }
+    } finally {
+      await db.delete(auditLogTable).where(inArray(auditLogTable.targetId, [storyId, beatId]));
+      await db.delete(wsStoryBeatsTable).where(eq(wsStoryBeatsTable.id, beatId));
+      await db.delete(wsStoriesTable).where(eq(wsStoriesTable.id, storyId));
+      await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
+      await db.delete(mcpOAuthTokensTable).where(eq(mcpOAuthTokensTable.clientId, clientId));
+      await db.delete(mcpOAuthClientsTable).where(eq(mcpOAuthClientsTable.clientId, clientId));
+      await db.delete(usersTable).where(inArray(usersTable.id, operators.map(operator => operator.id)));
+    }
+  });
+
   it("rejects only the stale beat in a queued storyline, beat, and reveal burst", async () => {
     const [user] = await db.select({ id: usersTable.id }).from(usersTable)
       .where(eq(usersTable.platformRole, "super_admin")).limit(1);

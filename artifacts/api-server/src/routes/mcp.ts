@@ -13,6 +13,7 @@ const READ_SCOPE = "worldsmith:canon:read";
 const WRITE_SCOPE = "worldsmith:canon:write";
 const EDITORIAL_READ_SCOPE = "worldsmith:editorial:read";
 const EDITORIAL_WRITE_SCOPE = "worldsmith:editorial:write";
+const REFERENCES_WRITE_SCOPE = "worldsmith:editorial:references:write";
 const STORY_DETAILS_WRITE_SCOPE = "worldsmith:editorial:story-details:write";
 const CANON_EDITORIAL_WRITE_SCOPE = "worldsmith:canon:editorial:write";
 const SCENES_READ_SCOPE = "worldsmith:editorial:scenes:read";
@@ -27,7 +28,7 @@ function publicOrigin(req: Request): string {
 
 function challenge(req: Request, res: Response, error = "invalid_token"): void {
   const url = `${publicOrigin(req)}/.well-known/oauth-protected-resource/mcp`;
-  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE} ${STORY_DETAILS_WRITE_SCOPE} ${CANON_EDITORIAL_WRITE_SCOPE} ${SCENES_READ_SCOPE} ${SCENES_WRITE_SCOPE}`;
+  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE} ${REFERENCES_WRITE_SCOPE} ${STORY_DETAILS_WRITE_SCOPE} ${CANON_EDITORIAL_WRITE_SCOPE} ${SCENES_READ_SCOPE} ${SCENES_WRITE_SCOPE}`;
   res.set("WWW-Authenticate", `Bearer realm="WorldSmith", error="${error}", resource_metadata="${url}", scope="${requiredScopes}"`);
   res.status(error === "insufficient_scope" ? 403 : 401).json({ error });
 }
@@ -160,7 +161,10 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
           || ((name === "update_story_beat" || name === "update_reveal_thread")
             && !identity.scopes.includes(STORY_DETAILS_WRITE_SCOPE))
           || ((RECORD_WRITE_TOOLS.has(name) || VIEW_WRITE_TOOLS.has(name))
-            && !identity.scopes.includes(EDITORIAL_WRITE_SCOPE))) {
+             && !identity.scopes.includes(EDITORIAL_WRITE_SCOPE))
+           || (name === "update_sequence" && args !== null && typeof args === "object"
+             && !Array.isArray(args) && Object.hasOwn(args, "references")
+             && !identity.scopes.includes(REFERENCES_WRITE_SCOPE))) {
         logger.info({ mcpTool: name, outcome: "insufficient_scope" }, "MCP tool call denied");
         challenge(req, res, "insufficient_scope");
         return;

@@ -52,9 +52,10 @@ const schemas = {
   update_sequence: {
     type: "object", properties: {
       world_id: { type: "string", minLength: 1 },
-      sequence_id: { type: "string", minLength: 1 },
+      sequence_id: { type: "string", minLength: 1, description: "A current sequence ID, or the world ID as a stable anchor when no ordered groups remain." },
       expected_revision: { type: "string", minLength: 1 },
-      groups: { type: "array", minItems: 1, maxItems: 500, items: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } } },
+      groups: { type: "array", maxItems: 500, items: { type: "array", minItems: 1, maxItems: 500, items: { type: "string", minLength: 1 } } },
+      references: { type: "array", maxItems: 500, description: "Complete reference lane. Requires separate reference-lane write consent; omit to leave references unchanged.", items: { type: "string", minLength: 1 } },
     }, required: ["world_id", "sequence_id", "expected_revision", "groups"], additionalProperties: false,
   },
 } as const;
@@ -65,7 +66,7 @@ export const VIEW_TOOLS = [
   { name: "update_story_map", description: "Partially update Story Map storyline order and canon links; does not edit canon records.", inputSchema: schemas.update_story_map },
   { name: "search_sequences", description: "Search storyline chronology groups (sequences), not scenes.", inputSchema: schemas.search_sequences },
   { name: "get_sequence", description: "Read a virtual storyline chronology group.", inputSchema: schemas.get_sequence },
-  { name: "update_sequence", description: "Save the complete chronology grouping for a world atomically.", inputSchema: schemas.update_sequence },
+  { name: "update_sequence", description: "Save the complete world chronology atomically. Supply references to move stories into or out of the reference lane (requires reference-lane write consent); omit references for ordered-group-only edits.", inputSchema: schemas.update_sequence },
 ];
 
 export const VIEW_WRITE_TOOLS = new Set(["update_story_map", "update_sequence"]);
@@ -91,7 +92,8 @@ const argsSchemas = {
   get_sequence: z.object({ sequence_id: z.string().min(1) }).strict(),
   update_sequence: z.object({
     world_id: z.string().min(1), sequence_id: z.string().min(1), expected_revision: z.string().min(1),
-    groups: z.array(z.array(z.string().min(1)).min(1)).min(1).max(500),
+    groups: z.array(z.array(z.string().min(1)).min(1).max(500)).max(500),
+    references: z.array(z.string().min(1)).max(500).optional(),
   }).strict(),
 };
 
@@ -236,7 +238,9 @@ async function readSequenceSet(worldId: string, origin: string, tx: QueryExecuto
       ...story, parent: { world_id: worldId, story_map_id: worldId }, editor_url: storyUrl(origin, story.id, worldId),
     })),
   }));
-  return { world_id: worldId, sequences: groups, revision: currentRevision };
+  const references = stories.filter(story => story.sequenceRole === "reference")
+    .map(story => ({ ...story, editor_url: storyUrl(origin, story.id, worldId) }));
+  return { world_id: worldId, sequences: groups, references, revision: currentRevision };
 }
 
 function assertRevision(expected: string, current: string): void {
@@ -401,7 +405,7 @@ export async function executeViewTool(userId: string, name: string, args: unknow
       const remaining = input.after_id === undefined ? ordered : ordered.filter(group => group.id > input.after_id!);
       const sequences = remaining.slice(0, input.limit ?? remaining.length);
       return {
-        world_id: input.world_id, sequences, revision: result.revision,
+        world_id: input.world_id, sequences, references: result.references, revision: result.revision,
         total: matchingSequences.length,
         has_more: remaining.length > sequences.length,
         next_cursor: remaining.length > sequences.length ? sequences[sequences.length - 1]!.id : null,
@@ -409,6 +413,10 @@ export async function executeViewTool(userId: string, name: string, args: unknow
     }
     case "get_sequence": {
       const input = parse(name, args);
+      // The stable world anchor remains readable even when every story is a reference.
+      const [anchoredWorld] = await db.select({ id: worldsmithWorldsTable.id }).from(worldsmithWorldsTable)
+        .where(eq(worldsmithWorldsTable.id, input.sequence_id)).limit(1);
+      if (anchoredWorld) return readSequenceSet(anchoredWorld.id, origin);
       const [worldId, originWorld] = await (async () => {
         // Virtual IDs are globally unique across membership; find their world by scanning worlds' storyline groups.
         const worlds = await db.select({ id: worldsmithWorldsTable.id }).from(worldsmithWorldsTable);
@@ -430,45 +438,53 @@ export async function executeViewTool(userId: string, name: string, args: unknow
         await lockWorldStories(tx, input.world_id);
         const before = await readSequenceSet(input.world_id, origin, tx);
         assertRevision(input.expected_revision, before.revision);
-        const existingStories = before.sequences.flatMap(group => group.members);
+        const existingStories = [...before.sequences.flatMap(group => group.members), ...before.references];
         if (existingStories.length > 500) {
           throw new CanonToolError("A chronology update may include at most 500 stories so its audit record remains bounded", 400, "TOO_MANY_STORIES");
         }
-        if (!before.sequences.some(group => group.id === input.sequence_id)) {
+        if (input.sequence_id !== input.world_id && !before.sequences.some(group => group.id === input.sequence_id)) {
           throw new CanonToolError("Sequence ID is stale or does not belong to this world", 409, "SEQUENCE_CONFLICT");
         }
-        const currentIds = existingStories.map(story => story.id);
-        const suppliedIds = input.groups.flat();
-        if (new Set(suppliedIds).size !== suppliedIds.length || suppliedIds.length !== currentIds.length ||
-          suppliedIds.some(id => !currentIds.includes(id))) {
+        const currentIds = new Set((input.references === undefined ? before.sequences.flatMap(group => group.members) : existingStories).map(story => story.id));
+        const suppliedIds = [...input.groups.flat(), ...(input.references ?? [])];
+        if (new Set(suppliedIds).size !== suppliedIds.length || suppliedIds.length !== currentIds.size ||
+          suppliedIds.some(id => !currentIds.has(id)) || (input.groups.length === 0 && input.references === undefined)) {
           throw new CanonToolError("Chronology groups must include every world story exactly once", 400, "INVALID_GROUPING");
         }
-        const changed: Array<{ id: string; sortOrder: number }> = [];
+        const beforeById = new Map(existingStories.map(story => [story.id, story]));
+        const changed: Array<{ id: string; sortOrder: number; sequenceRole: string }> = [];
         for (const [index, group] of input.groups.entries()) {
           const order = index + 1;
           for (const id of group) {
-            await tx.update(wsStoriesTable).set({ sortOrder: order, updatedAt: new Date() })
+            await tx.update(wsStoriesTable).set({ sortOrder: order, sequenceRole: "chronological", updatedAt: new Date() })
               .where(and(eq(wsStoriesTable.id, id), eq(wsStoriesTable.worldId, input.world_id)));
-            changed.push({ id, sortOrder: order });
+            changed.push({ id, sortOrder: order, sequenceRole: "chronological" });
           }
+        }
+        // Reference order is intentionally retained, as on the admin Sequence board.
+        for (const id of input.references ?? []) {
+          const prior = beforeById.get(id)!;
+          await tx.update(wsStoriesTable).set({ sequenceRole: "reference", updatedAt: new Date() })
+            .where(and(eq(wsStoriesTable.id, id), eq(wsStoriesTable.worldId, input.world_id)));
+          changed.push({ id, sortOrder: prior.sortOrder, sequenceRole: "reference" });
         }
         await tx.update(worldsmithWorldsTable)
           .set({ storySequenceRevision: sql`${worldsmithWorldsTable.storySequenceRevision} + 1` })
           .where(eq(worldsmithWorldsTable.id, input.world_id));
         const after = await readSequenceSet(input.world_id, origin, tx);
-        const afterStories = after.sequences.flatMap(group => group.members);
-        const beforeById = new Map(existingStories.map(story => [story.id, story]));
+        const afterStories = [...after.sequences.flatMap(group => group.members), ...after.references];
         const afterById = new Map(afterStories.map(story => [story.id, story]));
         const changedIds = existingStories
-          .filter(story => afterById.get(story.id)?.sortOrder !== story.sortOrder)
+          .filter(story => afterById.get(story.id)?.sortOrder !== story.sortOrder
+            || afterById.get(story.id)?.sequenceRole !== story.sequenceRole)
           .map(story => story.id);
         await insertAudit(tx, userId, "worldsmith.sequence.update", input.world_id, {
           before_revision: before.revision, after_revision: after.revision,
           before_rows: {
-            stories: changedIds.map(id => ({ id, sortOrder: beforeById.get(id)!.sortOrder })),
+            stories: changedIds.map(id => ({ id, sortOrder: beforeById.get(id)!.sortOrder, sequenceRole: beforeById.get(id)!.sequenceRole })),
           },
           after_rows: {
-            stories: changedIds.map(id => ({ id, sortOrder: afterById.get(id)!.sortOrder })),
+            stories: changedIds.map(id => ({ id, sortOrder: afterById.get(id)!.sortOrder, sequenceRole: afterById.get(id)!.sequenceRole })),
           },
         });
         return {

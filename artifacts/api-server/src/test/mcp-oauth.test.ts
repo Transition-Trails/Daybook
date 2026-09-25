@@ -219,6 +219,8 @@ describe("MCP OAuth authorization server", () => {
     expect(hasWriteWithoutRead(["worldsmith:canon:read", "worldsmith:canon:write"])).toBe(false);
     expect(hasWriteWithoutRead(["worldsmith:editorial:write"])).toBe(true);
     expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:editorial:write"])).toBe(false);
+    expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:editorial:references:write"])).toBe(true);
+    expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:editorial:write", "worldsmith:editorial:references:write"])).toBe(false);
     expect(hasWriteWithoutRead(["worldsmith:canon:read", "worldsmith:editorial:write"])).toBe(true);
     expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:canon:write"])).toBe(true);
     expect(hasWriteWithoutRead(["worldsmith:editorial:story-details:write"])).toBe(true);
@@ -276,6 +278,7 @@ describe("MCP OAuth authorization server", () => {
       "worldsmith:canon:write",
       "worldsmith:editorial:read",
       "worldsmith:editorial:write",
+      "worldsmith:editorial:references:write",
       "worldsmith:editorial:story-details:write",
       "worldsmith:canon:editorial:write",
       "worldsmith:editorial:scenes:read",
@@ -417,6 +420,29 @@ describe("MCP OAuth authorization server", () => {
       allow_editorial_write: "yes", allow_story_details_write: "yes",
     }).expect(302);
     expect(mocks.data.codes[0].scopes).toContain("worldsmith:editorial:story-details:write");
+  });
+
+  it("requires a distinct approval before reference-lane edits can be granted", async () => {
+    const authorize = () => request(app).get("/mcp/oauth/authorize").query({
+      response_type: "code", client_id: clientId, redirect_uri: redirectUri,
+      state: "reference-write", code_challenge: challenge(), code_challenge_method: "S256",
+      resource: getMcpResource(),
+      scope: "worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:references:write",
+    });
+    const consent = await authorize().expect(200);
+    expect(consent.text).toContain('name="allow_references_write"');
+    expect(consent.text).toContain("Move WorldSmith stories into or out of the chronology reference lane");
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: consent.text.match(/name="csrf_token" value="([^"]+)"/)?.[1],
+      consent: "approve", allow_editorial_write: "yes",
+    }).expect(400);
+    expect(mocks.data.codes).toHaveLength(0);
+    const retry = await authorize().expect(200);
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: retry.text.match(/name="csrf_token" value="([^"]+)"/)?.[1],
+      consent: "approve", allow_editorial_write: "yes", allow_references_write: "yes",
+    }).expect(302);
+    expect(mocks.data.codes[0].scopes).toContain("worldsmith:editorial:references:write");
   });
 
   it("requires separate consent for Canon editorial and scenes writes without widening other grants", async () => {

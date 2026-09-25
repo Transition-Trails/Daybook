@@ -73,7 +73,7 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       "https://daybook.example/.well-known/oauth-protected-resource/mcp",
     );
     expect(response.headers["www-authenticate"]).toContain(
-      'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write"',
+      'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write"',
     );
     expect(mocked.execute).not.toHaveBeenCalled();
   });

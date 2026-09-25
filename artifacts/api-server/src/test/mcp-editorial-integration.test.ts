@@ -13,6 +13,104 @@ import { getMcpResource } from "../lib/mcp-oauth";
 import mcpRouter from "../routes/mcp";
 
 describe("authenticated editorial MCP tools", () => {
+  it("requires separate consent and saves the complete reference lane under the world revision", async () => {
+    const [user] = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(eq(usersTable.platformRole, "super_admin")).limit(1);
+    if (!user) throw new Error("A seeded development super-admin is required");
+    const suffix = randomUUID();
+    const worldId = `reference-world-${suffix}`;
+    const otherWorldId = `other-reference-world-${suffix}`;
+    const first = `reference-first-${suffix}`;
+    const second = `reference-second-${suffix}`;
+    const foreign = `reference-foreign-${suffix}`;
+    const clientId = `reference-client-${suffix}`;
+    const oldToken = randomBytes(32).toString("base64url");
+    const consentedToken = randomBytes(32).toString("base64url");
+    const app = express();
+    app.use(express.json());
+    app.use(mcpRouter);
+    const rpc = (token: string, method: string, params: Record<string, unknown>) =>
+      request(app).post("/mcp").set("Authorization", `Bearer ${token}`)
+        .send({ jsonrpc: "2.0", id: 1, method, params });
+    const call = (token: string, name: string, args: Record<string, unknown>) =>
+      rpc(token, "tools/call", { name, arguments: args });
+    const content = async (token: string, name: string, args: Record<string, unknown>) =>
+      (await call(token, name, args)).body.result.structuredContent;
+    try {
+      await db.insert(worldsmithWorldsTable).values([
+        { id: worldId, name: "References Test World", code: "RTW" },
+        { id: otherWorldId, name: "Foreign References World", code: "FRW" },
+      ]);
+      await db.insert(wsStoriesTable).values([
+        { id: first, worldId, title: "First", sortOrder: 1 },
+        { id: second, worldId, title: "Cross-era", sortOrder: 2 },
+        { id: foreign, worldId: otherWorldId, title: "Foreign", sortOrder: 1 },
+      ]);
+      await db.insert(mcpOAuthClientsTable).values({
+        clientId, clientName: "Reference lane test client", redirectUris: ["https://example.com/cb"],
+      });
+      for (const [token, scopes] of [
+        [oldToken, ["worldsmith:editorial:read", "worldsmith:editorial:write"]],
+        [consentedToken, ["worldsmith:editorial:read", "worldsmith:editorial:write", "worldsmith:editorial:references:write"]],
+      ] as const) {
+        await db.insert(mcpOAuthTokensTable).values({
+          tokenHash: createHash("sha256").update(token).digest("hex"), kind: "access",
+          familyId: randomUUID(), clientId, userId: user.id, resource: getMcpResource(),
+          scopes: [...scopes], expiresAt: new Date(Date.now() + 60_000),
+        });
+      }
+      const initial = await content(oldToken, "search_sequences", { world_id: worldId });
+      const anchor = initial.sequences[0].id as string;
+      const attempted = { world_id: worldId, sequence_id: anchor, expected_revision: initial.revision,
+        groups: [[first]], references: [second] };
+      expect((await call(oldToken, "update_sequence", attempted)).status).toBe(403);
+      expect((await content(oldToken, "search_sequences", { world_id: worldId })).revision).toBe(initial.revision);
+      for (const layout of [
+        { groups: [[first], [second]], references: [second] },
+        { groups: [[first]], references: [foreign] },
+        { groups: [[first]], references: [] },
+      ]) {
+        const rejected = await call(consentedToken, "update_sequence", { ...attempted, ...layout });
+        expect(rejected.body.result.content[0].text).toContain("INVALID_GROUPING");
+      }
+      const moved = await content(consentedToken, "update_sequence", attempted);
+      expect(moved.sequences.map((group: { story_ids: string[] }) => group.story_ids)).toEqual([[first]]);
+      expect(moved.references.map((story: { id: string }) => story.id)).toEqual([second]);
+      expect(moved.revision).not.toBe(initial.revision);
+      const saved = await db.select().from(wsStoriesTable).where(eq(wsStoriesTable.id, second));
+      expect(saved[0].sequenceRole).toBe("reference");
+      const stale = await call(consentedToken, "update_sequence", attempted);
+      expect(stale.body.result.content[0].text).toContain("REVISION_CONFLICT");
+      const singleGroup = moved.sequences[0].id as string;
+      const allReferences = await content(consentedToken, "update_sequence", {
+        world_id: worldId, sequence_id: singleGroup, expected_revision: moved.revision,
+        groups: [], references: [first, second],
+      });
+      expect(allReferences.sequences).toEqual([]);
+      expect(allReferences.references).toHaveLength(2);
+      const anchored = await content(consentedToken, "get_sequence", { sequence_id: worldId });
+      expect(anchored.revision).toBe(allReferences.revision);
+      const restored = await content(consentedToken, "update_sequence", {
+        world_id: worldId, sequence_id: worldId, expected_revision: anchored.revision,
+        groups: [[second], [first]], references: [],
+      });
+      expect(restored.references).toEqual([]);
+      expect(restored.sequences.map((group: { story_ids: string[] }) => group.story_ids)).toEqual([[second], [first]]);
+      expect((await db.select().from(wsStoriesTable).where(eq(wsStoriesTable.id, second)))[0].sequenceRole).toBe("chronological");
+      const audits = await db.select().from(auditLogTable).where(eq(auditLogTable.targetId, worldId));
+      expect(audits).toHaveLength(3);
+      expect(audits[0].metadata).toEqual(expect.objectContaining({
+        before_rows: { stories: [{ id: second, sortOrder: 2, sequenceRole: "chronological" }] },
+        after_rows: { stories: [{ id: second, sortOrder: 2, sequenceRole: "reference" }] },
+      }));
+    } finally {
+      await db.delete(auditLogTable).where(eq(auditLogTable.targetId, worldId));
+      await db.delete(wsStoriesTable).where(inArray(wsStoriesTable.worldId, [worldId, otherWorldId]));
+      await db.delete(worldsmithWorldsTable).where(inArray(worldsmithWorldsTable.id, [worldId, otherWorldId]));
+      await db.delete(mcpOAuthTokensTable).where(eq(mcpOAuthTokensTable.clientId, clientId));
+      await db.delete(mcpOAuthClientsTable).where(eq(mcpOAuthClientsTable.clientId, clientId));
+    }
+  });
   it("serializes simultaneous beat and reveal edits behind the storyline lock", async () => {
     const [user] = await db.select({ id: usersTable.id }).from(usersTable)
       .where(eq(usersTable.platformRole, "super_admin")).limit(1);

@@ -181,7 +181,7 @@ describe("WorldSmith Editorial page filter drawer", () => {
     expect(within(drawerFilters).getByRole("heading", { name: "Story Map filters" })).toBeInTheDocument();
     expect(screen.queryByText("Focus on")).not.toBeInTheDocument();
 
-    await screen.findByRole("option", { name: "The Glasswater Archive" });
+    await screen.findByRole("option", { name: /The Glasswater Archive — Chronological/ });
     fireEvent.change(within(drawerFilters).getByLabelText("Focus storyline"), { target: { value: "story-1" } });
     await waitFor(() => {
       expect(apiFetchMock.mock.calls.some(([path]) => String(path).includes("story_id=story-1"))).toBe(true);

@@ -64,8 +64,8 @@ export const VIEW_TOOLS = [
   { name: "search_story_maps", description: "Search world-level Story Map views.", inputSchema: schemas.search_story_maps },
   { name: "get_story_map", description: "Read a complete Story Map graph of storylines, movements, and canon links.", inputSchema: schemas.get_story_map },
   { name: "update_story_map", description: "Partially update Story Map storyline order and canon links; does not edit canon records.", inputSchema: schemas.update_story_map },
-  { name: "search_sequences", description: "Search storyline chronology groups (sequences), not scenes.", inputSchema: schemas.search_sequences },
-  { name: "get_sequence", description: "Read a virtual storyline chronology group.", inputSchema: schemas.get_sequence },
+  { name: "search_sequences", description: "Search storyline chronology groups and cross-era reference stories by title or summary, not scenes. Results may be filtered or paginated; use get_sequence with the world ID for a complete layout before writing.", inputSchema: schemas.search_sequences },
+  { name: "get_sequence", description: "Read the complete world chronology and reference lane using the world ID, or read a virtual storyline chronology group using its sequence ID.", inputSchema: schemas.get_sequence },
   { name: "update_sequence", description: "Save the complete world chronology atomically. Supply references to move stories into or out of the reference lane (requires reference-lane write consent); omit references for ordered-group-only edits.", inputSchema: schemas.update_sequence },
 ];
 
@@ -395,9 +395,13 @@ export async function executeViewTool(userId: string, name: string, args: unknow
     case "search_sequences": {
       const input = parse(name, args);
       const result = await readSequenceSet(input.world_id, origin);
-      const matchingSequences = input.query
-        ? result.sequences.filter(group => group.members.some(story => `${story.title} ${story.summary}`.toLowerCase().includes(input.query!.toLowerCase())))
+      const query = input.query?.toLowerCase();
+      const matches = (story: { title: string; summary: string | null }) =>
+        !query || `${story.title} ${story.summary ?? ""}`.toLowerCase().includes(query);
+      const matchingSequences = query
+        ? result.sequences.filter(group => group.members.some(matches))
         : result.sequences;
+      const matchingReferences = result.references.filter(matches);
       const bounded = input.after_id !== undefined || input.limit !== undefined;
       const ordered = bounded
         ? [...matchingSequences].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
@@ -405,8 +409,10 @@ export async function executeViewTool(userId: string, name: string, args: unknow
       const remaining = input.after_id === undefined ? ordered : ordered.filter(group => group.id > input.after_id!);
       const sequences = remaining.slice(0, input.limit ?? remaining.length);
       return {
-        world_id: input.world_id, sequences, references: result.references, revision: result.revision,
+        world_id: input.world_id, sequences, references: matchingReferences, revision: result.revision,
         total: matchingSequences.length,
+        references_total: matchingReferences.length,
+        layout_complete: !query && !bounded,
         has_more: remaining.length > sequences.length,
         next_cursor: remaining.length > sequences.length ? sequences[sequences.length - 1]!.id : null,
       };

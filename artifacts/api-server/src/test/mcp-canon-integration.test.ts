@@ -58,24 +58,26 @@ describe("Canon MCP / editorial save integration", () => {
       const before = await rpc("get_canon_record", { record_id: recordId });
       expect(before.status).toBe(200);
       expect(before.body.result.structuredContent.workflow_status).toBe("proposed");
-      const version = before.body.result.structuredContent.version as number;
+      const version = before.body.result.structuredContent.revision as number;
 
-      const valid = await rpc("update_character_attributes", {
-        record_id: recordId, expected_version: version,
+      const valid = await rpc("update_canon_record", {
+        record_id: recordId, expected_revision: version,
         changes: { pronouns: "she/her", coreDesire: "Find her sister" },
       });
       expect(valid.body.result.isError).toBeUndefined();
-      expect(valid.body.result.structuredContent.version).toBe(version + 1);
+      expect(valid.body.result.structuredContent.revision).toBe(version + 1);
+      expect(valid.body.result.structuredContent.record.id).toBe(recordId);
+      expect(valid.body.result.structuredContent.record.status).toBe("proposed");
 
-      const invalid = await rpc("update_character_attributes", {
-        record_id: recordId, expected_version: version + 1,
+      const invalid = await rpc("update_canon_record", {
+        record_id: recordId, expected_revision: version + 1,
         changes: { lifeStage: "not-a-real-life-stage" },
       });
       expect(invalid.body.result.isError).toBe(true);
       expect(invalid.body.result.content[0].text).toContain("INVALID_PICKLIST_VALUE");
 
-      const stale = await rpc("update_character_attributes", {
-        record_id: recordId, expected_version: version,
+      const stale = await rpc("update_canon_record", {
+        record_id: recordId, expected_revision: version,
         changes: { pronouns: "he/him" },
       });
       expect(stale.body.result.isError).toBe(true);

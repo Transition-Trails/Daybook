@@ -16,7 +16,7 @@ vi.mock("../lib/worldsmith/mcp-canon", () => ({
     { name: "search_canon_records", description: "Search", inputSchema: { type: "object" } },
     { name: "get_canon_record", description: "Read", inputSchema: { type: "object" } },
     { name: "get_canon_field_options", description: "Options", inputSchema: { type: "object" } },
-    { name: "update_character_attributes", description: "Write", inputSchema: { type: "object" } },
+    { name: "update_canon_record", description: "Write", inputSchema: { type: "object" } },
     { name: "get_record_change_history", description: "History", inputSchema: { type: "object" } },
   ],
   executeCanonTool: mocked.execute,
@@ -25,6 +25,7 @@ vi.mock("../lib/worldsmith/mcp-canon", () => ({
 import mcpRouter from "../routes/mcp";
 
 const app = express();
+app.post("/mcp", express.text({ type: () => true, limit: "1mb" }));
 app.use(express.json());
 app.use(mcpRouter);
 
@@ -57,6 +58,14 @@ describe("WorldSmith Streamable HTTP MCP", () => {
     expect(mocked.execute).not.toHaveBeenCalled();
   });
 
+  it("challenges an anonymous host before examining its JSON media type", async () => {
+    const response = await request(app).post("/mcp")
+      .set("Content-Type", "text/plain")
+      .send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }));
+    expect(response.status).toBe(401);
+    expect(response.headers["www-authenticate"]).toContain("oauth-protected-resource/mcp");
+  });
+
   it("negotiates and lists exactly the five tools", async () => {
     const initialized = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
       .send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25" } });
@@ -66,8 +75,17 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       .send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
     expect(listed.body.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
       "search_canon_records", "get_canon_record", "get_canon_field_options",
-      "update_character_attributes", "get_record_change_history",
+      "update_canon_record", "get_record_change_history",
     ]);
+  });
+
+  it("accepts a bounded JSON-RPC body even when a host labels it as text", async () => {
+    const response = await request(app).post("/mcp")
+      .set("Authorization", "Bearer opaque-token")
+      .set("Content-Type", "text/plain")
+      .send(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }));
+    expect(response.status).toBe(200);
+    expect(response.body.result.tools.some((tool: { name: string }) => tool.name === "update_canon_record")).toBe(true);
   });
 
   it("returns a read result and forwards the OAuth user identity", async () => {
@@ -85,8 +103,8 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       userId: "super-admin", clientId: "client-1", scopes: ["worldsmith:canon:read"],
     });
     const response = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
-      .send(call("update_character_attributes", {
-        record_id: "canon-1", expected_version: 3, changes: { pronouns: "she/her" },
+      .send(call("update_canon_record", {
+        record_id: "canon-1", expected_revision: 3, changes: { pronouns: "she/her" },
       }));
     expect(response.status).toBe(403);
     expect(mocked.execute).not.toHaveBeenCalled();
@@ -96,8 +114,8 @@ describe("WorldSmith Streamable HTTP MCP", () => {
     for (const code of ["INVALID_PICKLIST_VALUE", "VERSION_CONFLICT"]) {
       mocked.execute.mockRejectedValueOnce(Object.assign(new Error(code), { status: code === "VERSION_CONFLICT" ? 409 : 400, code }));
       const response = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
-        .send(call("update_character_attributes", {
-          record_id: "canon-1", expected_version: 3, changes: { lifeStage: "adult" },
+        .send(call("update_canon_record", {
+          record_id: "canon-1", expected_revision: 3, changes: { lifeStage: "adult" },
         }));
       expect(response.status).toBe(200);
       expect(response.body.result.isError).toBe(true);

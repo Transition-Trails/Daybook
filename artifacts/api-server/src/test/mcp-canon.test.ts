@@ -70,7 +70,7 @@ describe("WorldSmith canon MCP service", () => {
   it("publishes exactly the five canon tools and reads complete record details", async () => {
     expect(CANON_TOOLS.map(tool => tool.name)).toEqual([
       "search_canon_records", "get_canon_record", "get_canon_field_options",
-      "update_character_attributes", "get_record_change_history",
+      "update_canon_record", "get_record_change_history",
     ]);
     const result = await executeCanonTool("admin-1", "get_canon_record", { record_id: "char-1" }, "https://editor.example");
     expect(result).toMatchObject({
@@ -141,12 +141,16 @@ describe("WorldSmith canon MCP service", () => {
       return builder;
     };
     try {
-      const result = await executeCanonTool("admin-1", "update_character_attributes", {
-        record_id: "char-1", expected_version: 4, changes: { lifeStage: "adult" },
+      const result = await executeCanonTool("admin-1", "update_canon_record", {
+        record_id: "char-1", expected_revision: 4, changes: { lifeStage: "adult" },
       }, "https://editor.example");
-      expect(result).toMatchObject({ profile: { pronouns: "she/her", lifeStage: "adult" }, version: 5, schema_version: 7 });
-      await expect(executeCanonTool("admin-1", "update_character_attributes", {
-        record_id: "char-1", expected_version: 4, changes: { lifeStage: "child" },
+      expect(result).toMatchObject({
+        record: { id: "char-1", version: 5 },
+        character_profile: { pronouns: "she/her", lifeStage: "adult" },
+        revision: 5, character_profile_schema_version: 7,
+      });
+      await expect(executeCanonTool("admin-1", "update_canon_record", {
+        record_id: "char-1", expected_revision: 4, changes: { lifeStage: "child" },
       }, "https://editor.example")).rejects.toMatchObject({ code: "INVALID_PICKLIST_VALUE" });
     } finally {
       fakeDb.update = originalReturning;

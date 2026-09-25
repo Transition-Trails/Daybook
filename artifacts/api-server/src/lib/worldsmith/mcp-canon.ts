@@ -73,9 +73,9 @@ const toolSchemas = {
   },
   get_canon_record: { type: "object", properties: { record_id: { type: "string", minLength: 1 } }, required: ["record_id"], additionalProperties: false },
   get_canon_field_options: { type: "object", properties: { world_id: { type: "string", minLength: 1 }, canon_type: { type: "string", minLength: 1 } }, required: ["world_id", "canon_type"], additionalProperties: false },
-  update_character_attributes: {
+  update_canon_record: {
     type: "object", properties: {
-      record_id: { type: "string", minLength: 1 }, expected_version: { type: "integer", minimum: 1 },
+      record_id: { type: "string", minLength: 1 }, expected_revision: { type: "integer", minimum: 1 },
       changes: { type: "object", properties: Object.fromEntries(Object.entries(schemaShape).map(([field]) => [
         field, listLimits[field] ? {
           type: "array", maxItems: listLimits[field],
@@ -85,7 +85,7 @@ const toolSchemas = {
           ] },
         } : { type: "string" },
       ])), additionalProperties: false, minProperties: 1 },
-    }, required: ["record_id", "expected_version", "changes"], additionalProperties: false,
+    }, required: ["record_id", "expected_revision", "changes"], additionalProperties: false,
   },
   get_record_change_history: { type: "object", properties: { record_id: { type: "string", minLength: 1 } }, required: ["record_id"], additionalProperties: false },
 } as const;
@@ -94,7 +94,7 @@ export const CANON_TOOLS = [
   { name: "search_canon_records", description: "Search canon records in a world and return editor links.", inputSchema: toolSchemas.search_canon_records },
   { name: "get_canon_record", description: "Read a complete canon record, Character profile, and linked images.", inputSchema: toolSchemas.get_canon_record },
   { name: "get_canon_field_options", description: "Read Character profile field limits and current world/global vocabulary choices.", inputSchema: toolSchemas.get_canon_field_options },
-  { name: "update_character_attributes", description: "Partially update typed Character profile attributes using optimistic version checks.", inputSchema: toolSchemas.update_character_attributes },
+  { name: "update_canon_record", description: "Save a partial set of validated Character fields at the expected record revision; does not approve or reject Canon.", inputSchema: toolSchemas.update_canon_record },
   { name: "get_record_change_history", description: "Read audited profile changes for a canon record.", inputSchema: toolSchemas.get_record_change_history },
 ];
 
@@ -102,7 +102,7 @@ const argsSchemas = {
   search_canon_records: z.object({ world_id: z.string().min(1), query: z.string().min(1).max(500), canon_type: z.string().min(1).optional() }).strict(),
   get_canon_record: z.object({ record_id: z.string().min(1) }).strict(),
   get_canon_field_options: z.object({ world_id: z.string().min(1), canon_type: z.string().min(1) }).strict(),
-  update_character_attributes: z.object({ record_id: z.string().min(1), expected_version: z.number().int().positive(), changes: z.unknown() }).strict(),
+  update_canon_record: z.object({ record_id: z.string().min(1), expected_revision: z.number().int().positive(), changes: z.unknown() }).strict(),
   get_record_change_history: z.object({ record_id: z.string().min(1) }).strict(),
 };
 
@@ -304,7 +304,7 @@ export async function executeCanonTool(userId: string, name: string, args: unkno
         id: wsCanonRecordsTable.id, name: wsCanonRecordsTable.name, canonType: wsCanonRecordsTable.canonType,
         status: wsCanonRecordsTable.status, version: wsCanonRecordsTable.version,
       }).from(wsCanonRecordsTable).where(and(...conditions)).orderBy(asc(wsCanonRecordsTable.name)).limit(100);
-      return { records: records.map(row => ({ ...row, editor_url: editorUrl(editorOrigin, input.world_id, row.id) })) };
+      return { records: records.map(row => ({ ...row, revision: row.version, editor_url: editorUrl(editorOrigin, input.world_id, row.id) })) };
     }
     case "get_canon_record": {
       const input = parseArgs("get_canon_record", args);
@@ -321,7 +321,7 @@ export async function executeCanonTool(userId: string, name: string, args: unkno
       return {
         record, character_profile: profile?.profile ?? null, character_profile_schema_version: profile?.schemaVersion ?? null,
         linked_images: { gallery, image_urls: urls, assets: [...directAssets, ...linkedAssets] },
-        workflow_status: record.status, version: record.version,
+        workflow_status: record.status, version: record.version, revision: record.version,
       };
     }
     case "get_canon_field_options": {
@@ -329,10 +329,16 @@ export async function executeCanonTool(userId: string, name: string, args: unkno
       await requireWorld(input.world_id);
       return fieldOptions(input.world_id, input.canon_type);
     }
-    case "update_character_attributes": {
-      const input = parseArgs("update_character_attributes", args);
-      const updated = await updateCharacterProfile(userId, input.record_id, input.changes, input.expected_version);
-      return { record_id: input.record_id, profile: updated.profile, schema_version: updated.schemaVersion, version: updated.version, diff: updated.diff };
+    case "update_canon_record": {
+      const input = parseArgs("update_canon_record", args);
+      const updated = await updateCharacterProfile(userId, input.record_id, input.changes, input.expected_revision);
+      return {
+        record: updated.record,
+        character_profile: updated.profile,
+        character_profile_schema_version: updated.schemaVersion,
+        revision: updated.version,
+        diff: updated.diff,
+      };
     }
     case "get_record_change_history": {
       const input = parseArgs("get_record_change_history", args);

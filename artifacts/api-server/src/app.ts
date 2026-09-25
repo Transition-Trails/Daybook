@@ -50,6 +50,9 @@ app.use(
 app.use("/api/webhooks/stripe", express.raw({ type: "application/json" }));
 app.use("/api/webhooks/resend", express.raw({ type: "application/json" }));
 
+// Some MCP hosts send JSON-RPC with a nonstandard or absent media type.
+// Parse this one endpoint as bounded text, then validate JSON-RPC in its router.
+app.post("/mcp", express.text({ type: () => true, limit: "1mb" }));
 // 10 MB limit — sticker creation sends base64-encoded images in the JSON body.
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));

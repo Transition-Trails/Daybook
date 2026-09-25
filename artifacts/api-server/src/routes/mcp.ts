@@ -34,10 +34,6 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
     res.set("Allow", "POST, OPTIONS").status(405).end();
     return;
   }
-  if (!req.is("application/json")) {
-    res.status(415).json({ error: "Content-Type must be application/json" });
-    return;
-  }
   const authorization = req.get("authorization");
   const bearer = /^Bearer ([A-Za-z0-9._~+/-]+)$/i.exec(authorization ?? "");
   if (!bearer) {
@@ -59,7 +55,15 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
     res.status(413).json({ error: "MCP request too large" });
     return;
   }
-  const message = req.body as Record<string, unknown> | null;
+  let message: Record<string, unknown> | null;
+  try {
+    message = typeof req.body === "string"
+      ? JSON.parse(req.body) as Record<string, unknown>
+      : req.body as Record<string, unknown> | null;
+  } catch {
+    res.status(400).json(rpcError(null, -32700, "Invalid JSON"));
+    return;
+  }
   if (!message || Array.isArray(message) || typeof message !== "object" || message.jsonrpc !== "2.0"
       || typeof message.method !== "string") {
     res.status(400).json(rpcError(null, -32600, "Invalid JSON-RPC request"));
@@ -104,7 +108,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
         res.status(200).json(rpcError(id, -32602, "Unknown tool"));
         return;
       }
-      if (name === "update_character_attributes" && !identity.scopes.includes(WRITE_SCOPE)) {
+      if (name === "update_canon_record" && !identity.scopes.includes(WRITE_SCOPE)) {
         challenge(req, res, "insufficient_scope");
         return;
       }

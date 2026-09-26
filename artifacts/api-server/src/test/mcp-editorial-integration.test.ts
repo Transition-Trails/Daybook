@@ -377,6 +377,82 @@ describe("authenticated editorial MCP tools", () => {
       }
     },
   );
+  it.each(["search_sequences", "get_sequence"] as const)(
+    "keeps a full %s layout and revision on one snapshot when a story is inserted mid-read",
+    async tool => {
+      const [user] = await db.select({ id: usersTable.id }).from(usersTable)
+        .where(eq(usersTable.platformRole, "super_admin")).limit(1);
+      if (!user) throw new Error("A seeded development super-admin is required");
+      const worldId = `insert-snapshot-${randomUUID()}`;
+      const storyId = `${worldId}-story`;
+      const insertedId = `${worldId}-inserted`;
+      const origin = "https://example.com";
+      const args = tool === "get_sequence"
+        ? { world_id: worldId, sequence_id: worldId }
+        : { world_id: worldId };
+      let resume!: () => void;
+      const released = new Promise<void>(resolve => { resume = resolve; });
+      let selected!: () => void;
+      const storiesSelected = new Promise<void>(resolve => { selected = resolve; });
+      let intercept = false;
+      const connect = pool.connect.bind(pool);
+      const wrappedClients = new Map<object, unknown>();
+      const connectSpy = vi.spyOn(pool, "connect").mockImplementation(((...args: unknown[]) => {
+        if (typeof args[0] === "function") return (connect as (callback: unknown) => void)(args[0]);
+        return connect().then(client => {
+          if (wrappedClients.has(client)) return client;
+          const originalQuery = client.query;
+          wrappedClients.set(client, originalQuery);
+          client.query = ((...queryArgs: unknown[]) => {
+            if (typeof queryArgs[queryArgs.length - 1] === "function") {
+              return (originalQuery as (...values: unknown[]) => unknown).apply(client, queryArgs);
+            }
+            return (async () => {
+              const result = await (originalQuery as (...values: unknown[]) => Promise<unknown>).apply(client, queryArgs);
+              const config = queryArgs[0];
+              const text = typeof config === "string" ? config : (config as { text?: string }).text;
+              if (intercept && text?.includes('from "ws_stories"') && text.includes("order by")) {
+                intercept = false;
+                selected();
+                await released;
+              }
+              return result;
+            })();
+          }) as typeof client.query;
+          return client;
+        });
+      }) as typeof pool.connect);
+      try {
+        await db.insert(worldsmithWorldsTable).values({ id: worldId, name: "Insertion snapshot", code: "INS" });
+        await db.insert(wsStoriesTable).values({ id: storyId, worldId, title: "Original", sortOrder: 1 });
+        const before = await executeViewTool(user.id, tool, args, origin) as {
+          revision: string; sequences: Array<{ id: string; story_ids: string[]; expected_revision: string }>;
+        };
+        expect(before.sequences.map(group => group.story_ids)).toEqual([[storyId]]);
+        intercept = true;
+        const pending = executeViewTool(user.id, tool, args, origin);
+        await storiesSelected;
+        // The new member changes both the virtual group ID and the world revision.
+        // The paused reader has already selected the old membership.
+        await db.insert(wsStoriesTable).values({ id: insertedId, worldId, title: "New member", sortOrder: 1 });
+        resume();
+        expect(await pending).toEqual(before);
+        const after = await executeViewTool(user.id, tool, args, origin) as typeof before;
+        expect(after.sequences.map(group => group.story_ids)).toEqual([[insertedId, storyId]]);
+        expect(after.sequences[0].id).not.toBe(before.sequences[0].id);
+        expect(after.revision).not.toBe(before.revision);
+        expect(after.sequences[0].expected_revision).toBe(after.revision);
+      } finally {
+        resume();
+        connectSpy.mockRestore();
+        for (const [client, originalQuery] of wrappedClients) {
+          (client as { query: typeof pool.query }).query = originalQuery as typeof pool.query;
+        }
+        await db.delete(wsStoriesTable).where(eq(wsStoriesTable.worldId, worldId));
+        await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
+      }
+    },
+  );
   it("keeps Story Map graphs and search revisions on one snapshot across concurrent edits", async () => {
     const [user] = await db.select({ id: usersTable.id }).from(usersTable)
       .where(eq(usersTable.platformRole, "super_admin")).limit(1);

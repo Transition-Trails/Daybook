@@ -112,3 +112,4 @@
 - [Postgres lock-chain tests](postgres-lock-chain-tests.md) — identify concurrent row-lock waiters by blocker chain, not pg_stat_activity query text
 - [Sequence search revisions](sequence-search-revisions.md) — paged and full chronology reads must share a world-wide revision over all stored story fields
 - [Canon relation restraint](canon-relation-restraint.md) — relationship suggestions are selective editorial proposals, never an automatic graph-building step
+- [Canon vocabulary governance](canon-vocabulary-governance.md) — activate reviewed world-scoped choices, not entire UI fallback lists, before MCP metadata writes

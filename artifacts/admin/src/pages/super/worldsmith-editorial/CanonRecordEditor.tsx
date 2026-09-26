@@ -201,6 +201,7 @@ function ImageField({
   onUpload,
   onGenerate,
   onRemove,
+  onMakePrimary,
   onChangeMetadata,
   onPromptChange,
   onRelatedRecordsChange,
@@ -216,6 +217,7 @@ function ImageField({
   onUpload: (file: File) => Promise<boolean>;
   onGenerate: (mode: "primary_portrait" | "reference") => void;
   onRemove: (imageUrl: string) => void;
+  onMakePrimary: (imageUrl: string) => void;
   onChangeMetadata: (imageUrl: string, changes: Partial<CanonImage>) => void;
   onPromptChange: (prompt: string) => void;
   onRelatedRecordsChange: (recordIds: string[]) => void;
@@ -231,7 +233,7 @@ function ImageField({
         <div>
           <h2 className="text-sm font-semibold" style={{ color: INK }}>Canon images</h2>
           <p className="mt-1 text-xs leading-relaxed" style={{ color: "#667085" }}>
-            Capture one primary Canon image, then add named supporting images with descriptions.
+            Choose a primary Canon image and add named supporting images with descriptions.
           </p>
         </div>
         <span className="text-[11px] font-semibold" style={{ color: "var(--admin-muted)" }}>
@@ -318,6 +320,7 @@ function ImageField({
           {additional.length > 0 && (
             <div>
               <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: INK }}>Additional images</h3>
+              <p className="mb-3 text-[11px]" style={{ color: "var(--admin-muted)" }}>Choose “Make primary,” then save the record. Your other images will stay attached.</p>
               <div className="space-y-4">
                 {additional.map((image, index) => (
                   <div key={image.url} className="rounded-xl border p-4" style={{ borderColor: BORDER, background: "var(--admin-card-subtle)" }}>
@@ -332,15 +335,27 @@ function ImageField({
                           </span>
                         )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => onRemove(image.url)}
-                        disabled={uploading || generating}
-                        className="text-[10px] font-semibold disabled:opacity-60"
-                        style={{ color: "var(--destructive)" }}
-                      >
-                        Remove Asset
-                      </button>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => onMakePrimary(image.url)}
+                          disabled={uploading || generating}
+                          aria-label={`Make ${image.name || `image ${index + 2}`} primary`}
+                          className="text-[10px] font-semibold disabled:opacity-60"
+                          style={{ color: CLAY }}
+                        >
+                          Make primary
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRemove(image.url)}
+                          disabled={uploading || generating}
+                          className="text-[10px] font-semibold disabled:opacity-60"
+                          style={{ color: "var(--destructive)" }}
+                        >
+                          Remove Asset
+                        </button>
+                      </div>
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-[140px_minmax(0,1fr)] items-start">
@@ -1372,6 +1387,24 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     )));
   };
 
+  const makeImagePrimary = (imageUrl: string) => {
+    setForm(current => {
+      const selected = current.images.find(image => image.url === imageUrl);
+      if (!selected || current.images[0]?.url === imageUrl) return current;
+      return {
+        ...current,
+        images: [
+          { ...selected, role: "primary" },
+          ...current.images
+            .filter(image => image.url !== imageUrl)
+            .map(image => image.role === "primary" || image.role === "primary_portrait" || image.role === "primary_image"
+              ? { ...image, role: "reference" }
+              : image),
+        ],
+      };
+    });
+  };
+
   if (isLoading) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" style={{ color: CLAY }} /></div>;
   }
@@ -1803,6 +1836,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               onUpload={handleImageUpload}
               onGenerate={generateImage}
               onRemove={removeImage}
+              onMakePrimary={makeImagePrimary}
               onChangeMetadata={updateImageMetadata}
               onPromptChange={setImagePrompt}
               onRelatedRecordsChange={setImageRelatedRecordIds}

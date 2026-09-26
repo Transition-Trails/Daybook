@@ -128,6 +128,57 @@ describe("CanonRecordEditor", () => {
     ));
   });
 
+  it("makes an additional image primary without removing the other images", async () => {
+    let gallery = [
+      { url: "/objects/first.png", name: "Original image", description: "Original", role: "primary" },
+      { url: "/objects/second.png", name: "Second image", description: "Alternate", role: "alternate" },
+    ];
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path === "/v1/editorial/canon-records/canon-primary") {
+        if (init?.method === "PATCH") gallery = JSON.parse(init.body as string).image_gallery;
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-primary", version: init?.method === "PATCH" ? 2 : 1,
+            worldId: "world-wychcombe", name: "Two Views", status: "proposed",
+            canonType: "object", narrativeDetails: "", historicalContext: "", visualNotes: "",
+            notes: "", portraitUrl: gallery[0].url, imageUrls: gallery.map(image => image.url),
+            imageGallery: gallery, specRefCount: 0,
+          },
+        });
+      }
+      return Promise.resolve({ assets: [] });
+    });
+    const editor = renderEditor("canon-primary");
+    await screen.findByRole("heading", { name: "Two Views — Canon Record" });
+    fireEvent.click(screen.getByRole("button", { name: "Make Second image primary" }));
+    expect(screen.getByAltText("Primary Canon image")).toHaveAttribute("src", "/api/storage/objects/second.png");
+    expect(screen.getByRole("button", { name: "Make Original image primary" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("canon-top-save"));
+    await waitFor(() => {
+      const save = apiFetch.mock.calls.find(([path, init]) =>
+        path === "/v1/editorial/canon-records/canon-primary" && init?.method === "PATCH");
+      expect(save).toBeDefined();
+      const body = JSON.parse(save![1].body);
+      expect(body.portrait_url).toBe("/objects/second.png");
+      expect(body.image_urls).toEqual(["/objects/second.png", "/objects/first.png"]);
+      expect(body.image_gallery).toEqual([
+        expect.objectContaining({ url: "/objects/second.png", role: "primary" }),
+        expect.objectContaining({ url: "/objects/first.png", role: "reference" }),
+      ]);
+    });
+    expect(storageApi.deleteObject).not.toHaveBeenCalled();
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/assets", expect.objectContaining({ method: "POST" }),
+    ));
+    editor.unmount();
+    renderEditor("canon-primary");
+    await screen.findByRole("heading", { name: "Two Views — Canon Record" });
+    expect(screen.getByAltText("Primary Canon image")).toHaveAttribute("src", "/api/storage/objects/second.png");
+    expect(screen.getByRole("button", { name: "Make Original image primary" })).toBeInTheDocument();
+  });
+
   it("persists image removal immediately without requiring a separate save", async () => {
     apiFetch.mockImplementation((path: string) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });

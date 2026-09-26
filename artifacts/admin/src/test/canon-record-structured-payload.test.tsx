@@ -76,7 +76,7 @@ describe("CanonRecordEditor - Structured Payload", () => {
     fireEvent.click(pronounsBtn!);
     fireEvent.click(screen.getByText("She/Her"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Create record" }));
+    fireEvent.click(screen.getByTestId("canon-top-save"));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
       "/v1/editorial/canon-records",

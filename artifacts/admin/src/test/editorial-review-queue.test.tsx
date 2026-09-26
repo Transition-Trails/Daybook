@@ -121,6 +121,79 @@ describe("EditorialReviewQueue", () => {
     expect(apiFetch).not.toHaveBeenCalledWith("/v1/editorial/owner-discoveries/generated", expect.anything());
   });
 
+  it("accepts a submitted Canon idea directly and shows where it went", async () => {
+    apiFetch.mockImplementation((path: string, options?: { method?: string; body?: string }) => {
+      if (path.startsWith("/v1/editorial/owner-discoveries?")) return Promise.resolve({ discoveries: [{
+        id: "idea-1", title: "The Glass Orchard", status: "submitted",
+        submissionSnapshot: { discovery_kind: "canon_idea", name: "The Glass Orchard", canonType: "location", narrativeDetails: "A place to remember." },
+      }] });
+      if (path.startsWith("/v1/editorial/canon-records?")) return Promise.resolve({ canon_records: [] });
+      if (path === "/v1/editorial/owner-discoveries/idea-1/accept") {
+        expect(options?.body).toContain('"name":"The Glass Orchard"');
+        return Promise.resolve({ discovery: { id: "idea-1", status: "accepted", editorialCanonRecordId: "canon-new" } });
+      }
+      return Promise.resolve({});
+    });
+    renderQueue();
+    const accept = await screen.findByRole("button", { name: "Accept" });
+    expect(accept).toBeEnabled();
+    fireEvent.click(accept);
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith("/v1/editorial/owner-discoveries/idea-1/accept", expect.objectContaining({ method: "POST" })));
+    expect(await screen.findByRole("status")).toHaveTextContent("Canon idea accepted and linked to Canon.");
+    expect(screen.getByRole("link", { name: "View Canon record" })).toHaveAttribute("href", "/super/worldsmith/editorial/canon/canon-new");
+  });
+
+  it("explains why a Canon idea cannot link until a record is selected", async () => {
+    renderQueue();
+    await screen.findByRole("button", { name: "Accept" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Canon acceptance mode" }), { target: { value: "existing" } });
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Select an editorial Canon record to link");
+    expect(apiFetch).not.toHaveBeenCalledWith("/v1/editorial/owner-discoveries/idea-1/accept", expect.anything());
+  });
+
+  it("accepts an idea already in review using its proposed Canon details", async () => {
+    renderQueue();
+    const accept = await screen.findByRole("button", { name: "Accept" });
+    expect(screen.getByTestId("status-selected-discovery")).toHaveTextContent("in review");
+    expect(accept).toBeEnabled();
+    fireEvent.click(accept);
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/owner-discoveries/idea-1/accept",
+      expect.objectContaining({
+        body: expect.stringContaining('"narrative_details":"Silver fruit holds reflections of forgotten visitors."'),
+      }),
+    ));
+  });
+
+  it("saves edits before accepting a submitted storyline idea", async () => {
+    const requests: string[] = [];
+    apiFetch.mockImplementation((path: string, options?: { body?: string }) => {
+      if (path.startsWith("/v1/editorial/owner-discoveries?")) return Promise.resolve({ discoveries: [{
+        id: "story-idea", title: "The Old House", status: "submitted",
+        submissionSnapshot: { discovery_kind: "storyline_idea", title: "The Old House", narrativePromise: "An old promise.", rationale: "A gap.", recommendedStatus: "draft" },
+      }] });
+      if (path.startsWith("/v1/editorial/canon-records?")) return Promise.resolve({ canon_records: [] });
+      if (path.endsWith("/revise")) {
+        requests.push("revise");
+        expect(options?.body).toContain('"title":"The New House"');
+        return Promise.resolve({ discovery: { status: "in_review" } });
+      }
+      if (path.endsWith("/accept")) {
+        requests.push("accept");
+        return Promise.resolve({ discovery: { status: "accepted", storyId: "story-new" } });
+      }
+      return Promise.resolve({});
+    });
+    renderQueue();
+    const accept = await screen.findByRole("button", { name: "Accept storyline" });
+    fireEvent.change(screen.getByDisplayValue("The Old House"), { target: { value: "The New House" } });
+    fireEvent.click(accept);
+    expect(await screen.findByRole("status")).toHaveTextContent("Storyline idea accepted and added to Storylines.");
+    expect(requests).toEqual(["revise", "accept"]);
+    expect(screen.getByRole("link", { name: "View storyline" })).toHaveAttribute("href", "/super/worldsmith/editorial/stories/story-new");
+  });
+
   it("requires an explanation before a generated idea can be rejected", async () => {
     renderQueue();
 

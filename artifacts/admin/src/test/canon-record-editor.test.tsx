@@ -226,6 +226,48 @@ describe("CanonRecordEditor", () => {
     expect(screen.getByRole("button", { name: "Make Original image primary" })).toBeInTheDocument();
   });
 
+  it("auto-syncs a saved primary only after its approval and role asset write finishes", async () => {
+    let finishAsset!: () => void;
+    const assetWrite = new Promise<void>(resolve => { finishAsset = resolve; });
+    const gallery = [{
+      url: "/objects/approved-primary.png", name: "Approved primary", description: "",
+      role: "primary", workflowStatus: "approved", canonicalStrength: "canonical",
+    }];
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/canon-records/approved-editor") {
+        return Promise.resolve({ canon_record: {
+          id: "approved-editor", version: init?.method === "PATCH" ? 2 : 1,
+          worldId: "world-wychcombe", name: "Approved Editor", status: "accepted",
+          canonType: "location", imageGallery: gallery, portraitUrl: gallery[0].url,
+        } });
+      }
+      if (path === "/v1/editorial/assets" && init?.method === "POST") return assetWrite;
+      if (path.startsWith("/v1/editorial/assets?")) return Promise.resolve({ assets: [] });
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.endsWith("/context-snapshot/auto-sync")) return Promise.resolve({ context_snapshot_status: "current" });
+      return Promise.resolve({});
+    });
+    renderEditor("approved-editor");
+    await screen.findByRole("heading", { name: "Approved Editor — Canon Record" });
+    await screen.findByAltText("Primary Canon image");
+    fireEvent.click(screen.getByTestId("canon-top-save"));
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/assets",
+      expect.objectContaining({ method: "POST", body: expect.stringContaining('"approval_status":"approved"') }),
+    ));
+    const patch = apiFetch.mock.calls.find(([path, init]) =>
+      path === "/v1/editorial/canon-records/approved-editor" && init?.method === "PATCH");
+    expect(JSON.parse(patch![1].body).defer_auto_snapshot).toBe(true);
+    expect(apiFetch.mock.calls.some(([path]) => path.endsWith("/context-snapshot/auto-sync"))).toBe(false);
+
+    finishAsset();
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/approved-editor/context-snapshot/auto-sync",
+      { method: "POST", body: JSON.stringify({ expected_version: 2 }) },
+    ));
+  });
+
   it("persists image removal immediately without requiring a separate save", async () => {
     apiFetch.mockImplementation((path: string) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });

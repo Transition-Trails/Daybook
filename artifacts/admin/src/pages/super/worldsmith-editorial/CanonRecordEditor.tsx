@@ -999,7 +999,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       const expectedVersion = record.version;
       return apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${recordId}`, {
         method: "PATCH",
-        body: JSON.stringify({ ...payload, expected_version: expectedVersion }),
+        body: JSON.stringify({ ...payload, expected_version: expectedVersion, defer_auto_snapshot: true }),
       });
     },
     onSuccess: async result => {
@@ -1165,6 +1165,20 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         }
       }
 
+      let contextSnapshotStatus: "current" | "sync_failed" | null = null;
+      try {
+        const result = await apiFetch<{ context_snapshot_status: "current" | "sync_failed" | null }>(
+          `/v1/editorial/canon-records/${savedRecordId}/context-snapshot/auto-sync`,
+          { method: "POST", body: JSON.stringify({ expected_version: latestRecord.version }) },
+        );
+        contextSnapshotStatus = result.context_snapshot_status;
+      } catch (error) {
+        toast({
+          title: "Context Snapshot could not be checked",
+          description: `The record and images were saved. ${(error as Error).message}`,
+          variant: "destructive",
+        });
+      }
       queryClient.setQueryData(["editorial-canon-record", savedRecordId], { canon_record: latestRecord });
       queryClient.invalidateQueries({
         predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
@@ -1184,6 +1198,9 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       }));
 
       toast({ title: isNew ? "Canon record created" : "Canon record saved" });
+      if (contextSnapshotStatus === "sync_failed") {
+        toast({ title: "Context Snapshot failed", description: "The record and images were saved, but the automatic snapshot needs attention.", variant: "destructive" });
+      }
       if (isNew) {
         navigate(`/super/worldsmith/editorial/canon/${result.canon_record.id}`);
       }

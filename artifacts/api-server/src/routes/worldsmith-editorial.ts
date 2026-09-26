@@ -2468,6 +2468,36 @@ router.post("/v1/editorial/canon-records/:id/context-snapshot", async (req: Requ
   }
 });
 
+// The Canon editor saves asset approval and role metadata in separate requests.
+// Finish its deferred auto-sync only after those writes succeed, using the
+// current record status and snapshot policy rather than bypassing either gate.
+router.post("/v1/editorial/canon-records/:id/context-snapshot/auto-sync", async (req: Request, res: Response) => {
+  const recordId = req.params.id as string;
+  const expectedVersion = req.body?.expected_version;
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    res.status(400).json({ error: "expected_version must be a positive integer" });
+    return;
+  }
+  try {
+    const [record] = await db.select({
+      id: wsCanonRecordsTable.id, status: wsCanonRecordsTable.status, version: wsCanonRecordsTable.version,
+    }).from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, recordId)).limit(1);
+    if (!record) { res.status(404).json({ error: "Canon record not found" }); return; }
+    if (record.version !== expectedVersion) {
+      res.status(409).json({ error: "Canon record changed before its images finished syncing" });
+      return;
+    }
+    const contextSnapshotStatus = await autoPublishCanonContextSnapshot(record).catch(autoSyncErr => {
+      logger.error({ err: autoSyncErr, id: recordId }, "editorial: deferred automatic context snapshot failed");
+      return "sync_failed" as const;
+    });
+    res.json({ context_snapshot_status: contextSnapshotStatus });
+  } catch (err) {
+    logger.error({ err, recordId }, "editorial: finish deferred context snapshot");
+    res.status(500).json({ error: "Automatic Context Snapshot could not be checked" });
+  }
+});
+
 router.post("/v1/editorial/worlds/:id/context-snapshots", async (req: Request, res: Response) => {
   const worldId = req.params.id as string;
   const mode = req.body?.mode;
@@ -2678,8 +2708,12 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     portrait_url, image_urls, image_gallery, notes,
     typography, global_metadata, structured_profile, generation_profile,
     prompt_summary, identity_summary,
-    expected_version,
+    expected_version, defer_auto_snapshot,
   } = req.body;
+  if (defer_auto_snapshot !== undefined && typeof defer_auto_snapshot !== "boolean") {
+    res.status(400).json({ error: "defer_auto_snapshot must be a boolean" });
+    return;
+  }
   if (expected_version !== undefined && (!Number.isInteger(expected_version) || expected_version < 1)) {
     res.status(400).json({ error: "expected_version must be a positive integer", code: "INVALID_VERSION" });
     return;
@@ -2872,7 +2906,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
       }
     }
 
-    const contextSnapshotStatus = await autoPublishCanonContextSnapshot(row).catch(autoSyncErr => {
+    const contextSnapshotStatus = defer_auto_snapshot ? null : await autoPublishCanonContextSnapshot(row).catch(autoSyncErr => {
       logger.error({ err: autoSyncErr, id: row.id }, "editorial: automatic context snapshot failed");
       return "sync_failed" as const;
     });

@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import express, { type NextFunction, type Request, type Response } from "express";
 import request from "supertest";
+import sharp from "sharp";
 import { eq, inArray } from "drizzle-orm";
+import { ObjectStorageService } from "../lib/objectStorage";
 import {
   db,
   pool,
@@ -235,6 +237,73 @@ describe("governed Context Snapshot routes", () => {
     } finally {
       await db.update(wsCanonRecordsTable).set({ status: "under_review", imageGallery: [], portraitUrl: null })
         .where(eq(wsCanonRecordsTable.id, recordIds.imageRoles));
+    }
+  });
+
+  it("defers an accepted editor save until primary approval is persisted, without bypassing approval", async () => {
+    const imagePath = "/objects/uploads/editor-approved-primary";
+    const url = `/v1/editorial/canon-records/${recordIds.imageRoles}`;
+    const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: "#553322" } }).png().toBuffer();
+    const storage = vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue({
+      download: async () => [bytes],
+      getMetadata: async () => [{ contentType: "image/png", updated: new Date().toISOString() }],
+    } as never);
+    await db.update(wsCanonRecordsTable).set({ status: "accepted" })
+      .where(eq(wsCanonRecordsTable.id, recordIds.imageRoles));
+    try {
+      const saved = await request(app).patch(url).send({
+        image_gallery: [{ url: imagePath, role: "primary" }],
+        defer_auto_snapshot: true,
+      });
+      expect(saved.status).toBe(200);
+      expect(saved.body.context_snapshot_status).toBeNull();
+      expect(mockPublish).not.toHaveBeenCalled();
+
+      const finish = () => request(app).post(`${url}/context-snapshot/auto-sync`)
+        .send({ expected_version: saved.body.canon_record.version });
+      const blocked = await finish();
+      expect(blocked.status).toBe(200);
+      expect(blocked.body.context_snapshot_status).toBe("sync_failed");
+      expect(mockPublish).not.toHaveBeenCalled();
+
+      await db.insert(wsAssetsTable).values({
+        id: `snapshot-editor-approved-${run}`, worldId, recordId: recordIds.imageRoles,
+        role: "primary", title: "Primary", objectPath: imagePath, source: "upload",
+        approvalStatus: "approved", canonicalStrength: "canonical",
+      });
+      const published = await finish();
+      expect(published.status).toBe(200);
+      expect(published.body.context_snapshot_status).toBe("current");
+      expect(mockPublish).toHaveBeenCalledOnce();
+      const status = await request(app).get(`${url}/context-snapshot`);
+      expect(status.body.snapshot.status).toBe("current");
+
+      const stale = await request(app).post(`${url}/context-snapshot/auto-sync`)
+        .send({ expected_version: saved.body.canon_record.version - 1 });
+      expect(stale.status).toBe(409);
+      expect(mockPublish).toHaveBeenCalledOnce();
+    } finally {
+      storage.mockRestore();
+      await db.delete(wsAssetsTable).where(eq(wsAssetsTable.recordId, recordIds.imageRoles));
+      await db.update(wsCanonRecordsTable).set({ status: "under_review", imageGallery: [], portraitUrl: null })
+        .where(eq(wsCanonRecordsTable.id, recordIds.imageRoles));
+    }
+  });
+
+  it("does not publish a deferred save when auto-sync policy is disabled", async () => {
+    const url = `/v1/editorial/canon-records/${recordIds.saveFailure}`;
+    await request(app).patch(`${url}/context-snapshot`).send({ auto_sync: false }).expect(200);
+    try {
+      const saved = await request(app).patch(url).send({ name: "Policy Disabled", defer_auto_snapshot: true });
+      expect(saved.status).toBe(200);
+      expect(saved.body.context_snapshot_status).toBeNull();
+      const finished = await request(app).post(`${url}/context-snapshot/auto-sync`)
+        .send({ expected_version: saved.body.canon_record.version });
+      expect(finished.status).toBe(200);
+      expect(finished.body.context_snapshot_status).toBeNull();
+      expect(mockPublish).not.toHaveBeenCalled();
+    } finally {
+      await request(app).patch(`${url}/context-snapshot`).send({ auto_sync: true }).expect(200);
     }
   });
 

@@ -95,6 +95,51 @@ describe("StoriesStudio editor", () => {
     expect(apiFetch).not.toHaveBeenCalledWith("/v1/editorial/stories/suggest", expect.anything());
   });
 
+  it("changes a storyline stage and archives it without deleting its content, then restores it", async () => {
+    let status = "draft";
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/stories/story-1" && init?.method === "PATCH") {
+        const update = JSON.parse(String(init.body));
+        status = update.status;
+        return Promise.resolve({ story: { id: "story-1", status } });
+      }
+      return Promise.resolve({
+        stories: [{
+          id: "story-1", title: "The Wychcombe Origin Story",
+          summary: "<p>Keep this narrative.</p>", status, acts: [],
+        }],
+        sequenceRevision: 3,
+      });
+    });
+    try {
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <StoriesStudio />
+        </QueryClientProvider>,
+      );
+      const stage = await screen.findByRole("combobox", { name: "Stage for The Wychcombe Origin Story" });
+      fireEvent.change(stage, { target: { value: "planned" } });
+      await waitFor(() => expect(status).toBe("planned"));
+      expect(apiFetch).toHaveBeenCalledWith("/v1/editorial/stories/story-1", {
+        method: "PATCH", body: JSON.stringify({ status: "planned" }),
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Archive storyline" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Archived (1)" })).toBeInTheDocument());
+      expect(confirm).toHaveBeenCalled();
+      expect(screen.queryByRole("textbox", { name: "Story title" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Archived (1)" }));
+      expect(await screen.findByText("Keep this narrative.")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Restore to draft" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Current (1)" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Current (1)" }));
+      expect(await screen.findByRole("textbox", { name: "Story title" })).toBeInTheDocument();
+      expect(status).toBe("draft");
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
   it("edits an existing Movement/Act after it has been created", async () => {
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       if (path === "/v1/editorial/acts/act-1" && init?.method === "PATCH") {

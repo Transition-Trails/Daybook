@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, ChevronRight, Loader2, Plus, Sparkles } from "lucide-react";
+import { Archive, ArrowRight, BookOpen, ChevronRight, Loader2, Plus, RotateCcw, Sparkles } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -28,6 +28,8 @@ interface Story {
   acts: StoryAct[];
 }
 
+const STORY_STATUSES = ["draft", "planned", "active", "archived"] as const;
+type StoryStatusValue = typeof STORY_STATUSES[number];
 
 const STATUS_STYLES: Record<string, { background: string; color: string }> = {
   active: { background: "#E4F2EA", color: "#286047" },
@@ -58,6 +60,7 @@ export default function StoriesStudio() {
     && !!searchParams.get("sequence_id");
   const requestedStoryId = isSequenceDeepLink ? searchParams.get("story_id") : null;
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
+  const [storyFilter, setStoryFilter] = useState<"current" | "archived">("current");
   const [summaryDraft, setSummaryDraft] = useState<Record<string, string>>({});
   const [titleDraft, setTitleDraft] = useState<Record<string, string>>({});
   const [actTitleDraft, setActTitleDraft] = useState<Record<string, string>>({});
@@ -79,16 +82,53 @@ export default function StoriesStudio() {
     staleTime: 30_000,
   });
   const stories = data?.stories ?? [];
+  const currentStories = stories.filter(story => story.status !== "archived");
+  const archivedStories = stories.filter(story => story.status === "archived");
+  const visibleStories = storyFilter === "current" ? currentStories : archivedStories;
 
   useEffect(() => {
-    if (stories.length > 0 && !stories.some(story => story.id === selectedStoryId)) {
-      setSelectedStoryId(stories[0]!.id);
+    if (visibleStories.length > 0 && !visibleStories.some(story => story.id === selectedStoryId)) {
+      setSelectedStoryId(visibleStories[0]!.id);
     }
-  }, [stories, selectedStoryId]);
+  }, [visibleStories, selectedStoryId]);
 
-  const selectedStory = stories.find(story => story.id === selectedStoryId) ?? null;
+  const selectedStory = visibleStories.find(story => story.id === selectedStoryId) ?? visibleStories[0] ?? null;
   const refreshStories = () => queryClient.invalidateQueries({ queryKey: ["ws-stories", selectedWorldId] });
 
+  const changeStoryStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: StoryStatusValue }) =>
+      apiFetch(`/v1/editorial/stories/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      }),
+    onSuccess: (_result, { id, status }) => {
+      queryClient.setQueryData<{ stories: Story[]; sequenceRevision: number }>(
+        ["ws-stories", selectedWorldId],
+        current => current && {
+          ...current,
+          stories: current.stories.map(story => story.id === id ? { ...story, status } : story),
+        },
+      );
+      queryClient.setQueryData<{ story: Story }>(["editorial-story", id],
+        current => current && { story: { ...current.story, status } });
+      void refreshStories();
+      void queryClient.invalidateQueries({ queryKey: ["ws-story-connections", selectedWorldId] });
+      toast({ title: status === "archived" ? "Storyline archived" : "Storyline status updated" });
+    },
+    onError: (error: Error) => toast({
+      title: "Could not change storyline status",
+      description: error.message,
+      variant: "destructive",
+    }),
+  });
+
+  const setStatus = (story: Story, status: StoryStatusValue) => {
+    if (status === story.status || changeStoryStatus.isPending) return;
+    if (status === "archived" && !window.confirm(
+      `Archive "${story.title}"? It will leave the current storyline list, but its content and links will be kept. You can restore it later.`,
+    )) return;
+    changeStoryStatus.mutate({ id: story.id, status });
+  };
 
   const createAct = useMutation({
     mutationFn: () =>
@@ -263,13 +303,29 @@ export default function StoriesStudio() {
                 />
               </>
             ) : (
+          <>
+            <div className="mb-4 flex flex-wrap items-center gap-2" aria-label="Filter storylines">
+              <button type="button" onClick={() => setStoryFilter("current")} aria-pressed={storyFilter === "current"}
+                className={`rounded-lg px-3 py-2 text-xs font-semibold ${storyFilter === "current" ? "bg-[var(--admin-ink)] text-white" : "border border-[var(--admin-border)] bg-white text-[var(--admin-muted)]"}`}>
+                Current ({currentStories.length})
+              </button>
+              <button type="button" onClick={() => setStoryFilter("archived")} aria-pressed={storyFilter === "archived"}
+                className={`rounded-lg px-3 py-2 text-xs font-semibold ${storyFilter === "archived" ? "bg-[var(--admin-ink)] text-white" : "border border-[var(--admin-border)] bg-white text-[var(--admin-muted)]"}`}>
+                Archived ({archivedStories.length})
+              </button>
+            </div>
+            {visibleStories.length === 0 ? (
+              <div className="rounded-2xl border border-[var(--admin-border)] bg-white p-8 text-sm text-[var(--admin-muted)]">
+                {storyFilter === "archived" ? "No archived storylines in this world." : "No current storylines. Open Archived to restore one or create a new storyline."}
+              </div>
+            ) : (
           <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
             <aside className="rounded-2xl p-2.5" style={{ background: "white", border: "1px solid var(--admin-border)" }}>
               <p className="px-2.5 pt-1 pb-2 text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#98A2B3" }}>
                 In this world
               </p>
               <div className="space-y-1">
-                {stories.map(story => (
+                 {visibleStories.map(story => (
                   <button
                     key={story.id}
                     onClick={() => setSelectedStoryId(story.id)}
@@ -313,6 +369,24 @@ export default function StoriesStudio() {
                     />
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-3 pt-5">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-[var(--admin-muted)]">
+                      Stage
+                      <select
+                        aria-label={`Stage for ${selectedStory.title}`}
+                        value={selectedStory.status}
+                        disabled={changeStoryStatus.isPending}
+                        onChange={event => setStatus(selectedStory, event.target.value as StoryStatusValue)}
+                        className="rounded-lg border border-[var(--admin-border)] bg-white px-2 py-1.5 text-xs text-[var(--admin-ink)] disabled:opacity-50"
+                      >
+                        {STORY_STATUSES.map(status => <option key={status} value={status}>{status[0]!.toUpperCase() + status.slice(1)}</option>)}
+                      </select>
+                    </label>
+                    <button type="button" disabled={changeStoryStatus.isPending}
+                      onClick={() => setStatus(selectedStory, selectedStory.status === "archived" ? "draft" : "archived")}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--admin-ink)] disabled:opacity-50">
+                      {selectedStory.status === "archived" ? <RotateCcw className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+                      {selectedStory.status === "archived" ? "Restore to draft" : "Archive storyline"}
+                    </button>
                     <Link href={`/super/worldsmith/editorial/connections?story_id=${encodeURIComponent(selectedStory.id)}`}>
                       <span className="inline-flex items-center gap-1.5 text-xs font-semibold cursor-pointer" style={{ color: "#C87560" }}>
                         See its story map <ArrowRight className="w-3.5 h-3.5" />
@@ -464,6 +538,8 @@ export default function StoriesStudio() {
               </section>
             )}
           </div>
+            )}
+          </>
             )}
           </div>
         )}

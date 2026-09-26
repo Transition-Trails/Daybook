@@ -349,6 +349,108 @@ describe("authenticated editorial MCP tools", () => {
       }
     },
   );
+  it("keeps Story Map graphs and search revisions on one snapshot across concurrent edits", async () => {
+    const [user] = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(eq(usersTable.platformRole, "super_admin")).limit(1);
+    if (!user) throw new Error("A seeded development super-admin is required");
+    const worldId = `snapshot-map-${randomUUID()}`;
+    const storyId = `${worldId}-story`;
+    const actId = `${worldId}-act`;
+    const recordId = `${worldId}-record`;
+    const linkId = `${worldId}-link`;
+    const origin = "https://example.com";
+    let resume!: () => void;
+    let selected!: () => void;
+    let released = new Promise<void>(resolve => { resume = resolve; });
+    let storiesSelected = new Promise<void>(resolve => { selected = resolve; });
+    let intercept = false;
+    const connect = pool.connect.bind(pool);
+    const wrappedClients = new Map<object, unknown>();
+    const connectSpy = vi.spyOn(pool, "connect").mockImplementation(((...args: unknown[]) => {
+      if (typeof args[0] === "function") return (connect as (callback: unknown) => void)(args[0]);
+      return connect().then(client => {
+        if (wrappedClients.has(client)) return client;
+        const originalQuery = client.query;
+        wrappedClients.set(client, originalQuery);
+        client.query = ((...args: unknown[]) => {
+          if (typeof args[args.length - 1] === "function") {
+            return (originalQuery as (...values: unknown[]) => unknown).apply(client, args);
+          }
+          return (async () => {
+            const result = await (originalQuery as (...values: unknown[]) => Promise<unknown>).apply(client, args);
+            const config = args[0];
+            const text = typeof config === "string" ? config : (config as { text?: string }).text;
+            if (intercept && text?.includes('from "ws_stories"') && text.includes('"sort_order"')) {
+              intercept = false;
+              selected();
+              await released;
+            }
+            return result;
+          })();
+        }) as typeof client.query;
+        return client;
+      });
+    }) as typeof pool.connect);
+    try {
+      await db.insert(worldsmithWorldsTable).values({ id: worldId, name: "Map before", code: "SMAP" });
+      await db.insert(wsStoriesTable).values({ id: storyId, worldId, title: "Story before", sortOrder: 1 });
+      await db.insert(wsStoryActsTable).values({ id: actId, worldId, storyId, title: "Movement before", actNumber: 1 });
+      await db.insert(wsCanonRecordsTable).values({
+        id: recordId, worldId, name: "Canon before", canonType: "character", status: "proposed",
+      });
+      await db.insert(wsCanonRecordStoryLinksTable).values({
+        id: linkId, canonRecordId: recordId, storyId, actId,
+      });
+
+      for (const [tool, args, label] of [
+        ["get_story_map", { map_id: worldId }, "first"],
+        ["search_story_maps", { world_id: worldId }, "second"],
+      ] as const) {
+        const before = await executeViewTool(user.id, tool, args, origin);
+        intercept = true;
+        const pending = executeViewTool(user.id, tool, args, origin);
+        await storiesSelected;
+        // A separate connection commits changes to every part of the graph
+        // while the map's acts, links, and canon queries are still pending.
+        await db.transaction(async tx => {
+          await tx.update(worldsmithWorldsTable).set({ name: `Map ${label}` }).where(eq(worldsmithWorldsTable.id, worldId));
+          await tx.update(wsStoriesTable).set({ title: `Story ${label}` }).where(eq(wsStoriesTable.id, storyId));
+          await tx.update(wsStoryActsTable).set({ title: `Movement ${label}` }).where(eq(wsStoryActsTable.id, actId));
+          await tx.update(wsCanonRecordsTable).set({ name: `Canon ${label}` }).where(eq(wsCanonRecordsTable.id, recordId));
+          await tx.update(wsCanonRecordStoryLinksTable).set({ actId: label === "first" ? null : actId })
+            .where(eq(wsCanonRecordStoryLinksTable.id, linkId));
+        });
+        resume();
+        expect(await pending).toEqual(before);
+        const after = await executeViewTool(user.id, tool, args, origin);
+        expect(after).not.toEqual(before);
+        if (tool === "get_story_map") {
+          expect(after).toMatchObject({
+            world_name: "Map first",
+            stories: [{ title: "Story first", movements: [{ title: "Movement first" }] }],
+            links: [{ actId: null, canon_record: { name: "Canon first" } }],
+          });
+        } else {
+          expect(after).toMatchObject({ maps: [{ name: "Map second" }] });
+          const currentMap = await executeViewTool(user.id, "get_story_map", { map_id: worldId }, origin) as { revision: string };
+          expect((after as { maps: { revision: string }[] }).maps[0]?.revision).toBe(currentMap.revision);
+        }
+        released = new Promise<void>(resolve => { resume = resolve; });
+        storiesSelected = new Promise<void>(resolve => { selected = resolve; });
+      }
+    } finally {
+      resume();
+      connectSpy.mockRestore();
+      for (const [client, originalQuery] of wrappedClients) {
+        (client as { query: typeof pool.query }).query = originalQuery as typeof pool.query;
+      }
+      await db.delete(wsCanonRecordStoryLinksTable).where(eq(wsCanonRecordStoryLinksTable.id, linkId));
+      await db.delete(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, recordId));
+      await db.delete(wsStoryActsTable).where(eq(wsStoryActsTable.id, actId));
+      await db.delete(wsStoriesTable).where(eq(wsStoriesTable.id, storyId));
+      await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
+    }
+  });
   it("serializes simultaneous beat and reveal edits behind the storyline lock", async () => {
     const [user] = await db.select({ id: usersTable.id }).from(usersTable)
       .where(eq(usersTable.platformRole, "super_admin")).limit(1);

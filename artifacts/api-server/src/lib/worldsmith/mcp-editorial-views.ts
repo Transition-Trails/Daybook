@@ -149,7 +149,11 @@ function sequenceUrl(origin: string, worldId: string, sequenceId: string, storyI
   return url.toString();
 }
 
-async function readMap(worldId: string, origin: string, tx: QueryExecutor | typeof db = db) {
+function readMapSnapshot(worldId: string, origin: string) {
+  return db.transaction(tx => readMap(worldId, origin, tx),
+    { isolationLevel: "repeatable read", accessMode: "read only" });
+}
+async function readMap(worldId: string, origin: string, tx: QueryExecutor) {
   const [world] = await tx.select({ id: worldsmithWorldsTable.id, name: worldsmithWorldsTable.name })
     .from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId)).limit(1);
   if (!world) throw new CanonToolError("World not found", 404, "WORLD_NOT_FOUND");
@@ -375,28 +379,30 @@ export async function executeViewTool(userId: string, name: string, args: unknow
   switch (name) {
     case "search_story_maps": {
       const input = parse(name, args);
-      await requireWorld(input.world_id);
-      const [map] = await db.select({ id: worldsmithWorldsTable.id, name: worldsmithWorldsTable.name })
-        .from(worldsmithWorldsTable).where(and(
-          eq(worldsmithWorldsTable.id, input.world_id),
-          ...(input.query ? [or(ilike(worldsmithWorldsTable.name, `%${input.query}%`), ilike(worldsmithWorldsTable.id, `%${input.query}%`))!] : []),
-        )).limit(1);
-      const matches = map ? [{ id: map.id, world_id: map.id, name: map.name, editor_url: mapUrl(origin, map.id), revision: (await readMap(map.id, origin)).revision }] : [];
-      const bounded = input.after_id !== undefined || input.limit !== undefined;
-      const ordered = bounded ? matches.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : matches;
-      const remaining = input.after_id === undefined ? ordered : ordered.filter(item => item.id > input.after_id!);
-      const page = remaining.slice(0, input.limit ?? remaining.length);
-      return {
-        maps: page,
-        total: matches.length,
-        has_more: remaining.length > page.length,
-        next_cursor: remaining.length > page.length ? page[page.length - 1]!.id : null,
-      };
+      return db.transaction(async tx => {
+        await requireWorld(input.world_id, tx);
+        const [map] = await tx.select({ id: worldsmithWorldsTable.id, name: worldsmithWorldsTable.name })
+          .from(worldsmithWorldsTable).where(and(
+            eq(worldsmithWorldsTable.id, input.world_id),
+            ...(input.query ? [or(ilike(worldsmithWorldsTable.name, `%${input.query}%`), ilike(worldsmithWorldsTable.id, `%${input.query}%`))!] : []),
+          )).limit(1);
+        const matches = map ? [{ id: map.id, world_id: map.id, name: map.name, editor_url: mapUrl(origin, map.id), revision: (await readMap(map.id, origin, tx)).revision }] : [];
+        const bounded = input.after_id !== undefined || input.limit !== undefined;
+        const ordered = bounded ? matches.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : matches;
+        const remaining = input.after_id === undefined ? ordered : ordered.filter(item => item.id > input.after_id!);
+        const page = remaining.slice(0, input.limit ?? remaining.length);
+        return {
+          maps: page,
+          total: matches.length,
+          has_more: remaining.length > page.length,
+          next_cursor: remaining.length > page.length ? page[page.length - 1]!.id : null,
+        };
+      }, { isolationLevel: "repeatable read", accessMode: "read only" });
     }
     case "get_story_map": {
       const { map_id } = parse(name, args);
       // A Story Map is the existing world-level view; its ID is its world ID.
-      return readMap(map_id, origin);
+      return readMapSnapshot(map_id, origin);
     }
     case "update_story_map": {
       const input = parse(name, args);

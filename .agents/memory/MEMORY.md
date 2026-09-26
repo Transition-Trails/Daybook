@@ -76,6 +76,7 @@
 - [Legacy admin redirects](legacy-admin-redirects.md) — canonicalization runs before auth/data loading so deep links replace reliably without mounting the legacy console
 - [Draft reconciliation readiness](draft-reconciliation-readiness.md) — cached operator drafts must wait for every authoritative query before reconciliation
 - [Task branch scope isolation](task-branch-scope-isolation.md) — completion review can include inherited branch commits; compare against origin/main and neutralize unrelated changes
+- [Merged route integrity](merged-route-integrity.md) — a publish build error after a merge may hide semantically corrupted neighboring handlers
 - [Admin test session flush](admin-test-session-flush.md) — browser test login must persist the Passport session before responding or reload can lose authorization
 - [Planner bounded-slot composition](planner-bounded-slot-composition.md) — Super Admin template editing uses explicit safe-area slots; adding consumes one and deleting frees it
 - [Planner binding gutters](planner-binding-gutters.md) — widget artwork reserves extra space on alternating binding edges; editor and PDF geometry must stay aligned

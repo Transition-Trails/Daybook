@@ -170,8 +170,8 @@ describe("authenticated editorial MCP tools", () => {
       expect((await search({ query: "needle" })).sequences).toEqual(expected);
       const sorted = [...expected].sort((a, b) => a.id.localeCompare(b.id));
       const page1 = await search({ query: "needle", limit: 2 });
-      const page2 = await search({ query: "needle", limit: 2, after_id: page1.next_cursor });
-      const page3 = await search({ query: "needle", limit: 2, after_id: page2.next_cursor });
+      const page2 = await search({ query: "needle", limit: 2, after_id: page1.next_cursor, expected_revision: page1.revision });
+      const page3 = await search({ query: "needle", limit: 2, after_id: page2.next_cursor, expected_revision: page1.revision });
       expect([...page1.sequences, ...page2.sequences, ...page3.sequences]).toEqual(sorted);
       for (const page of [page1, page2, page3]) {
         expect(page).toMatchObject({
@@ -183,13 +183,41 @@ describe("authenticated editorial MCP tools", () => {
       expect(page2.has_more).toBe(true);
       expect(page3.has_more).toBe(false);
       expect(page3.next_cursor).toBeNull();
-      expect((await search({ after_id: sorted[sorted.length - 1].id })).sequences).toEqual([]);
+      expect((await search({ after_id: sorted[sorted.length - 1].id, expected_revision: page1.revision })).sequences).toEqual([]);
       expect(await search({ query: "absent", limit: 2 })).toMatchObject({
         sequences: [], references: [], total: 0, references_total: 0, has_more: false, next_cursor: null,
       });
       const shared = full.sequences.find((group: { story_ids: string[] }) => group.story_ids.length === 2);
       expect(shared.id).toBe(`sequence_${createHash("sha256").update([`b-${suffix}`, `c-${suffix}`].join("\n")).digest("hex").slice(0, 24)}`);
       expect(page1.sequences.every((group: { expected_revision: string }) => group.expected_revision === full.revision)).toBe(true);
+      const missingRevision = await request(app).post("/mcp").set("Authorization", `Bearer ${token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+          name: "search_sequences", arguments: { world_id: worldId, query: "needle", limit: 2, after_id: page1.next_cursor },
+        } });
+      expect(missingRevision.body.result.isError).toBe(true);
+      expect(missingRevision.body.result.content[0].text).toContain("INVALID_ARGUMENTS");
+      expect(missingRevision.body.result.content[0].text).toContain("expected_revision is required");
+      // Another editor moves a member out of its group between page requests.
+      // The old cursor is no longer safe to follow, even though each request
+      // individually reads a consistent snapshot.
+      await db.update(wsStoriesTable).set({ sortOrder: 2 }).where(eq(wsStoriesTable.id, `c-${suffix}`));
+      const stale = await request(app).post("/mcp").set("Authorization", `Bearer ${token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+          name: "search_sequences", arguments: {
+            world_id: worldId, query: "needle", limit: 2,
+            after_id: page1.next_cursor, expected_revision: page1.revision,
+          },
+        } });
+      expect(stale.body.result.isError).toBe(true);
+      expect(stale.body.result.structuredContent).toBeUndefined();
+      expect(stale.body.result.content[0].text).toContain("STALE_PAGE");
+      expect(stale.body.result.content[0].text).toContain("restart paging from the first page");
+      const restarted = await search({ query: "needle", limit: 2 });
+      expect(restarted.revision).not.toBe(page1.revision);
+      const continued = await search({
+        query: "needle", limit: 2, after_id: restarted.next_cursor, expected_revision: restarted.revision,
+      });
+      expect(continued.revision).toBe(restarted.revision);
     } finally {
       await db.delete(wsStoriesTable).where(eq(wsStoriesTable.worldId, worldId));
       await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));

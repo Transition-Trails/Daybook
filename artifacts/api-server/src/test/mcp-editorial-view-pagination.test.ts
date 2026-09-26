@@ -77,7 +77,7 @@ describe("editorial view search pagination", () => {
       })));
 
       const allSequences = await executeViewTool(admin.id, "search_sequences", { world_id: worldId }, "https://example.test") as {
-        sequences: Array<{ id: string }>; total: number; has_more: boolean; next_cursor: string | null;
+        sequences: Array<{ id: string }>; total: number; has_more: boolean; next_cursor: string | null; revision: string;
       };
       expect(allSequences.sequences).toHaveLength(3);
       expect(allSequences.total).toBe(3);
@@ -94,7 +94,7 @@ describe("editorial view search pagination", () => {
       expect(firstPage.next_cursor).toBe(firstPage.sequences[1]!.id);
 
       const secondPage = await executeViewTool(admin.id, "search_sequences", {
-        world_id: worldId, after_id: firstPage.next_cursor!, limit: 2,
+        world_id: worldId, after_id: firstPage.next_cursor!, expected_revision: firstPage.revision, limit: 2,
       }, "https://example.test") as typeof allSequences;
       expect(secondPage.sequences.map(sequence => sequence.id)).toEqual(stableOrder.slice(2));
       expect(secondPage.total).toBe(3);

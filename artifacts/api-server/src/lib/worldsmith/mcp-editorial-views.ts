@@ -43,7 +43,9 @@ const schemas = {
       query: { type: "string", minLength: 1, maxLength: 500 },
       after_id: { type: "string", minLength: 1 },
       limit: { type: "integer", minimum: 1, maximum: 100 },
+      expected_revision: { type: "string", minLength: 1, description: "Pass the first page's revision with after_id; a changed world returns STALE_PAGE so paging can restart." },
     }, required: ["world_id"], additionalProperties: false,
+    if: { required: ["after_id"] }, then: { required: ["expected_revision"] },
   },
   get_sequence: {
     type: "object", properties: {
@@ -67,7 +69,7 @@ export const VIEW_TOOLS = [
   { name: "search_story_maps", description: "Search world-level Story Map views.", inputSchema: schemas.search_story_maps },
   { name: "get_story_map", description: "Read a complete Story Map graph of storylines, movements, and canon links.", inputSchema: schemas.get_story_map },
   { name: "update_story_map", description: "Partially update Story Map storyline order and canon links; does not edit canon records.", inputSchema: schemas.update_story_map },
-  { name: "search_sequences", description: "Search storyline chronology groups and cross-era reference stories by title or summary, not scenes. Results may be filtered or paginated; use get_sequence with the world ID for a complete layout before writing.", inputSchema: schemas.search_sequences },
+  { name: "search_sequences", description: "Search storyline chronology groups and cross-era reference stories by title or summary, not scenes. For subsequent pages pass after_id and the first page's revision as expected_revision; on STALE_PAGE restart from page one. Use get_sequence with the world ID for a complete layout before writing.", inputSchema: schemas.search_sequences },
   { name: "get_sequence", description: "Read a current virtual chronology group within its world, or use the world ID as a stable anchor to read the complete chronology and reference lane. Always supply world_id.", inputSchema: schemas.get_sequence },
   { name: "update_sequence", description: "Save the complete world chronology atomically. Supply references to move stories into or out of the reference lane (requires reference-lane write consent); omit references for ordered-group-only edits.", inputSchema: schemas.update_sequence },
 ];
@@ -91,7 +93,9 @@ const argsSchemas = {
   search_sequences: z.object({
     world_id: z.string().min(1), query: z.string().min(1).max(500).optional(),
     after_id: z.string().min(1).optional(), limit: z.number().int().min(1).max(100).optional(),
-  }).strict(),
+    expected_revision: z.string().min(1).optional(),
+  }).strict().refine(value => value.after_id === undefined || value.expected_revision !== undefined,
+    "expected_revision is required when after_id is provided"),
   get_sequence: z.object({ world_id: z.string().min(1), sequence_id: z.string().min(1) }).strict(),
   update_sequence: z.object({
     world_id: z.string().min(1), sequence_id: z.string().min(1), expected_revision: z.string().min(1),
@@ -307,17 +311,21 @@ export const SEQUENCE_PAGE_SQL = `
 
 async function searchSequencePage(
   worldId: string, origin: string, query: string | undefined, afterId: string | undefined,
-  limit: number | undefined, bounded: boolean,
+  limit: number | undefined, bounded: boolean, expectedRevision: string | undefined,
 ) {
-  return db.transaction(tx => readSequencePage(tx, worldId, origin, query, afterId, limit, bounded),
+  return db.transaction(tx => readSequencePage(tx, worldId, origin, query, afterId, limit, bounded, expectedRevision),
     { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
 async function readSequencePage(
   tx: QueryExecutor, worldId: string, origin: string, query: string | undefined,
-  afterId: string | undefined, limit: number | undefined, bounded: boolean,
+  afterId: string | undefined, limit: number | undefined, bounded: boolean, expectedRevision: string | undefined,
 ) {
   await requireWorld(worldId, tx);
+  const currentRevision = await sequenceRevision(worldId, tx);
+  if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+    throw new CanonToolError("Stale sequence page: the world changed; restart paging from the first page", 409, "STALE_PAGE");
+  }
   // Positive sort positions share a group; legacy zero/negative positions
   // remain separate. Number groups before filtering, as in readSequenceSet.
   // Reuse the exact SQL benchmarked for large worlds, binding its positional
@@ -338,7 +346,6 @@ async function readSequencePage(
   const referenceRows = await tx.select().from(wsStoriesTable)
     .where(and(eq(wsStoriesTable.worldId, worldId), eq(wsStoriesTable.sequenceRole, "reference")))
     .orderBy(asc(wsStoriesTable.sortOrder), asc(wsStoriesTable.title), asc(wsStoriesTable.id));
-  const currentRevision = await sequenceRevision(worldId, tx);
   const byId = new Map(stories.map(story => [story.id, story]));
   const sequences = selected.map(row => {
     const members = row.story_ids.map(id => byId.get(id)!).sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
@@ -511,9 +518,9 @@ export async function executeViewTool(userId: string, name: string, args: unknow
     }
     case "search_sequences": {
       const input = parse(name, args);
-      if (input.query !== undefined || input.limit !== undefined || input.after_id !== undefined) {
+      if (input.query !== undefined || input.limit !== undefined || input.after_id !== undefined || input.expected_revision !== undefined) {
         return searchSequencePage(input.world_id, origin, input.query, input.after_id, input.limit,
-          input.limit !== undefined || input.after_id !== undefined);
+          input.limit !== undefined || input.after_id !== undefined, input.expected_revision);
       }
       const result = await readFullSequenceSet(input.world_id, origin);
       return {

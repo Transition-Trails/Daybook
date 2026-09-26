@@ -99,7 +99,7 @@ async function main() {
         assert.equal(result.revision, first.revision);
         assert.equal(result.total, total);
       }
-      const cursor = await search({ ...args, after_id: first.next_cursor });
+      const cursor = await search({ ...args, after_id: first.next_cursor, expected_revision: first.revision });
       assert.equal(cursor.total, total);
       assert.equal(cursor.revision, first.revision);
       assert.equal(cursor.sequences.length, PAGE_SIZE);

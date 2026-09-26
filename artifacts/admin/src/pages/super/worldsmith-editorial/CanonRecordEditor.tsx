@@ -1458,12 +1458,26 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                 : "Refine the details that stories, visual assets, and production work use as their canonical source."}
             </p>
           </div>
-          <button onClick={cancel} disabled={isImageProcessing} className="inline-flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50" style={{ color: CLAY }}>
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to library
-          </button>
+          <div className="flex items-center gap-4">
+            <button onClick={cancel} disabled={isImageProcessing} className="inline-flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50" style={{ color: CLAY }}>
+              <ArrowLeft className="h-3.5 w-3.5" /> Back to library
+            </button>
+            <button
+              type="submit"
+              form="canon-record-form"
+              data-testid="canon-top-save"
+              disabled={saveMutation.isPending || isImageProcessing || conflictedRecordId === recordId}
+              className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+              style={{ background: INK }}
+            >
+              {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {isNew ? "Create record" : "Save changes"}
+            </button>
+          </div>
         </div>
 
         <form
+          id="canon-record-form"
           onSubmit={event => {
             event.preventDefault();
             if (isImageProcessing) return;

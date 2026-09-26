@@ -96,6 +96,38 @@ describe("CanonRecordEditor", () => {
     expect(screen.getByText("Victorian seed merchant storefront, painted lettering, timber drawers")).toBeInTheDocument();
   });
 
+  it("saves an existing Canon reference from the top of the page", async () => {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path === "/v1/editorial/canon-records/canon-top") {
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-top", version: init?.method === "PATCH" ? 2 : 1,
+            worldId: "world-wychcombe", name: "Elias Ashcroft",
+            status: "proposed", canonType: "object", narrativeDetails: "",
+            historicalContext: "", visualNotes: "", notes: "",
+          },
+        });
+      }
+      return Promise.resolve({ assets: [] });
+    });
+    renderEditor("canon-top");
+    await screen.findByRole("heading", { name: "Elias Ashcroft — Canon Record" });
+
+    const topSave = screen.getByTestId("canon-top-save");
+    expect(topSave).toHaveAttribute("form", "canon-record-form");
+    fireEvent.change(screen.getByPlaceholderText("Name this canonical record"), { target: { value: "Elias Ashcroft II" } });
+    fireEvent.click(topSave);
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/canon-records/canon-top",
+      expect.objectContaining({
+        method: "PATCH",
+        body: expect.stringContaining('"name":"Elias Ashcroft II"'),
+      }),
+    ));
+  });
+
   it("persists image removal immediately without requiring a separate save", async () => {
     apiFetch.mockImplementation((path: string) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });

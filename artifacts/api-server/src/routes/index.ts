@@ -53,6 +53,9 @@ router.use(authRouter);
 // Guest checkout is intentionally public. It must be mounted before the
 // Editorial router's router-wide authentication guard below.
 router.use(checkoutRouter);
+// The storefront is public to guests and signed-in customers. Keep it before
+// the Editorial router's router-wide super-admin guard.
+router.use(shopRouter);
 router.use(adminRouter);
 router.use(catalogRouter);
 router.use(plannersRouter);
@@ -97,7 +100,4 @@ router.use(worldsmithEditorialRouter);
 router.use(worldsmithFoundationRouter);
 // Platform release tracking
 router.use(releasesRouter);
-// Public storefront API (no auth required)
-router.use(shopRouter);
-
 export default router;

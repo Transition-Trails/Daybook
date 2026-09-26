@@ -4,10 +4,9 @@
 // Table-based for Outlook compatibility; all styles inline.
 
 const PLATFORM_NAME = process.env.EMAIL_PLATFORM_NAME ?? "Daybook";
-const APP_URL = process.env.APP_URL
-  ? `https://${process.env.APP_URL}`
-  : process.env.REPLIT_DEV_DOMAIN
-  ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+const configuredAppUrl = process.env.APP_URL ?? process.env.REPLIT_DEV_DOMAIN;
+const APP_URL = configuredAppUrl
+  ? (/^https?:\/\//i.test(configuredAppUrl) ? configuredAppUrl : `https://${configuredAppUrl}`)
   : "https://example.com";
 
 export { APP_URL };

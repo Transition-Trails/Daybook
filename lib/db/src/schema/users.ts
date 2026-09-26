@@ -49,6 +49,8 @@ export const usersTable = pgTable("users", {
   googleDriveFolderId: text("google_drive_folder_id"),
   notionToken: text("notion_token"),
   passwordHash: text("password_hash"),
+  emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+  passwordCredentialVersion: integer("password_credential_version").notNull().default(0),
   // Platform-level role. null = no platform privilege.
   // super_admin: full platform access, bypasses all store scoping.
   platformRole: text("platform_role"), // "super_admin" | null
@@ -88,6 +90,27 @@ export const userInvitationsTable = pgTable("user_invitations", {
   ),
 }));
 
+/** One-use customer verification and password-reset credentials. Only a digest
+ * of each bearer token is stored; purpose and expiry are checked on consumption. */
+export const userAuthTokensTable = pgTable("user_auth_tokens", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  storeId: text("store_id"),
+  purpose: text("purpose").notNull(), // email_verification | password_reset
+  tokenHash: text("token_hash").notNull().unique(),
+  credentialHash: text("credential_hash"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  userPurposeIdx: index("user_auth_tokens_user_purpose_idx").on(table.userId, table.purpose),
+  expiresAtIdx: index("user_auth_tokens_expires_at_idx").on(table.expiresAt),
+  purposeCheck: check(
+    "user_auth_tokens_purpose_ck",
+    sql`${table.purpose} IN ('email_verification', 'password_reset')`,
+  ),
+}));
+
 /**
  * The runtime row always includes these nullable columns. Keep them optional in
  * the app-facing type while older focused tests and session fixtures migrate
@@ -95,11 +118,13 @@ export const userInvitationsTable = pgTable("user_invitations", {
  */
 export type User = Omit<
   typeof usersTable.$inferSelect,
-  "googleTokenVersion" | "googleDisconnectedAt" | "googleDisconnectReason" | "googleDriveFolderId"
+  "googleTokenVersion" | "googleDisconnectedAt" | "googleDisconnectReason" | "googleDriveFolderId" | "emailVerifiedAt" | "passwordCredentialVersion"
 > & {
   googleTokenVersion?: number;
   googleDisconnectedAt?: Date | null;
   googleDisconnectReason?: string | null;
   googleDriveFolderId?: string | null;
+  emailVerifiedAt?: Date | null;
+  passwordCredentialVersion?: number;
 };
 export type InsertUser = typeof usersTable.$inferInsert;

@@ -442,6 +442,20 @@
       "when": 1789851600000,
       "tag": "0062_worldsmith_readiness_planning",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1789855200000,
+      "tag": "0063_customer_email_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1789858800000,
+      "tag": "0064_customer_pending_credentials",
+      "breakpoints": true
     }
   ]
 }

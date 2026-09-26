@@ -133,6 +133,9 @@ export default function StorefrontHome() {
           {store.name}
         </span>
         <div style={{ flex: 1 }} />
+        <Link href={`/s/${storeSlug}/account`} style={{ color: "#fff", textDecoration: "none", fontSize: 13, fontWeight: 600 }}>
+          Account
+        </Link>
       </nav>
 
       {/* ── Hero ── */}

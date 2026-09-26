@@ -78,7 +78,7 @@ function GoogleIcon() {
   );
 }
 
-function SignInPrompt({ editionName, storeName }: { editionName: string; storeName: string }) {
+function SignInPrompt({ editionName, storeName, storeSlug }: { editionName: string; storeName: string; storeSlug: string }) {
   const handleGoogleSignIn = useCallback(() => {
     const w = 500, h = 620;
     const left = Math.round(window.screenX + (window.outerWidth - w) / 2);
@@ -102,6 +102,9 @@ function SignInPrompt({ editionName, storeName }: { editionName: string; storeNa
     }, 500);
   }, []);
 
+  const returnTo = `${window.location.pathname}${window.location.search}`;
+  const accountHref = `/s/${encodeURIComponent(storeSlug)}/account?returnTo=${encodeURIComponent(returnTo)}`;
+
   return (
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "60px 24px" }}>
       <div style={{
@@ -122,7 +125,7 @@ function SignInPrompt({ editionName, storeName }: { editionName: string; storeNa
           You're building <strong style={{ color: T.navy }}>{editionName}</strong> from <strong style={{ color: T.navy }}>{storeName}</strong>.
         </p>
         <p style={{ color: T.muted, fontSize: 13, lineHeight: 1.6, margin: "0 0 28px" }}>
-          Sign in with Google to generate your planner. Saving a copy to Drive is optional.
+          Sign in with Google or your email to generate your planner. Saving a copy to Drive is optional.
         </p>
         <button
           onClick={handleGoogleSignIn}
@@ -136,6 +139,13 @@ function SignInPrompt({ editionName, storeName }: { editionName: string; storeNa
           <GoogleIcon />
           Sign in with Google
         </button>
+        <a href={accountHref} style={{
+          marginTop: 12, width: "100%", display: "block", boxSizing: "border-box",
+          background: "transparent", color: T.navy, border: `1px solid ${T.border}`, borderRadius: 10,
+          padding: "11px 0", fontSize: 14, fontWeight: 600, textDecoration: "none",
+        }}>
+          Sign in with email
+        </a>
       </div>
     </div>
   );
@@ -726,7 +736,8 @@ export default function StoreBuilder() {
     queryKey: ["shop-me"],
     queryFn: fetchMe,
     retry: false,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const { data, isLoading, error } = useQuery({
@@ -780,7 +791,7 @@ export default function StoreBuilder() {
 
       {/* Auth gate or builder */}
       {!me ? (
-        <SignInPrompt editionName={data.edition.name} storeName={data.store.name} />
+        <SignInPrompt editionName={data.edition.name} storeName={data.store.name} storeSlug={storeSlug!} />
       ) : (
         <BuilderForm data={data} storeSlug={storeSlug!} />
       )}

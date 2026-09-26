@@ -15,7 +15,9 @@ export type EmailTemplate =
   | "new_ticket_platform"
   | "order_receipt"
   | "auto_response"
-  | "user_invitation";
+  | "user_invitation"
+  | "customer_email_verification"
+  | "customer_password_reset";
 
 export interface SendEmailOpts {
   /** Caller-supplied idempotency key. A retry with the same key is a no-op if

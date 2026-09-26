@@ -24,7 +24,7 @@ import {
 import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth-middleware";
 import { resolveStoreActorWithStoreHeader } from "../middleware/requireRole";
-import { canPreviewCatalogAsset } from "../lib/planner-preview-authorization";
+import { authorizePlannerPreviewRequest, canPreviewCatalogAsset } from "../lib/planner-preview-authorization";
 import { buildPdf, buildPreviewPdf, generatePageIds, validatePageIds, type BackgroundSpec, type BackgroundRenderWarning, type SpineSpec, type WidgetRenderSpec, type UserHotspot } from "../lib/pdf-generator";
 import { uploadPlannerPdf, uploadPlannerConfig } from "../lib/drive-upload";
 import { getValidGoogleToken, GoogleAuthError, GoogleTokenTemporaryError } from "../lib/google-auth";
@@ -456,7 +456,7 @@ export async function runGeneration(
 // Phase 1: builder is new-planner-only — reexport lives at /planners/:id/reexport
 // and is NOT surfaced in any builder UI.
 
-router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, async (req, res): Promise<void> => {
+router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, authorizePlannerPreviewRequest, async (req, res): Promise<void> => {
   const body = req.body as {
     editionId?: string;
     einkDevice?: string | null;
@@ -478,16 +478,6 @@ router.post("/planners/preview", requireAuth, resolveStoreActorWithStoreHeader, 
   try {
     const storeId = body.storeContext?.storeId;
     const actor = req.actor!;
-    if (storeId && !actor.isSuperAdmin) {
-      if (actor.storeId !== storeId) {
-        res.status(403).json({ error: "Forbidden: cross-store access denied" });
-        return;
-      }
-      if (!["store_owner", "store_staff"].includes(actor.storeRole ?? "")) {
-        res.status(403).json({ error: "Forbidden: store staff membership required" });
-        return;
-      }
-    }
     await refreshEinkCatalog();
     const requestedEinkDevice = body.einkDevice ?? body.output?.einkDevice ?? null;
     if (requestedEinkDevice && !getEinkPreset(requestedEinkDevice)) {

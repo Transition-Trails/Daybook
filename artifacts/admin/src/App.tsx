@@ -35,6 +35,7 @@ const InkEditor = lazy(() => import("@/pages/planners/InkEditor"));
 const StorefrontHome  = lazy(() => import("@/pages/shop/StorefrontHome"));
 const ShopEditionDetail = lazy(() => import("@/pages/shop/EditionDetail"));
 const StoreBuilder    = lazy(() => import("@/pages/shop/StoreBuilder"));
+const CustomerAccount = lazy(() => import("@/pages/shop/CustomerAccount"));
 
 // Eagerly preload all shop chunks as soon as any shop route mounts so that
 // subsequent client-side navigations within the store have zero Suspense delay.
@@ -44,6 +45,7 @@ function usePreloadShopChunks() {
     import("@/pages/shop/EditionDetail");
     import("@/pages/shop/StoreBuilder");
     import("@/pages/shop/StorefrontHome");
+    import("@/pages/shop/CustomerAccount");
   }, []);
 }
 
@@ -977,6 +979,16 @@ function AppRouter() {
        */}
 
       {/* Storefront home */}
+      <Route path="/s/:storeSlug/account">
+        {(p) => (
+          <ShopRouteShell>
+            <Suspense fallback={<ShopPageLoading />}>
+              <CustomerAccount key={p.storeSlug} />
+            </Suspense>
+          </ShopRouteShell>
+        )}
+      </Route>
+
       <Route path="/s/:storeSlug">
         {(p) => (
           <ShopRouteShell>

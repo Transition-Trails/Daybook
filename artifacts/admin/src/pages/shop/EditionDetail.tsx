@@ -148,6 +148,10 @@ export default function EditionDetail() {
           <ArrowLeft size={15} />
           {store.name}
         </button>
+        <div style={{ flex: 1 }} />
+        <a href={`/s/${storeSlug}/account`} style={{ color: "#fff", textDecoration: "none", fontSize: 13, fontWeight: 600 }}>
+          Account
+        </a>
       </nav>
 
       {/* Hero */}

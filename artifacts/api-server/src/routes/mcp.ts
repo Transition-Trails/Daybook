@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { CANON_TOOLS, executeCanonTool } from "../lib/worldsmith/mcp-canon";
 import { CANON_METADATA_TOOL } from "../lib/worldsmith/canon-metadata";
 import { CANON_EDITORIAL_TOOLS, CANON_EDITORIAL_WRITE_TOOLS, executeCanonEditorialTool } from "../lib/worldsmith/mcp-canon-editorial";
+import { RELATION_TOOLS, RELATION_WRITE_TOOLS, executeRelationTool } from "../lib/worldsmith/mcp-canon-relations";
 import { RECORD_TOOLS, RECORD_WRITE_TOOLS, executeRecordTool } from "../lib/worldsmith/mcp-editorial-records";
 import { SCENE_TOOLS, SCENE_WRITE_TOOLS, executeSceneTool } from "../lib/worldsmith/mcp-editorial-scenes";
 import { VIEW_TOOLS, VIEW_WRITE_TOOLS, executeViewTool } from "../lib/worldsmith/mcp-editorial-views";
@@ -21,6 +22,7 @@ const EDITORIAL_WRITE_SCOPE = "worldsmith:editorial:write";
 const REFERENCES_WRITE_SCOPE = "worldsmith:editorial:references:write";
 const STORY_DETAILS_WRITE_SCOPE = "worldsmith:editorial:story-details:write";
 const CANON_EDITORIAL_WRITE_SCOPE = "worldsmith:canon:editorial:write";
+const CANON_RELATIONS_WRITE_SCOPE = "worldsmith:canon:relations:write";
 const SCENES_READ_SCOPE = "worldsmith:editorial:scenes:read";
 const SCENES_WRITE_SCOPE = "worldsmith:editorial:scenes:write";
 const PRODUCTION_READ_SCOPE = "worldsmith:production:read";
@@ -29,7 +31,7 @@ const READINESS_READ_SCOPE = "worldsmith:readiness:read";
 const READINESS_WRITE_SCOPE = "worldsmith:readiness:write";
 const MCP_RESOURCE = "/mcp";
 const MAX_BODY_BYTES = 1_000_000;
-const tools = [...CANON_TOOLS, ...CANON_EDITORIAL_TOOLS, ...RECORD_TOOLS, ...VIEW_TOOLS, ...SCENE_TOOLS,
+const tools = [...CANON_TOOLS, ...CANON_EDITORIAL_TOOLS, ...RELATION_TOOLS, ...RECORD_TOOLS, ...VIEW_TOOLS, ...SCENE_TOOLS,
   ...PRODUCTION_CATALOG_TOOLS, ...PRODUCTION_SPEC_TOOLS, ...PRINT_TARGET_TOOLS, ...READINESS_PLANNING_TOOLS];
 const productionTool = (name: string) => [...PRODUCTION_CATALOG_TOOLS, ...PRODUCTION_SPEC_TOOLS, ...PRINT_TARGET_TOOLS]
   .some(tool => tool.name === name);
@@ -42,7 +44,7 @@ function publicOrigin(req: Request): string {
 
 function challenge(req: Request, res: Response, error = "invalid_token"): void {
   const url = `${publicOrigin(req)}/.well-known/oauth-protected-resource/mcp`;
-  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE} ${REFERENCES_WRITE_SCOPE} ${STORY_DETAILS_WRITE_SCOPE} ${CANON_EDITORIAL_WRITE_SCOPE} ${SCENES_READ_SCOPE} ${SCENES_WRITE_SCOPE} ${PRODUCTION_READ_SCOPE} ${PRODUCTION_WRITE_SCOPE} ${READINESS_READ_SCOPE} ${READINESS_WRITE_SCOPE}`;
+  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE} ${REFERENCES_WRITE_SCOPE} ${STORY_DETAILS_WRITE_SCOPE} ${CANON_EDITORIAL_WRITE_SCOPE} ${CANON_RELATIONS_WRITE_SCOPE} ${SCENES_READ_SCOPE} ${SCENES_WRITE_SCOPE} ${PRODUCTION_READ_SCOPE} ${PRODUCTION_WRITE_SCOPE} ${READINESS_READ_SCOPE} ${READINESS_WRITE_SCOPE}`;
   res.set("WWW-Authenticate", `Bearer realm="WorldSmith", error="${error}", resource_metadata="${url}", scope="${requiredScopes}"`);
   res.status(error === "insufficient_scope" ? 403 : 401).json({ error });
 }
@@ -113,6 +115,8 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
          && (tool.name !== CANON_METADATA_TOOL.name || identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
       : CANON_EDITORIAL_TOOLS.some(canonEditorial => canonEditorial.name === tool.name)
         ? identity.scopes.includes(READ_SCOPE) && identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE)
+         : RELATION_TOOLS.some(relation => relation.name === tool.name)
+           ? identity.scopes.includes(READ_SCOPE) && identity.scopes.includes(CANON_RELATIONS_WRITE_SCOPE)
         : SCENE_TOOLS.some(scene => scene.name === tool.name)
           ? identity.scopes.includes(SCENES_READ_SCOPE)
             && (!SCENE_WRITE_TOOLS.has(tool.name) || identity.scopes.includes(SCENES_WRITE_SCOPE))
@@ -169,11 +173,13 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
       const canonTool = CANON_TOOLS.some(tool => tool.name === name);
       const readinessTool = READINESS_PLANNING_TOOLS.some(tool => tool.name === name);
       const canonEditorialTool = CANON_EDITORIAL_TOOLS.some(tool => tool.name === name);
+      const relationTool = RELATION_TOOLS.some(tool => tool.name === name);
       const sceneTool = SCENE_TOOLS.some(tool => tool.name === name);
       const editorialRecordOrViewTool = RECORD_TOOLS.some(tool => tool.name === name)
         || VIEW_TOOLS.some(tool => tool.name === name);
       if ((canonTool && !identity.scopes.includes(READ_SCOPE))
           || (canonEditorialTool && !identity.scopes.includes(READ_SCOPE))
+          || (relationTool && !identity.scopes.includes(READ_SCOPE))
           || (sceneTool && !identity.scopes.includes(SCENES_READ_SCOPE))
           || (editorialRecordOrViewTool && !identity.scopes.includes(EDITORIAL_READ_SCOPE))
           || (productionTool(name) && !identity.scopes.includes(PRODUCTION_READ_SCOPE))
@@ -184,6 +190,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
       }
       if ((name === "update_canon_record" && !identity.scopes.includes(WRITE_SCOPE))
           || (CANON_EDITORIAL_WRITE_TOOLS.has(name) && !identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
+          || (RELATION_WRITE_TOOLS.has(name) && !identity.scopes.includes(CANON_RELATIONS_WRITE_SCOPE))
            || (name === CANON_METADATA_TOOL.name && !identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
           || (SCENE_WRITE_TOOLS.has(name) && !identity.scopes.includes(SCENES_WRITE_SCOPE))
           || ((name === "update_story_beat" || name === "update_reveal_thread")
@@ -210,6 +217,8 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
           ? await executeCanonTool(identity.userId, name, args ?? {}, publicOrigin(req))
           : CANON_EDITORIAL_TOOLS.some(tool => tool.name === name)
             ? await executeCanonEditorialTool(identity.userId, name, args ?? {}, publicOrigin(req))
+           : relationTool
+             ? await executeRelationTool(identity.userId, name, args ?? {})
           : RECORD_TOOLS.some(tool => tool.name === name)
             ? await executeRecordTool(identity.userId, name, args ?? {}, publicOrigin(req))
             : VIEW_TOOLS.some(tool => tool.name === name)

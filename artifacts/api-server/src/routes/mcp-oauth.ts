@@ -88,6 +88,7 @@ function describeScope(scope: McpScope): string {
   switch (scope) {
     case "worldsmith:canon:read": return "Read Canon data";
     case "worldsmith:canon:write": return "Write Canon data";
+    case "worldsmith:canon:relations:write": return "Create Canon Relationships edges";
     case "worldsmith:editorial:read": return "Read WorldSmith worlds, story maps, storylines (including beats and reveals), movements, and sequences";
     case "worldsmith:editorial:write": return "Write WorldSmith worlds, story maps, storylines, movements, and sequences";
     case "worldsmith:editorial:references:write": return "Move WorldSmith stories into or out of the chronology reference lane";
@@ -248,6 +249,7 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
   const csrf = createOpaqueSecret();
   const callbackOrigin = new URL(redirectUri).origin;
   const requestsCanonWrite = scopes.includes("worldsmith:canon:write");
+  const requestsCanonRelationsWrite = scopes.includes("worldsmith:canon:relations:write");
   const requestsEditorialWrite = scopes.includes("worldsmith:editorial:write");
   const requestsReferencesWrite = scopes.includes("worldsmith:editorial:references:write");
   const requestsStoryDetailsWrite = scopes.includes("worldsmith:editorial:story-details:write");
@@ -283,6 +285,8 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
     `<input type="hidden" name="csrf_token" value="${htmlEscape(csrf)}">` +
     `${requestsCanonWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate write permission</legend>` +
       `<label><input type="checkbox" name="allow_write" value="yes" required> I explicitly authorize this unverified client to write Canon data on my behalf.</label></fieldset>` : ""}` +
+    `${requestsCanonRelationsWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate Canon Relationships write permission</legend>` +
+      `<label><input type="checkbox" name="allow_canon_relations_write" value="yes" required> I explicitly authorize this unverified client to create Canon Relationships edges on my behalf.</label></fieldset>` : ""}` +
     `${requestsEditorialWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate WorldSmith editorial write permission</legend>` +
       `<label><input type="checkbox" name="allow_editorial_write" value="yes" required> I explicitly authorize this unverified client to write WorldSmith worlds, story maps, storylines, movements, and sequences on my behalf.</label></fieldset>` : ""}` +
     `${requestsReferencesWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate reference lane write permission</legend>` +
@@ -310,6 +314,7 @@ oauthRouter.post("/authorize", async (req, res): Promise<void> => {
     csrf_token?: unknown;
     consent?: unknown;
     allow_write?: unknown;
+    allow_canon_relations_write?: unknown;
     allow_editorial_write?: unknown;
     allow_references_write?: unknown;
     allow_story_details_write?: unknown;
@@ -337,6 +342,10 @@ oauthRouter.post("/authorize", async (req, res): Promise<void> => {
   }
   if (consent.scopes.includes("worldsmith:canon:write") && body.allow_write !== "yes") {
     oauthError(res, 400, "access_denied", "Explicit separate consent is required for Canon write access");
+    return;
+  }
+  if (consent.scopes.includes("worldsmith:canon:relations:write") && body.allow_canon_relations_write !== "yes") {
+    oauthError(res, 400, "access_denied", "Explicit separate consent is required for Canon Relationships writes");
     return;
   }
   if (consent.scopes.includes("worldsmith:editorial:write") && body.allow_editorial_write !== "yes") {

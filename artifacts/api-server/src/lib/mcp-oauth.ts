@@ -7,6 +7,7 @@ import { isSuperAdmin } from "./roles";
 export const MCP_SCOPES = [
   "worldsmith:canon:read",
   "worldsmith:canon:write",
+  "worldsmith:canon:relations:write",
   "worldsmith:editorial:read",
   "worldsmith:editorial:write",
   "worldsmith:editorial:references:write",
@@ -91,6 +92,7 @@ export function parseMcpScopes(value: unknown): McpScope[] | null {
 export function hasWriteWithoutRead(scopes: readonly string[]): boolean {
   return (
     (scopes.includes("worldsmith:canon:write") && !scopes.includes("worldsmith:canon:read")) ||
+    (scopes.includes("worldsmith:canon:relations:write") && !scopes.includes("worldsmith:canon:read")) ||
     (scopes.includes("worldsmith:editorial:write") && !scopes.includes("worldsmith:editorial:read")) ||
     (scopes.includes("worldsmith:editorial:references:write") && (!scopes.includes("worldsmith:editorial:read") || !scopes.includes("worldsmith:editorial:write"))) ||
     (scopes.includes("worldsmith:editorial:story-details:write") && !scopes.includes("worldsmith:editorial:read")) ||

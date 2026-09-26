@@ -6,6 +6,7 @@ const mocked = vi.hoisted(() => ({
   verify: vi.fn(),
   execute: vi.fn(),
   executeCanonEditorial: vi.fn(),
+  executeRelation: vi.fn(),
   executeScene: vi.fn(),
   executeProductionCatalog: vi.fn(),
   executeProductionSpec: vi.fn(),
@@ -39,6 +40,13 @@ vi.mock("../lib/worldsmith/mcp-canon-editorial", () => ({
   ],
   CANON_EDITORIAL_WRITE_TOOLS: new Set(["update_canon_editorial_fields"]),
   executeCanonEditorialTool: mocked.executeCanonEditorial,
+}));
+vi.mock("../lib/worldsmith/mcp-canon-relations", () => ({
+  RELATION_TOOLS: [
+    { name: "create_canon_relation", description: "Create a Canon relationship", inputSchema: { type: "object" } },
+  ],
+  RELATION_WRITE_TOOLS: new Set(["create_canon_relation"]),
+  executeRelationTool: mocked.executeRelation,
 }));
 vi.mock("../lib/worldsmith/mcp-editorial-scenes", () => ({
   SCENE_TOOLS: [
@@ -98,6 +106,7 @@ describe("WorldSmith Streamable HTTP MCP", () => {
     mocked.verify.mockReset();
     mocked.execute.mockReset();
     mocked.executeCanonEditorial.mockReset();
+    mocked.executeRelation.mockReset();
     mocked.executeScene.mockReset();
     mocked.executeProductionCatalog.mockReset();
     mocked.executeProductionSpec.mockReset();
@@ -119,7 +128,7 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       "https://daybook.example/.well-known/oauth-protected-resource/mcp",
     );
     expect(response.headers["www-authenticate"]).toContain(
-       'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write worldsmith:production:read worldsmith:production:write worldsmith:readiness:read worldsmith:readiness:write"',
+       'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:canon:relations:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write worldsmith:production:read worldsmith:production:write worldsmith:readiness:read worldsmith:readiness:write"',
     );
     expect(mocked.execute).not.toHaveBeenCalled();
   });
@@ -216,6 +225,36 @@ describe("WorldSmith Streamable HTTP MCP", () => {
     expect(allowed.body.result.structuredContent).toEqual({ updated: true });
     expect(mocked.executeCanonEditorial).toHaveBeenCalledWith(
       "super-admin", "update_canon_editorial_fields", { record_id: "canon-1" }, "https://daybook.example",
+    );
+  });
+
+  it("requires a separate relation-write grant for discovery and creation", async () => {
+    mocked.verify.mockResolvedValue({
+      userId: "super-admin", clientId: "client-1",
+      scopes: ["worldsmith:canon:read", "worldsmith:canon:write", "worldsmith:canon:editorial:write"],
+    });
+    const hidden = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
+    expect(hidden.body.result.tools.map((tool: { name: string }) => tool.name)).not.toContain("create_canon_relation");
+    const denied = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("create_canon_relation", { from_record_id: "a", to_record_id: "b" }));
+    expect(denied.status).toBe(403);
+    expect(mocked.executeRelation).not.toHaveBeenCalled();
+
+    mocked.verify.mockResolvedValue({
+      userId: "super-admin", clientId: "client-1",
+      scopes: ["worldsmith:canon:read", "worldsmith:canon:relations:write"],
+    });
+    const visible = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    expect(visible.body.result.tools.map((tool: { name: string }) => tool.name)).toContain("create_canon_relation");
+    const args = { from_record_id: "a", to_record_id: "b", relation_type: "ally", details: "Their shared work." };
+    mocked.executeRelation.mockResolvedValue({ relation: { fromRecordId: "a", toRecordId: "b" } });
+    const allowed = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("create_canon_relation", args));
+    expect(allowed.body.result.structuredContent.relation.toRecordId).toBe("b");
+    expect(mocked.executeRelation).toHaveBeenCalledWith(
+      "super-admin", "create_canon_relation", args,
     );
   });
 

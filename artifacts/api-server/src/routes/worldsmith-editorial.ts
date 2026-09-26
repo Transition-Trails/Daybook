@@ -3844,49 +3844,77 @@ router.post("/v1/editorial/canon-records/:id/relations", async (req: Request, re
       return;
     }
 
-    // Upsert: insert or update relation_type on conflict
-    await db
-      .insert(wsCanonRecordRelationsTable)
-      .values({
-        fromRecordId,
-        toRecordId: to_record_id,
-        relationType: relation_type,
-        details,
-        source: "manual",
-        createdBy: (req.user as any)?.id ?? null,
-      })
-      .onConflictDoUpdate({
-        target: [wsCanonRecordRelationsTable.fromRecordId, wsCanonRecordRelationsTable.toRecordId],
-        set: { relationType: relation_type, details, source: "manual" },
-      });
+    const outcome = await db.transaction(async (tx) => {
+      // Lock endpoints in stable order so MCP and manual writes serialize for this pair.
+      const lockedRecords = await tx.select({
+        id: wsCanonRecordsTable.id,
+        worldId: wsCanonRecordsTable.worldId,
+      }).from(wsCanonRecordsTable)
+        .where(inArray(wsCanonRecordsTable.id, [fromRecordId, to_record_id]))
+        .orderBy(wsCanonRecordsTable.id)
+        .for("update");
+      const lockedFrom = lockedRecords.find((record) => record.id === fromRecordId);
+      const lockedTo = lockedRecords.find((record) => record.id === to_record_id);
+      if (!lockedFrom) return { status: 404 as const, error: "Source canon record not found" };
+      if (!lockedTo) return { status: 404 as const, error: "Target canon record not found" };
+      if (lockedFrom.worldId !== lockedTo.worldId) {
+        return { status: 400 as const, error: "Canon records must belong to the same world" };
+      }
 
-    // Return the updated edge with target info
-    const [edge] = await db
-      .select({
-        fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
-        toRecordId: wsCanonRecordRelationsTable.toRecordId,
-        relationType: wsCanonRecordRelationsTable.relationType,
-        details: wsCanonRecordRelationsTable.details,
-        source: wsCanonRecordRelationsTable.source,
-        scope: wsCanonRecordRelationsTable.scope,
-        createdBy: wsCanonRecordRelationsTable.createdBy,
-        createdAt: wsCanonRecordRelationsTable.createdAt,
-        updatedAt: wsCanonRecordRelationsTable.updatedAt,
-        targetName: wsCanonRecordsTable.name,
-        targetCanonType: wsCanonRecordsTable.canonType,
-        targetStatus: wsCanonRecordsTable.status,
-      })
-      .from(wsCanonRecordRelationsTable)
-      .innerJoin(wsCanonRecordsTable, eq(wsCanonRecordRelationsTable.toRecordId, wsCanonRecordsTable.id))
-      .where(
-        and(
+      const inverse = await tx.select({ fromRecordId: wsCanonRecordRelationsTable.fromRecordId })
+        .from(wsCanonRecordRelationsTable)
+        .where(and(
+          eq(wsCanonRecordRelationsTable.fromRecordId, to_record_id),
+          eq(wsCanonRecordRelationsTable.toRecordId, fromRecordId),
+        )).limit(1);
+      if (inverse.length) {
+        return { status: 409 as const, error: "A relation between these canon records already exists." };
+      }
+
+      // Preserve same-direction upsert behavior for the legacy manual endpoint.
+      await tx.insert(wsCanonRecordRelationsTable)
+        .values({
+          fromRecordId,
+          toRecordId: to_record_id,
+          relationType: relation_type,
+          details,
+          source: "manual",
+          createdBy: (req.user as any)?.id ?? null,
+        })
+        .onConflictDoUpdate({
+          target: [wsCanonRecordRelationsTable.fromRecordId, wsCanonRecordRelationsTable.toRecordId],
+          set: { relationType: relation_type, details, source: "manual" },
+        });
+
+      const [edge] = await tx
+        .select({
+          fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
+          toRecordId: wsCanonRecordRelationsTable.toRecordId,
+          relationType: wsCanonRecordRelationsTable.relationType,
+          details: wsCanonRecordRelationsTable.details,
+          source: wsCanonRecordRelationsTable.source,
+          scope: wsCanonRecordRelationsTable.scope,
+          createdBy: wsCanonRecordRelationsTable.createdBy,
+          createdAt: wsCanonRecordRelationsTable.createdAt,
+          updatedAt: wsCanonRecordRelationsTable.updatedAt,
+          targetName: wsCanonRecordsTable.name,
+          targetCanonType: wsCanonRecordsTable.canonType,
+          targetStatus: wsCanonRecordsTable.status,
+        })
+        .from(wsCanonRecordRelationsTable)
+        .innerJoin(wsCanonRecordsTable, eq(wsCanonRecordRelationsTable.toRecordId, wsCanonRecordsTable.id))
+        .where(and(
           eq(wsCanonRecordRelationsTable.fromRecordId, fromRecordId),
           eq(wsCanonRecordRelationsTable.toRecordId, to_record_id),
-        ),
-      )
-      .limit(1);
-
-    res.status(201).json({ relation: edge });
+        ))
+        .limit(1);
+      return { status: 201 as const, relation: edge };
+    });
+    if (outcome.status !== 201) {
+      res.status(outcome.status).json({ error: outcome.error });
+      return;
+    }
+    res.status(201).json({ relation: outcome.relation });
   } catch (err) {
     logger.error({ err }, "editorial: add canon record relation");
     res.status(500).json({ error: "Internal server error" });

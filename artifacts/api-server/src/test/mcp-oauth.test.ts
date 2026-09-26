@@ -201,6 +201,9 @@ describe("MCP OAuth authorization server", () => {
       "worldsmith:canon:read", "worldsmith:canon:write",
     ]);
     expect(parseMcpScopes(
+      "worldsmith:canon:read worldsmith:canon:relations:write",
+    )).toEqual(["worldsmith:canon:read", "worldsmith:canon:relations:write"]);
+    expect(parseMcpScopes(
       "worldsmith:editorial:read worldsmith:editorial:write",
     )).toEqual(["worldsmith:editorial:read", "worldsmith:editorial:write"]);
     expect(parseMcpScopes(
@@ -220,6 +223,8 @@ describe("MCP OAuth authorization server", () => {
     expect(parseMcpScopes("read write")).toBeNull();
     expect(hasWriteWithoutRead(["worldsmith:canon:write"])).toBe(true);
     expect(hasWriteWithoutRead(["worldsmith:canon:read", "worldsmith:canon:write"])).toBe(false);
+    expect(hasWriteWithoutRead(["worldsmith:canon:relations:write"])).toBe(true);
+    expect(hasWriteWithoutRead(["worldsmith:canon:read", "worldsmith:canon:relations:write"])).toBe(false);
     expect(hasWriteWithoutRead(["worldsmith:editorial:write"])).toBe(true);
     expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:editorial:write"])).toBe(false);
     expect(hasWriteWithoutRead(["worldsmith:editorial:read", "worldsmith:editorial:references:write"])).toBe(true);
@@ -254,6 +259,7 @@ describe("MCP OAuth authorization server", () => {
   it("requires matching reads for Canon editorial and scenes write scopes", async () => {
     for (const scope of [
       "worldsmith:canon:editorial:write",
+      "worldsmith:canon:relations:write",
       "worldsmith:editorial:scenes:write",
       "worldsmith:production:write",
     ]) {
@@ -282,6 +288,7 @@ describe("MCP OAuth authorization server", () => {
     const allScopes = [
       "worldsmith:canon:read",
       "worldsmith:canon:write",
+      "worldsmith:canon:relations:write",
       "worldsmith:editorial:read",
       "worldsmith:editorial:write",
       "worldsmith:editorial:references:write",
@@ -496,6 +503,64 @@ describe("MCP OAuth authorization server", () => {
     expect(legacy.text).not.toContain("Read WorldSmith editorial scenes");
     expect(legacy.text).not.toContain("Edit Canon editorial fields");
     expect(legacy.text).not.toContain("Edit WorldSmith editorial scenes");
+  });
+
+  it("requires independent consent for Canon Relationships writes and does not widen existing Canon grants", async () => {
+    const authorize = (scope: string, state: string) => request(app).get("/mcp/oauth/authorize").query({
+      response_type: "code", client_id: clientId, redirect_uri: redirectUri,
+      state, code_challenge: challenge(), code_challenge_method: "S256",
+      resource: getMcpResource(), scope,
+    });
+
+    const consent = await authorize(
+      "worldsmith:canon:read worldsmith:canon:write worldsmith:canon:relations:write",
+      "canon-relations-write",
+    ).expect(200);
+    expect(consent.text).toContain("Create Canon Relationships edges");
+    expect(consent.text).toContain('name="allow_canon_relations_write"');
+    expect(consent.text).toContain('name="allow_write"');
+    const csrf = consent.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: csrf, consent: "approve", allow_write: "yes",
+    }).expect(400);
+    expect(mocks.data.codes).toHaveLength(0);
+
+    const retry = await authorize(
+      "worldsmith:canon:read worldsmith:canon:write worldsmith:canon:relations:write",
+      "canon-relations-write-approved",
+    ).expect(200);
+    const retryCsrf = retry.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: retryCsrf, consent: "approve",
+      allow_write: "yes", allow_canon_relations_write: "yes",
+    }).expect(302);
+    expect(mocks.data.codes[0].scopes).toEqual([
+      "worldsmith:canon:read", "worldsmith:canon:write", "worldsmith:canon:relations:write",
+    ]);
+
+    const legacy = await authorize(
+      "worldsmith:canon:read worldsmith:canon:write",
+      "existing-canon-write",
+    ).expect(200);
+    expect(legacy.text).not.toContain("Create Canon Relationships edges");
+    const legacyCsrf = legacy.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: legacyCsrf, consent: "approve", allow_write: "yes",
+    }).expect(302);
+    expect(mocks.data.codes[1].scopes).toEqual(["worldsmith:canon:read", "worldsmith:canon:write"]);
+
+    const editorial = await authorize(
+      "worldsmith:canon:read worldsmith:canon:editorial:write",
+      "existing-canon-editorial-write",
+    ).expect(200);
+    expect(editorial.text).not.toContain("Create Canon Relationships edges");
+    const editorialCsrf = editorial.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: editorialCsrf, consent: "approve", allow_canon_editorial_write: "yes",
+    }).expect(302);
+    expect(mocks.data.codes[2].scopes).toEqual([
+      "worldsmith:canon:read", "worldsmith:canon:editorial:write",
+    ]);
   });
 
   it("describes production access and requires its own separate write approval", async () => {

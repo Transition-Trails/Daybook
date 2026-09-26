@@ -224,12 +224,16 @@ function chronologyGroups(stories: StoryRow[]) {
   });
 }
 
-async function sequenceRevision(worldId: string, tx: QueryExecutor | typeof db = db): Promise<string> {
+export function sequenceRevisionQuery(worldId: string, tx: QueryExecutor | typeof db = db) {
   // Hash every stored field, not just the fields used to render the page. A
   // search result must remain a valid expected_revision for update_sequence.
-  const [row] = await tx.select({
+  return tx.select({
     value: sql<string>`md5(coalesce(jsonb_agg(to_jsonb(${wsStoriesTable}) order by ${wsStoriesTable.sortOrder}, ${wsStoriesTable.title}, ${wsStoriesTable.id})::text, '[]'))`,
   }).from(wsStoriesTable).where(eq(wsStoriesTable.worldId, worldId));
+}
+
+async function sequenceRevision(worldId: string, tx: QueryExecutor | typeof db = db): Promise<string> {
+  const [row] = await sequenceRevisionQuery(worldId, tx);
   return row!.value;
 }
 
@@ -263,16 +267,9 @@ async function readSequenceSet(worldId: string, origin: string, tx: QueryExecuto
   return { world_id: worldId, sequences: groups, references, revision: currentRevision };
 }
 
-async function searchSequencePage(
-  worldId: string, origin: string, query: string | undefined, afterId: string | undefined,
-  limit: number | undefined, bounded: boolean,
-) {
-  await requireWorld(worldId);
-  // Positive sort positions share a group; legacy zero/negative positions
-  // remain separate. Number groups before filtering, as in readSequenceSet.
-  const { rows } = await pool.query<{
-    total: number; id: string | null; position: number | null; story_ids: string[] | null; has_more: boolean | null;
-  }>(`
+// Shared with the opt-in large-world benchmark so EXPLAIN measures the same
+// grouping/counting SQL that serves search_sequences.
+export const SEQUENCE_PAGE_SQL = `
     WITH members AS (
       SELECT s.*, CASE WHEN s.sort_order > 0 THEN s.sort_order::text ELSE 'story:' || s.id END AS group_key
       FROM ws_stories s WHERE s.world_id = $1 AND s.sequence_role <> 'reference'
@@ -297,7 +294,18 @@ async function searchSequencePage(
     SELECT totals.total, page.id, page.position::int, page.story_ids,
       (SELECT count(*) FROM filtered WHERE ($3::text IS NULL OR id > $3)) > coalesce($4, totals.total) AS has_more
     FROM totals LEFT JOIN page ON true
-  `, [worldId, query ?? null, afterId ?? null, limit ?? null, bounded]);
+`;
+
+async function searchSequencePage(
+  worldId: string, origin: string, query: string | undefined, afterId: string | undefined,
+  limit: number | undefined, bounded: boolean,
+) {
+  await requireWorld(worldId);
+  // Positive sort positions share a group; legacy zero/negative positions
+  // remain separate. Number groups before filtering, as in readSequenceSet.
+  const { rows } = await pool.query<{
+    total: number; id: string | null; position: number | null; story_ids: string[] | null; has_more: boolean | null;
+  }>(SEQUENCE_PAGE_SQL, [worldId, query ?? null, afterId ?? null, limit ?? null, bounded]);
   const total = rows[0]?.total ?? 0;
   const selected = rows.filter((row): row is typeof row & { id: string; position: number; story_ids: string[] } =>
     row.id !== null && row.position !== null && row.story_ids !== null);

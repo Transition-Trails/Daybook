@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { CANON_TOOLS, executeCanonTool } from "../lib/worldsmith/mcp-canon";
+import { CANON_METADATA_TOOL } from "../lib/worldsmith/canon-metadata";
 import { CANON_EDITORIAL_TOOLS, CANON_EDITORIAL_WRITE_TOOLS, executeCanonEditorialTool } from "../lib/worldsmith/mcp-canon-editorial";
 import { RECORD_TOOLS, RECORD_WRITE_TOOLS, executeRecordTool } from "../lib/worldsmith/mcp-editorial-records";
 import { SCENE_TOOLS, SCENE_WRITE_TOOLS, executeSceneTool } from "../lib/worldsmith/mcp-editorial-scenes";
@@ -108,7 +109,8 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
         && (!READINESS_PLANNING_WRITE_TOOLS.has(tool.name) || identity.scopes.includes(READINESS_WRITE_SCOPE))
       :
     CANON_TOOLS.some(canon => canon.name === tool.name)
-      ? identity.scopes.includes(READ_SCOPE)
+       ? identity.scopes.includes(READ_SCOPE)
+         && (tool.name !== CANON_METADATA_TOOL.name || identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
       : CANON_EDITORIAL_TOOLS.some(canonEditorial => canonEditorial.name === tool.name)
         ? identity.scopes.includes(READ_SCOPE) && identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE)
         : SCENE_TOOLS.some(scene => scene.name === tool.name)
@@ -182,6 +184,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
       }
       if ((name === "update_canon_record" && !identity.scopes.includes(WRITE_SCOPE))
           || (CANON_EDITORIAL_WRITE_TOOLS.has(name) && !identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
+           || (name === CANON_METADATA_TOOL.name && !identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
           || (SCENE_WRITE_TOOLS.has(name) && !identity.scopes.includes(SCENES_WRITE_SCOPE))
           || ((name === "update_story_beat" || name === "update_reveal_thread")
             && !identity.scopes.includes(STORY_DETAILS_WRITE_SCOPE))

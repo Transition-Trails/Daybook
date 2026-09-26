@@ -24,8 +24,14 @@ vi.mock("../lib/worldsmith/mcp-canon", () => ({
     { name: "get_canon_field_options", description: "Options", inputSchema: { type: "object" } },
     { name: "update_canon_record", description: "Write", inputSchema: { type: "object" } },
     { name: "get_record_change_history", description: "History", inputSchema: { type: "object" } },
+    { name: "update_canon_metadata", description: "Metadata update", inputSchema: { type: "object" } },
   ],
   executeCanonTool: mocked.execute,
+}));
+vi.mock("../lib/worldsmith/canon-metadata", () => ({
+  CANON_METADATA_TOOL: {
+    name: "update_canon_metadata", description: "Metadata update", inputSchema: { type: "object" },
+  },
 }));
 vi.mock("../lib/worldsmith/mcp-canon-editorial", () => ({
   CANON_EDITORIAL_TOOLS: [
@@ -210,6 +216,36 @@ describe("WorldSmith Streamable HTTP MCP", () => {
     expect(allowed.body.result.structuredContent).toEqual({ updated: true });
     expect(mocked.executeCanonEditorial).toHaveBeenCalledWith(
       "super-admin", "update_canon_editorial_fields", { record_id: "canon-1" }, "https://daybook.example",
+    );
+  });
+
+  it("requires the separate Canon editorial write scope for metadata edits", async () => {
+    mocked.verify.mockResolvedValue({
+      userId: "super-admin", clientId: "client-1", scopes: ["worldsmith:canon:read", "worldsmith:canon:write"],
+    });
+    const denied = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("update_canon_metadata", { record_id: "canon-1", expected_version: 1, changes: { global_metadata: { importance: "central" } } }));
+    expect(denied.status).toBe(403);
+    expect(mocked.execute).not.toHaveBeenCalled();
+    const hiddenList = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send({ jsonrpc: "2.0", id: 10, method: "tools/list", params: {} });
+    expect(hiddenList.body.result.tools.map((tool: { name: string }) => tool.name)).not.toContain("update_canon_metadata");
+
+    mocked.verify.mockResolvedValue({
+      userId: "super-admin", clientId: "client-1",
+      scopes: ["worldsmith:canon:read", "worldsmith:canon:editorial:write"],
+    });
+    mocked.execute.mockResolvedValue({ updated: true });
+    const visibleList = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send({ jsonrpc: "2.0", id: 11, method: "tools/list", params: {} });
+    expect(visibleList.body.result.tools.map((tool: { name: string }) => tool.name)).toContain("update_canon_metadata");
+    const allowed = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("update_canon_metadata", { record_id: "canon-1", expected_version: 1, changes: { global_metadata: { importance: "central" } } }));
+    expect(allowed.body.result.structuredContent).toEqual({ updated: true });
+    expect(mocked.execute).toHaveBeenCalledWith(
+      "super-admin", "update_canon_metadata",
+      { record_id: "canon-1", expected_version: 1, changes: { global_metadata: { importance: "central" } } },
+      "https://daybook.example",
     );
   });
 

@@ -6,6 +6,7 @@ import {
   mcpCanonHistoryTable, characterProfileSchema, controlledValueSchema,
 } from "@workspace/db";
 import { z } from "zod";
+import { CANON_METADATA_TOOL, getCanonMetadataFieldOptions, updateCanonMetadata } from "./canon-metadata";
 
 export class CanonToolError extends Error {
   constructor(message: string, readonly status: number, readonly code: string) {
@@ -84,6 +85,7 @@ const toolSchemas = {
   },
   get_canon_record: { type: "object", properties: { record_id: { type: "string", minLength: 1 } }, required: ["record_id"], additionalProperties: false },
   get_canon_field_options: { type: "object", properties: { world_id: { type: "string", minLength: 1 }, canon_type: { type: "string", minLength: 1 } }, required: ["world_id", "canon_type"], additionalProperties: false },
+  update_canon_metadata: CANON_METADATA_TOOL.inputSchema,
   update_canon_record: {
     type: "object", properties: {
       record_id: { type: "string", minLength: 1 }, expected_revision: { type: "integer", minimum: 1 },
@@ -104,7 +106,8 @@ const toolSchemas = {
 export const CANON_TOOLS = [
   { name: "search_canon_records", description: "Search canon records in a world and return editor links.", inputSchema: toolSchemas.search_canon_records },
   { name: "get_canon_record", description: "Read a complete canon record, Character profile, and linked images.", inputSchema: toolSchemas.get_canon_record },
-  { name: "get_canon_field_options", description: "Read Character profile field limits and current world/global vocabulary choices.", inputSchema: toolSchemas.get_canon_field_options },
+  { name: "get_canon_field_options", description: "Read Canon globalMetadata and type-specific structuredProfile paths, direct-column distinctions, and current world/global vocabulary options.", inputSchema: toolSchemas.get_canon_field_options },
+  CANON_METADATA_TOOL,
   { name: "update_canon_record", description: "Save partial validated Character fields at the expected record revision; pass null to clear an optional field. Does not approve or reject Canon.", inputSchema: toolSchemas.update_canon_record },
   { name: "get_record_change_history", description: "Read audited profile changes for a canon record.", inputSchema: toolSchemas.get_record_change_history },
 ];
@@ -119,6 +122,7 @@ const argsSchemas = {
   }).strict(),
   get_canon_record: z.object({ record_id: z.string().min(1) }).strict(),
   get_canon_field_options: z.object({ world_id: z.string().min(1), canon_type: z.string().min(1) }).strict(),
+  update_canon_metadata: z.unknown(),
   update_canon_record: z.object({ record_id: z.string().min(1), expected_revision: z.number().int().positive(), changes: z.unknown() }).strict(),
   get_record_change_history: z.object({ record_id: z.string().min(1) }).strict(),
 };
@@ -255,10 +259,7 @@ export async function updateCharacterProfile(
   });
 }
 
-async function fieldOptions(worldId: string, canonType: string) {
-  if (canonType !== "character") {
-    throw new CanonToolError("Field options are currently defined for Character canon records only", 422, "UNSUPPORTED_CANON_TYPE");
-  }
+async function characterFieldOptions(worldId: string) {
   const vocabularies = await db.select().from(wsVocabulariesTable).where(and(
     eq(wsVocabulariesTable.active, true),
     or(isNull(wsVocabulariesTable.worldId), eq(wsVocabulariesTable.worldId, worldId)),
@@ -292,18 +293,22 @@ async function fieldOptions(worldId: string, canonType: string) {
     },
   ]));
   return {
-    canon_type: canonType,
+    canon_type: "character",
     fields,
     vocabularies: vocabularies.map(vocabulary => ({
       key: vocabulary.key,
       label: vocabulary.label,
       description: vocabulary.description,
       scope: vocabulary.scope,
+      world_id: vocabulary.worldId,
+      active: vocabulary.active,
       version: vocabulary.version,
       options: options.filter(option => option.vocabularyId === vocabulary.id).map(option => ({
         key: option.key,
         label: option.label,
         description: option.description,
+        active: option.active,
+        world_id: option.worldId,
         version: option.version,
         display_order: option.displayOrder,
       })),
@@ -367,7 +372,26 @@ export async function executeCanonTool(userId: string, name: string, args: unkno
     case "get_canon_field_options": {
       const input = parseArgs("get_canon_field_options", args);
       await requireWorld(input.world_id);
-      return fieldOptions(input.world_id, input.canon_type);
+      if (input.canon_type === "character") {
+        const character = await characterFieldOptions(input.world_id);
+        const metadata = await getCanonMetadataFieldOptions(input.world_id, input.canon_type);
+        const vocabulariesByScope = new Map<string, (typeof metadata.vocabularies)[number] | (typeof character.vocabularies)[number]>();
+        for (const vocabulary of [...metadata.vocabularies, ...character.vocabularies]) {
+          const worldId = "world_id" in vocabulary ? vocabulary.world_id : null;
+          const identity = `${vocabulary.key}\u0000${worldId ?? "global"}`;
+          if (!vocabulariesByScope.has(identity)) vocabulariesByScope.set(identity, vocabulary);
+        }
+        return {
+          ...metadata,
+          fields: character.fields,
+          vocabularies: [...vocabulariesByScope.values()],
+          character_profile: { storage_path: "ws_character_profiles.profile", ...character },
+        };
+      }
+      return getCanonMetadataFieldOptions(input.world_id, input.canon_type);
+    }
+    case "update_canon_metadata": {
+      return updateCanonMetadata(userId, args);
     }
     case "update_canon_record": {
       const input = parseArgs("update_canon_record", args);

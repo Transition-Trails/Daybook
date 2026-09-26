@@ -9,6 +9,12 @@ For WorldSmith's external editorial access, “stories” includes **individual 
 
 **How to apply:** Audit tool discovery with a grant containing every relevant scope before suggesting another app creation. Keep new generic Canon editorial writes and scene access behind their own explicit OAuth consents; existing grants must not silently acquire a new write domain. Content updates preserve workflow status and use expected revisions, audit trails, and same-world validation.
 
+MCP Canon metadata writes must fail closed against the active world/global vocabulary. Editor fallback labels are useful for explaining fields but are not evidence that a choice is valid in production; metadata edits should target individual keys and preserve unrelated values.
+
+**Why:** The user explicitly rejected guessed production Location values, and an opaque JSON replacement could erase existing metadata.
+
+**How to apply:** For new metadata-edit surfaces, distinguish stored values from allowed choices, use current vocabulary for write validation, and retain version checks and separate editorial-write consent.
+
 For connector debugging, an HTTP 200 on an MCP `tools/call` can still carry `isError: true`, and a generic `/mcp` access log cannot identify which tool ran.
 
 **Why:** A client-reported blocked call could not be attributed from status-only production logs, even though the target record existed and its payload was small.

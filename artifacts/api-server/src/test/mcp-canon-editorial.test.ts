@@ -45,6 +45,10 @@ describe("generic Canon editorial MCP writes", () => {
     expect(() => validateCanonEditorialChanges({ name: "   " })).toThrow();
     expect(() => validateCanonEditorialChanges({ made_up_column: "anything" })).toThrow();
     expect(() => validateCanonEditorialChanges({ narrative_visibility: "secret" })).toThrow();
+    expect(() => validateCanonEditorialChanges({ global_metadata: { importance: "central" } }))
+      .toThrowError(/update_canon_metadata/);
+    expect(() => validateCanonEditorialChanges({ structured_profile: { locationScale: "city" } }))
+      .toThrowError(/update_canon_metadata/);
     expect(() => validateCanonEditorialChanges({ notes: "<script>alert(1)</script>" })).not.toThrow();
   });
 
@@ -132,6 +136,11 @@ describe("generic Canon editorial MCP writes", () => {
       canonType: "motif",
       status: "proposed",
     });
+
+    await expect(executeCanonEditorialTool(user.id, "update_canon_editorial_fields", {
+      record_id: recordId, expected_version: 1,
+      changes: { global_metadata: { importance: "central" } },
+    }, "https://editor.example")).rejects.toMatchObject({ code: "USE_FIELD_LEVEL_METADATA_TOOL" });
 
     const saved = await executeCanonEditorialTool(user.id, "update_canon_editorial_fields", {
       record_id: recordId,

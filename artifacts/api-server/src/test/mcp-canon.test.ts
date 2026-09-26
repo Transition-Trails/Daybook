@@ -68,10 +68,10 @@ function setRows() {
 describe("WorldSmith canon MCP service", () => {
   beforeEach(() => setRows());
 
-  it("publishes exactly the five canon tools and reads complete record details", async () => {
+  it("publishes Canon read, profile, and field-level metadata tools", async () => {
     expect(CANON_TOOLS.map(tool => tool.name)).toEqual([
       "search_canon_records", "get_canon_record", "get_canon_field_options",
-      "update_canon_record", "get_record_change_history",
+      "update_canon_metadata", "update_canon_record", "get_record_change_history",
     ]);
     const result = await executeCanonTool("admin-1", "get_canon_record", { record_id: "char-1" }, "https://editor.example");
     expect(result).toMatchObject({
@@ -94,6 +94,75 @@ describe("WorldSmith canon MCP service", () => {
     expect(result.fields.lifeStage.choices).toEqual([{ key: "adult", label: "Adult", description: "" }]);
     expect(result.vocabularies[0]?.key).toBe("life_stage");
     expect(result.vocabularies[0]?.options[0]?.key).toBe("adult");
+  });
+
+  it("discovers global metadata and type-specific structured paths for every Canon type", async () => {
+    const expected: Record<string, string> = {
+      character: "pronouns", location: "locationScale", object: "objectClass",
+      event: "eventType", lore: "loreType", atmosphere: "emotionalRegister",
+      material: "rarity", relationship: "relationshipType", motif: "motifClass",
+    };
+    for (const [canonType, firstField] of Object.entries(expected)) {
+      const result = await executeCanonTool("admin-1", "get_canon_field_options", {
+        world_id: "world-1", canon_type: canonType,
+      }, "https://editor.example") as any;
+      expect(result.paths.global_metadata.storage_path).toContain("global_metadata");
+      expect(result.paths.global_metadata.fields.stability.path).toBe("globalMetadata.stability");
+      expect(result.paths.structured_profile.fields[firstField].path).toBe(`structuredProfile.${firstField}`);
+      expect(result.paths.structured_profile.fields[firstField].type).toBeTruthy();
+      expect(result.paths.structured_profile.fields[firstField].fallback_choices.length).toBeGreaterThan(0);
+      expect(result.paths.direct_columns).toEqual(expect.arrayContaining([
+        expect.objectContaining({ field: "canon_stability", note: expect.stringContaining("distinct") }),
+      ]));
+    }
+    await expect(executeCanonTool("admin-1", "get_canon_field_options", {
+      world_id: "world-1", canon_type: "unknown",
+    }, "https://editor.example")).rejects.toMatchObject({ code: "UNSUPPORTED_CANON_TYPE" });
+  });
+
+  it("reports scoped and inactive vocabulary choices without treating them as writable", async () => {
+    rows.ws_vocabularies = [
+      { id: "global-importance", key: "importance", label: "Importance", active: true, worldId: null },
+      { id: "world-importance", key: "importance", label: "Importance", active: true, worldId: "world-1" },
+      { id: "inactive-vocab", key: "importance", label: "Inactive scoped vocabulary", active: false, worldId: "world-1" },
+    ];
+    rows.ws_vocabulary_options = [
+      { id: "global", vocabularyId: "global-importance", key: "central", label: "Central", description: "", active: true, worldId: null },
+      { id: "world", vocabularyId: "world-importance", key: "local", label: "Local", description: "", active: true, worldId: "world-1" },
+      { id: "inactive", vocabularyId: "world-importance", key: "retired", label: "Retired", description: "", active: false, worldId: "world-1" },
+      { id: "active-option-in-inactive-vocab", vocabularyId: "inactive-vocab", key: "inactive-vocab-choice", label: "Inactive vocabulary choice", description: "", active: true, worldId: "world-1" },
+    ];
+    const result = await executeCanonTool("admin-1", "get_canon_field_options", {
+      world_id: "world-1", canon_type: "location",
+    }, "https://editor.example") as any;
+    const options = result.paths.global_metadata.fields.importance.choices;
+    expect(options).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "central", source: "global", active: true, allowed: true }),
+      expect.objectContaining({ key: "local", source: "world", active: true, allowed: true }),
+      expect.objectContaining({ key: "retired", source: "world", active: false, allowed: false }),
+      expect.objectContaining({ key: "inactive-vocab-choice", vocabulary_active: false, active: true, allowed: false }),
+    ]));
+  });
+
+  it("preserves global and world entries for same-key Character vocabularies", async () => {
+    rows.ws_vocabularies = [
+      { id: "global-life-stage", key: "life_stage", label: "Global life stage", description: "Global description", scope: "global", active: true, worldId: null, version: 2 },
+      { id: "world-life-stage", key: "life_stage", label: "World life stage", description: "World description", scope: "world", active: true, worldId: "world-1", version: 3 },
+    ];
+    rows.ws_vocabulary_options = [
+      { id: "global-adult", vocabularyId: "global-life-stage", key: "adult", label: "Adult", description: "", active: true, worldId: null, version: 1, displayOrder: 1 },
+      { id: "world-elder", vocabularyId: "world-life-stage", key: "elder", label: "Elder", description: "", active: true, worldId: "world-1", version: 1, displayOrder: 1 },
+    ];
+    const result = await executeCanonTool("admin-1", "get_canon_field_options", {
+      world_id: "world-1", canon_type: "character",
+    }, "https://editor.example") as any;
+    const lifeStageVocabularies = result.vocabularies.filter((vocabulary: any) => vocabulary.key === "life_stage");
+    expect(lifeStageVocabularies).toHaveLength(2);
+    expect(lifeStageVocabularies.map((vocabulary: any) => vocabulary.world_id)).toEqual([null, "world-1"]);
+    expect(lifeStageVocabularies.map((vocabulary: any) => vocabulary.description)).toEqual(["Global description", "World description"]);
+    expect(lifeStageVocabularies[0].options.map((option: any) => option.key)).toContain("adult");
+    expect(lifeStageVocabularies[1].options.map((option: any) => option.key)).toContain("elder");
+    expect(result.fields.lifeStage.choices.map((choice: any) => choice.key)).toEqual(["adult", "elder"]);
   });
 
   it("merges a valid partial profile while rejecting unknown and invalid fields", () => {
@@ -158,6 +227,62 @@ describe("WorldSmith canon MCP service", () => {
     } finally {
       fakeDb.update = originalReturning;
     }
+  });
+
+  it("updates explicit metadata fields with CAS and preserves untouched keys", async () => {
+    const metadataRecord = {
+      ...canonRecord, canonType: "location", version: 4,
+      globalMetadata: { untouched: "keep", importance: "central" },
+      structuredProfile: { untouched: "also keep", locationScale: "city" },
+    };
+    rows.ws_canon_records = [metadataRecord];
+    rows.ws_vocabularies = [{ id: "importance-vocab", key: "importance", label: "Importance", active: true, worldId: null }];
+    rows.ws_vocabulary_options = [
+      { id: "central-option", vocabularyId: "importance-vocab", key: "central", label: "Central", description: "", active: true, worldId: null },
+      { id: "local-option", vocabularyId: "importance-vocab", key: "local", label: "Local", description: "", active: true, worldId: "world-1" },
+      { id: "retired-option", vocabularyId: "importance-vocab", key: "retired", label: "Retired", description: "", active: false, worldId: "world-1" },
+    ];
+    let saved: Record<string, unknown> | undefined;
+    const originalUpdate = fakeDb.update;
+    fakeDb.update = () => {
+      const builder: any = {
+        set: (value: Record<string, unknown>) => { saved = value; return builder; },
+        where: () => builder,
+        returning: () => Promise.resolve([{ ...metadataRecord, ...saved, version: 5 }]),
+      };
+      return builder;
+    };
+    try {
+      const updated = await executeCanonTool("admin-1", "update_canon_metadata", {
+        record_id: "char-1", expected_version: 4,
+        changes: { global_metadata: { importance: "local" }, structured_profile: { locationScale: null } },
+      }, "https://editor.example") as any;
+      expect(updated.record.globalMetadata).toEqual({ untouched: "keep", importance: "local" });
+      expect(updated.record.structuredProfile).toEqual({ untouched: "also keep" });
+      expect(updated.revision).toBe(5);
+      expect(saved).toMatchObject({ version: 5, globalMetadata: { untouched: "keep", importance: "local" } });
+      await expect(executeCanonTool("admin-1", "update_canon_metadata", {
+        record_id: "char-1", expected_version: 3, changes: { global_metadata: { importance: "central" } },
+      }, "https://editor.example")).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+      await expect(executeCanonTool("admin-1", "update_canon_metadata", {
+        record_id: "char-1", expected_version: 4, changes: { global_metadata: { unknown: "x" } },
+      }, "https://editor.example")).rejects.toMatchObject({ code: "INVALID_ARGUMENTS" });
+      await expect(executeCanonTool("admin-1", "update_canon_metadata", {
+        record_id: "char-1", expected_version: 4, changes: { global_metadata: { importance: "retired" } },
+      }, "https://editor.example")).rejects.toMatchObject({ code: "INVALID_PICKLIST_VALUE" });
+      await expect(executeCanonTool("admin-1", "update_canon_metadata", {
+        record_id: "char-1", expected_version: 4, changes: { structured_profile: { eventType: ["birth"] } },
+      }, "https://editor.example")).rejects.toMatchObject({ code: "UNSUPPORTED_METADATA_FIELD" });
+    } finally {
+      fakeDb.update = originalUpdate;
+    }
+  });
+
+  it("requires a current super-admin for metadata writes", async () => {
+    rows.users = [];
+    await expect(executeCanonTool("not-admin", "update_canon_metadata", {
+      record_id: "char-1", expected_version: 4, changes: { global_metadata: { importance: "central" } },
+    }, "https://editor.example")).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
   });
 
   it("keeps Character profile PUT replacement semantics, including field removal and an empty profile", async () => {

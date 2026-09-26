@@ -69,8 +69,6 @@ const changesSchema = z.object({
   image_gallery: z.array(galleryEntrySchema).max(100).optional(),
   notes: richText.optional(),
   typography: typographySchema.optional(),
-  global_metadata: boundedJsonObjectSchema.optional(),
-  structured_profile: boundedJsonObjectSchema.optional(),
   generation_profile: boundedJsonObjectSchema.optional(),
   prompt_summary: z.string().max(3_500).optional(),
   identity_summary: z.string().max(2_000).optional(),
@@ -107,8 +105,6 @@ const changeToColumn: Record<keyof Changes, string> = {
   image_gallery: "imageGallery",
   notes: "notes",
   typography: "typography",
-  global_metadata: "globalMetadata",
-  structured_profile: "structuredProfile",
   generation_profile: "generationProfile",
   prompt_summary: "promptSummary",
   identity_summary: "identitySummary",
@@ -167,7 +163,7 @@ const changesJsonSchema = {
     typography: { type: "array", maxItems: 100, items: {
       type: "object", properties: { fontId: textSchema(200, 1) }, required: ["fontId"], additionalProperties: false,
     } },
-    global_metadata: jsonObjectSchema, structured_profile: jsonObjectSchema, generation_profile: jsonObjectSchema,
+    generation_profile: jsonObjectSchema,
     prompt_summary: textSchema(3_500), identity_summary: textSchema(2_000),
   },
   required: [],
@@ -193,7 +189,15 @@ export const CANON_EDITORIAL_TOOLS = [{
 
 export const CANON_EDITORIAL_WRITE_TOOLS = new Set<string>(["update_canon_editorial_fields"]);
 
+function rejectMetadataReplacement(input: unknown): void {
+  if (input && typeof input === "object" && !Array.isArray(input)
+      && (Object.hasOwn(input, "global_metadata") || Object.hasOwn(input, "structured_profile"))) {
+    throw new CanonToolError("Use update_canon_metadata for global_metadata or structured_profile field edits", 400, "USE_FIELD_LEVEL_METADATA_TOOL");
+  }
+}
+
 export function validateCanonEditorialChanges(input: unknown): Changes {
+  rejectMetadataReplacement(input);
   const parsed = changesSchema.safeParse(input);
   if (!parsed.success) {
     throw new CanonToolError(`Invalid canon editorial changes: ${parsed.error.message}`, 400, "INVALID_CHANGES");
@@ -217,6 +221,8 @@ export async function executeCanonEditorialTool(
   if (name !== "update_canon_editorial_fields") {
     throw new CanonToolError(`Unknown canon editorial tool "${name}"`, 404, "UNKNOWN_TOOL");
   }
+  if (args && typeof args === "object" && !Array.isArray(args)
+      && "changes" in args) rejectMetadataReplacement((args as { changes: unknown }).changes);
   const parsed = argsSchema.safeParse(args);
   if (!parsed.success) throw new CanonToolError(`Invalid tool arguments: ${parsed.error.message}`, 400, "INVALID_ARGUMENTS");
   const { record_id: recordId, expected_version: expectedVersion, changes } = parsed.data;

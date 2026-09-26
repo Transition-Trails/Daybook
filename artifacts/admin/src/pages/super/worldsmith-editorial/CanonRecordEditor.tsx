@@ -681,6 +681,15 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const initializedRecordRef = useRef<string | null>(null);
   const provisionalPortraitsRef = useRef<Set<string>>(new Set());
   const imageGenerationLockRef = useRef(false);
+  const [pendingMetadata, setPendingMetadata] = useState<{
+    result: { canon_record: CanonRecord };
+    savedForm: FormState;
+    latestRecord: CanonRecord;
+    assetsSynced: boolean;
+    profileSynced: boolean;
+    error: string;
+  } | null>(null);
+  const [retryingMetadata, setRetryingMetadata] = useState(false);
 
   const { data: recordData, isLoading, isError } = useQuery<{ canon_record: CanonRecord }>({
     queryKey: ["editorial-canon-record", recordId],
@@ -963,6 +972,229 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     }),
   });
 
+  const finishMetadataSync = async (pending: NonNullable<typeof pendingMetadata>, fromRetry = false) => {
+    const { result, savedForm } = pending;
+    const savedRecordId = result.canon_record.id;
+    let latestRecord = pending.latestRecord;
+    let assetsSynced = pending.assetsSynced;
+    let profileSynced = pending.profileSynced;
+    const currentImageUrls = savedForm.images.map(image => image.url);
+    try {
+      // Re-read assets on every attempt so a partially completed batch is
+      // upserted instead of creating duplicates.
+      if (worldId && !assetsSynced) {
+        try {
+          const existingAssetsReq = await apiFetch<{ assets: any[] }>(`/v1/editorial/assets?world_id=${worldId}`);
+          const existingAssets = existingAssetsReq.assets.filter(a => a.recordId === savedRecordId);
+
+          for (const img of savedForm.images) {
+            const existing = existingAssets.find(a => a.objectPath === img.url);
+            const payload = {
+              world_id: worldId,
+              record_id: savedRecordId,
+              role: img.role || "reference",
+              title: img.name || "Asset",
+              alt_text: img.description || "",
+              object_path: img.url,
+              source: img.source || (img.url.includes("generated") ? "generated" : "upload"),
+              source_credit: img.creatorCredit || null,
+              rights_status: img.rightsStatus || "unknown",
+              approval_status: img.workflowStatus || "draft",
+              canonical_strength: img.canonicalStrength || "reference",
+              generation_prompt: img.generationPrompt || null,
+              generation_model: img.generationModel || null,
+              positive_guidance: img.positiveGuidance || null,
+              negative_guidance: img.negativeGuidance || null,
+              width: img.width || null,
+              height: img.height || null,
+              byte_size: img.byteSize || null,
+              checksum: img.checksum || null
+            };
+
+            if (existing) {
+              await apiFetch(`/v1/editorial/assets/${existing.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+            } else {
+              await apiFetch(`/v1/editorial/assets`, { method: "POST", body: JSON.stringify(payload) });
+            }
+          }
+
+          const toDelete = existingAssets.filter(a => !currentImageUrls.includes(a.objectPath));
+          for (const a of toDelete) {
+            await apiFetch(`/v1/editorial/assets/${a.id}?world_id=${worldId}`, { method: "DELETE" });
+          }
+          assetsSynced = true;
+        } catch (err) {
+          console.error("Asset sync failed:", err);
+          throw new Error("Failed to sync assets.");
+        }
+      }
+
+      if (worldId) {
+        try {
+          if (savedForm.canonType !== "relationship" && !profileSynced) {
+            const profilePayload = { ...savedForm.structuredProfile };
+            if (savedForm.canonType === "character") {
+              delete profilePayload.variants;
+              delete profilePayload.knowledge;
+            }
+            if (savedForm.canonType === "character" && !Number.isInteger(latestRecord.version)) {
+              throw new Error("The latest Character version is unavailable. Reload the record before saving.");
+            }
+            const profileResult = await apiFetch<{ version?: number }>(`/v1/editorial/profiles/${savedForm.canonType}/${savedRecordId}`, {
+              method: "PUT",
+              body: JSON.stringify({
+                world_id: worldId,
+                schema_version: 1,
+                ...(savedForm.canonType === "character" ? { expected_version: latestRecord.version } : {}),
+                profile: profilePayload
+              })
+            });
+            if (savedForm.canonType === "character" && Number.isInteger(profileResult.version)) {
+              latestRecord = { ...latestRecord, version: profileResult.version! };
+            }
+            profileSynced = true;
+          }
+
+          if (savedForm.canonType === "character") {
+            const variants = savedForm.structuredProfile.variants || [];
+            const knowledge = savedForm.structuredProfile.knowledge || [];
+            const identityLocks = savedForm.generationProfile.identityLocks || [];
+            const mappedVariants = variants.map((v: any) => ({
+              variant_name: v.variantName,
+              life_stage: v.lifeStage,
+              is_default: v.isDefault,
+              profile: {
+                story_period_label: v.storyPeriodLabel,
+                apparent_age_range: v.apparentAgeRange,
+                hair_changes: v.hairChanges,
+                facial_hair_changes: v.facialHairChanges,
+                health_mobility_changes: v.healthMobilityChanges,
+                wardrobe_profile: v.wardrobeProfile,
+                occupation_status: v.occupationStatus,
+                emotional_baseline: v.emotionalBaseline,
+                reference_asset_ids: v.referenceAssetIds,
+                allowed_deviations: v.allowedDeviations,
+                visual_notes: v.visualNotes,
+              }
+            }));
+
+            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/variants`, {
+              method: "PUT",
+              body: JSON.stringify({ world_id: worldId, variants: mappedVariants })
+            });
+            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/knowledge`, {
+              method: "PUT",
+              body: JSON.stringify({
+                world_id: worldId,
+                knowledge: knowledge.map((k: any) => ({
+                  topic_record_id: k.topicRecordId || null,
+                  knowledge_state: k.knowledgeState,
+                  confidence: k.confidence || null,
+                  source: k.source || null,
+                  disclosure: k.disclosure || null,
+                  access: k.access || null,
+                  applicable_life_stage: k.applicableLifeStage || null,
+                  applicable_era: k.applicableEra || null,
+                  belief: k.belief || null,
+                  objective_truth: k.objectiveTruth || null,
+                  consequence: k.consequence || null
+                }))
+              })
+            });
+            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/identity-locks`, {
+              method: "PUT",
+              body: JSON.stringify({
+                world_id: worldId,
+                locks: identityLocks.map((l: any) => ({
+                  variant_id: l.variantId || null,
+                  category: l.traitCategory,
+                  value: l.canonicalValue,
+                  strength: l.lockStrength || "preferred",
+                  applies_to_life_stages: l.appliesToLifeStages || [],
+                  positive_prompt: l.positivePrompt || null,
+                  negative_prompt: l.negativePrompt || null,
+                  explanation: l.explanation || null
+                }))
+              })
+            });
+          }
+        } catch (err) {
+          console.error("Related collection sync failed:", err);
+          throw err;
+        }
+      }
+    } catch (error) {
+      queryClient.setQueryData(["editorial-canon-record", savedRecordId], { canon_record: latestRecord });
+      setPendingMetadata({
+        ...pending, latestRecord, assetsSynced, profileSynced,
+        error: error instanceof Error ? error.message : "Metadata sync failed",
+      });
+      toast({
+        title: "Canon record saved; metadata sync unfinished",
+        description: "Your saved images are safe. Retry metadata sync without saving the record again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    let contextSnapshotStatus: "current" | "sync_failed" | null = null;
+    try {
+      const snapshotResult = await apiFetch<{ context_snapshot_status: "current" | "sync_failed" | null }>(
+        `/v1/editorial/canon-records/${savedRecordId}/context-snapshot/auto-sync`,
+        { method: "POST", body: JSON.stringify({ expected_version: latestRecord.version }) },
+      );
+      contextSnapshotStatus = snapshotResult.context_snapshot_status;
+    } catch (error) {
+      toast({
+        title: "Context Snapshot could not be checked",
+        description: `The record and images were saved. ${(error as Error).message}`,
+        variant: "destructive",
+      });
+    }
+    queryClient.setQueryData(["editorial-canon-record", savedRecordId], { canon_record: latestRecord });
+    queryClient.invalidateQueries({
+      predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
+    });
+    queryClient.invalidateQueries({ queryKey: ["editorial-assets", savedRecordId] });
+    queryClient.invalidateQueries({ queryKey: ["editorial-character-variants", savedRecordId] });
+    queryClient.invalidateQueries({ queryKey: ["editorial-identity-locks", savedRecordId] });
+    queryClient.invalidateQueries({ queryKey: ["editorial-knowledge", savedRecordId] });
+    queryClient.invalidateQueries({ queryKey: ["editorial-canon-context-snapshot", savedRecordId] });
+    setPendingMetadata(null);
+    if (!fromRetry) {
+      setForm(prev => ({
+        ...prev,
+        globalMetadata: latestRecord.globalMetadata ?? {},
+        structuredProfile: latestRecord.structuredProfile ?? {},
+        generationProfile: latestRecord.generationProfile ?? {},
+      }));
+    }
+    toast({ title: isNew ? "Canon record created" : "Canon record saved" });
+    if (contextSnapshotStatus === "sync_failed") {
+      toast({ title: "Context Snapshot failed", description: "The record and images were saved, but the automatic snapshot needs attention.", variant: "destructive" });
+    }
+    if (isNew) navigate(`/super/worldsmith/editorial/canon/${savedRecordId}`);
+  };
+
+  const retryMetadataSync = async () => {
+    if (!pendingMetadata || retryingMetadata) return;
+    setRetryingMetadata(true);
+    try {
+      const current = await apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${pendingMetadata.result.canon_record.id}`);
+      if (current.canon_record.version !== pendingMetadata.latestRecord.version) {
+        setPendingMetadata(previous => previous && { ...previous, error: "This record changed since it was saved. Reload before syncing metadata." });
+        return;
+      }
+      await finishMetadataSync(pendingMetadata, true);
+    } catch (error) {
+      setPendingMetadata(previous => previous && {
+        ...previous, error: error instanceof Error ? error.message : "Could not verify the saved record",
+      });
+    } finally {
+      setRetryingMetadata(false);
+    }
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const payload = {
@@ -1004,206 +1236,13 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     },
     onSuccess: async result => {
       const savedRecordId = result.canon_record.id;
-      let latestRecord = result.canon_record;
       const currentImageUrls = form.images.map(image => image.url);
       const removedImages = initialImagesRef.current.filter(imageUrl => !currentImageUrls.includes(imageUrl));
       await Promise.all(removedImages.map(imageUrl => storageApi.deleteObject(imageUrl).catch(() => undefined)));
-      provisionalPortraitsRef.current.clear();
-
-      // Sync assets API
-      if (worldId) {
-        try {
-          const existingAssetsReq = await apiFetch<{ assets: any[] }>(`/v1/editorial/assets?world_id=${worldId}`);
-          const existingAssets = existingAssetsReq.assets.filter(a => a.recordId === savedRecordId);
-
-          for (const img of form.images) {
-            const existing = existingAssets.find(a => a.objectPath === img.url);
-            const payload = {
-              world_id: worldId,
-              record_id: savedRecordId,
-              role: img.role || "reference",
-              title: img.name || "Asset",
-              alt_text: img.description || "",
-              object_path: img.url,
-              source: img.source || (img.url.includes("generated") ? "generated" : "upload"),
-              source_credit: img.creatorCredit || null,
-              rights_status: img.rightsStatus || "unknown",
-              approval_status: img.workflowStatus || "draft",
-              canonical_strength: img.canonicalStrength || "reference",
-              generation_prompt: img.generationPrompt || null,
-              generation_model: img.generationModel || null,
-              positive_guidance: img.positiveGuidance || null,
-              negative_guidance: img.negativeGuidance || null,
-              width: img.width || null,
-              height: img.height || null,
-              byte_size: img.byteSize || null,
-              checksum: img.checksum || null
-            };
-
-            if (existing) {
-              await apiFetch(`/v1/editorial/assets/${existing.id}`, { method: "PATCH", body: JSON.stringify(payload) });
-            } else {
-              await apiFetch(`/v1/editorial/assets`, { method: "POST", body: JSON.stringify(payload) });
-            }
-          }
-
-          const toDelete = existingAssets.filter(a => !currentImageUrls.includes(a.objectPath));
-          for (const a of toDelete) {
-            await apiFetch(`/v1/editorial/assets/${a.id}?world_id=${worldId}`, { method: "DELETE" }).catch(() => null);
-          }
-        } catch (err) {
-          console.error("Asset sync failed:", err);
-          throw new Error("Failed to sync assets. Record was saved but images may be inconsistent.");
-        }
-
-        try {
-          if (form.canonType !== "relationship") {
-            const profilePayload = { ...form.structuredProfile };
-
-            // Strip out duplicated collections that are stored in dedicated tables
-            if (form.canonType === "character") {
-              delete profilePayload.variants;
-              delete profilePayload.knowledge;
-            }
-
-            // Save the structured profile using the generic profile endpoint
-            // (Material canon records use the 'object' profile route on the backend but the generic route accepts 'material' and maps it internally)
-            if (form.canonType === "character" && !Number.isInteger(latestRecord.version)) {
-              throw new Error("The latest Character version is unavailable. Reload the record before saving.");
-            }
-            const profileResult = await apiFetch<{ version?: number }>(`/v1/editorial/profiles/${form.canonType}/${savedRecordId}`, {
-              method: "PUT",
-              body: JSON.stringify({
-                world_id: worldId,
-                schema_version: 1,
-                ...(form.canonType === "character" ? { expected_version: latestRecord.version } : {}),
-                profile: profilePayload
-              })
-            });
-            if (form.canonType === "character" && Number.isInteger(profileResult.version)) {
-              latestRecord = { ...latestRecord, version: profileResult.version! };
-            }
-          }
-
-          if (form.canonType === "character") {
-            const variants = form.structuredProfile.variants || [];
-            const knowledge = form.structuredProfile.knowledge || [];
-            const identityLocks = form.generationProfile.identityLocks || [];
-
-            // Sync variants with batch endpoint, passing full camelCase array directly
-            // (variantBoundary preprocess handles the mapping automatically)
-            const mappedVariants = variants.map((v: any) => ({
-              variant_name: v.variantName,
-              life_stage: v.lifeStage,
-              is_default: v.isDefault,
-              profile: {
-                story_period_label: v.storyPeriodLabel,
-                apparent_age_range: v.apparentAgeRange,
-                hair_changes: v.hairChanges,
-                facial_hair_changes: v.facialHairChanges,
-                health_mobility_changes: v.healthMobilityChanges,
-                wardrobe_profile: v.wardrobeProfile,
-                occupation_status: v.occupationStatus,
-                emotional_baseline: v.emotionalBaseline,
-                reference_asset_ids: v.referenceAssetIds,
-                allowed_deviations: v.allowedDeviations,
-                visual_notes: v.visualNotes,
-              }
-            }));
-
-            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/variants`, {
-              method: "PUT",
-              body: JSON.stringify({
-                world_id: worldId,
-                variants: mappedVariants
-              })
-            });
-
-            // Sync knowledge with batch endpoint, mapping to expected snake_case
-            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/knowledge`, {
-              method: "PUT",
-              body: JSON.stringify({
-                world_id: worldId,
-                knowledge: knowledge.map((k: any) => ({
-                  topic_record_id: k.topicRecordId || null,
-                  knowledge_state: k.knowledgeState,
-                  confidence: k.confidence || null,
-                  source: k.source || null,
-                  disclosure: k.disclosure || null,
-                  access: k.access || null,
-                  applicable_life_stage: k.applicableLifeStage || null,
-                  applicable_era: k.applicableEra || null,
-                  belief: k.belief || null,
-                  objective_truth: k.objectiveTruth || null,
-                  consequence: k.consequence || null
-                }))
-              })
-            });
-
-            // Sync locks with batch endpoint, mapping to expected snake_case
-            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/identity-locks`, {
-              method: "PUT",
-              body: JSON.stringify({
-                world_id: worldId,
-                locks: identityLocks.map((l: any) => ({
-                  variant_id: l.variantId || null,
-                  category: l.traitCategory,
-                  value: l.canonicalValue,
-                  strength: l.lockStrength || "preferred",
-                  applies_to_life_stages: l.appliesToLifeStages || [],
-                  positive_prompt: l.positivePrompt || null,
-                  negative_prompt: l.negativePrompt || null,
-                  explanation: l.explanation || null
-                }))
-              })
-            });
-          }
-        } catch (err) {
-          console.error("Related collection sync failed:", err);
-          if ((err as Error & { status?: number }).status === 409) throw err;
-          throw new Error("Failed to sync character metadata (variants/locks/knowledge) or profile. Record was saved but metadata may be inconsistent.");
-        }
-      }
-
-      let contextSnapshotStatus: "current" | "sync_failed" | null = null;
-      try {
-        const result = await apiFetch<{ context_snapshot_status: "current" | "sync_failed" | null }>(
-          `/v1/editorial/canon-records/${savedRecordId}/context-snapshot/auto-sync`,
-          { method: "POST", body: JSON.stringify({ expected_version: latestRecord.version }) },
-        );
-        contextSnapshotStatus = result.context_snapshot_status;
-      } catch (error) {
-        toast({
-          title: "Context Snapshot could not be checked",
-          description: `The record and images were saved. ${(error as Error).message}`,
-          variant: "destructive",
-        });
-      }
-      queryClient.setQueryData(["editorial-canon-record", savedRecordId], { canon_record: latestRecord });
-      queryClient.invalidateQueries({
-        predicate: (q) => String(q.queryKey[0] ?? "").startsWith("editorial-canon"),
-      });
-      queryClient.invalidateQueries({ queryKey: ["editorial-assets", savedRecordId] });
-      queryClient.invalidateQueries({ queryKey: ["editorial-character-variants", savedRecordId] });
-      queryClient.invalidateQueries({ queryKey: ["editorial-identity-locks", savedRecordId] });
-      queryClient.invalidateQueries({ queryKey: ["editorial-knowledge", savedRecordId] });
-      queryClient.invalidateQueries({ queryKey: ["editorial-canon-context-snapshot", savedRecordId] });
+      for (const url of currentImageUrls) provisionalPortraitsRef.current.delete(url);
       initialImagesRef.current = currentImageUrls;
-
-      setForm(prev => ({
-        ...prev,
-        globalMetadata: latestRecord.globalMetadata ?? {},
-        structuredProfile: latestRecord.structuredProfile ?? {},
-        generationProfile: latestRecord.generationProfile ?? {},
-      }));
-
-      toast({ title: isNew ? "Canon record created" : "Canon record saved" });
-      if (contextSnapshotStatus === "sync_failed") {
-        toast({ title: "Context Snapshot failed", description: "The record and images were saved, but the automatic snapshot needs attention.", variant: "destructive" });
-      }
-      if (isNew) {
-        navigate(`/super/worldsmith/editorial/canon/${result.canon_record.id}`);
-      }
+      queryClient.setQueryData(["editorial-canon-record", savedRecordId], result);
+      await finishMetadataSync({ result, savedForm: form, latestRecord: result.canon_record, assetsSynced: false, profileSynced: false, error: "" });
     },
     onError: async (error: Error) => {
       await Promise.all([...provisionalPortraitsRef.current].map(path => storageApi.deleteObject(path).catch(() => undefined)));
@@ -1565,7 +1604,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               type="submit"
               form="canon-record-form"
               data-testid="canon-top-save"
-              disabled={saveMutation.isPending || isImageProcessing || conflictedRecordId === recordId}
+              disabled={saveMutation.isPending || retryingMetadata || !!pendingMetadata || isImageProcessing || conflictedRecordId === recordId}
               className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
               style={{ background: INK }}
             >
@@ -1575,11 +1614,27 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           </div>
         </div>
 
+        {pendingMetadata && (
+          <div role="alert" className="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm" style={{ color: INK }}>
+            <p className="font-semibold">Canon record saved, but metadata sync is unfinished.</p>
+            <p className="mt-1">The saved images are safe. {pendingMetadata.error} Retry the metadata sync before making another save.</p>
+            <button
+              type="button"
+              onClick={() => void retryMetadataSync()}
+              disabled={retryingMetadata || saveMutation.isPending}
+              className="mt-3 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+              style={{ background: INK }}
+            >
+              {retryingMetadata ? "Retrying…" : "Retry metadata sync"}
+            </button>
+          </div>
+        )}
+
         <form
           id="canon-record-form"
           onSubmit={event => {
             event.preventDefault();
-            if (isImageProcessing) return;
+            if (isImageProcessing || pendingMetadata || retryingMetadata) return;
             if (!form.name.trim()) {
               toast({ title: "A record name is required", variant: "destructive" });
               return;
@@ -1890,6 +1945,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               </section>
             )}
 
+            <fieldset disabled={!!pendingMetadata || retryingMetadata} className="min-w-0 border-0 p-0 disabled:opacity-70">
             <ImageField
               images={form.images}
               uploading={imageUploading}
@@ -1907,6 +1963,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               onPromptChange={setImagePrompt}
               onRelatedRecordsChange={setImageRelatedRecordIds}
             />
+            </fieldset>
 
             {!isNew && record && (
               <>
@@ -2127,7 +2184,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
             <p className="text-xs" style={{ color: "#786D60" }}>{isNew ? "The record will be saved as Proposed." : "Save your changes before leaving this record."}</p>
             <div className="flex items-center gap-2">
               <button type="button" onClick={cancel} disabled={saveMutation.isPending || isImageProcessing} className="rounded-lg border px-3.5 py-2 text-xs font-semibold disabled:opacity-50" style={{ borderColor: "#DDD4C4", color: "#667085" }}>Cancel</button>
-              <button type="submit" disabled={saveMutation.isPending || isImageProcessing || conflictedRecordId === recordId} className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ background: INK }}>
+              <button type="submit" disabled={saveMutation.isPending || retryingMetadata || !!pendingMetadata || isImageProcessing || conflictedRecordId === recordId} className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ background: INK }}>
                 {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                 {isNew ? "Create record" : "Save"}
               </button>

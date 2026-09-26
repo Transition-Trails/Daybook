@@ -175,6 +175,100 @@ describe("CanonRecordEditor", () => {
     ));
   });
 
+  it.each(["asset", "profile"] as const)(
+    "preserves a newly uploaded image and retries only metadata after a %s sync failure",
+    async failedStep => {
+      const objectPath = "/objects/new-canon-image.png";
+      let failSync = true;
+      let assetExists = false;
+      const savedRecord = {
+        id: "canon-created", version: 1, worldId: "world-wychcombe",
+        name: "New location", canonType: "location", status: "proposed",
+      };
+      storageApi.requestUploadUrl.mockResolvedValue({
+        uploadURL: "https://storage.example/upload", objectPath,
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+      apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+        if (path === "/v1/editorial/canon-records" && init?.method === "POST") {
+          return Promise.resolve({ canon_record: savedRecord });
+        }
+        if (path === "/v1/editorial/canon-records/canon-created") {
+          return Promise.resolve({ canon_record: savedRecord });
+        }
+        if (path.startsWith("/v1/editorial/assets?")) {
+          return Promise.resolve({ assets: assetExists ? [{ id: "asset-1", recordId: savedRecord.id, objectPath }] : [] });
+        }
+        if (path === "/v1/editorial/assets" && init?.method === "POST" ||
+            path === "/v1/editorial/assets/asset-1" && init?.method === "PATCH") {
+          if (failSync && failedStep === "asset") return Promise.reject(new Error("Asset service unavailable"));
+          assetExists = true;
+          return Promise.resolve({});
+        }
+        if (path === "/v1/editorial/profiles/location/canon-created" && init?.method === "PUT") {
+          if (failSync && failedStep === "profile") return Promise.reject(new Error("Profile service unavailable"));
+          return Promise.resolve({});
+        }
+        if (path.endsWith("/context-snapshot/auto-sync")) return Promise.resolve({ context_snapshot_status: "current" });
+        return Promise.resolve({});
+      });
+      const editor = renderEditor();
+      fireEvent.change(screen.getByPlaceholderText("Name this canonical record"), { target: { value: "New location" } });
+      const fileInput = editor.container.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(fileInput).not.toBeNull();
+      fireEvent.change(fileInput!, { target: { files: [new File(["image"], "new.png", { type: "image/png" })] } });
+      await screen.findByAltText("Primary Canon image");
+      fireEvent.click(screen.getByTestId("canon-top-save"));
+
+      const retry = await screen.findByRole("button", { name: "Retry metadata sync" });
+      expect(screen.getByRole("alert")).toHaveTextContent("Canon record saved, but metadata sync is unfinished.");
+      expect(screen.getByTestId("canon-top-save")).toBeDisabled();
+      expect(storageApi.deleteObject).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+      const createCalls = () => apiFetch.mock.calls.filter(([path, init]) =>
+        path === "/v1/editorial/canon-records" && init?.method === "POST");
+      expect(createCalls()).toHaveLength(1);
+      expect(JSON.parse(createCalls()[0][1].body).image_urls).toEqual([objectPath]);
+
+      failSync = false;
+      fireEvent.click(retry);
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith("/super/worldsmith/editorial/canon/canon-created"));
+      expect(createCalls()).toHaveLength(1);
+      expect(storageApi.deleteObject).not.toHaveBeenCalled();
+      expect(apiFetch).toHaveBeenCalledWith(
+        "/v1/editorial/profiles/location/canon-created",
+        expect.objectContaining({ method: "PUT" }),
+      );
+      if (failedStep === "profile") {
+        expect(apiFetch.mock.calls.filter(([path, init]) =>
+          path === "/v1/editorial/assets" && init?.method === "POST")).toHaveLength(1);
+      }
+    },
+  );
+
+  it("still removes provisional uploads when the Canon record write itself fails", async () => {
+    const objectPath = "/objects/unsaved-canon-image.png";
+    storageApi.requestUploadUrl.mockResolvedValue({
+      uploadURL: "https://storage.example/upload", objectPath,
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/canon-records" && init?.method === "POST") {
+        return Promise.reject(new Error("Save rejected"));
+      }
+      return Promise.resolve({});
+    });
+    const editor = renderEditor();
+    fireEvent.change(screen.getByPlaceholderText("Name this canonical record"), { target: { value: "Unsaved location" } });
+    fireEvent.change(editor.container.querySelector<HTMLInputElement>('input[type="file"]')!, {
+      target: { files: [new File(["image"], "unsaved.png", { type: "image/png" })] },
+    });
+    await screen.findByAltText("Primary Canon image");
+    fireEvent.click(screen.getByTestId("canon-top-save"));
+    await waitFor(() => expect(storageApi.deleteObject).toHaveBeenCalledWith(objectPath));
+    expect(screen.queryByRole("button", { name: "Retry metadata sync" })).not.toBeInTheDocument();
+  });
+
   it("makes an additional image primary without removing the other images", async () => {
     let gallery = [
       { url: "/objects/first.png", name: "Original image", description: "Original", role: "primary" },
@@ -287,7 +381,7 @@ describe("CanonRecordEditor", () => {
 
     renderEditor("canon-1");
     await waitFor(() => expect(screen.getByRole("heading", { name: /The Ashcroft Ledger — Canon Record/ })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Remove primary Canon portrait" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove primary Canon portrait" }));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
       "/v1/editorial/canon-records/canon-1",

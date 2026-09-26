@@ -96,6 +96,53 @@ describe("CanonRecordEditor", () => {
     expect(screen.getByText("Victorian seed merchant storefront, painted lettering, timber drawers")).toBeInTheDocument();
   });
 
+  it("shows MCP-saved Location metadata even when a legacy Location Profile row is empty", async () => {
+    const structuredProfile = {
+      locationScale: "property",
+      primaryFunction: ["commercial", "agricultural"],
+      ownership: "family",
+      condition: "well_kept",
+      access: "public_limits",
+      populationDensity: "busy",
+      settingCharacter: ["industrious"],
+      dominantMaterials: ["stone", "brick", "timber", "iron", "glass", "plant"],
+    };
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/v1/editorial/canon-records/canon-bellamy") {
+        return Promise.resolve({
+          canon_record: {
+            id: "canon-bellamy", version: init?.method === "PATCH" ? 10 : 9,
+            worldId: "world-wychcombe", name: "Bellamy & Son, Nurserymen and Seedsmen",
+            canonType: "location", status: "proposed", structuredProfile,
+          },
+        });
+      }
+      if (path.includes("/v1/editorial/profiles/location/canon-bellamy")) {
+        return Promise.resolve({ profile: { profile: {} } });
+      }
+      if (path.includes("/v1/editorial/vocabularies")) {
+        return Promise.resolve({ vocabularies: [], options: [] });
+      }
+      if (path.startsWith("/v1/editorial/assets?")) return Promise.resolve({ assets: [] });
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      return Promise.resolve({});
+    });
+
+    renderEditor("canon-bellamy");
+    expect(await screen.findByRole("button", { name: "Property" })).toBeInTheDocument();
+    for (const label of ["Commercial", "Agricultural", "Family", "Well-Kept", "Public with Limits", "Busy", "Industrious", "Local Stone", "Brick", "Timber", "Iron", "Glass", "Living Plant Material"]) {
+      expect(screen.getAllByText(label).some(element => element.tagName !== "OPTION")).toBe(true);
+    }
+
+    fireEvent.click(screen.getByTestId("canon-top-save"));
+    await waitFor(() => {
+      const save = apiFetch.mock.calls.find(([path, init]) =>
+        path === "/v1/editorial/canon-records/canon-bellamy" && init?.method === "PATCH");
+      expect(save).toBeDefined();
+      expect(JSON.parse(save![1].body as string).structured_profile).toEqual(structuredProfile);
+    });
+  });
+
   it("saves an existing Canon reference from the top of the page", async () => {
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });

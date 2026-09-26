@@ -113,3 +113,4 @@
 - [Sequence search revisions](sequence-search-revisions.md) — paged and full chronology reads must share a world-wide revision over all stored story fields
 - [Canon relation restraint](canon-relation-restraint.md) — relationship suggestions are selective editorial proposals, never an automatic graph-building step
 - [Canon vocabulary governance](canon-vocabulary-governance.md) — activate reviewed world-scoped choices, not entire UI fallback lists, before MCP metadata writes
+- [Canon structured profile precedence](canon-structured-profile-precedence.md) — canonical structured fields override legacy typed profiles so MCP writes remain visible and safe to save

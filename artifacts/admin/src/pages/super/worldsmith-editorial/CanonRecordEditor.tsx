@@ -771,7 +771,13 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
 
       initialImagesRef.current = assetImages.map(image => image.url);
 
-      const structuredProfile = profileData?.profile?.profile ?? record.structuredProfile ?? {};
+      // The Canon record is the authoritative source for structured metadata
+      // (including MCP writes). A legacy typed profile can still supply fields
+      // that have not yet been copied into the Canon record.
+      const structuredProfile = {
+        ...(profileData?.profile?.profile ?? {}),
+        ...(record.structuredProfile ?? {}),
+      };
       const generationProfile = record.generationProfile ?? {};
 
       if (variantsData?.variants) {

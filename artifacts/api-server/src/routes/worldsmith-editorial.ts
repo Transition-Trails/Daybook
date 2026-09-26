@@ -3544,7 +3544,7 @@ router.post("/v1/editorial/canon-records/:id/relations/suggest", async (req: Req
       process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
       systemPrompt,
       { context: { storeId: world?.storeId ?? undefined, userId: (req.user as any)?.id, feature: "editorial.canon-relation-suggestions" },
-        maxOutputTokens: 1600, reasoningEffort: "low" },
+        maxOutputTokens: 6000, reasoningEffort: "low" },
     );
     const output = result.content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
     if (!output) throw new Error("The AI returned an empty response for canon relation suggestions.");

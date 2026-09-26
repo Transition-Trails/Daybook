@@ -182,6 +182,11 @@ describe("POST canon relation suggestions", () => {
     }]);
     expect(after).toHaveLength(before.length);
     expect(callAi).toHaveBeenCalledTimes(1);
+    expect(callAi.mock.calls[0][3]).toMatchObject({
+      maxOutputTokens: 6000,
+      reasoningEffort: "low",
+      context: { feature: "editorial.canon-relation-suggestions" },
+    });
   });
 
   it("enforces versions and current shared-story links for create-only suggested adds", async () => {

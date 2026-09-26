@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -95,6 +95,7 @@ const variantBoundary = z.preprocess((input) => {
   }
   const normalizedProfile: Record<string, unknown> = {};
   for (const [camel, snake] of Object.entries(aliases)) {
+    if (snake === "variant_name" || snake === "life_stage" || snake === "is_default") continue;
     const candidate = profileValue[snake] ?? profileValue[camel];
     if (candidate !== undefined) normalizedProfile[snake] = candidate;
   }
@@ -110,7 +111,7 @@ const variantBoundary = z.preprocess((input) => {
   }
   normalized.profile = normalizedProfile;
   return normalized;
-}, variant);
+}, variant.omit({ world_id: true, record_id: true }));
 const lock = recordRef.extend({ variant_id: id.nullish(), category: z.string().min(1), value: text, strength: z.string().default("preferred"), applies_to_life_stages: strings.default([]), positive_prompt: text.nullish(), negative_prompt: text.nullish(), explanation: text.nullish() });
 const knowledge = recordRef.extend({ topic_record_id: id.nullish(), knowledge_state: z.string().min(1), confidence: z.string().nullish(), source: z.string().nullish(), disclosure: z.string().nullish(), access: z.string().nullish(), applicable_life_stage: z.string().nullish(), applicable_era: z.string().nullish(), belief: text.nullish(), objective_truth: text.nullish(), consequence: text.nullish() });
 const relationship = world.extend({ from_record_id: id, to_record_id: id, relationship_type: strings.default([]), directionality: z.string().nullish(), phase: z.string().nullish(), emotional_valence: z.string().nullish(), trust: z.string().nullish(), power_balance: z.string().nullish(), public_visibility: z.string().nullish(), dependency: strings.default([]), primary_tension: strings.default([]), story_function: strings.default([]), details: text.default(""), unspoken_truth: text.nullish(), change_over_time: text.nullish(), boundaries: text.nullish(), key_scenes: text.nullish() });
@@ -299,9 +300,22 @@ async function replaceRows(
   worldId: string,
   res: Response,
   key: string,
+  expectedVersion?: number,
 ): Promise<void> {
   try {
     const result = await db.transaction(async (tx) => {
+      let version: number | undefined;
+      if (expectedVersion !== undefined) {
+        const [updated] = await tx.update(wsCanonRecordsTable)
+          .set({ version: sql`${wsCanonRecordsTable.version} + 1`, updatedAt: new Date() })
+          .where(and(
+            eq(wsCanonRecordsTable.id, ownerId),
+            eq(wsCanonRecordsTable.worldId, worldId),
+            eq(wsCanonRecordsTable.version, expectedVersion),
+          )).returning({ version: wsCanonRecordsTable.version });
+        if (!updated) throw new CollectionVersionConflict();
+        version = updated.version;
+      }
       await tx.delete(table).where(eq(table[ownerColumn], ownerId));
       const values = rows.map((row, index) => ({
         ...mapFields({ ...row, id: row.id || randomUUID() }, table),
@@ -310,14 +324,20 @@ async function replaceRows(
         ...(table.recordId ? { recordId: ownerId } : {}),
         ...(table.storyId ? { storyId: ownerId } : {}),
       }));
-      return values.length ? await tx.insert(table).values(values as any).returning() as any[] : [];
+      const inserted = values.length ? await tx.insert(table).values(values as any).returning() as any[] : [];
+      return { rows: inserted, version };
     });
-    res.json({ [key]: result });
-  } catch {
+    res.json({ [key]: result.rows, ...(result.version === undefined ? {} : { version: result.version }) });
+  } catch (error) {
+    if (error instanceof CollectionVersionConflict) {
+      res.status(409).json({ error: "Version conflict: the Canon record changed while metadata was being saved", code: "VERSION_CONFLICT" });
+      return;
+    }
     res.status(409).json({ error: "Unable to replace repeater rows" });
   }
 }
 
+class CollectionVersionConflict extends Error {}
 const vocabularyManagementPath = "/v1/editorial/vocabulary-management";
 
 async function worldExists(worldId: string): Promise<boolean> {
@@ -335,7 +355,7 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 }
 
 router.post(`${vocabularyManagementPath}/vocabularies`, async (req: Request, res: Response): Promise<void> => {
-  const parsed = managedVocabularyCreate.safeParse(req.body);
+  const parsed = sceneBatch.safeParse(req.body);
   if (!parsed.success) { bad(res, parsed); return; }
   const { world_id, key, label, description } = parsed.data;
   if (!(await worldExists(world_id))) {
@@ -343,9 +363,8 @@ router.post(`${vocabularyManagementPath}/vocabularies`, async (req: Request, res
     return;
   }
   try {
-    const [vocabulary] = await db.insert(wsVocabulariesTable).values({
-      id: randomUUID(), worldId: world_id, key, label, description, scope: "world", active: true, version: 1,
-    }).returning();
+  const [vocabulary] = await db.select().from(wsVocabulariesTable)
+    .where(eq(wsVocabulariesTable.id, vocabulary_id)).limit(1);
     res.status(201).json({ vocabulary });
   } catch (error) {
     if (!isUniqueConstraintViolation(error)) throw error;
@@ -354,7 +373,7 @@ router.post(`${vocabularyManagementPath}/vocabularies`, async (req: Request, res
 });
 
 router.post(`${vocabularyManagementPath}/options`, async (req: Request, res: Response): Promise<void> => {
-  const parsed = managedOptionCreate.safeParse(req.body);
+  const parsed = sceneBatch.safeParse(req.body);
   if (!parsed.success) { bad(res, parsed); return; }
   const { world_id, vocabulary_id, key, label, description } = parsed.data;
   if (!(await worldExists(world_id))) {
@@ -515,8 +534,28 @@ router.patch(`${vocabularyManagementPath}/options/:id`, async (req: Request, res
 });
 
 router.get("/v1/editorial/vocabularies", async (req, res) => { const w = typeof req.query.world_id === "string" ? req.query.world_id : ""; const vocabularies = await db.select().from(wsVocabulariesTable).where(w ? or(eq(wsVocabulariesTable.scope, "global"), eq(wsVocabulariesTable.worldId, w)) : eq(wsVocabulariesTable.scope, "global")).orderBy(wsVocabulariesTable.key); const options = await db.select().from(wsVocabularyOptionsTable).where(w ? or(isNull(wsVocabularyOptionsTable.worldId), eq(wsVocabularyOptionsTable.worldId, w)) : isNull(wsVocabularyOptionsTable.worldId)).orderBy(wsVocabularyOptionsTable.displayOrder); res.json({ vocabularies, options }); });
-router.post("/v1/editorial/vocabularies", async (req: Request, res: Response): Promise<void> => { const p = vocab.safeParse(req.body); if (!p.success) { bad(res, p); return; } try { const result = await db.insert(wsVocabulariesTable).values(mapFields(p.data, wsVocabulariesTable) as any).returning() as any[]; res.status(201).json({ vocabulary: result[0] }); } catch { res.status(409).json({ error: "Vocabulary key already exists" }); } });
+router.get("/v1/editorial/vocabularies", async (req, res) => { const w = typeof req.query.world_id === "string" ? req.query.world_id : ""; const vocabularies = await db.select().from(wsVocabulariesTable).where(w ? or(eq(wsVocabulariesTable.scope, "global"), eq(wsVocabulariesTable.worldId, w)) : eq(wsVocabulariesTable.scope, "global")).orderBy(wsVocabulariesTable.key); const options = await db.select().from(wsVocabularyOptionsTable).where(w ? or(isNull(wsVocabularyOptionsTable.worldId), eq(wsVocabularyOptionsTable.worldId, w)) : isNull(wsVocabularyOptionsTable.worldId)).orderBy(wsVocabularyOptionsTable.displayOrder); res.json({ vocabularies, options }); });
+router.get("/v1/editorial/vocabularies", async (req, res) => { const w = typeof req.query.world_id === "string" ? req.query.world_id : ""; const vocabularies = await db.select().from(wsVocabulariesTable).where(w ? or(eq(wsVocabulariesTable.scope, "global"), eq(wsVocabulariesTable.worldId, w)) : eq(wsVocabulariesTable.scope, "global")).orderBy(wsVocabulariesTable.key); const options = await db.select().from(wsVocabularyOptionsTable).where(w ? or(isNull(wsVocabularyOptionsTable.worldId), eq(wsVocabularyOptionsTable.worldId, w)) : isNull(wsVocabularyOptionsTable.worldId)).orderBy(wsVocabularyOptionsTable.displayOrder); res.json({ vocabularies, options }); });
 router.post("/v1/editorial/vocabulary-options", async (req: Request, res: Response): Promise<void> => { const p = option.safeParse(req.body); if (!p.success) { bad(res, p); return; } try { const result = await db.insert(wsVocabularyOptionsTable).values(mapFields(p.data, wsVocabularyOptionsTable) as any).returning() as any[]; res.status(201).json({ option: result[0] }); } catch { res.status(409).json({ error: "Vocabulary option already exists" }); } });
+        const result = await updateCharacterProfile(
+          String((req.user as { id?: string } | undefined)?.id ?? ""),
+          String(req.params.recordId),
+          parsed.data,
+          expectedVersion?.data,
+          schemaVersion.data,
+          true,
+          requestId?.data,
+        );
+router.post("/v1/editorial/vocabulary-options", async (req: Request, res: Response): Promise<void> => { const p = option.safeParse(req.body); if (!p.success) { bad(res, p); return; } try { const result = await db.insert(wsVocabularyOptionsTable).values(mapFields(p.data, wsVocabularyOptionsTable) as any).returning() as any[]; res.status(201).json({ option: result[0] }); } catch { res.status(409).json({ error: "Vocabulary option already exists" }); } });
+        const result = await updateCharacterProfile(
+          String((req.user as { id?: string } | undefined)?.id ?? ""),
+          String(req.params.recordId),
+          parsed.data,
+          expectedVersion?.data,
+          schemaVersion.data,
+          true,
+          requestId?.data,
+        );
 crud("/v1/editorial/vocabularies", wsVocabulariesTable, vocab, "vocabularies");
 crud("/v1/editorial/vocabulary-options", wsVocabularyOptionsTable, option, "options", "worldId");
 
@@ -532,7 +571,7 @@ crud("/v1/editorial/story-beats", wsStoryBeatsTable, beat, "beats");
 crud("/v1/editorial/scene-details", wsStorySceneDetailsTable, scene, "scenes", "worldId", "sceneId");
 
 router.get("/v1/editorial/stories/:storyId/beats", async (req: Request, res: Response): Promise<void> => {
-  const worldId = String(req.query.world_id || "");
+    const worldId = typeof req.body.world_id === "string" ? req.body.world_id : "";
   if (!(await ownsStory(String(req.params.storyId), worldId))) { res.status(404).json({ error: "Story not found in world" }); return; }
   const beats = await db.select().from(wsStoryBeatsTable)
     .where(and(eq(wsStoryBeatsTable.storyId, String(req.params.storyId)), eq(wsStoryBeatsTable.worldId, worldId)))
@@ -540,7 +579,7 @@ router.get("/v1/editorial/stories/:storyId/beats", async (req: Request, res: Res
   res.json({ beats: beats.map(row => ({ ...row, revision: revisionFor(row) })) });
 });
 router.get("/v1/editorial/stories/:storyId/reveals", async (req: Request, res: Response): Promise<void> => {
-  const worldId = String(req.query.world_id || "");
+    const worldId = typeof req.body.world_id === "string" ? req.body.world_id : "";
   if (!(await ownsStory(String(req.params.storyId), worldId))) { res.status(404).json({ error: "Story not found in world" }); return; }
   const reveals = await db.select().from(wsRevealThreadsTable)
     .where(and(eq(wsRevealThreadsTable.storyId, String(req.params.storyId)), eq(wsRevealThreadsTable.worldId, worldId)));
@@ -550,11 +589,14 @@ router.get("/v1/editorial/stories/:storyId/reveals", async (req: Request, res: R
 for (const [name, table] of [["character", wsCharacterProfilesTable], ["location", wsLocationProfilesTable], ["object", wsObjectProfilesTable], ["material", wsObjectProfilesTable], ["event", wsEventProfilesTable], ["lore", wsLoreProfilesTable], ["atmosphere", wsAtmosphereProfilesTable], ["motif", wsMotifProfilesTable]] as const) {
   const schema = canonProfileSchemas[name === "material" ? "object" : name];
   router.get(`/v1/editorial/profiles/${name}/:recordId`, async (req: Request, res: Response): Promise<void> => {
-    const worldId = String(req.query.world_id || "");
+    const worldId = typeof req.body.world_id === "string" ? req.body.world_id : "";
     if (!(await ownsRecord(String(req.params.recordId), worldId))) {
       res.status(404).json({ error: "Record not found in world" }); return;
     }
-    const [row] = await db.select().from(table).where(eq(table.recordId, String(req.params.recordId)));
+    const [row] = await db.insert(table).values({ recordId: String(req.params.recordId), schemaVersion: schemaVersion.data, profile: parsed.data })
+      .onConflictDoUpdate({ target: table.recordId, set: { schemaVersion: schemaVersion.data, profile: parsed.data, updatedAt: new Date() } }).returning();
+
+const versionedCollection = world.extend({ expected_version: z.number().int().positive() });
     res.json({ profile: row || null });
   });
   router.put(`/v1/editorial/profiles/${name}/:recordId`, async (req: Request, res: Response): Promise<void> => {
@@ -572,7 +614,7 @@ for (const [name, table] of [["character", wsCharacterProfilesTable], ["location
       res.status(400).json({ error: "request_id requires a Character profile and expected_version", code: "INVALID_REQUEST_ID" });
       return;
     }
-    const parsed = schema.safeParse(req.body.profile ?? req.body);
+  const parsed = sceneBatch.safeParse(req.body);
     if (!worldId || !schemaVersion.success || !parsed.success) {
       res.status(400).json({ error: "world_id, schema_version, and a valid typed profile are required" }); return;
     }
@@ -637,57 +679,45 @@ for (const [name, table] of [["character", wsCharacterProfilesTable], ["location
     }
     const [row] = await db.insert(table).values({ recordId: String(req.params.recordId), schemaVersion: schemaVersion.data, profile: parsed.data })
       .onConflictDoUpdate({ target: table.recordId, set: { schemaVersion: schemaVersion.data, profile: parsed.data, updatedAt: new Date() } }).returning();
-    res.json({ profile: row, schemaVersion: row.schemaVersion });
-  });
-}
-router.get("/v1/editorial/profiles/relationship/:recordId", async (_req: Request, res: Response): Promise<void> => {
-  res.json({ profile: null, schemaVersion: null, supported: false });
-});
-router.put("/v1/editorial/profiles/relationship/:recordId", async (_req: Request, res: Response): Promise<void> => {
-  res.status(422).json({ error: "relationship records use the dedicated relationships endpoint; no profile document is supported" });
-});
-crud("/v1/editorial/character-variants", wsCharacterVariantsTable, variant, "variants", "recordId");
-crud("/v1/editorial/identity-locks", wsIdentityLocksTable, lock, "locks", "recordId");
-crud("/v1/editorial/knowledge", wsKnowledgeEntriesTable, knowledge, "knowledge", "recordId");
-crud("/v1/editorial/asset-links", wsAssetLinksTable, link, "links", "recordId", "assetId");
 
-const variantBatch = world.extend({ variants: z.array(variantBoundary).max(200) });
-const lockBatch = world.extend({ locks: z.array(lock.omit({ world_id: true, record_id: true })).max(200) });
-const knowledgeBatch = world.extend({ knowledge: z.array(knowledge.omit({ world_id: true, record_id: true })).max(200) });
+const versionedCollection = world.extend({ expected_version: z.number().int().positive() });
+const variantBatch = versionedCollection.extend({ variants: z.array(variantBoundary).max(200) });
+const lockBatch = versionedCollection.extend({ locks: z.array(lock.omit({ world_id: true, record_id: true })).max(200) });
+const knowledgeBatch = versionedCollection.extend({ knowledge: z.array(knowledge.omit({ world_id: true, record_id: true })).max(200) });
 const beatBatch = world.extend({ beats: z.array(beat.omit({ world_id: true, story_id: true })).max(500) });
 const revealBatch = world.extend({ reveals: z.array(reveal.omit({ world_id: true, story_id: true })).max(200) });
 const sceneBatch = world.extend({ scenes: z.array(sceneBoundary).max(500) });
 
 router.put("/v1/editorial/canon-records/:id/variants", async (req: Request, res: Response): Promise<void> => {
-  const parsed = variantBatch.safeParse(req.body);
+  const parsed = sceneBatch.safeParse(req.body);
   if (!parsed.success) { bad(res, parsed); return; }
   const recordId = String(req.params.id);
   if (!(await ownsRecord(recordId, parsed.data.world_id))) { res.status(422).json({ error: "record_id must belong to world_id" }); return; }
-  await replaceRows(wsCharacterVariantsTable, "recordId", recordId, parsed.data.variants, parsed.data.world_id, res, "variants");
-});
-router.put("/v1/editorial/canon-records/:id/identity-locks", async (req: Request, res: Response): Promise<void> => {
-  const parsed = lockBatch.safeParse(req.body);
-  if (!parsed.success) { bad(res, parsed); return; }
-  const recordId = String(req.params.id);
-  if (!(await ownsRecord(recordId, parsed.data.world_id))) { res.status(422).json({ error: "record_id must belong to world_id" }); return; }
-  await replaceRows(wsIdentityLocksTable, "recordId", recordId, parsed.data.locks, parsed.data.world_id, res, "locks");
-});
-router.put("/v1/editorial/canon-records/:id/knowledge", async (req: Request, res: Response): Promise<void> => {
-  const parsed = knowledgeBatch.safeParse(req.body);
-  if (!parsed.success) { bad(res, parsed); return; }
-  const recordId = String(req.params.id);
-  if (!(await ownsRecord(recordId, parsed.data.world_id))) { res.status(422).json({ error: "record_id must belong to world_id" }); return; }
-  await replaceRows(wsKnowledgeEntriesTable, "recordId", recordId, parsed.data.knowledge, parsed.data.world_id, res, "knowledge");
+  await replaceRows(wsKnowledgeEntriesTable, "recordId", recordId, parsed.data.knowledge, parsed.data.world_id, res, "knowledge", parsed.data.expected_version);
 });
 router.put("/v1/editorial/stories/:id/beats", async (req: Request, res: Response): Promise<void> => {
-  const parsed = beatBatch.safeParse(req.body);
+  const parsed = sceneBatch.safeParse(req.body);
+  if (!parsed.success) { bad(res, parsed); return; }
+  const recordId = String(req.params.id);
+  if (!(await ownsRecord(recordId, parsed.data.world_id))) { res.status(422).json({ error: "record_id must belong to world_id" }); return; }
+  await replaceRows(wsKnowledgeEntriesTable, "recordId", recordId, parsed.data.knowledge, parsed.data.world_id, res, "knowledge", parsed.data.expected_version);
+});
+router.put("/v1/editorial/stories/:id/beats", async (req: Request, res: Response): Promise<void> => {
+  const parsed = sceneBatch.safeParse(req.body);
+  if (!parsed.success) { bad(res, parsed); return; }
+  const recordId = String(req.params.id);
+  if (!(await ownsRecord(recordId, parsed.data.world_id))) { res.status(422).json({ error: "record_id must belong to world_id" }); return; }
+  await replaceRows(wsKnowledgeEntriesTable, "recordId", recordId, parsed.data.knowledge, parsed.data.world_id, res, "knowledge", parsed.data.expected_version);
+});
+router.put("/v1/editorial/stories/:id/beats", async (req: Request, res: Response): Promise<void> => {
+  const parsed = sceneBatch.safeParse(req.body);
   if (!parsed.success) { bad(res, parsed); return; }
   const storyId = String(req.params.id);
   if (!(await ownsStory(storyId, parsed.data.world_id))) { res.status(422).json({ error: "story_id must belong to world_id" }); return; }
-  await replaceRows(wsStoryBeatsTable, "storyId", storyId, parsed.data.beats, parsed.data.world_id, res, "beats");
+  await replaceRows(wsRevealThreadsTable, "storyId", storyId, parsed.data.reveals, parsed.data.world_id, res, "reveals");
 });
-router.put("/v1/editorial/stories/:id/reveals", async (req: Request, res: Response): Promise<void> => {
-  const parsed = revealBatch.safeParse(req.body);
+router.put("/v1/editorial/stories/:id/scene-details", async (req: Request, res: Response): Promise<void> => {
+  const parsed = sceneBatch.safeParse(req.body);
   if (!parsed.success) { bad(res, parsed); return; }
   const storyId = String(req.params.id);
   if (!(await ownsStory(storyId, parsed.data.world_id))) { res.status(422).json({ error: "story_id must belong to world_id" }); return; }

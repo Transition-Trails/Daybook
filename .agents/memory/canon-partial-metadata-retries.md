@@ -14,3 +14,9 @@ For an unacknowledged Character profile write, version comparison alone cannot d
 **Why:** A lost HTTP response leaves the client at the pre-profile version even though the transaction may have committed. Matching only the profile content or a one-step version advance could incorrectly attribute another editor's work to the retry.
 
 **How to apply:** Preserve the request ID across retries of the same profile PUT; never assign a new one until starting a new Canon save. If the version advances beyond that write, stop and require reload rather than continuing related metadata writes.
+
+Character collection replacements must each compare and advance the Canon version atomically with their row replacement, and the next save step must use the returned version. A client preflight read alone cannot protect the interval before a write.
+
+**Why:** Another editor can commit after a retry's preflight read, and a collection PUT that only checks the earlier read silently replaces the concurrent work.
+
+**How to apply:** For future multi-step Character metadata writes, use one transaction for the conditional Canon version advance and the associated row mutations; carry the acknowledged version forward after each step. Do not infer success from a missing version response.

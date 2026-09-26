@@ -1063,11 +1063,26 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
             });
             if (savedForm.canonType === "character" && Number.isInteger(profileResult.version)) {
               latestRecord = { ...latestRecord, version: profileResult.version! };
+            } else if (savedForm.canonType === "character") {
+              throw new Error("The saved Character version is unavailable. Reload before syncing metadata.");
             }
             profileSynced = true;
           }
 
           if (savedForm.canonType === "character") {
+            const replaceCollection = async (collection: "variants" | "knowledge" | "identity-locks", rows: Record<string, unknown>) => {
+              if (!Number.isInteger(latestRecord.version)) {
+                throw new Error("The latest Character version is unavailable. Reload before syncing metadata.");
+              }
+              const response = await apiFetch<{ version: number }>(`/v1/editorial/canon-records/${savedRecordId}/${collection}`, {
+                method: "PUT",
+                body: JSON.stringify({ world_id: worldId, expected_version: latestRecord.version, ...rows }),
+              });
+              if (!Number.isInteger(response.version) || response.version !== latestRecord.version + 1) {
+                throw new Error("The Character metadata version is unavailable. Reload before syncing metadata.");
+              }
+              latestRecord = { ...latestRecord, version: response.version };
+            };
             const variants = savedForm.structuredProfile.variants || [];
             const knowledge = savedForm.structuredProfile.knowledge || [];
             const identityLocks = savedForm.generationProfile.identityLocks || [];
@@ -1090,14 +1105,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               }
             }));
 
-            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/variants`, {
-              method: "PUT",
-              body: JSON.stringify({ world_id: worldId, variants: mappedVariants })
-            });
-            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/knowledge`, {
-              method: "PUT",
-              body: JSON.stringify({
-                world_id: worldId,
+            await replaceCollection("variants", { variants: mappedVariants });
+            await replaceCollection("knowledge", {
                 knowledge: knowledge.map((k: any) => ({
                   topic_record_id: k.topicRecordId || null,
                   knowledge_state: k.knowledgeState,
@@ -1111,12 +1120,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                   objective_truth: k.objectiveTruth || null,
                   consequence: k.consequence || null
                 }))
-              })
             });
-            await apiFetch(`/v1/editorial/canon-records/${savedRecordId}/identity-locks`, {
-              method: "PUT",
-              body: JSON.stringify({
-                world_id: worldId,
+            await replaceCollection("identity-locks", {
                 locks: identityLocks.map((l: any) => ({
                   variant_id: l.variantId || null,
                   category: l.traitCategory,
@@ -1127,7 +1132,6 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                   negative_prompt: l.negativePrompt || null,
                   explanation: l.explanation || null
                 }))
-              })
             });
           }
         } catch (err) {

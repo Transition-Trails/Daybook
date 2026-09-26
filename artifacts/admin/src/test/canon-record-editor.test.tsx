@@ -274,11 +274,14 @@ describe("CanonRecordEditor", () => {
           return Promise.resolve({ version: serverVersion });
         }
         if (metadataPaths.includes(path) && init?.method === "PUT") {
+          const expected = JSON.parse(String(init.body)).expected_version;
+          if (expected !== serverVersion) return Promise.reject(new Error("Version conflict"));
           if (path === `${recordPath}/${failedStep}` && failOnce) {
             failOnce = false;
             return Promise.reject(new Error(`${failedStep} unavailable`));
           }
-          return Promise.resolve({});
+          serverVersion++;
+          return Promise.resolve({ version: serverVersion });
         }
         if (path.endsWith("/context-snapshot/auto-sync")) return Promise.resolve({ context_snapshot_status: "current" });
         if (path.startsWith("/v1/editorial/assets?")) return Promise.resolve({ assets: [] });
@@ -296,7 +299,7 @@ describe("CanonRecordEditor", () => {
       await screen.findByDisplayValue("Frederick Ashcroft");
       fireEvent.click(screen.getByTestId("canon-top-save"));
       const retry = await screen.findByRole("button", { name: "Retry metadata sync" });
-      expect(serverVersion).toBe(3);
+      expect(serverVersion).toBe(3 + metadataPaths.indexOf(`${recordPath}/${failedStep}`));
       expect(screen.getByRole("alert")).toHaveTextContent(`${failedStep} unavailable`);
       expect(apiFetch.mock.calls.filter(([path, init]) => path === profilePath && init?.method === "PUT")).toHaveLength(1);
       expect(JSON.parse(String(apiFetch.mock.calls.find(([path, init]) => path === profilePath && init?.method === "PUT")![1].body)).expected_version).toBe(2);
@@ -309,9 +312,18 @@ describe("CanonRecordEditor", () => {
         expect(apiFetch.mock.calls.filter(([calledPath, init]) => calledPath === path && init?.method === "PUT").length)
           .toBe(path.endsWith(`/${failedStep}`) || metadataPaths.indexOf(path) < metadataPaths.indexOf(`${recordPath}/${failedStep}`) ? 2 : 1);
       }
+      const collectionCalls = apiFetch.mock.calls.filter(([path, init]) => metadataPaths.includes(path) && init?.method === "PUT");
+      let version = 3;
+      let failedCallSeen = false;
+      for (const [path, init] of collectionCalls) {
+        expect(JSON.parse(String(init.body)).expected_version).toBe(version);
+        if (path === `${recordPath}/${failedStep}` && !failedCallSeen) failedCallSeen = true;
+        else version++;
+      }
+      expect(serverVersion).toBe(version);
       expect(apiFetch).toHaveBeenCalledWith(
         `${recordPath}/context-snapshot/auto-sync`,
-        expect.objectContaining({ body: JSON.stringify({ expected_version: 3 }) }),
+        expect.objectContaining({ body: JSON.stringify({ expected_version: serverVersion }) }),
       );
     },
   );
@@ -418,6 +430,68 @@ describe("CanonRecordEditor", () => {
     expect(retry).toBeInTheDocument();
     expect(screen.getByTestId("canon-top-save")).toBeDisabled();
   });
+
+  it.each(["variants", "knowledge", "identity-locks"] as const)(
+    "rejects a concurrent Canon edit between retry verification and the %s replacement",
+    async failedStep => {
+      const recordPath = "/v1/editorial/canon-records/canon-character";
+      const profilePath = "/v1/editorial/profiles/character/canon-character";
+      const metadataPaths = ["variants", "knowledge", "identity-locks"].map(step => `${recordPath}/${step}`);
+      let serverVersion = 1;
+      let failOnce = true;
+      let concurrentEdit = false;
+      const written: string[] = [];
+      apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+        if (path === recordPath && init?.method === "PATCH") {
+          serverVersion = 2;
+          return Promise.resolve({ canon_record: { id: "canon-character", version: serverVersion, worldId: "world-wychcombe", name: "Frederick", canonType: "character", status: "proposed" } });
+        }
+        if (path === recordPath) {
+          if (serverVersion > 2 && !failOnce) concurrentEdit = true;
+          return Promise.resolve({ canon_record: { id: "canon-character", version: serverVersion, worldId: "world-wychcombe", name: "Frederick", canonType: "character", status: "proposed" } });
+        }
+        if (path === profilePath && init?.method === "PUT") {
+          serverVersion = 3;
+          return Promise.resolve({ version: serverVersion });
+        }
+        if (metadataPaths.includes(path) && init?.method === "PUT") {
+          if (path === `${recordPath}/${failedStep}` && failOnce) {
+            failOnce = false;
+            return Promise.reject(new Error("Temporarily unavailable"));
+          }
+          if (concurrentEdit) {
+            concurrentEdit = false;
+            serverVersion++; // another editor commits after the retry's GET, before this PUT
+          }
+          if (JSON.parse(String(init.body)).expected_version !== serverVersion) {
+            return Promise.reject(new Error("Version conflict"));
+          }
+          written.push(path);
+          serverVersion++;
+          return Promise.resolve({ version: serverVersion });
+        }
+        if (path.startsWith("/v1/editorial/assets?")) return Promise.resolve({ assets: [] });
+        if (path.startsWith("/v1/editorial/identity-locks?")) return Promise.resolve({ locks: [] });
+        if (path.startsWith("/v1/editorial/character-variants?")) return Promise.resolve({ variants: [] });
+        if (path.startsWith("/v1/editorial/knowledge?")) return Promise.resolve({ knowledge: [] });
+        if (path.startsWith(`${profilePath}?`)) return Promise.resolve({ profile: { profile: {} } });
+        if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+        return Promise.resolve({});
+      });
+
+      renderEditor("canon-character");
+      await screen.findByRole("heading", { name: "Frederick — Canon Record" });
+      await waitFor(() => expect(apiFetch.mock.calls.some(([path]) => path.startsWith(`${profilePath}?`))).toBe(true));
+      fireEvent.click(screen.getByTestId("canon-top-save"));
+      const retry = await screen.findByRole("button", { name: "Retry metadata sync" });
+      const writtenBeforeRetry = [...written];
+      fireEvent.click(retry);
+      await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Version conflict"));
+      expect(written).toEqual(writtenBeforeRetry);
+      expect(retry).toBeInTheDocument();
+      expect(apiFetch.mock.calls.some(([path]) => path.endsWith("/context-snapshot/auto-sync"))).toBe(false);
+    },
+  );
 
   it("still removes provisional uploads when the Canon record write itself fails", async () => {
     const objectPath = "/objects/unsaved-canon-image.png";

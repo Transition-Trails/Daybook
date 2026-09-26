@@ -95,6 +95,8 @@ function describeScope(scope: McpScope): string {
     case "worldsmith:canon:editorial:write": return "Edit Canon editorial fields";
     case "worldsmith:editorial:scenes:read": return "Read WorldSmith editorial scenes";
     case "worldsmith:editorial:scenes:write": return "Edit WorldSmith editorial scenes";
+    case "worldsmith:production:read": return "Read WorldSmith production data: Collections, Volumes, Production Specs, Style Guides, Component Specs, Production Profiles, Punch Templates, Prompt Modules, and Print Targets";
+    case "worldsmith:production:write": return "Create and edit WorldSmith production data: Collections, Volumes, Production Specs, Style Guides, Component Specs, Production Profiles, Punch Templates, Prompt Modules, and Print Targets";
   }
 }
 
@@ -249,6 +251,7 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
   const requestsStoryDetailsWrite = scopes.includes("worldsmith:editorial:story-details:write");
   const requestsCanonEditorialWrite = scopes.includes("worldsmith:canon:editorial:write");
   const requestsScenesWrite = scopes.includes("worldsmith:editorial:scenes:write");
+  const requestsProductionWrite = scopes.includes("worldsmith:production:write");
   const consent: ConsentSession = {
     csrf,
     userId: user.id,
@@ -287,6 +290,8 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
       `<label><input type="checkbox" name="allow_canon_editorial_write" value="yes" required> I explicitly authorize this unverified client to edit Canon editorial fields on my behalf.</label></fieldset>` : ""}` +
     `${requestsScenesWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate editorial scenes write permission</legend>` +
       `<label><input type="checkbox" name="allow_scenes_write" value="yes" required> I explicitly authorize this unverified client to edit WorldSmith editorial scenes on my behalf.</label></fieldset>` : ""}` +
+    `${requestsProductionWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate WorldSmith production write permission</legend>` +
+      `<label><input type="checkbox" name="allow_production_write" value="yes" required> I explicitly authorize this unverified client to create and edit Collections, Volumes, Production Specs, Style Guides, Component Specs, Production Profiles, Punch Templates, Prompt Modules, and Print Targets on my behalf.</label></fieldset>` : ""}` +
     `<button type="submit" name="consent" value="approve">Approve requested access</button> ` +
     `<button type="submit" name="consent" value="deny" formnovalidate>Deny</button></form></main></body></html>`,
   );
@@ -305,6 +310,7 @@ oauthRouter.post("/authorize", async (req, res): Promise<void> => {
     allow_story_details_write?: unknown;
     allow_canon_editorial_write?: unknown;
     allow_scenes_write?: unknown;
+    allow_production_write?: unknown;
   };
   const csrf = typeof body?.csrf_token === "string" ? body.csrf_token : "";
   if (!req.isAuthenticated() || !consent || !csrf || csrf !== consent.csrf || !["approve", "deny"].includes(String(body?.consent))) {
@@ -345,6 +351,10 @@ oauthRouter.post("/authorize", async (req, res): Promise<void> => {
   }
   if (consent.scopes.includes("worldsmith:editorial:scenes:write") && body.allow_scenes_write !== "yes") {
     oauthError(res, 400, "access_denied", "Explicit separate consent is required for editorial scene edits");
+    return;
+  }
+  if (consent.scopes.includes("worldsmith:production:write") && body.allow_production_write !== "yes") {
+    oauthError(res, 400, "access_denied", "Explicit separate consent is required for WorldSmith production writes");
     return;
   }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, consent.userId)).limit(1);

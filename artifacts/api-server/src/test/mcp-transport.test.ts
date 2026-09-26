@@ -7,6 +7,9 @@ const mocked = vi.hoisted(() => ({
   execute: vi.fn(),
   executeCanonEditorial: vi.fn(),
   executeScene: vi.fn(),
+  executeProductionCatalog: vi.fn(),
+  executeProductionSpec: vi.fn(),
+  executePrintTarget: vi.fn(),
 }));
 
 vi.mock("../lib/mcp-oauth", () => ({
@@ -39,6 +42,30 @@ vi.mock("../lib/worldsmith/mcp-editorial-scenes", () => ({
   SCENE_WRITE_TOOLS: new Set(["update_scene"]),
   executeSceneTool: mocked.executeScene,
 }));
+vi.mock("../lib/worldsmith/mcp-production-catalog", () => ({
+  PRODUCTION_CATALOG_TOOLS: [
+    { name: "list_collections", description: "List collections", inputSchema: { type: "object" } },
+    { name: "create_collection", description: "Create collection", inputSchema: { type: "object" } },
+  ],
+  PRODUCTION_CATALOG_WRITE_TOOLS: new Set(["create_collection"]),
+  executeProductionCatalogTool: mocked.executeProductionCatalog,
+}));
+vi.mock("../lib/worldsmith/mcp-production-specs", () => ({
+  PRODUCTION_SPEC_TOOLS: [
+    { name: "get_production_spec", description: "Read spec", inputSchema: { type: "object" } },
+    { name: "update_production_spec", description: "Edit spec", inputSchema: { type: "object" } },
+  ],
+  PRODUCTION_SPEC_WRITE_TOOLS: new Set(["update_production_spec"]),
+  executeProductionSpecTool: mocked.executeProductionSpec,
+}));
+vi.mock("../lib/worldsmith/mcp-print-targets", () => ({
+  PRINT_TARGET_TOOLS: [
+    { name: "list_print_targets", description: "List print targets", inputSchema: { type: "object" } },
+    { name: "create_print_target", description: "Create print target", inputSchema: { type: "object" } },
+  ],
+  PRINT_TARGET_WRITE_TOOLS: new Set(["create_print_target"]),
+  executePrintTargetTool: mocked.executePrintTarget,
+}));
 
 import mcpRouter from "../routes/mcp";
 
@@ -57,6 +84,9 @@ describe("WorldSmith Streamable HTTP MCP", () => {
     mocked.execute.mockReset();
     mocked.executeCanonEditorial.mockReset();
     mocked.executeScene.mockReset();
+    mocked.executeProductionCatalog.mockReset();
+    mocked.executeProductionSpec.mockReset();
+    mocked.executePrintTarget.mockReset();
     mocked.verify.mockResolvedValue({
       userId: "super-admin",
       clientId: "client-1",
@@ -73,7 +103,7 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       "https://daybook.example/.well-known/oauth-protected-resource/mcp",
     );
     expect(response.headers["www-authenticate"]).toContain(
-      'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write"',
+       'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write worldsmith:production:read worldsmith:production:write"',
     );
     expect(mocked.execute).not.toHaveBeenCalled();
   });
@@ -236,5 +266,30 @@ describe("WorldSmith Streamable HTTP MCP", () => {
     expect((await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
       .send(call("update_world", { world_id: "world-1", expected_revision: "r", changes: { worldPremise: "x" } }))).status)
       .toBe(403);
+  });
+
+  it("keeps Make It Real tools invisible to old grants and separately gates reads and writes", async () => {
+    const list = async () => (await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send({ jsonrpc: "2.0", id: 1, method: "tools/list" })).body.result.tools.map((tool: { name: string }) => tool.name);
+    expect(await list()).not.toContain("list_collections");
+    expect((await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("get_production_spec"))).status).toBe(403);
+    mocked.verify.mockResolvedValue({ userId: "super-admin", clientId: "client-1", scopes: ["worldsmith:production:read"] });
+    expect(await list()).toEqual(expect.arrayContaining(["list_collections", "get_production_spec", "list_print_targets"]));
+    expect(await list()).not.toContain("create_collection");
+    expect((await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("create_print_target"))).status).toBe(403);
+    mocked.executeProductionCatalog.mockResolvedValue({ collections: [] });
+    const read = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("list_collections", { world_id: "world-1" }));
+    expect(read.body.result.structuredContent).toEqual({ collections: [] });
+    expect(mocked.executeProductionCatalog).toHaveBeenCalledWith("super-admin", "list_collections", { world_id: "world-1" });
+    mocked.verify.mockResolvedValue({ userId: "super-admin", clientId: "client-1", scopes: ["worldsmith:production:read", "worldsmith:production:write"] });
+    expect(await list()).toEqual(expect.arrayContaining(["create_collection", "update_production_spec", "create_print_target"]));
+    mocked.executePrintTarget.mockResolvedValue({ target: { component_type: "cover" } });
+    const write = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("create_print_target", { component_type: "cover" }));
+    expect(write.body.result.structuredContent).toEqual({ target: { component_type: "cover" } });
+    expect(mocked.executePrintTarget).toHaveBeenCalledWith("super-admin", "create_print_target", { component_type: "cover" });
   });
 });

@@ -214,6 +214,9 @@ describe("MCP OAuth authorization server", () => {
       "worldsmith:editorial:scenes:read",
       "worldsmith:editorial:scenes:write",
     ]);
+    expect(parseMcpScopes(
+      "worldsmith:production:read worldsmith:production:write",
+    )).toEqual(["worldsmith:production:read", "worldsmith:production:write"]);
     expect(parseMcpScopes("read write")).toBeNull();
     expect(hasWriteWithoutRead(["worldsmith:canon:write"])).toBe(true);
     expect(hasWriteWithoutRead(["worldsmith:canon:read", "worldsmith:canon:write"])).toBe(false);
@@ -229,6 +232,8 @@ describe("MCP OAuth authorization server", () => {
     expect(hasWriteWithoutRead(["worldsmith:canon:read", "worldsmith:canon:editorial:write"])).toBe(false);
     expect(hasWriteWithoutRead(["worldsmith:editorial:scenes:write"])).toBe(true);
     expect(hasWriteWithoutRead(["worldsmith:editorial:scenes:read", "worldsmith:editorial:scenes:write"])).toBe(false);
+    expect(hasWriteWithoutRead(["worldsmith:production:write"])).toBe(true);
+    expect(hasWriteWithoutRead(["worldsmith:production:read", "worldsmith:production:write"])).toBe(false);
   });
 
   it("rejects write-only scope instead of silently adding read permission", async () => {
@@ -250,6 +255,7 @@ describe("MCP OAuth authorization server", () => {
     for (const scope of [
       "worldsmith:canon:editorial:write",
       "worldsmith:editorial:scenes:write",
+      "worldsmith:production:write",
     ]) {
       const response = await request(app).get("/mcp/oauth/authorize").query({
         response_type: "code",
@@ -283,6 +289,8 @@ describe("MCP OAuth authorization server", () => {
       "worldsmith:canon:editorial:write",
       "worldsmith:editorial:scenes:read",
       "worldsmith:editorial:scenes:write",
+      "worldsmith:production:read",
+      "worldsmith:production:write",
     ];
     expect(authorizationMetadata.body.scopes_supported).toEqual(allScopes);
     expect(scoped.body.scopes_supported).toEqual(allScopes);
@@ -486,6 +494,41 @@ describe("MCP OAuth authorization server", () => {
     expect(legacy.text).not.toContain("Read WorldSmith editorial scenes");
     expect(legacy.text).not.toContain("Edit Canon editorial fields");
     expect(legacy.text).not.toContain("Edit WorldSmith editorial scenes");
+  });
+
+  it("describes production access and requires its own separate write approval", async () => {
+    const authorize = () => request(app).get("/mcp/oauth/authorize").query({
+      response_type: "code", client_id: clientId, redirect_uri: redirectUri,
+      state: "production-write", code_challenge: challenge(), code_challenge_method: "S256",
+      resource: getMcpResource(),
+      scope: "worldsmith:production:read worldsmith:production:write",
+    });
+    const consent = await authorize().expect(200);
+    for (const recordType of [
+      "Collections", "Volumes", "Production Specs", "Style Guides", "Component Specs",
+      "Production Profiles", "Punch Templates", "Prompt Modules", "Print Targets",
+    ]) {
+      expect(consent.text).toContain(recordType);
+    }
+    expect(consent.text).toContain("Read WorldSmith production data");
+    expect(consent.text).toContain("Create and edit WorldSmith production data");
+    expect(consent.text).toContain('name="allow_production_write"');
+    expect(consent.text).toContain("required");
+
+    const csrf = consent.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: csrf, consent: "approve",
+    }).expect(400);
+    expect(mocks.data.codes).toHaveLength(0);
+
+    const retry = await authorize().expect(200);
+    const retryCsrf = retry.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: retryCsrf, consent: "approve", allow_production_write: "yes",
+    }).expect(302);
+    expect(mocks.data.codes[0].scopes).toEqual([
+      "worldsmith:production:read", "worldsmith:production:write",
+    ]);
   });
 
   it("uses the trusted Replit domain in development and still requires resource at authorize and token", async () => {

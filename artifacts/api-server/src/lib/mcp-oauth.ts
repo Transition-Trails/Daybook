@@ -14,6 +14,8 @@ export const MCP_SCOPES = [
   "worldsmith:canon:editorial:write",
   "worldsmith:editorial:scenes:read",
   "worldsmith:editorial:scenes:write",
+  "worldsmith:production:read",
+  "worldsmith:production:write",
 ] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 export const AUTHORIZATION_CODE_TTL_SECONDS = 5 * 60;
@@ -91,7 +93,8 @@ export function hasWriteWithoutRead(scopes: readonly string[]): boolean {
     (scopes.includes("worldsmith:editorial:references:write") && (!scopes.includes("worldsmith:editorial:read") || !scopes.includes("worldsmith:editorial:write"))) ||
     (scopes.includes("worldsmith:editorial:story-details:write") && !scopes.includes("worldsmith:editorial:read")) ||
     (scopes.includes("worldsmith:canon:editorial:write") && !scopes.includes("worldsmith:canon:read")) ||
-    (scopes.includes("worldsmith:editorial:scenes:write") && !scopes.includes("worldsmith:editorial:scenes:read"))
+    (scopes.includes("worldsmith:editorial:scenes:write") && !scopes.includes("worldsmith:editorial:scenes:read")) ||
+    (scopes.includes("worldsmith:production:write") && !scopes.includes("worldsmith:production:read"))
   );
 }
 

@@ -102,6 +102,12 @@ import { z } from "zod";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { buildProductionSpecPdf } from "../lib/worldsmith/production-spec-pdf";
 import {
+  isReadinessLane,
+  listReadinessCards,
+  moveReadinessCard,
+  ReadinessPlanningError,
+} from "../lib/worldsmith/readiness-planning";
+import {
   canonSnapshotPath,
   canonArchiveSnapshotPath,
   contextSnapshotIsOutdated,
@@ -215,6 +221,65 @@ router.get(
 
 // Apply super-admin guard to all remaining editorial routes.
 router.use(requireAuth, requireSuperAdmin);
+
+// ── Persisted readiness planning lanes ─────────────────────────────────────────
+
+router.get("/v1/editorial/readiness-planning", async (req: Request, res: Response): Promise<void> => {
+  const worldId = req.query.world_id;
+  if (typeof worldId !== "string" || worldId.trim() === "") {
+    res.status(400).json({ error: "world_id is required" });
+    return;
+  }
+  try {
+    res.json(await listReadinessCards(worldId));
+  } catch (err) {
+    if (err instanceof ReadinessPlanningError) {
+      res.status(err.status).json({ error: err.message, code: err.code });
+      return;
+    }
+    logger.error({ err, worldId }, "editorial: readiness planning list error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/v1/editorial/readiness-planning/:entityType/:id", async (req: Request, res: Response): Promise<void> => {
+  const body = req.body as Record<string, unknown> | null;
+  const entityTypeNames: Record<string, "canon_record" | "storyline" | "beat"> = {
+    canon_records: "canon_record",
+    storylines: "storyline",
+    beats: "beat",
+  };
+  const entityTypeParam = req.params.entityType;
+  const entityType = typeof entityTypeParam === "string" ? entityTypeNames[entityTypeParam] : undefined;
+  const id = req.params.id;
+  if (!body || Array.isArray(body) || typeof body !== "object"
+      || Object.keys(body).some(key => !["world_id", "lane", "expected_revision"].includes(key))
+      || typeof body.world_id !== "string" || !body.world_id.trim()
+      || !isReadinessLane(body.lane)
+      || !Number.isSafeInteger(body.expected_revision) || (body.expected_revision as number) < 0
+      || !entityType
+      || typeof id !== "string" || !id.trim()) {
+    res.status(400).json({ error: "Expected world_id, a supported lane, expected_revision, entity type, and id" });
+    return;
+  }
+  try {
+    res.json(await moveReadinessCard({
+      worldId: body.world_id,
+      lane: body.lane,
+      expectedRevision: body.expected_revision as number,
+      entityType: entityType as "canon_record" | "storyline" | "beat",
+      id,
+      actorUserId: req.actor!.userId,
+    }));
+  } catch (err) {
+    if (err instanceof ReadinessPlanningError) {
+      res.status(err.status).json({ error: err.message, code: err.code });
+      return;
+    }
+    logger.error({ err, entityType, id }, "editorial: readiness planning update error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 /** Prompt-ready Field Architecture context. World scope is mandatory so a
  * record can never be compiled through an unrelated world's endpoint. */

@@ -105,6 +105,7 @@
 - [WorldSmith MCP boundary](worldsmith-mcp-boundary.md) — external canon edits use current user grants and never imply editorial approval
 - [WorldSmith MCP editorial coverage](worldsmith-mcp-editorial-coverage.md) — “stories” means scenes and Story Map, separate from storylines; new edit domains require explicit consent
 - [WorldSmith MCP production consent](worldsmith-mcp-production-consent.md) — Make It Real tools use separate read/write grants; Print Targets are the fixed image-target catalog
+- [WorldSmith readiness planning boundary](worldsmith-readiness-planning-boundary.md) — planning lanes are independent of Canon approval, storyline lifecycle, and Production Spec status
 - [Wychcombe environment divergence](wychcombe-environment-divergence.md) — development's Wychcombe story is not the populated production source; migrate editorial data separately from schema
 - [Wychcombe mystery placement](wychcombe-mystery-placement.md) — place the four mystery-heavy draft storylines provisionally in Margaret's era, without treating their claims as Canon
 - [MCP refresh-family serialization](mcp-refresh-family-serialization.md) — refresh rotation and family revocation must share a database lock through replacement issuance

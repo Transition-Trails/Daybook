@@ -291,6 +291,8 @@ describe("MCP OAuth authorization server", () => {
       "worldsmith:editorial:scenes:write",
       "worldsmith:production:read",
       "worldsmith:production:write",
+      "worldsmith:readiness:read",
+      "worldsmith:readiness:write",
     ];
     expect(authorizationMetadata.body.scopes_supported).toEqual(allScopes);
     expect(scoped.body.scopes_supported).toEqual(allScopes);

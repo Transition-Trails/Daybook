@@ -7,6 +7,7 @@ import { VIEW_TOOLS, VIEW_WRITE_TOOLS, executeViewTool } from "../lib/worldsmith
 import { PRODUCTION_CATALOG_TOOLS, PRODUCTION_CATALOG_WRITE_TOOLS, executeProductionCatalogTool } from "../lib/worldsmith/mcp-production-catalog";
 import { PRODUCTION_SPEC_TOOLS, PRODUCTION_SPEC_WRITE_TOOLS, executeProductionSpecTool } from "../lib/worldsmith/mcp-production-specs";
 import { PRINT_TARGET_TOOLS, PRINT_TARGET_WRITE_TOOLS, executePrintTargetTool } from "../lib/worldsmith/mcp-print-targets";
+import { READINESS_PLANNING_TOOLS, READINESS_PLANNING_WRITE_TOOLS, executeReadinessPlanningTool } from "../lib/worldsmith/mcp-readiness-planning";
 import { getMcpIssuer, verifyMcpAccessToken } from "../lib/mcp-oauth";
 import { logger } from "../lib/logger";
 
@@ -23,10 +24,12 @@ const SCENES_READ_SCOPE = "worldsmith:editorial:scenes:read";
 const SCENES_WRITE_SCOPE = "worldsmith:editorial:scenes:write";
 const PRODUCTION_READ_SCOPE = "worldsmith:production:read";
 const PRODUCTION_WRITE_SCOPE = "worldsmith:production:write";
+const READINESS_READ_SCOPE = "worldsmith:readiness:read";
+const READINESS_WRITE_SCOPE = "worldsmith:readiness:write";
 const MCP_RESOURCE = "/mcp";
 const MAX_BODY_BYTES = 1_000_000;
 const tools = [...CANON_TOOLS, ...CANON_EDITORIAL_TOOLS, ...RECORD_TOOLS, ...VIEW_TOOLS, ...SCENE_TOOLS,
-  ...PRODUCTION_CATALOG_TOOLS, ...PRODUCTION_SPEC_TOOLS, ...PRINT_TARGET_TOOLS];
+  ...PRODUCTION_CATALOG_TOOLS, ...PRODUCTION_SPEC_TOOLS, ...PRINT_TARGET_TOOLS, ...READINESS_PLANNING_TOOLS];
 const productionTool = (name: string) => [...PRODUCTION_CATALOG_TOOLS, ...PRODUCTION_SPEC_TOOLS, ...PRINT_TARGET_TOOLS]
   .some(tool => tool.name === name);
 const productionWriteTool = (name: string) => PRODUCTION_CATALOG_WRITE_TOOLS.has(name)
@@ -38,7 +41,7 @@ function publicOrigin(req: Request): string {
 
 function challenge(req: Request, res: Response, error = "invalid_token"): void {
   const url = `${publicOrigin(req)}/.well-known/oauth-protected-resource/mcp`;
-  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE} ${REFERENCES_WRITE_SCOPE} ${STORY_DETAILS_WRITE_SCOPE} ${CANON_EDITORIAL_WRITE_SCOPE} ${SCENES_READ_SCOPE} ${SCENES_WRITE_SCOPE} ${PRODUCTION_READ_SCOPE} ${PRODUCTION_WRITE_SCOPE}`;
+  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE} ${REFERENCES_WRITE_SCOPE} ${STORY_DETAILS_WRITE_SCOPE} ${CANON_EDITORIAL_WRITE_SCOPE} ${SCENES_READ_SCOPE} ${SCENES_WRITE_SCOPE} ${PRODUCTION_READ_SCOPE} ${PRODUCTION_WRITE_SCOPE} ${READINESS_READ_SCOPE} ${READINESS_WRITE_SCOPE}`;
   res.set("WWW-Authenticate", `Bearer realm="WorldSmith", error="${error}", resource_metadata="${url}", scope="${requiredScopes}"`);
   res.status(error === "insufficient_scope" ? 403 : 401).json({ error });
 }
@@ -70,7 +73,8 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
     return;
   }
   if (!identity.scopes.includes(READ_SCOPE) && !identity.scopes.includes(EDITORIAL_READ_SCOPE)
-       && !identity.scopes.includes(SCENES_READ_SCOPE) && !identity.scopes.includes(PRODUCTION_READ_SCOPE)) {
+       && !identity.scopes.includes(SCENES_READ_SCOPE) && !identity.scopes.includes(PRODUCTION_READ_SCOPE)
+       && !identity.scopes.includes(READINESS_READ_SCOPE)) {
     challenge(req, res, "insufficient_scope");
     return;
   }
@@ -98,6 +102,10 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
     productionTool(tool.name)
       ? identity.scopes.includes(PRODUCTION_READ_SCOPE)
         && (!productionWriteTool(tool.name) || identity.scopes.includes(PRODUCTION_WRITE_SCOPE))
+      :
+    READINESS_PLANNING_TOOLS.some(item => item.name === tool.name)
+      ? identity.scopes.includes(READINESS_READ_SCOPE)
+        && (!READINESS_PLANNING_WRITE_TOOLS.has(tool.name) || identity.scopes.includes(READINESS_WRITE_SCOPE))
       :
     CANON_TOOLS.some(canon => canon.name === tool.name)
       ? identity.scopes.includes(READ_SCOPE)
@@ -157,6 +165,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
         return;
       }
       const canonTool = CANON_TOOLS.some(tool => tool.name === name);
+      const readinessTool = READINESS_PLANNING_TOOLS.some(tool => tool.name === name);
       const canonEditorialTool = CANON_EDITORIAL_TOOLS.some(tool => tool.name === name);
       const sceneTool = SCENE_TOOLS.some(tool => tool.name === name);
       const editorialRecordOrViewTool = RECORD_TOOLS.some(tool => tool.name === name)
@@ -165,7 +174,8 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
           || (canonEditorialTool && !identity.scopes.includes(READ_SCOPE))
           || (sceneTool && !identity.scopes.includes(SCENES_READ_SCOPE))
           || (editorialRecordOrViewTool && !identity.scopes.includes(EDITORIAL_READ_SCOPE))
-          || (productionTool(name) && !identity.scopes.includes(PRODUCTION_READ_SCOPE))) {
+          || (productionTool(name) && !identity.scopes.includes(PRODUCTION_READ_SCOPE))
+          || (readinessTool && !identity.scopes.includes(READINESS_READ_SCOPE))) {
         logger.info({ mcpTool: name, outcome: "insufficient_scope" }, "MCP tool call denied");
         challenge(req, res, "insufficient_scope");
         return;
@@ -176,6 +186,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
           || ((name === "update_story_beat" || name === "update_reveal_thread")
             && !identity.scopes.includes(STORY_DETAILS_WRITE_SCOPE))
            || (productionWriteTool(name) && !identity.scopes.includes(PRODUCTION_WRITE_SCOPE))
+            || (READINESS_PLANNING_WRITE_TOOLS.has(name) && !identity.scopes.includes(READINESS_WRITE_SCOPE))
            || ((RECORD_WRITE_TOOLS.has(name) || VIEW_WRITE_TOOLS.has(name))
              && !identity.scopes.includes(EDITORIAL_WRITE_SCOPE))
            || (name === "update_sequence" && args !== null && typeof args === "object"
@@ -200,7 +211,9 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
             ? await executeRecordTool(identity.userId, name, args ?? {}, publicOrigin(req))
             : VIEW_TOOLS.some(tool => tool.name === name)
               ? await executeViewTool(identity.userId, name, args ?? {}, publicOrigin(req))
-              : await executeSceneTool(identity.userId, name, args ?? {}, publicOrigin(req));
+               : READINESS_PLANNING_TOOLS.some(tool => tool.name === name)
+                 ? await executeReadinessPlanningTool(identity.userId, name, args ?? {})
+                 : await executeSceneTool(identity.userId, name, args ?? {}, publicOrigin(req));
         const result = {
           content: [{ type: "text", text: JSON.stringify(data) }],
           structuredContent: data,

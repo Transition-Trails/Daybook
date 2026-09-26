@@ -10,6 +10,7 @@ const mocked = vi.hoisted(() => ({
   executeProductionCatalog: vi.fn(),
   executeProductionSpec: vi.fn(),
   executePrintTarget: vi.fn(),
+  executeReadinessPlanning: vi.fn(),
 }));
 
 vi.mock("../lib/mcp-oauth", () => ({
@@ -66,6 +67,14 @@ vi.mock("../lib/worldsmith/mcp-print-targets", () => ({
   PRINT_TARGET_WRITE_TOOLS: new Set(["create_print_target"]),
   executePrintTargetTool: mocked.executePrintTarget,
 }));
+vi.mock("../lib/worldsmith/mcp-readiness-planning", () => ({
+  READINESS_PLANNING_TOOLS: [
+    { name: "list_readiness_cards", description: "List readiness cards", inputSchema: { type: "object" } },
+    { name: "move_readiness_card", description: "Move readiness card", inputSchema: { type: "object" } },
+  ],
+  READINESS_PLANNING_WRITE_TOOLS: new Set(["move_readiness_card"]),
+  executeReadinessPlanningTool: mocked.executeReadinessPlanning,
+}));
 
 import mcpRouter from "../routes/mcp";
 
@@ -87,6 +96,7 @@ describe("WorldSmith Streamable HTTP MCP", () => {
     mocked.executeProductionCatalog.mockReset();
     mocked.executeProductionSpec.mockReset();
     mocked.executePrintTarget.mockReset();
+    mocked.executeReadinessPlanning.mockReset();
     mocked.verify.mockResolvedValue({
       userId: "super-admin",
       clientId: "client-1",
@@ -103,7 +113,7 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       "https://daybook.example/.well-known/oauth-protected-resource/mcp",
     );
     expect(response.headers["www-authenticate"]).toContain(
-       'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write worldsmith:production:read worldsmith:production:write"',
+       'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write worldsmith:production:read worldsmith:production:write worldsmith:readiness:read worldsmith:readiness:write"',
     );
     expect(mocked.execute).not.toHaveBeenCalled();
   });
@@ -291,5 +301,36 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       .send(call("create_print_target", { component_type: "cover" }));
     expect(write.body.result.structuredContent).toEqual({ target: { component_type: "cover" } });
     expect(mocked.executePrintTarget).toHaveBeenCalledWith("super-admin", "create_print_target", { component_type: "cover" });
+  });
+
+  it("discovers and calls readiness planning tools only with their separate scopes", async () => {
+    const list = async () => (await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send({ jsonrpc: "2.0", id: 1, method: "tools/list" })).body.result.tools.map((tool: { name: string }) => tool.name);
+    expect(await list()).not.toContain("list_readiness_cards");
+    expect((await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("list_readiness_cards", { world_id: "world-1" }))).status).toBe(403);
+
+    mocked.verify.mockResolvedValue({ userId: "super-admin", clientId: "client-1", scopes: ["worldsmith:readiness:read"] });
+    expect(await list()).toContain("list_readiness_cards");
+    expect(await list()).not.toContain("move_readiness_card");
+    expect((await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("move_readiness_card"))).status).toBe(403);
+    mocked.executeReadinessPlanning.mockResolvedValue({ boards: { canon_records: [], storylines: [], beats: [] } });
+    const read = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("list_readiness_cards", { world_id: "world-1" }));
+    expect(read.body.result.structuredContent.boards.beats).toEqual([]);
+
+    mocked.verify.mockResolvedValue({
+      userId: "super-admin", clientId: "client-1",
+      scopes: ["worldsmith:readiness:read", "worldsmith:readiness:write"],
+    });
+    expect(await list()).toContain("move_readiness_card");
+    mocked.executeReadinessPlanning.mockResolvedValue({ card: { lane: "ready", revision: 1 } });
+    const write = await request(app).post("/mcp").set("Authorization", "Bearer opaque-token")
+      .send(call("move_readiness_card", { world_id: "world-1", entity_type: "beat", id: "beat", lane: "ready", expected_revision: 0 }));
+    expect(write.body.result.structuredContent.card).toMatchObject({ lane: "ready", revision: 1 });
+    expect(mocked.executeReadinessPlanning).toHaveBeenCalledWith("super-admin", "move_readiness_card", {
+      world_id: "world-1", entity_type: "beat", id: "beat", lane: "ready", expected_revision: 0,
+    });
   });
 });

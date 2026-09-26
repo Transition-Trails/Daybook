@@ -1,14 +1,16 @@
 /**
- * ReadinessBoard — swimlane view of all Production Specs grouped by pipeline stage.
+ * ReadinessBoard — separate editorial planning and production pipelines.
  */
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   AlertTriangle, Plus, RefreshCw, Loader2, Clock,
-  CheckCircle2, Zap, BookOpen, FileText, Circle,
+  CheckCircle2, BookOpen, Circle, ScrollText, GitBranch, Layers,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useEditorial } from "@/contexts/EditorialContext";
+import PlanningReadinessBoard, { type PlanningEntity } from "./PlanningReadinessBoard";
 
 interface SpecCard {
   id: string;
@@ -144,7 +146,7 @@ function SpecCardItem({ spec }: { spec: SpecCard }) {
   );
 }
 
-export default function ReadinessBoard() {
+function ProductionSpecsBoard() {
   const { selectedWorldId, selectedCollectionId, selectedWorld } = useEditorial();
 
   const params = new URLSearchParams();
@@ -200,13 +202,13 @@ export default function ReadinessBoard() {
           </button>
 
           <Link href="/super/worldsmith/editorial/specs/new">
-            <button
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-colors"
-              style={{ background: "#1B2A4A" }}
-            >
+             <button
+               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-colors"
+               style={{ background: "#1B2A4A" }}
+             >
               <Plus className="w-4 h-4" />
               New Spec
-            </button>
+             </button>
           </Link>
         </div>
       </div>
@@ -278,6 +280,55 @@ export default function ReadinessBoard() {
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+const BOARD_TABS: Array<{ key: PlanningEntity | "production_specs"; label: string; icon: typeof BookOpen; description: string }> = [
+  { key: "canon_records", label: "Canon Records", icon: BookOpen, description: "The facts of the world" },
+  { key: "storylines", label: "Storylines", icon: GitBranch, description: "Narratives in motion" },
+  { key: "beats", label: "Beats", icon: ScrollText, description: "Moments in the story" },
+  { key: "production_specs", label: "Production Specs", icon: Layers, description: "The making pipeline" },
+];
+
+export default function ReadinessBoard() {
+  const [activeBoard, setActiveBoard] = useState<PlanningEntity | "production_specs">("production_specs");
+  const { selectedWorldId } = useEditorial();
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-[var(--admin-paper)]">
+      <div className="shrink-0 border-b border-[var(--admin-border)] bg-[var(--admin-card)] px-4 pt-4 sm:px-6">
+        <div className="mb-3 flex items-baseline gap-3">
+          <h1 className="text-xl font-semibold tracking-tight text-[var(--admin-ink)]" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>Readiness Board</h1>
+          <span className="hidden text-xs text-[var(--admin-faint)] sm:inline">Four distinct paths from first idea to finished work.</span>
+        </div>
+        <div role="tablist" aria-label="Readiness board type" className="-mb-px flex gap-1 overflow-x-auto">
+          {BOARD_TABS.map(({ key, label, icon: Icon, description }) => (
+            <button
+              key={key}
+              id={`readiness-tab-${key}`}
+              type="button"
+              role="tab"
+              aria-selected={activeBoard === key}
+              aria-controls={`readiness-panel-${key}`}
+              title={description}
+              data-testid={`tab-readiness-${key}`}
+              onClick={() => setActiveBoard(key)}
+              className={`flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--admin-clay)] sm:px-4 ${
+                activeBoard === key
+                  ? "border-[var(--admin-clay)] text-[var(--admin-ink)]"
+                  : "border-transparent text-[var(--admin-faint)] hover:border-[var(--admin-border)] hover:text-[var(--admin-ink)]"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />{label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div id={`readiness-panel-${activeBoard}`} role="tabpanel" aria-labelledby={`readiness-tab-${activeBoard}`} className="min-h-0 flex-1">
+        {activeBoard === "production_specs"
+          ? <ProductionSpecsBoard />
+          : <PlanningReadinessBoard key={`${selectedWorldId ?? "no-world"}:${activeBoard}`} entityType={activeBoard} />}
       </div>
     </div>
   );

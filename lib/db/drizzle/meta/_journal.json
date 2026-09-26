@@ -435,6 +435,13 @@
       "when": 1789848000000,
       "tag": "0061_story_reference_lane",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1789851600000,
+      "tag": "0062_worldsmith_readiness_planning",
+      "breakpoints": true
     }
   ]
 }

@@ -34,7 +34,7 @@ function PlacementBadge({ story, dark = false }: { story: Story; dark?: boolean 
       className="inline-flex rounded-full px-2 py-1 text-[10px] font-semibold"
       style={{
         background: dark ? "rgba(255,255,255,.16)" : story.sequenceRole === "reference" ? "#F0E9DF" : "#EAF0F7",
-        color: dark ? "white" : "#1B2A4A",
+        color: dark ? "white" : "var(--admin-ink)",
       }}
     >
       {storyPlacement(story)}
@@ -99,7 +99,7 @@ function StoryMapFilterControls({
         id="story-map-filter-story"
         value={selectedStoryId}
         onChange={event => onStoryChange(event.target.value)}
-        className="w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-gray-700 outline-none focus:border-[#C87560]"
+        className="w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-gray-700 outline-none focus:border-[var(--admin-clay)]"
         style={{ borderColor: "#E5E7EB" }}
       >
         <option value="all">All storylines</option>
@@ -131,7 +131,7 @@ function Node({
         <span className="flex items-center gap-2">
           <CircleDot className="w-3.5 h-3.5 shrink-0" style={{ color }} />
           <span className="min-w-0">
-            <span className="block text-[12.5px] font-semibold truncate" style={{ color: "#1B2A4A" }}>{link.recordName}</span>
+            <span className="block text-[12.5px] font-semibold truncate" style={{ color: "var(--admin-ink)" }}>{link.recordName}</span>
             <span className="block mt-0.5 text-[10px] uppercase tracking-[0.11em]" style={{ color }}>{link.canonType ?? "Canon"}</span>
           </span>
         </span>
@@ -338,10 +338,10 @@ export default function StoryConnections() {
       <div className="max-w-6xl mx-auto px-7 py-7">
         <header className="flex flex-wrap items-start justify-between gap-4 mb-7">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.18em] font-bold" style={{ color: "#C87560" }}>
+            <p className="text-[10px] uppercase tracking-[0.18em] font-bold" style={{ color: "var(--admin-clay)" }}>
               Editorial Studio · {selectedWorld.name}
             </p>
-            <h1 className="mt-1 text-3xl leading-tight" style={{ color: "#1B2A4A", fontFamily: "'Playfair Display', Georgia, serif" }}>
+            <h1 className="mt-1 text-3xl leading-tight" style={{ color: "var(--admin-ink)", fontFamily: "'Playfair Display', Georgia, serif" }}>
               Story map
             </h1>
             <p className="mt-2 text-sm max-w-2xl" style={{ color: "#667085" }}>
@@ -359,7 +359,7 @@ export default function StoryConnections() {
               Refresh map
             </button>
             <Link href="/super/worldsmith/editorial/stories">
-              <span className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold cursor-pointer" style={{ background: "#1B2A4A", color: "white" }}>
+              <span className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold cursor-pointer" style={{ background: "var(--admin-ink)", color: "white" }}>
                 <BookOpen className="w-4 h-4" />
                 Storylines
               </span>
@@ -368,11 +368,11 @@ export default function StoryConnections() {
         </header>
 
         {isLoading ? (
-          <div className="py-20 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" style={{ color: "#C87560" }} /></div>
+          <div className="py-20 flex justify-center"><Loader2 className="w-5 h-5 animate-spin" style={{ color: "var(--admin-clay)" }} /></div>
         ) : isError ? (
           <section className="rounded-2xl px-8 py-14 text-center" style={{ background: "white", border: "1px dashed #C9BFB2" }}>
-            <MapPinned className="w-9 h-9 mx-auto mb-3" style={{ color: "#C87560" }} />
-            <h2 className="text-lg font-semibold" style={{ color: "#1B2A4A" }}>Storylines could not be loaded</h2>
+            <MapPinned className="w-9 h-9 mx-auto mb-3" style={{ color: "var(--admin-clay)" }} />
+            <h2 className="text-lg font-semibold" style={{ color: "var(--admin-ink)" }}>Storylines could not be loaded</h2>
             <p className="mt-2 text-sm max-w-md mx-auto" style={{ color: "#667085" }}>
               {error instanceof Error ? error.message : "The Story Map request failed. Try loading it again."}
             </p>
@@ -380,20 +380,20 @@ export default function StoryConnections() {
               type="button"
               onClick={() => void refetch()}
               className="mt-5 inline-flex items-center rounded-lg px-3.5 py-2 text-sm font-semibold text-white"
-              style={{ background: "#1B2A4A" }}
+              style={{ background: "var(--admin-ink)" }}
             >
               Try again
             </button>
           </section>
         ) : stories.length === 0 ? (
           <section className="rounded-2xl px-8 py-14 text-center" style={{ background: "white", border: "1px dashed #C9BFB2" }}>
-            <MapPinned className="w-9 h-9 mx-auto mb-3" style={{ color: "#C87560" }} />
-            <h2 className="text-lg font-semibold" style={{ color: "#1B2A4A" }}>A map starts with a storyline</h2>
+            <MapPinned className="w-9 h-9 mx-auto mb-3" style={{ color: "var(--admin-clay)" }} />
+            <h2 className="text-lg font-semibold" style={{ color: "var(--admin-ink)" }}>A map starts with a storyline</h2>
             <p className="mt-2 text-sm max-w-md mx-auto" style={{ color: "#667085" }}>
               Create an adventure, then tie your canon to its moments so the larger story becomes visible.
             </p>
             <Link href="/super/worldsmith/editorial/stories">
-              <span className="mt-5 inline-flex items-center gap-1 text-sm font-semibold cursor-pointer" style={{ color: "#C87560" }}>
+              <span className="mt-5 inline-flex items-center gap-1 text-sm font-semibold cursor-pointer" style={{ color: "var(--admin-clay)" }}>
                 Create a storyline <ArrowRight className="w-3.5 h-3.5" />
               </span>
             </Link>
@@ -401,7 +401,7 @@ export default function StoryConnections() {
         ) : (
           <>
             <section className="rounded-xl px-4 py-3 mb-5 flex flex-wrap items-center gap-3" style={{ background: "#F0E9DF", border: "1px solid #DDD4C4" }}>
-                <label htmlFor="story-map-connect-story" className="text-xs font-semibold" style={{ color: "#1B2A4A" }}>
+                <label htmlFor="story-map-connect-story" className="text-xs font-semibold" style={{ color: "var(--admin-ink)" }}>
                   Add canon record to
                 </label>
                 <select
@@ -442,7 +442,7 @@ export default function StoryConnections() {
             </section>
 
             <div className="grid xl:grid-cols-[minmax(270px,.72fr)_minmax(0,1.5fr)_minmax(230px,.7fr)] gap-5 items-start">
-              <section className="rounded-2xl p-5" style={{ background: "#1B2A4A", color: "white" }}>
+              <section className="rounded-2xl p-5" style={{ background: "var(--admin-ink)", color: "white" }}>
                 <p className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#DCA28F" }}>
                   Narrative focus
                 </p>
@@ -473,8 +473,8 @@ export default function StoryConnections() {
               <section className="rounded-2xl p-5" style={{ background: "var(--admin-card)", border: "1px solid var(--admin-border)" }}>
                 <div className="flex items-start justify-between gap-3 mb-5">
                   <div>
-                    <p className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#C87560" }}>Story movements</p>
-                    <h2 className="mt-1 text-lg font-semibold" style={{ color: "#1B2A4A" }}>
+                    <p className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "var(--admin-clay)" }}>Story movements</p>
+                    <h2 className="mt-1 text-lg font-semibold" style={{ color: "var(--admin-ink)" }}>
                       {selectedStory ? `${visibleLinks.length} Canon connection${visibleLinks.length === 1 ? "" : "s"}` : "Choose a storyline to arrange its Canon"}
                     </h2>
                   </div>
@@ -484,7 +484,7 @@ export default function StoryConnections() {
                 </div>
                 {!selectedStory ? (
                   <div className="rounded-xl p-6 text-center" style={{ background: "white", border: "1px dashed #C9BFB2" }}>
-                    <p className="text-sm font-semibold" style={{ color: "#1B2A4A" }}>Select a storyline above.</p>
+                    <p className="text-sm font-semibold" style={{ color: "var(--admin-ink)" }}>Select a storyline above.</p>
                     <p className="mt-1.5 text-xs" style={{ color: "#667085" }}>
                       Its movements and connected Canon records will appear here.
                     </p>
@@ -509,12 +509,12 @@ export default function StoryConnections() {
                           className="rounded-xl border p-3 transition-colors"
                           style={{
                             background: isTargeted ? "#FBF4F0" : "white",
-                            borderColor: isTargeted ? "#C87560" : "#E6DED3",
+                            borderColor: isTargeted ? "var(--admin-clay)" : "#E6DED3",
                           }}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: movement.id ? "#C87560" : "#98A2B3" }}>
+                              <p className="text-[10px] font-bold uppercase tracking-[0.13em]" style={{ color: movement.id ? "var(--admin-clay)" : "#98A2B3" }}>
                                 {movement.actNumber ? `Movement ${movement.actNumber}` : "Unassigned"}
                               </p>
                               {movement.id ? (
@@ -537,8 +537,8 @@ export default function StoryConnections() {
                                           });
                                         }
                                       }}
-                                      className="min-w-0 flex-1 rounded-md border bg-white px-2.5 py-1.5 text-sm font-semibold outline-none focus:border-[#C87560]"
-                                      style={{ color: "#1B2A4A", borderColor: "#E6DED3" }}
+                                      className="min-w-0 flex-1 rounded-md border bg-white px-2.5 py-1.5 text-sm font-semibold outline-none focus:border-[var(--admin-clay)]"
+                                      style={{ color: "var(--admin-ink)", borderColor: "#E6DED3" }}
                                     />
                                     <button
                                       type="button"
@@ -552,14 +552,14 @@ export default function StoryConnections() {
                                         || (movementTitleDraft[movement.id] ?? movement.title).trim() === movement.title
                                       }
                                       className="shrink-0 text-[10.5px] font-semibold disabled:opacity-35"
-                                      style={{ color: "#C87560" }}
+                                      style={{ color: "var(--admin-clay)" }}
                                     >
                                       {saveMovementTitle.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save title"}
                                     </button>
                                   </div>
                                 </label>
                               ) : (
-                                <p className="mt-0.5 text-sm font-semibold" style={{ color: "#1B2A4A" }}>{movement.title}</p>
+                                <p className="mt-0.5 text-sm font-semibold" style={{ color: "var(--admin-ink)" }}>{movement.title}</p>
                               )}
                               <p className="mt-0.5 text-[10.5px]" style={{ color: "#98A2B3" }}>
                                 {movementLinks.length} Canon record{movementLinks.length === 1 ? "" : "s"}
@@ -569,7 +569,7 @@ export default function StoryConnections() {
                               type="button"
                               onClick={() => setSelectedActId(movement.id)}
                               className="shrink-0 rounded-md px-2 py-1 text-[10.5px] font-semibold"
-                              style={{ background: isTargeted ? "#1B2A4A" : "#EFE9E1", color: isTargeted ? "white" : "#786D60" }}
+                              style={{ background: isTargeted ? "var(--admin-ink)" : "#EFE9E1", color: isTargeted ? "white" : "#786D60" }}
                             >
                               {isTargeted ? "Adding here" : "Add Canon here"}
                             </button>
@@ -588,7 +588,7 @@ export default function StoryConnections() {
                                 onBlur={() => saveMovementNarrative(movement)}
                                 placeholder="What changes in this movement? What does the reader discover, risk, or carry forward?"
                                 rows={3}
-                                className="mt-1.5 w-full resize-y rounded-lg border bg-white px-3 py-2 text-xs leading-relaxed outline-none focus:border-[#C87560]"
+                                className="mt-1.5 w-full resize-y rounded-lg border bg-white px-3 py-2 text-xs leading-relaxed outline-none focus:border-[var(--admin-clay)]"
                                 style={{ borderColor: "#E6DED3", color: "#344054" }}
                               />
                             </label>
@@ -625,7 +625,7 @@ export default function StoryConnections() {
                             }
                           }}
                           placeholder={`Movement ${selectedStory.acts.length + 1} title (optional)`}
-                          className="min-w-0 flex-1 rounded-md border bg-white px-2.5 py-2 text-xs outline-none focus:border-[#C87560]"
+                          className="min-w-0 flex-1 rounded-md border bg-white px-2.5 py-2 text-xs outline-none focus:border-[var(--admin-clay)]"
                           style={{ borderColor: "#E6DED3", color: "#344054" }}
                         />
                         <button
@@ -633,7 +633,7 @@ export default function StoryConnections() {
                           onClick={() => createMovement.mutate()}
                           disabled={createMovement.isPending}
                           className="rounded-md px-3 py-2 text-xs font-semibold text-white disabled:opacity-45"
-                          style={{ background: "#1B2A4A" }}
+                          style={{ background: "var(--admin-ink)" }}
                         >
                           {createMovement.isPending ? "Adding…" : "Add movement"}
                         </button>
@@ -652,11 +652,11 @@ export default function StoryConnections() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: "#98A2B3" }}>Open threads</p>
-                    <h2 className="mt-1 text-sm font-semibold" style={{ color: "#1B2A4A" }}>
+                    <h2 className="mt-1 text-sm font-semibold" style={{ color: "var(--admin-ink)" }}>
                       {unlinkedRecords.length} Canon record{unlinkedRecords.length === 1 ? "" : "s"} available here
                     </h2>
                   </div>
-                  <button onClick={() => setShowUnlinked(show => !show)} className="text-[11px] font-semibold" style={{ color: "#C87560" }}>
+                  <button onClick={() => setShowUnlinked(show => !show)} className="text-[11px] font-semibold" style={{ color: "var(--admin-clay)" }}>
                     {showUnlinked ? "Hide" : "Show"}
                   </button>
                 </div>
@@ -674,7 +674,7 @@ export default function StoryConnections() {
                         value={canonSearch}
                         onChange={event => setCanonSearch(event.target.value)}
                         placeholder="Search name or type…"
-                        className="w-full rounded-lg border bg-white py-2 pl-8 pr-2.5 text-xs outline-none focus:border-[#C87560]"
+                         className="w-full rounded-lg border bg-white py-2 pl-8 pr-2.5 text-xs outline-none focus:border-[var(--admin-clay)]"
                         style={{ borderColor: "#E6DED3", color: "#344054" }}
                       />
                     </label>
@@ -708,7 +708,7 @@ export default function StoryConnections() {
                                 onClick={() => linkRecord.mutate({ recordId: record.id, actId: selectedActId })}
                                 disabled={linkRecord.isPending}
                                 className="mt-2 w-full rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
-                                style={{ background: "#1B2A4A" }}
+                                style={{ background: "var(--admin-ink)" }}
                               >
                                 {isAdding ? "Adding…" : selectedActId
                                   ? `Add to movement ${selectedStory.acts.find(act => act.id === selectedActId)?.actNumber ?? ""}`
@@ -726,7 +726,7 @@ export default function StoryConnections() {
                       {filteredUnlinkedRecords.length === 0 && (
                         <div className="rounded-lg border border-dashed px-3 py-6 text-center" style={{ borderColor: "#DDD4C4" }}>
                           <p className="text-xs font-semibold" style={{ color: "#475467" }}>No matching Canon records</p>
-                          <button type="button" onClick={() => setCanonSearch("")} className="mt-2 text-[11px] font-semibold" style={{ color: "#C87560" }}>
+                        <button type="button" onClick={() => setCanonSearch("")} className="mt-2 text-[11px] font-semibold" style={{ color: "var(--admin-clay)" }}>
                             Clear search
                           </button>
                         </div>
@@ -742,14 +742,14 @@ export default function StoryConnections() {
 
             <section className="mt-6 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4" style={{ background: "#F0E9DF", border: "1px solid #DDD4C4" }}>
               <div className="flex gap-3">
-                <Sparkles className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "#C87560" }} />
+                <Sparkles className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "var(--admin-clay)" }} />
                 <div>
-                  <p className="text-sm font-semibold" style={{ color: "#1B2A4A" }}>Let the narrative become something to hold.</p>
+                  <p className="text-sm font-semibold" style={{ color: "var(--admin-ink)" }}>Let the narrative become something to hold.</p>
                   <p className="mt-1 text-xs" style={{ color: "#667085" }}>Ask Co-write to turn a connected moment into a printed clue, journal page, letter, or ephemera sheet.</p>
                 </div>
               </div>
               <Link href="/super/worldsmith/editorial/specs/new">
-                <span className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer" style={{ background: "#1B2A4A", color: "white" }}>
+                <span className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer" style={{ background: "var(--admin-ink)", color: "white" }}>
                   Start a production piece <ArrowRight className="w-3.5 h-3.5" />
                 </span>
               </Link>

@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import express from "express";
 import { and, eq, inArray } from "drizzle-orm";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   db, pool, usersTable, worldsmithWorldsTable, wsStoriesTable, wsStoryActsTable,
   wsStoryBeatsTable, wsRevealThreadsTable,
@@ -10,6 +10,7 @@ import {
   mcpOAuthClientsTable, mcpOAuthTokensTable,
 } from "@workspace/db";
 import { getMcpResource } from "../lib/mcp-oauth";
+import { executeViewTool } from "../lib/worldsmith/mcp-editorial-views";
 import mcpRouter from "../routes/mcp";
 
 describe("authenticated editorial MCP tools", () => {
@@ -194,6 +195,83 @@ describe("authenticated editorial MCP tools", () => {
       await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
       await db.delete(mcpOAuthTokensTable).where(eq(mcpOAuthTokensTable.clientId, clientId));
       await db.delete(mcpOAuthClientsTable).where(eq(mcpOAuthClientsTable.clientId, clientId));
+    }
+  });
+  it("keeps a paged sequence search on one snapshot when a storyline changes between reads", async () => {
+    const [user] = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(eq(usersTable.platformRole, "super_admin")).limit(1);
+    if (!user) throw new Error("A seeded development super-admin is required");
+    const worldId = `snapshot-sequences-${randomUUID()}`;
+    const firstId = `${worldId}-first`;
+    const secondId = `${worldId}-second`;
+    const referenceId = `${worldId}-reference`;
+    const origin = "https://example.com";
+    const args = { world_id: worldId, query: "needle", limit: 1 };
+    let resume!: () => void;
+    const released = new Promise<void>(resolve => { resume = resolve; });
+    let selected!: () => void;
+    const pageSelected = new Promise<void>(resolve => { selected = resolve; });
+    let intercept = false;
+    const connect = pool.connect.bind(pool);
+    const wrappedClients = new Map<object, unknown>();
+    const connectSpy = vi.spyOn(pool, "connect").mockImplementation(((...args: unknown[]) => {
+      // Pool.query acquires clients with a callback; only wrap the
+      // promise-based client used by Drizzle's transaction.
+      if (typeof args[0] === "function") {
+        return (connect as (callback: unknown) => void)(args[0]);
+      }
+      return connect().then(client => {
+        if (wrappedClients.has(client)) return client;
+        const originalQuery = client.query;
+        wrappedClients.set(client, originalQuery);
+        client.query = ((...args: unknown[]) => {
+          // pool.query uses the callback overload; leave it untouched.
+          if (typeof args[args.length - 1] === "function") {
+            return (originalQuery as (...values: unknown[]) => unknown).apply(client, args);
+          }
+          return (async () => {
+            const result = await (originalQuery as (...values: unknown[]) => Promise<unknown>).apply(client, args);
+            const config = args[0];
+            const text = typeof config === "string" ? config : (config as { text?: string }).text;
+            if (intercept && text?.includes("WITH members AS")) {
+              intercept = false;
+              selected();
+              await released;
+            }
+            return result;
+          })();
+        }) as typeof client.query;
+        return client;
+      });
+    }) as typeof pool.connect);
+    try {
+      await db.insert(worldsmithWorldsTable).values({ id: worldId, name: "Snapshot sequences", code: "SNAP" });
+      await db.insert(wsStoriesTable).values([
+        { id: firstId, worldId, title: "Needle first", sortOrder: 1 },
+        { id: secondId, worldId, title: "Other", sortOrder: 2 },
+        { id: referenceId, worldId, title: "Needle reference", sortOrder: 3, sequenceRole: "reference" },
+      ]);
+      const before = await executeViewTool(user.id, "search_sequences", args, origin);
+      intercept = true;
+      const pending = executeViewTool(user.id, "search_sequences", args, origin);
+      await pageSelected;
+      await db.update(wsStoriesTable).set({ title: "Changed first", summary: "gone" }).where(eq(wsStoriesTable.id, firstId));
+      await db.update(wsStoriesTable).set({ title: "Changed reference", sequenceRole: "chronological" })
+        .where(eq(wsStoriesTable.id, referenceId));
+      resume();
+      expect(await pending).toEqual(before);
+      const after = await executeViewTool(user.id, "search_sequences", args, origin) as typeof before;
+      expect(after).not.toEqual(before);
+      expect((after as { sequences: unknown[] }).sequences).toEqual([]);
+    } finally {
+      resume();
+      connectSpy.mockRestore();
+      for (const [client, originalQuery] of wrappedClients) {
+        const pooledClient = client as { query: typeof pool.query };
+        pooledClient.query = originalQuery as typeof pool.query;
+      }
+      await db.delete(wsStoriesTable).where(eq(wsStoriesTable.worldId, worldId));
+      await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
     }
   });
   it("serializes simultaneous beat and reveal edits behind the storyline lock", async () => {

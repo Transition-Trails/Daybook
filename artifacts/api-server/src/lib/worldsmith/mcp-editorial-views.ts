@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import {
-  auditLogTable, db, pool, usersTable, worldsmithWorldsTable, wsCanonRecordsTable,
+  auditLogTable, db, usersTable, worldsmithWorldsTable, wsCanonRecordsTable,
   wsCanonRecordStoryLinksTable, wsStoriesTable, wsStoryActsTable,
 } from "@workspace/db";
 import { z } from "zod";
@@ -300,22 +300,36 @@ async function searchSequencePage(
   worldId: string, origin: string, query: string | undefined, afterId: string | undefined,
   limit: number | undefined, bounded: boolean,
 ) {
-  await requireWorld(worldId);
+  return db.transaction(tx => readSequencePage(tx, worldId, origin, query, afterId, limit, bounded),
+    { isolationLevel: "repeatable read", accessMode: "read only" });
+}
+
+async function readSequencePage(
+  tx: QueryExecutor, worldId: string, origin: string, query: string | undefined,
+  afterId: string | undefined, limit: number | undefined, bounded: boolean,
+) {
+  await requireWorld(worldId, tx);
   // Positive sort positions share a group; legacy zero/negative positions
   // remain separate. Number groups before filtering, as in readSequenceSet.
-  const { rows } = await pool.query<{
+  // Reuse the exact SQL benchmarked for large worlds, binding its positional
+  // arguments through Drizzle so it runs on this transaction's connection.
+  const parameters = [worldId, query ?? null, afterId ?? null, limit ?? null, bounded];
+  const pageSql = sql.join(SEQUENCE_PAGE_SQL.split(/(\$[1-5])/g).map(part =>
+    /^\$[1-5]$/.test(part) ? sql`${parameters[Number(part[1]) - 1]}` : sql.raw(part)), sql.raw(""));
+  const { rows } = await tx.execute<{
     total: number; id: string | null; position: number | null; story_ids: string[] | null; has_more: boolean | null;
-  }>(SEQUENCE_PAGE_SQL, [worldId, query ?? null, afterId ?? null, limit ?? null, bounded]);
+  }>(pageSql);
   const total = rows[0]?.total ?? 0;
   const selected = rows.filter((row): row is typeof row & { id: string; position: number; story_ids: string[] } =>
     row.id !== null && row.position !== null && row.story_ids !== null);
   const ids = selected.flatMap(row => row.story_ids);
-  const [stories, referenceRows, currentRevision] = await Promise.all([
-    ids.length ? db.select().from(wsStoriesTable).where(and(eq(wsStoriesTable.worldId, worldId), inArray(wsStoriesTable.id, ids))) : Promise.resolve([] as StoryRow[]),
-    db.select().from(wsStoriesTable).where(and(eq(wsStoriesTable.worldId, worldId), eq(wsStoriesTable.sequenceRole, "reference")))
-      .orderBy(asc(wsStoriesTable.sortOrder), asc(wsStoriesTable.title), asc(wsStoriesTable.id)),
-    sequenceRevision(worldId),
-  ]);
+  const stories = ids.length
+    ? await tx.select().from(wsStoriesTable).where(and(eq(wsStoriesTable.worldId, worldId), inArray(wsStoriesTable.id, ids)))
+    : [] as StoryRow[];
+  const referenceRows = await tx.select().from(wsStoriesTable)
+    .where(and(eq(wsStoriesTable.worldId, worldId), eq(wsStoriesTable.sequenceRole, "reference")))
+    .orderBy(asc(wsStoriesTable.sortOrder), asc(wsStoriesTable.title), asc(wsStoriesTable.id));
+  const currentRevision = await sequenceRevision(worldId, tx);
   const byId = new Map(stories.map(story => [story.id, story]));
   const sequences = selected.map(row => {
     const members = row.story_ids.map(id => byId.get(id)!).sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
@@ -335,7 +349,6 @@ async function searchSequencePage(
     has_more: hasMore, next_cursor: hasMore ? sequences[sequences.length - 1]!.id : null,
   };
 }
-
 function assertRevision(expected: string, current: string): void {
   if (expected !== current) throw new CanonToolError("Revision conflict: the view changed; fetch the latest revision and retry", 409, "REVISION_CONFLICT");
 }

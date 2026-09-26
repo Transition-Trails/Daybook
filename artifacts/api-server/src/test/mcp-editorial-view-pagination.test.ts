@@ -44,7 +44,7 @@ describe("editorial view search pagination", () => {
       expect(referenceOnly.total).toBe(0);
       expect(referenceOnly.references_total).toBe(1);
 
-      const full = await executeViewTool(admin.id, "get_sequence", { sequence_id: worldId }, origin) as {
+      const full = await executeViewTool(admin.id, "get_sequence", { world_id: worldId, sequence_id: worldId }, origin) as {
         sequences: Array<{ story_ids: string[] }>; references: Array<{ id: string }>; revision: string;
       };
       expect(full.sequences.flatMap(group => group.story_ids)).toEqual(storyIds.slice(0, 2));

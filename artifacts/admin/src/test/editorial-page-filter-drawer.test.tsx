@@ -124,48 +124,13 @@ describe("WorldSmith Editorial page filter drawer", () => {
     renderEditorialPage("canon", <CanonLibrary />);
 
     const drawerFilters = await screen.findByTestId("editorial-page-filters");
-    expect(within(drawerFilters).getByRole("heading", { name: "Production Spec filters" })).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("Search by name or spec ID…")).not.toBeInTheDocument();
-
-    fireEvent.change(within(drawerFilters).getByLabelText("Status"), { target: { value: "draft" } });
-    expect(await screen.findByText("Village Letter")).toBeInTheDocument();
-    expect(screen.queryByText("Archive Card")).not.toBeInTheDocument();
-
+    expect(within(drawerFilters).getByRole("heading", { name: "Canon filters" })).toBeInTheDocument();
+    await waitFor(() => expect(within(drawerFilters).getByLabelText("Record type")).toHaveValue("object"));
+    expect(await screen.findByText("The Ashcroft Ledger")).toBeInTheDocument();
+    expect(screen.queryByText("Mara Vale")).not.toBeInTheDocument();
     fireEvent.click(within(drawerFilters).getByRole("button", { name: "Clear all" }));
-    expect(await screen.findByText("Archive Card")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Archive Card production spec preview" })).toHaveAttribute(
-      "src",
-      "/api/storage/objects/worldsmith/spec-previews/archive-card.png",
-    );
-    expect(screen.getByRole("button", { name: "Open preview for Archive Card" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open spec Archive Card" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Final Artwork" })).toBeInTheDocument();
-    expect(screen.getByText("Generated")).toBeInTheDocument();
-    expect(screen.getByText("Not generated")).toBeInTheDocument();
-  });
-
-  it("moves Story Map’s storyline focus filter to the drawer and refetches the selected storyline", async () => {
-    renderEditorialPage("connections", <StoryConnections />);
-
-    const drawerFilters = await screen.findByTestId("editorial-page-filters");
-    expect(within(drawerFilters).getByRole("heading", { name: "Production Spec filters" })).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("Search by name or spec ID…")).not.toBeInTheDocument();
-
-    fireEvent.change(within(drawerFilters).getByLabelText("Status"), { target: { value: "draft" } });
-    expect(await screen.findByText("Village Letter")).toBeInTheDocument();
-    expect(screen.queryByText("Archive Card")).not.toBeInTheDocument();
-
-    fireEvent.click(within(drawerFilters).getByRole("button", { name: "Clear all" }));
-    expect(await screen.findByText("Archive Card")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Archive Card production spec preview" })).toHaveAttribute(
-      "src",
-      "/api/storage/objects/worldsmith/spec-previews/archive-card.png",
-    );
-    expect(screen.getByRole("button", { name: "Open preview for Archive Card" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open spec Archive Card" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Final Artwork" })).toBeInTheDocument();
-    expect(screen.getByText("Generated")).toBeInTheDocument();
-    expect(screen.getByText("Not generated")).toBeInTheDocument();
+    expect(within(drawerFilters).getByLabelText("Record type")).toHaveValue("all");
+    expect(await screen.findByText("Mara Vale")).toBeInTheDocument();
   });
 
   it("moves Story Map’s storyline focus filter to the drawer and refetches the selected storyline", async () => {

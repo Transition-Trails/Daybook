@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import {
-  auditLogTable, db, usersTable, worldsmithWorldsTable, wsCanonRecordsTable,
+  auditLogTable, db, pool, usersTable, worldsmithWorldsTable, wsCanonRecordsTable,
   wsCanonRecordStoryLinksTable, wsStoriesTable, wsStoryActsTable,
 } from "@workspace/db";
 import { z } from "zod";
@@ -224,12 +224,20 @@ function chronologyGroups(stories: StoryRow[]) {
   });
 }
 
-async function readSequenceSet(worldId: string, origin: string, tx: QueryExecutor | typeof db = db) {
-  await requireWorld(worldId, tx);
-  const stories = await tx.select().from(wsStoriesTable).where(eq(wsStoriesTable.worldId, worldId))
-    .orderBy(asc(wsStoriesTable.sortOrder), asc(wsStoriesTable.title), asc(wsStoriesTable.id));
-  const currentRevision = revision(stories);
-  const groups = chronologyGroups(stories).map((group, index) => ({
+async function sequenceRevision(worldId: string, tx: QueryExecutor | typeof db = db): Promise<string> {
+  // Hash every stored field, not just the fields used to render the page. A
+  // search result must remain a valid expected_revision for update_sequence.
+  const [row] = await tx.select({
+    value: sql<string>`md5(coalesce(jsonb_agg(to_jsonb(${wsStoriesTable}) order by ${wsStoriesTable.sortOrder}, ${wsStoriesTable.title}, ${wsStoriesTable.id})::text, '[]'))`,
+  }).from(wsStoriesTable).where(eq(wsStoriesTable.worldId, worldId));
+  return row!.value;
+}
+
+function presentSequenceGroup(
+  group: ReturnType<typeof chronologyGroups>[number], index: number,
+  worldId: string, origin: string, currentRevision: string,
+) {
+  return {
     ...group,
     name: `Sequence ${index + 1}: ${group.members.map(story => story.title).join(", ")}`,
     world_id: worldId,
@@ -240,10 +248,84 @@ async function readSequenceSet(worldId: string, origin: string, tx: QueryExecuto
     members: group.members.map(story => ({
       ...story, parent: { world_id: worldId, story_map_id: worldId }, editor_url: storyUrl(origin, story.id, worldId),
     })),
-  }));
+  };
+}
+
+async function readSequenceSet(worldId: string, origin: string, tx: QueryExecutor | typeof db = db) {
+  await requireWorld(worldId, tx);
+  const stories = await tx.select().from(wsStoriesTable).where(eq(wsStoriesTable.worldId, worldId))
+    .orderBy(asc(wsStoriesTable.sortOrder), asc(wsStoriesTable.title), asc(wsStoriesTable.id));
+  const currentRevision = await sequenceRevision(worldId, tx);
+  const groups = chronologyGroups(stories).map((group, index) =>
+    presentSequenceGroup(group, index, worldId, origin, currentRevision));
   const references = stories.filter(story => story.sequenceRole === "reference")
     .map(story => ({ ...story, editor_url: storyUrl(origin, story.id, worldId) }));
   return { world_id: worldId, sequences: groups, references, revision: currentRevision };
+}
+
+async function searchSequencePage(
+  worldId: string, origin: string, query: string | undefined, afterId: string | undefined,
+  limit: number | undefined, bounded: boolean,
+) {
+  await requireWorld(worldId);
+  // Positive sort positions share a group; legacy zero/negative positions
+  // remain separate. Number groups before filtering, as in readSequenceSet.
+  const { rows } = await pool.query<{
+    total: number; id: string | null; position: number | null; story_ids: string[] | null; has_more: boolean | null;
+  }>(`
+    WITH members AS (
+      SELECT s.*, CASE WHEN s.sort_order > 0 THEN s.sort_order::text ELSE 'story:' || s.id END AS group_key
+      FROM ws_stories s WHERE s.world_id = $1 AND s.sequence_role <> 'reference'
+    ), grouped AS (
+      SELECT sort_order, group_key, min(title) AS first_title, min(id) AS first_id,
+        array_agg(id ORDER BY id) AS story_ids,
+        bool_or(strpos(lower(title || ' ' || coalesce(summary, '')), lower($2::text)) > 0) AS matches
+      FROM members GROUP BY sort_order, group_key
+    ), numbered AS (
+      SELECT *, row_number() OVER (ORDER BY sort_order, first_title, first_id) AS position,
+        'sequence_' || left(encode(sha256(convert_to(array_to_string(story_ids, E'\\n'), 'UTF8')), 'hex'), 24) AS id
+      FROM grouped
+    ), filtered AS (
+      SELECT * FROM numbered WHERE $2::text IS NULL OR matches
+    ), totals AS (
+      SELECT count(*)::int AS total FROM filtered
+    ), page AS (
+      SELECT *, count(*) OVER () AS remaining FROM filtered
+      WHERE $3::text IS NULL OR id > $3
+      ORDER BY CASE WHEN $5::boolean THEN id END, CASE WHEN NOT $5::boolean THEN position END LIMIT $4
+    )
+    SELECT totals.total, page.id, page.position::int, page.story_ids,
+      (SELECT count(*) FROM filtered WHERE ($3::text IS NULL OR id > $3)) > coalesce($4, totals.total) AS has_more
+    FROM totals LEFT JOIN page ON true
+  `, [worldId, query ?? null, afterId ?? null, limit ?? null, bounded]);
+  const total = rows[0]?.total ?? 0;
+  const selected = rows.filter((row): row is typeof row & { id: string; position: number; story_ids: string[] } =>
+    row.id !== null && row.position !== null && row.story_ids !== null);
+  const ids = selected.flatMap(row => row.story_ids);
+  const [stories, referenceRows, currentRevision] = await Promise.all([
+    ids.length ? db.select().from(wsStoriesTable).where(and(eq(wsStoriesTable.worldId, worldId), inArray(wsStoriesTable.id, ids))) : Promise.resolve([] as StoryRow[]),
+    db.select().from(wsStoriesTable).where(and(eq(wsStoriesTable.worldId, worldId), eq(wsStoriesTable.sequenceRole, "reference")))
+      .orderBy(asc(wsStoriesTable.sortOrder), asc(wsStoriesTable.title), asc(wsStoriesTable.id)),
+    sequenceRevision(worldId),
+  ]);
+  const byId = new Map(stories.map(story => [story.id, story]));
+  const sequences = selected.map(row => {
+    const members = row.story_ids.map(id => byId.get(id)!).sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+    return presentSequenceGroup({
+      id: row.id, order: members[0]!.sortOrder, story_ids: row.story_ids, members,
+    }, row.position - 1, worldId, origin, currentRevision);
+  });
+  const matches = (story: StoryRow) =>
+    !query || `${story.title} ${story.summary ?? ""}`.toLowerCase().includes(query.toLowerCase());
+  const references = referenceRows.filter(matches).map(story => ({
+    ...story, editor_url: storyUrl(origin, story.id, worldId),
+  }));
+  const hasMore = rows[0]?.has_more ?? false;
+  return {
+    world_id: worldId, sequences, references, revision: currentRevision,
+    total, references_total: references.length, layout_complete: false,
+    has_more: hasMore, next_cursor: hasMore ? sequences[sequences.length - 1]!.id : null,
+  };
 }
 
 function assertRevision(expected: string, current: string): void {
@@ -397,27 +479,18 @@ export async function executeViewTool(userId: string, name: string, args: unknow
     }
     case "search_sequences": {
       const input = parse(name, args);
+      if (input.query !== undefined || input.limit !== undefined || input.after_id !== undefined) {
+        return searchSequencePage(input.world_id, origin, input.query, input.after_id, input.limit,
+          input.limit !== undefined || input.after_id !== undefined);
+      }
       const result = await readSequenceSet(input.world_id, origin);
-      const query = input.query?.toLowerCase();
-      const matches = (story: { title: string; summary: string | null }) =>
-        !query || `${story.title} ${story.summary ?? ""}`.toLowerCase().includes(query);
-      const matchingSequences = query
-        ? result.sequences.filter(group => group.members.some(matches))
-        : result.sequences;
-      const matchingReferences = result.references.filter(matches);
-      const bounded = input.after_id !== undefined || input.limit !== undefined;
-      const ordered = bounded
-        ? [...matchingSequences].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-        : matchingSequences;
-      const remaining = input.after_id === undefined ? ordered : ordered.filter(group => group.id > input.after_id!);
-      const sequences = remaining.slice(0, input.limit ?? remaining.length);
       return {
-        world_id: input.world_id, sequences, references: matchingReferences, revision: result.revision,
-        total: matchingSequences.length,
-        references_total: matchingReferences.length,
-        layout_complete: !query && !bounded,
-        has_more: remaining.length > sequences.length,
-        next_cursor: remaining.length > sequences.length ? sequences[sequences.length - 1]!.id : null,
+        ...result,
+        total: result.sequences.length,
+        references_total: result.references.length,
+        layout_complete: true,
+        has_more: false,
+        next_cursor: null,
       };
     }
     case "get_sequence": {

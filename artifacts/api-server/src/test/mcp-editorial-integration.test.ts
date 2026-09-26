@@ -122,6 +122,80 @@ describe("authenticated editorial MCP tools", () => {
       await db.delete(mcpOAuthClientsTable).where(eq(mcpOAuthClientsTable.clientId, clientId));
     }
   });
+  it("pages current virtual sequence IDs while retaining group positions, matches, and references", async () => {
+    const [user] = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(eq(usersTable.platformRole, "super_admin")).limit(1);
+    if (!user) throw new Error("A seeded development super-admin is required");
+    const suffix = randomUUID();
+    const worldId = `paged-sequences-${suffix}`;
+    const clientId = `paged-client-${suffix}`;
+    const token = randomBytes(32).toString("base64url");
+    const app = express();
+    app.use(express.json());
+    app.use(mcpRouter);
+    const search = async (args: Record<string, unknown>) => {
+      const response = await request(app).post("/mcp").set("Authorization", `Bearer ${token}`)
+        .send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "search_sequences", arguments: { world_id: worldId, ...args } } });
+      expect(response.body.result.isError).not.toBe(true);
+      return response.body.result.structuredContent;
+    };
+    const stories = [
+      { id: `a-${suffix}`, worldId, title: "Alpha", summary: "needle", sortOrder: 0 },
+      { id: `b-${suffix}`, worldId, title: "Bravo", summary: "needle", sortOrder: 1 },
+      { id: `c-${suffix}`, worldId, title: "Charlie", summary: "other", sortOrder: 1 },
+      { id: `d-${suffix}`, worldId, title: "Delta", summary: "needle", sortOrder: 2 },
+      { id: `e-${suffix}`, worldId, title: "Echo", summary: "needle", sortOrder: 3 },
+      { id: `f-${suffix}`, worldId, title: "Foxtrot", summary: "needle", sortOrder: 0 },
+      { id: `r-${suffix}`, worldId, title: "Reference", summary: "needle", sortOrder: 1, sequenceRole: "reference" },
+    ];
+    try {
+      await db.insert(worldsmithWorldsTable).values({ id: worldId, name: "Paged sequences", code: "PAGED" });
+      await db.insert(wsStoriesTable).values(stories);
+      await db.insert(mcpOAuthClientsTable).values({
+        clientId, clientName: "Paged sequences test client", redirectUris: ["https://example.com/cb"],
+      });
+      await db.insert(mcpOAuthTokensTable).values({
+        tokenHash: createHash("sha256").update(token).digest("hex"), kind: "access",
+        familyId: randomUUID(), clientId, userId: user.id, resource: getMcpResource(),
+        scopes: ["worldsmith:editorial:read"], expiresAt: new Date(Date.now() + 60_000),
+      });
+      const full = await search({});
+      expect(full.sequences).toHaveLength(5);
+      const unfiltered = await search({ limit: 2 });
+      expect(unfiltered.sequences).toEqual([...full.sequences].sort((a, b) => a.id.localeCompare(b.id)).slice(0, 2));
+      expect(unfiltered).toMatchObject({ total: 5, references_total: 1, has_more: true, layout_complete: false });
+      const expected = full.sequences.filter((group: { members: { title: string; summary: string }[] }) =>
+        group.members.some(member => `${member.title} ${member.summary}`.toLowerCase().includes("needle")));
+      expect((await search({ query: "needle" })).sequences).toEqual(expected);
+      const sorted = [...expected].sort((a, b) => a.id.localeCompare(b.id));
+      const page1 = await search({ query: "needle", limit: 2 });
+      const page2 = await search({ query: "needle", limit: 2, after_id: page1.next_cursor });
+      const page3 = await search({ query: "needle", limit: 2, after_id: page2.next_cursor });
+      expect([...page1.sequences, ...page2.sequences, ...page3.sequences]).toEqual(sorted);
+      for (const page of [page1, page2, page3]) {
+        expect(page).toMatchObject({
+          total: expected.length, references_total: 1, layout_complete: false, revision: full.revision,
+          references: [expect.objectContaining({ id: `r-${suffix}` })],
+        });
+      }
+      expect(page1.has_more).toBe(true);
+      expect(page2.has_more).toBe(true);
+      expect(page3.has_more).toBe(false);
+      expect(page3.next_cursor).toBeNull();
+      expect((await search({ after_id: sorted[sorted.length - 1].id })).sequences).toEqual([]);
+      expect(await search({ query: "absent", limit: 2 })).toMatchObject({
+        sequences: [], references: [], total: 0, references_total: 0, has_more: false, next_cursor: null,
+      });
+      const shared = full.sequences.find((group: { story_ids: string[] }) => group.story_ids.length === 2);
+      expect(shared.id).toBe(`sequence_${createHash("sha256").update([`b-${suffix}`, `c-${suffix}`].join("\n")).digest("hex").slice(0, 24)}`);
+      expect(page1.sequences.every((group: { expected_revision: string }) => group.expected_revision === full.revision)).toBe(true);
+    } finally {
+      await db.delete(wsStoriesTable).where(eq(wsStoriesTable.worldId, worldId));
+      await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
+      await db.delete(mcpOAuthTokensTable).where(eq(mcpOAuthTokensTable.clientId, clientId));
+      await db.delete(mcpOAuthClientsTable).where(eq(mcpOAuthClientsTable.clientId, clientId));
+    }
+  });
   it("serializes simultaneous beat and reveal edits behind the storyline lock", async () => {
     const [user] = await db.select({ id: usersTable.id }).from(usersTable)
       .where(eq(usersTable.platformRole, "super_admin")).limit(1);

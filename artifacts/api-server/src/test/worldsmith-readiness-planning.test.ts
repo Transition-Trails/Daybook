@@ -62,7 +62,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.delete(auditLogTable).where(inArray(auditLogTable.targetId, [ids.beat, ids.record]));
+  await db.delete(auditLogTable).where(inArray(auditLogTable.targetId, [ids.beat, ids.record, ids.story]));
   await db.delete(wsReadinessAssignmentsTable).where(inArray(wsReadinessAssignmentsTable.entityId, [ids.record, ids.story, ids.beat]));
   await db.delete(wsStoryBeatsTable).where(eq(wsStoryBeatsTable.id, ids.beat));
   await db.delete(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, ids.record));

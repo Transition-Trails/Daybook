@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiFetch } from "@/lib/api";
@@ -43,6 +43,26 @@ interface StorySuggestion {
   rationale: string;
   narrativePromise: string;
   recommendedStatus: string;
+}
+
+interface CanonRelationSuggestion {
+  toRecordId: string;
+  targetName: string;
+  targetCanonType: string | null;
+  relationType: string;
+  details: string;
+  rationale: string;
+  sourceVersion: number;
+  targetVersion: number;
+  storyId: string;
+  sourceEvidence: string;
+  targetEvidence: string;
+  storyTitle?: string;
+}
+
+interface AddCanonRelationSuggestion extends CanonRelationSuggestion {
+  recordId: string;
+  context: string;
 }
 
 const CANON_TYPES_ORDER: Record<string, number> = {
@@ -104,6 +124,23 @@ export function CanonRecordConnections({
   
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [suggestions, setSuggestions] = useState<StorySuggestion[]>([]);
+  const [isSuggestingRelations, setIsSuggestingRelations] = useState(false);
+  const [relationSuggestions, setRelationSuggestions] = useState<CanonRelationSuggestion[]>([]);
+  const [hasRequestedRelationSuggestions, setHasRequestedRelationSuggestions] = useState(false);
+  const [relationSuggestionError, setRelationSuggestionError] = useState("");
+  const [relationAddError, setRelationAddError] = useState<{ toRecordId: string; message: string } | null>(null);
+  const suggestionContext = `${worldId}:${recordId}`;
+  const suggestionContextRef = useRef(suggestionContext);
+  const suggestionRequestRef = useRef(0);
+  suggestionContextRef.current = suggestionContext;
+  const clearRelationSuggestions = useCallback(() => {
+    suggestionRequestRef.current += 1;
+    setRelationSuggestions([]);
+    setHasRequestedRelationSuggestions(false);
+    setRelationSuggestionError("");
+    setRelationAddError(null);
+    setIsSuggestingRelations(false);
+  }, []);
 
   // Queries
   const { data: recordsData } = useQuery<{ canon_records: CanonRecord[] }>({
@@ -152,6 +189,10 @@ export function CanonRecordConnections({
     return stories.filter(s => !existingIds.has(s.id));
   }, [stories, storyLinks]);
 
+  useEffect(() => {
+    clearRelationSuggestions();
+  }, [recordId, worldId, clearRelationSuggestions]);
+
   // Mutations
   const addRelMutation = useMutation({
     mutationFn: () =>
@@ -176,6 +217,62 @@ export function CanonRecordConnections({
     onError: (e: Error) => toast({ title: "Could not remove relationship", description: e.message, variant: "destructive" }),
   });
 
+  const addSuggestedRelMutation = useMutation({
+    mutationFn: ({
+      recordId: sourceRecordId,
+      toRecordId,
+      relationType,
+      details,
+      sourceVersion,
+      targetVersion,
+      storyId: suggestedStoryId,
+    }: AddCanonRelationSuggestion) =>
+      apiFetch(`/v1/editorial/canon-records/${sourceRecordId}/relations`, {
+        method: "POST",
+        body: JSON.stringify({
+          to_record_id: toRecordId,
+          relation_type: relationType,
+          details,
+          create_only: true,
+          expected_source_version: sourceVersion,
+          expected_target_version: targetVersion,
+          story_id: suggestedStoryId,
+        }),
+      }),
+    onSuccess: (_data, suggestion) => {
+      qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", suggestion.recordId] });
+      if (suggestionContextRef.current === suggestion.context) {
+        setRelationSuggestions(current => current.filter(item => item.toRecordId !== suggestion.toRecordId));
+        setRelationAddError(null);
+      }
+      toast({ title: "Relationship created" });
+    },
+    onError: (error: Error, suggestion) => {
+      const status = (error as Error & { status?: number }).status;
+      if (suggestionContextRef.current === suggestion.context) {
+        if (status === 409) {
+          setRelationSuggestions(current => current.filter(item => item.toRecordId !== suggestion.toRecordId));
+          setRelationAddError(null);
+          setRelationSuggestionError(
+            "This proposal is stale because a record changed. Relationships were refreshed; generate new suggestions before adding it.",
+          );
+        } else {
+          setRelationAddError({ toRecordId: suggestion.toRecordId, message: error.message });
+        }
+      }
+      if (status === 409) {
+        qc.invalidateQueries({ queryKey: ["editorial-canon-record-relations", suggestion.recordId] });
+        toast({
+          title: "Suggestion is out of date",
+          description: "Relationships were refreshed. Generate new suggestions before adding this relationship.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Could not add relationship", description: error.message, variant: "destructive" });
+      }
+    },
+  });
+
   const linkStoryMutation = useMutation({
     mutationFn: (sId: string) =>
       apiFetch(`/v1/editorial/canon-records/${recordId}/story-links`, {
@@ -185,6 +282,7 @@ export function CanonRecordConnections({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["editorial-story-links", recordId] });
       qc.invalidateQueries({ queryKey: ["ws-story-connections", worldId] });
+      if (suggestionContextRef.current === `${worldId}:${recordId}`) clearRelationSuggestions();
       toast({ title: "Connected to storyline" });
       setStoryId("");
     },
@@ -197,6 +295,7 @@ export function CanonRecordConnections({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["editorial-story-links", recordId] });
       qc.invalidateQueries({ queryKey: ["ws-story-connections", worldId] });
+      if (suggestionContextRef.current === `${worldId}:${recordId}`) clearRelationSuggestions();
     },
     onError: (e: Error) => toast({ title: "Could not remove connection", description: e.message, variant: "destructive" }),
   });
@@ -241,6 +340,40 @@ export function CanonRecordConnections({
     }
   };
 
+  const generateRelationSuggestions = async () => {
+    const requestContext = suggestionContext;
+    const requestId = ++suggestionRequestRef.current;
+    setIsSuggestingRelations(true);
+    setRelationSuggestionError("");
+    setRelationAddError(null);
+    setRelationSuggestions([]);
+    try {
+      const res = await apiFetch<{ suggestions: CanonRelationSuggestion[] }>(
+        `/v1/editorial/canon-records/${recordId}/relations/suggest`,
+        { method: "POST" },
+      );
+      if (suggestionContextRef.current === requestContext && suggestionRequestRef.current === requestId) {
+        setRelationSuggestions((res.suggestions || []).slice(0, 3));
+        setHasRequestedRelationSuggestions(true);
+      }
+    } catch (error) {
+      if (suggestionContextRef.current === requestContext && suggestionRequestRef.current === requestId) {
+        setRelationSuggestionError(
+          `Could not generate relationship suggestions: ${error instanceof Error ? error.message : "Please try again."}`,
+        );
+      }
+    } finally {
+      if (suggestionContextRef.current === requestContext && suggestionRequestRef.current === requestId) {
+        setIsSuggestingRelations(false);
+      }
+    }
+  };
+
+  const relatedRecordIds = new Set(relations.map(relation => relation.toRecordId));
+  const visibleRelationSuggestions = relationSuggestions.filter(
+    suggestion => !relatedRecordIds.has(suggestion.toRecordId),
+  );
+
   return (
     <div className="mt-8 space-y-6">
       {/* Canon Relationships Section */}
@@ -248,6 +381,128 @@ export function CanonRecordConnections({
         <div className="flex items-center gap-2 mb-4">
           <Link2 className="h-4 w-4" style={{ color: "var(--admin-ink)" }} />
           <h2 className="text-sm font-semibold" style={{ color: "var(--admin-ink)" }}>Canon Relationships</h2>
+        </div>
+
+        <div className="mb-5 border-b pb-5" style={{ borderColor: "var(--admin-border)" }}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--admin-clay)" }}>
+                <Sparkles className="h-3.5 w-3.5 inline mr-1 -mt-0.5" />
+                Relationship Suggestions
+              </h3>
+              <p className="mt-0.5 text-[11px]" style={{ color: "var(--admin-muted)" }}>
+                Review each proposal. Nothing is linked unless you choose Add.
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="button-suggest-canon-relations"
+              onClick={generateRelationSuggestions}
+              disabled={isSuggestingRelations}
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold hover:bg-gray-50 disabled:opacity-50"
+              style={{ borderColor: "var(--admin-border)", color: "var(--admin-clay)" }}
+            >
+              {isSuggestingRelations ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {isSuggestingRelations ? "Suggesting..." : "Suggest relationships"}
+            </button>
+          </div>
+
+          {isSuggestingRelations && (
+            <p className="mt-3 text-xs" role="status" data-testid="status-canon-relation-suggestions-loading" style={{ color: "var(--admin-muted)" }}>
+              Finding possible relationships...
+            </p>
+          )}
+          {relationSuggestionError && (
+            <p className="mt-3 text-xs text-red-600" role="alert" data-testid="status-canon-relation-suggestions-error">
+              {relationSuggestionError}
+            </p>
+          )}
+          {!isSuggestingRelations && !relationSuggestionError && relationSuggestions.length === 0 && !hasRequestedRelationSuggestions && (
+            <p className="mt-3 text-xs" data-testid="status-canon-relation-suggestions-empty" style={{ color: "var(--admin-muted)" }}>
+              No relationship suggestions yet. Choose Suggest relationships to review ideas.
+            </p>
+          )}
+          {!isSuggestingRelations && !relationSuggestionError && relationSuggestions.length === 0 && hasRequestedRelationSuggestions && (
+            <p className="mt-3 text-xs" data-testid="status-canon-relation-suggestions-no-strong-links" style={{ color: "var(--admin-muted)" }}>
+              {storyLinks.length === 0
+                ? "No strong links found. Connect this record to a storyline first for more contextual suggestions."
+                : "No strong links found."}
+            </p>
+          )}
+          {relationSuggestions.length > 0 && visibleRelationSuggestions.length === 0 && (
+            <p className="mt-3 text-xs" data-testid="status-canon-relation-suggestions-already-related" style={{ color: "var(--admin-muted)" }}>
+              All suggested records are already related.
+            </p>
+          )}
+          {visibleRelationSuggestions.length > 0 && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {visibleRelationSuggestions.map(suggestion => (
+                  <article
+                    key={suggestion.toRecordId}
+                    data-testid={`card-canon-relation-suggestion-${suggestion.toRecordId}`}
+                    className="rounded-xl border bg-[var(--admin-card-subtle)] p-4"
+                    style={{ borderColor: "var(--admin-border)" }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="text-sm font-semibold" style={{ color: "var(--admin-ink)" }}>{suggestion.targetName}</h4>
+                        <p className="mt-0.5 text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--admin-clay)" }}>
+                          {suggestion.targetCanonType || "Canon"}
+                        </p>
+                      </div>
+                      {suggestion.storyTitle && (
+                        <span className="text-[10px] text-right" style={{ color: "var(--admin-muted)" }}>
+                          {suggestion.storyTitle}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs font-medium" style={{ color: "var(--admin-ink)" }}>
+                      Proposed: {suggestion.relationType.replace(/_/g, " ")}
+                    </p>
+                    {suggestion.details && <p className="mt-1 text-[11px]" style={{ color: "var(--admin-muted)" }}>{suggestion.details}</p>}
+                    <p className="mt-2 text-xs leading-relaxed" style={{ color: "var(--admin-muted)" }}>
+                      <span className="font-semibold">Reason:</span> {suggestion.rationale}
+                    </p>
+                    <div className="mt-2 space-y-1 text-[11px]" style={{ color: "var(--admin-muted)" }}>
+                      <p><span className="font-semibold">Evidence from this record:</span> “{suggestion.sourceEvidence}”</p>
+                      <p><span className="font-semibold">Evidence from target:</span> “{suggestion.targetEvidence}”</p>
+                    </div>
+                    {relationAddError?.toRecordId === suggestion.toRecordId && (
+                      <p className="mt-2 text-xs text-red-600" role="alert">
+                        Could not add relationship: {relationAddError.message}
+                      </p>
+                    )}
+                    <div className="mt-3 flex items-center gap-3">
+                      <button
+                        type="button"
+                        data-testid={`button-add-suggested-relation-${suggestion.toRecordId}`}
+                        onClick={() => addSuggestedRelMutation.mutate({
+                          ...suggestion,
+                          recordId,
+                          context: suggestionContext,
+                        })}
+                        disabled={addSuggestedRelMutation.isPending || relatedRecordIds.has(suggestion.toRecordId)}
+                        className="rounded-md bg-[var(--admin-ink)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        {addSuggestedRelMutation.isPending && addSuggestedRelMutation.variables?.toRecordId === suggestion.toRecordId ? "Adding..." : "Add"}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`button-dismiss-suggested-relation-${suggestion.toRecordId}`}
+                        onClick={() => {
+                          setRelationSuggestions(current => current.filter(item => item.toRecordId !== suggestion.toRecordId));
+                          setRelationAddError(null);
+                        }}
+                        className="text-xs font-semibold hover:underline"
+                        style={{ color: "var(--admin-muted)" }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </article>
+                ))}
+            </div>
+          )}
         </div>
 
         {relations.length > 0 ? (

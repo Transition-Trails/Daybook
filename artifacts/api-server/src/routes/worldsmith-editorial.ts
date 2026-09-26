@@ -3335,6 +3335,282 @@ const VALID_RELATION_TYPES = [
 type RelationType = typeof VALID_RELATION_TYPES[number];
 const MAX_RELATION_DETAILS = 10000;
 
+function canonEvidenceExcerptIsVerifiable(excerpt: unknown, descriptiveText: string): excerpt is string {
+  if (typeof excerpt !== "string") return false;
+  const clean = excerpt.trim().replace(/\s+/g, " ");
+  const words = clean.split(/\s+/).filter(Boolean);
+  const normalizedText = descriptiveText.replace(/\s+/g, " ");
+  return clean.length >= 20 && clean.length <= 400 && words.length >= 2 && normalizedText.includes(clean);
+}
+
+/**
+ * POST /v1/editorial/canon-records/:id/relations/suggest
+ * Suggest sparse relation edges grounded in this record's linked storylines.
+ * This endpoint is intentionally read-only; suggestions never create edges.
+ */
+router.post("/v1/editorial/canon-records/:id/relations/suggest", async (req: Request, res: Response) => {
+  const recordId = req.params.id as string;
+  try {
+    const [record] = await db.select({
+      id: wsCanonRecordsTable.id,
+      worldId: wsCanonRecordsTable.worldId,
+      version: wsCanonRecordsTable.version,
+      name: wsCanonRecordsTable.name,
+      canonType: wsCanonRecordsTable.canonType,
+      narrativeDetails: wsCanonRecordsTable.narrativeDetails,
+      historicalContext: wsCanonRecordsTable.historicalContext,
+      visualNotes: wsCanonRecordsTable.visualNotes,
+      canonGuardrails: wsCanonRecordsTable.canonGuardrails,
+      relationshipDetails: wsCanonRecordsTable.relationshipDetails,
+      confirmedCanon: wsCanonRecordsTable.confirmedCanon,
+      promptSummary: wsCanonRecordsTable.promptSummary,
+      identitySummary: wsCanonRecordsTable.identitySummary,
+    }).from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, recordId)).limit(1);
+    if (!record) {
+      res.status(404).json({ error: "Source canon record not found" });
+      return;
+    }
+    const [world] = await db.select({ storeId: worldsmithWorldsTable.storeId })
+      .from(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, record.worldId)).limit(1);
+
+    const sourceLinks = await db.select({
+      storyId: wsCanonRecordStoryLinksTable.storyId,
+      actId: wsCanonRecordStoryLinksTable.actId,
+      title: wsStoriesTable.title,
+      summary: wsStoriesTable.summary,
+    }).from(wsCanonRecordStoryLinksTable)
+      .innerJoin(wsStoriesTable, and(
+        eq(wsCanonRecordStoryLinksTable.storyId, wsStoriesTable.id),
+        eq(wsStoriesTable.worldId, record.worldId),
+      ))
+      .where(eq(wsCanonRecordStoryLinksTable.canonRecordId, recordId));
+    if (sourceLinks.length === 0) {
+      res.json({ suggestions: [] });
+      return;
+    }
+
+    const linkedStoryIds = [...new Set(sourceLinks.map((link) => link.storyId))];
+    const [candidateLinks, existingRelations, acts] = await Promise.all([
+      db.select({
+        canonRecordId: wsCanonRecordStoryLinksTable.canonRecordId,
+        storyId: wsCanonRecordStoryLinksTable.storyId,
+        actId: wsCanonRecordStoryLinksTable.actId,
+      }).from(wsCanonRecordStoryLinksTable)
+        .innerJoin(wsCanonRecordsTable, and(
+          eq(wsCanonRecordStoryLinksTable.canonRecordId, wsCanonRecordsTable.id),
+          eq(wsCanonRecordsTable.worldId, record.worldId),
+        ))
+        .where(inArray(wsCanonRecordStoryLinksTable.storyId, linkedStoryIds)),
+      db.select({
+        fromRecordId: wsCanonRecordRelationsTable.fromRecordId,
+        toRecordId: wsCanonRecordRelationsTable.toRecordId,
+      }).from(wsCanonRecordRelationsTable)
+        .where(or(
+          eq(wsCanonRecordRelationsTable.fromRecordId, recordId),
+          eq(wsCanonRecordRelationsTable.toRecordId, recordId),
+        )),
+      db.select({
+        id: wsStoryActsTable.id,
+        storyId: wsStoryActsTable.storyId,
+        actNumber: wsStoryActsTable.actNumber,
+        title: wsStoryActsTable.title,
+        tagline: wsStoryActsTable.tagline,
+        narrative: wsStoryActsTable.narrative,
+      }).from(wsStoryActsTable)
+        .where(and(
+          inArray(wsStoryActsTable.storyId, linkedStoryIds),
+          eq(wsStoryActsTable.worldId, record.worldId),
+        ))
+        .orderBy(wsStoryActsTable.storyId, wsStoryActsTable.actNumber),
+    ]);
+    const excludedIds = new Set([recordId]);
+    for (const relation of existingRelations) {
+      excludedIds.add(relation.fromRecordId);
+      excludedIds.add(relation.toRecordId);
+    }
+
+    const candidateIds = [...new Set(candidateLinks.map((link) => link.canonRecordId))]
+      .filter((id) => !excludedIds.has(id));
+    if (candidateIds.length === 0) {
+      res.json({ suggestions: [] });
+      return;
+    }
+    const candidateRecords = await db.select({
+      id: wsCanonRecordsTable.id,
+      version: wsCanonRecordsTable.version,
+      name: wsCanonRecordsTable.name,
+      canonType: wsCanonRecordsTable.canonType,
+      narrativeDetails: wsCanonRecordsTable.narrativeDetails,
+      historicalContext: wsCanonRecordsTable.historicalContext,
+      visualNotes: wsCanonRecordsTable.visualNotes,
+      canonGuardrails: wsCanonRecordsTable.canonGuardrails,
+      relationshipDetails: wsCanonRecordsTable.relationshipDetails,
+      confirmedCanon: wsCanonRecordsTable.confirmedCanon,
+      promptSummary: wsCanonRecordsTable.promptSummary,
+      identitySummary: wsCanonRecordsTable.identitySummary,
+    }).from(wsCanonRecordsTable)
+      .where(and(
+        eq(wsCanonRecordsTable.worldId, record.worldId),
+        inArray(wsCanonRecordsTable.id, candidateIds),
+      ));
+
+    const stories = new Map(sourceLinks.map((link) => [link.storyId, {
+      title: link.title,
+      summary: editorialRichTextToPlainText(link.summary ?? "").slice(0, 500),
+    }]));
+    const actsByStory = new Map<string, typeof acts>();
+    for (const act of acts) {
+      actsByStory.set(act.storyId, [...(actsByStory.get(act.storyId) ?? []), act]);
+    }
+    const candidateMap = new Map(candidateRecords.map((candidate) => {
+      const candidateStoryLinks = candidateLinks.filter((link) => link.canonRecordId === candidate.id);
+      const sharedStories = [...new Set(candidateStoryLinks.map((link) => link.storyId))]
+        .map((storyId) => ({
+          storyId,
+          title: stories.get(storyId)?.title ?? "",
+          matchingActs: candidateStoryLinks
+            .filter((link) => link.storyId === storyId && link.actId)
+            .map((link) => link.actId as string)
+            .filter((actId) => sourceLinks.some((sourceLink) => sourceLink.storyId === storyId && sourceLink.actId === actId)),
+        }))
+        .filter((story) => story.title);
+      const sameActCount = sharedStories.reduce((count, story) => count + story.matchingActs.length, 0);
+      const promptContent = [
+        candidate.promptSummary, candidate.identitySummary, candidate.confirmedCanon,
+        candidate.narrativeDetails, candidate.historicalContext, candidate.visualNotes,
+        candidate.canonGuardrails, candidate.relationshipDetails,
+      ].map((part) => editorialRichTextToPlainText(part ?? "").trim()).filter(Boolean).join(" ").slice(0, 1000);
+      return [candidate.id, { candidate, promptContent, sharedStories, score: sameActCount * 10 + sharedStories.length }] as const;
+    }).sort((a, b) => b[1].score - a[1].score).slice(0, 40));
+    if (candidateMap.size === 0) {
+      res.json({ suggestions: [] });
+      return;
+    }
+
+    const recordContent = [
+      record.promptSummary, record.identitySummary, record.confirmedCanon,
+      record.narrativeDetails, record.historicalContext, record.visualNotes,
+      record.canonGuardrails, record.relationshipDetails,
+    ].map((part) => editorialRichTextToPlainText(part ?? "").trim()).filter(Boolean).join("\n").slice(0, 2200);
+    const sourcePromptContent = recordContent;
+    const storyLines: string[] = [];
+    const promptedStoryIds = new Set<string>();
+    let storyPromptLength = 0;
+    for (const storyId of linkedStoryIds) {
+      const story = stories.get(storyId)!;
+      const storyActs = (actsByStory.get(storyId) ?? []).slice(0, 8)
+        .map((act) => `Act ${act.actNumber}: ${act.title}${act.tagline ? ` — ${act.tagline}` : ""}${act.narrative ? `; ${editorialRichTextToPlainText(act.narrative).slice(0, 200)}` : ""}`)
+        .join("\n");
+      const line = `STORY ${storyId} — ${story.title}${story.summary ? `\nSummary: ${story.summary}` : ""}${storyActs ? `\n${storyActs}` : ""}`;
+      if (storyPromptLength + line.length + (storyLines.length ? 2 : 0) > 7000) continue;
+      storyLines.push(line);
+      promptedStoryIds.add(storyId);
+      storyPromptLength += line.length + (storyLines.length > 1 ? 2 : 0);
+    }
+    const candidatePromptLines: string[] = [];
+    const promptedCandidateIds = new Set<string>();
+    const promptedStoryIdsByCandidate = new Map<string, Set<string>>();
+    let candidatePromptLength = 0;
+    for (const [id, data] of candidateMap) {
+      const { candidate, promptContent: content, sharedStories } = data;
+      const promptedSharedStories = sharedStories.filter((story) => promptedStoryIds.has(story.storyId)).slice(0, 6);
+      if (promptedSharedStories.length === 0) continue;
+      const line = JSON.stringify({
+        id,
+        name: candidate.name,
+        canonType: candidate.canonType,
+        version: candidate.version,
+        content,
+        linkedStories: promptedSharedStories.map((story) => ({
+          storyId: story.storyId,
+          title: story.title,
+          matchingActIds: story.matchingActs.slice(0, 4),
+        })),
+      });
+      if (candidatePromptLength + line.length + (candidatePromptLines.length ? 1 : 0) > 15000) continue;
+      candidatePromptLines.push(line);
+      promptedCandidateIds.add(id);
+      promptedStoryIdsByCandidate.set(id, new Set(promptedSharedStories.map((story) => story.storyId)));
+      candidatePromptLength += line.length + (candidatePromptLines.length > 1 ? 1 : 0);
+    }
+    if (promptedCandidateIds.size === 0) {
+      res.json({ suggestions: [] });
+      return;
+    }
+    const systemPrompt = "You are a careful canon editor. Recommend only sparse, directly evidenced relationships between the source and candidate records. A shared storyline is context, not proof by itself. Never invent facts or make generic/speculative links. Return zero suggestions when no specific relationship is clearly supported. Do not recommend candidates without a concrete narrative reason.";
+    const userMessage = `Source record (${record.id}) — ${record.name} [${record.canonType ?? "unknown"}]\n${recordContent || "(No descriptive content.)"}\n\nLinked storylines and acts:\n${storyLines.join("\n\n")}\n\nEligible same-world candidates (only use these IDs):\n${candidatePromptLines.join("\n")}\n\nReturn ONLY a JSON array of at most 3 suggestions. Each item must contain toRecordId (candidate ID), relationType (one of ${VALID_RELATION_TYPES.join(", ")}), sourceEvidence (an exact 20-400 character excerpt from the source record descriptive text above), targetEvidence (an exact 20-400 character excerpt from that candidate's content), details (concise explanation of what the two excerpts establish), rationale (why this connection is supported), and storyId (one of the linked storyline IDs). Evidence must be a multiple-word excerpt from the respective record text, not a storyline summary or act. Return [] if no direct evidence from both records supports a specific relationship. A shared storyline alone is never sufficient.`;
+    const result = await callAi(
+      [{ role: "user", content: userMessage }],
+      process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
+      systemPrompt,
+      { context: { storeId: world?.storeId ?? undefined, userId: (req.user as any)?.id, feature: "editorial.canon-relation-suggestions" },
+        maxOutputTokens: 1600, reasoningEffort: "low" },
+    );
+    const output = result.content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    if (!output) throw new Error("The AI returned an empty response for canon relation suggestions.");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(output.match(/\[[\s\S]*\]/)?.[0] ?? output);
+    } catch {
+      throw new Error("The AI returned invalid JSON for canon relation suggestions.");
+    }
+    if (!Array.isArray(parsed)) throw new Error("The AI response for canon relation suggestions was not a JSON array.");
+    const suggestions: Array<{
+      toRecordId: string;
+      targetName: string;
+      targetCanonType: string | null;
+      relationType: string;
+      details: string;
+      rationale: string;
+      storyTitle: string;
+      sourceEvidence: string;
+      targetEvidence: string;
+      sourceVersion: number;
+      targetVersion: number;
+      storyId: string;
+    }> = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object" || Array.isArray(item) || suggestions.length >= 3) continue;
+      const proposed = item as Record<string, unknown>;
+      if (typeof proposed.toRecordId !== "string" || typeof proposed.relationType !== "string"
+        || !VALID_RELATION_TYPES.includes(proposed.relationType as RelationType)) continue;
+      const target = candidateMap.get(proposed.toRecordId);
+      if (!target || !promptedCandidateIds.has(target.candidate.id)
+        || suggestions.some((suggestion) => suggestion.toRecordId === target.candidate.id)) continue;
+      const storyId = typeof proposed.storyId === "string" ? proposed.storyId : "";
+      const story = promptedStoryIds.has(storyId) && promptedStoryIdsByCandidate.get(target.candidate.id)?.has(storyId)
+        ? target.sharedStories.find((entry) => entry.storyId === storyId)
+        : undefined;
+      if (!story) continue;
+      const sourceEvidence = proposed.sourceEvidence;
+      const targetEvidence = proposed.targetEvidence;
+      if (!canonEvidenceExcerptIsVerifiable(sourceEvidence, sourcePromptContent)
+        || !canonEvidenceExcerptIsVerifiable(targetEvidence, target.promptContent)) continue;
+      const details = typeof proposed.details === "string" ? proposed.details.trim().slice(0, 1000) : "";
+      const rationale = typeof proposed.rationale === "string" ? proposed.rationale.trim().slice(0, 500) : "";
+      if (!details || !rationale) continue;
+      suggestions.push({
+        toRecordId: target.candidate.id,
+        targetName: target.candidate.name,
+        targetCanonType: target.candidate.canonType,
+        relationType: proposed.relationType,
+        details,
+        rationale,
+        storyTitle: story.title,
+        sourceEvidence: sourceEvidence.trim().replace(/\s+/g, " "),
+        targetEvidence: targetEvidence.trim().replace(/\s+/g, " "),
+        sourceVersion: record.version,
+        targetVersion: target.candidate.version,
+        storyId,
+      });
+    }
+    res.json({ suggestions });
+  } catch (err) {
+    logger.error({ err }, "editorial: suggest canon record relations");
+    res.status(502).json({ error: "Could not generate canon relation suggestions. Try again.", code: "AI_ERROR" });
+  }
+});
+
 /**
  * GET /v1/editorial/canon-records/:id/relations
  * Returns outgoing relation edges for a record, with target name + canonType enriched.
@@ -3414,10 +3690,22 @@ router.get("/v1/editorial/canon-records/:id/inbound-relations", async (req: Requ
  */
 router.post("/v1/editorial/canon-records/:id/relations", async (req: Request, res: Response) => {
   const fromRecordId = req.params.id as string;
-  const { to_record_id, relation_type = "related", details = "" } = req.body as {
+  const {
+    to_record_id,
+    relation_type = "related",
+    details = "",
+    create_only,
+    expected_source_version,
+    expected_target_version,
+    story_id,
+  } = req.body as {
     to_record_id?: string;
     relation_type?: string;
     details?: string;
+    create_only?: boolean;
+    expected_source_version?: number;
+    expected_target_version?: number;
+    story_id?: string;
   };
 
   if (!to_record_id?.trim()) {
@@ -3442,6 +3730,18 @@ router.post("/v1/editorial/canon-records/:id/relations", async (req: Request, re
     res.status(400).json({ error: `details must be at most ${MAX_RELATION_DETAILS} characters` });
     return;
   }
+  if (create_only !== undefined && typeof create_only !== "boolean") {
+    res.status(400).json({ error: "create_only must be a boolean" });
+    return;
+  }
+  if (create_only === true && (
+    !Number.isInteger(expected_source_version) || (expected_source_version as number) < 1
+    || !Number.isInteger(expected_target_version) || (expected_target_version as number) < 1
+    || typeof story_id !== "string" || !story_id.trim()
+  )) {
+    res.status(400).json({ error: "create_only requires expected source/target versions and story_id" });
+    return;
+  }
 
   try {
     // Verify both records exist
@@ -3455,6 +3755,93 @@ router.post("/v1/editorial/canon-records/:id/relations", async (req: Request, re
     if (!to[0]) { res.status(404).json({ error: "Target canon record not found" }); return; }
     if (from[0].worldId !== to[0].worldId) {
       res.status(400).json({ error: "Canon records must belong to the same world" }); return;
+    }
+
+    if (create_only === true) {
+      const outcome = await db.transaction(async (tx) => {
+        // Lock in stable ID order so concurrent suggested adds cannot race an inverse edge.
+        const lockedRecords = await tx.select({
+          id: wsCanonRecordsTable.id,
+          worldId: wsCanonRecordsTable.worldId,
+          version: wsCanonRecordsTable.version,
+          name: wsCanonRecordsTable.name,
+          canonType: wsCanonRecordsTable.canonType,
+          status: wsCanonRecordsTable.status,
+        }).from(wsCanonRecordsTable)
+          .where(inArray(wsCanonRecordsTable.id, [fromRecordId, to_record_id]))
+          .orderBy(wsCanonRecordsTable.id)
+          .for("update");
+        const lockedFrom = lockedRecords.find((entry) => entry.id === fromRecordId);
+        const lockedTo = lockedRecords.find((entry) => entry.id === to_record_id);
+        if (!lockedFrom) return { status: 404, error: "Source canon record not found" };
+        if (!lockedTo) return { status: 404, error: "Target canon record not found" };
+        if (lockedFrom.worldId !== lockedTo.worldId) {
+          return { status: 400, error: "Canon records must belong to the same world" };
+        }
+        if (lockedFrom.version !== expected_source_version || lockedTo.version !== expected_target_version) {
+          return { status: 409, error: "Canon records changed after the suggestion was generated; refresh suggestions." };
+        }
+        const linkedRecords = await tx.select({
+          canonRecordId: wsCanonRecordStoryLinksTable.canonRecordId,
+        }).from(wsCanonRecordStoryLinksTable)
+          .innerJoin(wsStoriesTable, and(
+            eq(wsCanonRecordStoryLinksTable.storyId, wsStoriesTable.id),
+            eq(wsStoriesTable.worldId, lockedFrom.worldId),
+          ))
+          .where(and(
+            eq(wsCanonRecordStoryLinksTable.storyId, story_id!),
+            inArray(wsCanonRecordStoryLinksTable.canonRecordId, [fromRecordId, to_record_id]),
+          ));
+        if (new Set(linkedRecords.map((entry) => entry.canonRecordId)).size !== 2) {
+          return { status: 409, error: "Both canon records must still be linked to the suggested storyline." };
+        }
+        const existing = await tx.select({ fromRecordId: wsCanonRecordRelationsTable.fromRecordId })
+          .from(wsCanonRecordRelationsTable)
+          .where(or(
+            and(
+              eq(wsCanonRecordRelationsTable.fromRecordId, fromRecordId),
+              eq(wsCanonRecordRelationsTable.toRecordId, to_record_id),
+            ),
+            and(
+              eq(wsCanonRecordRelationsTable.fromRecordId, to_record_id),
+              eq(wsCanonRecordRelationsTable.toRecordId, fromRecordId),
+            ),
+          )).limit(1);
+        if (existing.length > 0) {
+          return { status: 409, error: "A relation between these canon records already exists." };
+        }
+        const [inserted] = await tx.insert(wsCanonRecordRelationsTable)
+          .values({
+            fromRecordId,
+            toRecordId: to_record_id,
+            relationType: relation_type,
+            details,
+            source: "manual",
+            createdBy: (req.user as any)?.id ?? null,
+          })
+          .onConflictDoNothing({
+            target: [wsCanonRecordRelationsTable.fromRecordId, wsCanonRecordRelationsTable.toRecordId],
+          })
+          .returning();
+        if (!inserted) {
+          return { status: 409, error: "A relation between these canon records already exists." };
+        }
+        return {
+          status: 201,
+          relation: {
+            ...inserted,
+            targetName: lockedTo.name,
+            targetCanonType: lockedTo.canonType,
+            targetStatus: lockedTo.status,
+          },
+        };
+      });
+      if (outcome.status !== 201) {
+        res.status(outcome.status).json({ error: outcome.error });
+        return;
+      }
+      res.status(201).json({ relation: outcome.relation });
+      return;
     }
 
     // Upsert: insert or update relation_type on conflict

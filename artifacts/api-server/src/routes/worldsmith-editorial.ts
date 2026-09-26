@@ -2202,7 +2202,7 @@ async function buildCanonContextSnapshot(recordId: string) {
   };
 }
 
-async function publishCanonContextSnapshot(recordId: string): Promise<{
+async function publishCanonContextSnapshot(recordId: string, expectedVersion?: number): Promise<{
   status: "current" | "sync_failed";
   snapshot: typeof wsContextSnapshotsTable.$inferSelect;
 }> {
@@ -2217,6 +2217,11 @@ async function publishCanonContextSnapshot(recordId: string): Promise<{
   try {
     await lockClient.query("select pg_advisory_lock(hashtext($1))", [lockKey]);
     lockAcquired = true;
+    if (expectedVersion !== undefined) {
+      const [current] = await db.select({ version: wsCanonRecordsTable.version })
+        .from(wsCanonRecordsTable).where(eq(wsCanonRecordsTable.id, recordId)).limit(1);
+      if (!current || current.version !== expectedVersion) throw new Error("Canon record changed before snapshot publication");
+    }
     const built = await buildCanonContextSnapshot(recordId);
     if (!built) throw new Error("Canon record not found");
     const [existingSnapshot] = await db.select({
@@ -2261,6 +2266,7 @@ async function publishCanonContextSnapshot(recordId: string): Promise<{
           recordUpdatedAt: built.record.updatedAt,
           lastSnapshotAt: now,
           lastError: null,
+          pendingExpectedAssets: null,
           updatedAt: now,
         },
       }).returning();
@@ -2282,6 +2288,7 @@ async function publishCanonContextSnapshot(recordId: string): Promise<{
           githubPath: existingSnapshot?.githubPath ?? built.path,
           status: "sync_failed",
           lastError: message.slice(0, 500),
+          pendingExpectedAssets: null,
           updatedAt: new Date(),
         },
       }).returning();
@@ -2297,7 +2304,7 @@ async function publishCanonContextSnapshot(recordId: string): Promise<{
   }
 }
 
-async function autoPublishCanonContextSnapshot(record: { id: string; status: string }): Promise<"current" | "sync_failed" | null> {
+async function autoPublishCanonContextSnapshot(record: { id: string; status: string }, expectedVersion?: number): Promise<"current" | "sync_failed" | null> {
   const [policy] = await db.select({
     autoSync: wsContextSnapshotsTable.autoSync,
     autoSyncUnaccepted: wsContextSnapshotsTable.autoSyncUnaccepted,
@@ -2306,7 +2313,70 @@ async function autoPublishCanonContextSnapshot(record: { id: string; status: str
     eq(wsContextSnapshotsTable.entityId, record.id),
   )).limit(1);
   if (!policy || !shouldAutoSyncContextSnapshot(policy, record.status)) return null;
-  return (await publishCanonContextSnapshot(record.id)).status;
+  return (await publishCanonContextSnapshot(record.id, expectedVersion)).status;
+}
+
+// The editor writes the gallery and its asset rows in separate requests. Keep
+// an interruption marker so a later editor session can finish a missed sync.
+const expectedSnapshotAssetSchema = z.object({
+  object_path: z.string().min(1), role: z.string(), title: z.string(), alt_text: z.string(),
+  source: z.string(), source_credit: z.string().nullable(), rights_status: z.string(),
+  approval_status: z.string(), canonical_strength: z.string(),
+  generation_prompt: z.string().nullable(), generation_model: z.string().nullable(),
+  positive_guidance: z.string().nullable(), negative_guidance: z.string().nullable(),
+  width: z.number().nullable(), height: z.number().nullable(), byte_size: z.number().nullable(),
+  checksum: z.string().nullable(),
+});
+type ExpectedSnapshotAsset = z.infer<typeof expectedSnapshotAssetSchema>;
+const expectedSnapshotAssetsSchema = z.array(expectedSnapshotAssetSchema).max(100);
+
+async function markCanonSnapshotDeferred(record: { id: string; worldId: string; status: string }, expectedAssets: ExpectedSnapshotAsset[] | null) {
+  const [policy] = await db.select({
+    autoSync: wsContextSnapshotsTable.autoSync,
+    autoSyncUnaccepted: wsContextSnapshotsTable.autoSyncUnaccepted,
+  }).from(wsContextSnapshotsTable).where(and(
+    eq(wsContextSnapshotsTable.entityType, "canon_record"),
+    eq(wsContextSnapshotsTable.entityId, record.id),
+  )).limit(1);
+  if (!policy || !shouldAutoSyncContextSnapshot(policy, record.status)) return;
+  await db.update(wsContextSnapshotsTable).set({
+    // Older API clients may defer the final request without declaring their
+    // intended image writes. They can finish explicitly, but cannot auto-recover.
+    status: expectedAssets === null ? "out_of_date" : "pending",
+    pendingExpectedAssets: expectedAssets, updatedAt: new Date(),
+  }).where(and(
+    eq(wsContextSnapshotsTable.entityType, "canon_record"),
+    eq(wsContextSnapshotsTable.entityId, record.id),
+  ));
+}
+
+const DEFERRED_SNAPSHOT_GRACE_MS = 60_000;
+
+async function deferredCanonImagesReady(record: typeof wsCanonRecordsTable.$inferSelect, expected: ExpectedSnapshotAsset[] | null): Promise<boolean> {
+  // Without the editor's intended metadata, unchanged URLs could hide an
+  // interrupted approval or role edit. Legacy deferred saves need manual review.
+  if (!expected) return false;
+  const assets = await db.select()
+    .from(wsAssetsTable).where(eq(wsAssetsTable.recordId, record.id));
+  const gallery = (record.imageGallery ?? []).map(image => image.url);
+  if (assets.length !== gallery.length || expected.length !== gallery.length ||
+      new Set(gallery).size !== gallery.length ||
+      expected.some(asset => !gallery.includes(asset.object_path))) return false;
+  return expected.every(wanted => {
+    const matching = assets.filter(asset => asset.objectPath === wanted.object_path);
+    if (matching.length !== 1) return false;
+    const asset = matching[0];
+    const actual: ExpectedSnapshotAsset = {
+      object_path: asset.objectPath!, role: asset.role, title: asset.title, alt_text: asset.altText,
+      source: asset.source, source_credit: asset.sourceCredit, rights_status: asset.rightsStatus ?? "unknown",
+      approval_status: asset.approvalStatus, canonical_strength: asset.canonicalStrength,
+      generation_prompt: asset.generationPrompt, generation_model: asset.generationModel,
+      positive_guidance: asset.positiveGuidance, negative_guidance: asset.negativeGuidance,
+      width: asset.width, height: asset.height, byte_size: asset.byteSize, checksum: asset.checksum,
+    };
+    return (Object.keys(wanted) as Array<keyof ExpectedSnapshotAsset>)
+      .every(key => actual[key] === wanted[key]);
+  });
 }
 
 async function syncCanonContextSnapshot(recordId: string, _publisher: ContextSnapshotGitHubPublisher) {
@@ -2392,6 +2462,8 @@ router.get("/v1/editorial/canon-records/:id/context-snapshot", async (req: Reque
     const status = imageIssue ? "blocked"
       : stored?.status === "sync_failed"
       ? "sync_failed"
+      : stored?.status === "pending"
+        ? "out_of_date"
       : !stored?.lastSnapshotAt
         ? "not_generated"
       : !stored.recordUpdatedAt || record.updatedAt > stored.recordUpdatedAt
@@ -2407,6 +2479,9 @@ router.get("/v1/editorial/canon-records/:id/context-snapshot", async (req: Reque
         lastError: stored?.lastError ?? null,
         autoSync: stored?.autoSync ?? false,
         autoSyncUnaccepted: stored?.autoSyncUnaccepted ?? false,
+        pendingReconciliation: stored?.status === "pending",
+        reconcileAfter: stored?.status === "pending"
+          ? new Date(stored.updatedAt.getTime() + DEFERRED_SNAPSHOT_GRACE_MS).toISOString() : null,
         imageIssue,
         imageIssues,
       },
@@ -2487,7 +2562,7 @@ router.post("/v1/editorial/canon-records/:id/context-snapshot/auto-sync", async 
       res.status(409).json({ error: "Canon record changed before its images finished syncing" });
       return;
     }
-    const contextSnapshotStatus = await autoPublishCanonContextSnapshot(record).catch(autoSyncErr => {
+    const contextSnapshotStatus = await autoPublishCanonContextSnapshot(record, expectedVersion).catch(autoSyncErr => {
       logger.error({ err: autoSyncErr, id: recordId }, "editorial: deferred automatic context snapshot failed");
       return "sync_failed" as const;
     });
@@ -2495,6 +2570,54 @@ router.post("/v1/editorial/canon-records/:id/context-snapshot/auto-sync", async 
   } catch (err) {
     logger.error({ err, recordId }, "editorial: finish deferred context snapshot");
     res.status(500).json({ error: "Automatic Context Snapshot could not be checked" });
+  }
+});
+
+// A reopened editor can recover an interrupted deferred save. This never
+// publishes a draft image, an incomplete asset set, or a policy-disabled record.
+router.post("/v1/editorial/canon-records/:id/context-snapshot/reconcile", async (req: Request, res: Response) => {
+  const recordId = req.params.id as string;
+  const expectedVersion = req.body?.expected_version;
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    res.status(400).json({ error: "expected_version must be a positive integer" });
+    return;
+  }
+  try {
+    const [record] = await db.select().from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, recordId)).limit(1);
+    if (!record) { res.status(404).json({ error: "Canon record not found" }); return; }
+    if (record.version !== expectedVersion) {
+      res.status(409).json({ error: "Canon record changed before reconciliation" }); return;
+    }
+    const [snapshot] = await db.select().from(wsContextSnapshotsTable).where(and(
+      eq(wsContextSnapshotsTable.entityType, "canon_record"),
+      eq(wsContextSnapshotsTable.entityId, recordId),
+    )).limit(1);
+    if (!snapshot || snapshot.status !== "pending") {
+      res.json({ context_snapshot_status: null }); return;
+    }
+    if (!shouldAutoSyncContextSnapshot(snapshot, record.status)) {
+      await db.update(wsContextSnapshotsTable).set({ status: "out_of_date", pendingExpectedAssets: null, updatedAt: new Date() })
+        .where(and(eq(wsContextSnapshotsTable.entityType, "canon_record"),
+          eq(wsContextSnapshotsTable.entityId, recordId), eq(wsContextSnapshotsTable.status, "pending")));
+      res.json({ context_snapshot_status: null }); return;
+    }
+    if (Date.now() < snapshot.updatedAt.getTime() + DEFERRED_SNAPSHOT_GRACE_MS) {
+      res.json({ context_snapshot_status: null, pending: true }); return;
+    }
+    const expectedAssets = expectedSnapshotAssetsSchema.nullable().safeParse(snapshot.pendingExpectedAssets);
+    if (!expectedAssets.success || !await deferredCanonImagesReady(record, expectedAssets.data)) {
+      res.json({ context_snapshot_status: null, pending: true }); return;
+    }
+    const contextSnapshotStatus = await autoPublishCanonContextSnapshot(record, expectedVersion).catch(async err => {
+      logger.error({ err, recordId }, "editorial: reconcile deferred context snapshot");
+      await markCanonContextSnapshotFailed(recordId, err instanceof Error ? err.message : "Context Snapshot sync failed");
+      return "sync_failed" as const;
+    });
+    res.json({ context_snapshot_status: contextSnapshotStatus });
+  } catch (err) {
+    logger.error({ err, recordId }, "editorial: reconcile deferred context snapshot");
+    res.status(500).json({ error: "Context Snapshot reconciliation failed" });
   }
 });
 
@@ -2708,11 +2831,23 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
     portrait_url, image_urls, image_gallery, notes,
     typography, global_metadata, structured_profile, generation_profile,
     prompt_summary, identity_summary,
-    expected_version, defer_auto_snapshot,
+    expected_version, defer_auto_snapshot, expected_snapshot_assets,
   } = req.body;
   if (defer_auto_snapshot !== undefined && typeof defer_auto_snapshot !== "boolean") {
     res.status(400).json({ error: "defer_auto_snapshot must be a boolean" });
     return;
+  }
+  const expectedAssets = expected_snapshot_assets === undefined
+    ? { success: true as const, data: null }
+    : expectedSnapshotAssetsSchema.safeParse(expected_snapshot_assets);
+  if (!expectedAssets.success || (expectedAssets.data && (
+    new Set(expectedAssets.data.map(asset => asset.object_path)).size !== expectedAssets.data.length ||
+    (Array.isArray(image_gallery) && (
+      expectedAssets.data.length !== image_gallery.length ||
+      expectedAssets.data.some(asset => !image_gallery.some((image: { url?: string }) => image.url === asset.object_path))
+    ))
+  ))) {
+    res.status(400).json({ error: "expected_snapshot_assets must match the saved image gallery" }); return;
   }
   if (expected_version !== undefined && (!Number.isInteger(expected_version) || expected_version < 1)) {
     res.status(400).json({ error: "expected_version must be a positive integer", code: "INVALID_VERSION" });
@@ -2906,6 +3041,7 @@ router.patch("/v1/editorial/canon-records/:id", async (req: Request, res: Respon
       }
     }
 
+    if (defer_auto_snapshot) await markCanonSnapshotDeferred(row, expectedAssets.data);
     const contextSnapshotStatus = defer_auto_snapshot ? null : await autoPublishCanonContextSnapshot(row).catch(autoSyncErr => {
       logger.error({ err: autoSyncErr, id: row.id }, "editorial: automatic context snapshot failed");
       return "sync_failed" as const;

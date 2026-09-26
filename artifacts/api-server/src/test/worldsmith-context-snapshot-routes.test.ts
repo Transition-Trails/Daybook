@@ -54,8 +54,19 @@ const recordIds = {
   archiveFailure: `snapshot-archive-failure-${run}`,
   versionedPatch: `snapshot-versioned-patch-${run}`,
   imageRoles: `snapshot-image-roles-${run}`,
+  interrupted: `snapshot-interrupted-${run}`,
 };
 const allRecordIds = Object.values(recordIds);
+
+function expectedAsset(path: string, approval = "approved") {
+  return {
+    object_path: path, role: "primary", title: "Primary", alt_text: "",
+    source: "upload", source_credit: null, rights_status: "unknown",
+    approval_status: approval, canonical_strength: "canonical",
+    generation_prompt: null, generation_model: null, positive_guidance: null,
+    negative_guidance: null, width: null, height: null, byte_size: null, checksum: null,
+  };
+}
 
 function makeApp() {
   const app = express();
@@ -89,6 +100,7 @@ beforeAll(async () => {
     { id: recordIds.archiveFailure, worldId, name: "Archive Failure", status: "accepted", canonType: "character" },
     { id: recordIds.versionedPatch, worldId, name: "Versioned Patch", status: "accepted", canonType: "character" },
     { id: recordIds.imageRoles, worldId, name: "Image Roles", status: "under_review", canonType: "location" },
+    { id: recordIds.interrupted, worldId, name: "Interrupted", status: "accepted", canonType: "location" },
   ]);
   await db.insert(wsContextSnapshotsTable).values(allRecordIds.map(entityId => ({
     entityType: "canon_record",
@@ -287,6 +299,139 @@ describe("governed Context Snapshot routes", () => {
       await db.delete(wsAssetsTable).where(eq(wsAssetsTable.recordId, recordIds.imageRoles));
       await db.update(wsCanonRecordsTable).set({ status: "under_review", imageGallery: [], portraitUrl: null })
         .where(eq(wsCanonRecordsTable.id, recordIds.imageRoles));
+    }
+  });
+
+  it("reconciles an interrupted image save only after assets are complete and approved", async () => {
+    const url = `/v1/editorial/canon-records/${recordIds.interrupted}`;
+    const imagePath = "/objects/uploads/interrupted-primary";
+    const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: "#553322" } }).png().toBuffer();
+    const storage = vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue({
+      download: async () => [bytes],
+      getMetadata: async () => [{ contentType: "image/png", updated: new Date().toISOString() }],
+    } as never);
+    try {
+      const saved = await request(app).patch(url).send({
+        image_gallery: [{ url: imagePath, role: "primary" }],
+        portrait_url: imagePath,
+        defer_auto_snapshot: true,
+        expected_snapshot_assets: [expectedAsset(imagePath, "draft")],
+      });
+      expect(saved.status).toBe(200);
+      const version = saved.body.canon_record.version;
+      const reconcile = () => request(app).post(`${url}/context-snapshot/reconcile`).send({ expected_version: version });
+      expect((await request(app).get(`${url}/context-snapshot`)).body.snapshot.pendingReconciliation).toBe(true);
+      expect((await reconcile()).body.pending).toBe(true); // still in the grace period
+      await db.update(wsContextSnapshotsTable).set({ updatedAt: new Date(Date.now() - 90_000) })
+        .where(eq(wsContextSnapshotsTable.entityId, recordIds.interrupted));
+      expect((await reconcile()).body.pending).toBe(true); // missing asset metadata
+      expect(mockPublish).not.toHaveBeenCalled();
+
+      await db.insert(wsAssetsTable).values({
+        id: `snapshot-interrupted-asset-${run}`, worldId, recordId: recordIds.interrupted,
+        role: "primary", title: "Primary", objectPath: imagePath, source: "upload",
+        approvalStatus: "draft", canonicalStrength: "canonical",
+      });
+      const draft = await reconcile();
+      expect(draft.body.context_snapshot_status).toBe("sync_failed");
+      expect(mockPublish).not.toHaveBeenCalled();
+
+      await db.update(wsAssetsTable).set({ approvalStatus: "approved" })
+        .where(eq(wsAssetsTable.recordId, recordIds.interrupted));
+      // A review blocker requires a fresh eligible save (or a manual retry).
+      const savedAgain = await request(app).patch(url).send({
+        defer_auto_snapshot: true, expected_snapshot_assets: [expectedAsset(imagePath)],
+      });
+      expect(savedAgain.status).toBe(200);
+      await db.update(wsContextSnapshotsTable).set({ updatedAt: new Date(Date.now() - 90_000) })
+        .where(eq(wsContextSnapshotsTable.entityId, recordIds.interrupted));
+      const recovered = await request(app).post(`${url}/context-snapshot/reconcile`)
+        .send({ expected_version: savedAgain.body.canon_record.version });
+      expect(recovered.body.context_snapshot_status).toBe("current");
+      expect(mockPublish).toHaveBeenCalledOnce();
+      expect((await request(app).get(`${url}/context-snapshot`)).body.snapshot.pendingReconciliation).toBe(false);
+      expect((await reconcile()).status).toBe(409); // previous version cannot re-publish
+    } finally {
+      storage.mockRestore();
+      await db.delete(wsAssetsTable).where(eq(wsAssetsTable.recordId, recordIds.interrupted));
+      await db.update(wsCanonRecordsTable).set({ imageGallery: [], portraitUrl: null })
+        .where(eq(wsCanonRecordsTable.id, recordIds.interrupted));
+    }
+  });
+
+  it("does not publish an existing approved image when its pending editor save changes approval to draft", async () => {
+    const url = `/v1/editorial/canon-records/${recordIds.interrupted}`;
+    const path = "/objects/uploads/approval-interrupted";
+    await db.update(wsCanonRecordsTable).set({
+      imageGallery: [{ url: path, role: "primary", name: "Primary", description: "" }],
+      portraitUrl: path,
+    }).where(eq(wsCanonRecordsTable.id, recordIds.interrupted));
+    await db.insert(wsAssetsTable).values({
+      id: `snapshot-approval-interrupted-${run}`, worldId, recordId: recordIds.interrupted,
+      role: "primary", title: "Primary", objectPath: path, source: "upload",
+      approvalStatus: "approved", canonicalStrength: "canonical", rightsStatus: "unknown",
+    });
+    try {
+      const saved = await request(app).patch(url).send({
+        defer_auto_snapshot: true, image_gallery: [{ url: path, role: "primary" }],
+        expected_snapshot_assets: [expectedAsset(path, "draft")],
+      });
+      expect(saved.status).toBe(200);
+      await db.update(wsContextSnapshotsTable).set({ updatedAt: new Date(Date.now() - 90_000) })
+        .where(eq(wsContextSnapshotsTable.entityId, recordIds.interrupted));
+      const reconcile = () => request(app).post(`${url}/context-snapshot/reconcile`)
+        .send({ expected_version: saved.body.canon_record.version });
+      expect((await reconcile()).body.pending).toBe(true);
+      expect(mockPublish).not.toHaveBeenCalled();
+      await db.update(wsAssetsTable).set({ approvalStatus: "draft", role: "reference" })
+        .where(eq(wsAssetsTable.recordId, recordIds.interrupted));
+      expect((await reconcile()).body.pending).toBe(true); // role update still incomplete
+      await db.update(wsAssetsTable).set({ role: "primary" })
+        .where(eq(wsAssetsTable.recordId, recordIds.interrupted));
+      expect((await reconcile()).body.context_snapshot_status).toBe("sync_failed");
+      expect(mockPublish).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(wsAssetsTable).where(eq(wsAssetsTable.recordId, recordIds.interrupted));
+      await db.update(wsCanonRecordsTable).set({ imageGallery: [], portraitUrl: null })
+        .where(eq(wsCanonRecordsTable.id, recordIds.interrupted));
+    }
+  });
+
+  it("honors policy changes and does not reconcile an interrupted save when auto-sync is disabled", async () => {
+    const url = `/v1/editorial/canon-records/${recordIds.interrupted}`;
+    const saved = await request(app).patch(url).send({ name: "Interrupted policy save", defer_auto_snapshot: true });
+    expect(saved.status).toBe(200);
+    await request(app).patch(`${url}/context-snapshot`).send({ auto_sync: false }).expect(200);
+    await db.update(wsContextSnapshotsTable).set({ updatedAt: new Date(Date.now() - 90_000) })
+      .where(eq(wsContextSnapshotsTable.entityId, recordIds.interrupted));
+    const result = await request(app).post(`${url}/context-snapshot/reconcile`)
+      .send({ expected_version: saved.body.canon_record.version });
+    expect(result.body.context_snapshot_status).toBeNull();
+    expect(mockPublish).not.toHaveBeenCalled();
+    expect((await request(app).get(`${url}/context-snapshot`)).body.snapshot.pendingReconciliation).toBe(false);
+    await request(app).patch(`${url}/context-snapshot`).send({ auto_sync: true }).expect(200);
+  });
+
+  it("does not recover unaccepted Canon unless its explicit auto-sync policy allows it", async () => {
+    const url = `/v1/editorial/canon-records/${recordIds.imageRoles}`;
+    const first = await request(app).patch(url).send({ name: "Unaccepted pending", defer_auto_snapshot: true });
+    expect(first.status).toBe(200);
+    expect((await request(app).get(`${url}/context-snapshot`)).body.snapshot.pendingReconciliation).toBe(false);
+    await request(app).patch(`${url}/context-snapshot`)
+      .send({ auto_sync: true, auto_sync_unaccepted: true }).expect(200);
+    try {
+      const second = await request(app).patch(url).send({ defer_auto_snapshot: true, expected_snapshot_assets: [] });
+      expect(second.status).toBe(200);
+      expect((await request(app).get(`${url}/context-snapshot`)).body.snapshot.pendingReconciliation).toBe(true);
+      await db.update(wsContextSnapshotsTable).set({ updatedAt: new Date(Date.now() - 90_000) })
+        .where(eq(wsContextSnapshotsTable.entityId, recordIds.imageRoles));
+      const recovered = await request(app).post(`${url}/context-snapshot/reconcile`)
+        .send({ expected_version: second.body.canon_record.version });
+      expect(recovered.body.context_snapshot_status).toBe("current");
+      expect(mockPublish).toHaveBeenCalledOnce();
+    } finally {
+      await request(app).patch(`${url}/context-snapshot`)
+        .send({ auto_sync: true, auto_sync_unaccepted: false }).expect(200);
     }
   });
 

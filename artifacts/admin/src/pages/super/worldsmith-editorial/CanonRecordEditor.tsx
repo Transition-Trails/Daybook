@@ -133,12 +133,36 @@ interface ContextSnapshot {
   lastError?: string | null;
   autoSync: boolean;
   autoSyncUnaccepted: boolean;
+  pendingReconciliation?: boolean;
+  reconcileAfter?: string | null;
   imageIssue?: { recordId: string; recordName: string; message: string } | null;
   imageIssues?: Array<{ recordId: string; recordName: string; message: string }>;
 }
 
 function isPrimaryImage(image: CanonImage): boolean {
   return ["primary", "primary_portrait", "primary_image"].includes(image.role ?? "");
+}
+
+function assetSyncPayload(img: CanonImage) {
+  return {
+    object_path: img.url,
+    role: img.role || "reference",
+    title: img.name || "Asset",
+    alt_text: img.description || "",
+    source: img.source || (img.url.includes("generated") ? "generated" : "upload"),
+    source_credit: img.creatorCredit || null,
+    rights_status: img.rightsStatus || "unknown",
+    approval_status: img.workflowStatus || "draft",
+    canonical_strength: img.canonicalStrength || "reference",
+    generation_prompt: img.generationPrompt || null,
+    generation_model: img.generationModel || null,
+    positive_guidance: img.positiveGuidance || null,
+    negative_guidance: img.negativeGuidance || null,
+    width: img.width || null,
+    height: img.height || null,
+    byte_size: img.byteSize || null,
+    checksum: img.checksum || null,
+  };
 }
 
 function promptPreviewText(value: unknown): string {
@@ -992,23 +1016,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
             const payload = {
               world_id: worldId,
               record_id: savedRecordId,
-              role: img.role || "reference",
-              title: img.name || "Asset",
-              alt_text: img.description || "",
-              object_path: img.url,
-              source: img.source || (img.url.includes("generated") ? "generated" : "upload"),
-              source_credit: img.creatorCredit || null,
-              rights_status: img.rightsStatus || "unknown",
-              approval_status: img.workflowStatus || "draft",
-              canonical_strength: img.canonicalStrength || "reference",
-              generation_prompt: img.generationPrompt || null,
-              generation_model: img.generationModel || null,
-              positive_guidance: img.positiveGuidance || null,
-              negative_guidance: img.negativeGuidance || null,
-              width: img.width || null,
-              height: img.height || null,
-              byte_size: img.byteSize || null,
-              checksum: img.checksum || null
+              ...assetSyncPayload(img),
             };
 
             if (existing) {
@@ -1231,7 +1239,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       const expectedVersion = record.version;
       return apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${recordId}`, {
         method: "PATCH",
-        body: JSON.stringify({ ...payload, expected_version: expectedVersion, defer_auto_snapshot: true }),
+        body: JSON.stringify({
+          ...payload, expected_version: expectedVersion, defer_auto_snapshot: true,
+          expected_snapshot_assets: form.images.map(assetSyncPayload),
+        }),
       });
     },
     onSuccess: async result => {
@@ -1263,6 +1274,37 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       });
     },
   });
+
+  // A save can finish its record/asset writes and lose the final request when
+  // the tab closes. Only the server decides whether recovery is still safe.
+  useEffect(() => {
+    if (!recordId || !record?.version || !snapshot?.pendingReconciliation || saveMutation.isPending) return;
+    let cancelled = false;
+    let timer: number;
+    const delay = Math.max(0, new Date(snapshot.reconcileAfter ?? 0).getTime() - Date.now());
+    const attempt = async () => {
+      try {
+        const result = await apiFetch<{ context_snapshot_status: string | null; pending?: boolean }>(
+          `/v1/editorial/canon-records/${recordId}/context-snapshot/reconcile`,
+          { method: "POST", body: JSON.stringify({ expected_version: record.version }) },
+        );
+        if (cancelled) return;
+        if (result.context_snapshot_status === "sync_failed") {
+          toast({ title: "Context Snapshot failed", description: "The saved record needs snapshot attention.", variant: "destructive" });
+        }
+        if (result.pending) {
+          // Asset writes may still be in flight. Retry while this editor stays open.
+          timer = window.setTimeout(attempt, 30_000);
+        } else {
+          void queryClient.invalidateQueries({ queryKey: ["editorial-canon-context-snapshot", recordId] });
+        }
+      } catch {
+        if (!cancelled) timer = window.setTimeout(attempt, 30_000);
+      }
+    };
+    timer = window.setTimeout(attempt, delay);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [recordId, record?.version, snapshot?.pendingReconciliation, snapshot?.reconcileAfter, saveMutation.isPending, queryClient, toast]);
 
   const transitionMutation = useMutation({
     mutationFn: (status: string) => apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${recordId}/transition`, {
@@ -2009,6 +2051,11 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                   )}
                   {snapshot?.lastError && (
                     <p className="mt-3 rounded-lg bg-red-50 p-2 text-[11px] leading-relaxed text-red-700">{snapshot.lastError}</p>
+                  )}
+                  {snapshot?.pendingReconciliation && !snapshot.imageIssue && (
+                    <p className="mt-3 rounded-lg bg-amber-50 p-2 text-[11px] leading-relaxed text-amber-900">
+                      A previous save did not finish updating this snapshot. Checking the saved images and automatic update policy before retrying.
+                    </p>
                   )}
                   {(snapshot?.imageIssues?.length || snapshot?.imageIssue) && (
                     <div role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">

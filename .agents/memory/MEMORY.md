@@ -115,3 +115,4 @@
 - [Canon vocabulary governance](canon-vocabulary-governance.md) — activate reviewed world-scoped choices, not entire UI fallback lists, before MCP metadata writes
 - [Canon structured profile precedence](canon-structured-profile-precedence.md) — canonical structured fields override legacy typed profiles so MCP writes remain visible and safe to save
 - [Canon image export approval](canon-image-export-approval.md) — gallery primary designation and asset export approval are separate gates; never promote a reference image to cover the gap
+- [Deferred Canon snapshot recovery](deferred-canon-snapshot-recovery.md) — interrupted editor saves can be retried only after asset rows settle and policy still permits publication

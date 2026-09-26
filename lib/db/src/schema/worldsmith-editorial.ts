@@ -146,6 +146,7 @@ export const wsContextSnapshotsTable = pgTable("ws_context_snapshots", {
   lastError: text("last_error"),
   autoSync: boolean("auto_sync").notNull().default(false),
   autoSyncUnaccepted: boolean("auto_sync_unaccepted").notNull().default(false),
+  pendingExpectedAssets: jsonb("pending_expected_assets").$type<Array<Record<string, string | number | null>>>(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
     .$onUpdate(() => new Date()),
 }, (t) => [

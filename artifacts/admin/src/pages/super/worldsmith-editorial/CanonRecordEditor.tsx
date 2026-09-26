@@ -134,6 +134,7 @@ interface ContextSnapshot {
   autoSync: boolean;
   autoSyncUnaccepted: boolean;
   imageIssue?: { recordId: string; recordName: string; message: string } | null;
+  imageIssues?: Array<{ recordId: string; recordName: string; message: string }>;
 }
 
 function isPrimaryImage(image: CanonImage): boolean {
@@ -1935,16 +1936,21 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                   {snapshot?.lastError && (
                     <p className="mt-3 rounded-lg bg-red-50 p-2 text-[11px] leading-relaxed text-red-700">{snapshot.lastError}</p>
                   )}
-                  {snapshot?.imageIssue && (
-                    <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
-                      Snapshot updates are blocked: {snapshot.imageIssue.message} Review the images on{" "}
-                      {snapshot.imageIssue.recordId === recordId
-                        ? <a href="#canon-images" className="font-semibold underline">this Canon record</a>
-                        : <a href={`/super/worldsmith/editorial/canon/${snapshot.imageIssue.recordId}`} className="font-semibold underline">{snapshot.imageIssue.recordName}</a>}
-                      {snapshot.imageIssue.message.includes("designated as primary")
-                        ? ", choose “Make primary” for the intended image, and save the record before updating the snapshot."
-                        : ", review the intended primary’s approval and canonical strength, then save the record before updating the snapshot."}
-                    </p>
+                  {(snapshot?.imageIssues?.length || snapshot?.imageIssue) && (
+                    <div role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+                      <p className="font-semibold">Snapshot updates are blocked by Canon images on these records:</p>
+                      <ul className="mt-2 list-disc space-y-2 pl-4">
+                        {(snapshot.imageIssues?.length ? snapshot.imageIssues : snapshot.imageIssue ? [snapshot.imageIssue] : []).map(issue => (
+                          <li key={issue.recordId}>
+                            {issue.recordId === recordId
+                              ? <a href="#canon-images" className="font-semibold underline">{issue.recordName} (this record)</a>
+                              : <a href={`/super/worldsmith/editorial/canon/${encodeURIComponent(issue.recordId)}#canon-images`} className="font-semibold underline">{issue.recordName}</a>}
+                            {" — "}{issue.message}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2">Review the intended primary’s designation, approval and canonical strength, then save the affected records before updating the snapshot.</p>
+                    </div>
                   )}
                   <label className="mt-4 flex items-start gap-2 text-xs" style={{ color: INK }}>
                     <input

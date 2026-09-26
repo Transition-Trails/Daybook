@@ -183,6 +183,7 @@ interface ContextSnapshotBulkResult {
   failed: number;
   skipped: number;
   results: Array<{ id: string; name: string; status: "updated" | "failed"; error?: string }>;
+  imageIssues?: Array<{ recordId: string; recordName: string; message: string }>;
 }
 
 function EmotionalRegisterBadge({ register }: { register?: string | null }) {
@@ -1688,6 +1689,19 @@ export default function CanonLibrary() {
                 <p className="text-xs font-semibold text-[var(--admin-ink)]">
                   Context refresh finished: {snapshotBulkResult.updated} updated, {snapshotBulkResult.failed} failed, {snapshotBulkResult.skipped} skipped
                 </p>
+                {!!snapshotBulkResult.imageIssues?.length && (
+                  <div role="alert" className="mt-2 text-[11px] text-amber-900">
+                    <p className="font-semibold">{snapshotBulkResult.imageIssues.length} Canon image {snapshotBulkResult.imageIssues.length === 1 ? "issue" : "issues"} blocking world-wide snapshot updates:</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-4">
+                      {snapshotBulkResult.imageIssues.map(issue => (
+                        <li key={issue.recordId}>
+                          <a className="font-semibold underline" href={`/super/worldsmith/editorial/canon/${encodeURIComponent(issue.recordId)}#canon-images`}>{issue.recordName}</a>
+                          {" — "}{issue.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {snapshotBulkResult.results.some(result => result.status === "failed") && (
                   <ul className="mt-2 space-y-1">
                     {snapshotBulkResult.results.filter(result => result.status === "failed").map(result => (

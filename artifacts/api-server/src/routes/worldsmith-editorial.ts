@@ -124,8 +124,8 @@ import {
   assignCanonImageRoles,
   buildCanonImageExport,
   CanonImageDesignationError,
+  collectCanonImageIssues,
   normaliseCanonImageRole,
-  validateCanonImageDesignations,
   type CanonImageRole,
 } from "../lib/worldsmith/context-snapshot-images";
 import { compileCharacterContext, compileEnvironmentContext, compileStoryContext } from "../lib/worldsmith/field-context";
@@ -2352,6 +2352,7 @@ interface ContextSnapshotJob {
   failed: number;
   skipped: number;
   results: Array<{ id: string; name: string; status: "updated" | "failed"; error?: string }>;
+  imageIssues: ReturnType<typeof collectCanonImageIssues>;
   createdAt: Date;
 }
 
@@ -2379,17 +2380,11 @@ router.get("/v1/editorial/canon-records/:id/context-snapshot", async (req: Reque
       list.push(asset);
       assetsByRecord.set(asset.recordId, list);
     }
-    let imageIssue: { recordId: string; recordName: string; message: string } | null = null;
-    try {
-      validateCanonImageDesignations(worldRecords.map(item => ({
-        ...item,
-        assets: assetsByRecord.get(item.id),
-      })));
-    } catch (error) {
-      if (!(error instanceof CanonImageDesignationError)) throw error;
-      const affected = worldRecords.find(item => item.id === error.recordId);
-      imageIssue = { recordId: error.recordId, recordName: affected?.name ?? error.recordId, message: error.message };
-    }
+    const imageIssues = collectCanonImageIssues(worldRecords.map(item => ({
+      ...item,
+      assets: assetsByRecord.get(item.id),
+    })));
+    const imageIssue = imageIssues[0] ?? null;
     const [stored] = await db.select().from(wsContextSnapshotsTable).where(and(
       eq(wsContextSnapshotsTable.entityType, "canon_record"),
       eq(wsContextSnapshotsTable.entityId, record.id),
@@ -2413,6 +2408,7 @@ router.get("/v1/editorial/canon-records/:id/context-snapshot", async (req: Reque
         autoSync: stored?.autoSync ?? false,
         autoSyncUnaccepted: stored?.autoSyncUnaccepted ?? false,
         imageIssue,
+        imageIssues,
       },
     });
   } catch (err) {
@@ -2503,6 +2499,20 @@ router.post("/v1/editorial/worlds/:id/context-snapshots", async (req: Request, r
     const targets = mode === "all"
       ? records
       : records.filter(record => contextSnapshotIsOutdated(record.updatedAt, storedById.get(record.id)));
+    const worldRecords = await db.select().from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.worldId, worldId));
+    const worldAssets = await db.select().from(wsAssetsTable)
+      .where(eq(wsAssetsTable.worldId, worldId));
+    const assetsByRecord = new Map<string, typeof worldAssets>();
+    for (const asset of worldAssets) {
+      const list = assetsByRecord.get(asset.recordId) ?? [];
+      list.push(asset);
+      assetsByRecord.set(asset.recordId, list);
+    }
+    const imageIssues = collectCanonImageIssues(worldRecords.map(record => ({
+      ...record,
+      assets: assetsByRecord.get(record.id),
+    })));
     removeExpiredContextSnapshotJobs();
     const job: ContextSnapshotJob = {
       id: randomUUID(),
@@ -2516,6 +2526,7 @@ router.post("/v1/editorial/worlds/:id/context-snapshots", async (req: Request, r
       failed: 0,
       skipped: records.length - targets.length,
       results: [],
+      imageIssues,
       createdAt: new Date(),
     };
     contextSnapshotJobs.set(job.id, job);

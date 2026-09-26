@@ -111,6 +111,54 @@ beforeEach(() => {
 });
 
 describe("governed Context Snapshot routes", () => {
+  it("reports every world image blocker in status and batch results, then clears them when fixed", async () => {
+    const first = "/objects/uploads/multiple-blockers-one";
+    const second = "/objects/uploads/multiple-blockers-two";
+    await db.update(wsCanonRecordsTable).set({
+      imageGallery: [{ url: first, name: "First", description: "", role: "primary" }],
+    }).where(eq(wsCanonRecordsTable.id, recordIds.imageRoles));
+    await db.update(wsCanonRecordsTable).set({
+      imageGallery: [{ url: second, name: "Second", description: "", role: "primary" }],
+    }).where(eq(wsCanonRecordsTable.id, recordIds.bulkA));
+    try {
+      const status = await request(app).get(`/v1/editorial/canon-records/${recordIds.saveFailure}/context-snapshot`);
+      expect(status.status).toBe(200);
+      expect(status.body.snapshot.status).toBe("blocked");
+      expect(status.body.snapshot.imageIssues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ recordId: recordIds.imageRoles, recordName: "Image Roles", message: expect.stringContaining("no approved asset metadata") }),
+        expect.objectContaining({ recordId: recordIds.bulkA, recordName: "Bulk A", message: expect.stringContaining("no approved asset metadata") }),
+      ]));
+      expect(status.body.snapshot.imageIssues).toHaveLength(2);
+      expect(status.body.snapshot.imageIssue).toEqual(status.body.snapshot.imageIssues[0]);
+
+      // A no-op outdated batch still reports world-wide blockers without
+      // publishing unrelated test fixtures or leaving failed snapshot rows.
+      const future = new Date(Date.now() + 60_000);
+      await db.update(wsContextSnapshotsTable).set({
+        status: "current", recordUpdatedAt: future, lastSnapshotAt: future,
+      }).where(inArray(wsContextSnapshotsTable.entityId, allRecordIds));
+      const batch = await request(app).post(`/v1/editorial/worlds/${worldId}/context-snapshots`).send({ mode: "outdated" });
+      expect(batch.status).toBe(202);
+      expect(batch.body.imageIssues.map((issue: { recordId: string }) => issue.recordId).sort())
+        .toEqual([recordIds.bulkA, recordIds.imageRoles].sort());
+      const job = (await request(app).get(`/v1/editorial/context-snapshot-jobs/${batch.body.id}`)).body;
+      expect(job.status).toBe("complete");
+      expect(job.imageIssues).toHaveLength(2);
+
+      await db.update(wsCanonRecordsTable).set({ imageGallery: [] })
+        .where(inArray(wsCanonRecordsTable.id, [recordIds.imageRoles, recordIds.bulkA]));
+      const fixed = await request(app).get(`/v1/editorial/canon-records/${recordIds.saveFailure}/context-snapshot`);
+      expect(fixed.body.snapshot.imageIssues).toEqual([]);
+      expect(fixed.body.snapshot.imageIssue).toBeNull();
+    } finally {
+      await db.update(wsContextSnapshotsTable).set({
+        status: "not_generated", recordUpdatedAt: null, lastSnapshotAt: null, lastError: null,
+      }).where(inArray(wsContextSnapshotsTable.entityId, allRecordIds));
+      await db.update(wsCanonRecordsTable).set({ imageGallery: [] })
+        .where(inArray(wsCanonRecordsTable.id, [recordIds.imageRoles, recordIds.bulkA]));
+    }
+  });
+
   it("loads status without downloading images, and gives review guidance for missing or draft primaries", async () => {
     const first = "/objects/uploads/snapshot-image-one";
     const second = "/objects/uploads/snapshot-image-two";

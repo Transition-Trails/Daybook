@@ -207,6 +207,26 @@ export function validateCanonImageDesignations(records: CanonImageExportRecord[]
   for (const record of records) assignCanonImageRoles(sourceImages(record));
 }
 
+export interface CanonImageIssue {
+  recordId: string;
+  recordName: string;
+  message: string;
+}
+
+/** Inspect every record without weakening the fail-closed export validation. */
+export function collectCanonImageIssues(records: CanonImageExportRecord[]): CanonImageIssue[] {
+  const issues: CanonImageIssue[] = [];
+  for (const record of records) {
+    try {
+      assignCanonImageRoles(sourceImages(record));
+    } catch (error) {
+      if (!(error instanceof CanonImageDesignationError)) throw error;
+      issues.push({ recordId: record.id, recordName: record.name, message: error.message });
+    }
+  }
+  return issues;
+}
+
 function imageFileName(canonType: string | null | undefined, role: CanonImageRole, roleIndex: number, extension: string): string {
   if (role === "primary") return `${canonType === "character" ? "portrait" : "image"}-primary.${extension}`;
   return `image-${role}-${String(roleIndex).padStart(2, "0")}.${extension}`;

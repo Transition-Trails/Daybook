@@ -267,6 +267,11 @@ async function readSequenceSet(worldId: string, origin: string, tx: QueryExecuto
   return { world_id: worldId, sequences: groups, references, revision: currentRevision };
 }
 
+function readFullSequenceSet(worldId: string, origin: string) {
+  return db.transaction(tx => readSequenceSet(worldId, origin, tx),
+    { isolationLevel: "repeatable read", accessMode: "read only" });
+}
+
 // Shared with the opt-in large-world benchmark so EXPLAIN measures the same
 // grouping/counting SQL that serves search_sequences.
 export const SEQUENCE_PAGE_SQL = `
@@ -504,7 +509,7 @@ export async function executeViewTool(userId: string, name: string, args: unknow
         return searchSequencePage(input.world_id, origin, input.query, input.after_id, input.limit,
           input.limit !== undefined || input.after_id !== undefined);
       }
-      const result = await readSequenceSet(input.world_id, origin);
+      const result = await readFullSequenceSet(input.world_id, origin);
       return {
         ...result,
         total: result.sequences.length,
@@ -516,7 +521,7 @@ export async function executeViewTool(userId: string, name: string, args: unknow
     }
     case "get_sequence": {
       const input = parse(name, args);
-      const result = await readSequenceSet(input.world_id, origin);
+      const result = await readFullSequenceSet(input.world_id, origin);
       // The stable world anchor remains readable even when every story is a reference.
       if (input.sequence_id === input.world_id) return result;
       const sequence = result.sequences.find(group => group.id === input.sequence_id);

@@ -204,6 +204,7 @@ export async function updateCharacterProfile(
   expectedVersion?: number,
   schemaVersion?: number,
   replaceProfile = false,
+  historyId?: string,
 ): Promise<{ record: unknown; profile: Record<string, unknown>; version: number; schemaVersion: number; diff: Record<string, { before: unknown; after: unknown }> }> {
   await requireSuperAdminUser(userId);
   return db.transaction(async tx => {
@@ -252,7 +253,7 @@ export async function updateCharacterProfile(
     }).where(and(eq(wsCanonRecordsTable.id, recordId), eq(wsCanonRecordsTable.version, record.version))).returning();
     if (!updated) throw new CanonToolError("Canon record changed concurrently; retry with the latest version", 409, "VERSION_CONFLICT");
     await tx.insert(mcpCanonHistoryTable).values({
-      id: randomUUID(), recordId, actorUserId: userId, changeType: "character_profile",
+      id: historyId ?? randomUUID(), recordId, actorUserId: userId, changeType: "character_profile",
       before: current, after: target, diff,
     });
     return { record: updated, profile: target, version: updated.version, schemaVersion: effectiveSchemaVersion, diff };

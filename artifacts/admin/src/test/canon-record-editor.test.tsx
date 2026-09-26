@@ -316,6 +316,57 @@ describe("CanonRecordEditor", () => {
     },
   );
 
+  it("reconciles a committed Character profile when its response is lost, then finishes metadata once", async () => {
+    const recordPath = "/v1/editorial/canon-records/canon-character";
+    const profilePath = "/v1/editorial/profiles/character/canon-character";
+    let serverVersion = 1;
+    let committedRequestId = "";
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === recordPath && init?.method === "PATCH") serverVersion = 2;
+      if (path === recordPath) return Promise.resolve({ canon_record: {
+        id: "canon-character", worldId: "world-wychcombe", canonType: "character",
+        name: "Frederick Ashcroft", status: "proposed", version: serverVersion,
+      } });
+      if (path === profilePath && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        expect(body.expected_version).toBe(2);
+        expect(body.request_id).toMatch(/^[0-9a-f-]{36}$/);
+        if (!committedRequestId) {
+          committedRequestId = body.request_id;
+          serverVersion = 3;
+          return Promise.reject(new Error("Response lost"));
+        }
+        expect(body.request_id).toBe(committedRequestId);
+        return Promise.resolve({ version: 3, reconciled: true });
+      }
+      if (path.endsWith("/context-snapshot/auto-sync")) return Promise.resolve({ context_snapshot_status: "current" });
+      if (path.startsWith("/v1/editorial/assets?")) return Promise.resolve({ assets: [] });
+      if (path.startsWith("/v1/editorial/identity-locks?")) return Promise.resolve({ locks: [] });
+      if (path.startsWith("/v1/editorial/character-variants?")) return Promise.resolve({ variants: [] });
+      if (path.startsWith("/v1/editorial/knowledge?")) return Promise.resolve({ knowledge: [] });
+      if (path.startsWith(`${profilePath}?`)) return Promise.resolve({ profile: { profile: {} } });
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      return Promise.resolve({});
+    });
+    renderEditor("canon-character");
+    await screen.findByRole("heading", { name: "Frederick Ashcroft — Canon Record" });
+    await screen.findByDisplayValue("Frederick Ashcroft");
+    fireEvent.click(screen.getByTestId("canon-top-save"));
+    const retry = await screen.findByRole("button", { name: "Retry metadata sync" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Response lost");
+    fireEvent.click(retry);
+    await waitFor(() => expect(retry).not.toBeInTheDocument());
+    expect(apiFetch.mock.calls.filter(([path, init]) => path === recordPath && init?.method === "PATCH")).toHaveLength(1);
+    expect(apiFetch.mock.calls.filter(([path, init]) => path === profilePath && init?.method === "PUT")).toHaveLength(2);
+    for (const step of ["variants", "knowledge", "identity-locks"]) {
+      expect(apiFetch.mock.calls.filter(([path, init]) => path === `${recordPath}/${step}` && init?.method === "PUT")).toHaveLength(1);
+    }
+    expect(apiFetch).toHaveBeenCalledWith(
+      `${recordPath}/context-snapshot/auto-sync`,
+      expect.objectContaining({ body: JSON.stringify({ expected_version: 3 }) }),
+    );
+  });
+
   it("refuses a Character metadata retry when another editor changed the Canon version after the profile write", async () => {
     const recordPath = "/v1/editorial/canon-records/canon-character";
     const profilePath = "/v1/editorial/profiles/character/canon-character";

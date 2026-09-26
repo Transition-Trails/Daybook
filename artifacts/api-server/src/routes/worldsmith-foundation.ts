@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
   db, wsAssetsTable, wsAssetLinksTable, wsSceneAnchorsTable, wsStoryBeatsTable,
@@ -11,7 +12,7 @@ import {
   wsStorySceneDetailsTable, wsCharacterProfilesTable, wsLocationProfilesTable,
   wsObjectProfilesTable, wsEventProfilesTable, wsLoreProfilesTable,
   wsAtmosphereProfilesTable, wsMotifProfilesTable, wsStoriesTable,
-  canonProfileSchemas, worldsmithWorldsTable,
+  canonProfileSchemas, worldsmithWorldsTable, mcpCanonHistoryTable,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth-middleware";
 import { requireSuperAdmin } from "../middleware/requireRole";
@@ -566,6 +567,11 @@ for (const [name, table] of [["character", wsCharacterProfilesTable], ["location
       res.status(400).json({ error: "expected_version must be a positive integer", code: "INVALID_VERSION" });
       return;
     }
+    const requestId = req.body.request_id === undefined ? undefined : z.string().uuid().safeParse(req.body.request_id);
+    if (requestId && (!requestId.success || name !== "character" || !expectedVersion?.success)) {
+      res.status(400).json({ error: "request_id requires a Character profile and expected_version", code: "INVALID_REQUEST_ID" });
+      return;
+    }
     const parsed = schema.safeParse(req.body.profile ?? req.body);
     if (!worldId || !schemaVersion.success || !parsed.success) {
       res.status(400).json({ error: "world_id, schema_version, and a valid typed profile are required" }); return;
@@ -585,6 +591,7 @@ for (const [name, table] of [["character", wsCharacterProfilesTable], ["location
           expectedVersion?.data,
           schemaVersion.data,
           true,
+          requestId?.data,
         );
         res.json({
           profile: { recordId: String(req.params.recordId), schemaVersion: schemaVersion.data, profile: result.profile },
@@ -593,6 +600,34 @@ for (const [name, table] of [["character", wsCharacterProfilesTable], ["location
         });
       } catch (error) {
         if (error instanceof CanonToolError) {
+          // A response can be lost after the transaction commits. Only acknowledge
+          // the exact write identified by this request, at its resulting version.
+          if (error.code === "VERSION_CONFLICT" && requestId?.success && expectedVersion?.success) {
+            const reconciled = await db.transaction(async tx => {
+              const [current] = await tx.select({ version: wsCanonRecordsTable.version }).from(wsCanonRecordsTable)
+                .where(and(eq(wsCanonRecordsTable.id, String(req.params.recordId)), eq(wsCanonRecordsTable.worldId, worldId)))
+                .for("update").limit(1);
+              if (current?.version !== expectedVersion.data + 1) return null;
+              const [history] = await tx.select().from(mcpCanonHistoryTable)
+                .where(eq(mcpCanonHistoryTable.id, requestId.data)).limit(1);
+              const [profile] = await tx.select().from(wsCharacterProfilesTable)
+                .where(eq(wsCharacterProfilesTable.recordId, String(req.params.recordId))).limit(1);
+              if (history?.recordId !== String(req.params.recordId)
+                || history.actorUserId !== String((req.user as { id?: string } | undefined)?.id ?? "")
+                || history.changeType !== "character_profile"
+                || profile?.schemaVersion !== schemaVersion.data
+                || !isDeepStrictEqual(history.after, profile.profile)
+                || !isDeepStrictEqual(history.after, parsed.data)) return null;
+              return { version: current.version, profile: profile.profile };
+            });
+            if (reconciled) {
+              res.json({
+                profile: { recordId: String(req.params.recordId), schemaVersion: schemaVersion.data, profile: reconciled.profile },
+                schemaVersion: schemaVersion.data, version: reconciled.version, reconciled: true,
+              });
+              return;
+            }
+          }
           res.status(error.status).json({ error: error.message, code: error.code });
           return;
         }

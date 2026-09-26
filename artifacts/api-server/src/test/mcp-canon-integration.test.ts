@@ -88,10 +88,25 @@ describe("Canon MCP / editorial save integration", () => {
         .send({ world_id: world.id, schema_version: 1, expected_version: version, profile: {} });
       expect(staleEditor.status).toBe(409);
 
+      const requestId = randomUUID();
+      const profileWrite = { world_id: world.id, schema_version: 1, expected_version: version + 1, request_id: requestId, profile: {} };
       const replaced = await request(api)
         .put(`/api/v1/editorial/profiles/character/${recordId}`)
-        .send({ world_id: world.id, schema_version: 1, expected_version: version + 1, profile: {} });
+        .send(profileWrite);
       expect(replaced.status).toBe(200);
+      // The client has no response and sends the same write again.
+      const replay = await request(api)
+        .put(`/api/v1/editorial/profiles/character/${recordId}`).send(profileWrite);
+      expect(replay.status).toBe(200);
+      expect(replay.body).toMatchObject({ version: version + 2, reconciled: true });
+      const wrongRequest = await request(api)
+        .put(`/api/v1/editorial/profiles/character/${recordId}`)
+        .send({ ...profileWrite, request_id: randomUUID() });
+      expect(wrongRequest.status).toBe(409);
+      const wrongPayload = await request(api)
+        .put(`/api/v1/editorial/profiles/character/${recordId}`)
+        .send({ ...profileWrite, profile: { pronouns: "she/her" } });
+      expect(wrongPayload.status).toBe(409);
       const after = await rpc("get_canon_record", { record_id: recordId });
       expect(after.body.result.structuredContent.version).toBe(version + 2);
       expect(after.body.result.structuredContent.workflow_status).toBe("proposed");
@@ -106,6 +121,9 @@ describe("Canon MCP / editorial save integration", () => {
         changes: { pronouns: "Temporary verification" },
       });
       expect(temporary.body.result.structuredContent.character_profile).toEqual({ pronouns: "Temporary verification" });
+      const afterOtherEditor = await request(api)
+        .put(`/api/v1/editorial/profiles/character/${recordId}`).send(profileWrite);
+      expect(afterOtherEditor.status).toBe(409);
       const restored = await rpc("update_canon_record", {
         record_id: recordId, expected_revision: version + 3,
         changes: { pronouns: null },

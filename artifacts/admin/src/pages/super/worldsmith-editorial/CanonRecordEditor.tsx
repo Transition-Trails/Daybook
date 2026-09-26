@@ -711,6 +711,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     latestRecord: CanonRecord;
     assetsSynced: boolean;
     profileSynced: boolean;
+    profileRequestId?: string;
     error: string;
   } | null>(null);
   const [retryingMetadata, setRetryingMetadata] = useState(false);
@@ -1053,7 +1054,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               body: JSON.stringify({
                 world_id: worldId,
                 schema_version: 1,
-                ...(savedForm.canonType === "character" ? { expected_version: latestRecord.version } : {}),
+                ...(savedForm.canonType === "character" ? {
+                  expected_version: latestRecord.version,
+                  request_id: pending.profileRequestId,
+                } : {}),
                 profile: profilePayload
               })
             });
@@ -1189,7 +1193,12 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     setRetryingMetadata(true);
     try {
       const current = await apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${pendingMetadata.result.canon_record.id}`);
-      if (current.canon_record.version !== pendingMetadata.latestRecord.version) {
+      const expected = pendingMetadata.latestRecord.version;
+      const canReconcileProfile = pendingMetadata.savedForm.canonType === "character"
+        && !pendingMetadata.profileSynced
+        && !!pendingMetadata.profileRequestId
+        && current.canon_record.version === expected + 1;
+      if (current.canon_record.version !== expected && !canReconcileProfile) {
         setPendingMetadata(previous => previous && { ...previous, error: "This record changed since it was saved. Reload before syncing metadata." });
         return;
       }
@@ -1253,7 +1262,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
       for (const url of currentImageUrls) provisionalPortraitsRef.current.delete(url);
       initialImagesRef.current = currentImageUrls;
       queryClient.setQueryData(["editorial-canon-record", savedRecordId], result);
-      await finishMetadataSync({ result, savedForm: form, latestRecord: result.canon_record, assetsSynced: false, profileSynced: false, error: "" });
+      await finishMetadataSync({
+        result, savedForm: form, latestRecord: result.canon_record, assetsSynced: false, profileSynced: false,
+        profileRequestId: form.canonType === "character" ? crypto.randomUUID() : undefined, error: "",
+      });
     },
     onError: async (error: Error) => {
       await Promise.all([...provisionalPortraitsRef.current].map(path => storageApi.deleteObject(path).catch(() => undefined)));

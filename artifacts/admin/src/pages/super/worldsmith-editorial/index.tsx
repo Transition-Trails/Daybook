@@ -27,3 +27,4 @@ export { default as Collections } from "./Collections";
 export { default as ProductionProfiles } from "./ProductionProfiles";
 export { default as PunchTemplates } from "./PunchTemplates";
 export { default as EditorialReviewQueue } from "./EditorialReviewQueue";
+export { default as Vocabularies } from "./Vocabularies";

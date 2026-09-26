@@ -11,7 +11,7 @@ import {
   wsStorySceneDetailsTable, wsCharacterProfilesTable, wsLocationProfilesTable,
   wsObjectProfilesTable, wsEventProfilesTable, wsLoreProfilesTable,
   wsAtmosphereProfilesTable, wsMotifProfilesTable, wsStoriesTable,
-  canonProfileSchemas,
+  canonProfileSchemas, worldsmithWorldsTable,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth-middleware";
 import { requireSuperAdmin } from "../middleware/requireRole";
@@ -46,6 +46,29 @@ const anchorDetails = z.object({
 }).strict();
 const vocab = world.extend({ key: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/), label: z.string().min(1).max(160), description: text.default(""), scope: z.enum(["global", "world"]).default("world"), version: z.number().int().positive().default(1), active: z.boolean().default(true) });
 const option = z.object({ vocabulary_id: id, key: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/), label: z.string().min(1).max(160), description: text.default(""), display_order: z.number().int().default(0), version: z.number().int().positive().default(1), active: z.boolean().default(true), world_id: id.nullish() });
+const managedVocabularyCreate = z.object({
+  world_id: id,
+  key: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/),
+  label: z.string().min(1).max(160),
+  description: text.default(""),
+}).strict();
+const managedOptionCreate = z.object({
+  world_id: id,
+  vocabulary_id: id,
+  key: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/),
+  label: z.string().min(1).max(160),
+  description: text.default(""),
+}).strict();
+const managedVocabularyPatch = z.object({
+  world_id: id,
+  expected_version: z.number().int().positive(),
+  label: z.string().min(1).max(160).optional(),
+  description: text.optional(),
+  active: z.boolean().optional(),
+}).strict().refine(({ label, description, active }) =>
+  label !== undefined || description !== undefined || active !== undefined,
+  { message: "Provide at least one of label, description, or active" },
+);
 const recordRef = world.extend({ record_id: id });
 const alias = recordRef.extend({ alias: z.string().min(1).max(240), kind: z.string().max(80).default("alternate") });
 const fact = recordRef.extend({ subject: z.string().min(1).max(240), predicate: z.string().min(1).max(160), value: text, status: z.string().default("proposed"), confidence: z.string().nullish(), visibility: z.string().nullish(), source_citation_ids: strings.default([]) });
@@ -293,6 +316,202 @@ async function replaceRows(
     res.status(409).json({ error: "Unable to replace repeater rows" });
   }
 }
+
+const vocabularyManagementPath = "/v1/editorial/vocabulary-management";
+
+async function worldExists(worldId: string): Promise<boolean> {
+  const [row] = await db.select({ id: worldsmithWorldsTable.id })
+    .from(worldsmithWorldsTable)
+    .where(eq(worldsmithWorldsTable.id, worldId))
+    .limit(1);
+  return !!row;
+}
+
+function isUniqueConstraintViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; cause?: { code?: unknown } };
+  return candidate.code === "23505" || candidate.cause?.code === "23505";
+}
+
+router.post(`${vocabularyManagementPath}/vocabularies`, async (req: Request, res: Response): Promise<void> => {
+  const parsed = managedVocabularyCreate.safeParse(req.body);
+  if (!parsed.success) { bad(res, parsed); return; }
+  const { world_id, key, label, description } = parsed.data;
+  if (!(await worldExists(world_id))) {
+    res.status(404).json({ error: `World '${world_id}' does not exist`, code: "WORLD_NOT_FOUND" });
+    return;
+  }
+  try {
+    const [vocabulary] = await db.insert(wsVocabulariesTable).values({
+      id: randomUUID(), worldId: world_id, key, label, description, scope: "world", active: true, version: 1,
+    }).returning();
+    res.status(201).json({ vocabulary });
+  } catch (error) {
+    if (!isUniqueConstraintViolation(error)) throw error;
+    res.status(409).json({ error: `Vocabulary key '${key}' already exists in world '${world_id}'`, code: "DUPLICATE_KEY" });
+  }
+});
+
+router.post(`${vocabularyManagementPath}/options`, async (req: Request, res: Response): Promise<void> => {
+  const parsed = managedOptionCreate.safeParse(req.body);
+  if (!parsed.success) { bad(res, parsed); return; }
+  const { world_id, vocabulary_id, key, label, description } = parsed.data;
+  if (!(await worldExists(world_id))) {
+    res.status(404).json({ error: `World '${world_id}' does not exist`, code: "WORLD_NOT_FOUND" });
+    return;
+  }
+  const [vocabulary] = await db.select().from(wsVocabulariesTable)
+    .where(eq(wsVocabulariesTable.id, vocabulary_id)).limit(1);
+  if (!vocabulary) {
+    res.status(404).json({ error: `Vocabulary '${vocabulary_id}' was not found`, code: "VOCABULARY_NOT_FOUND" });
+    return;
+  }
+  if (vocabulary.scope !== "world") {
+    res.status(409).json({
+      error: "Options cannot be added to a global vocabulary through world-scoped vocabulary management",
+      code: "IMMUTABLE_SCOPE",
+    });
+    return;
+  }
+  if (vocabulary.worldId !== world_id) {
+    res.status(404).json({
+      error: "Options can only be added to a world-scoped vocabulary in the requested world",
+      code: "VOCABULARY_SCOPE_MISMATCH",
+    });
+    return;
+  }
+  try {
+    const [optionRow] = await db.insert(wsVocabularyOptionsTable).values({
+      id: randomUUID(), vocabularyId: vocabulary_id, worldId: world_id,
+      key, label, description, displayOrder: 0, active: true, version: 1,
+    }).returning();
+    res.status(201).json({ option: optionRow });
+  } catch (error) {
+    if (!isUniqueConstraintViolation(error)) throw error;
+    res.status(409).json({
+      error: `Option key '${key}' already exists for vocabulary '${vocabulary_id}' in world '${world_id}'`,
+      code: "DUPLICATE_KEY",
+    });
+  }
+});
+
+async function patchManagedVocabulary(
+  req: Request,
+  res: Response,
+  kind: "vocabulary" | "option",
+): Promise<void> {
+  const parsed = managedVocabularyPatch.safeParse(req.body);
+  if (!parsed.success) { bad(res, parsed); return; }
+  const { world_id, expected_version, ...changes } = parsed.data;
+  const resourceId = String(req.params.id);
+
+  if (!(await worldExists(world_id))) {
+    res.status(404).json({ error: `World '${world_id}' does not exist`, code: "WORLD_NOT_FOUND" });
+    return;
+  }
+
+  if (kind === "vocabulary") {
+    const [existing] = await db.select().from(wsVocabulariesTable)
+      .where(eq(wsVocabulariesTable.id, resourceId)).limit(1);
+    if (!existing) {
+      res.status(404).json({ error: "Vocabulary was not found", code: "NOT_FOUND" });
+      return;
+    }
+    if (existing.scope !== "world" || existing.worldId == null) {
+      res.status(409).json({
+        error: "Global vocabularies cannot be edited through world-scoped vocabulary management",
+        code: "IMMUTABLE_SCOPE",
+      });
+      return;
+    }
+    if (existing.worldId !== world_id) {
+      res.status(404).json({ error: "Vocabulary was not found in the requested world", code: "NOT_FOUND" });
+      return;
+    }
+    if (existing.version !== expected_version) {
+      res.status(409).json({
+        error: `Version conflict: expected version ${expected_version}, current version is ${existing.version}`,
+        code: "VERSION_CONFLICT",
+        current_version: existing.version,
+      });
+      return;
+    }
+    const [vocabulary] = await db.update(wsVocabulariesTable)
+      .set({ ...changes, version: expected_version + 1, updatedAt: new Date() })
+      .where(and(
+        eq(wsVocabulariesTable.id, resourceId),
+        eq(wsVocabulariesTable.worldId, world_id),
+        eq(wsVocabulariesTable.scope, "world"),
+        eq(wsVocabulariesTable.version, expected_version),
+      )).returning();
+    if (!vocabulary) {
+      res.status(409).json({
+        error: "Version conflict: the vocabulary changed while this update was being saved",
+        code: "VERSION_CONFLICT",
+      });
+      return;
+    }
+    res.json({ vocabulary });
+    return;
+  }
+
+  const [existing] = await db.select().from(wsVocabularyOptionsTable)
+    .where(eq(wsVocabularyOptionsTable.id, resourceId)).limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "Vocabulary option was not found", code: "NOT_FOUND" });
+    return;
+  }
+  if (existing.worldId == null) {
+    res.status(409).json({
+      error: "Global vocabulary options cannot be edited through world-scoped vocabulary management",
+      code: "IMMUTABLE_SCOPE",
+    });
+    return;
+  }
+  if (existing.worldId !== world_id) {
+    res.status(404).json({ error: "Vocabulary option was not found in the requested world", code: "NOT_FOUND" });
+    return;
+  }
+  const [parentVocabulary] = await db.select().from(wsVocabulariesTable)
+    .where(eq(wsVocabulariesTable.id, existing.vocabularyId)).limit(1);
+  if (!parentVocabulary || parentVocabulary.scope !== "world" || parentVocabulary.worldId !== world_id) {
+    res.status(409).json({
+      error: "Vocabulary options can only be managed under a world-scoped vocabulary in the same world",
+      code: "VOCABULARY_SCOPE_MISMATCH",
+    });
+    return;
+  }
+  if (existing.version !== expected_version) {
+    res.status(409).json({
+      error: `Version conflict: expected version ${expected_version}, current version is ${existing.version}`,
+      code: "VERSION_CONFLICT",
+      current_version: existing.version,
+    });
+    return;
+  }
+  const [optionRow] = await db.update(wsVocabularyOptionsTable)
+    .set({ ...changes, version: expected_version + 1, updatedAt: new Date() })
+    .where(and(
+      eq(wsVocabularyOptionsTable.id, resourceId),
+      eq(wsVocabularyOptionsTable.worldId, world_id),
+      eq(wsVocabularyOptionsTable.version, expected_version),
+    )).returning();
+  if (!optionRow) {
+    res.status(409).json({
+      error: "Version conflict: the vocabulary option changed while this update was being saved",
+      code: "VERSION_CONFLICT",
+    });
+    return;
+  }
+  res.json({ option: optionRow });
+}
+
+router.patch(`${vocabularyManagementPath}/vocabularies/:id`, async (req: Request, res: Response): Promise<void> => {
+  await patchManagedVocabulary(req, res, "vocabulary");
+});
+router.patch(`${vocabularyManagementPath}/options/:id`, async (req: Request, res: Response): Promise<void> => {
+  await patchManagedVocabulary(req, res, "option");
+});
 
 router.get("/v1/editorial/vocabularies", async (req, res) => { const w = typeof req.query.world_id === "string" ? req.query.world_id : ""; const vocabularies = await db.select().from(wsVocabulariesTable).where(w ? or(eq(wsVocabulariesTable.scope, "global"), eq(wsVocabulariesTable.worldId, w)) : eq(wsVocabulariesTable.scope, "global")).orderBy(wsVocabulariesTable.key); const options = await db.select().from(wsVocabularyOptionsTable).where(w ? or(isNull(wsVocabularyOptionsTable.worldId), eq(wsVocabularyOptionsTable.worldId, w)) : isNull(wsVocabularyOptionsTable.worldId)).orderBy(wsVocabularyOptionsTable.displayOrder); res.json({ vocabularies, options }); });
 router.post("/v1/editorial/vocabularies", async (req: Request, res: Response): Promise<void> => { const p = vocab.safeParse(req.body); if (!p.success) { bad(res, p); return; } try { const result = await db.insert(wsVocabulariesTable).values(mapFields(p.data, wsVocabulariesTable) as any).returning() as any[]; res.status(201).json({ vocabulary: result[0] }); } catch { res.status(409).json({ error: "Vocabulary key already exists" }); } });

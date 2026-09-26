@@ -9,7 +9,7 @@ import {
   LayoutDashboard, FileText, BookOpen, Puzzle, Layers, GitBranch, ScrollText,
   ChevronDown, Globe, Plus, ArrowLeft, CheckCircle2, Circle, Square,
   Loader2, RefreshCw, Sparkles, Network, PanelLeftClose, PanelLeftOpen, SlidersHorizontal,
-  Ruler,
+  Ruler, ListChecks,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { EditorialProvider, useEditorial, type WorldRecord } from "@/contexts/EditorialContext";
@@ -20,7 +20,7 @@ import { worldsmithStorage } from "@/lib/worldsmith/storage";
 
 interface EditorialShellProps {
   children: ReactNode;
-  activePage?: "board" | "bible" | "stories" | "connections" | "specs" | "canon" | "collections" | "style-guides" | "component-specs" | "modules" | "image-targets" | "production-profiles" | "punch-templates" | "discoveries";
+  activePage?: "board" | "bible" | "stories" | "connections" | "specs" | "canon" | "vocabularies" | "collections" | "style-guides" | "component-specs" | "modules" | "image-targets" | "production-profiles" | "punch-templates" | "discoveries";
 }
 
 export interface EditorialPageFilters {
@@ -62,6 +62,7 @@ const PAGE_LABELS: Record<string, string> = {
   connections: "Story Map",
   specs: "Production Specs",
   canon: "Canon Records",
+  vocabularies: "Vocabularies",
   collections: "Collections & Volumes",
   "style-guides": "Style Guides",
   "component-specs": "Component Specs",
@@ -687,6 +688,7 @@ function ShellInner({ children, activePage = "board" }: EditorialShellProps) {
           {navItem("Story Map", Network, "/super/worldsmith/editorial/connections", "connections")}
           {navItem("Storylines & Scenes", GitBranch, "/super/worldsmith/editorial/stories", "stories")}
           {navItem("Canon Records", ScrollText, "/super/worldsmith/editorial/canon", "canon")}
+          {navItem("Vocabularies", ListChecks, "/super/worldsmith/editorial/vocabularies", "vocabularies")}
 
           {!drawerCollapsed && (
             <p className="text-[10px] uppercase tracking-widest text-gray-400 px-2 pt-5 mb-2 font-medium">

@@ -13,22 +13,40 @@ export function useVocabularies(worldId?: string) {
     queryFn: () => 
       apiFetch<{ vocabularies: any[]; options: any[] }>(`/v1/editorial/vocabularies${worldId ? `?world_id=${worldId}` : ""}`)
         .then(res => {
-          const vocabMap = new Map();
-          res.vocabularies?.forEach(v => vocabMap.set(v.id, v.key));
-          
-          const grouped: Record<string, { key: string; label: string; group?: string; active: boolean; description?: string; version?: number }[]> = {};
+          const vocabMap = new Map<string, { key: string; active: boolean; isWorld: boolean }>();
+          res.vocabularies?.forEach(v => vocabMap.set(v.id, {
+            key: v.key,
+            active: v.active !== false,
+            isWorld: v.scope === "world" || (v.worldId != null && v.worldId === worldId),
+          }));
+
+          const grouped: Record<string, { key: string; label: string; group?: string; active: boolean; description?: string; version?: number; isWorld?: boolean }[]> = {};
+          vocabMap.forEach(vocabulary => {
+            if (!grouped[vocabulary.key]) grouped[vocabulary.key] = [];
+          });
           res.options?.forEach(opt => {
-            const vKey = vocabMap.get(opt.vocabularyId);
-            if (!vKey) return;
-            if (!grouped[vKey]) grouped[vKey] = [];
-            grouped[vKey].push({
+            const parent = vocabMap.get(opt.vocabularyId);
+            if (!parent) return;
+            if (!grouped[parent.key]) grouped[parent.key] = [];
+            grouped[parent.key].push({
               key: opt.key,
               label: opt.label,
               description: opt.description,
               version: opt.version,
-              active: opt.active !== false,
+              active: opt.active !== false && parent.active,
+              isWorld: parent.isWorld || (opt.worldId != null && opt.worldId === worldId),
             });
           });
+          // If a world-specific option shares a key with an inherited option, keep
+          // the world row (including its inactive state) as the canonical choice.
+          for (const key of Object.keys(grouped)) {
+            const optionsByKey = new Map<string, typeof grouped[string][number]>();
+            for (const option of grouped[key]) {
+              const existing = optionsByKey.get(option.key);
+              if (!existing || option.isWorld || !existing.isWorld) optionsByKey.set(option.key, option);
+            }
+            grouped[key] = [...optionsByKey.values()];
+          }
           return { vocabularies: grouped };
         })
         .catch(() => ({ vocabularies: {} as Record<string, { key: string; label: string; group?: string; active: boolean; description?: string; version?: number }[]> })),
@@ -42,17 +60,8 @@ function useMergedOptions(vocabKey?: string, staticOptions: { key: string; label
     if (!vocabKey || !data?.vocabularies || !(vocabKey in data.vocabularies)) {
       return staticOptions.filter(o => includeInactive || o.active !== false);
     }
-    const remoteOptions = (data.vocabularies as any)[vocabKey] || [];
-    const merged = [...staticOptions];
-    for (const ro of remoteOptions) {
-      const existingIdx = merged.findIndex(o => o.key === ro.key);
-      if (existingIdx >= 0) {
-        merged[existingIdx] = { ...merged[existingIdx], ...ro };
-      } else {
-        merged.push(ro);
-      }
-    }
-    return merged.filter(o => includeInactive || o.active !== false);
+    const remoteOptions = data.vocabularies[vocabKey] || [];
+    return remoteOptions.filter(o => includeInactive || o.active !== false);
   }, [vocabKey, staticOptions, data, includeInactive]);
 }
 

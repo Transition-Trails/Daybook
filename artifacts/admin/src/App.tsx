@@ -156,6 +156,7 @@ import {
   ComponentSpecs,
   Collections,
   EditorialReviewQueue,
+  Vocabularies,
 } from "@/pages/super/worldsmith-editorial";
 
 import ProductionProfiles from "@/pages/super/worldsmith-editorial/ProductionProfiles";
@@ -426,6 +427,11 @@ function RootRouter() {
       <Route path="/super/worldsmith/editorial/canon">
         <RequireSuperAdmin state={state}>
           <EditorialShell activePage="canon"><CanonLibrary /></EditorialShell>
+        </RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/editorial/vocabularies">
+        <RequireSuperAdmin state={state}>
+          <EditorialShell activePage="vocabularies"><Vocabularies /></EditorialShell>
         </RequireSuperAdmin>
       </Route>
       <Route path="/super/worldsmith/editorial/style-guides/new">

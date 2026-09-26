@@ -906,7 +906,7 @@ describe("authenticated user with no store membership — store routes 403", () 
         style: { composition: { version: 1, placements: [{ widgetId: "known-store-widget" }] } },
       });
     expect(res.status).toBe(403);
-    expect(res.body).toEqual({ error: "Forbidden: store staff membership required" });
+    expect(res.body).toEqual({ error: "Forbidden: store membership required" });
   });
 
   it("POST /api/planners/preview → 403 before a non-member can resolve store assets", async () => {
@@ -924,7 +924,7 @@ describe("authenticated user with no store membership — store routes 403", () 
         },
       });
     expect(res.status).toBe(403);
-    expect(res.body).toEqual({ error: "Forbidden: store staff membership required" });
+    expect(res.body).toEqual({ error: "Forbidden: store membership required" });
   });
 });
 

@@ -7,6 +7,7 @@ import {
   db,
   pool,
   wsCanonRecordsTable,
+  wsAssetsTable,
   mcpCanonHistoryTable,
   wsCollectionsTable,
   wsComponentSpecsTable,
@@ -50,6 +51,7 @@ const recordIds = {
   archiveSuccess: `snapshot-archive-success-${run}`,
   archiveFailure: `snapshot-archive-failure-${run}`,
   versionedPatch: `snapshot-versioned-patch-${run}`,
+  imageRoles: `snapshot-image-roles-${run}`,
 };
 const allRecordIds = Object.values(recordIds);
 
@@ -84,6 +86,7 @@ beforeAll(async () => {
     { id: recordIds.archiveSuccess, worldId, name: "Archive Success", status: "accepted", canonType: "location" },
     { id: recordIds.archiveFailure, worldId, name: "Archive Failure", status: "accepted", canonType: "character" },
     { id: recordIds.versionedPatch, worldId, name: "Versioned Patch", status: "accepted", canonType: "character" },
+    { id: recordIds.imageRoles, worldId, name: "Image Roles", status: "under_review", canonType: "location" },
   ]);
   await db.insert(wsContextSnapshotsTable).values(allRecordIds.map(entityId => ({
     entityType: "canon_record",
@@ -95,6 +98,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(wsAssetsTable).where(eq(wsAssetsTable.recordId, recordIds.imageRoles));
   await db.delete(mcpCanonHistoryTable).where(inArray(mcpCanonHistoryTable.recordId, allRecordIds));
   await db.delete(wsContextSnapshotsTable).where(inArray(wsContextSnapshotsTable.entityId, allRecordIds));
   await db.delete(wsCanonRecordsTable).where(inArray(wsCanonRecordsTable.id, allRecordIds));
@@ -107,6 +111,85 @@ beforeEach(() => {
 });
 
 describe("governed Context Snapshot routes", () => {
+  it("loads status without downloading images, and gives review guidance for missing or draft primaries", async () => {
+    const first = "/objects/uploads/snapshot-image-one";
+    const second = "/objects/uploads/snapshot-image-two";
+    await db.update(wsCanonRecordsTable).set({
+      imageGallery: [
+        { url: first, name: "First", description: "", role: "reference" },
+        { url: second, name: "Second", description: "", role: "reference" },
+      ],
+      portraitUrl: first,
+    }).where(eq(wsCanonRecordsTable.id, recordIds.imageRoles));
+    await db.insert(wsAssetsTable).values([
+      { id: `snapshot-asset-one-${run}`, worldId, recordId: recordIds.imageRoles, role: "reference", title: "First", objectPath: first, source: "upload", approvalStatus: "approved", canonicalStrength: "reference" },
+      { id: `snapshot-asset-two-${run}`, worldId, recordId: recordIds.imageRoles, role: "reference", title: "Second", objectPath: second, source: "upload", approvalStatus: "approved", canonicalStrength: "reference" },
+    ]);
+
+    const missing = await request(app).get(`/v1/editorial/canon-records/${recordIds.imageRoles}/context-snapshot`);
+    expect(missing.status).toBe(200);
+    expect(missing.body.snapshot.status).toBe("blocked");
+    expect(missing.body.snapshot.imageIssue).toMatchObject({ recordId: recordIds.imageRoles, message: expect.stringContaining("designated as primary") });
+    expect(missing.body.snapshot.githubPath).toContain("image-roles");
+    const invalidSave = await request(app)
+      .patch(`/v1/editorial/canon-records/${recordIds.imageRoles}`)
+      .send({ image_gallery: [
+        { url: first, role: "reference" },
+        { url: second, role: "reference" },
+      ] });
+    expect(invalidSave.status).toBe(400);
+
+    await db.update(wsCanonRecordsTable).set({
+      imageGallery: [
+        { url: first, name: "First", description: "", role: "primary" },
+        { url: second, name: "Second", description: "", role: "reference" },
+      ],
+    }).where(eq(wsCanonRecordsTable.id, recordIds.imageRoles));
+    await db.update(wsAssetsTable).set({ role: "primary", approvalStatus: "draft" })
+      .where(eq(wsAssetsTable.objectPath, first));
+    const draft = await request(app).get(`/v1/editorial/canon-records/${recordIds.imageRoles}/context-snapshot`);
+    expect(draft.body.snapshot.status).toBe("blocked");
+    expect(draft.body.snapshot.imageIssue.message).toContain("not approved for export");
+
+    await db.update(wsAssetsTable).set({ approvalStatus: "approved" }).where(eq(wsAssetsTable.objectPath, first));
+    const valid = await request(app).get(`/v1/editorial/canon-records/${recordIds.imageRoles}/context-snapshot`);
+    expect(valid.status).toBe(200);
+    expect(valid.body.snapshot.status).toBe("not_generated");
+    expect(valid.body.snapshot.imageIssue).toBeNull();
+    await db.delete(wsAssetsTable).where(eq(wsAssetsTable.recordId, recordIds.imageRoles));
+    await db.update(wsCanonRecordsTable).set({ imageGallery: [], portraitUrl: null })
+      .where(eq(wsCanonRecordsTable.id, recordIds.imageRoles));
+  });
+
+  it("does not auto-publish an accepted record's newly uploaded primary before its draft asset is saved", async () => {
+    const imagePath = "/objects/uploads/unsynced-primary";
+    await db.update(wsCanonRecordsTable).set({ status: "accepted" })
+      .where(eq(wsCanonRecordsTable.id, recordIds.imageRoles));
+    try {
+      const saved = await request(app)
+        .patch(`/v1/editorial/canon-records/${recordIds.imageRoles}`)
+        .send({ image_gallery: [{ url: imagePath, role: "primary" }], portrait_url: imagePath });
+      expect(saved.status).toBe(200);
+      expect(saved.body.context_snapshot_status).toBe("sync_failed");
+      expect(mockPublish).not.toHaveBeenCalled();
+
+      const status = await request(app).get(`/v1/editorial/canon-records/${recordIds.imageRoles}/context-snapshot`);
+      expect(status.status).toBe(200);
+      expect(status.body.snapshot.status).toBe("blocked");
+      expect(status.body.snapshot.imageIssue).toMatchObject({
+        recordId: recordIds.imageRoles,
+        message: expect.stringContaining("no approved asset metadata"),
+      });
+      const manual = await request(app).post(`/v1/editorial/canon-records/${recordIds.imageRoles}/context-snapshot`);
+      expect(manual.status).toBe(409);
+      expect(manual.body.code).toBe("CANON_IMAGE_DESIGNATION_REQUIRED");
+      expect(mockPublish).not.toHaveBeenCalled();
+    } finally {
+      await db.update(wsCanonRecordsTable).set({ status: "under_review", imageGallery: [], portraitUrl: null })
+        .where(eq(wsCanonRecordsTable.id, recordIds.imageRoles));
+    }
+  });
+
   it("persists policy changes without publishing", async () => {
     const response = await request(app)
       .patch(`/v1/editorial/canon-records/${recordIds.transition}/context-snapshot`)

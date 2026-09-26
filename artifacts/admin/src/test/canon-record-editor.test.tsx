@@ -280,7 +280,8 @@ describe("CanonRecordEditor", () => {
 
     renderEditor("canon-1");
     await waitFor(() => expect(screen.getByAltText("Additional Canon image 1")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Remove primary Canon portrait" }));
+    fireEvent.click(screen.getByRole("button", { name: "Make image 2 primary" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Asset" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
@@ -684,6 +685,40 @@ describe("CanonRecordEditor", () => {
       { method: "POST" },
     ));
     await waitFor(() => expect(screen.getByText("current")).toBeInTheDocument());
+  });
+
+  it("does not mislabel reference images as primary and guides editors when snapshot images are blocked", async () => {
+    apiFetch.mockImplementation((path: string) => {
+      if (path.endsWith("/specs")) return Promise.resolve({ specs: [] });
+      if (path.endsWith("/context-snapshot")) return Promise.resolve({
+        snapshot: {
+          status: "blocked", githubPath: "worlds/wyc/context/canon/locations/canon-1-nursery.md",
+          autoSync: false, autoSyncUnaccepted: false,
+          imageIssue: { recordId: "canon-1", recordName: "Nursery", message: "Multiple Canon images require one image designated as primary." },
+        },
+      });
+      if (path.includes("/canon-records/canon-1")) return Promise.resolve({
+        canon_record: {
+          id: "canon-1", worldId: "world-wychcombe", name: "Nursery", version: 1,
+          status: "accepted", canonType: "location", narrativeDetails: "", historicalContext: "",
+          visualNotes: "", notes: "", portraitUrl: null, specRefCount: 0,
+          imageGallery: [
+            { url: "/objects/one", role: "reference", name: "One", description: "" },
+            { url: "/objects/two", role: "reference", name: "Two", description: "" },
+          ],
+          createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z",
+        },
+      });
+      return Promise.resolve({});
+    });
+    renderEditor("canon-1");
+    expect(await screen.findByText("blocked")).toBeInTheDocument();
+    expect(screen.getByText(/No primary image is designated/)).toBeInTheDocument();
+    expect(screen.getByText(/Snapshot updates are blocked/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update Context Snapshot" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Make Two primary" }));
+    expect(screen.queryByText(/No primary image is designated/)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Primary Canon image" })).toBeInTheDocument();
   });
 
   it("lets operators enable accepted-only automatic snapshot updates", async () => {

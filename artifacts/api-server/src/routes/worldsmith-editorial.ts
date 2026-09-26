@@ -123,8 +123,9 @@ import {
 import {
   assignCanonImageRoles,
   buildCanonImageExport,
-  enforceCanonImageOrder,
+  CanonImageDesignationError,
   normaliseCanonImageRole,
+  validateCanonImageDesignations,
   type CanonImageRole,
 } from "../lib/worldsmith/context-snapshot-images";
 import { compileCharacterContext, compileEnvironmentContext, compileStoryContext } from "../lib/worldsmith/field-context";
@@ -1380,7 +1381,7 @@ function normaliseCanonImageGallery(
       }];
     });
     try {
-      return assignCanonImageRoles(enforceCanonImageOrder(parsed)).map(image => ({
+      return assignCanonImageRoles(parsed).sort((a, b) => Number(b.role === "primary") - Number(a.role === "primary")).map(image => ({
         url: image.url,
         name: image.name ?? "",
         description: image.description ?? "",
@@ -2365,29 +2366,53 @@ function removeExpiredContextSnapshotJobs() {
 
 router.get("/v1/editorial/canon-records/:id/context-snapshot", async (req: Request, res: Response) => {
   try {
-    const built = await buildCanonContextSnapshot(req.params.id as string);
-    if (!built) { res.status(404).json({ error: "Canon record not found" }); return; }
+    const [record] = await db.select().from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, req.params.id as string)).limit(1);
+    if (!record) { res.status(404).json({ error: "Canon record not found" }); return; }
+    const worldRecords = await db.select().from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.worldId, record.worldId));
+    const worldAssets = await db.select().from(wsAssetsTable)
+      .where(eq(wsAssetsTable.worldId, record.worldId));
+    const assetsByRecord = new Map<string, typeof worldAssets>();
+    for (const asset of worldAssets) {
+      const list = assetsByRecord.get(asset.recordId) ?? [];
+      list.push(asset);
+      assetsByRecord.set(asset.recordId, list);
+    }
+    let imageIssue: { recordId: string; recordName: string; message: string } | null = null;
+    try {
+      validateCanonImageDesignations(worldRecords.map(item => ({
+        ...item,
+        assets: assetsByRecord.get(item.id),
+      })));
+    } catch (error) {
+      if (!(error instanceof CanonImageDesignationError)) throw error;
+      const affected = worldRecords.find(item => item.id === error.recordId);
+      imageIssue = { recordId: error.recordId, recordName: affected?.name ?? error.recordId, message: error.message };
+    }
     const [stored] = await db.select().from(wsContextSnapshotsTable).where(and(
       eq(wsContextSnapshotsTable.entityType, "canon_record"),
-      eq(wsContextSnapshotsTable.entityId, built.record.id),
+      eq(wsContextSnapshotsTable.entityId, record.id),
     )).limit(1);
-    const status = stored?.status === "sync_failed"
+    const status = imageIssue ? "blocked"
+      : stored?.status === "sync_failed"
       ? "sync_failed"
       : !stored?.lastSnapshotAt
         ? "not_generated"
-      : !stored.recordUpdatedAt || built.record.updatedAt > stored.recordUpdatedAt
+      : !stored.recordUpdatedAt || record.updatedAt > stored.recordUpdatedAt
         ? "out_of_date"
         : "current";
     res.json({
       snapshot: {
         status,
-        githubPath: stored?.githubPath ?? built.path,
+        githubPath: stored?.githubPath ?? canonSnapshotPath(record),
         githubCommitSha: stored?.githubCommitSha ?? null,
         lastSnapshotAt: stored?.lastSnapshotAt ?? null,
         recordUpdatedAt: stored?.recordUpdatedAt ?? null,
         lastError: stored?.lastError ?? null,
         autoSync: stored?.autoSync ?? false,
         autoSyncUnaccepted: stored?.autoSyncUnaccepted ?? false,
+        imageIssue,
       },
     });
   } catch (err) {
@@ -2404,13 +2429,14 @@ router.patch("/v1/editorial/canon-records/:id/context-snapshot", async (req: Req
     return;
   }
   try {
-    const built = await buildCanonContextSnapshot(recordId);
-    if (!built) { res.status(404).json({ error: "Canon record not found" }); return; }
+    const [record] = await db.select().from(wsCanonRecordsTable)
+      .where(eq(wsCanonRecordsTable.id, recordId)).limit(1);
+    if (!record) { res.status(404).json({ error: "Canon record not found" }); return; }
     const [snapshot] = await db.insert(wsContextSnapshotsTable).values({
       entityType: "canon_record",
       entityId: recordId,
-      worldId: built.record.worldId,
-      githubPath: built.path,
+      worldId: record.worldId,
+      githubPath: canonSnapshotPath(record),
       autoSync: auto_sync,
       autoSyncUnaccepted: auto_sync_unaccepted ?? false,
     }).onConflictDoUpdate({
@@ -2438,8 +2464,11 @@ router.post("/v1/editorial/canon-records/:id/context-snapshot", async (req: Requ
     }
     res.json({ snapshot: { ...result.snapshot, status: "current" } });
   } catch (err) {
-    res.status(err instanceof Error && err.message === "Canon record not found" ? 404 : 500)
-      .json({ error: err instanceof Error ? err.message : "Context Snapshot sync failed" });
+    res.status(err instanceof CanonImageDesignationError ? 409 : err instanceof Error && err.message === "Canon record not found" ? 404 : 500)
+      .json({
+        error: err instanceof Error ? err.message : "Context Snapshot sync failed",
+        ...(err instanceof CanonImageDesignationError ? { code: err.code, recordId: err.recordId } : {}),
+      });
   }
 });
 

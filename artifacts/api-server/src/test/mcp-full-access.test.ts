@@ -82,10 +82,10 @@ describe("full editorial MCP grant and discovery", () => {
       const fullList = await rpc(fullToken, "tools/list");
       expect(fullList.status).toBe(200);
       const names = fullList.body.result.tools.map((tool: { name: string }) => tool.name);
-      expect(names).toHaveLength(29);
+      expect(names).toHaveLength(30);
       expect(new Set(names).size).toBe(names.length);
       expect(names).toEqual(expect.arrayContaining([
-        "search_canon_records", "get_canon_record", "update_canon_record", "update_canon_editorial_fields",
+        "search_canon_records", "get_canon_record", "get_canon_field_options", "update_canon_record", "update_canon_editorial_fields",
         "search_worlds", "get_world", "get_world_creative_context", "update_world",
         "search_story_maps", "get_story_map", "update_story_map",
         "search_storylines", "get_storyline", "update_storyline",

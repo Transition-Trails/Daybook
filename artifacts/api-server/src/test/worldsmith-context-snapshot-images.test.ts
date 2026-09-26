@@ -107,7 +107,7 @@ describe("WorldSmith Canon image snapshots", () => {
     expect(manifest.records[0].images[0].source_asset_id).toBe("z-primary");
   });
 
-  it("repairs a legacy gallery with no primary before snapshot validation", async () => {
+  it("does not silently designate the first explicitly labelled reference image as primary", async () => {
     const assets = await fixtures();
     const storage = {
       getObjectEntityFile: async (objectPath: string) => {
@@ -119,7 +119,7 @@ describe("WorldSmith Canon image snapshots", () => {
         };
       },
     } as unknown as ObjectStorageService;
-    const result = await buildCanonImageExport([
+    await expect(buildCanonImageExport([
       record({
         id: "legacy-gallery",
         imageGallery: [
@@ -127,10 +127,43 @@ describe("WorldSmith Canon image snapshots", () => {
           { url: "/objects/elias-reference", role: "alternate" },
         ],
       }),
-    ], storage);
-    const manifest = JSON.parse(String(result.files.find(file => file.path === result.manifestPath)?.content));
-    expect(manifest.records[0].images.map((image: { role: string }) => image.role))
-      .toEqual(["primary", "alternate"]);
+    ], storage)).rejects.toThrow("one image designated as primary");
+  });
+
+  it("blocks a draft gallery primary rather than exporting an approved reference", async () => {
+    const storage = {
+      getObjectEntityFile: async () => { throw new Error("must not download an image before role validation"); },
+    } as unknown as ObjectStorageService;
+    await expect(buildCanonImageExport([record({
+      id: "nursery",
+      portraitUrl: "/objects/elias-primary",
+      imageGallery: [
+        { url: "/objects/elias-primary", role: "primary" },
+        { url: "/objects/elias-reference", role: "reference" },
+      ],
+      assets: [
+        { id: "draft", objectPath: "/objects/elias-primary", role: "primary", approvalStatus: "draft", canonicalStrength: "reference" },
+        { id: "approved", objectPath: "/objects/elias-reference", role: "reference", approvalStatus: "approved", canonicalStrength: "reference" },
+      ],
+    })], storage)).rejects.toThrow("designated primary Canon image is not approved");
+  });
+
+  it("blocks a new primary before its approval metadata is saved, without downloading it", async () => {
+    const storage = {
+      getObjectEntityFile: async () => { throw new Error("must not download an unreviewed image"); },
+    } as unknown as ObjectStorageService;
+    await expect(buildCanonImageExport([record({
+      id: "new-upload",
+      imageGallery: [{ url: "/objects/elias-primary", role: "primary" }],
+      portraitUrl: "/objects/elias-primary",
+      assets: [],
+    })], storage)).rejects.toThrow("no approved asset metadata");
+    await expect(buildCanonImageExport([record({
+      id: "legacy-portrait",
+      imageGallery: [],
+      portraitUrl: "/objects/elias-primary",
+      assets: [],
+    })], storage)).rejects.toThrow("no approved asset metadata");
   });
 
   it("rejects explicit galleries with no primary or conflicting primaries", () => {
@@ -149,7 +182,8 @@ describe("WorldSmith Canon image snapshots", () => {
       getObjectEntityFile: async () => { throw new Error("must not be called"); },
     } as unknown as ObjectStorageService;
     await expect(buildCanonImageExport([
-      record({ id: "canon-secret", imageGallery: [{ url: "https://storage.example/signed?token=secret" }] }),
+      record({ id: "canon-secret", imageGallery: [{ url: "https://storage.example/signed?token=secret" }],
+        assets: [{ id: "external", objectPath: "https://storage.example/signed?token=secret", role: "primary", approvalStatus: "approved" }] }),
     ], storage)).rejects.toThrow("canon-secret does not have a valid internal asset ID");
   });
 
@@ -197,6 +231,10 @@ describe("WorldSmith Canon image snapshots", () => {
           { url: "/objects/elias-primary", role: "primary" },
           { url: "/objects/elias-reference", role: "reference" },
         ],
+        assets: [
+          { id: "elias-primary-asset", objectPath: "/objects/elias-primary", role: "primary", approvalStatus: "approved" },
+          { id: "elias-reference-asset", objectPath: "/objects/elias-reference", role: "reference", approvalStatus: "approved" },
+        ],
       }),
       record({ id: "clara-id", name: "Clara Bellamy Ashcroft", imageGallery: [] }),
     ];
@@ -220,13 +258,13 @@ describe("WorldSmith Canon image snapshots", () => {
     ]);
     expect(manifest.records[1].images[0]).toMatchObject({ width: 3, height: 4 });
     expect(manifest.records[2].images[0]).toMatchObject({ width: 7, height: 8, mime_type: "image/png" });
-    expect(manifest.records[1].images[0].source_asset_id).toBe("/objects/elias-primary");
+    expect(manifest.records[1].images[0].source_asset_id).toBe("elias-primary-asset");
     expect(manifest.records[1].images[0].sha256).toBe(
       createHash("sha256").update(assets["/objects/elias-primary"].bytes).digest("hex"),
     );
-    expect(first.files.find(file => file.path.endsWith("portrait-primary.jpg"))?.content)
+    expect(first.files.find(file => file.path.endsWith("elias-primary-asset.jpg"))?.content)
       .toEqual(assets["/objects/elias-primary"].bytes);
-    expect(first.files.find(file => file.path.endsWith("image-reference-01.webp"))?.content)
+    expect(first.files.find(file => file.path.endsWith("elias-reference-asset.webp"))?.content)
       .toEqual(assets["/objects/elias-reference"].bytes);
   });
 
@@ -235,7 +273,8 @@ describe("WorldSmith Canon image snapshots", () => {
       getObjectEntityFile: async () => { throw new Error("not found"); },
     } as unknown as ObjectStorageService;
     await expect(buildCanonImageExport([
-      record({ id: "canon-missing", imageGallery: [{ url: "/objects/missing" }] }),
+      record({ id: "canon-missing", imageGallery: [{ url: "/objects/missing" }],
+        assets: [{ id: "missing", objectPath: "/objects/missing", role: "primary", approvalStatus: "approved" }] }),
     ], storage)).rejects.toThrow("canon-missing (asset missing)");
   });
 });

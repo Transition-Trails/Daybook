@@ -114,3 +114,4 @@
 - [Canon relation restraint](canon-relation-restraint.md) — relationship suggestions are selective editorial proposals, never an automatic graph-building step
 - [Canon vocabulary governance](canon-vocabulary-governance.md) — activate reviewed world-scoped choices, not entire UI fallback lists, before MCP metadata writes
 - [Canon structured profile precedence](canon-structured-profile-precedence.md) — canonical structured fields override legacy typed profiles so MCP writes remain visible and safe to save
+- [Canon image export approval](canon-image-export-approval.md) — gallery primary designation and asset export approval are separate gates; never promote a reference image to cover the gap

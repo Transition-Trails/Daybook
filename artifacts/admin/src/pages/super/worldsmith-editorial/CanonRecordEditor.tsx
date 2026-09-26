@@ -125,7 +125,7 @@ interface LinkedSpec {
 }
 
 interface ContextSnapshot {
-  status: "not_generated" | "current" | "out_of_date" | "sync_failed";
+  status: "not_generated" | "current" | "out_of_date" | "sync_failed" | "blocked";
   githubPath: string;
   githubCommitSha?: string | null;
   lastSnapshotAt?: string | null;
@@ -133,6 +133,11 @@ interface ContextSnapshot {
   lastError?: string | null;
   autoSync: boolean;
   autoSyncUnaccepted: boolean;
+  imageIssue?: { recordId: string; recordName: string; message: string } | null;
+}
+
+function isPrimaryImage(image: CanonImage): boolean {
+  return ["primary", "primary_portrait", "primary_image"].includes(image.role ?? "");
 }
 
 function promptPreviewText(value: unknown): string {
@@ -224,11 +229,11 @@ function ImageField({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const hasImages = images.length > 0;
-  const primary = images[0];
-  const additional = images.slice(1);
+  const primary = images.find(isPrimaryImage);
+  const additional = images.filter(image => image !== primary);
   const primaryLabel = canonType === "character" ? "Primary Canon portrait" : "Primary Canon image";
   return (
-    <section className="rounded-2xl border p-5" style={{ background: "white", borderColor: BORDER }}>
+    <section id="canon-images" className="rounded-2xl border p-5" style={{ background: "white", borderColor: BORDER }}>
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
           <h2 className="text-sm font-semibold" style={{ color: INK }}>Canon images</h2>
@@ -240,9 +245,14 @@ function ImageField({
           {images.length} {images.length === 1 ? "image" : "images"}
         </span>
       </div>
+      {hasImages && !primary && (
+        <p role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
+          No primary image is designated. Review the images below, choose “Make primary,” then save this Canon record.
+        </p>
+      )}
       {hasImages ? (
         <div className="space-y-5">
-          <div>
+          {primary && <div>
             <div className="mb-2 flex items-center justify-between">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: INK }}>{primaryLabel}</h3>
@@ -293,6 +303,33 @@ function ImageField({
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold" style={{ color: INK }}>Approval Status</label>
+                <select
+                  value={primary.workflowStatus || "draft"}
+                  onChange={event => onChangeMetadata(primary.url, { workflowStatus: event.target.value })}
+                  className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                  style={{ borderColor: BORDER, color: INK }}
+                >
+                  <option value="draft">Draft</option>
+                  <option value="pending_approval">Pending Approval</option>
+                  <option value="approved">Approved</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold" style={{ color: INK }}>Canonical Strength</label>
+                <select
+                  value={primary.canonicalStrength || "reference"}
+                  onChange={event => onChangeMetadata(primary.url, { canonicalStrength: event.target.value })}
+                  className="w-full rounded-lg border bg-white px-2.5 py-2 text-xs outline-none"
+                  style={{ borderColor: BORDER, color: INK }}
+                >
+                  <option value="inspiration_only">Inspiration only</option>
+                  <option value="reference">Reference</option>
+                  <option value="canonical">Canonical</option>
+                  <option value="defining">Defining</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] font-semibold" style={{ color: INK }}>Creator / Source</label>
                 <input
                   value={primary!.creatorCredit || ""}
@@ -315,7 +352,7 @@ function ImageField({
                 />
               </div>
             </div>
-          </div>
+          </div>}
 
           {additional.length > 0 && (
             <div>
@@ -859,7 +896,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
     staleTime: 30_000,
   });
   const linkedSpecs = specsData?.specs ?? [];
-  const { data: snapshotData } = useQuery<{ snapshot: ContextSnapshot }>({
+  const { data: snapshotData, isError: snapshotLoadFailed, error: snapshotLoadError, refetch: retrySnapshot } = useQuery<{ snapshot: ContextSnapshot }>({
     queryKey: ["editorial-canon-context-snapshot", recordId],
     queryFn: () => apiFetch(`/v1/editorial/canon-records/${recordId}/context-snapshot`),
     enabled: !!recordId && !!record,
@@ -941,7 +978,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         identity_summary: form.identitySummary,
         notes: form.notes,
         typography: form.typography,
-        portrait_url: form.images[0]?.url ?? null,
+        portrait_url: form.images.find(isPrimaryImage)?.url ?? null,
         image_urls: form.images.map(image => image.url),
         image_gallery: form.images,
         global_metadata: form.globalMetadata,
@@ -1237,9 +1274,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
               : file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim()),
             description: generatedMetadata?.description ?? "",
             ...generatedMetadata,
+            role: generatedMetadata?.role ?? (current.images.length === 0 ? "primary" : "reference"),
           };
-          return generatedMetadata?.role === "primary"
-            ? [image, ...current.images.filter(existing => existing.role !== "primary")]
+           return generatedMetadata?.role === "primary"
+             ? [image, ...current.images.map(existing => isPrimaryImage(existing) ? { ...existing, role: "reference" } : existing)]
             : [...current.images, image];
         })(),
       }));
@@ -1344,6 +1382,10 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const removeImage = async (imageUrl: string) => {
     if (isImageProcessing) return;
     const removedImage = form.images.find(image => image.url === imageUrl);
+    if (removedImage && isPrimaryImage(removedImage) && form.images.length > 1) {
+      toast({ title: "Choose another primary image first", description: "Make a supporting image primary and save before removing this one.", variant: "destructive" });
+      return;
+    }
     const nextImages = form.images.filter(image => image.url !== imageUrl);
     setForm(current => ({ ...current, images: current.images.filter(image => image.url !== imageUrl) }));
     setImageUploading(true);
@@ -1355,7 +1397,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
         const result = await apiFetch<{ canon_record: CanonRecord }>(`/v1/editorial/canon-records/${recordId}`, {
           method: "PATCH",
           body: JSON.stringify({
-            portrait_url: nextImages[0]?.url ?? null,
+            portrait_url: nextImages.find(isPrimaryImage)?.url ?? null,
             image_urls: nextImages.map(image => image.url),
             image_gallery: nextImages,
           }),
@@ -1396,7 +1438,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
   const makeImagePrimary = (imageUrl: string) => {
     setForm(current => {
       const selected = current.images.find(image => image.url === imageUrl);
-      if (!selected || current.images[0]?.url === imageUrl) return current;
+      if (!selected || (current.images[0]?.url === imageUrl && isPrimaryImage(selected))) return current;
       return {
         ...current,
         images: [
@@ -1863,8 +1905,8 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                     <span
                       className="shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold"
                       style={{
-                        color: snapshot?.status === "current" ? "#027A48" : snapshot?.status === "sync_failed" ? "#B42318" : "#8A5A00",
-                        background: snapshot?.status === "current" ? "#ECFDF3" : snapshot?.status === "sync_failed" ? "#FEF3F2" : "#FFFAEB",
+                         color: snapshot?.status === "current" ? "#027A48" : snapshot?.status === "sync_failed" ? "#B42318" : "#8A5A00",
+                         background: snapshot?.status === "current" ? "#ECFDF3" : snapshot?.status === "sync_failed" ? "#FEF3F2" : "#FFFAEB",
                       }}
                     >
                       {(snapshot?.status ?? "not_generated").replace(/_/g, " ")}
@@ -1874,7 +1916,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                     <div>
                       <dt className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#98A2B3" }}>GitHub path · context-snapshots branch</dt>
                       <dd className="mt-1 break-all font-mono text-[10px] leading-relaxed" style={{ color: "#667085" }}>
-                        {snapshot?.githubPath ?? "Loading…"}
+                        {snapshot?.githubPath ?? (snapshotLoadFailed ? "Unavailable" : "Loading…")}
                       </dd>
                     </div>
                     {snapshot?.lastSnapshotAt && (
@@ -1884,8 +1926,25 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                       </div>
                     )}
                   </dl>
+                  {snapshotLoadFailed && (
+                    <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-700">
+                      Could not load Context Snapshot status: {snapshotLoadError?.message ?? "Please try again."}{" "}
+                      <button type="button" className="font-semibold underline" onClick={() => void retrySnapshot()}>Retry</button>
+                    </p>
+                  )}
                   {snapshot?.lastError && (
                     <p className="mt-3 rounded-lg bg-red-50 p-2 text-[11px] leading-relaxed text-red-700">{snapshot.lastError}</p>
+                  )}
+                  {snapshot?.imageIssue && (
+                    <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+                      Snapshot updates are blocked: {snapshot.imageIssue.message} Review the images on{" "}
+                      {snapshot.imageIssue.recordId === recordId
+                        ? <a href="#canon-images" className="font-semibold underline">this Canon record</a>
+                        : <a href={`/super/worldsmith/editorial/canon/${snapshot.imageIssue.recordId}`} className="font-semibold underline">{snapshot.imageIssue.recordName}</a>}
+                      {snapshot.imageIssue.message.includes("designated as primary")
+                        ? ", choose “Make primary” for the intended image, and save the record before updating the snapshot."
+                        : ", review the intended primary’s approval and canonical strength, then save the record before updating the snapshot."}
+                    </p>
                   )}
                   <label className="mt-4 flex items-start gap-2 text-xs" style={{ color: INK }}>
                     <input
@@ -1928,7 +1987,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
                   <button
                     type="button"
                     onClick={() => snapshotMutation.mutate()}
-                    disabled={snapshotMutation.isPending}
+                     disabled={snapshotMutation.isPending || !snapshot || snapshot.status === "blocked"}
                     className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-60"
                     style={{ borderColor: "#DDD4C4", color: INK }}
                   >

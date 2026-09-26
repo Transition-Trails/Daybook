@@ -72,6 +72,13 @@ export interface CanonImageExportRecord {
   updatedAt: Date;
 }
 
+export class CanonImageDesignationError extends Error {
+  readonly code = "CANON_IMAGE_DESIGNATION_REQUIRED";
+  constructor(readonly recordId: string, message: string) {
+    super(message);
+  }
+}
+
 export interface CanonImageMapping {
   role: CanonImageRole;
   relativePath: string;
@@ -135,17 +142,43 @@ export function enforceCanonImageOrder(
 }
 
 function sourceImages(record: CanonImageExportRecord): CanonImageGallerySource[] {
+  if (record.imageGallery?.length) {
+    try {
+      assignCanonImageRoles(record.imageGallery);
+    } catch (error) {
+      throw new CanonImageDesignationError(record.id, error instanceof Error ? error.message : "Invalid Canon image roles.");
+    }
+  }
+  if ((record.imageGallery?.length || record.portraitUrl) && !record.assets?.length) {
+    throw new CanonImageDesignationError(record.id,
+      "The designated primary Canon image has no approved asset metadata. Save and review its asset approval status before updating the snapshot.");
+  }
   if (record.assets?.length) {
-    const galleryPrimaryUrl = record.imageGallery?.find(image => image.role === "primary")?.url;
+    const galleryPrimaryUrl = record.imageGallery?.find(image => normaliseCanonImageRole(image.role) === "primary")?.url;
+    const galleryHasExplicitRoles = record.imageGallery?.some(image => image.role !== undefined);
     const eligibleAssets = record.assets
       .filter(asset => ["approved", "accepted", "canon", "editor_approved", "editor-approved"].includes(String(asset.approvalStatus ?? "").toLowerCase())
         && !["rejected", "superseded"].includes(String(asset.approvalStatus ?? "").toLowerCase())
         && ["canonical", "reference", "defining", "locked"].includes(String(asset.canonicalStrength ?? "canonical").toLowerCase())
         && !!asset.objectPath);
-    const explicitAssetPrimaryUrl = eligibleAssets.find(asset =>
-      normaliseCanonImageRole(asset.role) === "primary",
-    )?.objectPath;
-    const primaryUrl = galleryPrimaryUrl ?? record.portraitUrl ?? explicitAssetPrimaryUrl ?? eligibleAssets[0]?.objectPath;
+    const designatedPrimaryPath = galleryPrimaryUrl
+      ?? record.assets.find(asset => normaliseCanonImageRole(asset.role) === "primary")?.objectPath;
+    if (designatedPrimaryPath && !eligibleAssets.some(asset => asset.objectPath === designatedPrimaryPath)) {
+      throw new CanonImageDesignationError(record.id,
+        "The designated primary Canon image is not approved for export. Review its approval status and canonical strength, or designate an approved image as primary.");
+    }
+    const designated = eligibleAssets.filter(asset => normaliseCanonImageRole(asset.role) === "primary");
+    const galleryPrimary = eligibleAssets.find(asset => asset.objectPath === galleryPrimaryUrl)?.objectPath;
+    const portraitPrimary = !galleryHasExplicitRoles
+      ? eligibleAssets.find(asset => asset.objectPath === record.portraitUrl)?.objectPath
+      : undefined;
+    const primaryUrl = galleryPrimary ?? portraitPrimary ?? (designated.length === 1 ? designated[0].objectPath : undefined);
+    if (eligibleAssets.length && !primaryUrl && (eligibleAssets.length > 1 || galleryHasExplicitRoles)) {
+      throw new CanonImageDesignationError(record.id, "Multiple Canon images require one image designated as primary.");
+    }
+    if (designated.length > 1 && !galleryPrimary && !portraitPrimary) {
+      throw new CanonImageDesignationError(record.id, "A Canon record cannot have more than one primary image.");
+    }
     return eligibleAssets
       .sort((a, b) => {
         if (a.objectPath === primaryUrl) return -1;
@@ -158,7 +191,7 @@ function sourceImages(record: CanonImageExportRecord): CanonImageGallerySource[]
         description: asset.altText ?? "",
         role: (() => {
           const role = String(asset.role ?? "").toLowerCase().replace(/[_-]+/g, " ");
-          if (asset.objectPath === primaryUrl) return "primary" as CanonImageRole;
+          if (asset.objectPath === primaryUrl || (eligibleAssets.length === 1 && !primaryUrl)) return "primary" as CanonImageRole;
           if (role === "primary" || role.includes("primary portrait")) return "reference" as CanonImageRole;
           if (role.includes("scene")) return "scene" as CanonImageRole;
           if (role.includes("alternate")) return "alternate" as CanonImageRole;
@@ -167,8 +200,11 @@ function sourceImages(record: CanonImageExportRecord): CanonImageGallerySource[]
         })(),
       }));
   }
-  if (record.imageGallery?.length) return enforceCanonImageOrder(record.imageGallery);
-  return record.portraitUrl ? [{ url: record.portraitUrl }] : [];
+  return [];
+}
+
+export function validateCanonImageDesignations(records: CanonImageExportRecord[]): void {
+  for (const record of records) assignCanonImageRoles(sourceImages(record));
 }
 
 function imageFileName(canonType: string | null | undefined, role: CanonImageRole, roleIndex: number, extension: string): string {
@@ -198,6 +234,7 @@ export async function buildCanonImageExport(
   if (orderedRecords.some(record => record.worldId !== worldId)) {
     throw new Error("Canon image exports cannot combine multiple worlds.");
   }
+  validateCanonImageDesignations(orderedRecords);
 
   const canonRoot = `worlds/${kebab(worldId)}/context/canon`;
   const assetRoot = `${canonRoot}/assets`;

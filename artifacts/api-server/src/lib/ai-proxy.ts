@@ -47,6 +47,10 @@ export interface AiCallOptions {
   /** Normalized attribution and policy context. Optional for legacy callers. */
   context?: AiCallContext;
   timeoutMs?: number;
+  /** Override the default short text budget for structured, multi-item outputs. */
+  maxOutputTokens?: number;
+  /** Applied only to OpenAI reasoning models. */
+  reasoningEffort?: "low" | "medium" | "high";
 }
 
 export interface AiCallContext {
@@ -144,7 +148,7 @@ export async function callAi(
     configId: policy.configId,
     requestsPerDay: policy.requestsPerDay, estimatedCentsPerMonth: policy.estimatedCentsPerMonth,
     reservedCents: conservativeTextReservation(billableInputChars(messages, systemPrompt, options), pricing?.input ?? 0, pricing?.output ?? 0,
-      policy.estimatedCentsPerMonth !== null && policy.estimatedCentsPerMonth !== undefined),
+      policy.estimatedCentsPerMonth !== null && policy.estimatedCentsPerMonth !== undefined, options?.maxOutputTokens ?? 2048),
   });
   const operation = (async () => {
     switch (effectiveProvider) {
@@ -413,7 +417,7 @@ async function callClaude(
 
   const body: Record<string, unknown> = {
     model: options?._model ?? "claude-opus-4-5",
-    max_tokens: 2048,
+    max_tokens: options?.maxOutputTokens ?? 2048,
     messages: claudeMessages,
   };
   if (systemPrompt) body.system = systemPrompt;
@@ -512,7 +516,10 @@ async function callOpenAI(
     body: JSON.stringify({
     model: options?._model ?? "gpt-5",
       messages: builtMessages,
-      max_completion_tokens: 2048,
+      max_completion_tokens: options?.maxOutputTokens ?? 2048,
+      ...(options?.reasoningEffort && (options?._model ?? "gpt-5").startsWith("gpt-5")
+        ? { reasoning_effort: options.reasoningEffort }
+        : {}),
     }),
     signal: options?._signal,
   });
@@ -580,7 +587,7 @@ async function callGemini(
   });
 
   const body: Record<string, unknown> = { contents: parts };
-  body.generationConfig = { maxOutputTokens: 2048 };
+  body.generationConfig = { maxOutputTokens: options?.maxOutputTokens ?? 2048 };
   if (systemPrompt) {
     body.systemInstruction = { parts: [{ text: systemPrompt }] };
   }

@@ -33,6 +33,7 @@ describe("AI governance admission", () => {
   it("reserves conservatively from prompt and output budgets", () => {
     expect(conservativeTextReservation(4000, 100, 200, true)).toBe(1);
     expect(conservativeTextReservation(4000, 10000, 10000, true)).toBe(31);
+    expect(conservativeTextReservation(4000, 10000, 10000, true, 6000)).toBe(70);
     expect(conservativeTextReservation(4000, 10000, 10000, false)).toBe(0);
   });
 

@@ -23,10 +23,10 @@ export function reservationScopeKey(
     ? `config:${configId}`
     : `${funding}:${funding === "platform" ? "platform" : storeId ?? "unattributed"}:${provider}`;
 }
-export function conservativeTextReservation(chars: number, inputCentsPerMillion: number, outputCentsPerMillion: number, monthlyLimited: boolean): number {
+export function conservativeTextReservation(chars: number, inputCentsPerMillion: number, outputCentsPerMillion: number, monthlyLimited: boolean, maxOutputTokens = 2048): number {
   if (!monthlyLimited) return 0;
   if (inputCentsPerMillion <= 0 || outputCentsPerMillion <= 0) throw new Error("Active positive AI text pricing is required for monthly quota admission");
-  return Math.max(1, Math.ceil(((Math.ceil(chars / 4) * inputCentsPerMillion) + (2048 * outputCentsPerMillion)) / 1_000_000));
+  return Math.max(1, Math.ceil(((Math.ceil(chars / 4) * inputCentsPerMillion) + (maxOutputTokens * outputCentsPerMillion)) / 1_000_000));
 }
 export function conservativeImageReservation(imageCents: number | null | undefined, monthlyLimited: boolean): number {
   if (!monthlyLimited) return 0;

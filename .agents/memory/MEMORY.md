@@ -88,6 +88,7 @@
 - [WorldSmith artwork revisions](worldsmith-artwork-revisions.md) — revisions are transient, governance-bound, and deterministically keyed by their effective provider prompt
 - [WorldSmith Context Snapshot repository](worldsmith-context-snapshot-repository.md) — world context uses worlds/** and shared production records use global/context/** in Daybook
 - [WorldSmith daily suggestions](worldsmith-daily-suggestions.md) — Canon gaps and storyline ideas share one persistent 24-hour refresh per world and suggestion kind
+- [WorldSmith empty AI ideas](worldsmith-empty-ai-ideas.md) — GPT-5 can exhaust a short completion budget on reasoning alone; never cache an empty suggestion run
 - [WorldSmith post-compile editing](worldsmith-post-compile-editing.md) — edits invalidate only the current compile; immutable runs and artwork preserve prior versions
 - [PDF import fixture validity](pdf-import-fixture-validity.md) — import analysis can accept malformed font resources that make otherwise valid-looking test pages rasterize blank
 - [WorldSmith planner asset bridge](worldsmith-planner-asset-bridge.md) — planners consume approved final art through project-owned copies and reserved composition IDs

@@ -125,6 +125,7 @@ import { compileCharacterContext, compileEnvironmentContext, compileStoryContext
 import { callAi } from "../lib/ai-proxy";
 import { generateImage } from "../lib/worldsmith/image-generation";
 import { canForceSuggestionRefresh } from "../lib/worldsmith/suggestion-refresh-policy";
+import { parseSuggestionArray } from "../lib/worldsmith/parse-suggestions";
 import { ownerDiscoveryDecisionAllowed, type OwnerDiscoveryDecision } from "../lib/worldsmith/owner-discovery-policy";
 import { isPromptModuleSection } from "../lib/worldsmith/types";
 import {
@@ -1773,7 +1774,7 @@ router.post("/v1/editorial/canon-records/suggest", async (req: Request, res: Res
   try {
     const cached = await getDailySuggestions(world_id, "canon");
     const canForceRefresh = canForceSuggestionRefresh(force_refresh, req.actor?.isSuperAdmin);
-    if (cached?.current && !canForceRefresh) {
+    if (cached?.current && Array.isArray(cached.suggestions) && cached.suggestions.length > 0 && !canForceRefresh) {
       res.json({
         suggestions: cached.suggestions,
         generatedAt: cached.generatedAt,
@@ -1891,25 +1892,11 @@ All ${suggestionCount} suggestions must be DIFFERENT from existing records and f
       [{ role: "user", content: userMessage }],
       process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
       systemPrompt,
-      { context: { storeId: world.storeId ?? undefined, userId: (req.user as any)?.id, feature: "editorial.canon-suggestions" } },
+      { context: { storeId: world.storeId ?? undefined, userId: (req.user as any)?.id, feature: "editorial.canon-suggestions" },
+        maxOutputTokens: 6000, reasoningEffort: "low" },
     );
 
-    // Parse the JSON array from the AI response
-    let suggestions: unknown[] = [];
-    try {
-      const text = result.content.trim();
-      // Strip any accidental code fences
-      const clean = text.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
-      const parsed = JSON.parse(clean);
-        if (Array.isArray(parsed)) suggestions = parsed.slice(0, suggestionCount);
-    } catch {
-      logger.warn({ raw: result.content }, "editorial: suggest — AI returned non-JSON, attempting extraction");
-      // Fallback: try to find the first [ ... ] block
-      const match = result.content.match(/\[[\s\S]*\]/);
-      if (match) {
-        try { suggestions = JSON.parse(match[0]); } catch { /* give up */ }
-      }
-    }
+    const suggestions = parseSuggestionArray(result.content).slice(0, suggestionCount);
 
     // Sanitise each suggestion
     const VALID_TYPES = new Set<string>(CANON_SUGGESTION_TYPES);
@@ -1921,6 +1908,9 @@ All ${suggestionCount} suggestions must be DIFFERENT from existing records and f
         rationale: typeof s.rationale === "string" ? s.rationale.trim().slice(0, 400) : "",
         narrativeDetails: typeof s.narrativeDetails === "string" ? s.narrativeDetails.trim().slice(0, 800) : "",
       }));
+    if (!sanitised.some(suggestion => suggestion.name && suggestion.name !== "Untitled")) {
+      throw new Error("The AI returned no named Canon suggestions.");
+    }
 
     const generatedAt = await saveDailySuggestions(world_id, "canon", sanitised);
     res.json({
@@ -5069,7 +5059,7 @@ router.post("/v1/editorial/stories/suggest", async (req: Request, res: Response)
   try {
     const cached = await getDailySuggestions(world_id, "stories");
     const canForceRefresh = canForceSuggestionRefresh(force_refresh, req.actor?.isSuperAdmin);
-    if (cached?.current && !canForceRefresh) {
+    if (cached?.current && Array.isArray(cached.suggestions) && cached.suggestions.length > 0 && !canForceRefresh) {
       res.json({
         suggestions: cached.suggestions,
         generatedAt: cached.generatedAt,
@@ -5159,20 +5149,11 @@ Return ONLY a JSON array (no markdown fences or preamble). Every item must have:
       [{ role: "user", content: userMessage }],
       process.env.DEFAULT_AI_PROVIDER ?? "chatgpt",
       systemPrompt,
-      { context: { storeId: world.storeId ?? undefined, userId: (req.user as any)?.id, feature: "editorial.storyline-suggestions" } },
+      { context: { storeId: world.storeId ?? undefined, userId: (req.user as any)?.id, feature: "editorial.storyline-suggestions" },
+        maxOutputTokens: 6000, reasoningEffort: "low" },
     );
 
-    let suggestions: unknown[] = [];
-    try {
-      const clean = result.content.trim().replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
-      const parsed = JSON.parse(clean);
-      if (Array.isArray(parsed)) suggestions = parsed.slice(0, 4);
-    } catch {
-      const match = result.content.match(/\[[\s\S]*\]/);
-      if (match) {
-        try { suggestions = JSON.parse(match[0]); } catch { /* give up */ }
-      }
-    }
+    const suggestions = parseSuggestionArray(result.content).slice(0, 4);
 
     const validStatuses = new Set<string>(STORY_SUGGESTION_STATUSES);
     const sanitised = suggestions
@@ -5186,6 +5167,9 @@ Return ONLY a JSON array (no markdown fences or preamble). Every item must have:
           : "draft",
       }))
       .filter(suggestion => suggestion.title.length > 0);
+    if (!sanitised.some(suggestion => suggestion.title !== "Untitled storyline")) {
+      throw new Error("The AI returned no titled storyline suggestions.");
+    }
 
     const generatedAt = await saveDailySuggestions(world_id, "stories", sanitised);
     res.json({

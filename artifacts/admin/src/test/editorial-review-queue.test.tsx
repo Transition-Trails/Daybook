@@ -92,6 +92,35 @@ describe("EditorialReviewQueue", () => {
     );
   });
 
+  it("saves available ideas and reports which suggestion source failed", async () => {
+    apiFetch.mockImplementation((path: string) => {
+      if (path === "/v1/editorial/owner-discoveries") return Promise.resolve({ discoveries: [] });
+      if (path === "/v1/editorial/canon-records") return Promise.resolve({ canon_records: [] });
+      if (path === "/v1/editorial/canon-records/suggest") return Promise.reject(new Error("Canon generation timed out"));
+      if (path === "/v1/editorial/stories/suggest") return Promise.resolve({ suggestions: [{ title: "A Story" }] });
+      if (path === "/v1/editorial/owner-discoveries/generated") return Promise.resolve({ created_count: 1 });
+      return Promise.resolve({});
+    });
+    renderQueue();
+    fireEvent.click(await screen.findByTestId("button-generate-ideas"));
+    expect(await screen.findByTestId("generated-ideas-result")).toHaveTextContent("Canon ideas could not be generated");
+    expect(apiFetch).toHaveBeenCalledWith("/v1/editorial/owner-discoveries/generated",
+      expect.objectContaining({ body: expect.stringContaining('"story_suggestions":[{"title":"A Story"}]') }));
+  });
+
+  it("shows the error instead of saving an empty batch when both suggestion sources fail", async () => {
+    apiFetch.mockImplementation((path: string) => {
+      if (path === "/v1/editorial/owner-discoveries") return Promise.resolve({ discoveries: [] });
+      if (path === "/v1/editorial/canon-records") return Promise.resolve({ canon_records: [] });
+      if (path.endsWith("/suggest")) return Promise.reject(new Error("No usable suggestions returned"));
+      return Promise.resolve({});
+    });
+    renderQueue();
+    fireEvent.click(await screen.findByTestId("button-generate-ideas"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No usable suggestions returned");
+    expect(apiFetch).not.toHaveBeenCalledWith("/v1/editorial/owner-discoveries/generated", expect.anything());
+  });
+
   it("requires an explanation before a generated idea can be rejected", async () => {
     renderQueue();
 

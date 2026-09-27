@@ -97,7 +97,7 @@ EMAIL_TIER1_DAILY_LIMIT = "200"
 EMAIL_TIER1_MONTHLY_UPGRADE_THRESHOLD = "1000"
 
 [userenv.production]
-APP_URL = "https://daybook-app.replit.app"
+APP_URL = "https://folioandrealm.com"
 MCP_PUBLIC_ORIGIN = "https://daybook-app.replit.app"
 
 [objectStorage]

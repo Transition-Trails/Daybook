@@ -10,7 +10,12 @@ vi.mock("@/lib/api", () => ({ apiFetch }));
 
 import { CanonVocabularyRecordTypeProvider, SingleSelect, useVocabularies } from "@/components/worldsmith/editorial/EditorialFields";
 
-function renderSelect(response: unknown, value = "", vocabKey = "location_scale") {
+function renderSelect(
+  response: unknown,
+  value = "",
+  vocabKey = "location_scale",
+  options = [{ key: "legacy", label: "Legacy fallback" }],
+) {
   apiFetch.mockResolvedValue(response);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -20,7 +25,7 @@ function renderSelect(response: unknown, value = "", vocabKey = "location_scale"
     <SingleSelect
       value={value}
       onChange={vi.fn()}
-      options={[{ key: "legacy", label: "Legacy fallback" }]}
+      options={options}
       vocabKey={vocabKey}
       worldId="world-1"
     />,
@@ -67,19 +72,53 @@ describe("vocabLabelResolution", () => {
     expect(screen.getByText("Old planet label")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Old planet label" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Continent" })).toBeTruthy();
-    expect(screen.queryByText("Legacy fallback")).toBeNull();
+    expect(screen.getByRole("button", { name: "Legacy fallback" })).toBeTruthy();
+  });
+
+  it("extends static defaults with active world choices", async () => {
+    renderSelect({
+      vocabularies: [{ id: "v1", key: "location_scale", active: true, scope: "world", worldId: "world-1" }],
+      options: [{ vocabularyId: "v1", key: "continent", label: "World continent", active: true }],
+    }, "", "location_scale", [
+      { key: "continent", label: "Static continent" },
+      { key: "planet", label: "Planet" },
+    ]);
+
+    await openSelect();
+    expect(screen.getByRole("button", { name: "World continent" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Planet" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Static continent" })).toBeNull();
+  });
+
+  it("keeps a selected inactive world duplicate visible without re-enabling its static default", async () => {
+    renderSelect({
+      vocabularies: [{ id: "v1", key: "location_scale", active: true, scope: "world", worldId: "world-1" }],
+      options: [{ vocabularyId: "v1", key: "continent", label: "Retired continent", active: false }],
+    }, "continent", "location_scale", [
+      { key: "continent", label: "Static continent" },
+      { key: "planet", label: "Planet" },
+    ]);
+
+    await openSelect();
+    expect(screen.getByRole("button", { name: "Retired continent" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Static continent" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Planet" })).toBeTruthy();
   });
 
   it("does not offer options when their parent vocabulary is inactive", async () => {
     renderSelect({
       vocabularies: [{ id: "v1", key: "location_scale", active: false, scope: "world", worldId: "world-1" }],
       options: [{ vocabularyId: "v1", key: "continent", label: "Continent", active: true }],
-    }, "continent");
+    }, "continent", "location_scale", [
+      { key: "continent", label: "Static continent" },
+      { key: "planet", label: "Planet" },
+    ]);
 
     await openSelect();
     expect(screen.getByText("Continent")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Continent" })).toHaveLength(1);
-    expect(screen.queryByText("Legacy fallback")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Static continent" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Planet" })).toBeNull();
   });
 
   it("retains static choices for fields with no configured vocabulary", async () => {
@@ -106,7 +145,7 @@ describe("vocabLabelResolution", () => {
     expect(screen.getByRole("button", { name: "World continent" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Planet" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Global continent" })).toBeNull();
-    expect(screen.queryByText("Legacy fallback")).toBeNull();
+    expect(screen.getByRole("button", { name: "Legacy fallback" })).toBeTruthy();
   });
 
   it("offers only the selected record type's choices and scopes cached data when the type changes", async () => {

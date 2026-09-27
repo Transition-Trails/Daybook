@@ -65,6 +65,19 @@ function setRows() {
   rows.mcp_canon_history = [];
 }
 
+async function withSuccessfulMetadataUpdate(run: () => Promise<void>) {
+  const originalUpdate = fakeDb.update;
+  fakeDb.update = () => {
+    const builder: any = {
+      set: () => builder,
+      where: () => builder,
+      returning: () => Promise.resolve([{ ...rows.ws_canon_records[0] as object, version: 5 }]),
+    };
+    return builder;
+  };
+  try { await run(); } finally { fakeDb.update = originalUpdate; }
+}
+
 describe("WorldSmith canon MCP service", () => {
   beforeEach(() => setRows());
 
@@ -91,7 +104,7 @@ describe("WorldSmith canon MCP service", () => {
       fields: Record<string, { choices: Array<{ key: string }>; maxItems?: number }>;
       vocabularies: Array<{ key: string; options: Array<{ key: string }> }>;
     };
-    expect(result.fields.lifeStage.choices).toEqual([{ key: "adult", label: "Adult", description: "" }]);
+    expect(result.fields.lifeStage.choices).toContainEqual({ key: "adult", label: "Adult", description: "" });
     expect(result.vocabularies[0]?.key).toBe("life_stage");
     expect(result.vocabularies[0]?.options[0]?.key).toBe("adult");
   });
@@ -119,6 +132,83 @@ describe("WorldSmith canon MCP service", () => {
       world_id: "world-1", canon_type: "unknown",
     }, "https://editor.example")).rejects.toMatchObject({ code: "UNSUPPORTED_CANON_TYPE" });
   });
+
+  it("offers and accepts the Object choices shown by its record-type schema without database vocabularies", async () => withSuccessfulMetadataUpdate(async () => {
+    rows.ws_canon_records = [{ ...canonRecord, canonType: "object", structuredProfile: {}, globalMetadata: {} }];
+    const options = await executeCanonTool("admin-1", "get_canon_field_options", {
+      world_id: "world-1", canon_type: "object",
+    }, "https://editor.example") as any;
+    const fields = options.paths.structured_profile.fields;
+    expect(options.paths.global_metadata.fields.importance.choices)
+      .toContainEqual(expect.objectContaining({ key: "central", allowed: true, source: "api_default" }));
+    for (const [name, keys] of Object.entries({
+      objectClass: ["documentary"],
+      scale: ["portable"],
+      material: ["paper", "leather"],
+      authenticity: ["original"],
+      storyFunction: ["evidence", "record"],
+    })) {
+      for (const key of keys) {
+        expect(fields[name].choices).toContainEqual(expect.objectContaining({ key, source: "api_default", allowed: true }));
+        expect(fields[name].fallback_choices).toContainEqual(expect.objectContaining({ key, allowed: true }));
+      }
+    }
+    await expect(executeCanonTool("admin-1", "update_canon_metadata", {
+      record_id: "char-1", expected_version: 4,
+      changes: { global_metadata: { importance: "central" }, structured_profile: {
+        objectClass: "documentary", scale: "portable", material: ["paper", "leather"],
+        authenticity: "original", storyFunction: ["evidence", "record"],
+      } },
+    }, "https://editor.example")).resolves.toBeTruthy();
+    await expect(executeCanonTool("admin-1", "update_canon_metadata", {
+      record_id: "char-1", expected_version: 4,
+      changes: { structured_profile: { objectClass: "organic" } },
+    }, "https://editor.example")).rejects.toMatchObject({ code: "INVALID_PICKLIST_VALUE" });
+  }));
+
+  it("uses the same defaults for other Canon types and lets world options override or extend them", async () => withSuccessfulMetadataUpdate(async () => {
+    for (const [canonType, field, value] of [
+      ["character", "pronouns", "she_her"],
+      ["location", "locationScale", "estate"],
+      ["event", "eventType", ["discovery"]],
+      ["lore", "loreType", ["legend"]],
+      ["relationship", "relationshipType", ["friend"]],
+      ["material", "material", ["brittle"]],
+      ["atmosphere", "intensity", "moderate"],
+      ["motif", "recurrence", "regular"],
+    ] as const) {
+      rows.ws_canon_records = [{ ...canonRecord, canonType, structuredProfile: {} }];
+      const options = await executeCanonTool("admin-1", "get_canon_field_options", {
+        world_id: "world-1", canon_type: canonType,
+      }, "https://editor.example") as any;
+      expect(options.paths.structured_profile.fields[field].choices)
+        .toContainEqual(expect.objectContaining({ key: Array.isArray(value) ? value[0] : value, allowed: true }));
+      await expect(executeCanonTool("admin-1", "update_canon_metadata", {
+        record_id: "char-1", expected_version: 4, changes: { structured_profile: { [field]: value } },
+      }, "https://editor.example")).resolves.toBeTruthy();
+    }
+
+    rows.ws_canon_records = [{ ...canonRecord, canonType: "object", structuredProfile: {} }];
+    rows.ws_vocabularies = [{ id: "world-material", key: "material", recordType: "object", worldId: "world-1", active: true }];
+    rows.ws_vocabulary_options = [
+      { id: "disabled-paper", vocabularyId: "world-material", key: "paper", label: "Paper retired", active: false, worldId: "world-1" },
+      { id: "world-parchment", vocabularyId: "world-material", key: "parchment", label: "Parchment", active: true, worldId: "world-1" },
+    ];
+    const options = await executeCanonTool("admin-1", "get_canon_field_options", {
+      world_id: "world-1", canon_type: "object",
+    }, "https://editor.example") as any;
+    expect(options.paths.structured_profile.fields.material.choices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "paper", allowed: false, label: "Paper retired" }),
+      expect.objectContaining({ key: "leather", allowed: true, source: "api_default" }),
+      expect.objectContaining({ key: "parchment", allowed: true, source: "world" }),
+    ]));
+    await expect(executeCanonTool("admin-1", "update_canon_metadata", {
+      record_id: "char-1", expected_version: 4, changes: { structured_profile: { material: ["paper"] } },
+    }, "https://editor.example")).rejects.toMatchObject({ code: "INVALID_PICKLIST_VALUE" });
+    await expect(executeCanonTool("admin-1", "update_canon_metadata", {
+      record_id: "char-1", expected_version: 4, changes: { structured_profile: { material: ["leather", "parchment"] } },
+    }, "https://editor.example")).resolves.toBeTruthy();
+  }));
 
   it("reports scoped and inactive vocabulary choices without treating them as writable", async () => {
     rows.ws_vocabularies = [
@@ -162,7 +252,7 @@ describe("WorldSmith canon MCP service", () => {
     expect(lifeStageVocabularies.map((vocabulary: any) => vocabulary.description)).toEqual(["Global description", "World description"]);
     expect(lifeStageVocabularies[0].options.map((option: any) => option.key)).toContain("adult");
     expect(lifeStageVocabularies[1].options.map((option: any) => option.key)).toContain("elder");
-    expect(result.fields.lifeStage.choices.map((choice: any) => choice.key)).toEqual(["adult", "elder"]);
+    expect(result.fields.lifeStage.choices.map((choice: any) => choice.key)).toEqual(expect.arrayContaining(["adult", "elder"]));
     expect(lifeStageVocabularies.map((vocabulary: any) => vocabulary.record_type)).toEqual([null, null]);
   });
 
@@ -181,9 +271,10 @@ describe("WorldSmith canon MCP service", () => {
     const object = await executeCanonTool("admin-1", "get_canon_field_options", {
       world_id: "world-1", canon_type: "object",
     }, "https://editor.example") as any;
-    expect(object.paths.structured_profile.fields.condition.choices).toEqual([
+    expect(object.paths.structured_profile.fields.condition.choices).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: "new", vocabulary_active: false, allowed: false }),
-    ]);
+    ]));
+    expect(object.paths.structured_profile.fields.condition.choices.every((choice: any) => !choice.allowed)).toBe(true);
     expect(object.vocabularies.filter((vocabulary: any) => vocabulary.key === "condition").map((vocabulary: any) => ({
       record_type: vocabulary.record_type, label: vocabulary.label,
     }))).toEqual([{ record_type: "object", label: "Object Condition" }]);
@@ -191,9 +282,11 @@ describe("WorldSmith canon MCP service", () => {
     const location = await executeCanonTool("admin-1", "get_canon_field_options", {
       world_id: "world-1", canon_type: "location",
     }, "https://editor.example") as any;
-    expect(location.paths.structured_profile.fields.condition.choices.map((choice: any) => choice.key)).toEqual(["urban"]);
-    expect(location.paths.structured_profile.fields.condition.choices.map((choice: any) => choice.key))
-      .not.toContain("worn");
+    expect(location.paths.structured_profile.fields.condition.choices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "urban", allowed: true, source: "world" }),
+      expect.objectContaining({ key: "worn", allowed: true, source: "api_default" }),
+    ]));
+    expect(location.paths.structured_profile.fields.condition.choices.some((choice: any) => choice.vocabulary_id === "legacy-condition")).toBe(false);
   });
 
   it("rejects cross-type and inactive overrides in metadata and Character profile writes", async () => {
@@ -207,6 +300,7 @@ describe("WorldSmith canon MCP service", () => {
       { id: "legacy-adult", vocabularyId: "legacy-life-stage", key: "adult", label: "Adult", description: "", active: true, worldId: "world-1" },
       { id: "character-child", vocabularyId: "character-life-stage", key: "child", label: "Child", description: "", active: true, worldId: "world-1" },
       { id: "object-new", vocabularyId: "object-condition", key: "new", label: "New", description: "", active: true, worldId: "world-1" },
+      { id: "object-worn-disabled", vocabularyId: "object-condition", key: "worn", label: "Worn", description: "", active: false, worldId: "world-1" },
       { id: "location-worn", vocabularyId: "location-condition", key: "worn", label: "Worn", description: "", active: true, worldId: "world-1" },
     ];
 

@@ -235,9 +235,9 @@ export default function Vocabularies() {
         <div>
           <div className="vocab-kicker mb-2">WorldSmith / Canon governance</div>
           <h1 className="text-[32px] leading-tight font-semibold md:text-[39px]">Vocabularies</h1>
-          <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-[var(--admin-muted)]">The exact terms AI clients may write into Canon metadata. Keys are permanent; labels and availability can be revised.</p>
+          <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-[var(--admin-muted)]">Built-in Canon choices are available to editors and AI clients without setup. Use vocabularies to customize choices for this world.</p>
           <p className="mt-2 max-w-2xl text-[12px] leading-relaxed text-[var(--admin-muted)]">Choose a Canon record type, then select its field. Fields used by several types can have separate choices for each type.</p>
-          <p className="mt-2 max-w-2xl text-[12px] leading-relaxed text-[var(--admin-muted)]">Add existing choices sets up missing fields from the choices already shown in Canon. New choices become available for editing; your customized sets stay unchanged.</p>
+          <p className="mt-2 max-w-2xl text-[12px] leading-relaxed text-[var(--admin-muted)]">Add existing choices copies built-in choices into missing sets if you want to manage them here. Customized sets stay unchanged.</p>
         </div>
         {worldId && <div className="flex flex-wrap gap-2">
           <button type="button" className="vocab-btn" onClick={addExistingChoices} disabled={importDefaults.isPending} data-testid="button-import-vocabulary-defaults">{importDefaults.isPending ? "Adding existing choices…" : "Add existing choices"}</button>
@@ -281,7 +281,7 @@ export default function Vocabularies() {
 
         {register.isPending ? <div className="mt-5 space-y-3" aria-label="Loading vocabularies" data-testid="status-vocabularies-loading">{[1, 2, 3].map(i => <div key={i} className="vocab-panel h-28 animate-pulse bg-[var(--admin-sunken)]" />)}</div>
           : register.isError ? <div className="vocab-panel mt-5 p-7" role="alert" data-testid="status-vocabularies-error"><h2 className="text-lg">The register could not be loaded</h2><p className="my-2 text-sm text-[var(--admin-muted)]">{errorText(register.error)}</p><button type="button" className="vocab-btn" onClick={() => register.refetch()} data-testid="button-retry-vocabularies">Try again</button></div>
-          : scopedVocabs.length === 0 ? <div className="vocab-panel mt-5 flex flex-col items-start gap-3 p-9" data-testid="status-vocabularies-empty"><CircleHelp size={24} className="text-[var(--admin-clay)]" /><h2 className="text-xl">{recordType === "all" ? "No vocabulary sets yet" : `No ${canonRecordTypes.find(type => type.key === recordType)?.label} vocabularies yet`}</h2><p className="text-sm text-[var(--admin-muted)]">Choose a field to create its vocabulary in this world. Inherited global sets appear automatically when available.</p><button type="button" className="vocab-btn vocab-btn-primary" onClick={() => openEditor({ kind: "vocabularies" })} data-testid="button-add-first-vocabulary"><Plus size={14} /> Create a vocabulary</button></div>
+          : scopedVocabs.length === 0 ? <div className="vocab-panel mt-5 flex flex-col items-start gap-3 p-9" data-testid="status-vocabularies-empty"><CircleHelp size={24} className="text-[var(--admin-clay)]" /><h2 className="text-xl">{recordType === "all" ? "No customized vocabulary sets yet" : `No customized ${canonRecordTypes.find(type => type.key === recordType)?.label} sets yet`}</h2><p className="text-sm text-[var(--admin-muted)]">Built-in choices still work without a set. Choose a field to customize its choices in this world.</p><button type="button" className="vocab-btn vocab-btn-primary" onClick={() => openEditor({ kind: "vocabularies" })} data-testid="button-add-first-vocabulary"><Plus size={14} /> Create a vocabulary</button></div>
           : visible.length === 0 ? <div className="vocab-panel mt-5 p-8 text-sm text-[var(--admin-muted)]" data-testid="status-no-matches">No sets match this search and filter. Adjust your terms to see more choices.</div>
           : <div className="mt-5 space-y-3">
             {visible.map(v => {
@@ -327,7 +327,7 @@ export default function Vocabularies() {
               </section>;
             })}
           </div>}
-        <p className="mt-7 text-[11px] leading-relaxed text-[var(--admin-muted)]">Global terminology is inherited and cannot be edited here. Deactivated choices remain visible for existing records but cannot be used for future metadata saves.</p>
+        <p className="mt-7 text-[11px] leading-relaxed text-[var(--admin-muted)]">This page shows stored choices; built-in choices not listed remain available unless deactivated here. Global terminology is inherited and cannot be edited here. Deactivated choices remain visible for existing records but cannot be used for future metadata saves.</p>
       </>}
     </div>
 

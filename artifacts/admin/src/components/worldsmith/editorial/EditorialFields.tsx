@@ -32,11 +32,17 @@ export function useVocabularies(worldId?: string) {
       ? true
       : v.recordType == null && !scopedKeys.has(v.key));
     const vocabMap = new Map<string, { key: string; active: boolean; isWorld: boolean }>();
+    const configuredKeys: Record<string, boolean> = {};
+    const activeKeys: Record<string, boolean> = {};
     effectiveVocabularies.forEach(v => vocabMap.set(v.id, {
       key: v.key,
       active: v.active !== false,
       isWorld: v.scope === "world" || (v.worldId != null && v.worldId === worldId),
     }));
+    effectiveVocabularies.forEach(v => {
+      configuredKeys[v.key] = true;
+      if (v.active !== false) activeKeys[v.key] = true;
+    });
 
     const grouped: Record<string, { key: string; label: string; group?: string; active: boolean; description?: string; version?: number; isWorld?: boolean }[]> = {};
     vocabMap.forEach(vocabulary => {
@@ -65,7 +71,7 @@ export function useVocabularies(worldId?: string) {
       }
       grouped[key] = [...optionsByKey.values()];
     }
-    return { vocabularies: grouped };
+    return { vocabularies: grouped, configuredKeys, activeKeys };
   }, [query.data, recordType, worldId]);
   return { ...query, data };
 }
@@ -76,8 +82,15 @@ function useMergedOptions(vocabKey?: string, staticOptions: { key: string; label
     if (!vocabKey || !data?.vocabularies || !(vocabKey in data.vocabularies)) {
       return staticOptions.filter(o => includeInactive || o.active !== false);
     }
-    const remoteOptions = data.vocabularies[vocabKey] || [];
-    return remoteOptions.filter(o => includeInactive || o.active !== false);
+    const allowStaticOptions = !data.configuredKeys?.[vocabKey] || data.activeKeys?.[vocabKey] === true;
+    const merged = new Map<string, typeof staticOptions[number]>();
+    if (allowStaticOptions) {
+      for (const option of staticOptions) merged.set(option.key, option);
+    }
+    for (const option of data.vocabularies[vocabKey] || []) {
+      merged.set(option.key, option);
+    }
+    return [...merged.values()].filter(o => includeInactive || o.active !== false);
   }, [vocabKey, staticOptions, data, includeInactive]);
 }
 

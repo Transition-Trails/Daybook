@@ -337,19 +337,31 @@ function fieldChoices(
   if (!field.vocab) return { choices: [], fallback_choices: [] };
   const matchingVocabs = available.vocabularies.filter(item => item.key === field.vocab);
   const vocabById = new Map(matchingVocabs.map(vocabulary => [vocabulary.id, vocabulary]));
+  // An explicitly inactive set disables its field's defaults. Otherwise
+  // built-in choices stay available and world rows override matching keys.
+  const defaultsAllowed = !matchingVocabs.length || matchingVocabs.some(vocabulary => vocabulary.active);
+  const defaults = fallbackChoices.map(choice => ({
+    ...choice, active: defaultsAllowed, allowed: defaultsAllowed, source: "api_default",
+  }));
   const current = available.allOptions.flatMap(item => {
     const vocabulary = vocabById.get(item.vocabularyId);
     return vocabulary ? [{
       key: item.key, label: item.label, description: item.description, active: item.active,
-      source: item.worldId === null ? "global" : "world",
+      source: item.worldId != null || vocabulary.worldId != null ? "world" : "global",
       vocabulary_id: vocabulary.id,
       vocabulary_active: vocabulary.active,
       allowed: item.active && vocabulary.active,
     }] : [];
   });
+  const merged = new Map<string, (typeof defaults)[number] | (typeof current)[number]>(
+    defaults.map(choice => [choice.key, choice]),
+  );
+  for (const choice of [...current.filter(item => item.source === "global"), ...current.filter(item => item.source === "world")]) {
+    merged.set(choice.key, choice);
+  }
   return {
-    choices: current,
-    fallback_choices: current.length ? [] : fallbackChoices.map(choice => ({ ...choice, active: false, allowed: false, source: "ui_fallback" })),
+    choices: [...merged.values()],
+    fallback_choices: current.length ? [] : defaults,
   };
 }
 
@@ -420,6 +432,7 @@ function validateFieldChanges(
   rawChanges: Record<string, unknown>,
   fields: Record<string, Field>,
   available: Awaited<ReturnType<typeof vocabData>>,
+  defaults: Record<string, Choice[]>,
 ) {
   const parsedCurrent = jsonObject.safeParse(current ?? {});
   if (!parsedCurrent.success) throw new CanonToolError(`Stored ${objectPath} is invalid`, 409, "INVALID_STORED_METADATA");
@@ -444,14 +457,11 @@ function validateFieldChanges(
       throw new CanonToolError(`${objectPath}.${name} must be a string or null`, 400, "INVALID_METADATA_VALUE");
     }
     if (field.vocab) {
-      const vocabularies = available.vocabularies.filter(item => item.key === field.vocab && item.active);
-      const options = available.allOptions.filter(item =>
-        vocabularies.some(vocab => vocab.id === item.vocabularyId) && item.active,
-      );
-      const allowed = new Set(options.map(item => item.key));
+      const allowed = new Set(fieldChoices(field, available, defaults[name])
+        .choices.filter(item => item.allowed).map(item => item.key));
       const entries = Array.isArray(value) ? value : [value];
-      if (!vocabularies.length || entries.some(item => typeof item !== "string" || !allowed.has(item))) {
-        throw new CanonToolError(`Invalid ${objectPath}.${name} choice; choose an active world/global vocabulary option`, 400, "INVALID_PICKLIST_VALUE");
+      if (entries.some(item => typeof item !== "string" || !allowed.has(item))) {
+        throw new CanonToolError(`Invalid ${objectPath}.${name} choice; choose a current record-type or world vocabulary option`, 400, "INVALID_PICKLIST_VALUE");
       }
     }
     next[name] = value;
@@ -484,9 +494,9 @@ export async function updateCanonMetadata(userId: string, args: unknown) {
     if (!structured) throw new CanonToolError(`Unsupported Canon type "${record.canonType}"`, 422, "UNSUPPORTED_CANON_TYPE");
     const vocabulary = await vocabData(record.worldId, canonType);
     const nextGlobal = changes.global_metadata === undefined ? record.globalMetadata ?? {}
-      : validateFieldChanges("globalMetadata", record.globalMetadata, changes.global_metadata as Record<string, unknown>, globalFields, vocabulary);
+      : validateFieldChanges("globalMetadata", record.globalMetadata, changes.global_metadata as Record<string, unknown>, globalFields, vocabulary, globalFallback);
     const nextStructured = changes.structured_profile === undefined ? record.structuredProfile ?? {}
-      : validateFieldChanges("structuredProfile", record.structuredProfile, changes.structured_profile as Record<string, unknown>, structured, vocabulary);
+      : validateFieldChanges("structuredProfile", record.structuredProfile, changes.structured_profile as Record<string, unknown>, structured, vocabulary, fallback[canonType] ?? {});
     const diff: Record<string, { before: unknown; after: unknown }> = {};
     if (changes.global_metadata !== undefined && JSON.stringify(record.globalMetadata ?? {}) !== JSON.stringify(nextGlobal)) {
       diff.globalMetadata = { before: record.globalMetadata ?? {}, after: nextGlobal };

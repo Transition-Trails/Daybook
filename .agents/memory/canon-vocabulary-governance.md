@@ -3,11 +3,11 @@ name: Canon vocabulary governance
 description: Editorially scoped picklist configuration for MCP Canon metadata writes.
 ---
 
-Configure Canon metadata picklists as reviewed world-scoped choices by default. A bulk import of display-only fallbacks is appropriate only when the user explicitly requests that convenience.
+Canon record-type defaults shown in the editor are writable metadata choices even without stored vocabulary rows. World vocabularies customize these choices; bulk-importing built-ins into storage is optional, not a prerequisite for AI writes.
 
-**Why:** UI fallback values are display-only; without active database options an MCP client cannot write enumerated metadata. The user later explicitly asked to import all built-in API and editor choices rather than set up hundreds of values manually. That request authorizes broad activation, but an automatic overwrite of curated sets would still undo editorial decisions.
+**Why:** The user explicitly requested that `get_canon_field_options` and `update_canon_metadata` accept the same record-type choices as the editor. The former display-only rule forced duplicate vocabulary setup for AI writes. Bulk import was separately requested for managing existing choices, but overwriting curated sets would undo editorial decisions.
 
-**How to apply:** Outside an explicit bulk-import request, check the target world's vocabulary state before adding options, use the exact field and option keys from the metadata contract, and leave unreviewed fields unset. Bulk imports may add missing typed sets from the visible/API defaults, but must leave every existing typed set unchanged, including empty and inactive sets. Verify both vocabulary and option are active in the same world before telling clients to refresh field options. Do not populate Canon record values as part of vocabulary setup.
+**How to apply:** API field options, metadata write validation, and editor dropdowns must resolve the same effective set. Active managed choices override same-key defaults (including disabling an option) and add new keys; unmatched built-ins remain valid. An intentionally inactive managed set suppresses defaults for its field. Bulk imports may add missing typed sets, but leave existing typed sets unchanged, including empty and inactive sets. Do not populate Canon record values as part of vocabulary setup.
 
 Record-type-specific sets supersede older shared sets for that type, even when the specific set is inactive. Untyped legacy sets remain fallback for types that have not been configured separately.
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BookOpen, CircleHelp, LockKeyhole, Pencil, Plus, Search, X } from "lucide-react";
+import { BookOpen, ChevronDown, CircleHelp, LockKeyhole, Pencil, Plus, Search, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useEditorial } from "@/contexts/EditorialContext";
@@ -70,6 +70,7 @@ export default function Vocabularies() {
   const update = useUpdateVocabularyEntry();
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"all" | "active" | "inactive">("all");
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editor, setEditor] = useState<Editor | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [key, setKey] = useState("");
@@ -86,6 +87,7 @@ export default function Vocabularies() {
     setEditor(null);
     setConfirmation(null);
     setNotice("");
+    setExpanded({});
   }, [worldId]);
 
   const openEditor = (next: Editor) => {
@@ -181,6 +183,7 @@ export default function Vocabularies() {
           <div className="vocab-kicker mb-2">WorldSmith / Canon governance</div>
           <h1 className="text-[32px] leading-tight font-semibold md:text-[39px]">Vocabularies</h1>
           <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-[var(--admin-muted)]">The exact terms AI clients may write into Canon metadata. Keys are permanent; labels and availability can be revised.</p>
+          <p className="mt-2 max-w-2xl text-[12px] leading-relaxed text-[var(--admin-muted)]">To add choices for an Object or Character field, create a vocabulary with that field’s saved key (for example, <code>object_class</code> or <code>life_stage</code>), then add choices to it. Sets apply across record types wherever that key is used.</p>
         </div>
         {worldId && <button type="button" className="vocab-btn vocab-btn-primary" onClick={() => openEditor({ kind: "vocabularies" })} data-testid="button-add-vocabulary"><Plus size={15} /> New vocabulary</button>}
       </div>
@@ -204,7 +207,7 @@ export default function Vocabularies() {
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-[370px]">
             <Search size={15} className="pointer-events-none absolute left-3 top-3 text-[var(--admin-faint)]" />
-            <input className="vocab-input pl-9" value={search} onChange={e => setSearch(e.target.value)} placeholder="Find a label, key or description" aria-label="Search vocabularies" data-testid="input-search-vocabularies" />
+            <input className="vocab-input pl-9" value={search} onChange={e => { setSearch(e.target.value); setExpanded({}); }} placeholder="Find a label, key or description" aria-label="Search vocabularies" data-testid="input-search-vocabularies" />
           </div>
           <div className="flex gap-1 rounded-lg border border-[var(--admin-border)] p-1" role="group" aria-label="Filter by availability">
             {(["all", "active", "inactive"] as const).map(value => <button key={value} type="button" onClick={() => setView(value)} aria-pressed={view === value} data-testid={`button-filter-${value}`} className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize ${view === value ? "bg-[var(--admin-ink)] text-[#f8f0e6]" : "text-[var(--admin-muted)] hover:bg-[var(--admin-sunken)]"}`}>{value}</button>)}
@@ -223,10 +226,16 @@ export default function Vocabularies() {
                 const matchView = view === "all" || (view === "active" ? o.active && v.active : !o.active || !v.active);
                 return matchSearch && matchView;
               });
+              const isExpanded = expanded[v.id] ?? (Boolean(term) && shownOptions.length > 0);
               return <section key={v.id} className="vocab-panel overflow-hidden" data-testid={`section-vocabulary-${v.id}`}>
-                <div className="border-b border-[var(--admin-border)] bg-[#faf6ef] px-4 py-3">
+                <div className="bg-[#faf6ef] px-4 py-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0"><div className="vocab-kicker mb-1">Vocabulary set · {childOptions.length} {childOptions.length === 1 ? "choice" : "choices"}</div><h2 className="text-lg font-semibold leading-tight">{v.label}</h2></div>
+                    <h2 className="min-w-0 text-lg font-semibold leading-tight">
+                      <button type="button" id={`vocab-toggle-${v.id}`} className="group flex items-center gap-2 rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--admin-ink)]" aria-expanded={isExpanded} aria-controls={`vocab-choices-${v.id}`} onClick={() => setExpanded(previous => ({ ...previous, [v.id]: !isExpanded }))} data-testid={`button-expand-vocabulary-${v.id}`}>
+                        <ChevronDown size={17} className={`shrink-0 text-[var(--admin-muted)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} aria-hidden="true" />
+                        <span><span className="vocab-kicker mb-1 block">Vocabulary set · {childOptions.length} {childOptions.length === 1 ? "choice" : "choices"}</span><span className="group-hover:underline">{v.label}</span></span>
+                      </button>
+                    </h2>
                     {v.worldId === worldId
                       ? <button type="button" className="vocab-btn" onClick={() => openEditor({ kind: "options", vocabularyId: v.id })} data-testid={`button-add-option-${v.id}`}><Plus size={13} /> Add world choice</button>
                       : <span className="text-[11px] text-[var(--admin-muted)]">Inherited global set · choices are read only here</span>}
@@ -236,8 +245,10 @@ export default function Vocabularies() {
                     {v.worldId === worldId && <div className="ml-auto flex gap-1"><button className="vocab-btn" type="button" onClick={() => openEditor({ kind: "vocabularies", entry: v })} data-testid={`button-edit-vocabulary-${v.id}`}><Pencil size={12} /> Edit</button><button className="vocab-btn" type="button" onClick={() => openConfirmation({ kind: "vocabularies", entry: v })} data-testid={`button-toggle-vocabulary-${v.id}`}>{v.active ? "Deactivate" : "Activate"}</button></div>}
                   </div>
                 </div>
-                <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-[.12em] text-[var(--admin-faint)]">Allowed choices · label / status / source / saved key</div>
-                {shownOptions.length ? shownOptions.map(o => <EntryLine key={o.id} entry={o} kind="options" worldId={worldId} parentInactive={!v.active} onEdit={openEditor} onToggle={openConfirmation} />) : <div className="border-t border-[var(--admin-row-divider)] px-4 py-5 text-xs text-[var(--admin-muted)]">{childOptions.length ? "No choices match this filter." : v.worldId === worldId ? "No choices yet. Add a world-specific choice to this set." : "No choices in this inherited global set."}</div>}
+                {isExpanded && <div id={`vocab-choices-${v.id}`} role="region" aria-labelledby={`vocab-toggle-${v.id}`} className="border-t border-[var(--admin-border)]">
+                  <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-[.12em] text-[var(--admin-faint)]">Allowed choices · label / status / source / saved key</div>
+                  {shownOptions.length ? shownOptions.map(o => <EntryLine key={o.id} entry={o} kind="options" worldId={worldId} parentInactive={!v.active} onEdit={openEditor} onToggle={openConfirmation} />) : <div className="border-t border-[var(--admin-row-divider)] px-4 py-5 text-xs text-[var(--admin-muted)]">{childOptions.length ? "No choices match this filter." : v.worldId === worldId ? "No choices yet. Add a world-specific choice to this set." : "No choices in this inherited global set."}</div>}
+                </div>}
               </section>;
             })}
           </div>}

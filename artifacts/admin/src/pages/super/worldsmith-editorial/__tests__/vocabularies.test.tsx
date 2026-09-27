@@ -41,6 +41,9 @@ describe("editorial vocabulary management", () => {
 
   it("shows inherited global terms as read-only alongside world terms and their exact keys", async () => {
     setup();
+    await screen.findByTestId("button-expand-vocabulary-v-global");
+    fireEvent.click(screen.getByTestId("button-expand-vocabulary-v-global"));
+    fireEvent.click(screen.getByTestId("button-expand-vocabulary-v-world"));
     expect(await screen.findByTestId("text-key-o-global")).toHaveTextContent("regency");
     expect(screen.getByTestId("row-options-o-global")).toHaveTextContent("Inherited global · read only");
     expect(screen.getByTestId("row-options-o-global")).toHaveTextContent("Inactive");
@@ -52,6 +55,7 @@ describe("editorial vocabulary management", () => {
 
   it("creates a world choice with the saved key and parent vocabulary id", async () => {
     setup();
+    fireEvent.click(await screen.findByTestId("button-expand-vocabulary-v-world"));
     await screen.findByTestId("row-options-o-world");
     fireEvent.click(screen.getByTestId("button-add-option-v-world"));
     fireEvent.change(screen.getByTestId("input-vocabulary-key"), { target: { value: "  edwardian  " } });
@@ -70,6 +74,7 @@ describe("editorial vocabulary management", () => {
       options: [response.options[0]],
     }) as never);
     setup();
+    fireEvent.click(await screen.findByTestId("button-expand-vocabulary-v-world"));
     const row = await screen.findByTestId("row-options-o-world");
     expect(row).toHaveTextContent("Unavailable");
     expect(row).toHaveTextContent("Choice is active, but unavailable while its vocabulary is inactive.");
@@ -84,6 +89,7 @@ describe("editorial vocabulary management", () => {
 
   it("requires confirmation before deactivation and sends the expected version", async () => {
     setup();
+    fireEvent.click(await screen.findByTestId("button-expand-vocabulary-v-world"));
     await screen.findByTestId("row-options-o-world");
     fireEvent.click(screen.getByTestId("button-toggle-o-world"));
     expect(screen.getByRole("alertdialog")).toHaveTextContent("disallows future metadata saves");
@@ -102,6 +108,7 @@ describe("editorial vocabulary management", () => {
       return {} as never;
     });
     setup();
+    fireEvent.click(await screen.findByTestId("button-expand-vocabulary-v-world"));
     await screen.findByTestId("row-options-o-world");
     fireEvent.click(screen.getByTestId("button-edit-o-world"));
     expect(screen.getByTestId("input-vocabulary-key")).toBeDisabled();
@@ -127,6 +134,7 @@ describe("editorial vocabulary management", () => {
       return {} as never;
     });
     const view = setup();
+    fireEvent.click(await screen.findByTestId("button-expand-vocabulary-v-world"));
     await screen.findByTestId("row-options-o-world");
     fireEvent.click(screen.getByTestId("button-add-vocabulary"));
     fireEvent.change(screen.getByTestId("input-vocabulary-key"), { target: { value: "ritual" } });
@@ -152,6 +160,7 @@ describe("editorial vocabulary management", () => {
       return {} as never;
     });
     const view = setup();
+    fireEvent.click(await screen.findByTestId("button-expand-vocabulary-v-world"));
     await screen.findByTestId("row-options-o-world");
     fireEvent.click(screen.getByTestId("button-toggle-o-world"));
     fireEvent.click(screen.getByTestId("button-confirm-toggle"));
@@ -180,5 +189,25 @@ describe("editorial vocabulary management", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
+  });
+
+  it("starts collapsed, toggles choices, and opens matching choices during search", async () => {
+    setup();
+    const toggle = await screen.findByTestId("button-expand-vocabulary-v-world");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("row-options-o-world")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-add-option-v-world")).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("row-options-o-world")).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("row-options-o-world")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("input-search-vocabularies"), { target: { value: "person" } });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("row-options-o-world")).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("row-options-o-world")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("input-search-vocabularies"), { target: { value: "" } });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 });

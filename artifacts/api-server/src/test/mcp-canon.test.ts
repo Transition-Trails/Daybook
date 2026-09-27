@@ -163,6 +163,68 @@ describe("WorldSmith canon MCP service", () => {
     expect(lifeStageVocabularies[0].options.map((option: any) => option.key)).toContain("adult");
     expect(lifeStageVocabularies[1].options.map((option: any) => option.key)).toContain("elder");
     expect(result.fields.lifeStage.choices.map((choice: any) => choice.key)).toEqual(["adult", "elder"]);
+    expect(lifeStageVocabularies.map((vocabulary: any) => vocabulary.record_type)).toEqual([null, null]);
+  });
+
+  it("uses record-type vocabularies ahead of legacy same-key choices and returns their scope", async () => {
+    rows.ws_vocabularies = [
+      { id: "legacy-condition", key: "condition", label: "Shared Condition", scope: "world", worldId: "world-1", recordType: null, active: true },
+      { id: "object-condition", key: "condition", label: "Object Condition", scope: "world", worldId: "world-1", recordType: "object", active: false },
+      { id: "location-condition", key: "condition", label: "Location Condition", scope: "world", worldId: "world-1", recordType: "location", active: true },
+    ];
+    rows.ws_vocabulary_options = [
+      { id: "legacy-worn", vocabularyId: "legacy-condition", key: "worn", label: "Worn", description: "", active: true, worldId: "world-1" },
+      { id: "object-new", vocabularyId: "object-condition", key: "new", label: "New", description: "", active: true, worldId: "world-1" },
+      { id: "location-urban", vocabularyId: "location-condition", key: "urban", label: "Urban", description: "", active: true, worldId: "world-1" },
+    ];
+
+    const object = await executeCanonTool("admin-1", "get_canon_field_options", {
+      world_id: "world-1", canon_type: "object",
+    }, "https://editor.example") as any;
+    expect(object.paths.structured_profile.fields.condition.choices).toEqual([
+      expect.objectContaining({ key: "new", vocabulary_active: false, allowed: false }),
+    ]);
+    expect(object.vocabularies.filter((vocabulary: any) => vocabulary.key === "condition").map((vocabulary: any) => ({
+      record_type: vocabulary.record_type, label: vocabulary.label,
+    }))).toEqual([{ record_type: "object", label: "Object Condition" }]);
+
+    const location = await executeCanonTool("admin-1", "get_canon_field_options", {
+      world_id: "world-1", canon_type: "location",
+    }, "https://editor.example") as any;
+    expect(location.paths.structured_profile.fields.condition.choices.map((choice: any) => choice.key)).toEqual(["urban"]);
+    expect(location.paths.structured_profile.fields.condition.choices.map((choice: any) => choice.key))
+      .not.toContain("worn");
+  });
+
+  it("rejects cross-type and inactive overrides in metadata and Character profile writes", async () => {
+    rows.ws_vocabularies = [
+      { id: "legacy-life-stage", key: "life_stage", scope: "world", worldId: "world-1", recordType: null, active: true },
+      { id: "character-life-stage", key: "life_stage", scope: "world", worldId: "world-1", recordType: "character", active: true },
+      { id: "object-condition", key: "condition", scope: "world", worldId: "world-1", recordType: "object", active: true },
+      { id: "location-condition", key: "condition", scope: "world", worldId: "world-1", recordType: "location", active: true },
+    ];
+    rows.ws_vocabulary_options = [
+      { id: "legacy-adult", vocabularyId: "legacy-life-stage", key: "adult", label: "Adult", description: "", active: true, worldId: "world-1" },
+      { id: "character-child", vocabularyId: "character-life-stage", key: "child", label: "Child", description: "", active: true, worldId: "world-1" },
+      { id: "object-new", vocabularyId: "object-condition", key: "new", label: "New", description: "", active: true, worldId: "world-1" },
+      { id: "location-worn", vocabularyId: "location-condition", key: "worn", label: "Worn", description: "", active: true, worldId: "world-1" },
+    ];
+
+    const character = await executeCanonTool("admin-1", "get_canon_field_options", {
+      world_id: "world-1", canon_type: "character",
+    }, "https://editor.example") as any;
+    expect(character.fields.lifeStage.choices.map((choice: any) => choice.key)).toEqual(["child"]);
+    expect(character.vocabularies.find((vocabulary: any) => vocabulary.key === "life_stage")?.record_type).toBe("character");
+    await expect(updateCharacterProfile("admin-1", "char-1", { lifeStage: "adult" }))
+      .rejects.toMatchObject({ code: "INVALID_PICKLIST_VALUE" });
+    await expect(executeCanonTool("admin-1", "update_canon_record", {
+      record_id: "char-1", expected_revision: 4, changes: { lifeStage: "adult" },
+    }, "https://editor.example")).rejects.toMatchObject({ code: "INVALID_PICKLIST_VALUE" });
+
+    rows.ws_canon_records = [{ ...canonRecord, canonType: "object" }];
+    await expect(executeCanonTool("admin-1", "update_canon_metadata", {
+      record_id: "char-1", expected_version: 4, changes: { structured_profile: { condition: "worn" } },
+    }, "https://editor.example")).rejects.toMatchObject({ code: "INVALID_PICKLIST_VALUE" });
   });
 
   it("merges a valid partial profile while rejecting unknown and invalid fields", () => {

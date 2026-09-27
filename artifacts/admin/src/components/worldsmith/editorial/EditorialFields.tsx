@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { createContext, useContext, useState, useRef, useEffect, useMemo } from "react";
 import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -6,52 +6,68 @@ import { apiFetch } from "@/lib/api";
 const INK = "var(--admin-ink, var(--admin-ink))";
 const CLAY = "var(--admin-clay, var(--admin-clay))";
 const BORDER = "var(--admin-border, var(--admin-border))";
+const CanonVocabularyRecordType = createContext<string | undefined>(undefined);
+
+export function CanonVocabularyRecordTypeProvider({ recordType, children }: {
+  recordType: string;
+  children: React.ReactNode;
+}) {
+  return <CanonVocabularyRecordType.Provider value={recordType}>{children}</CanonVocabularyRecordType.Provider>;
+}
 
 export function useVocabularies(worldId?: string) {
-  return useQuery({
+  const recordType = useContext(CanonVocabularyRecordType);
+  const query = useQuery({
     queryKey: ["editorial-vocabularies", worldId],
-    queryFn: () => 
-      apiFetch<{ vocabularies: any[]; options: any[] }>(`/v1/editorial/vocabularies${worldId ? `?world_id=${worldId}` : ""}`)
-        .then(res => {
-          const vocabMap = new Map<string, { key: string; active: boolean; isWorld: boolean }>();
-          res.vocabularies?.forEach(v => vocabMap.set(v.id, {
-            key: v.key,
-            active: v.active !== false,
-            isWorld: v.scope === "world" || (v.worldId != null && v.worldId === worldId),
-          }));
-
-          const grouped: Record<string, { key: string; label: string; group?: string; active: boolean; description?: string; version?: number; isWorld?: boolean }[]> = {};
-          vocabMap.forEach(vocabulary => {
-            if (!grouped[vocabulary.key]) grouped[vocabulary.key] = [];
-          });
-          res.options?.forEach(opt => {
-            const parent = vocabMap.get(opt.vocabularyId);
-            if (!parent) return;
-            if (!grouped[parent.key]) grouped[parent.key] = [];
-            grouped[parent.key].push({
-              key: opt.key,
-              label: opt.label,
-              description: opt.description,
-              version: opt.version,
-              active: opt.active !== false && parent.active,
-              isWorld: parent.isWorld || (opt.worldId != null && opt.worldId === worldId),
-            });
-          });
-          // If a world-specific option shares a key with an inherited option, keep
-          // the world row (including its inactive state) as the canonical choice.
-          for (const key of Object.keys(grouped)) {
-            const optionsByKey = new Map<string, typeof grouped[string][number]>();
-            for (const option of grouped[key]) {
-              const existing = optionsByKey.get(option.key);
-              if (!existing || option.isWorld || !existing.isWorld) optionsByKey.set(option.key, option);
-            }
-            grouped[key] = [...optionsByKey.values()];
-          }
-          return { vocabularies: grouped };
-        })
-        .catch(() => ({ vocabularies: {} as Record<string, { key: string; label: string; group?: string; active: boolean; description?: string; version?: number }[]> })),
+    queryFn: () =>
+      apiFetch<{ vocabularies: any[]; options: any[] }>(`/v1/editorial/vocabularies${worldId ? `?world_id=${worldId}` : ""}`),
     staleTime: 300_000,
   });
+  const data = useMemo(() => {
+    if (!query.data) return undefined;
+    const vocabularies = query.data.vocabularies ?? [];
+    const matching = vocabularies.filter(v => v.recordType == null || v.recordType === recordType);
+    const scopedKeys = new Set(matching.filter(v => v.recordType === recordType && recordType).map(v => v.key));
+    const effectiveVocabularies = matching.filter(v => v.recordType === recordType
+      ? true
+      : v.recordType == null && !scopedKeys.has(v.key));
+    const vocabMap = new Map<string, { key: string; active: boolean; isWorld: boolean }>();
+    effectiveVocabularies.forEach(v => vocabMap.set(v.id, {
+      key: v.key,
+      active: v.active !== false,
+      isWorld: v.scope === "world" || (v.worldId != null && v.worldId === worldId),
+    }));
+
+    const grouped: Record<string, { key: string; label: string; group?: string; active: boolean; description?: string; version?: number; isWorld?: boolean }[]> = {};
+    vocabMap.forEach(vocabulary => {
+      if (!grouped[vocabulary.key]) grouped[vocabulary.key] = [];
+    });
+    (query.data.options ?? []).forEach(opt => {
+      const parent = vocabMap.get(opt.vocabularyId);
+      if (!parent) return;
+      if (!grouped[parent.key]) grouped[parent.key] = [];
+      grouped[parent.key].push({
+        key: opt.key,
+        label: opt.label,
+        description: opt.description,
+        version: opt.version,
+        active: opt.active !== false && parent.active,
+        isWorld: parent.isWorld || (opt.worldId != null && opt.worldId === worldId),
+      });
+    });
+    // If a world-specific option shares a key with an inherited option, keep
+    // the world row (including its inactive state) as the canonical choice.
+    for (const key of Object.keys(grouped)) {
+      const optionsByKey = new Map<string, typeof grouped[string][number]>();
+      for (const option of grouped[key]) {
+        const existing = optionsByKey.get(option.key);
+        if (!existing || option.isWorld || !existing.isWorld) optionsByKey.set(option.key, option);
+      }
+      grouped[key] = [...optionsByKey.values()];
+    }
+    return { vocabularies: grouped };
+  }, [query.data, recordType, worldId]);
+  return { ...query, data };
 }
 
 function useMergedOptions(vocabKey?: string, staticOptions: { key: string; label: string; group?: string; active?: boolean; description?: string }[] = [], includeInactive = false, worldId?: string) {

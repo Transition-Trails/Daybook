@@ -1,4 +1,5 @@
 import { boolean, integer, jsonb, pgTable, text, timestamp, index, primaryKey, uniqueIndex } from "drizzle-orm/pg-core";
+import { isNotNull, isNull } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -10,9 +11,13 @@ const audit = {
 export const wsVocabulariesTable = pgTable("ws_vocabularies", {
   id: text("id").primaryKey(), key: text("key").notNull(), label: text("label").notNull(),
   description: text("description").notNull().default(""), version: integer("version").notNull().default(1),
-  scope: text("scope").notNull().default("global"), worldId: text("world_id"), active: boolean("active").notNull().default(true),
+  scope: text("scope").notNull().default("global"), worldId: text("world_id"), recordType: text("record_type"), active: boolean("active").notNull().default(true),
   ...audit,
-}, t => [index("ws_vocabularies_scope_idx").on(t.scope, t.worldId), uniqueIndex("ws_vocabularies_key_scope_unique").on(t.key, t.scope, t.worldId)]);
+}, t => [
+  index("ws_vocabularies_scope_idx").on(t.scope, t.worldId),
+  uniqueIndex("ws_vocabularies_key_scope_unique").on(t.key, t.scope, t.worldId).where(isNull(t.recordType)),
+  uniqueIndex("ws_vocabularies_key_type_scope_unique").on(t.key, t.scope, t.worldId, t.recordType).where(isNotNull(t.recordType)),
+]);
 export const wsVocabularyOptionsTable = pgTable("ws_vocabulary_options", {
   id: text("id").primaryKey(), vocabularyId: text("vocabulary_id").notNull(), key: text("key").notNull(),
   label: text("label").notNull(), description: text("description").notNull().default(""), displayOrder: integer("display_order").notNull().default(0),

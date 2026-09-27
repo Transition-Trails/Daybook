@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useEditorial } from "@/contexts/EditorialContext";
 import {
-  useCreateVocabularyEntry, useUpdateVocabularyEntry, useVocabularyManagement,
+  useCreateVocabularyEntry, useImportVocabularyDefaults, useUpdateVocabularyEntry, useVocabularyManagement,
   type Vocabulary, type VocabularyOption,
 } from "./useVocabularyManagement";
 import { canonRecordTypes, fieldLabel, fieldsForType, recordTypeFields, sharedFields, type CanonRecordType } from "./recordTypeVocabularyFields";
@@ -37,8 +37,8 @@ function ScopeBadge({ global }: { global: boolean }) {
   </span>;
 }
 
-function EntryLine({ entry, kind, worldId, parentInactive, onEdit, onToggle }: {
-  entry: Entry; kind: Kind; worldId: string; parentInactive?: boolean;
+function EntryLine({ entry, kind, worldId, parentInactive, readOnly, onEdit, onToggle }: {
+  entry: Entry; kind: Kind; worldId: string; parentInactive?: boolean; readOnly?: boolean;
   onEdit: (editor: Editor) => void; onToggle: (confirmation: Confirmation) => void;
 }) {
   const global = entry.worldId !== worldId;
@@ -56,7 +56,7 @@ function EntryLine({ entry, kind, worldId, parentInactive, onEdit, onToggle }: {
       <span className="block text-[10px] text-[var(--admin-faint)]">SAVED KEY</span>
       <code className="vocab-key" data-testid={`text-key-${entry.id}`}>{entry.key}</code>
     </div>
-    {!global && <div className="flex items-center gap-1 md:justify-end">
+    {!global && !readOnly && <div className="flex items-center gap-1 md:justify-end">
       <button className="vocab-btn" type="button" onClick={() => onEdit({ kind, entry })} data-testid={`button-edit-${entry.id}`} aria-label={`Edit ${entry.label}`}><Pencil size={13} /> Edit</button>
       <button className="vocab-btn" type="button" onClick={() => onToggle({ kind, entry })} data-testid={`button-toggle-${entry.id}`} aria-label={`${entry.active ? "Deactivate" : "Activate"} ${entry.label}`}>{entry.active ? "Deactivate" : "Activate"}</button>
     </div>}
@@ -69,6 +69,7 @@ export default function Vocabularies() {
   const queryClient = useQueryClient();
   const register = useVocabularyManagement(worldId);
   const create = useCreateVocabularyEntry();
+  const importDefaults = useImportVocabularyDefaults();
   const update = useUpdateVocabularyEntry();
   const [search, setSearch] = useState("");
   const [recordType, setRecordType] = useState<CanonRecordType | "all">("all");
@@ -82,6 +83,7 @@ export default function Vocabularies() {
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
   const [notice, setNotice] = useState("");
+  const [importError, setImportError] = useState("");
   const [formError, setFormError] = useState("");
   const [toggleError, setToggleError] = useState("");
   const currentWorldId = useRef(worldId);
@@ -92,6 +94,7 @@ export default function Vocabularies() {
     setEditor(null);
     setConfirmation(null);
     setNotice("");
+    setImportError("");
     setExpanded({});
   }, [worldId]);
 
@@ -110,6 +113,25 @@ export default function Vocabularies() {
     restoreFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setToggleError("");
     setConfirmation(next);
+  };
+
+  const addExistingChoices = async () => {
+    if (!worldId) return;
+    const initiatingWorldId = worldId;
+    setImportError("");
+    setNotice("");
+    try {
+      const result = await importDefaults.mutateAsync({
+        worldId,
+        recordType: recordType === "all" ? undefined : recordType,
+      });
+      if (currentWorldId.current !== initiatingWorldId) return;
+      setNotice(result.createdVocabularies
+        ? `Added ${result.createdVocabularies} vocabulary sets with ${result.createdOptions} choices. Your existing sets were left unchanged.`
+        : "All fields with existing choices are already set up. Your vocabulary sets were left unchanged.");
+    } catch (error) {
+      if (currentWorldId.current === initiatingWorldId) setImportError(errorText(error));
+    }
   };
 
   const refreshAfterConflict = async (id: string, initiatingWorldId: string) => {
@@ -144,9 +166,9 @@ export default function Vocabularies() {
       return;
     }
     if (!editor.entry && editor.kind === "vocabularies" && register.data?.vocabularies.some(
-      v => v.worldId === worldId && v.key === cleanKey,
+      v => v.worldId === worldId && v.key === cleanKey && v.recordType === editorRecordType,
     )) {
-      setFormError("This field already has a vocabulary in this world. Close this form and add choices to its card.");
+      setFormError("This record type already has a vocabulary for this field. Open its choices instead.");
       return;
     }
     setFormError("");
@@ -154,7 +176,7 @@ export default function Vocabularies() {
       if (editor.entry) {
         await update.mutateAsync({ kind: editor.kind, id: editor.entry.id, worldId, expectedVersion: editor.entry.version, label: cleanLabel, description: description.trim() });
       } else {
-        await create.mutateAsync({ kind: editor.kind, worldId, vocabularyId: editor.vocabularyId, key: cleanKey, label: cleanLabel, description: description.trim() });
+        await create.mutateAsync({ kind: editor.kind, worldId, recordType: editor.kind === "vocabularies" ? editorRecordType : undefined, vocabularyId: editor.vocabularyId, key: cleanKey, label: cleanLabel, description: description.trim() });
       }
       if (currentWorldId.current !== initiatingWorldId) return;
       setEditor(null);
@@ -184,9 +206,17 @@ export default function Vocabularies() {
 
   const vocabs = (register.data?.vocabularies ?? []).filter(v => v.worldId === worldId || v.worldId == null);
   const options = (register.data?.options ?? []).filter(o => o.worldId === worldId || o.worldId == null);
-  const scopedVocabs = recordType === "all" ? vocabs : vocabs.filter(v => fieldsForType(recordType).includes(v.key));
+  const scopedVocabs = recordType === "all" ? vocabs : vocabs.filter(v =>
+    fieldsForType(recordType).includes(v.key) && (v.recordType == null || v.recordType === recordType)
+    && (v.recordType === recordType || !vocabs.some(other =>
+      other.key === v.key && other.recordType === recordType,
+    )),
+  );
   const existingFieldVocabulary = editor?.kind === "vocabularies" && !editor.entry
-    ? vocabs.find(v => v.worldId === worldId && v.key === key)
+    ? vocabs.find(v => v.worldId === worldId && v.recordType === editorRecordType && v.key === key)
+    : undefined;
+  const existingSharedVocabulary = editor?.kind === "vocabularies" && !editor.entry
+    ? vocabs.find(v => v.key === key && v.recordType == null)
     : undefined;
   const scopedOptions = options.filter(o => scopedVocabs.some(v => v.id === o.vocabularyId));
   const activeChoices = scopedOptions.filter(o => o.active && scopedVocabs.some(v => v.id === o.vocabularyId && v.active)).length;
@@ -206,9 +236,13 @@ export default function Vocabularies() {
           <div className="vocab-kicker mb-2">WorldSmith / Canon governance</div>
           <h1 className="text-[32px] leading-tight font-semibold md:text-[39px]">Vocabularies</h1>
           <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-[var(--admin-muted)]">The exact terms AI clients may write into Canon metadata. Keys are permanent; labels and availability can be revised.</p>
-          <p className="mt-2 max-w-2xl text-[12px] leading-relaxed text-[var(--admin-muted)]">Choose a Canon record type, then select the field whose choices you want to manage. Shared fields appear under more than one type.</p>
+          <p className="mt-2 max-w-2xl text-[12px] leading-relaxed text-[var(--admin-muted)]">Choose a Canon record type, then select its field. Fields used by several types can have separate choices for each type.</p>
+          <p className="mt-2 max-w-2xl text-[12px] leading-relaxed text-[var(--admin-muted)]">Add existing choices sets up missing fields from the choices already shown in Canon. New choices become available for editing; your customized sets stay unchanged.</p>
         </div>
-        {worldId && <button type="button" className="vocab-btn vocab-btn-primary" onClick={() => openEditor({ kind: "vocabularies" })} data-testid="button-add-vocabulary"><Plus size={15} /> New vocabulary</button>}
+        {worldId && <div className="flex flex-wrap gap-2">
+          <button type="button" className="vocab-btn" onClick={addExistingChoices} disabled={importDefaults.isPending} data-testid="button-import-vocabulary-defaults">{importDefaults.isPending ? "Adding existing choices…" : "Add existing choices"}</button>
+          <button type="button" className="vocab-btn vocab-btn-primary" onClick={() => openEditor({ kind: "vocabularies" })} data-testid="button-add-vocabulary"><Plus size={15} /> New vocabulary</button>
+        </div>}
       </div>
 
       {!worldId ? <div className="vocab-panel mt-9 flex flex-col items-start gap-3 p-8" data-testid="status-no-world">
@@ -223,6 +257,7 @@ export default function Vocabularies() {
           <span><strong className="mr-2 text-[var(--admin-clay-hover)]">{inactiveChoices}</strong><span className="text-[var(--admin-muted)]">unavailable choices</span></span>
         </div>
 
+        {importError && <div role="alert" className="mt-5 rounded-lg border border-red-300 p-3 text-xs text-red-700" data-testid="status-vocabulary-import-error">{importError}</div>}
         {notice && <div role="status" className="mt-5 flex items-start justify-between gap-3 rounded-lg border border-[#d9c4b5] bg-[#f8eee5] px-4 py-3 text-xs text-[var(--admin-ink)]" data-testid="status-vocabulary-notice">
           <span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Dismiss notice" data-testid="button-dismiss-notice"><X size={15} /></button>
         </div>}
@@ -251,6 +286,7 @@ export default function Vocabularies() {
           : <div className="mt-5 space-y-3">
             {visible.map(v => {
               const childOptions = options.filter(o => o.vocabularyId === v.id).sort((a, b) => a.displayOrder - b.displayOrder || a.label.localeCompare(b.label));
+                const sharedInTypeView = recordType !== "all" && v.recordType == null;
               const shownOptions = childOptions.filter(o => {
                 const matchSearch = !term || [v.key, v.label, v.description, o.key, o.label, o.description].some(s => s?.toLowerCase().includes(term));
                 const matchView = view === "all" || (view === "active" ? o.active && v.active : !o.active || !v.active);
@@ -266,18 +302,27 @@ export default function Vocabularies() {
                         <span><span className="vocab-kicker mb-1 block">Vocabulary set · {childOptions.length} {childOptions.length === 1 ? "choice" : "choices"}</span><span className="group-hover:underline">{v.label}</span></span>
                       </button>
                     </h2>
-                    {v.worldId === worldId
+                    {sharedInTypeView
+                      ? <button type="button" className="vocab-btn" onClick={() => {
+                        openEditor({ kind: "vocabularies" });
+                        setEditorRecordType(recordType);
+                        setFieldSelection(v.key);
+                        setKey(v.key);
+                        setLabel(v.label);
+                      }} data-testid={`button-separate-vocabulary-${v.id}`}><Plus size={13} /> Create separate choices</button>
+                      : v.worldId === worldId
                       ? <button type="button" className="vocab-btn" onClick={() => openEditor({ kind: "options", vocabularyId: v.id })} data-testid={`button-add-option-${v.id}`}><Plus size={13} /> Add world choice</button>
                       : <span className="text-[11px] text-[var(--admin-muted)]">Inherited global set · choices are read only here</span>}
                   </div>
                   <p className="mt-1 text-xs text-[var(--admin-muted)]">{v.description || "No description provided."}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2"><StatusBadge active={v.active} /><ScopeBadge global={v.worldId !== worldId} /><span className="text-[10px] text-[var(--admin-faint)]">SAVED KEY</span><code className="vocab-key" data-testid={`text-vocabulary-key-${v.id}`}>{v.key}</code>
-                    {v.worldId === worldId && <div className="ml-auto flex gap-1"><button className="vocab-btn" type="button" onClick={() => openEditor({ kind: "vocabularies", entry: v })} data-testid={`button-edit-vocabulary-${v.id}`}><Pencil size={12} /> Edit</button><button className="vocab-btn" type="button" onClick={() => openConfirmation({ kind: "vocabularies", entry: v })} data-testid={`button-toggle-vocabulary-${v.id}`}>{v.active ? "Deactivate" : "Activate"}</button></div>}
+                  {sharedInTypeView && <p className="mt-1 text-xs text-[var(--admin-muted)]">This older set is shared by other record types. Create separate choices before editing this type; the shared set stays unchanged.</p>}
+                   <div className="mt-2 flex flex-wrap items-center gap-2"><StatusBadge active={v.active} /><ScopeBadge global={v.worldId !== worldId} /><span className="vocab-badge">{v.recordType ? `${canonRecordTypes.find(type => type.key === v.recordType)?.label ?? v.recordType} only` : "Shared legacy set"}</span><span className="text-[10px] text-[var(--admin-faint)]">SAVED KEY</span><code className="vocab-key" data-testid={`text-vocabulary-key-${v.id}`}>{v.key}</code>
+                    {v.worldId === worldId && !sharedInTypeView && <div className="ml-auto flex gap-1"><button className="vocab-btn" type="button" onClick={() => openEditor({ kind: "vocabularies", entry: v })} data-testid={`button-edit-vocabulary-${v.id}`}><Pencil size={12} /> Edit</button><button className="vocab-btn" type="button" onClick={() => openConfirmation({ kind: "vocabularies", entry: v })} data-testid={`button-toggle-vocabulary-${v.id}`}>{v.active ? "Deactivate" : "Activate"}</button></div>}
                   </div>
                 </div>
                 {isExpanded && <div id={`vocab-choices-${v.id}`} role="region" aria-labelledby={`vocab-toggle-${v.id}`} className="border-t border-[var(--admin-border)]">
                   <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-[.12em] text-[var(--admin-faint)]">Allowed choices · label / status / source / saved key</div>
-                  {shownOptions.length ? shownOptions.map(o => <EntryLine key={o.id} entry={o} kind="options" worldId={worldId} parentInactive={!v.active} onEdit={openEditor} onToggle={openConfirmation} />) : <div className="border-t border-[var(--admin-row-divider)] px-4 py-5 text-xs text-[var(--admin-muted)]">{childOptions.length ? "No choices match this filter." : v.worldId === worldId ? "No choices yet. Add a world-specific choice to this set." : "No choices in this inherited global set."}</div>}
+                  {shownOptions.length ? shownOptions.map(o => <EntryLine key={o.id} entry={o} kind="options" worldId={worldId} parentInactive={!v.active} readOnly={sharedInTypeView} onEdit={openEditor} onToggle={openConfirmation} />) : <div className="border-t border-[var(--admin-row-divider)] px-4 py-5 text-xs text-[var(--admin-muted)]">{childOptions.length ? "No choices match this filter." : sharedInTypeView ? "Create separate choices to manage this type." : v.worldId === worldId ? "No choices yet. Add a world-specific choice to this set." : "No choices in this inherited global set."}</div>}
                 </div>}
               </section>;
             })}
@@ -305,6 +350,7 @@ export default function Vocabularies() {
               </>}
             </select></div>
             {existingFieldVocabulary && <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--admin-muted)]">This field is already set up. <button type="button" className="vocab-btn" onClick={() => { setEditor(null); if (editorRecordType) setRecordType(editorRecordType); setSearch(""); setExpanded(previous => ({ ...previous, [existingFieldVocabulary.id]: true })); }} data-testid="button-open-existing-vocabulary">Open its choices</button></div>}
+            {!existingFieldVocabulary && existingSharedVocabulary && fieldSelection !== CUSTOM_FIELD && <p className="text-xs text-[var(--admin-muted)]">A shared set currently supplies this field. Creating a {canonRecordTypes.find(type => type.key === editorRecordType)?.label} set will replace those choices for this type only; other types keep the shared set.</p>}
           </>}
           {(editor.kind === "options" || Boolean(editor.entry) || fieldSelection) && <div><label className="vocab-label" htmlFor="vocab-key-input">Saved key</label><input id="vocab-key-input" className="vocab-input font-mono" required value={key} readOnly={editor.kind === "vocabularies" && fieldSelection !== CUSTOM_FIELD && !editor.entry} disabled={Boolean(editor.entry)} onChange={e => { setKey(e.target.value.toLowerCase()); setFormError(""); }} placeholder="e.g. documentary" aria-describedby="vocab-key-help" data-testid="input-vocabulary-key" /><p id="vocab-key-help" className="mt-1 text-[11px] text-[var(--admin-faint)]">{editor.entry ? "Permanent identifier; cannot be changed." : editor.kind === "vocabularies" && fieldSelection !== CUSTOM_FIELD ? "Set automatically from your field selection. This key cannot be changed later." : "Use lowercase letters, numbers, underscores or hyphens. This key cannot be changed later."}</p></div>}
           <div><label className="vocab-label" htmlFor="vocab-label-input">Display label</label><input id="vocab-label-input" autoFocus={editor.kind === "options" || Boolean(editor.entry)} className="vocab-input" required value={label} onChange={e => setLabel(e.target.value)} placeholder="Name staff will recognize" data-testid="input-vocabulary-label" /></div>

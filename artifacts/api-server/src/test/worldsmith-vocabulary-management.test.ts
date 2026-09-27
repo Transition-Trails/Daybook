@@ -7,6 +7,7 @@ import {
 } from "@workspace/db";
 import { and, eq, inArray } from "drizzle-orm";
 import type { User } from "@workspace/db";
+import { getCanonMetadataFieldOptions } from "../lib/worldsmith/canon-metadata";
 
 vi.mock("../middleware/requireRole", () => ({
   requireSuperAdmin: (req: Request, res: Response, next: NextFunction) => {
@@ -146,6 +147,35 @@ describe("world-scoped vocabulary management", () => {
     expect(duplicate.status).toBe(409);
     expect(duplicate.body.code).toBe("DUPLICATE_KEY");
 
+    const objectSet = await request(app).post(`${route}/vocabularies`).send({
+      world_id: worldId, record_type: "object", key: `tone_${suffix}`, label: "Object tone",
+    });
+    const locationSet = await request(app).post(`${route}/vocabularies`).send({
+      world_id: worldId, record_type: "location", key: `tone_${suffix}`, label: "Location tone",
+    });
+    expect(objectSet.status).toBe(201);
+    expect(locationSet.status).toBe(201);
+    expect(objectSet.body.vocabulary).toMatchObject({ recordType: "object", worldId, key: `tone_${suffix}` });
+    expect(locationSet.body.vocabulary).toMatchObject({ recordType: "location", worldId, key: `tone_${suffix}` });
+    const sameType = await request(app).post(`${route}/vocabularies`).send({
+      world_id: worldId, record_type: "object", key: `tone_${suffix}`, label: "Duplicate Object tone",
+    });
+    expect(sameType.status).toBe(409);
+    const wrongType = await request(app).post(`${route}/vocabularies`).send({
+      world_id: worldId, record_type: "not_a_canon_type", key: "wrong_type", label: "Wrong type",
+    });
+    expect(wrongType.status).toBe(400);
+    const immutableRecordType = await request(app).patch(`${route}/vocabularies/${objectSet.body.vocabulary.id}`).send({
+      world_id: worldId, expected_version: 1, record_type: "location", label: "Wrong type change",
+    });
+    expect(immutableRecordType.status).toBe(400);
+    const register = await request(app).get("/api/v1/editorial/vocabularies").query({ world_id: worldId });
+    expect(register.status).toBe(200);
+    expect(register.body.vocabularies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: objectSet.body.vocabulary.id, recordType: "object" }),
+      expect.objectContaining({ id: locationSet.body.vocabulary.id, recordType: "location" }),
+    ]));
+
     const scopedRows = await db.select().from(wsVocabulariesTable)
       .where(and(eq(wsVocabulariesTable.id, vocabularyId), eq(wsVocabulariesTable.worldId, worldId)));
     const untouchedOtherWorld = await db.select().from(wsVocabulariesTable)
@@ -156,6 +186,61 @@ describe("world-scoped vocabulary management", () => {
     });
     const otherWorldOptions = await db.select().from(wsVocabularyOptionsTable)
       .where(eq(wsVocabularyOptionsTable.worldId, otherWorldId));
+    expect(otherWorldOptions).toHaveLength(0);
+  });
+
+  it("imports built-in choices by record type without changing curated or shared sets", async () => {
+    const curatedId = randomUUID();
+    const sharedId = randomUUID();
+    await db.insert(wsVocabulariesTable).values([
+      { id: curatedId, worldId, recordType: "object", key: "object_class", label: "Curated classes", scope: "world", active: false },
+      { id: sharedId, worldId, key: "condition", label: "Shared condition", scope: "world" },
+    ]);
+    await db.insert(wsVocabularyOptionsTable).values({
+      id: randomUUID(), vocabularyId: curatedId, worldId, key: "only_this", label: "Only this", active: false,
+    });
+    await db.insert(wsVocabularyOptionsTable).values([
+      { id: randomUUID(), vocabularyId: sharedId, worldId, key: "worn", label: "Previously disabled", active: false },
+      { id: randomUUID(), vocabularyId: sharedId, worldId, key: "handmade", label: "Handmade", active: true },
+    ]);
+    const invalid = await request(app).post(`${route}/import-defaults`).send({
+      world_id: worldId, record_type: "invalid",
+    });
+    expect(invalid.status).toBe(400);
+    const first = await request(app).post(`${route}/import-defaults`).send({
+      world_id: worldId, record_type: "object",
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.createdVocabularies).toBeGreaterThan(0);
+    expect(first.body.createdOptions).toBeGreaterThan(0);
+    const typedCondition = await db.select().from(wsVocabulariesTable)
+      .where(and(eq(wsVocabulariesTable.worldId, worldId), eq(wsVocabulariesTable.recordType, "object"), eq(wsVocabulariesTable.key, "condition")));
+    expect(typedCondition).toHaveLength(1);
+    const conditionOptions = await db.select().from(wsVocabularyOptionsTable)
+      .where(eq(wsVocabularyOptionsTable.vocabularyId, typedCondition[0]!.id));
+    expect(conditionOptions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "worn", label: "Previously disabled", active: false }),
+      expect.objectContaining({ key: "handmade", label: "Handmade", active: true }),
+      expect.objectContaining({ key: "new", label: "New", active: true }),
+    ]));
+    const metadata = await getCanonMetadataFieldOptions(worldId, "object");
+    expect(metadata.paths.structured_profile.fields.condition.choices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "handmade", allowed: true }),
+      expect.objectContaining({ key: "worn", allowed: false }),
+    ]));
+    const originalShared = await db.select().from(wsVocabulariesTable).where(eq(wsVocabulariesTable.id, sharedId));
+    expect(originalShared[0]).toMatchObject({ label: "Shared condition", recordType: null });
+    const originalCurated = await db.select().from(wsVocabulariesTable).where(eq(wsVocabulariesTable.id, curatedId));
+    expect(originalCurated[0]).toMatchObject({ label: "Curated classes", active: false });
+    const curatedOptions = await db.select().from(wsVocabularyOptionsTable).where(eq(wsVocabularyOptionsTable.vocabularyId, curatedId));
+    expect(curatedOptions).toEqual([expect.objectContaining({ key: "only_this", active: false })]);
+
+    const second = await request(app).post(`${route}/import-defaults`).send({
+      world_id: worldId, record_type: "object",
+    });
+    expect(second.status).toBe(200);
+    expect(second.body).toMatchObject({ createdVocabularies: 0, createdOptions: 0 });
+    const otherWorldOptions = await db.select().from(wsVocabularyOptionsTable).where(eq(wsVocabularyOptionsTable.worldId, otherWorldId));
     expect(otherWorldOptions).toHaveLength(0);
   });
 });

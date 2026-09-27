@@ -15,7 +15,7 @@ import {
 } from "@/components/EditorialRichText";
 import { FontLibraryPicker } from "@/components/FontLibraryPicker";
 import { CanonRecordConnections } from "@/components/editorial/CanonRecordConnections";
-import { SingleSelect, MultiChipSelect, StructuredRepeater } from "@/components/worldsmith/editorial/EditorialFields";
+import { CanonVocabularyRecordTypeProvider, SingleSelect, MultiChipSelect, StructuredRepeater } from "@/components/worldsmith/editorial/EditorialFields";
 import { LocationForm, ObjectForm, EventForm, LoreForm, AtmosphereForm, MotifForm, RelationshipForm, CharacterIdentityForm, CharacterKnowledgeForm, LifeStageVariantForm, GenerationLocksForm, MaterialForm } from "@/components/worldsmith/editorial/CanonTypeForms";
 
 const INK = "#1B2A4A";
@@ -1688,6 +1688,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
           </div>
         )}
 
+        <CanonVocabularyRecordTypeProvider recordType={form.canonType}>
         <form
           id="canon-record-form"
           onSubmit={event => {
@@ -2254,6 +2255,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
             </div>
           </div>
         </form>
+        </CanonVocabularyRecordTypeProvider>
       </div>
 
       {deleteOpen && (

@@ -18,6 +18,7 @@ import { requireAuth } from "../lib/auth-middleware";
 import { requireSuperAdmin } from "../middleware/requireRole";
 import { CanonToolError, updateCharacterProfile } from "../lib/worldsmith/mcp-canon";
 import { revisionFor } from "../lib/worldsmith/editorial-revision";
+import { importCanonVocabularyDefaults } from "../lib/worldsmith/import-canon-vocabulary-defaults";
 
 const router = Router();
 router.use(requireAuth, requireSuperAdmin);
@@ -47,8 +48,10 @@ const anchorDetails = z.object({
 }).strict();
 const vocab = world.extend({ key: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/), label: z.string().min(1).max(160), description: text.default(""), scope: z.enum(["global", "world"]).default("world"), version: z.number().int().positive().default(1), active: z.boolean().default(true) });
 const option = z.object({ vocabulary_id: id, key: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/), label: z.string().min(1).max(160), description: text.default(""), display_order: z.number().int().default(0), version: z.number().int().positive().default(1), active: z.boolean().default(true), world_id: id.nullish() });
+const vocabularyRecordType = z.enum(["character", "location", "object", "event", "lore", "atmosphere", "material", "relationship", "motif"]);
 const managedVocabularyCreate = z.object({
   world_id: id,
+  record_type: vocabularyRecordType.optional(),
   key: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/),
   label: z.string().min(1).max(160),
   description: text.default(""),
@@ -434,20 +437,30 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 router.post(`${vocabularyManagementPath}/vocabularies`, async (req: Request, res: Response): Promise<void> => {
   const parsed = managedVocabularyCreate.safeParse(req.body);
   if (!parsed.success) { bad(res, parsed); return; }
-  const { world_id, key, label, description } = parsed.data;
+  const { world_id, record_type, key, label, description } = parsed.data;
   if (!(await worldExists(world_id))) {
     res.status(404).json({ error: `World '${world_id}' does not exist`, code: "WORLD_NOT_FOUND" });
     return;
   }
   try {
     const [vocabulary] = await db.insert(wsVocabulariesTable).values({
-      id: randomUUID(), worldId: world_id, key, label, description, scope: "world", active: true, version: 1,
+      id: randomUUID(), worldId: world_id, recordType: record_type ?? null, key, label, description, scope: "world", active: true, version: 1,
     }).returning();
     res.status(201).json({ vocabulary });
   } catch (error) {
     if (!isUniqueConstraintViolation(error)) throw error;
-    res.status(409).json({ error: `Vocabulary key '${key}' already exists in world '${world_id}'`, code: "DUPLICATE_KEY" });
+    res.status(409).json({ error: `Vocabulary key '${key}' already exists in world '${world_id}'${record_type ? ` for ${record_type}` : ""}`, code: "DUPLICATE_KEY" });
   }
+});
+
+router.post(`${vocabularyManagementPath}/import-defaults`, async (req: Request, res: Response): Promise<void> => {
+  const parsed = z.object({ world_id: id, record_type: vocabularyRecordType.optional() }).strict().safeParse(req.body);
+  if (!parsed.success) { bad(res, parsed); return; }
+  if (!(await worldExists(parsed.data.world_id))) {
+    res.status(404).json({ error: "World not found", code: "WORLD_NOT_FOUND" });
+    return;
+  }
+  res.json(await importCanonVocabularyDefaults(parsed.data.world_id, parsed.data.record_type));
 });
 
 router.post(`${vocabularyManagementPath}/options`, async (req: Request, res: Response): Promise<void> => {

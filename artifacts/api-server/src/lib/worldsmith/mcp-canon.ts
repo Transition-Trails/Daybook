@@ -7,15 +7,20 @@ import {
 } from "@workspace/db";
 import { z } from "zod";
 import { CANON_METADATA_TOOL, getCanonMetadataFieldOptions, updateCanonMetadata } from "./canon-metadata";
-
-export class CanonToolError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string) {
-    super(message);
-    this.name = "CanonToolError";
-  }
-}
+import { CanonToolError } from "./canon-tool-error";
+export { CanonToolError } from "./canon-tool-error";
 
 const schemaShape = characterProfileSchema.shape;
+function vocabulariesForCanonType<T extends { key: string; recordType?: string | null }>(
+  vocabularies: T[],
+  canonType: string,
+): T[] {
+  const typedKeys = new Set(vocabularies.filter(vocabulary => vocabulary.recordType === canonType).map(vocabulary => vocabulary.key));
+  return vocabularies.filter(vocabulary =>
+    vocabulary.recordType === canonType || (vocabulary.recordType == null && !typedKeys.has(vocabulary.key)),
+  );
+}
+
 const listLimits: Record<string, number> = {
   occupation: 10, education: 20, publicReputation: 20, build: 2, eyeCharacter: 3,
   hairArrangement: 20, distinguishingFeatures: 20, posture: 3, movement: 3, palette: 20,
@@ -146,13 +151,13 @@ function editorUrl(origin: string, worldId: string, recordId: string): string {
   return url.toString();
 }
 
-async function validatePicklists(worldId: string, changes: Record<string, unknown>): Promise<void> {
+async function validatePicklists(worldId: string, canonType: string, changes: Record<string, unknown>): Promise<void> {
   const fields = Object.keys(changes);
   if (!fields.length) return;
-  const vocabularies = await db.select().from(wsVocabulariesTable).where(and(
-    eq(wsVocabulariesTable.active, true),
+  const allVocabularies = await db.select().from(wsVocabulariesTable).where(and(
     or(isNull(wsVocabulariesTable.worldId), eq(wsVocabulariesTable.worldId, worldId)),
   ));
+  const vocabularies = vocabulariesForCanonType(allVocabularies, canonType);
   const vocabularyForField = new Map<string, Array<typeof vocabularies[number]>>();
   for (const field of fields) {
     const snakeCase = field.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
@@ -171,11 +176,12 @@ async function validatePicklists(worldId: string, changes: Record<string, unknow
     const values = Array.isArray(supplied) ? supplied : [supplied];
     const vocabularyIds = new Set(fieldVocabs.map(vocabulary => vocabulary.id));
     const allowed = new Set(options.filter(option => vocabularyIds.has(option.vocabularyId)).map(option => option.key));
+    const hasActiveVocabulary = fieldVocabs.some(vocabulary => vocabulary.active);
     for (const value of values) {
       if (value === "custom") {
         throw new CanonToolError(`Custom ${field} choices must include custom text`, 400, "INVALID_PICKLIST_VALUE");
       }
-      if (typeof value === "string" && !allowed.has(value)) {
+      if (typeof value === "string" && (!hasActiveVocabulary || !allowed.has(value))) {
         throw new CanonToolError(`Invalid ${field} value "${value}"; choose a current world/global vocabulary option`, 400, "INVALID_PICKLIST_VALUE");
       }
       if (value && typeof value === "object" && "key" in value) {
@@ -184,7 +190,7 @@ async function validatePicklists(worldId: string, changes: Record<string, unknow
           throw new CanonToolError(`Invalid controlled value for ${field}`, 400, "INVALID_PICKLIST_VALUE");
         }
         const choice = selected.data;
-        if (choice.key !== "custom" && !allowed.has(choice.key)) {
+        if (choice.key !== "custom" && (!hasActiveVocabulary || !allowed.has(choice.key))) {
           throw new CanonToolError(`Invalid ${field} vocabulary option`, 400, "INVALID_PICKLIST_VALUE");
         }
       }
@@ -224,7 +230,7 @@ export async function updateCharacterProfile(
       : validateCharacterProfileChanges(current, changes).profile;
     const fieldsToValidate = replaceProfile ? target
       : Object.fromEntries(Object.entries(changes as Record<string, unknown>).filter(([, value]) => value !== null));
-    await validatePicklists(record.worldId, fieldsToValidate);
+    await validatePicklists(record.worldId, "character", fieldsToValidate);
     const diff: Record<string, { before: unknown; after: unknown }> = {};
     for (const key of new Set([...Object.keys(current), ...Object.keys(target)])) {
       if (JSON.stringify(current[key]) !== JSON.stringify(target[key])) {
@@ -261,10 +267,11 @@ export async function updateCharacterProfile(
 }
 
 async function characterFieldOptions(worldId: string) {
-  const vocabularies = await db.select().from(wsVocabulariesTable).where(and(
-    eq(wsVocabulariesTable.active, true),
+  const loadedVocabularies = await db.select().from(wsVocabulariesTable).where(and(
     or(isNull(wsVocabulariesTable.worldId), eq(wsVocabulariesTable.worldId, worldId)),
   ));
+  const vocabularies = vocabulariesForCanonType(loadedVocabularies, "character")
+    .filter(vocabulary => vocabulary.active);
   const options = vocabularies.length ? await db.select().from(wsVocabularyOptionsTable).where(and(
     inArray(wsVocabularyOptionsTable.vocabularyId, vocabularies.map(v => v.id)),
     eq(wsVocabularyOptionsTable.active, true),
@@ -302,6 +309,7 @@ async function characterFieldOptions(worldId: string) {
       description: vocabulary.description,
       scope: vocabulary.scope,
       world_id: vocabulary.worldId,
+      record_type: vocabulary.recordType ?? null,
       active: vocabulary.active,
       version: vocabulary.version,
       options: options.filter(option => option.vocabularyId === vocabulary.id).map(option => ({
@@ -379,7 +387,8 @@ export async function executeCanonTool(userId: string, name: string, args: unkno
         const vocabulariesByScope = new Map<string, (typeof metadata.vocabularies)[number] | (typeof character.vocabularies)[number]>();
         for (const vocabulary of [...metadata.vocabularies, ...character.vocabularies]) {
           const worldId = "world_id" in vocabulary ? vocabulary.world_id : null;
-          const identity = `${vocabulary.key}\u0000${worldId ?? "global"}`;
+          const recordType = "record_type" in vocabulary ? vocabulary.record_type : null;
+          const identity = `${vocabulary.key}\u0000${worldId ?? "global"}\u0000${recordType ?? "all"}`;
           if (!vocabulariesByScope.has(identity)) vocabulariesByScope.set(identity, vocabulary);
         }
         return {

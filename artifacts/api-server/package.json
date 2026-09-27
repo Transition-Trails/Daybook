@@ -11,6 +11,7 @@
     "test": "vitest run",
     "generate:test": "tsx scripts/generate-test-planners.ts",
     "generate:house": "tsx scripts/generate-house-planner.ts",
+    "seed:canon-vocabularies": "tsx scripts/seed-canon-vocabularies.ts",
     "quality:check-ci": "tsx scripts/run-quality-check.ts",
     "test:links": "vitest run --config vitest.links.config.ts",
     "test:watch": "vitest",

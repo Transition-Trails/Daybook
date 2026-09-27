@@ -5,7 +5,7 @@ import {
   wsCanonRecordsTable, wsVocabulariesTable, wsVocabularyOptionsTable,
 } from "@workspace/db";
 import { z } from "zod";
-import { CanonToolError } from "./mcp-canon";
+import { CanonToolError } from "./canon-tool-error";
 
 type Field = { vocab?: string; multiple?: boolean; type?: "string" | "array"; editable?: boolean; maxItems?: number };
 type Choice = { key: string; label: string };
@@ -212,6 +212,62 @@ fallback.character = {
   vocabularyTendencies: choices("technical|Technical,botanical|Botanical,architectural|Architectural,legal|Legal,religious|Religious,literary|Literary,domestic|Domestic,commercial|Commercial,agricultural|Agricultural,regional|Regional"),
 };
 
+const globalVocabularyLabels: Record<string, string> = {
+  stability: "Canon Stability",
+  visibility: "Narrative Visibility",
+  temporalScope: "Temporal Scope",
+  importance: "Importance",
+  spoilerLevel: "Spoiler Level",
+  evidenceConfidence: "Evidence Confidence",
+  sourceType: "Source Type",
+};
+
+const characterRepeaterDefaults: Record<string, Choice[]> = {
+  category: choices("facial_structure|Facial Structure,eye_color|Eye Color,hair_family|Hair Family,posture|Posture,accessory|Accessory"),
+  strength: choices("suggestion|Suggestion,preferred|Preferred,required|Required,immutable|Immutable"),
+  knowledge_state: choices("unaware|Unaware,suspicious|Suspicious,partially|Partially Aware,knows|Knows,expert|Expert,mistaken|Mistaken,withheld|Withheld"),
+  confidence: choices("low|Low,medium|Medium,high|High,certain|Certain"),
+  source: choices("witnessed|Witnessed,told|Told Directly,document|Letter or Document,gossip|Gossip,professional|Professional Knowledge,tradition|Family Tradition,inference|Inference,unknown|Unknown"),
+  disclosure: choices("public|Public,select|Select Circle,private|Private,secret|Secret,author_only|Author Only"),
+  access: choices("none|None,indirect|Indirect,occasional|Occasional,regular|Regular,privileged|Privileged,custodial|Custodial"),
+};
+
+/**
+ * Return the static selectable vocabulary defaults used by Canon forms.
+ * Database vocabulary rows are intentionally not consulted here.
+ */
+export function getCanonVocabularyDefaults(): Array<{
+  recordType: string;
+  key: string;
+  label: string;
+  options: Choice[];
+}> {
+  const result: Array<{ recordType: string; key: string; label: string; options: Choice[] }> = [];
+  const append = (recordType: string, key: string, label: string, apiOptions: Choice[], uxOptions: Choice[] = []) => {
+    const options = new Map<string, Choice>();
+    for (const option of apiOptions) options.set(option.key, { ...option });
+    for (const option of uxOptions) options.set(option.key, { ...option });
+    result.push({ recordType, key, label, options: [...options.values()] });
+  };
+
+  for (const recordType of Object.keys(fieldVocab)) {
+    for (const [name, field] of Object.entries(globalFields)) {
+      if (field.vocab) append(recordType, field.vocab, globalVocabularyLabels[name] ?? name, globalFallback[name] ?? []);
+    }
+    for (const [name, field] of Object.entries(fieldVocab[recordType]!)) {
+      if (field.vocab) {
+        const key = field.vocab;
+        append(recordType, key, key.replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()), fallback[recordType]?.[name] ?? []);
+      }
+    }
+  }
+
+  for (const [key, options] of Object.entries(characterRepeaterDefaults)) {
+    append("character", key, key.replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()), [], options);
+  }
+  return result;
+}
+
 const metadataJsonValue: z.ZodType<unknown> = z.lazy(() => z.union([
   z.string().max(20_000), z.number().finite(), z.boolean(), z.null(),
   z.array(metadataJsonValue).max(500),
@@ -254,10 +310,18 @@ const argsSchema = z.object({
   changes: changeSchema,
 }).strict();
 
-async function vocabData(worldId: string) {
-  const vocabularies = await db.select().from(wsVocabulariesTable).where(or(
+async function vocabData(worldId: string, canonType: string) {
+  const loadedVocabularies = await db.select().from(wsVocabulariesTable).where(or(
     isNull(wsVocabulariesTable.worldId), eq(wsVocabulariesTable.worldId, worldId),
   ));
+  // A typed vocabulary takes precedence even when inactive; otherwise a disabled
+  // override could accidentally expose the legacy list for the same field.
+  const typedKeys = new Set(loadedVocabularies
+    .filter(vocabulary => vocabulary.recordType === canonType)
+    .map(vocabulary => vocabulary.key));
+  const vocabularies = loadedVocabularies.filter(vocabulary =>
+    vocabulary.recordType === canonType || (vocabulary.recordType == null && !typedKeys.has(vocabulary.key)),
+  );
   const allOptions = vocabularies.length ? await db.select().from(wsVocabularyOptionsTable).where(and(
     inArray(wsVocabularyOptionsTable.vocabularyId, vocabularies.map(v => v.id)),
     or(isNull(wsVocabularyOptionsTable.worldId), eq(wsVocabularyOptionsTable.worldId, worldId)),
@@ -294,7 +358,7 @@ export async function getCanonMetadataFieldOptions(worldId: string, canonType: s
   if (!Object.hasOwn(fieldVocab, canonType)) {
     throw new CanonToolError(`Unsupported Canon type "${canonType}"; supported types: ${canonTypes.join(", ")}`, 422, "UNSUPPORTED_CANON_TYPE");
   }
-  const vocabDataResult = await vocabData(worldId);
+  const vocabDataResult = await vocabData(worldId, canonType);
   const structuredFields = Object.fromEntries(Object.entries(fieldVocab[canonType]!).map(([name, field]) => [
     name,
     {
@@ -324,7 +388,7 @@ export async function getCanonMetadataFieldOptions(worldId: string, canonType: s
   ].filter((key): key is string => Boolean(key)));
   const vocabularies = vocabDataResult.vocabularies.filter(vocab => relatedKeys.has(vocab.key)).map(vocab => ({
     key: vocab.key, label: vocab.label, description: vocab.description, scope: vocab.scope,
-    world_id: vocab.worldId, active: vocab.active, version: vocab.version,
+    world_id: vocab.worldId, record_type: vocab.recordType ?? null, active: vocab.active, version: vocab.version,
     options: vocabDataResult.allOptions.filter(option => option.vocabularyId === vocab.id).map(option => ({
       key: option.key, label: option.label, description: option.description, active: option.active,
       world_id: option.worldId, version: option.version, display_order: option.displayOrder,
@@ -415,9 +479,10 @@ export async function updateCanonMetadata(userId: string, args: unknown) {
     if (record.version !== expectedVersion) {
       throw new CanonToolError(`Version conflict: expected ${expectedVersion}, current version is ${record.version}`, 409, "VERSION_CONFLICT");
     }
-    const structured = fieldVocab[record.canonType ?? ""] ?? null;
+    const canonType = record.canonType ?? "";
+    const structured = fieldVocab[canonType] ?? null;
     if (!structured) throw new CanonToolError(`Unsupported Canon type "${record.canonType}"`, 422, "UNSUPPORTED_CANON_TYPE");
-    const vocabulary = await vocabData(record.worldId);
+    const vocabulary = await vocabData(record.worldId, canonType);
     const nextGlobal = changes.global_metadata === undefined ? record.globalMetadata ?? {}
       : validateFieldChanges("globalMetadata", record.globalMetadata, changes.global_metadata as Record<string, unknown>, globalFields, vocabulary);
     const nextStructured = changes.structured_profile === undefined ? record.structuredProfile ?? {}

@@ -463,6 +463,13 @@
       "when": 1789862400000,
       "tag": "0065_canon_snapshot_expected_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1789866000000,
+      "tag": "0066_canon_vocabulary_record_type",
+      "breakpoints": true
     }
   ]
 }

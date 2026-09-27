@@ -216,7 +216,7 @@ describe("editorial vocabulary management", () => {
       ...response,
       vocabularies: [
         ...response.vocabularies,
-        { id: "v-object", key: "object_class", label: "Object Class", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
+        { id: "v-object", key: "object_class", recordType: "object", label: "Object Class", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
         { id: "v-shared", key: "canon_stability", label: "Canon Stability", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
         { id: "v-character", key: "life_stage", label: "Life Stage", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
       ],
@@ -240,7 +240,7 @@ describe("editorial vocabulary management", () => {
       "/v1/editorial/vocabulary-management/vocabularies",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ world_id: "world-1", key: "material", label: "Material" }),
+        body: JSON.stringify({ world_id: "world-1", record_type: "object", key: "material", label: "Material" }),
       }),
     ));
   });
@@ -250,7 +250,7 @@ describe("editorial vocabulary management", () => {
       ...response,
       vocabularies: [
         ...response.vocabularies,
-        { id: "v-character", key: "life_stage", label: "Life Stage", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
+        { id: "v-character", key: "life_stage", recordType: "character", label: "Life Stage", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
       ],
     };
     vi.mocked(apiFetch).mockImplementation(async () => fixtures as never);
@@ -266,5 +266,81 @@ describe("editorial vocabulary management", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByTestId("select-vocabulary-record-type")).toHaveValue("character");
     expect(screen.getByTestId("button-expand-vocabulary-v-character")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("shows different choices for the same field on Object and Location", async () => {
+    const fixtures = {
+      ...response,
+      vocabularies: [
+        ...response.vocabularies,
+        { id: "v-legacy", key: "condition", recordType: null, label: "Shared Condition", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
+        { id: "v-object", key: "condition", recordType: "object", label: "Object Condition", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
+        { id: "v-location", key: "condition", recordType: "location", label: "Location Condition", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
+      ],
+    };
+    vi.mocked(apiFetch).mockImplementation(async () => fixtures as never);
+    setup();
+    await screen.findByTestId("section-vocabulary-v-object");
+    fireEvent.change(screen.getByTestId("select-vocabulary-record-type"), { target: { value: "object" } });
+    expect(screen.getByTestId("section-vocabulary-v-object")).toBeInTheDocument();
+    expect(screen.queryByTestId("section-vocabulary-v-legacy")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("section-vocabulary-v-location")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("select-vocabulary-record-type"), { target: { value: "location" } });
+    expect(screen.getByTestId("section-vocabulary-v-location")).toBeInTheDocument();
+    expect(screen.queryByTestId("section-vocabulary-v-object")).not.toBeInTheDocument();
+  });
+
+  it("keeps shared legacy choices read-only in a type view and offers a separate set", async () => {
+    const fixtures = {
+      ...response,
+      vocabularies: [
+        ...response.vocabularies,
+        { id: "v-legacy", key: "condition", recordType: null, label: "Shared Condition", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
+      ],
+      options: [
+        ...response.options,
+        { id: "o-legacy", vocabularyId: "v-legacy", key: "worn", label: "Worn", description: "", worldId: "world-1", active: true, version: 1, displayOrder: 0 },
+      ],
+    };
+    vi.mocked(apiFetch).mockImplementation(async path => path.includes("vocabularies?") ? fixtures as never : { vocabulary: { id: "new-object" } } as never);
+    setup();
+    await screen.findByTestId("section-vocabulary-v-legacy");
+    fireEvent.change(screen.getByTestId("select-vocabulary-record-type"), { target: { value: "object" } });
+    expect(screen.queryByTestId("button-edit-vocabulary-v-legacy")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-add-option-v-legacy")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-expand-vocabulary-v-legacy"));
+    expect(screen.queryByTestId("button-edit-o-legacy")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-separate-vocabulary-v-legacy"));
+    expect(screen.getByTestId("select-new-vocabulary-record-type")).toHaveValue("object");
+    expect(screen.getByTestId("select-new-vocabulary-field")).toHaveValue("condition");
+    expect(screen.getByTestId("input-vocabulary-key")).toHaveValue("condition");
+    fireEvent.click(screen.getByTestId("button-save-vocabulary"));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/vocabulary-management/vocabularies",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ world_id: "world-1", record_type: "object", key: "condition", label: "Shared Condition" }),
+      }),
+    ));
+  });
+
+  it("adds the visible defaults for the selected type in one action", async () => {
+    vi.mocked(apiFetch).mockImplementation(async path => path.includes("vocabularies?")
+      ? response as never
+      : { createdVocabularies: 13, createdOptions: 92, skippedVocabularies: 1 } as never);
+    setup();
+    await screen.findByTestId("section-vocabulary-v-world");
+    fireEvent.change(screen.getByTestId("select-vocabulary-record-type"), { target: { value: "object" } });
+    fireEvent.click(screen.getByTestId("button-import-vocabulary-defaults"));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/vocabulary-management/import-defaults",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ world_id: "world-1", record_type: "object" }),
+      }),
+    ));
+    expect(await screen.findByTestId("status-vocabulary-notice")).toHaveTextContent(
+      "Added 13 vocabulary sets with 92 choices. Your existing sets were left unchanged.",
+    );
   });
 });

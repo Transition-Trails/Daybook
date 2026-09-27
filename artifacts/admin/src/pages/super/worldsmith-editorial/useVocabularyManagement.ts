@@ -4,6 +4,7 @@ import { apiFetch } from "@/lib/api";
 export interface Vocabulary {
   id: string;
   key: string;
+  recordType?: string | null;
   label: string;
   description: string | null;
   scope: string;
@@ -42,7 +43,7 @@ export function useVocabularyManagement(worldId: string | null) {
 }
 
 type Kind = "vocabularies" | "options";
-type CreateInput = { kind: Kind; worldId: string; vocabularyId?: string; key: string; label: string; description: string };
+type CreateInput = { kind: Kind; worldId: string; recordType?: string; vocabularyId?: string; key: string; label: string; description: string };
 type UpdateInput = { kind: Kind; id: string; worldId: string; expectedVersion: number; label?: string; description?: string; active?: boolean };
 
 function useRefreshOnWrite() {
@@ -56,13 +57,25 @@ function useRefreshOnWrite() {
 export function useCreateVocabularyEntry() {
   const refresh = useRefreshOnWrite();
   return useMutation({
-    mutationFn: ({ kind, worldId, vocabularyId, key, label, description }: CreateInput) =>
+    mutationFn: ({ kind, worldId, recordType, vocabularyId, key, label, description }: CreateInput) =>
       apiFetch<{ vocabulary?: Vocabulary; option?: VocabularyOption }>(`${ROOT}/${kind}`, {
         method: "POST",
         body: JSON.stringify({
-          world_id: worldId, ...(kind === "options" ? { vocabulary_id: vocabularyId } : {}),
+          world_id: worldId, ...(kind === "options" ? { vocabulary_id: vocabularyId } : { ...(recordType ? { record_type: recordType } : {}) }),
           key, label, ...(description ? { description } : {}),
         }),
+      }),
+    onSuccess: (_result, { worldId }) => refresh(worldId),
+  });
+}
+
+export function useImportVocabularyDefaults() {
+  const refresh = useRefreshOnWrite();
+  return useMutation({
+    mutationFn: ({ worldId, recordType }: { worldId: string; recordType?: string }) =>
+      apiFetch<{ createdVocabularies: number; createdOptions: number; skippedVocabularies: number }>(`${ROOT}/import-defaults`, {
+        method: "POST",
+        body: JSON.stringify({ world_id: worldId, ...(recordType ? { record_type: recordType } : {}) }),
       }),
     onSuccess: (_result, { worldId }) => refresh(worldId),
   });

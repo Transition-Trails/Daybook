@@ -1,4 +1,5 @@
 import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,7 +8,7 @@ const { apiFetch } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/api", () => ({ apiFetch }));
 
-import { SingleSelect, useVocabularies } from "@/components/worldsmith/editorial/EditorialFields";
+import { CanonVocabularyRecordTypeProvider, SingleSelect, useVocabularies } from "@/components/worldsmith/editorial/EditorialFields";
 
 function renderSelect(response: unknown, value = "", vocabKey = "location_scale") {
   apiFetch.mockResolvedValue(response);
@@ -106,5 +107,71 @@ describe("vocabLabelResolution", () => {
     expect(screen.getByRole("button", { name: "Planet" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Global continent" })).toBeNull();
     expect(screen.queryByText("Legacy fallback")).toBeNull();
+  });
+
+  it("offers only the selected record type's choices and scopes cached data when the type changes", async () => {
+    apiFetch.mockResolvedValue({
+      vocabularies: [
+        { id: "legacy", key: "location_scale", active: true, scope: "world", worldId: "world-1", recordType: null },
+        { id: "object", key: "location_scale", active: true, scope: "world", worldId: "world-1", recordType: "object" },
+        { id: "location", key: "location_scale", active: true, scope: "world", worldId: "world-1", recordType: "location" },
+        { id: "character", key: "pronouns", active: true, scope: "world", worldId: "world-1", recordType: "character" },
+      ],
+      options: [
+        { vocabularyId: "legacy", key: "old", label: "Legacy choice", active: true },
+        { vocabularyId: "object", key: "object_only", label: "Object choice", active: true },
+        { vocabularyId: "location", key: "location_only", label: "Location choice", active: true },
+        { vocabularyId: "character", key: "character_only", label: "Character choice", active: true },
+      ],
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Harness() {
+      const [recordType, setRecordType] = useState("object");
+      return <CanonVocabularyRecordTypeProvider recordType={recordType}>
+        <button type="button" onClick={() => setRecordType("location")}>Switch type</button>
+        <SingleSelect value="" onChange={vi.fn()} options={[]} vocabKey="location_scale" worldId="world-1" />
+      </CanonVocabularyRecordTypeProvider>;
+    }
+    render(<Harness />, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Select..." }));
+    expect(screen.getByRole("button", { name: "Object choice" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Location choice" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Legacy choice" })).toBeNull();
+    fireEvent.mouseDown(document.body);
+    const queryCallCount = apiFetch.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Switch type" }));
+    await waitFor(() => expect(apiFetch.mock.calls.length).toBe(queryCallCount));
+    fireEvent.click(screen.getByRole("button", { name: "Select..." }));
+    expect(await screen.findByRole("button", { name: "Location choice" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Object choice" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Character choice" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Legacy choice" })).toBeNull();
+  });
+
+  it("lets an inactive type-specific vocabulary suppress legacy choices", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <CanonVocabularyRecordTypeProvider recordType="object">{children}</CanonVocabularyRecordTypeProvider>
+      </QueryClientProvider>
+    );
+    apiFetch.mockResolvedValue({
+      vocabularies: [
+        { id: "legacy", key: "location_scale", active: true, scope: "world", worldId: "world-1", recordType: null },
+        { id: "object", key: "location_scale", active: false, scope: "world", worldId: "world-1", recordType: "object" },
+      ],
+      options: [
+        { vocabularyId: "legacy", key: "legacy_choice", label: "Legacy choice", active: true },
+        { vocabularyId: "object", key: "inactive_choice", label: "Inactive choice", active: true },
+      ],
+    });
+    render(
+      <SingleSelect value="" onChange={vi.fn()} options={[{ key: "legacy", label: "Legacy fallback" }]} vocabKey="location_scale" worldId="world-1" />,
+      { wrapper },
+    );
+    await openSelect();
+    expect(screen.queryByRole("button", { name: "Legacy choice" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Legacy fallback" })).toBeNull();
   });
 });

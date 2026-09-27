@@ -126,6 +126,10 @@ export default function Vocabularies() {
       setFormError("A label and saved key are required.");
       return;
     }
+    if (!editor.entry && !/^[a-z0-9][a-z0-9_-]*$/.test(cleanKey)) {
+      setFormError("Saved keys must start with a letter or number and use only lowercase letters, numbers, underscores, or hyphens. For example: documentary.");
+      return;
+    }
     setFormError("");
     try {
       if (editor.entry) {
@@ -246,7 +250,7 @@ export default function Vocabularies() {
         <div className="flex items-start justify-between gap-4"><div><div className="vocab-kicker mb-1">{editor.entry ? "Revise terminology" : "Add terminology"}</div><DialogTitle id="vocab-editor-title" className="!font-[var(--app-font-display)] !text-2xl !font-normal !leading-tight">{editor.entry ? "Edit" : "New"} {editor.kind === "options" ? "choice" : "vocabulary"}</DialogTitle></div><button type="button" className="vocab-btn !min-h-8 !px-2 mr-6" onClick={() => setEditor(null)} aria-label="Close editor" disabled={create.isPending || update.isPending} data-testid="button-close-vocabulary-editor"><X size={15} /></button></div>
         <DialogDescription className="mt-2 text-xs leading-relaxed text-[var(--admin-muted)]">Changes here apply only to {selectedWorld?.name ?? "this world"}. The saved key is fixed after creation.</DialogDescription>
         <form onSubmit={submit} className="mt-6 space-y-4">
-          <div><label className="vocab-label" htmlFor="vocab-key-input">Saved key</label><input id="vocab-key-input" className="vocab-input font-mono" required value={key} disabled={Boolean(editor.entry)} onChange={e => setKey(e.target.value)} placeholder="e.g. historical_period" data-testid="input-vocabulary-key" /><p className="mt-1 text-[11px] text-[var(--admin-faint)]">{editor.entry ? "Permanent identifier; cannot be changed." : "Choose carefully. This identifier cannot be changed later."}</p></div>
+          <div><label className="vocab-label" htmlFor="vocab-key-input">Saved key</label><input id="vocab-key-input" className="vocab-input font-mono" required value={key} disabled={Boolean(editor.entry)} onChange={e => { setKey(e.target.value.toLowerCase()); setFormError(""); }} placeholder="e.g. documentary" aria-describedby="vocab-key-help" data-testid="input-vocabulary-key" /><p id="vocab-key-help" className="mt-1 text-[11px] text-[var(--admin-faint)]">{editor.entry ? "Permanent identifier; cannot be changed." : "Use lowercase letters, numbers, underscores or hyphens. Letters become lowercase automatically. This key cannot be changed later."}</p></div>
           <div><label className="vocab-label" htmlFor="vocab-label-input">Display label</label><input id="vocab-label-input" autoFocus className="vocab-input" required value={label} onChange={e => setLabel(e.target.value)} placeholder="Name staff will recognize" data-testid="input-vocabulary-label" /></div>
           <div><label className="vocab-label" htmlFor="vocab-description-input">Description <span className="font-normal text-[var(--admin-faint)]">optional</span></label><textarea id="vocab-description-input" className="vocab-input min-h-[86px] resize-y" value={description} onChange={e => setDescription(e.target.value)} placeholder="When should an editor use this term?" data-testid="input-vocabulary-description" /></div>
           {formError && <p role="alert" className="text-xs text-[var(--admin-clay-hover)]" data-testid="status-vocabulary-form-error">{formError}</p>}

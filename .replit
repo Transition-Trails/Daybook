@@ -91,7 +91,7 @@ packages = ["glib", "nss", "nspr", "dbus", "atk", "at-spi2-atk", "cups", "libdrm
 [userenv]
 
 [userenv.shared]
-EMAIL_FROM_DOMAIN = "ttconsulting.tech"
+EMAIL_FROM_DOMAIN = "folioandrealm.com"
 EMAIL_PLATFORM_NAME = "Daybook"
 EMAIL_TIER1_DAILY_LIMIT = "200"
 EMAIL_TIER1_MONTHLY_UPGRADE_THRESHOLD = "1000"

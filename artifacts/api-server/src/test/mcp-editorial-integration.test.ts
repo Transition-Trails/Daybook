@@ -111,7 +111,10 @@ describe("authenticated editorial MCP tools", () => {
       expect((await db.select().from(wsStoriesTable).where(eq(wsStoriesTable.id, second)))[0].sequenceRole).toBe("chronological");
       const audits = await db.select().from(auditLogTable).where(eq(auditLogTable.targetId, worldId));
       expect(audits).toHaveLength(3);
-      expect(audits[0].metadata).toEqual(expect.objectContaining({
+      const referenceAudit = audits.find(audit =>
+        (audit.metadata as { after_rows?: { stories?: { id: string; sequenceRole: string }[] } } | null)
+          ?.after_rows?.stories?.some(story => story.id === second && story.sequenceRole === "reference"));
+      expect(referenceAudit?.metadata).toEqual(expect.objectContaining({
         before_rows: { stories: [{ id: second, sortOrder: 2, sequenceRole: "chronological" }] },
         after_rows: { stories: [{ id: second, sortOrder: 2, sequenceRole: "reference" }] },
       }));

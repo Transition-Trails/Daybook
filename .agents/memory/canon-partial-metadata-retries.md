@@ -20,3 +20,9 @@ Character collection replacements must each compare and advance the Canon versio
 **Why:** Another editor can commit after a retry's preflight read, and a collection PUT that only checks the earlier read silently replaces the concurrent work.
 
 **How to apply:** For future multi-step Character metadata writes, use one transaction for the conditional Canon version advance and the associated row mutations; carry the acknowledged version forward after each step. Do not infer success from a missing version response.
+
+Direct Character collection edits must join the same version protocol as batch replacements: require the version the editor read, advance the parent Canon version in the row-write transaction, and report the resulting version. Deletions also count as writes.
+
+**Why:** A batch replacement can otherwise commit against a version unchanged by a direct create, edit, or delete, silently overwriting another editor's work.
+
+**How to apply:** When adding a direct metadata writer, ensure its update and Canon version advance commit or roll back together; verify that a batch request started from the older version conflicts.

@@ -185,7 +185,17 @@ function mapFields(data: Record<string, unknown>, table: any): Record<string, un
   return output;
 }
 
-function crud(path: string, table: any, schema: z.ZodTypeAny, key: string, owner = "worldId", idField = "id"): void {
+const directVersion = z.number().int().positive();
+function directExpectedVersion(req: Request, res: Response, fromQuery = false): number | undefined {
+  const parsed = directVersion.safeParse(fromQuery ? req.query.expected_version && Number(req.query.expected_version) : req.body?.expected_version);
+  if (!parsed.success) {
+    res.status(400).json({ error: "expected_version must be a positive integer", code: "INVALID_VERSION" });
+    return undefined;
+  }
+  return parsed.data;
+}
+
+function crud(path: string, table: any, schema: z.ZodTypeAny, key: string, owner = "worldId", idField = "id", characterMetadata = false): void {
   router.get(path, async (req: Request, res: Response): Promise<void> => {
     const worldId = String(req.query.world_id || "");
     if (!worldId) { res.status(400).json({ error: "world_id is required" }); return; }
@@ -215,6 +225,8 @@ function crud(path: string, table: any, schema: z.ZodTypeAny, key: string, owner
   });
 
   router.post(path, async (req: Request, res: Response): Promise<void> => {
+    const expectedVersion = characterMetadata ? directExpectedVersion(req, res) : undefined;
+    if (characterMetadata && expectedVersion === undefined) return;
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) { bad(res, parsed); return; }
     const data = parsed.data as Record<string, any>;
@@ -238,16 +250,38 @@ function crud(path: string, table: any, schema: z.ZodTypeAny, key: string, owner
       res.status(422).json({ error: "topic_record_id must belong to world_id" }); return;
     }
     try {
-      const result = await db.insert(table).values(mapFields(data, table)).returning() as any[];
-      res.status(201).json({ [key.slice(0, -1)]: result[0] });
-    } catch {
+      if (characterMetadata) {
+        const result = await db.transaction(async tx => {
+          const [canon] = await tx.update(wsCanonRecordsTable)
+            .set({ version: sql`${wsCanonRecordsTable.version} + 1`, updatedAt: new Date() })
+            .where(and(eq(wsCanonRecordsTable.id, data.record_id), eq(wsCanonRecordsTable.worldId, data.world_id),
+              eq(wsCanonRecordsTable.version, expectedVersion!))).returning({ version: wsCanonRecordsTable.version });
+          if (!canon) throw new CollectionVersionConflict();
+          const [row] = await tx.insert(table).values(mapFields(data, table)).returning() as any[];
+          return { row, version: canon.version };
+        });
+        res.status(201).json({ [key.slice(0, -1)]: result.row, version: result.version });
+      } else {
+        const result = await db.insert(table).values(mapFields(data, table)).returning() as any[];
+        res.status(201).json({ [key.slice(0, -1)]: result[0] });
+      }
+    } catch (error) {
+      if (error instanceof CollectionVersionConflict) {
+        res.status(409).json({ error: "Version conflict: the Canon record changed while metadata was being saved", code: "VERSION_CONFLICT" });
+        return;
+      }
       res.status(409).json({ error: "Resource already exists" });
     }
   });
 
   router.patch(`${path}/:id`, async (req: Request, res: Response): Promise<void> => {
+    const expectedVersion = characterMetadata ? directExpectedVersion(req, res) : undefined;
+    if (characterMetadata && expectedVersion === undefined) return;
     const parsed = (schema as z.AnyZodObject).partial().safeParse(req.body);
     if (!parsed.success) { bad(res, parsed); return; }
+    if (characterMetadata && (req.body?.record_id !== undefined || req.body?.world_id !== undefined || req.body?.id !== undefined)) {
+      res.status(400).json({ error: "Character metadata ownership and ID cannot be changed" }); return;
+    }
     const worldId = String((parsed.data as any).world_id || req.query.world_id || "");
     const [existing] = await db.select().from(table).where(eq(table[idField], String(req.params.id))).limit(1);
     const owned = existing && (owner === "recordId"
@@ -271,13 +305,36 @@ function crud(path: string, table: any, schema: z.ZodTypeAny, key: string, owner
     if (data.story_id && !(await ownsStory(data.story_id, worldId))) {
       res.status(422).json({ error: "story_id must belong to world_id" }); return;
     }
-    const [row] = await db.update(table)
-      .set({ ...mapFields(parsed.data as Record<string, unknown>, table), updatedAt: new Date() })
-      .where(eq(table[idField], existing[idField])).returning();
-    res.json({ [key.slice(0, -1)]: row });
+    if (characterMetadata) {
+      try {
+        const result = await db.transaction(async tx => {
+          const [canon] = await tx.update(wsCanonRecordsTable)
+            .set({ version: sql`${wsCanonRecordsTable.version} + 1`, updatedAt: new Date() })
+            .where(and(eq(wsCanonRecordsTable.id, existing.recordId), eq(wsCanonRecordsTable.worldId, worldId),
+              eq(wsCanonRecordsTable.version, expectedVersion!))).returning({ version: wsCanonRecordsTable.version });
+          if (!canon) throw new CollectionVersionConflict();
+          const { id: _generatedId, ...changes } = mapFields(parsed.data as Record<string, unknown>, table);
+          const [row] = await tx.update(table).set({ ...changes, updatedAt: new Date() })
+            .where(and(eq(table[idField], existing[idField]), eq(table.recordId, existing.recordId))).returning();
+          if (!row) throw new CollectionVersionConflict();
+          return { row, version: canon.version };
+        });
+        res.json({ [key.slice(0, -1)]: result.row, version: result.version });
+      } catch (error) {
+        if (!(error instanceof CollectionVersionConflict)) throw error;
+        res.status(409).json({ error: "Version conflict: the Canon record changed while metadata was being saved", code: "VERSION_CONFLICT" });
+      }
+    } else {
+      const [row] = await db.update(table)
+        .set({ ...mapFields(parsed.data as Record<string, unknown>, table), updatedAt: new Date() })
+        .where(eq(table[idField], existing[idField])).returning();
+      res.json({ [key.slice(0, -1)]: row });
+    }
   });
 
   router.delete(`${path}/:id`, async (req: Request, res: Response): Promise<void> => {
+    const expectedVersion = characterMetadata ? directExpectedVersion(req, res, true) : undefined;
+    if (characterMetadata && expectedVersion === undefined) return;
     const worldId = String(req.query.world_id || "");
     if (!worldId) { res.status(400).json({ error: "world_id is required" }); return; }
     const [existing] = await db.select().from(table).where(eq(table[idField], String(req.params.id))).limit(1);
@@ -285,6 +342,26 @@ function crud(path: string, table: any, schema: z.ZodTypeAny, key: string, owner
       ? await ownsRecord(existing.recordId, worldId)
       : existing[owner] === worldId);
     if (!owned) { res.status(404).json({ error: "Resource not found in world" }); return; }
+    if (characterMetadata) {
+      try {
+        const version = await db.transaction(async tx => {
+          const [canon] = await tx.update(wsCanonRecordsTable)
+            .set({ version: sql`${wsCanonRecordsTable.version} + 1`, updatedAt: new Date() })
+            .where(and(eq(wsCanonRecordsTable.id, existing.recordId), eq(wsCanonRecordsTable.worldId, worldId),
+              eq(wsCanonRecordsTable.version, expectedVersion!))).returning({ version: wsCanonRecordsTable.version });
+          if (!canon) throw new CollectionVersionConflict();
+          const [deleted] = await tx.delete(table)
+            .where(and(eq(table[idField], existing[idField]), eq(table.recordId, existing.recordId))).returning() as any[];
+          if (!deleted) throw new CollectionVersionConflict();
+          return canon.version;
+        });
+        res.json({ version });
+      } catch (error) {
+        if (!(error instanceof CollectionVersionConflict)) throw error;
+        res.status(409).json({ error: "Version conflict: the Canon record changed while metadata was being saved", code: "VERSION_CONFLICT" });
+      }
+      return;
+    }
     const result = await db.delete(table).where(eq(table[idField], existing[idField])).returning() as any[];
     const row = result[0];
     if (!row) { res.status(404).json({ error: "Resource not found in world" }); return; }
@@ -666,9 +743,9 @@ router.get("/v1/editorial/profiles/relationship/:recordId", async (_req: Request
 router.put("/v1/editorial/profiles/relationship/:recordId", async (_req: Request, res: Response): Promise<void> => {
   res.status(422).json({ error: "relationship records use the dedicated relationships endpoint; no profile document is supported" });
 });
-crud("/v1/editorial/character-variants", wsCharacterVariantsTable, variant, "variants", "recordId");
-crud("/v1/editorial/identity-locks", wsIdentityLocksTable, lock, "locks", "recordId");
-crud("/v1/editorial/knowledge", wsKnowledgeEntriesTable, knowledge, "knowledge", "recordId");
+crud("/v1/editorial/character-variants", wsCharacterVariantsTable, variant, "variants", "recordId", "id", true);
+crud("/v1/editorial/identity-locks", wsIdentityLocksTable, lock, "locks", "recordId", "id", true);
+crud("/v1/editorial/knowledge", wsKnowledgeEntriesTable, knowledge, "knowledge", "recordId", "id", true);
 crud("/v1/editorial/asset-links", wsAssetLinksTable, link, "links", "recordId", "assetId");
 
 const versionedCollection = world.extend({ expected_version: z.number().int().positive() });

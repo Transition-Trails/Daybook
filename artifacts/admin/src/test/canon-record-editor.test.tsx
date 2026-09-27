@@ -351,6 +351,12 @@ describe("CanonRecordEditor", () => {
         expect(body.request_id).toBe(committedRequestId);
         return Promise.resolve({ version: 3, reconciled: true });
       }
+      if (["variants", "knowledge", "identity-locks"].some(step => path === `${recordPath}/${step}`) && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        expect(body.expected_version).toBe(serverVersion);
+        serverVersion++;
+        return Promise.resolve({ version: serverVersion });
+      }
       if (path.endsWith("/context-snapshot/auto-sync")) return Promise.resolve({ context_snapshot_status: "current" });
       if (path.startsWith("/v1/editorial/assets?")) return Promise.resolve({ assets: [] });
       if (path.startsWith("/v1/editorial/identity-locks?")) return Promise.resolve({ locks: [] });
@@ -375,7 +381,7 @@ describe("CanonRecordEditor", () => {
     }
     expect(apiFetch).toHaveBeenCalledWith(
       `${recordPath}/context-snapshot/auto-sync`,
-      expect.objectContaining({ body: JSON.stringify({ expected_version: 3 }) }),
+      expect.objectContaining({ body: JSON.stringify({ expected_version: 6 }) }),
     );
   });
 

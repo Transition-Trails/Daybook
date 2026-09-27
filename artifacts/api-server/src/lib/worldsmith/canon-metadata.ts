@@ -365,12 +365,26 @@ function fieldChoices(
   };
 }
 
+function characterRepeaterFields(available: Awaited<ReturnType<typeof vocabData>>) {
+  return {
+    ...Object.fromEntries(Object.entries(characterRepeaterDefaults).map(([key, defaults]) => [
+      key, fieldChoices({ vocab: key }, available, defaults),
+    ])),
+    life_stage: fieldChoices(fieldVocab.character!.lifeStage!, available, fallback.character?.lifeStage),
+  } as Record<string, ReturnType<typeof fieldChoices>>;
+}
+
+export async function getCharacterRepeaterFieldOptions(worldId: string) {
+  return characterRepeaterFields(await vocabData(worldId, "character"));
+}
+
 export async function getCanonMetadataFieldOptions(worldId: string, canonType: string) {
   const canonTypes = Object.keys(fieldVocab);
   if (!Object.hasOwn(fieldVocab, canonType)) {
     throw new CanonToolError(`Unsupported Canon type "${canonType}"; supported types: ${canonTypes.join(", ")}`, 422, "UNSUPPORTED_CANON_TYPE");
   }
   const vocabDataResult = await vocabData(worldId, canonType);
+  const repeaterFields = canonType === "character" ? characterRepeaterFields(vocabDataResult) : null;
   const structuredFields = Object.fromEntries(Object.entries(fieldVocab[canonType]!).map(([name, field]) => [
     name,
     {
@@ -397,6 +411,7 @@ export async function getCanonMetadataFieldOptions(worldId: string, canonType: s
   const relatedKeys = new Set([
     ...Object.values(globalFields).map(item => item.vocab),
     ...Object.values(fieldVocab[canonType]!).map(item => item.vocab),
+    ...(canonType === "character" ? Object.keys(characterRepeaterDefaults) : []),
   ].filter((key): key is string => Boolean(key)));
   const vocabularies = vocabDataResult.vocabularies.filter(vocab => relatedKeys.has(vocab.key)).map(vocab => ({
     key: vocab.key, label: vocab.label, description: vocab.description, scope: vocab.scope,
@@ -423,6 +438,34 @@ export async function getCanonMetadataFieldOptions(worldId: string, canonType: s
       ],
     },
     vocabularies,
+    ...(repeaterFields ? {
+      character_repeaters: {
+        knowledge: {
+          storage_path: "ws_knowledge_entries",
+          write_tool: "replace_character_knowledge",
+          fields: Object.fromEntries(["knowledge_state", "confidence", "source", "disclosure", "access"].map(key => [
+            key, { path: `knowledge[].${key}`, ...repeaterFields[key] },
+          ])),
+        },
+        variants: {
+          storage_path: "ws_character_life_stage_variants",
+          write_tool: "replace_character_variants",
+          fields: {
+            life_stage: {
+              path: "variants[].life_stage",
+              ...repeaterFields.life_stage,
+            },
+          },
+        },
+        identity_locks: {
+          storage_path: "ws_visual_identity_locks",
+          write_tool: "replace_character_identity_locks",
+          fields: Object.fromEntries(["category", "strength"].map(key => [
+            key, { path: `identity_locks[].${key}`, ...repeaterFields[key] },
+          ])),
+        },
+      },
+    } : {}),
   };
 }
 

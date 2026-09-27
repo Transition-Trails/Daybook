@@ -118,3 +118,4 @@
 - [Canon image export approval](canon-image-export-approval.md) — gallery primary designation and asset export approval are separate gates; never promote a reference image to cover the gap
 - [Deferred Canon snapshot recovery](deferred-canon-snapshot-recovery.md) — interrupted editor saves can be retried only after asset rows settle and policy still permits publication
 - [Canon partial metadata retries](canon-partial-metadata-retries.md) — preserve acknowledged Canon version advances across multi-step metadata retries
+- [Character repeater identity](character-repeater-identity.md) — versioned collection replacements must carry row IDs and variant state across editor and MCP saves

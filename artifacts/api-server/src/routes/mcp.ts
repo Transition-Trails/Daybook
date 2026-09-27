@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { CANON_TOOLS, executeCanonTool } from "../lib/worldsmith/mcp-canon";
+import { CANON_TOOLS, CHARACTER_REPEATER_WRITE_TOOLS, executeCanonTool } from "../lib/worldsmith/mcp-canon";
 import { CANON_METADATA_TOOL } from "../lib/worldsmith/canon-metadata";
 import { CANON_EDITORIAL_TOOLS, CANON_EDITORIAL_WRITE_TOOLS, executeCanonEditorialTool } from "../lib/worldsmith/mcp-canon-editorial";
 import { RELATION_TOOLS, RELATION_WRITE_TOOLS, executeRelationTool } from "../lib/worldsmith/mcp-canon-relations";
@@ -112,7 +112,8 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
       :
     CANON_TOOLS.some(canon => canon.name === tool.name)
        ? identity.scopes.includes(READ_SCOPE)
-         && (tool.name !== CANON_METADATA_TOOL.name || identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
+          && ((tool.name !== CANON_METADATA_TOOL.name && !CHARACTER_REPEATER_WRITE_TOOLS.has(tool.name))
+            || identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
       : CANON_EDITORIAL_TOOLS.some(canonEditorial => canonEditorial.name === tool.name)
         ? identity.scopes.includes(READ_SCOPE) && identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE)
          : RELATION_TOOLS.some(relation => relation.name === tool.name)
@@ -191,7 +192,8 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
       if ((name === "update_canon_record" && !identity.scopes.includes(WRITE_SCOPE))
           || (CANON_EDITORIAL_WRITE_TOOLS.has(name) && !identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
           || (RELATION_WRITE_TOOLS.has(name) && !identity.scopes.includes(CANON_RELATIONS_WRITE_SCOPE))
-           || (name === CANON_METADATA_TOOL.name && !identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
+            || ((name === CANON_METADATA_TOOL.name || CHARACTER_REPEATER_WRITE_TOOLS.has(name))
+              && !identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
           || (SCENE_WRITE_TOOLS.has(name) && !identity.scopes.includes(SCENES_WRITE_SCOPE))
           || ((name === "update_story_beat" || name === "update_reveal_thread")
             && !identity.scopes.includes(STORY_DETAILS_WRITE_SCOPE))

@@ -1087,9 +1087,11 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
             const knowledge = savedForm.structuredProfile.knowledge || [];
             const identityLocks = savedForm.generationProfile.identityLocks || [];
             const mappedVariants = variants.map((v: any) => ({
+              id: v.id,
               variant_name: v.variantName,
               life_stage: v.lifeStage,
-              is_default: v.isDefault,
+              active: v.active ?? true,
+              is_default: v.isDefault ?? false,
               profile: {
                 story_period_label: v.storyPeriodLabel,
                 apparent_age_range: v.apparentAgeRange,
@@ -1108,6 +1110,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
             await replaceCollection("variants", { variants: mappedVariants });
             await replaceCollection("knowledge", {
                 knowledge: knowledge.map((k: any) => ({
+                  id: k.id,
                   topic_record_id: k.topicRecordId || null,
                   knowledge_state: k.knowledgeState,
                   confidence: k.confidence || null,
@@ -1123,6 +1126,7 @@ export default function CanonRecordEditor({ recordId }: { recordId?: string }) {
             });
             await replaceCollection("identity-locks", {
                 locks: identityLocks.map((l: any) => ({
+                  id: l.id,
                   variant_id: l.variantId || null,
                   category: l.traitCategory,
                   value: l.canonicalValue,

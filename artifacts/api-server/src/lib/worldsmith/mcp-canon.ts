@@ -7,8 +7,13 @@ import {
 } from "@workspace/db";
 import { z } from "zod";
 import { CANON_METADATA_TOOL, getCanonMetadataFieldOptions, updateCanonMetadata } from "./canon-metadata";
+import {
+  CHARACTER_REPEATER_TOOLS, CHARACTER_REPEATER_WRITE_TOOLS,
+  executeCharacterRepeaterTool, getCharacterRepeaters,
+} from "./mcp-character-repeaters";
 import { CanonToolError } from "./canon-tool-error";
 export { CanonToolError } from "./canon-tool-error";
+export { CHARACTER_REPEATER_WRITE_TOOLS } from "./mcp-character-repeaters";
 
 const schemaShape = characterProfileSchema.shape;
 function vocabulariesForCanonType<T extends { key: string; recordType?: string | null }>(
@@ -110,10 +115,11 @@ const toolSchemas = {
 
 export const CANON_TOOLS = [
   { name: "search_canon_records", description: "Search canon records in a world and return editor links.", inputSchema: toolSchemas.search_canon_records },
-  { name: "get_canon_record", description: "Read a complete canon record, Character profile, and linked images.", inputSchema: toolSchemas.get_canon_record },
-  { name: "get_canon_field_options", description: "Read Canon globalMetadata and type-specific structuredProfile paths, direct-column distinctions, and current world/global vocabulary options.", inputSchema: toolSchemas.get_canon_field_options },
+  { name: "get_canon_record", description: "Read a complete canon record, Character profile, its knowledge, life-stage variants and visual identity locks, and linked images.", inputSchema: toolSchemas.get_canon_record },
+  { name: "get_canon_field_options", description: "Read Canon globalMetadata and type-specific structuredProfile paths, Character repeater options, direct-column distinctions, and current world/global vocabulary options.", inputSchema: toolSchemas.get_canon_field_options },
   CANON_METADATA_TOOL,
   { name: "update_canon_record", description: "Save partial validated Character fields at the expected record revision; pass null to clear an optional field. Does not approve or reject Canon.", inputSchema: toolSchemas.update_canon_record },
+  ...CHARACTER_REPEATER_TOOLS,
   { name: "get_record_change_history", description: "Read audited profile changes for a canon record.", inputSchema: toolSchemas.get_record_change_history },
 ];
 
@@ -327,6 +333,9 @@ async function characterFieldOptions(worldId: string) {
 
 export async function executeCanonTool(userId: string, name: string, args: unknown, editorOrigin: string): Promise<unknown> {
   await requireSuperAdminUser(userId);
+  if (CHARACTER_REPEATER_WRITE_TOOLS.has(name)) {
+    return executeCharacterRepeaterTool(userId, name, args);
+  }
   switch (name) {
     case "search_canon_records": {
       const input = parseArgs("search_canon_records", args);
@@ -368,12 +377,14 @@ export async function executeCanonTool(userId: string, name: string, args: unkno
         db.select().from(wsAssetsTable).where(eq(wsAssetsTable.recordId, record.id)),
         db.select().from(wsAssetLinksTable).where(eq(wsAssetLinksTable.recordId, record.id)),
       ]);
+      const characterRepeaters = record.canonType === "character" ? await getCharacterRepeaters(record.id) : null;
       const linkedIds = links.map(link => link.assetId).filter(id => !directAssets.some(asset => asset.id === id));
       const linkedAssets = linkedIds.length ? await db.select().from(wsAssetsTable).where(inArray(wsAssetsTable.id, linkedIds)) : [];
       const gallery = Array.isArray(record.imageGallery) ? record.imageGallery : [];
       const urls = Array.isArray(record.imageUrls) ? record.imageUrls : [];
       return {
         record, character_profile: profile?.profile ?? null, character_profile_schema_version: profile?.schemaVersion ?? null,
+        ...(characterRepeaters ? { character_repeaters: characterRepeaters } : {}),
         linked_images: { gallery, image_urls: urls, assets: [...directAssets, ...linkedAssets] },
         workflow_status: record.status, version: record.version, revision: record.version,
       };

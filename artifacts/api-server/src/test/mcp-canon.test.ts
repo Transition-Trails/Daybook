@@ -84,7 +84,9 @@ describe("WorldSmith canon MCP service", () => {
   it("publishes Canon read, profile, and field-level metadata tools", async () => {
     expect(CANON_TOOLS.map(tool => tool.name)).toEqual([
       "search_canon_records", "get_canon_record", "get_canon_field_options",
-      "update_canon_metadata", "update_canon_record", "get_record_change_history",
+      "update_canon_metadata", "update_canon_record",
+      "replace_character_knowledge", "replace_character_variants", "replace_character_identity_locks",
+      "get_record_change_history",
     ]);
     const result = await executeCanonTool("admin-1", "get_canon_record", { record_id: "char-1" }, "https://editor.example");
     expect(result).toMatchObject({

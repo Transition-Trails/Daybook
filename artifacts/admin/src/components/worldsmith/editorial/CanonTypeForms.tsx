@@ -1054,7 +1054,7 @@ export function LifeStageVariantForm({ data, onChange, worldId }: { data: any, o
       <StructuredRepeater
         items={data.variants ?? []}
         onChange={v => onChange({ ...data, variants: v })}
-        defaultNewItem={() => ({ variantName: "", lifeStage: "adult", apparentAgeRange: "", storyPeriodLabel: "", hairChanges: "", facialHairChanges: "", healthMobilityChanges: "", wardrobeProfile: "", occupationStatus: "", emotionalBaseline: "", referenceAssetIds: [] as string[], allowedDeviations: "", visualNotes: "" })}
+        defaultNewItem={() => ({ variantName: "", lifeStage: "early_adult", apparentAgeRange: "", storyPeriodLabel: "", hairChanges: "", facialHairChanges: "", healthMobilityChanges: "", wardrobeProfile: "", occupationStatus: "", emotionalBaseline: "", referenceAssetIds: [] as string[], allowedDeviations: "", visualNotes: "" })}
         addButtonLabel="Add Variant"
         renderItem={(item: any, idx, update, remove) => (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

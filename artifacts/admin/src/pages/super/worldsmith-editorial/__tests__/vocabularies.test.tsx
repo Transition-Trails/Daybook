@@ -137,8 +137,8 @@ describe("editorial vocabulary management", () => {
     fireEvent.click(await screen.findByTestId("button-expand-vocabulary-v-world"));
     await screen.findByTestId("row-options-o-world");
     fireEvent.click(screen.getByTestId("button-add-vocabulary"));
-    fireEvent.change(screen.getByTestId("input-vocabulary-key"), { target: { value: "ritual" } });
-    fireEvent.change(screen.getByTestId("input-vocabulary-label"), { target: { value: "Ritual" } });
+    fireEvent.change(screen.getByTestId("select-new-vocabulary-record-type"), { target: { value: "lore" } });
+    fireEvent.change(screen.getByTestId("select-new-vocabulary-field"), { target: { value: "lore_type" } });
     fireEvent.click(screen.getByTestId("button-save-vocabulary"));
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
       "/v1/editorial/vocabulary-management/vocabularies", expect.objectContaining({ method: "POST" }),
@@ -209,5 +209,62 @@ describe("editorial vocabulary management", () => {
     expect(screen.queryByTestId("row-options-o-world")).not.toBeInTheDocument();
     fireEvent.change(screen.getByTestId("input-search-vocabularies"), { target: { value: "" } });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("filters the register by record type and fills the field key automatically", async () => {
+    const fixtures = {
+      ...response,
+      vocabularies: [
+        ...response.vocabularies,
+        { id: "v-object", key: "object_class", label: "Object Class", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
+        { id: "v-shared", key: "canon_stability", label: "Canon Stability", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
+        { id: "v-character", key: "life_stage", label: "Life Stage", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
+      ],
+    };
+    vi.mocked(apiFetch).mockImplementation(async (path) => path.includes("vocabularies?") ? fixtures as never : { vocabulary: { id: "new-vocab" } } as never);
+    setup();
+    await screen.findByTestId("section-vocabulary-v-object");
+    fireEvent.change(screen.getByTestId("select-vocabulary-record-type"), { target: { value: "object" } });
+    expect(screen.getByTestId("section-vocabulary-v-object")).toBeInTheDocument();
+    expect(screen.getByTestId("section-vocabulary-v-shared")).toBeInTheDocument();
+    expect(screen.queryByTestId("section-vocabulary-v-character")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-add-vocabulary"));
+    expect(screen.getByTestId("select-new-vocabulary-record-type")).toHaveValue("object");
+    expect(screen.queryByTestId("input-vocabulary-key")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("select-new-vocabulary-field"), { target: { value: "material" } });
+    expect(screen.getByTestId("input-vocabulary-key")).toHaveValue("material");
+    expect(screen.getByTestId("input-vocabulary-key")).toHaveAttribute("readonly");
+    expect(screen.getByTestId("input-vocabulary-label")).toHaveValue("Material");
+    fireEvent.click(screen.getByTestId("button-save-vocabulary"));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/editorial/vocabulary-management/vocabularies",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ world_id: "world-1", key: "material", label: "Material" }),
+      }),
+    ));
+  });
+
+  it("prevents a second vocabulary for an already configured field", async () => {
+    const fixtures = {
+      ...response,
+      vocabularies: [
+        ...response.vocabularies,
+        { id: "v-character", key: "life_stage", label: "Life Stage", description: "", scope: "world", worldId: "world-1", active: true, version: 1 },
+      ],
+    };
+    vi.mocked(apiFetch).mockImplementation(async () => fixtures as never);
+    setup();
+    fireEvent.click(await screen.findByTestId("button-add-vocabulary"));
+    fireEvent.change(screen.getByTestId("select-new-vocabulary-record-type"), { target: { value: "character" } });
+    fireEvent.change(screen.getByTestId("select-new-vocabulary-field"), { target: { value: "life_stage" } });
+    expect(screen.getByTestId("button-open-existing-vocabulary")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-save-vocabulary"));
+    expect(screen.getByTestId("status-vocabulary-form-error")).toHaveTextContent("already has a vocabulary");
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    fireEvent.click(screen.getByTestId("button-open-existing-vocabulary"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("select-vocabulary-record-type")).toHaveValue("character");
+    expect(screen.getByTestId("button-expand-vocabulary-v-character")).toHaveAttribute("aria-expanded", "true");
   });
 });

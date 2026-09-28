@@ -10,6 +10,7 @@ export const MCP_SCOPES = [
   "worldsmith:canon:relations:write",
   "worldsmith:editorial:read",
   "worldsmith:editorial:write",
+  "worldsmith:editorial:create",
   "worldsmith:editorial:references:write",
   "worldsmith:editorial:story-details:write",
   "worldsmith:canon:editorial:write",
@@ -94,6 +95,7 @@ export function hasWriteWithoutRead(scopes: readonly string[]): boolean {
     (scopes.includes("worldsmith:canon:write") && !scopes.includes("worldsmith:canon:read")) ||
     (scopes.includes("worldsmith:canon:relations:write") && !scopes.includes("worldsmith:canon:read")) ||
     (scopes.includes("worldsmith:editorial:write") && !scopes.includes("worldsmith:editorial:read")) ||
+    (scopes.includes("worldsmith:editorial:create") && (!scopes.includes("worldsmith:editorial:read") || !scopes.includes("worldsmith:editorial:write"))) ||
     (scopes.includes("worldsmith:editorial:references:write") && (!scopes.includes("worldsmith:editorial:read") || !scopes.includes("worldsmith:editorial:write"))) ||
     (scopes.includes("worldsmith:editorial:story-details:write") && !scopes.includes("worldsmith:editorial:read")) ||
     (scopes.includes("worldsmith:canon:editorial:write") && !scopes.includes("worldsmith:canon:read")) ||

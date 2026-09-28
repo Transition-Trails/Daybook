@@ -291,6 +291,7 @@ describe("MCP OAuth authorization server", () => {
       "worldsmith:canon:relations:write",
       "worldsmith:editorial:read",
       "worldsmith:editorial:write",
+      "worldsmith:editorial:create",
       "worldsmith:editorial:references:write",
       "worldsmith:editorial:story-details:write",
       "worldsmith:canon:editorial:write",
@@ -460,6 +461,30 @@ describe("MCP OAuth authorization server", () => {
       consent: "approve", allow_editorial_write: "yes", allow_references_write: "yes",
     }).expect(302);
     expect(mocks.data.codes[0].scopes).toContain("worldsmith:editorial:references:write");
+  });
+
+  it("requires a distinct approval to create storylines and movements", async () => {
+    const authorize = (scope: string) => request(app).get("/mcp/oauth/authorize").query({
+      response_type: "code", client_id: clientId, redirect_uri: redirectUri,
+      state: "editorial-create", code_challenge: challenge(), code_challenge_method: "S256",
+      resource: getMcpResource(), scope,
+    });
+    await authorize("worldsmith:editorial:read worldsmith:editorial:create").expect(400);
+    const scope = "worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:create";
+    const consent = await authorize(scope).expect(200);
+    expect(consent.text).toContain('name="allow_editorial_create"');
+    expect(consent.text).toContain("Create WorldSmith storylines and movements");
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: consent.text.match(/name="csrf_token" value="([^"]+)"/)?.[1],
+      consent: "approve", allow_editorial_write: "yes",
+    }).expect(400);
+    expect(mocks.data.codes).toHaveLength(0);
+    const retry = await authorize(scope).expect(200);
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: retry.text.match(/name="csrf_token" value="([^"]+)"/)?.[1],
+      consent: "approve", allow_editorial_write: "yes", allow_editorial_create: "yes",
+    }).expect(302);
+    expect(mocks.data.codes[0].scopes).toContain("worldsmith:editorial:create");
   });
 
   it("requires separate consent for Canon editorial and scenes writes without widening other grants", async () => {

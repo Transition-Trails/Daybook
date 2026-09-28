@@ -1,9 +1,12 @@
-import { and, asc, count, eq, gt, ilike, or } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, asc, count, eq, gt, ilike, inArray, or, sql } from "drizzle-orm";
 import {
   auditLogTable,
   db,
   usersTable,
   worldsmithWorldsTable,
+  wsCanonRecordsTable,
+  wsCanonRecordStoryLinksTable,
   wsStoriesTable,
   wsStoryActsTable,
   wsStoryBeatsTable,
@@ -103,6 +106,12 @@ const argsSchemas = {
     after_id: z.string().min(1).max(200).optional(),
     limit: z.number().int().min(1).max(100).optional(),
   }).strict(),
+  create_storyline: z.object({
+    world_id: z.string().min(1).max(200),
+    title: z.string().trim().min(1).max(500),
+    summary: z.string().max(20_000).optional(),
+    canon_record_ids: z.array(z.string().min(1).max(200)).max(100).optional(),
+  }).strict(),
   get_storyline: z.object({ storyline_id: z.string().min(1).max(200) }).strict(),
   update_storyline: z.object({
     storyline_id: z.string().min(1).max(200),
@@ -145,6 +154,13 @@ const argsSchemas = {
     query: z.string().max(500).optional(),
     after_id: z.string().min(1).max(200).optional(),
     limit: z.number().int().min(1).max(100).optional(),
+  }).strict(),
+  create_movement: z.object({
+    storyline_id: z.string().min(1).max(200),
+    title: z.string().trim().min(1).max(500),
+    tagline: z.string().max(20_000).optional(),
+    narrative: z.string().max(50_000).optional(),
+    canon_record_ids: z.array(z.string().min(1).max(200)).max(100).optional(),
   }).strict(),
   get_movement: z.object({ movement_id: z.string().min(1).max(200) }).strict(),
   update_movement: z.object({
@@ -204,6 +220,10 @@ export const RECORD_TOOLS: EditorialToolDescriptor[] = [
     world_id: textField(200, 1), query: textField(500), after_id: textField(200, 1),
     limit: { type: "integer", minimum: 1, maximum: 100 },
   }, ["world_id"]) },
+  { name: "create_storyline", description: "Create a draft storyline in a world, optionally linking same-world Canon records at the storyline level. Requires separate creation consent.", inputSchema: schema({
+    world_id: textField(200, 1), title: textField(500, 1), summary: textField(20_000),
+    canon_record_ids: { type: "array", maxItems: 100, items: textField(200, 1) },
+  }, ["world_id", "title"]) },
   { name: "get_storyline", description: "Read a complete storyline and its current content revision.", inputSchema: schema({ storyline_id: textField(200, 1) }, ["storyline_id"]) },
   { name: "update_storyline", description: "Update whitelisted storyline editorial fields at the expected content revision.", inputSchema: schema({
     storyline_id: textField(200, 1), expected_revision: textField(100, 1),
@@ -228,6 +248,10 @@ export const RECORD_TOOLS: EditorialToolDescriptor[] = [
     storyline_id: textField(200, 1), query: textField(500), after_id: textField(200, 1),
     limit: { type: "integer", minimum: 1, maximum: 100 },
   }, ["storyline_id"]) },
+  { name: "create_movement", description: "Create the next numbered movement within a storyline, optionally linking same-world Canon records to that movement. Requires separate creation consent.", inputSchema: schema({
+    storyline_id: textField(200, 1), title: textField(500, 1), tagline: textField(20_000),
+    narrative: textField(50_000), canon_record_ids: { type: "array", maxItems: 100, items: textField(200, 1) },
+  }, ["storyline_id", "title"]) },
   { name: "get_movement", description: "Read a complete movement and its current content revision.", inputSchema: schema({ movement_id: textField(200, 1) }, ["movement_id"]) },
   { name: "update_movement", description: "Update whitelisted movement editorial fields at the expected content revision; ordering is managed separately.", inputSchema: schema({
     movement_id: textField(200, 1), expected_revision: textField(100, 1),
@@ -236,8 +260,9 @@ export const RECORD_TOOLS: EditorialToolDescriptor[] = [
 ];
 
 export const RECORD_WRITE_TOOLS = new Set<string>([
-  "update_world", "update_storyline", "update_movement",
+  "update_world", "create_storyline", "update_storyline", "create_movement", "update_movement",
 ]);
+export const RECORD_CREATE_TOOLS = new Set<string>(["create_storyline", "create_movement"]);
 
 function parseArgs<T extends ToolName>(name: T, args: unknown): z.infer<(typeof argsSchemas)[T]> {
   const parsed = argsSchemas[name].safeParse(args);
@@ -301,6 +326,29 @@ async function insertAudit(
     targetId: id,
     metadata: { actor_user_id: userId, before_after: diff },
   });
+}
+
+async function linkCanonRecords(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  worldId: string,
+  storyId: string,
+  movementId: string | null,
+  ids: string[],
+) {
+  if (new Set(ids).size !== ids.length) {
+    throw new CanonToolError("Canon record IDs must not repeat", 400, "INVALID_CANON_LINK");
+  }
+  if (ids.length) {
+    const records = await tx.select({ id: wsCanonRecordsTable.id, worldId: wsCanonRecordsTable.worldId })
+      .from(wsCanonRecordsTable).where(inArray(wsCanonRecordsTable.id, ids));
+    if (records.length !== ids.length || records.some(record => record.worldId !== worldId)) {
+      throw new CanonToolError("Every linked Canon record must belong to this world", 400, "INVALID_CANON_LINK");
+    }
+    return tx.insert(wsCanonRecordStoryLinksTable).values(ids.map(canonRecordId => ({
+      id: randomUUID(), canonRecordId, storyId, actId: movementId,
+    }))).returning();
+  }
+  return [] as typeof wsCanonRecordStoryLinksTable.$inferSelect[];
 }
 
 function fieldDiff(before: Record<string, unknown>, changes: Record<string, unknown>) {
@@ -434,6 +482,35 @@ export async function executeRecordTool(
         next_cursor: hasMore ? page.at(-1)?.id ?? null : null,
       };
     }
+    case "create_storyline": {
+      const input = parseArgs("create_storyline", args);
+      return db.transaction(async tx => {
+        const [world] = await tx.select({ id: worldsmithWorldsTable.id }).from(worldsmithWorldsTable)
+          .where(eq(worldsmithWorldsTable.id, input.world_id)).for("update").limit(1);
+        if (!world) throw new CanonToolError("World not found", 404, "WORLD_NOT_FOUND");
+        const [position] = await tx.select({
+          next: sql<number>`coalesce(max(${wsStoriesTable.sortOrder}), 0) + 1`,
+        }).from(wsStoriesTable).where(and(
+          eq(wsStoriesTable.worldId, world.id), eq(wsStoriesTable.sequenceRole, "chronological"),
+        ));
+        const [record] = await tx.insert(wsStoriesTable).values({
+          id: randomUUID(), worldId: world.id, title: input.title,
+          summary: input.summary ?? "", status: "draft",
+          sortOrder: position!.next, createdBy: userId,
+        }).returning();
+        const links = await linkCanonRecords(tx, world.id, record!.id, null, input.canon_record_ids ?? []);
+        await tx.update(worldsmithWorldsTable)
+          .set({ storySequenceRevision: sql`${worldsmithWorldsTable.storySequenceRevision} + 1` })
+          .where(eq(worldsmithWorldsTable.id, world.id));
+        await tx.insert(auditLogTable).values({
+          actorUserId: userId, actorRole: "super_admin", scope: "platform",
+          action: "worldsmith.editorial.storyline.create", targetType: "worldsmith_storyline",
+          targetId: record!.id,
+          metadata: { actor_user_id: userId, world_id: world.id, canon_record_ids: links.map(link => link.canonRecordId) },
+        });
+        return { record, revision: revisionFor(record!), editor_url: editorUrl(origin, "storyline", record!.id, world.id), canon_links: links };
+      });
+    }
     case "get_storyline": {
       const { storyline_id } = parseArgs("get_storyline", args);
       const [row] = await db.select().from(wsStoriesTable).where(eq(wsStoriesTable.id, storyline_id)).limit(1);
@@ -558,6 +635,37 @@ export async function executeRecordTool(
         has_more: hasMore,
         next_cursor: hasMore ? page.at(-1)?.id ?? null : null,
       };
+    }
+    case "create_movement": {
+      const input = parseArgs("create_movement", args);
+      return db.transaction(async tx => {
+        // Lock the world before the storyline, matching the Story Map write path.
+        const [parent] = await tx.select({ worldId: wsStoriesTable.worldId })
+          .from(wsStoriesTable).where(eq(wsStoriesTable.id, input.storyline_id)).limit(1);
+        if (!parent) throw new CanonToolError("Storyline not found", 404, "STORYLINE_NOT_FOUND");
+        const [world] = await tx.select({ id: worldsmithWorldsTable.id }).from(worldsmithWorldsTable)
+          .where(eq(worldsmithWorldsTable.id, parent.worldId)).for("update").limit(1);
+        if (!world) throw new CanonToolError("World not found", 404, "WORLD_NOT_FOUND");
+        const [story] = await tx.select().from(wsStoriesTable)
+          .where(eq(wsStoriesTable.id, input.storyline_id)).for("update").limit(1);
+        if (!story || story.worldId !== world.id) throw new CanonToolError("Storyline parent changed", 409, "INVALID_PARENT");
+        const [position] = await tx.select({
+          next: sql<number>`coalesce(max(${wsStoryActsTable.actNumber}), 0) + 1`,
+        }).from(wsStoryActsTable).where(eq(wsStoryActsTable.storyId, story.id));
+        const [record] = await tx.insert(wsStoryActsTable).values({
+          id: randomUUID(), worldId: world.id, storyId: story.id,
+          actNumber: position!.next, title: input.title,
+          tagline: input.tagline ?? "", narrative: input.narrative ?? "",
+        }).returning();
+        const links = await linkCanonRecords(tx, world.id, story.id, record!.id, input.canon_record_ids ?? []);
+        await tx.insert(auditLogTable).values({
+          actorUserId: userId, actorRole: "super_admin", scope: "platform",
+          action: "worldsmith.editorial.movement.create", targetType: "worldsmith_movement",
+          targetId: record!.id,
+          metadata: { actor_user_id: userId, world_id: world.id, storyline_id: story.id, canon_record_ids: links.map(link => link.canonRecordId) },
+        });
+        return { record, revision: revisionFor(record!), editor_url: editorUrl(origin, "movement", story.id, world.id), canon_links: links };
+      });
     }
     case "get_movement": {
       const { movement_id } = parseArgs("get_movement", args);

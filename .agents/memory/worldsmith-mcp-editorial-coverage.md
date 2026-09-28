@@ -20,3 +20,9 @@ For connector debugging, an HTTP 200 on an MCP `tools/call` can still carry `isE
 **Why:** A client-reported blocked call could not be attributed from status-only production logs, even though the target record existed and its payload was small.
 
 **How to apply:** Compare tool-specific outcomes and response sizes before attributing failures to the server or client. Diagnostic logs may include tool names, scope names, error codes, and byte counts, but never request arguments, returned editorial content, credentials, or tokens.
+
+Storyline and movement creation is a distinct external-client authority from editing existing prose or rearranging a Story Map. Creation can optionally attach same-world Canon records atomically, but old editorial write grants should not silently acquire it.
+
+**Why:** A previously authorized client had consent for editing existing editorial records; allowing it to create new narrative structure and links without fresh consent would broaden that grant.
+
+**How to apply:** Require a separate opt-in creation grant in addition to editorial read/write, keep current-user role checks, parent locks, same-world Canon validation, draft defaults, and an audit trail. Existing Story Map link edits and Canon-to-Canon relation creation remain separately scoped operations.

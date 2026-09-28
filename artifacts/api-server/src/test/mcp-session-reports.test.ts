@@ -5,6 +5,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { db, mcpOAuthClientsTable, mcpOAuthTokensTable, usersTable, worldsmithWorldsTable, wsSessionReportsTable } from "@workspace/db";
 import { getMcpResource, hasWriteWithoutRead } from "../lib/mcp-oauth";
+import { readOwnSessionReports } from "../lib/worldsmith/mcp-session-reports";
 import mcpRouter from "../routes/mcp";
 import reportsRouter from "../routes/session-reports";
 
@@ -51,6 +52,7 @@ describe("WorldSmith MCP session reports", () => {
       expect(hasWriteWithoutRead(["worldsmith:canon:read", "worldsmith:sessions:write"])).toBe(false);
       const withoutGrant = await rpc("tools/list", {});
       expect(withoutGrant.body.result.tools.some((tool: { name: string }) => tool.name === "save_session_report")).toBe(false);
+      expect(withoutGrant.body.result.tools.some((tool: { name: string }) => tool.name === "list_my_session_reports")).toBe(false);
       const denied = await rpc("tools/call", { name: "save_session_report", arguments: input });
       expect(denied.status).toBe(403);
 
@@ -59,6 +61,7 @@ describe("WorldSmith MCP session reports", () => {
         .where(eq(mcpOAuthTokensTable.tokenHash, tokenHash));
       const withGrant = await rpc("tools/list", {});
       expect(withGrant.body.result.tools.some((tool: { name: string }) => tool.name === "save_session_report")).toBe(true);
+      expect(withGrant.body.result.tools.some((tool: { name: string }) => tool.name === "get_my_session_report")).toBe(true);
       const invalid = await rpc("tools/call", {
         name: "save_session_report", arguments: { ...input, transcript: "not allowed" },
       });
@@ -66,6 +69,15 @@ describe("WorldSmith MCP session reports", () => {
       const saved = await rpc("tools/call", { name: "save_session_report", arguments: input });
       expect(saved.body.result.structuredContent.created).toBe(true);
       const reportId = saved.body.result.structuredContent.report.id;
+      const ownList = await rpc("tools/call", { name: "list_my_session_reports", arguments: {} });
+      expect(ownList.body.result.structuredContent.reports.some((report: { id: string }) => report.id === reportId)).toBe(true);
+      const ownDetail = await rpc("tools/call", {
+        name: "get_my_session_report", arguments: { report_id: reportId },
+      });
+      expect(ownDetail.body.result.structuredContent.report.id).toBe(reportId);
+      expect((await readOwnSessionReports(user.id, "other-client", "list_my_session_reports", {})).total).toBe(0);
+      await expect(readOwnSessionReports(user.id, "other-client", "get_my_session_report", { report_id: reportId }))
+        .rejects.toMatchObject({ status: 404 });
       await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
       const retry = await rpc("tools/call", { name: "save_session_report", arguments: input });
       expect(retry.body.result.structuredContent.created).toBe(false);

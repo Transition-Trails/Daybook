@@ -10,7 +10,7 @@ import { PRODUCTION_CATALOG_TOOLS, PRODUCTION_CATALOG_WRITE_TOOLS, executeProduc
 import { PRODUCTION_SPEC_TOOLS, PRODUCTION_SPEC_WRITE_TOOLS, executeProductionSpecTool } from "../lib/worldsmith/mcp-production-specs";
 import { PRINT_TARGET_TOOLS, PRINT_TARGET_WRITE_TOOLS, executePrintTargetTool } from "../lib/worldsmith/mcp-print-targets";
 import { READINESS_PLANNING_TOOLS, READINESS_PLANNING_WRITE_TOOLS, executeReadinessPlanningTool } from "../lib/worldsmith/mcp-readiness-planning";
-import { SESSION_REPORT_TOOLS, saveSessionReport } from "../lib/worldsmith/mcp-session-reports";
+import { SESSION_REPORT_TOOLS, SESSION_REPORT_TOOL_NAMES, readOwnSessionReports, saveSessionReport } from "../lib/worldsmith/mcp-session-reports";
 import { getMcpIssuer, verifyMcpAccessToken } from "../lib/mcp-oauth";
 import { logger } from "../lib/logger";
 
@@ -106,7 +106,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
   const id = message.id;
   const method = message.method;
   const visibleTools = tools.filter(tool => (
-    SESSION_REPORT_TOOLS.some(item => item.name === tool.name)
+    SESSION_REPORT_TOOL_NAMES.has(tool.name)
       ? identity.scopes.includes(SESSIONS_WRITE_SCOPE)
         && (identity.scopes.includes(READ_SCOPE) || identity.scopes.includes(EDITORIAL_READ_SCOPE))
       :
@@ -195,7 +195,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
           || (editorialRecordOrViewTool && !identity.scopes.includes(EDITORIAL_READ_SCOPE))
           || (productionTool(name) && !identity.scopes.includes(PRODUCTION_READ_SCOPE))
            || (readinessTool && !identity.scopes.includes(READINESS_READ_SCOPE))
-           || (name === "save_session_report" &&
+           || (SESSION_REPORT_TOOL_NAMES.has(name) &&
              !identity.scopes.includes(READ_SCOPE) && !identity.scopes.includes(EDITORIAL_READ_SCOPE))) {
         logger.info({ mcpTool: name, outcome: "insufficient_scope" }, "MCP tool call denied");
         challenge(req, res, "insufficient_scope");
@@ -212,7 +212,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
             && !identity.scopes.includes(STORY_DETAILS_WRITE_SCOPE))
            || (productionWriteTool(name) && !identity.scopes.includes(PRODUCTION_WRITE_SCOPE))
             || (READINESS_PLANNING_WRITE_TOOLS.has(name) && !identity.scopes.includes(READINESS_WRITE_SCOPE))
-           || (name === "save_session_report" && !identity.scopes.includes(SESSIONS_WRITE_SCOPE))
+           || (SESSION_REPORT_TOOL_NAMES.has(name) && !identity.scopes.includes(SESSIONS_WRITE_SCOPE))
            || ((RECORD_WRITE_TOOLS.has(name) || VIEW_WRITE_TOOLS.has(name))
              && !identity.scopes.includes(EDITORIAL_WRITE_SCOPE))
             || (RECORD_CREATE_TOOLS.has(name) && !identity.scopes.includes(EDITORIAL_CREATE_SCOPE))
@@ -226,6 +226,8 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
       try {
          const data = name === "save_session_report"
            ? await saveSessionReport(identity.userId, identity.clientId, args ?? {})
+           : SESSION_REPORT_TOOL_NAMES.has(name)
+             ? await readOwnSessionReports(identity.userId, identity.clientId, name, args ?? {})
            : PRODUCTION_CATALOG_TOOLS.some(tool => tool.name === name)
            ? await executeProductionCatalogTool(identity.userId, name, args ?? {})
            : PRODUCTION_SPEC_TOOLS.some(tool => tool.name === name)

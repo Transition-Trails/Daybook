@@ -36,7 +36,28 @@ export const SESSION_REPORT_TOOLS = [{
     required: ["session_key", "title", "summary"],
     additionalProperties: false,
   },
+}, {
+  name: "list_my_session_reports",
+  description: "List reports previously submitted by this same signed-in user and MCP client. Reports from other clients or users are not included.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+      offset: { type: "integer", minimum: 0, maximum: 100000 },
+    },
+    additionalProperties: false,
+  },
+}, {
+  name: "get_my_session_report",
+  description: "Retrieve one saved working-session report by ID, only if it was submitted by this same user and MCP client.",
+  inputSchema: {
+    type: "object",
+    properties: { report_id: { type: "string", format: "uuid" } },
+    required: ["report_id"],
+    additionalProperties: false,
+  },
 }] as const;
+export const SESSION_REPORT_TOOL_NAMES = new Set<string>(SESSION_REPORT_TOOLS.map(tool => tool.name));
 
 export class SessionReportError extends Error {
   constructor(message: string, public readonly status: number, public readonly code: string) { super(message); }
@@ -115,4 +136,38 @@ export async function listSessionReports(limit: number, offset: number) {
 export async function getSessionReport(id: string) {
   const [report] = await reportQuery().where(eq(wsSessionReportsTable.id, id)).limit(1);
   return report ?? null;
+}
+
+const ownListInput = z.object({
+  limit: z.number().int().min(1).max(50).default(20),
+  offset: z.number().int().min(0).max(100_000).default(0),
+}).strict();
+const ownGetInput = z.object({ report_id: z.string().uuid() }).strict();
+
+export async function readOwnSessionReports(userId: string, clientId: string, name: string, input: unknown) {
+  const owner = and(
+    eq(wsSessionReportsTable.authorUserId, userId),
+    eq(wsSessionReportsTable.clientId, clientId),
+  );
+  if (name === "list_my_session_reports") {
+    const parsed = ownListInput.safeParse(input);
+    if (!parsed.success) throw new SessionReportError("Invalid report list options", 400, "invalid_input");
+    const [reports, totals] = await Promise.all([
+      db.select().from(wsSessionReportsTable).where(owner)
+        .orderBy(desc(wsSessionReportsTable.createdAt), desc(wsSessionReportsTable.id))
+        .limit(parsed.data.limit).offset(parsed.data.offset),
+      db.select({ total: count() }).from(wsSessionReportsTable).where(owner),
+    ]);
+    return { reports, total: totals[0]?.total ?? 0 };
+  }
+  if (name === "get_my_session_report") {
+    const parsed = ownGetInput.safeParse(input);
+    if (!parsed.success) throw new SessionReportError("Invalid report ID", 400, "invalid_input");
+    const [report] = await db.select().from(wsSessionReportsTable).where(and(
+      owner, eq(wsSessionReportsTable.id, parsed.data.report_id),
+    )).limit(1);
+    if (!report) throw new SessionReportError("Session report not found", 404, "report_not_found");
+    return { report };
+  }
+  throw new SessionReportError("Unknown report tool", 400, "invalid_tool");
 }

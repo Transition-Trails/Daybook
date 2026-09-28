@@ -11,6 +11,8 @@ All notable changes to Daybook are documented in this file.
   user, client, and session key; no chat transcript is captured automatically.
 - Super admins can browse and read saved reports in WorldSmith Studio. Reports
   include the submitting account, MCP client, timestamp, and optional world.
+- The submitting MCP client can list and retrieve its own reports later, without
+  access to reports submitted by other clients or users.
 
 ## 2026-09-18 — WorldSmith editorial workflow
 

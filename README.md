@@ -110,8 +110,10 @@ open questions, and next steps. An optional `world_id` associates a report with
 one existing world; omit it for cross-world sessions. Reusing the same key with
 the same content returns the original report; changing its content is rejected.
 Reports are client-authored summaries, not chat transcripts or verified edit
-history. Super admins can review them under **WorldSmith Studio → Session
-reports**. Existing MCP grants do not acquire report-writing permission
+history. With the same grant, a client can call `list_my_session_reports` and
+`get_my_session_report` to retrieve only reports submitted by that client and
+signed-in user. Super admins can review all reports under **WorldSmith Studio →
+Session reports**. Existing MCP grants do not acquire report-writing permission
 automatically; the client must request fresh consent for the new scope.
 
 ### WorldSmith image generation

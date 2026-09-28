@@ -9,7 +9,7 @@ import {
   wsCanonRecordsTable, wsCanonAliasesTable, wsCanonFactsTable, wsSourceCitationsTable,
   wsEditorialFlagsTable, wsCharacterVariantsTable, wsIdentityLocksTable,
   wsKnowledgeEntriesTable, wsRelationshipsTable, wsRecordVocabularyValuesTable,
-  wsStorySceneDetailsTable, wsCharacterProfilesTable, wsLocationProfilesTable,
+  wsStorySceneDetailsTable, wsScenesTable, wsCharacterProfilesTable, wsLocationProfilesTable,
   wsObjectProfilesTable, wsEventProfilesTable, wsLoreProfilesTable,
   wsAtmosphereProfilesTable, wsMotifProfilesTable, wsStoriesTable,
   canonProfileSchemas, worldsmithWorldsTable, mcpCanonHistoryTable,
@@ -233,6 +233,17 @@ function crud(path: string, table: any, schema: z.ZodTypeAny, key: string, owner
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) { bad(res, parsed); return; }
     const data = parsed.data as Record<string, any>;
+    if (path === "/v1/editorial/scene-details") {
+      const [parentScene] = await db.select({
+        storyId: wsScenesTable.storyId, worldId: wsScenesTable.worldId,
+      }).from(wsScenesTable).where(eq(wsScenesTable.id, data.scene_id)).limit(1);
+      if (parentScene) {
+        if (parentScene.worldId !== data.world_id || (data.story_id && data.story_id !== parentScene.storyId)) {
+          res.status(422).json({ error: "Scene details must belong to the scene's storyline and world" }); return;
+        }
+        data.story_id = parentScene.storyId;
+      }
+    }
     if (data.record_id && !(await ownsRecord(data.record_id, data.world_id))) {
       res.status(422).json({ error: "record_id must belong to world_id" }); return;
     }
@@ -292,6 +303,18 @@ function crud(path: string, table: any, schema: z.ZodTypeAny, key: string, owner
       : existing[owner] === worldId);
     if (!owned) { res.status(404).json({ error: "Resource not found in world" }); return; }
     const data = parsed.data as Record<string, any>;
+    if (path === "/v1/editorial/scene-details") {
+      const [parentScene] = await db.select({
+        storyId: wsScenesTable.storyId, worldId: wsScenesTable.worldId,
+      }).from(wsScenesTable).where(eq(wsScenesTable.id, existing.sceneId)).limit(1);
+      if (parentScene) {
+        if (parentScene.worldId !== worldId || (data.story_id && data.story_id !== parentScene.storyId)
+          || (data.scene_id && data.scene_id !== existing.sceneId)) {
+          res.status(422).json({ error: "Scene details must belong to the scene's storyline and world" }); return;
+        }
+        data.story_id = parentScene.storyId;
+      }
+    }
     if (data.from_record_id && (!(await ownsRecord(data.from_record_id, worldId)) ||
       !(await ownsRecord(data.to_record_id, worldId)))) {
       res.status(422).json({ error: "relationship records must belong to world_id" }); return;

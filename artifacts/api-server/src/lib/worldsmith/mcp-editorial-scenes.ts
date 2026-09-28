@@ -186,7 +186,9 @@ async function readScene(tx: Tx, sceneId: string, lock = false) {
   let detailQuery = tx.select().from(wsStorySceneDetailsTable)
     .where(eq(wsStorySceneDetailsTable.sceneId, scene.id));
   const [detail] = await (lock ? detailQuery.for("update") : detailQuery).limit(1);
-  if (detail && (detail.worldId !== scene.worldId || detail.storyId !== scene.storyId)) {
+  // Legacy detail rows can have no storyline even when their scene has a valid parent.
+  // A non-null, conflicting storyline is still a genuine ownership error.
+  if (detail && (detail.worldId !== scene.worldId || (detail.storyId !== null && detail.storyId !== scene.storyId))) {
     throw new CanonToolError("Scene details do not belong to the scene's storyline and world", 409, "INVALID_PARENT");
   }
   const links = await tx.select({

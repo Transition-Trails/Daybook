@@ -119,3 +119,4 @@
 - [Deferred Canon snapshot recovery](deferred-canon-snapshot-recovery.md) — interrupted editor saves can be retried only after asset rows settle and policy still permits publication
 - [Canon partial metadata retries](canon-partial-metadata-retries.md) — preserve acknowledged Canon version advances across multi-step metadata retries
 - [Character repeater identity](character-repeater-identity.md) — versioned collection replacements must carry row IDs and variant state across editor and MCP saves
+- [WorldSmith scene detail ancestry](worldsmith-scene-detail-ancestry.md) — a null storyline on legacy scene details is missing metadata, not a conflicting parent; reject real mismatches

@@ -86,6 +86,25 @@ describe("editorial scene MCP tools", () => {
         canon_links: unknown[];
       };
       expect(legacyRead.canon_links).toEqual([]);
+      await db.insert(wsStorySceneDetailsTable).values({
+        sceneId: legacySceneId, worldId, storyId: null, details: { time_of_day: "morning" },
+      });
+      const missingParentRead = await executeSceneTool(user.id, "get_scene", {
+        scene_id: legacySceneId,
+      }, "https://example.test") as { revision: string; scene_details: { storyId: string | null } };
+      expect(missingParentRead.scene_details.storyId).toBeNull();
+      const repaired = await executeSceneTool(user.id, "update_scene", {
+        scene_id: legacySceneId, expected_revision: missingParentRead.revision,
+        changes: { details: { weather: "clear" } },
+      }, "https://example.test") as { scene_details: { storyId: string; details: Record<string, unknown> } };
+      expect(repaired.scene_details.storyId).toBe(storyId);
+      expect(repaired.scene_details.details).toMatchObject({ time_of_day: "morning", weather: "clear" });
+      await db.update(wsStorySceneDetailsTable).set({ storyId: "another-story" })
+        .where(eq(wsStorySceneDetailsTable.sceneId, legacySceneId));
+      await expect(executeSceneTool(user.id, "get_scene", {
+        scene_id: legacySceneId,
+      }, "https://example.test")).rejects.toMatchObject({ status: 409, code: "INVALID_PARENT" });
+      await db.update(wsStorySceneDetailsTable).set({ storyId }).where(eq(wsStorySceneDetailsTable.sceneId, legacySceneId));
       const firstPage = await executeSceneTool(user.id, "search_scenes", {
         world_id: worldId, limit: 1,
       }, "https://example.test") as {
@@ -181,8 +200,10 @@ describe("editorial scene MCP tools", () => {
       }, "https://example.test")).rejects.toMatchObject({ status: 400, code: "INVALID_CANON_LINK" });
     } finally {
       await db.delete(auditLogTable).where(eq(auditLogTable.targetId, sceneId));
+      await db.delete(auditLogTable).where(eq(auditLogTable.targetId, legacySceneId));
       await db.delete(wsSceneCanonLinksTable).where(eq(wsSceneCanonLinksTable.sceneId, sceneId));
       await db.delete(wsStorySceneDetailsTable).where(eq(wsStorySceneDetailsTable.sceneId, sceneId));
+      await db.delete(wsStorySceneDetailsTable).where(eq(wsStorySceneDetailsTable.sceneId, legacySceneId));
       await db.delete(wsScenesTable).where(eq(wsScenesTable.id, sceneId));
       await db.delete(wsScenesTable).where(eq(wsScenesTable.id, legacySceneId));
       await db.delete(wsStoryActsTable).where(eq(wsStoryActsTable.id, movementId));

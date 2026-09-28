@@ -8,6 +8,7 @@ import { getMcpResource, hasWriteWithoutRead } from "../lib/mcp-oauth";
 import { formatSessionReportMarkdown, readOwnSessionReports } from "../lib/worldsmith/mcp-session-reports";
 import mcpRouter from "../routes/mcp";
 import reportsRouter from "../routes/session-reports";
+import app from "../app";
 
 describe("session report Markdown", () => {
   it("escapes saved text without losing attribution, sections, or multiline content", () => {
@@ -154,6 +155,44 @@ describe("WorldSmith MCP session reports", () => {
       await db.delete(mcpOAuthTokensTable).where(eq(mcpOAuthTokensTable.clientId, clientId));
       await db.delete(mcpOAuthClientsTable).where(eq(mcpOAuthClientsTable.clientId, clientId));
       await db.delete(worldsmithWorldsTable).where(eq(worldsmithWorldsTable.id, worldId));
+    }
+  });
+});
+
+describe("signed-in admin session report download", () => {
+  it("downloads the saved Markdown through the signed-in session and rejects a logged-out request", async () => {
+    const id = randomUUID();
+    const agent = request.agent(app);
+    await db.insert(wsSessionReportsTable).values({
+      id, authorUserId: "ci_super_admin", clientId: `download-test-${id}`,
+      sessionKey: randomUUID(), title: "Saved report",
+      summary: "Saved summary", workDone: ["Saved action"],
+      decisions: ["Saved decision"], openQuestions: ["Saved question"],
+      nextSteps: ["Saved next step"],
+    });
+    try {
+      const login = await agent.post("/api/auth/test-login").send({ email: "super@ci.test" });
+      expect(login.status).toBe(200);
+      expect(login.body).toMatchObject({ id: "ci_super_admin", platformRole: "super_admin" });
+
+      const response = await agent.get(`/api/worldsmith/session-reports/${id}/markdown`);
+      expect(response.status).toBe(200);
+      expect(response.headers["content-type"]).toMatch(/^text\/markdown/);
+      expect(response.headers["content-disposition"])
+        .toBe(`attachment; filename="worldsmith-session-report-${id}.md"`);
+      for (const savedValue of [
+        "# Saved report", "**Summary:** Saved summary", "Saved action",
+        "Saved decision", "Saved question", "Saved next step",
+      ]) {
+        expect(response.text).toContain(savedValue);
+      }
+
+      expect((await agent.post("/api/auth/logout")).status).toBe(200);
+      const expired = await agent.get(`/api/worldsmith/session-reports/${id}/markdown`);
+      expect(expired.status).toBe(401);
+      expect(expired.headers["content-disposition"]).toBeUndefined();
+    } finally {
+      await db.delete(wsSessionReportsTable).where(eq(wsSessionReportsTable.id, id));
     }
   });
 });

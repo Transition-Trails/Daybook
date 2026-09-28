@@ -76,7 +76,13 @@ export default function WorldSmithSessionReports() {
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body?.error ?? `Download failed (${response.status})`);
+        throw new Error(
+          response.status === 401 ? "Your session has expired. Sign in again to download this report."
+            : typeof body?.error === "string" ? body.error : `Download failed (${response.status})`,
+        );
+      }
+      if (!/^text\/markdown(?:\s*;|$)/i.test(response.headers.get("content-type") ?? "")) {
+        throw new Error("Download failed: the server did not return a Markdown report.");
       }
       const url = URL.createObjectURL(await response.blob());
       try {
@@ -102,7 +108,7 @@ export default function WorldSmithSessionReports() {
         <button
           type="button"
           data-testid="button-back-session-reports"
-          onClick={() => setSelectedId(null)}
+          onClick={() => { setDownloadError(null); setSelectedId(null); }}
           className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" /> Back to reports
@@ -182,7 +188,7 @@ export default function WorldSmithSessionReports() {
                 <button
                   type="button"
                   data-testid={`button-open-session-report-${item.id}`}
-                  onClick={() => setSelectedId(item.id)}
+                  onClick={() => { setDownloadError(null); setSelectedId(item.id); }}
                   className="w-full p-4 text-left transition-colors hover:bg-muted/30 sm:p-5"
                 >
                   <div className="flex items-start justify-between gap-4">

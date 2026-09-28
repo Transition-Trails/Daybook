@@ -26,3 +26,9 @@ Storyline and movement creation is a distinct external-client authority from edi
 **Why:** A previously authorized client had consent for editing existing editorial records; allowing it to create new narrative structure and links without fresh consent would broaden that grant.
 
 **How to apply:** Require a separate opt-in creation grant in addition to editorial read/write, keep current-user role checks, parent locks, same-world Canon validation, draft defaults, and an audit trail. Existing Story Map link edits and Canon-to-Canon relation creation remain separately scoped operations.
+
+Scene creation needs its own explicit consent beyond scene read/write and beyond storyline/movement creation. A scene is anchored to an existing movement and must link at least one same-world Canon character; creating one must not automatically produce a planned set of other scenes.
+
+**Why:** Granting scene creation to older scene-edit or storyline-create tokens would silently expand their authority, and creating empty scenes would violate the editor's character requirement and the user's constraint against generating unrequested placeholders.
+
+**How to apply:** Preserve older grants as edit-only, require the distinct scene-create grant together with scene read/write, and create only the explicitly requested scene under a validated movement.

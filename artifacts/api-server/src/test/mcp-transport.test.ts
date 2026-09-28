@@ -53,8 +53,10 @@ vi.mock("../lib/worldsmith/mcp-editorial-scenes", () => ({
     { name: "search_scenes", description: "Search scenes", inputSchema: { type: "object" } },
     { name: "get_scene", description: "Get scene", inputSchema: { type: "object" } },
     { name: "update_scene", description: "Update scene", inputSchema: { type: "object" } },
+    { name: "create_scene", description: "Create scene", inputSchema: { type: "object" } },
   ],
-  SCENE_WRITE_TOOLS: new Set(["update_scene"]),
+  SCENE_WRITE_TOOLS: new Set(["update_scene", "create_scene"]),
+  SCENE_CREATE_TOOLS: new Set(["create_scene"]),
   executeSceneTool: mocked.executeScene,
 }));
 vi.mock("../lib/worldsmith/mcp-production-catalog", () => ({
@@ -128,7 +130,7 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       "https://daybook.example/.well-known/oauth-protected-resource/mcp",
     );
     expect(response.headers["www-authenticate"]).toContain(
-       'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:create worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:canon:relations:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write worldsmith:production:read worldsmith:production:write worldsmith:readiness:read worldsmith:readiness:write"',
+       'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:create worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:canon:relations:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write worldsmith:editorial:scenes:create worldsmith:production:read worldsmith:production:write worldsmith:readiness:read worldsmith:readiness:write"',
     );
     expect(mocked.execute).not.toHaveBeenCalled();
   });

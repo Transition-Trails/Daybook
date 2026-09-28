@@ -4,7 +4,7 @@ import { CANON_METADATA_TOOL } from "../lib/worldsmith/canon-metadata";
 import { CANON_EDITORIAL_TOOLS, CANON_EDITORIAL_WRITE_TOOLS, executeCanonEditorialTool } from "../lib/worldsmith/mcp-canon-editorial";
 import { RELATION_TOOLS, RELATION_WRITE_TOOLS, executeRelationTool } from "../lib/worldsmith/mcp-canon-relations";
 import { RECORD_TOOLS, RECORD_WRITE_TOOLS, RECORD_CREATE_TOOLS, executeRecordTool } from "../lib/worldsmith/mcp-editorial-records";
-import { SCENE_TOOLS, SCENE_WRITE_TOOLS, executeSceneTool } from "../lib/worldsmith/mcp-editorial-scenes";
+import { SCENE_TOOLS, SCENE_WRITE_TOOLS, SCENE_CREATE_TOOLS, executeSceneTool } from "../lib/worldsmith/mcp-editorial-scenes";
 import { VIEW_TOOLS, VIEW_WRITE_TOOLS, executeViewTool } from "../lib/worldsmith/mcp-editorial-views";
 import { PRODUCTION_CATALOG_TOOLS, PRODUCTION_CATALOG_WRITE_TOOLS, executeProductionCatalogTool } from "../lib/worldsmith/mcp-production-catalog";
 import { PRODUCTION_SPEC_TOOLS, PRODUCTION_SPEC_WRITE_TOOLS, executeProductionSpecTool } from "../lib/worldsmith/mcp-production-specs";
@@ -26,6 +26,7 @@ const CANON_EDITORIAL_WRITE_SCOPE = "worldsmith:canon:editorial:write";
 const CANON_RELATIONS_WRITE_SCOPE = "worldsmith:canon:relations:write";
 const SCENES_READ_SCOPE = "worldsmith:editorial:scenes:read";
 const SCENES_WRITE_SCOPE = "worldsmith:editorial:scenes:write";
+const SCENES_CREATE_SCOPE = "worldsmith:editorial:scenes:create";
 const PRODUCTION_READ_SCOPE = "worldsmith:production:read";
 const PRODUCTION_WRITE_SCOPE = "worldsmith:production:write";
 const READINESS_READ_SCOPE = "worldsmith:readiness:read";
@@ -45,7 +46,7 @@ function publicOrigin(req: Request): string {
 
 function challenge(req: Request, res: Response, error = "invalid_token"): void {
   const url = `${publicOrigin(req)}/.well-known/oauth-protected-resource/mcp`;
-  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE} ${EDITORIAL_CREATE_SCOPE} ${REFERENCES_WRITE_SCOPE} ${STORY_DETAILS_WRITE_SCOPE} ${CANON_EDITORIAL_WRITE_SCOPE} ${CANON_RELATIONS_WRITE_SCOPE} ${SCENES_READ_SCOPE} ${SCENES_WRITE_SCOPE} ${PRODUCTION_READ_SCOPE} ${PRODUCTION_WRITE_SCOPE} ${READINESS_READ_SCOPE} ${READINESS_WRITE_SCOPE}`;
+  const requiredScopes = `${READ_SCOPE} ${WRITE_SCOPE} ${EDITORIAL_READ_SCOPE} ${EDITORIAL_WRITE_SCOPE} ${EDITORIAL_CREATE_SCOPE} ${REFERENCES_WRITE_SCOPE} ${STORY_DETAILS_WRITE_SCOPE} ${CANON_EDITORIAL_WRITE_SCOPE} ${CANON_RELATIONS_WRITE_SCOPE} ${SCENES_READ_SCOPE} ${SCENES_WRITE_SCOPE} ${SCENES_CREATE_SCOPE} ${PRODUCTION_READ_SCOPE} ${PRODUCTION_WRITE_SCOPE} ${READINESS_READ_SCOPE} ${READINESS_WRITE_SCOPE}`;
   res.set("WWW-Authenticate", `Bearer realm="WorldSmith", error="${error}", resource_metadata="${url}", scope="${requiredScopes}"`);
   res.status(error === "insufficient_scope" ? 403 : 401).json({ error });
 }
@@ -122,6 +123,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
         : SCENE_TOOLS.some(scene => scene.name === tool.name)
           ? identity.scopes.includes(SCENES_READ_SCOPE)
             && (!SCENE_WRITE_TOOLS.has(tool.name) || identity.scopes.includes(SCENES_WRITE_SCOPE))
+              && (!SCENE_CREATE_TOOLS.has(tool.name) || identity.scopes.includes(SCENES_CREATE_SCOPE))
       : RECORD_TOOLS.some(record => record.name === tool.name)
         ? identity.scopes.includes(EDITORIAL_READ_SCOPE)
            && (!RECORD_WRITE_TOOLS.has(tool.name) || identity.scopes.includes(EDITORIAL_WRITE_SCOPE))
@@ -197,6 +199,7 @@ router.all(MCP_RESOURCE, async (req: Request, res: Response): Promise<void> => {
             || ((name === CANON_METADATA_TOOL.name || CHARACTER_REPEATER_WRITE_TOOLS.has(name))
               && !identity.scopes.includes(CANON_EDITORIAL_WRITE_SCOPE))
           || (SCENE_WRITE_TOOLS.has(name) && !identity.scopes.includes(SCENES_WRITE_SCOPE))
+           || (SCENE_CREATE_TOOLS.has(name) && !identity.scopes.includes(SCENES_CREATE_SCOPE))
           || ((name === "update_story_beat" || name === "update_reveal_thread")
             && !identity.scopes.includes(STORY_DETAILS_WRITE_SCOPE))
            || (productionWriteTool(name) && !identity.scopes.includes(PRODUCTION_WRITE_SCOPE))

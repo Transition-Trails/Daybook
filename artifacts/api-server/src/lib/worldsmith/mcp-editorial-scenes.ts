@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, asc, count, eq, gt, ilike, inArray, or, sql } from "drizzle-orm";
 import {
   auditLogTable,
@@ -57,6 +58,16 @@ const searchSchema = z.object({
   limit: z.number().int().min(1).max(100).default(50),
 }).strict();
 const getSchema = z.object({ scene_id: id }).strict();
+const createSchema = z.object({
+  movement_id: id,
+  title: z.string().trim().min(1).max(500),
+  body: z.string().max(50_000).optional(),
+  attributes: attributesSchema.optional(),
+  purpose: z.string().max(120).optional(),
+  viewpoint_distance: z.string().max(80).optional(),
+  details: sceneDetailsSchema.optional(),
+  canon_record_ids: z.array(id).min(1).max(100),
+}).strict();
 const updateSchema = z.object({
   scene_id: id,
   expected_revision: z.string().min(1).max(100),
@@ -75,7 +86,7 @@ const updateSchema = z.object({
   }).strict().refine(value => Object.keys(value).length > 0, "changes must include at least one scene field"),
 }).strict();
 
-type SceneToolName = "search_scenes" | "get_scene" | "update_scene";
+type SceneToolName = "search_scenes" | "get_scene" | "update_scene" | "create_scene";
 type ToolDescriptor = { name: SceneToolName; description: string; inputSchema: Record<string, unknown> };
 const field = (maxLength: number, minLength?: number) => ({
   type: "string", ...(minLength ? { minLength } : {}), maxLength,
@@ -110,6 +121,17 @@ export const SCENE_TOOLS: ToolDescriptor[] = [
     inputSchema: objectSchema({ scene_id: field(160, 1) }, ["scene_id"]),
   },
   {
+    name: "create_scene",
+    description: "Create the next numbered scene inside an existing movement with at least one same-world Canon character. Does not create other scenes. Requires separate scene-creation consent.",
+    inputSchema: objectSchema({
+      movement_id: field(160, 1), title: field(500, 1), body: field(50_000),
+      attributes: { type: "object", additionalProperties: true },
+      purpose: field(120), viewpoint_distance: field(80),
+      details: objectSchema(detailsProperties),
+      canon_record_ids: { type: "array", items: field(160, 1), minItems: 1, maxItems: 100 },
+    }, ["movement_id", "title", "canon_record_ids"]),
+  },
+  {
     name: "update_scene",
     description: "Partially edit scene prose/details and same-world Canon links at an expected revision.",
     inputSchema: objectSchema({
@@ -130,7 +152,8 @@ export const SCENE_TOOLS: ToolDescriptor[] = [
   },
 ];
 
-export const SCENE_WRITE_TOOLS = new Set<string>(["update_scene"]);
+export const SCENE_WRITE_TOOLS = new Set<string>(["update_scene", "create_scene"]);
+export const SCENE_CREATE_TOOLS = new Set<string>(["create_scene"]);
 
 function invalidArgs(error: z.ZodError): never {
   throw new CanonToolError(`Invalid tool arguments: ${error.message}`, 400, "INVALID_ARGUMENTS");
@@ -340,6 +363,79 @@ export async function executeSceneTool(
       revision: revisionFor(data.snapshot),
       editor_url: editorUrl(origin, data.story.id, data.scene.worldId, data.scene.id),
     };
+  }
+
+  if (name === "create_scene") {
+    const parsed = createSchema.safeParse(args);
+    if (!parsed.success) invalidArgs(parsed.error);
+    const input = parsed.data;
+    if (new Set(input.canon_record_ids).size !== input.canon_record_ids.length) {
+      throw new CanonToolError("Canon record IDs must not repeat.", 400, "INVALID_CANON_LINK");
+    }
+    return db.transaction(async tx => {
+      const [parent] = await tx.select({ worldId: wsStoryActsTable.worldId })
+        .from(wsStoryActsTable).where(eq(wsStoryActsTable.id, input.movement_id)).limit(1);
+      if (!parent) throw new CanonToolError("Movement not found", 404, "MOVEMENT_NOT_FOUND");
+      await requireWorld(tx, parent.worldId, true);
+      const [movementParent] = await tx.select({ storyId: wsStoryActsTable.storyId })
+        .from(wsStoryActsTable).where(eq(wsStoryActsTable.id, input.movement_id)).limit(1);
+      if (!movementParent) throw new CanonToolError("Movement not found", 404, "MOVEMENT_NOT_FOUND");
+      const [story] = await tx.select().from(wsStoriesTable)
+        .where(eq(wsStoriesTable.id, movementParent.storyId)).for("update").limit(1);
+      if (!story || story.worldId !== parent.worldId) {
+        throw new CanonToolError("Movement's storyline does not belong to this world", 409, "INVALID_PARENT");
+      }
+      const [movement] = await tx.select().from(wsStoryActsTable)
+        .where(eq(wsStoryActsTable.id, input.movement_id)).for("update").limit(1);
+      if (!movement || movement.worldId !== parent.worldId || movement.storyId !== story.id) {
+        throw new CanonToolError("Movement parent changed during creation", 409, "INVALID_PARENT");
+      }
+      const canonRecords = await tx.select({
+        id: wsCanonRecordsTable.id, worldId: wsCanonRecordsTable.worldId, canonType: wsCanonRecordsTable.canonType,
+      }).from(wsCanonRecordsTable).where(inArray(wsCanonRecordsTable.id, input.canon_record_ids));
+      if (canonRecords.length !== input.canon_record_ids.length || canonRecords.some(record => record.worldId !== story.worldId)
+        || !canonRecords.some(record => record.canonType === "character")) {
+        throw new CanonToolError("Scene Canon links must be same-world records and include a character.", 400, "INVALID_CANON_LINK");
+      }
+      const [position] = await tx.select({
+        next: sql<number>`coalesce(max(${wsScenesTable.sceneNumber}), 0) + 1`,
+      }).from(wsScenesTable).where(eq(wsScenesTable.actId, movement.id));
+      if (!position || position.next > 100_000) {
+        throw new CanonToolError("Movement has reached the scene number limit.", 400, "INVALID_ARGUMENTS");
+      }
+      const [scene] = await tx.insert(wsScenesTable).values({
+        id: randomUUID(), worldId: story.worldId, storyId: story.id, actId: movement.id,
+        sceneNumber: position.next, title: input.title,
+        body: sanitizeEditorialRichText(input.body ?? ""),
+        attributes: sceneAttributes(input.attributes ?? {}), createdBy: userId,
+      }).returning();
+      if (input.purpose !== undefined || input.viewpoint_distance !== undefined || input.details !== undefined) {
+        await tx.insert(wsStorySceneDetailsTable).values({
+          sceneId: scene!.id, storyId: story.id, worldId: story.worldId,
+          purpose: input.purpose ?? null, viewpointDistance: input.viewpoint_distance ?? null,
+          details: normalizedDetails(input.details ?? {}),
+        });
+      }
+      const types = new Map(canonRecords.map(record => [record.id, record.canonType]));
+      await tx.insert(wsSceneCanonLinksTable).values(input.canon_record_ids.map((canonRecordId, index) => ({
+        sceneId: scene!.id, canonRecordId,
+        role: types.get(canonRecordId) === "character" ? "character" : "featured",
+        sortOrder: index,
+      })));
+      await tx.insert(auditLogTable).values({
+        actorUserId: userId, actorRole: "super_admin", scope: "platform",
+        action: "worldsmith.editorial.scene.create", targetType: "worldsmith_scene", targetId: scene!.id,
+        metadata: { actor_user_id: userId, world_id: story.worldId, storyline_id: story.id,
+          movement_id: movement.id, canon_record_ids: input.canon_record_ids },
+      });
+      const saved = await readScene(tx, scene!.id);
+      return {
+        record: saved.scene, scene_details: saved.detail ?? null,
+        canon_links: saved.links, canon_records: saved.records.map(({ worldId: _worldId, ...record }) => record),
+        revision: revisionFor(saved.snapshot),
+        editor_url: editorUrl(origin, story.id, story.worldId, scene!.id),
+      };
+    });
   }
 
   if (name !== "update_scene") {

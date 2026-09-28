@@ -62,7 +62,7 @@ describe("Canon MCP / editorial save integration", () => {
 
       const valid = await rpc("update_canon_record", {
         record_id: recordId, expected_revision: version,
-        changes: { pronouns: "she/her", coreDesire: "Find her sister" },
+        changes: { pronouns: "she_her", coreDesire: "belonging" },
       });
       expect(valid.body.result.isError).toBeUndefined();
       expect(valid.body.result.structuredContent.revision).toBe(version + 1);
@@ -78,7 +78,7 @@ describe("Canon MCP / editorial save integration", () => {
 
       const stale = await rpc("update_canon_record", {
         record_id: recordId, expected_revision: version,
-        changes: { pronouns: "he/him" },
+        changes: { pronouns: "he_him" },
       });
       expect(stale.body.result.isError).toBe(true);
       expect(stale.body.result.content[0].text).toContain("VERSION_CONFLICT");
@@ -118,9 +118,9 @@ describe("Canon MCP / editorial save integration", () => {
 
       const temporary = await rpc("update_canon_record", {
         record_id: recordId, expected_revision: version + 2,
-        changes: { pronouns: "Temporary verification" },
+        changes: { pronouns: "they_them" },
       });
-      expect(temporary.body.result.structuredContent.character_profile).toEqual({ pronouns: "Temporary verification" });
+      expect(temporary.body.result.structuredContent.character_profile).toEqual({ pronouns: "they_them" });
       const afterOtherEditor = await request(api)
         .put(`/api/v1/editorial/profiles/character/${recordId}`).send(profileWrite);
       expect(afterOtherEditor.status).toBe(409);

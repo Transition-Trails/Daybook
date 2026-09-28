@@ -138,6 +138,35 @@ export async function getSessionReport(id: string) {
   return report ?? null;
 }
 
+type SessionReportDetail = NonNullable<Awaited<ReturnType<typeof getSessionReport>>>;
+
+// Treat every saved field as plain text, never as Markdown or embedded HTML.
+function escapeMarkdown(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/([\\`*_{}[\]()#+.!|~-])/g, "\\$1")
+    .replace(/\r\n?|\n/g, "  \n");
+}
+
+export function formatSessionReportMarkdown(report: SessionReportDetail): string {
+  const section = (heading: string, items: string[]) =>
+    `## ${heading}\n\n${items.length
+      ? items.map(item => `- ${escapeMarkdown(item).replace(/\n/g, "\n  ")}`).join("\n")
+      : "None recorded."}`;
+
+  return [
+    `# ${escapeMarkdown(report.title)}`,
+    `**Summary:** ${escapeMarkdown(report.summary)}`,
+    `**Author:** ${escapeMarkdown(report.authorName ?? report.authorUserId)}`,
+    `**Client:** ${escapeMarkdown(report.clientName ?? report.clientId)}`,
+    `**Created:** ${report.createdAt.toISOString()}`,
+    ...(report.worldId ? [`**World:** ${escapeMarkdown(report.worldName ?? report.worldId)}`] : []),
+    section("Work done", report.workDone),
+    section("Decisions", report.decisions),
+    section("Open questions", report.openQuestions),
+    section("Next steps", report.nextSteps),
+  ].join("\n\n") + "\n";
+}
+
 const ownListInput = z.object({
   limit: z.number().int().min(1).max(50).default(20),
   offset: z.number().int().min(0).max(100_000).default(0),

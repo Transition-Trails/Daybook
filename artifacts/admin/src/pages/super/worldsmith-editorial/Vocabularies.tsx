@@ -294,7 +294,7 @@ export default function Vocabularies() {
               });
               const isExpanded = expanded[v.id] ?? (Boolean(term) && shownOptions.length > 0);
               return <section key={v.id} className="vocab-panel overflow-hidden" data-testid={`section-vocabulary-${v.id}`}>
-                <div className="bg-[#faf6ef] px-4 py-3">
+                <div className="border-b border-[var(--admin-border)] bg-[#faf6ef] px-4 py-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <h2 className="min-w-0 text-lg font-semibold leading-tight">
                       <button type="button" id={`vocab-toggle-${v.id}`} className="group flex items-center gap-2 rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--admin-ink)]" aria-expanded={isExpanded} aria-controls={`vocab-choices-${v.id}`} onClick={() => setExpanded(previous => ({ ...previous, [v.id]: !isExpanded }))} data-testid={`button-expand-vocabulary-${v.id}`}>

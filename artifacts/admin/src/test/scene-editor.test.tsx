@@ -26,6 +26,9 @@ function setup(sceneId?: string) {
 
   // Prime cache
   queryClient.setQueryData(["editorial-canon-records-all", "world-1"], { canon_records: mockCanonRecords });
+  queryClient.setQueryData(["editorial-vocabularies", "world-1"], { vocabularies: [], options: [] });
+  queryClient.setQueryData(["editorial-scene-anchors", "world-1"], { anchors: [] });
+  queryClient.setQueryData(["editorial-narrative-images", "world-1", "story-1"], { images: [] });
 
   if (sceneId) {
     queryClient.setQueryData(["editorial-scenes", "story-1"], {
@@ -45,6 +48,8 @@ function setup(sceneId?: string) {
         }
       ]
     });
+    queryClient.setQueryData(["editorial-scene-details", sceneId], { scenes: [] });
+    queryClient.setQueryData(["worldsmith-context-snapshot", "scenes", sceneId], { status: "not_generated" });
   } else {
     queryClient.setQueryData(["editorial-scenes", "story-1"], { scenes: [] });
   }

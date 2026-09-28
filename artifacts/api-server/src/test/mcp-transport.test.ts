@@ -27,6 +27,7 @@ vi.mock("../lib/worldsmith/mcp-canon", () => ({
     { name: "get_record_change_history", description: "History", inputSchema: { type: "object" } },
     { name: "update_canon_metadata", description: "Metadata update", inputSchema: { type: "object" } },
   ],
+  CHARACTER_REPEATER_WRITE_TOOLS: new Set(),
   executeCanonTool: mocked.execute,
 }));
 vi.mock("../lib/worldsmith/canon-metadata", () => ({
@@ -130,7 +131,7 @@ describe("WorldSmith Streamable HTTP MCP", () => {
       "https://daybook.example/.well-known/oauth-protected-resource/mcp",
     );
     expect(response.headers["www-authenticate"]).toContain(
-       'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:create worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:canon:relations:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write worldsmith:editorial:scenes:create worldsmith:production:read worldsmith:production:write worldsmith:readiness:read worldsmith:readiness:write"',
+       'scope="worldsmith:canon:read worldsmith:canon:write worldsmith:editorial:read worldsmith:editorial:write worldsmith:editorial:create worldsmith:editorial:references:write worldsmith:editorial:story-details:write worldsmith:canon:editorial:write worldsmith:canon:relations:write worldsmith:editorial:scenes:read worldsmith:editorial:scenes:write worldsmith:editorial:scenes:create worldsmith:production:read worldsmith:production:write worldsmith:readiness:read worldsmith:readiness:write worldsmith:sessions:write"',
     );
     expect(mocked.execute).not.toHaveBeenCalled();
   });

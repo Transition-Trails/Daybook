@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ChevronLeft, ChevronRight, Clock, FileText, Loader2 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Clock, Download, FileText, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { PageHeader } from "@/components/shared";
 
@@ -50,6 +50,8 @@ function ReportSection({ title, items }: { title: string; items: string[] }) {
 export default function WorldSmithSessionReports() {
   const [offset, setOffset] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const listQuery = useQuery({
     queryKey: ["worldsmith-session-reports", PAGE_SIZE, offset],
     queryFn: () => apiFetch<ReportsResponse>(`/worldsmith/session-reports?limit=${PAGE_SIZE}&offset=${offset}`),
@@ -64,6 +66,35 @@ export default function WorldSmithSessionReports() {
   const total = listQuery.data?.total ?? 0;
   const report = detailQuery.data?.report;
   const pageNumber = Math.floor(offset / PAGE_SIZE) + 1;
+
+  const downloadMarkdown = async (id: string) => {
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const response = await fetch(`/api/worldsmith/session-reports/${encodeURIComponent(id)}/markdown`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.error ?? `Download failed (${response.status})`);
+      }
+      const url = URL.createObjectURL(await response.blob());
+      try {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `worldsmith-session-report-${id}.md`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "Download failed. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   if (selectedId) {
     return (
@@ -88,6 +119,19 @@ export default function WorldSmithSessionReports() {
         ) : report ? (
           <>
             <PageHeader title={report.title} description={report.summary} scopeLabel="WorldSmith session report" />
+            <div>
+              <button
+                type="button"
+                data-testid="button-download-session-report-markdown"
+                disabled={downloading}
+                onClick={() => void downloadMarkdown(report.id)}
+                className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {downloading ? "Downloading…" : "Download Markdown"}
+              </button>
+              {downloadError && <p role="alert" className="mt-2 text-sm text-destructive">{downloadError}</p>}
+            </div>
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /><time dateTime={report.createdAt}>{new Date(report.createdAt).toLocaleString()}</time></span>

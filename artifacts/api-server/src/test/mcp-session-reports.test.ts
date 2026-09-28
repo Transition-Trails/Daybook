@@ -5,9 +5,35 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { db, mcpOAuthClientsTable, mcpOAuthTokensTable, usersTable, worldsmithWorldsTable, wsSessionReportsTable } from "@workspace/db";
 import { getMcpResource, hasWriteWithoutRead } from "../lib/mcp-oauth";
-import { readOwnSessionReports } from "../lib/worldsmith/mcp-session-reports";
+import { formatSessionReportMarkdown, readOwnSessionReports } from "../lib/worldsmith/mcp-session-reports";
 import mcpRouter from "../routes/mcp";
 import reportsRouter from "../routes/session-reports";
+
+describe("session report Markdown", () => {
+  it("escapes saved text without losing attribution, sections, or multiline content", () => {
+    const markdown = formatSessionReportMarkdown({
+      id: randomUUID(), title: "# A <script>", summary: "First line\n## Not a heading",
+      authorUserId: "author-id", authorName: "Alice & Bob",
+      clientId: "client-id", clientName: null,
+      worldId: "world-id", worldName: null,
+      createdAt: new Date("2026-09-28T12:00:00.000Z"),
+      workDone: ["Completed *task*\n- not another item"],
+      decisions: ["[Link](https://example.com)"], openQuestions: [],
+      nextSteps: ["Review > approve"],
+    });
+    expect(markdown).toContain("# \\# A &lt;script&gt;");
+    expect(markdown).toContain("**Summary:** First line  \n\\#\\# Not a heading");
+    expect(markdown).toContain("**Author:** Alice &amp; Bob");
+    expect(markdown).toContain("**Client:** client\\-id");
+    expect(markdown).toContain("**Created:** 2026-09-28T12:00:00.000Z");
+    expect(markdown).toContain("**World:** world\\-id");
+    expect(markdown).toContain("## Work done\n\n- Completed \\*task\\*  \n  \\- not another item");
+    expect(markdown).toContain("## Decisions\n\n- \\[Link\\]\\(https://example\\.com\\)");
+    expect(markdown).toContain("## Open questions\n\nNone recorded.");
+    expect(markdown).toContain("## Next steps\n\n- Review &gt; approve");
+    expect(markdown).not.toContain("<script>");
+  });
+});
 
 describe("WorldSmith MCP session reports", () => {
   it("requires distinct consent, stores one summary per client session, and lets admins retrieve it", async () => {
@@ -97,10 +123,29 @@ describe("WorldSmith MCP session reports", () => {
         id: reportId, workDone: input.work_done, decisions: input.decisions,
         openQuestions: input.open_questions, nextSteps: input.next_steps,
       });
+      const download = await request(api).get(`/api/worldsmith/session-reports/${reportId}/markdown`);
+      expect(download.status).toBe(200);
+      expect(download.headers["content-type"]).toMatch(/^text\/markdown/);
+      expect(download.headers["content-disposition"])
+        .toBe(`attachment; filename="worldsmith-session-report-${reportId}.md"`);
+      expect(download.text).toContain("# Working session");
+      expect(download.text).toContain("**Summary:** Reviewed the story map");
+      expect(download.text).toContain("**Author:**");
+      expect(download.text).toContain("**Client:** Report test client");
+      expect(download.text).toContain(`**World:** ${worldId.replaceAll("-", "\\-")}`);
+      expect(download.text).toContain("## Work done\n\n- Reviewed chronology");
+      expect(download.text).toContain("## Decisions\n\n- Keep the timeline");
+      expect(download.text).toContain("## Open questions\n\n- Which era?");
+      expect(download.text).toContain("## Next steps\n\n- Review the Bible");
+      expect((await request(api).get(`/api/worldsmith/session-reports/${randomUUID()}/markdown`)).status).toBe(404);
+      expect((await request(api).get("/api/worldsmith/session-reports/bad-id/markdown")).status).toBe(400);
       await db.delete(mcpOAuthTokensTable).where(eq(mcpOAuthTokensTable.clientId, clientId));
       await db.delete(mcpOAuthClientsTable).where(eq(mcpOAuthClientsTable.clientId, clientId));
       const afterClientDeletion = await request(api).get(`/api/worldsmith/session-reports/${reportId}`);
       expect(afterClientDeletion.body.report).toMatchObject({ clientId, clientName: null });
+      const afterClientDeletionMarkdown = await request(api).get(`/api/worldsmith/session-reports/${reportId}/markdown`);
+      expect(afterClientDeletionMarkdown.text).toContain(`**Client:** ${clientId.replaceAll("-", "\\-")}`);
+      expect(afterClientDeletionMarkdown.text).toContain(`**World:** ${worldId.replaceAll("-", "\\-")}`);
     } finally {
       await db.delete(wsSessionReportsTable).where(and(
         eq(wsSessionReportsTable.authorUserId, user.id),

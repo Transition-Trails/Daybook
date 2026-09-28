@@ -102,6 +102,7 @@ function describeScope(scope: McpScope): string {
     case "worldsmith:production:write": return "Create and edit WorldSmith production data: Collections, Volumes, Production Specs, Style Guides, Component Specs, Production Profiles, Punch Templates, Prompt Modules, and Print Targets";
     case "worldsmith:readiness:read": return "Read readiness planning lanes for Canon Records, storylines, and story beats";
     case "worldsmith:readiness:write": return "Move Canon Records, storylines, and story beats between readiness planning lanes (not editorial lifecycle status)";
+    case "worldsmith:sessions:write": return "Submit structured, client-authored working-session reports (not conversation transcripts)";
   }
 }
 
@@ -261,6 +262,7 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
   const requestsScenesCreate = scopes.includes("worldsmith:editorial:scenes:create");
   const requestsProductionWrite = scopes.includes("worldsmith:production:write");
   const requestsReadinessWrite = scopes.includes("worldsmith:readiness:write");
+  const requestsSessionsWrite = scopes.includes("worldsmith:sessions:write");
   const consent: ConsentSession = {
     csrf,
     userId: user.id,
@@ -309,6 +311,8 @@ oauthRouter.get("/authorize", async (req, res): Promise<void> => {
       `<label><input type="checkbox" name="allow_production_write" value="yes" required> I explicitly authorize this unverified client to create and edit Collections, Volumes, Production Specs, Style Guides, Component Specs, Production Profiles, Punch Templates, Prompt Modules, and Print Targets on my behalf.</label></fieldset>` : ""}` +
      `${requestsReadinessWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate readiness planning write permission</legend>` +
        `<label><input type="checkbox" name="allow_readiness_write" value="yes" required> I explicitly authorize this unverified client to move Canon Records, storylines, and story beats between readiness planning lanes. This does not grant lifecycle approval.</label></fieldset>` : ""}` +
+    `${requestsSessionsWrite ? `<fieldset style="border:2px solid #b91c1c;padding:12px;margin:12px 0"><legend>Separate session report permission</legend>` +
+      `<label><input type="checkbox" name="allow_sessions_write" value="yes" required> I authorize this client to save its own structured summaries of working sessions for platform admins to review. No transcript is captured automatically.</label></fieldset>` : ""}` +
     `<button type="submit" name="consent" value="approve">Approve requested access</button> ` +
     `<button type="submit" name="consent" value="deny" formnovalidate>Deny</button></form></main></body></html>`,
   );
@@ -332,6 +336,7 @@ oauthRouter.post("/authorize", async (req, res): Promise<void> => {
     allow_scenes_create?: unknown;
     allow_production_write?: unknown;
     allow_readiness_write?: unknown;
+    allow_sessions_write?: unknown;
   };
   const csrf = typeof body?.csrf_token === "string" ? body.csrf_token : "";
   if (!req.isAuthenticated() || !consent || !csrf || csrf !== consent.csrf || !["approve", "deny"].includes(String(body?.consent))) {
@@ -392,6 +397,10 @@ oauthRouter.post("/authorize", async (req, res): Promise<void> => {
   }
   if (consent.scopes.includes("worldsmith:readiness:write") && body.allow_readiness_write !== "yes") {
     oauthError(res, 400, "access_denied", "Explicit separate consent is required for readiness planning writes");
+    return;
+  }
+  if (consent.scopes.includes("worldsmith:sessions:write") && body.allow_sessions_write !== "yes") {
+    oauthError(res, 400, "access_denied", "Explicit separate consent is required for session report writes");
     return;
   }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, consent.userId)).limit(1);

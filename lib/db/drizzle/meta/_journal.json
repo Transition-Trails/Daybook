@@ -470,6 +470,13 @@
       "when": 1789866000000,
       "tag": "0066_canon_vocabulary_record_type",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1790672400000,
+      "tag": "0067_worldsmith_session_reports",
+      "breakpoints": true
     }
   ]
 }

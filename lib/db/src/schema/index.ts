@@ -26,3 +26,4 @@ export * from "./ai";
 export * from "../catalog-constants";
 export * from "./mcp-oauth";
 export * from "./worldsmith-readiness-planning";
+export * from "./worldsmith-session-reports";

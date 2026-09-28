@@ -292,6 +292,7 @@ export function AdminLayout({ children, role, storeRole, store, allStores = [], 
           items: [
             { label: "All studios", href: "/super/studios", icon: Sparkles },
             { label: "WorldSmith Studio", href: "/super/worldsmith", icon: BookOpen },
+            { label: "Session reports", href: "/super/worldsmith/session-reports", icon: ClipboardList },
           ],
         },
         {

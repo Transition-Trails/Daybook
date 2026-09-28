@@ -305,6 +305,7 @@ describe("MCP OAuth authorization server", () => {
       "worldsmith:production:write",
       "worldsmith:readiness:read",
       "worldsmith:readiness:write",
+      "worldsmith:sessions:write",
     ];
     expect(authorizationMetadata.body.scopes_supported).toEqual(allScopes);
     expect(scoped.body.scopes_supported).toEqual(allScopes);
@@ -376,6 +377,33 @@ describe("MCP OAuth authorization server", () => {
     }).expect(302);
     expect(new URL(approval.headers.location).searchParams.get("state")).toBe("write-state");
     expect(mocks.data.codes[0].scopes).toEqual(["worldsmith:canon:read", "worldsmith:canon:write"]);
+  });
+
+  it("requires a separate approval before a client may save working-session reports", async () => {
+    const authorize = () => request(app).get("/mcp/oauth/authorize").query({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      state: "session-report-state",
+      code_challenge: challenge(),
+      code_challenge_method: "S256",
+      resource: getMcpResource(),
+      scope: "worldsmith:canon:read worldsmith:sessions:write",
+    });
+    const consent = await authorize().expect(200);
+    expect(consent.text).toContain('name="allow_sessions_write"');
+    expect(consent.text).toContain("No transcript is captured automatically");
+    const csrf = consent.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: csrf, consent: "approve",
+    }).expect(400);
+    expect(mocks.data.codes).toHaveLength(0);
+    const retry = await authorize().expect(200);
+    const retryCsrf = retry.text.match(/name="csrf_token" value="([^"]+)"/)?.[1];
+    await request(app).post("/mcp/oauth/authorize").type("form").send({
+      csrf_token: retryCsrf, consent: "approve", allow_sessions_write: "yes",
+    }).expect(302);
+    expect(mocks.data.codes[0].scopes).toEqual(["worldsmith:canon:read", "worldsmith:sessions:write"]);
   });
 
   it("describes WorldSmith editorial scopes and separately requires consent for each write domain", async () => {

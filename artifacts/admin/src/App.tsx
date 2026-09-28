@@ -133,6 +133,7 @@ import SuperSupportPatterns from "@/pages/super/SupportPatterns";
 import PromoteCatalog from "@/pages/super/PromoteCatalog";
 import WorldSmithCompiler from "@/pages/super/WorldSmithCompiler";
 import WorldSmithHome from "@/pages/super/WorldSmithHome";
+import WorldSmithSessionReports from "@/pages/super/WorldSmithSessionReports";
 import {
   EditorialShell,
   ReadinessBoard,
@@ -337,6 +338,9 @@ function RootRouter() {
       {/* ── WorldSmith production home (promoted from concept review) ──── */}
       <Route path="/super/worldsmith">
         <RequireSuperAdmin state={state}><WorldSmithHome /></RequireSuperAdmin>
+      </Route>
+      <Route path="/super/worldsmith/session-reports">
+        <RequireSuperAdmin state={state}><SuperAdminShell><WorldSmithSessionReports /></SuperAdminShell></RequireSuperAdmin>
       </Route>
       {/* ── WorldSmith Prompt Compiler (accessible from home) ────────────── */}
       <Route path="/super/worldsmith/compiler">

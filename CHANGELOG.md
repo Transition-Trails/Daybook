@@ -2,6 +2,16 @@
 
 All notable changes to Daybook are documented in this file.
 
+## 2026-09-28 — WorldSmith MCP session reports
+
+### Added
+
+- MCP clients can submit bounded, structured working-session summaries with a
+  separately consented report-writing scope. Submissions are idempotent per
+  user, client, and session key; no chat transcript is captured automatically.
+- Super admins can browse and read saved reports in WorldSmith Studio. Reports
+  include the submitting account, MCP client, timestamp, and optional world.
+
 ## 2026-09-18 — WorldSmith editorial workflow
 
 ### Added

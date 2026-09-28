@@ -100,6 +100,20 @@ worked on before they are published to Notion:
 The legacy Notion resolver remains in place during this transition, so existing
 published WorldSmith records continue to compile and preview normally.
 
+### MCP session reports
+
+The Folio & Realm MCP exposes `save_session_report` to clients that explicitly
+request and receive `worldsmith:sessions:write` alongside Canon or editorial
+read access. The client calls it after a working session with a unique
+`session_key`, a title and summary, and optional lists for work done, decisions,
+open questions, and next steps. An optional `world_id` associates a report with
+one existing world; omit it for cross-world sessions. Reusing the same key with
+the same content returns the original report; changing its content is rejected.
+Reports are client-authored summaries, not chat transcripts or verified edit
+history. Super admins can review them under **WorldSmith Studio → Session
+reports**. Existing MCP grants do not acquire report-writing permission
+automatically; the client must request fresh consent for the new scope.
+
 ### WorldSmith image generation
 
 WorldSmith uses GPT Image 2 through the Replit AI proxy by default
